@@ -345,4 +345,18 @@ class ConfigurationOverviewBuilderTest {
         .doesNotContain("blocks:")
         .doesNotContain(";");
   }
+
+  @Test
+  void setRocksDbMaxOpenFilesDerived() {
+    builder.setRocksDbMaxOpenFiles(4096, true);
+    final String overview = builder.build();
+    assertThat(overview).contains("RocksDB max open files: 4096 (derived)");
+  }
+
+  @Test
+  void setRocksDbMaxOpenFilesSet() {
+    builder.setRocksDbMaxOpenFiles(2048, false);
+    final String overview = builder.build();
+    assertThat(overview).contains("RocksDB max open files: 2048 (set)");
+  }
 }

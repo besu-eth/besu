@@ -100,6 +100,26 @@ public class RocksDBCLIOptionsTest {
     assertThat(configuration.getCacheCapacity()).isEqualTo(DEFAULT_CACHE_CAPACITY);
     assertThat(configuration.getMaxOpenFiles()).isEqualTo(expectedMaxOpenFiles);
     assertThat(configuration.isHighSpec()).isEqualTo(DEFAULT_IS_HIGH_SPEC);
+    assertThat(options.getResolvedMaxOpenFiles()).isEqualTo(expectedMaxOpenFiles);
+    assertThat(options.isMaxOpenFilesExplicitlySet()).isTrue();
+  }
+
+  @Test
+  public void derivedMaxOpenFilesIsNotExplicitlySet() {
+    final RocksDBCLIOptions options = toOptionsWithAvailableMemory(8L * GIB);
+
+    assertThat(options.getResolvedMaxOpenFiles()).isEqualTo(MAX_OPEN_FILES_8GB);
+    assertThat(options.isMaxOpenFilesExplicitlySet()).isFalse();
+  }
+
+  @Test
+  public void resolvedMaxOpenFilesIsCachedAcrossCalls() {
+    final RocksDBCLIOptions options = toOptionsWithAvailableMemory(8L * GIB);
+
+    final int resolvedForDisplay = options.getResolvedMaxOpenFiles();
+    final int resolvedForRocksDb = options.toDomainObject().getMaxOpenFiles();
+
+    assertThat(resolvedForDisplay).isEqualTo(resolvedForRocksDb);
   }
 
   @Test
@@ -126,6 +146,11 @@ public class RocksDBCLIOptionsTest {
 
   private static RocksDBFactoryConfiguration toDomainObjectWithAvailableMemory(
       final long freeMemoryBytes, final String... cliArgs) {
+    return toOptionsWithAvailableMemory(freeMemoryBytes, cliArgs).toDomainObject();
+  }
+
+  private static RocksDBCLIOptions toOptionsWithAvailableMemory(
+      final long freeMemoryBytes, final String... cliArgs) {
     try (MockedStatic<ManagementFactory> managementFactory = mockStatic(ManagementFactory.class)) {
       final OperatingSystemMXBean osBean = mock(OperatingSystemMXBean.class);
       when(osBean.getFreeMemorySize()).thenReturn(freeMemoryBytes);
@@ -133,7 +158,7 @@ public class RocksDBCLIOptionsTest {
 
       final RocksDBCLIOptions options = RocksDBCLIOptions.create();
       new CommandLine(options).parseArgs(cliArgs);
-      return options.toDomainObject();
+      return options;
     }
   }
 

@@ -2973,7 +2973,9 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         .setEvmV2(unstableEvmOptions.toDomainObject().enableEvmV2())
         .setPluginContext(this.besuPluginContext)
         .setHistoryExpiryPruneEnabled(getDataStorageConfiguration().getHistoryExpiryPruneEnabled())
-        .setBlobDBSettings(rocksDBPlugin.getBlobDBSettings());
+        .setBlobDBSettings(rocksDBPlugin.getBlobDBSettings())
+        .setRocksDbMaxOpenFiles(
+            rocksDBPlugin.getResolvedMaxOpenFiles(), !rocksDBPlugin.isMaxOpenFilesExplicitlySet());
 
     return builder.build();
   }
