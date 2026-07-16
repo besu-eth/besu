@@ -20,6 +20,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.core.MutableWorldState;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.BlockProcessingExecutors;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiAccount;
@@ -127,21 +128,32 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
           storageFutures.put(
               address,
               CompletableFuture.supplyAsync(
-                  () -> updateStorageTrie(address, storageAccountUpdate.getValue())));
+                  () -> updateStorageTrie(address, storageAccountUpdate.getValue()),
+                  BlockProcessingExecutors.ioExecutor()));
         }
       }
 
-      // Step 2: stage account trie updates via putDeferred; join storage futures inside the
-      // callback.
+      // Step 2: remove deleted accounts directly; defer updates to join storage futures inline.
       for (final Map.Entry<Address, PathBasedValue<BonsaiAccount>> accountUpdate :
           worldStateUpdater.getAccountsToUpdate().entrySet()) {
         final Address address = accountUpdate.getKey();
         final PathBasedValue<BonsaiAccount> accountValue = accountUpdate.getValue();
         final Hash addressHash = addressHasher.apply(bonsai, address);
         try {
-          accountTrie.putDeferred(
-              addressHash.getBytes(),
-              maybeRlp -> resolveAccount(address, addressHash, accountValue, maybeRlp));
+          if (accountValue.getUpdated() == null) {
+            final CompletableFuture<Hash> storageFuture = storageFutures.get(address);
+            if (storageFuture != null) {
+              storageFuture.join();
+            }
+            if (!storageFrozen) {
+              writes.add(updater -> updater.removeAccountInfoState(addressHash));
+            }
+            accountTrie.remove(addressHash.getBytes());
+          } else {
+            accountTrie.putDeferred(
+                addressHash.getBytes(),
+                ignored -> resolveUpdatedAccount(address, addressHash, accountValue));
+          }
         } catch (MerkleTrieException e) {
           throw new MerkleTrieException(
               e.getMessage(), Optional.of(address), e.getHash(), e.getLocation());
@@ -157,25 +169,12 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
       return Hash.wrap(accountTrie.getRootHash());
     }
 
-    @SuppressWarnings("UnusedVariable")
-    private Optional<Bytes> resolveAccount(
+    private Optional<Bytes> resolveUpdatedAccount(
         final Address address,
         final Hash addressHash,
-        final PathBasedValue<BonsaiAccount> accountValue,
-        final Optional<Bytes> maybeRlp) {
+        final PathBasedValue<BonsaiAccount> accountValue) {
       final BonsaiAccount updatedAccount = accountValue.getUpdated();
       final CompletableFuture<Hash> storageFuture = storageFutures.get(address);
-      if (updatedAccount == null) {
-        if (storageFuture != null) {
-          storageFuture.join();
-        }
-        if (!storageFrozen) {
-          writes.add(updater -> updater.removeAccountInfoState(addressHash));
-        }
-        // DeferredPutVisitor removes the account leaf when the merger returns empty.
-        return Optional.empty();
-      }
-
       if (storageFuture != null) {
         final Hash newStorageRoot = storageFuture.join();
         if (!bonsai.isTrieDisabled()) {
@@ -193,6 +192,13 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
     private Hash updateStorageTrie(
         final Address updatedAddress,
         final StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>> storageUpdates) {
+
+      final boolean accountDeleted =
+          worldStateUpdater.getAccountsToUpdate().get(updatedAddress).getUpdated() == null;
+      if (storageFrozen && accountDeleted) {
+        return Hash.EMPTY_TRIE_HASH;
+      }
+
       final Hash updatedAddressHash = updatedAddress.addressHash();
       final BonsaiAccount accountOriginal =
           worldStateUpdater.getAccountsToUpdate().get(updatedAddress).getPrior();
@@ -232,10 +238,7 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
         }
       }
 
-      final boolean accountDeleted =
-          worldStateUpdater.getAccountsToUpdate().get(updatedAddress).getUpdated() == null;
-
-      if (!storageFrozen && !accountDeleted) {
+      if (!storageFrozen) {
         storageTrie.commit(
             (location, nodeHash, value) ->
                 writes.add(
@@ -243,7 +246,7 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
                         u.putAccountStorageTrieNode(
                             updatedAddressHash, location, nodeHash, value)));
       }
-      return accountDeleted ? Hash.EMPTY_TRIE_HASH : Hash.wrap(storageTrie.getRootHash());
+      return Hash.wrap(storageTrie.getRootHash());
     }
 
     private void clearStorage() {

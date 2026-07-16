@@ -64,29 +64,16 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
    */
   protected static final ForkJoinPool FORK_JOIN_POOL = new ForkJoinPool(NCPU * 2);
 
-  /** Pending updates accumulated between commits */
-  private final Map<K, Optional<V>> pendingUpdates = new ConcurrentHashMap<>();
-
-  /**
-   * Pending deferred operations: each entry carries a function that is called with the existing
-   * leaf value (or {@link Optional#empty()} if absent) during the commit traversal, returning the
-   * new value or empty to remove the key.
-   */
-  private final Map<K, UnaryOperator<Optional<V>>> pendingDeferredUpdates =
-      new ConcurrentHashMap<>();
+  /** Pending updates accumulated between commits. */
+  private final Map<K, PendingUpdate<V>> pendingUpdates = new ConcurrentHashMap<>();
 
   protected boolean hasPendingUpdates() {
-    return !pendingUpdates.isEmpty() || !pendingDeferredUpdates.isEmpty();
+    return !pendingUpdates.isEmpty();
   }
 
   /**
    * Stages a deferred operation for the given key. The function is called with the existing value
-   * at that key during the next {@link #commit} or {@link #getRootHash} traversal:
-   *
-   * <ul>
-   *   <li>If the function returns present, the key is updated to that value.
-   *   <li>If the function returns empty, the key is removed.
-   * </ul>
+   * at that key during the next {@link #commit} or {@link #getRootHash} traversal.
    *
    * <p>Unlike {@link #put}, no pre-computed value is required: the trie reads the existing leaf
    * inline during the write traversal, enabling a single-pass read-modify-write.
@@ -96,7 +83,7 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
    */
   @Override
   public void putDeferred(final K key, final UnaryOperator<Optional<V>> merger) {
-    pendingDeferredUpdates.put(key, merger);
+    pendingUpdates.put(key, new Merge<>(merger));
   }
 
   /**
@@ -167,7 +154,7 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
    */
   @Override
   public void put(final K key, final V value) {
-    pendingUpdates.put(key, Optional.of(value));
+    pendingUpdates.put(key, new Direct<>(Optional.of(value)));
   }
 
   /**
@@ -178,7 +165,7 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
    */
   @Override
   public void remove(final K key) {
-    pendingUpdates.put(key, Optional.empty());
+    pendingUpdates.put(key, new Direct<>(Optional.empty()));
   }
 
   /**
@@ -200,7 +187,7 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
    */
   @Override
   public Bytes32 getRootHash() {
-    if (pendingUpdates.isEmpty() && pendingDeferredUpdates.isEmpty()) {
+    if (pendingUpdates.isEmpty()) {
       return root.getHash();
     }
     processPendingUpdates(Optional.empty());
@@ -214,7 +201,7 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
    * @param maybeNodeUpdater optional node updater for persisting changes
    */
   private void processPendingUpdates(final Optional<NodeUpdater> maybeNodeUpdater) {
-    if (pendingUpdates.isEmpty() && pendingDeferredUpdates.isEmpty()) {
+    if (pendingUpdates.isEmpty()) {
       return;
     }
 
@@ -222,12 +209,8 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
       // Ensure root is fully loaded (not a lazy StoredNode reference)
       this.root = loadNode(root);
 
-      // Convert pending puts/removes and deferred operations to UpdateEntry objects with nibble
-      // paths
       final List<UpdateEntry<V>> entries = new ArrayList<>();
-      pendingUpdates.forEach((k, v) -> entries.add(new UpdateEntry<>(bytesToPath(k), v, null)));
-      pendingDeferredUpdates.forEach(
-          (k, merger) -> entries.add(new UpdateEntry<>(bytesToPath(k), Optional.empty(), merger)));
+      pendingUpdates.forEach((k, update) -> entries.add(update.toEntry(bytesToPath(k))));
 
       final CommitCache commitCache = new CommitCache();
       final boolean shouldCommit = maybeNodeUpdater.isPresent();
@@ -250,9 +233,7 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
       }
 
     } finally {
-      // Always clear pending updates after processing
       pendingUpdates.clear();
-      pendingDeferredUpdates.clear();
     }
   }
 
@@ -707,6 +688,34 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
   }
 
   /**
+   * A staged update: either a direct put/remove ({@link Direct}) or a read-modify-write deferred
+   * operation ({@link Merge}).
+   */
+  private sealed interface PendingUpdate<V> permits Direct, Merge {
+
+    UpdateEntry<V> toEntry(Bytes path);
+  }
+
+  /** A staged put (present value) or remove (empty value). */
+  private record Direct<V>(Optional<V> value) implements PendingUpdate<V> {
+    @Override
+    public UpdateEntry<V> toEntry(final Bytes path) {
+      return new UpdateEntry<>(path, value, null);
+    }
+  }
+
+  /**
+   * A staged deferred operation: {@code merger} is called with the existing leaf value during the
+   * commit traversal.
+   */
+  private record Merge<V>(Function<Optional<V>, Optional<V>> merger) implements PendingUpdate<V> {
+    @Override
+    public UpdateEntry<V> toEntry(final Bytes path) {
+      return new UpdateEntry<>(path, Optional.empty(), merger);
+    }
+  }
+
+  /**
    * Represents a single update operation: a plain put/remove ({@code merger == null}) or a
    * read-modify-write deferred operation ({@code merger != null}).
    *
@@ -715,7 +724,8 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
    * @param merger non-null for deferred entries; called with the existing leaf value during
    *     traversal
    */
-  private record UpdateEntry<V>(Bytes path, Optional<V> value, UnaryOperator<Optional<V>> merger) {
+  private record UpdateEntry<V>(
+      Bytes path, Optional<V> value, Function<Optional<V>, Optional<V>> merger) {
     boolean isMerge() {
       return merger != null;
     }
