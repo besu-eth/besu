@@ -14,66 +14,30 @@
  */
 package org.hyperledger.besu.ethereum.mainnet.staterootcommitter;
 
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.MutableWorldState;
+import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.metrics.OperationTimer;
-import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
-
-import java.util.function.Supplier;
 
 /**
- * Strategy for computing the state root hash during block persistence.
+ * Computes the state root when a block's world state is persisted.
  *
- * <p>The caller provides a {@code stateRootSupplier} that encapsulates the standard (synchronous)
- * trie computation. Implementations may:
- *
- * <ul>
- *   <li>Simply invoke the supplier (sync mode)
- *   <li>Ignore it and return a pre-computed root (BAL trusted mode)
- *   <li>Invoke it, then cross-check against an independently computed root (BAL verification mode)
- * </ul>
+ * <p>Implementations: {@link BalStateRootCommitter}, {@link DefaultStateRootCommitter}, {@link
+ * ForestStateRootCommitter}. Selection in {@link StateRootCommitterFactory#forBlock}.
  */
 public interface StateRootCommitter {
 
-  /** Computes the state root synchronously via the standard trie path. */
-  StateRootCommitter SYNCHRONOUS =
-      (supplier, worldState, stateUpdater, blockHeader) -> supplier.get();
+  StateRootComputation compute(
+      MutableWorldState worldState, BlockHeader blockHeader, WorldUpdater worldUpdater);
 
-  /**
-   * Compute (or retrieve) the state root and apply any additional side-effects.
-   *
-   * @param stateRootSupplier lazily computes the state root via the standard trie path
-   * @param worldState the world state being persisted (used by BAL to import state changes)
-   * @param stateUpdater the storage updater (used by BAL to merge trie nodes)
-   * @param blockHeader the block being persisted
-   * @return the authoritative state root hash
-   */
-  Hash computeRoot(
-      Supplier<Hash> stateRootSupplier,
-      MutableWorldState worldState,
-      WorldStateKeyValueStorage.Updater stateUpdater,
-      BlockHeader blockHeader);
-
+  /** Cancel any background computation started by this committer (no-op by default). */
   default void cancel() {}
 
   default StateRootCommitter timed(final OperationTimer timer) {
     final StateRootCommitter delegate = this;
-    return new StateRootCommitter() {
-      @Override
-      public Hash computeRoot(
-          final Supplier<Hash> stateRootSupplier,
-          final MutableWorldState worldState,
-          final WorldStateKeyValueStorage.Updater stateUpdater,
-          final BlockHeader blockHeader) {
-        try (var ignored = timer.startTimer()) {
-          return delegate.computeRoot(stateRootSupplier, worldState, stateUpdater, blockHeader);
-        }
-      }
-
-      @Override
-      public void cancel() {
-        delegate.cancel();
+    return (worldState, blockHeader, accumulator) -> {
+      try (var ignored = timer.startTimer()) {
+        return delegate.compute(worldState, blockHeader, accumulator);
       }
     };
   }
