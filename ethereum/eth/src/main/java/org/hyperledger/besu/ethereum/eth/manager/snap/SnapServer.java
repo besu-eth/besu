@@ -295,16 +295,18 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
         }
       }
 
-      final long unavailable = blockAccessLists.stream().filter(Optional::isEmpty).count();
-      LOGGER
-          .atDebug()
-          .setMessage(
-              "Served block access lists request: requested={}, returned={}, unavailable={}, took {} ms")
-          .addArgument(requestedCount)
-          .addArgument(blockAccessLists.size() - unavailable)
-          .addArgument(unavailable)
-          .addArgument(stopWatch.getTime())
-          .log();
+      if (LOGGER.isDebugEnabled()) {
+        final long unavailable = blockAccessLists.stream().filter(Optional::isEmpty).count();
+        LOGGER
+            .atDebug()
+            .setMessage(
+                "Served block access lists request: requested={}, returned={}, unavailable={}, took {} ms")
+            .addArgument(requestedCount)
+            .addArgument(blockAccessLists.size() - unavailable)
+            .addArgument(unavailable)
+            .addArgument(stopWatch.getTime())
+            .log();
+      }
       return BlockAccessListsMessage.create(blockAccessLists);
     } catch (final RuntimeException e) {
       LOGGER.error("Unexpected exception serving block access lists request", e);
