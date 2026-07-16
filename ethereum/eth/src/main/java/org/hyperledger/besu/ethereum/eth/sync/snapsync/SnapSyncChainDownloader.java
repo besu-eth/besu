@@ -73,6 +73,7 @@ public class SnapSyncChainDownloader
   public static final int SMALL_DELAY_MILLISECONDS = 100;
   static final int NO_PEER_RETRY_DELAY_MILLISECONDS = 5_000;
   private static final long RETRY_WARN_INTERVAL_MS = 30_000L;
+  private static final long RETRY_MAX_BACKOFF_MS = 30_000L;
 
   private final SnapSyncChainDownloadPipelineFactory pipelineFactory;
   private final ProtocolSchedule protocolSchedule;
@@ -98,6 +99,7 @@ public class SnapSyncChainDownloader
   private final AtomicLong retryFailureCount = new AtomicLong();
   private final AtomicLong lastRetryWarnMillis = new AtomicLong();
   private long lastNoPeerLogMillis;
+  private long retryBackoffMs = SMALL_DELAY_MILLISECONDS;
 
   private volatile Pipeline<?> currentPipeline;
   private volatile ImportHeadersStep currentImportHeadersStep;
@@ -702,13 +704,16 @@ public class SnapSyncChainDownloader
 
     if (shouldRetry(error)) {
       logRetryFailure(error);
-
-      // Schedule next attempt without recursion
-      // Use a small delay to avoid tight retry loops
+      final long delay = retryBackoffMs;
+      retryBackoffMs = Math.min(retryBackoffMs * 2, RETRY_MAX_BACKOFF_MS);
+      LOG.debug(
+          "Chain sync retrying in {}ms (next backoff {}ms, max {}ms)",
+          delay,
+          retryBackoffMs,
+          RETRY_MAX_BACKOFF_MS);
       ethContext
           .getScheduler()
-          .scheduleFutureTask(
-              () -> attemptDownload(overallResult), Duration.ofMillis(SMALL_DELAY_MILLISECONDS));
+          .scheduleFutureTask(() -> attemptDownload(overallResult), Duration.ofMillis(delay));
     } else {
       // Non-retryable error - fail (metrics will be stopped by outer handler)
       failSnapV2PivotCatchupIfNeeded(error);
@@ -748,6 +753,7 @@ public class SnapSyncChainDownloader
   private void resetRetryFailureTracking() {
     retryFailureCount.set(0);
     lastRetryWarnMillis.set(0);
+    retryBackoffMs = SMALL_DELAY_MILLISECONDS;
   }
 
   private void logNoPeersWaiting() {
