@@ -864,9 +864,8 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
         && isArchiveProofRoll()
         && expectedValue != null
         && !expectedValue.isZero()) {
-      // Archive proof roll: at first touch expectedValue is the checkpoint slot value, so seed prior
-      // from the trie log instead of a flat-DB read. A zero/absent expectedValue falls through to
-      // the create path below, which needs no read either.
+      // Archive proof roll: at first touch a non-zero expectedValue is the checkpoint slot value, so
+      // seed prior from the trie log instead of a flat-DB read.
       slotValue = new PathBasedValue<>(expectedValue, expectedValue);
       storageToUpdate
           .computeIfAbsent(
@@ -874,7 +873,11 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
               k -> new StorageConsumingMap<>(address, new ConcurrentHashMap<>(), storagePreloader))
           .put(storageSlotKey, slotValue);
     }
-    if (slotValue == null) {
+    // Skip the flat-DB read entirely during an archive proof roll: a zero/absent expectedValue means
+    // the slot did not exist at the checkpoint, so it falls through to the create path below with no
+    // read. Reading (often for a not-yet-existent slot in a growing contract) is what dominated
+    // storage-proof latency.
+    if (slotValue == null && !isArchiveProofRoll()) {
       final Optional<UInt256> storageValue =
           wrappedWorldView().getStorageValueByStorageSlotKey(address, storageSlotKey);
       if (storageValue.isPresent()) {
