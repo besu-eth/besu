@@ -1290,12 +1290,24 @@ public abstract class MainnetProtocolSpecs {
             .blockGasUsedValidator(BlockGasUsedValidator.AMSTERDAM)
             .hardforkId(AMSTERDAM);
 
-    // EIP-8282: add the builder deposit (0x03) and builder exit (0x04) execution requests on top of
-    // the inherited Prague request processors. Skipped for PoA chains without system contracts.
-    if (!(isPoAConsensus(genesisConfigOptions)
-        && !hasSystemContractAddresses(genesisConfigOptions))) {
-      amsterdamSpecBuilder.requestProcessorCoordinator(
-          amsterdamRequestsProcessors(RequestContractAddresses.fromGenesis(genesisConfigOptions)));
+    // EIP-8282 introduces the builder deposit (0x03) and builder exit (0x04) system-contract
+    // requests. PoA dev/test chains without system contract addresses cannot run the system calls,
+    // so they keep the no-op coordinator inherited from Prague; every other chain replaces the
+    // inherited Prague coordinator with the Amsterdam one that also collects the builder requests.
+    if (isPoAConsensus(genesisConfigOptions) && !hasSystemContractAddresses(genesisConfigOptions)) {
+      LOG.warn(
+          "Skipping system contract request processors for PoA consensus (clique/ibft/qbft) without system contract addresses.");
+    } else {
+      try {
+        amsterdamSpecBuilder.requestProcessorCoordinator(
+            amsterdamRequestsProcessors(
+                RequestContractAddresses.fromGenesis(genesisConfigOptions)));
+      } catch (NoSuchElementException nsee) {
+        // Surface the missing-address cause explicitly: without it the bare NoSuchElementException
+        // gives no hint that the genesis file is what needs the system contract addresses.
+        LOG.warn("Amsterdam definitions require system contract addresses in genesis");
+        throw nsee;
+      }
     }
 
     return amsterdamSpecBuilder;
