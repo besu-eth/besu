@@ -19,16 +19,17 @@ import java.util.Map.Entry;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiConsumer;
 
 import org.apache.tuweni.bytes.Bytes32;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Tracks which account-hash intervals have been fully downloaded (account leaves + all storage and
- * code for accounts within those intervals). Intervals are identified by a {@code rangeStart}
- * (Bytes32 start hash). An interval moves from pending to completed when all storage and code child
- * requests spawned from accounts in that interval have finished.
+ * Tracks account-hash intervals registered during snap sync. An interval starts in a "pending"
+ * state once its account leaves are persisted, and transitions to "completed" when all storage and
+ * code child requests for accounts in that interval have finished. Intervals are identified by a
+ * {@code rangeStart} (Bytes32 start hash).
  */
 public class DownloadedAccountRangeTracker {
 
@@ -38,6 +39,7 @@ public class DownloadedAccountRangeTracker {
       new ConcurrentSkipListMap<>();
   private final ConcurrentSkipListMap<Bytes32, Bytes32> completedRanges =
       new ConcurrentSkipListMap<>();
+  private BiConsumer<Bytes32, Bytes32> onRangeCompleted = (rangeStart, rangeEnd) -> {};
 
   private static class PendingRange {
     volatile Bytes32 endInclusive;
@@ -51,8 +53,8 @@ public class DownloadedAccountRangeTracker {
 
   /**
    * Register an account-hash interval whose account leaves have been downloaded and persisted. The
-   * interval becomes "completed" (BAL-eligible) only after {@code initialChildCount} child storage
-   * and code requests have finished.
+   * interval becomes completed only after {@code initialChildCount} child storage and code requests
+   * have finished.
    *
    * @param rangeStart the start of the interval (inclusive)
    * @param rangeEnd the end of the interval (inclusive)
@@ -67,6 +69,7 @@ public class DownloadedAccountRangeTracker {
     assertNoOverlap(rangeStart, rangeEnd);
     if (initialChildCount == 0) {
       completedRanges.put(rangeStart, rangeEnd);
+      onRangeCompleted.accept(rangeStart, rangeEnd);
       LOG.atDebug()
           .setMessage("Account range completed immediately: [{},{}] (no children)")
           .addArgument(rangeStart)
@@ -108,6 +111,7 @@ public class DownloadedAccountRangeTracker {
     if (remaining == 0) {
       pendingRanges.remove(rangeStart);
       completedRanges.put(rangeStart, range.endInclusive);
+      onRangeCompleted.accept(rangeStart, range.endInclusive);
       LOG.atDebug()
           .setMessage("Account range completed (delta {}): [{},{}]")
           .addArgument(delta)
@@ -127,9 +131,8 @@ public class DownloadedAccountRangeTracker {
   }
 
   /**
-   * Check whether an account hash falls within any completed interval. Used for selective BAL
-   * application: only accounts whose hash is in a completed interval have fully-downloaded state
-   * and can be updated by BAL.
+   * Check whether an account hash falls within any fully completed interval. The account has no
+   * outstanding child requests.
    */
   public boolean isAccountHashDownloaded(final Bytes32 accountHash) {
     final Entry<Bytes32, Bytes32> entry = completedRanges.floorEntry(accountHash);
@@ -145,6 +148,14 @@ public class DownloadedAccountRangeTracker {
     return entry != null && accountHash.compareTo(entry.getValue().endInclusive) <= 0;
   }
 
+  /**
+   * Check whether an account has been persisted. This is the condition for including an account in
+   * BAL application.
+   */
+  public boolean isAccountHashPersisted(final Bytes32 accountHash) {
+    return isAccountHashDownloaded(accountHash) || isAccountHashPending(accountHash);
+  }
+
   /** Return an unmodifiable snapshot of completed ranges for external consumers (e.g. BAL). */
   public NavigableMap<Bytes32, Bytes32> getCompletedRanges() {
     return Collections.unmodifiableNavigableMap(new ConcurrentSkipListMap<>(completedRanges));
@@ -156,6 +167,11 @@ public class DownloadedAccountRangeTracker {
 
   public long completedRangeCount() {
     return completedRanges.size();
+  }
+
+  /** Register a callback invoked when a range is promoted from pending to completed. */
+  public void setOnRangeCompleted(final BiConsumer<Bytes32, Bytes32> callback) {
+    this.onRangeCompleted = callback;
   }
 
   /** Clear all tracked state. */

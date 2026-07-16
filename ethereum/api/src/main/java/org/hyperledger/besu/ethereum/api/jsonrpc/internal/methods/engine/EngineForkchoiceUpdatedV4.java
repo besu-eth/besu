@@ -74,6 +74,10 @@ public class EngineForkchoiceUpdatedV4 extends AbstractEngineForkchoiceUpdatedV4
         return ValidationResult.invalid(
             RpcErrorType.INVALID_SLOT_NUMBER_PARAMS, "Missing slot number field");
       }
+      if (maybePayloadAttributes.get().getTargetGasLimit() == null) {
+        return ValidationResult.invalid(
+            RpcErrorType.INVALID_TARGET_GAS_LIMIT_PARAMS, "Missing target gas limit field");
+      }
     }
     return ValidationResult.valid();
   }
@@ -97,6 +101,12 @@ public class EngineForkchoiceUpdatedV4 extends AbstractEngineForkchoiceUpdatedV4
       LOG.error("Slot number not present in payload attributes after Amsterdam hardfork");
       return Optional.of(
           new JsonRpcErrorResponse(requestId, RpcErrorType.INVALID_SLOT_NUMBER_PARAMS));
+    }
+
+    if (payloadAttributes.getTargetGasLimit() == null) {
+      LOG.error("Target gas limit not present in payload attributes after Amsterdam hardfork");
+      return Optional.of(
+          new JsonRpcErrorResponse(requestId, RpcErrorType.INVALID_TARGET_GAS_LIMIT_PARAMS));
     }
 
     if (payloadAttributes.getTimestamp() == 0) {

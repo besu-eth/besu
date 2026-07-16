@@ -84,6 +84,7 @@ def extractStableFixtures = tasks.register("extractStableFixtures", Sync) {
     tarTree(configurations.tarConfig.files.find { it.name.startsWith('execution-spec-tests') })
   }
   into layout.buildDirectory.dir("execution-spec-tests")
+  finalizedBy("cleanReferenceTestCache")
 }
 
 def executionSpecTests = tasks.register("executionSpecTests") {
@@ -124,9 +125,34 @@ def executionSpecTests = tasks.register("executionSpecTests") {
 
 def extractDevnetFixtures = tasks.register("extractDevnetFixtures", Sync) {
   from {
-    tarTree(configurations.devnetTarConfig.files.find { it.name.startsWith('execution-spec-tests') })
+    tarTree(configurations.devnetTarConfig.files.find { it.name.startsWith('execution-specs') })
   }
   into layout.buildDirectory.dir("execution-spec-devnet-tests")
+  finalizedBy("cleanReferenceTestCache")
+}
+
+// Removes stale execution-spec(-tests) tarballs from the Gradle dependency cache,
+// keeping only the version currently declared in this build.
+tasks.register("cleanReferenceTestCache") {
+  description = "Deletes cached execution-spec(-tests) tarballs other than the currently declared versions."
+  doLast {
+    [
+      configurations.tarConfig,
+      configurations.devnetTarConfig
+    ].each { config ->
+      def currentFile = config.files.find { it.name.endsWith('.tar.gz') }
+      if (currentFile == null) return
+        // Cache layout: <module>/<version>/<hash>/<file>.tar.gz
+        def versionDir = currentFile.parentFile.parentFile
+      def moduleDir = versionDir.parentFile
+      moduleDir.listFiles()?.each { sibling ->
+        if (sibling.isDirectory() && sibling.name != versionDir.name) {
+          logger.lifecycle("Deleting stale fixture cache: ${sibling}")
+          delete sibling
+        }
+      }
+    }
+  }
 }
 
 def executionSpecDevnetTests = tasks.register("executionSpecDevnetTests") {
@@ -319,8 +345,8 @@ dependencies {
     version: 'v5.4.0', classifier: 'fixtures_develop', ext: 'tar.gz'
     )
   devnetTarConfig(
-    group: 'ethereum', name: 'execution-spec-tests',
-    version: 'bal@v5.6.1', classifier: 'fixtures_bal', ext: 'tar.gz'
+    group: 'ethereum', name: 'execution-specs',
+    version: 'tests-bal@v7.3.1', classifier: 'fixtures_bal', ext: 'tar.gz'
     )
   referenceTestImplementation 'com.fasterxml.jackson.core:jackson-databind'
   referenceTestImplementation 'com.google.guava:guava'

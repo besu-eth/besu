@@ -1,29 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
 name: integration-tests
-on:
-  workflow_dispatch:
-  merge_group:
-  pull_request:
-    branches:
-      - main
-      - release-*
-      - verkle
-      - performance
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+on:
+  workflow_call:
 
 env:
   GRADLE_OPTS: "-Xmx6g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=true -Dorg.gradle.caching=true"
 
+permissions:
+  actions: read
+  contents: read
+
 jobs:
-  integration-tests:
-    name: "integration-passed"
+  integrationTests:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       statuses: write
       checks: write
+      contents: read
     steps:
       - name: Checkout Repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -34,11 +29,27 @@ jobs:
         with:
           distribution: temurin
           java-version: 25
-      - name: setup gradle
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
         with:
           cache-disabled: true
-      - name: run integration tests
+      - name: Run integration tests and compile JMH benchmarks
         run: ./gradlew integrationTest compileJmh
 
-
+  integrationTestsPassed:
+    name: integrationTestsPassed
+    runs-on: ubuntu-latest
+    needs: [integrationTests]
+    permissions:
+      checks: write
+      statuses: write
+    if: always()
+    steps:
+      - name: Fail on workflow error
+        run: exit 1
+        if: >-
+          ${{
+            contains(needs.*.result, 'failure')
+            || contains(needs.*.result, 'cancelled')
+            || contains(needs.*.result, 'skipped')
+          }}

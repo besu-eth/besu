@@ -1,28 +1,19 @@
 name: acceptance-tests
-on:
-  workflow_dispatch:
-  merge_group:
-  pull_request:
-    branches:
-      - main
-      - release-*
-      - verkle
-      - performance
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+on:
+  workflow_call:
 
 env:
   GRADLE_OPTS: "-Xmx1g"
   total-runners: 14
 
 jobs:
-  acceptanceTestEthereum:
+  acceptanceTests:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     name: "Acceptance Runner"
     permissions:
+      contents: read
       statuses: write
       checks: write
     strategy:
@@ -39,6 +30,10 @@ jobs:
         with:
           distribution: temurin
           java-version: 25
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
+        with:
+          cache-disabled: true
       - name: Install required packages
         run:  sudo apt-get install -y xmlstarlet
       - name: setup gradle
@@ -49,17 +44,20 @@ jobs:
         run: ./gradlew acceptanceTest --test-dry-run -Dorg.gradle.parallel=true -Dorg.gradle.caching=true
       - name: Extract current test list
         run: mkdir tmp; find . -type f -name TEST-*.xml | xargs -I{} bash -c "xmlstarlet sel -t -v '/testsuite/testcase[1]/@classname' '{}'; echo ' acceptanceTest'" | tee tmp/currentTests.list
+      # Downloads the timing baseline produced by update-acceptance-tests-timing-reports.yml on the last merge to main.
+      # `splitTestsByTime.sh` uses the per-test durations in  these XMLs to distribute tests across parallel runners by historical wall-clock time rather than a naive split.
+      # If the artifact is missing # (e.g. first run), splitting falls back to round-robin for all tests.
       - name: Get acceptance test reports
         uses: dawidd6/action-download-artifact@e7466d1a7587ed14867642c2ca74b5bcc1e19a2d
         continue-on-error: true
         with:
           branch: main
-          workflow: update-test-reports.yml
-          name: acceptance-test-results
+          workflow: acceptance-tests-timing-reports-update.yml
+          name: acceptance-tests-timing-reports
           path: tmp/junit-xml-reports-downloaded
           if_no_artifact_found: ignore
       - name: Split tests
-        run: .github/workflows/splitTestsByTime.sh tmp/junit-xml-reports-downloaded "tmp/junit-xml-reports-downloaded/acceptance-node-.*-test-results" "TEST-" ${{env.total-runners}} ${{ matrix.runner_index }} > testList.txt
+        run: .github/scripts/splitTestsByTime.sh tmp/junit-xml-reports-downloaded "tmp/junit-xml-reports-downloaded/acceptance-node-.*-test-results" "TEST-" ${{env.total-runners}} ${{ matrix.runner_index }} > testList.txt
       - name: format gradle args
         # we do not need the module task here
         run:  cat testList.txt | cut -f 2- -d ' ' | tee gradleArgs.txt
@@ -95,10 +93,11 @@ jobs:
         with:
           name: acceptance-node-${{matrix.runner_index}}-test-html-reports
           path: 'acceptance-tests/tests/build/reports/tests/**'
-  accepttests-passed:
-    name: "accepttests-passed"
+
+  acceptanceTestsPassed:
+    name: acceptanceTestsPassed
     runs-on: ubuntu-latest
-    needs: [ acceptanceTestEthereum ]
+    needs: [ acceptanceTests ]
     permissions:
       checks: write
       statuses: write

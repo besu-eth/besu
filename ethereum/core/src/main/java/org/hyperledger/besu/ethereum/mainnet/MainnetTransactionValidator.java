@@ -198,7 +198,7 @@ public class MainnetTransactionValidator implements TransactionValidator {
     if (maybeBaseFee.isPresent()) {
       final Wei price = feeMarket.getTransactionPriceCalculator().price(transaction, maybeBaseFee);
       if (!transactionValidationParams.allowUnderpriced()
-          && !transactionValidationParams.isPreserveCallerGasPricing()
+          && !transactionValidationParams.isAllowExceedingBalance()
           && price.compareTo(maybeBaseFee.orElseThrow()) < 0) {
         return ValidationResult.invalid(
             TransactionInvalidReason.GAS_PRICE_BELOW_CURRENT_BASE_FEE,
@@ -252,6 +252,17 @@ public class MainnetTransactionValidator implements TransactionValidator {
         Math.max(
             gasCalculator.transactionIntrinsicGasCost(transaction, baselineGas),
             gasCalculator.transactionFloorCost(transaction));
+
+    // EIP-8037: cap max(intrinsic_regular, calldata_floor) rather than tx.gas itself.
+    final long intrinsicGasLimitCap = gasLimitCalculator.transactionIntrinsicGasLimitCap();
+    if (!transactionValidationParams.isAllowExceedingGasLimit()
+        && Long.compareUnsigned(intrinsicGasCostOrFloor, intrinsicGasLimitCap) > 0) {
+      return ValidationResult.invalid(
+          TransactionInvalidReason.INTRINSIC_GAS_EXCEEDS_GAS_LIMIT,
+          String.format(
+              "intrinsic gas cost %s exceeds gas limit %s",
+              intrinsicGasCostOrFloor, intrinsicGasLimitCap));
+    }
 
     if (Long.compareUnsigned(intrinsicGasCostOrFloor, transaction.getGasLimit()) > 0) {
       return ValidationResult.invalid(

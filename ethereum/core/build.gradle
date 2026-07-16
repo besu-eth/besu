@@ -30,7 +30,6 @@ jar {
 
 dependencies {
   api 'org.slf4j:slf4j-api'
-  api 'org.web3j:core'
 
   compileOnly 'org.jspecify:jspecify'
 
@@ -90,6 +89,7 @@ dependencies {
   testImplementation 'org.mockito:mockito-core'
   testImplementation 'org.mockito:mockito-junit-jupiter'
   testImplementation 'org.awaitility:awaitility'
+  testImplementation 'org.web3j:abi'
 
   integrationTestImplementation project(path: ':config', configuration: 'testSupportArtifacts')
   integrationTestImplementation project(':testutil')

@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.common.provider;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 
 import java.util.Objects;
@@ -22,10 +23,12 @@ import java.util.Optional;
 
 /** Parameters for querying the world state. */
 public class WorldStateQueryParams {
+
   private final BlockHeader blockHeader;
   private final boolean shouldWorldStateUpdateHead;
   private final Hash blockHash;
   private final Optional<Hash> stateRoot;
+  private final Optional<BlockAccessListOverlay> blockAccessListOverlay;
 
   /**
    * Private constructor to enforce the use of the Builder.
@@ -37,6 +40,7 @@ public class WorldStateQueryParams {
     this.shouldWorldStateUpdateHead = builder.shouldWorldStateUpdateHead;
     this.blockHash = builder.blockHash;
     this.stateRoot = builder.stateRoot;
+    this.blockAccessListOverlay = builder.blockAccessListOverlay;
   }
 
   /**
@@ -73,6 +77,11 @@ public class WorldStateQueryParams {
    */
   public Optional<Hash> getStateRoot() {
     return stateRoot;
+  }
+
+  /** Optional BAL overlay applied when the queried world state's accumulator is created. */
+  public Optional<BlockAccessListOverlay> getBlockAccessListOverlay() {
+    return blockAccessListOverlay;
   }
 
   /**
@@ -156,12 +165,14 @@ public class WorldStateQueryParams {
     return shouldWorldStateUpdateHead == that.shouldWorldStateUpdateHead
         && Objects.equals(blockHeader, that.blockHeader)
         && Objects.equals(blockHash, that.blockHash)
-        && Objects.equals(stateRoot, that.stateRoot);
+        && Objects.equals(stateRoot, that.stateRoot)
+        && Objects.equals(blockAccessListOverlay, that.blockAccessListOverlay);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(blockHeader, shouldWorldStateUpdateHead, blockHash, stateRoot);
+    return Objects.hash(
+        blockHeader, shouldWorldStateUpdateHead, blockHash, stateRoot, blockAccessListOverlay);
   }
 
   public static class Builder {
@@ -169,6 +180,7 @@ public class WorldStateQueryParams {
     private boolean shouldWorldStateUpdateHead = false;
     private Hash blockHash;
     private Optional<Hash> stateRoot = Optional.empty();
+    private Optional<BlockAccessListOverlay> blockAccessListOverlay = Optional.empty();
 
     private Builder() {}
 
@@ -216,6 +228,17 @@ public class WorldStateQueryParams {
      */
     public Builder withStateRoot(final Hash stateRoot) {
       this.stateRoot = Optional.ofNullable(stateRoot);
+      return this;
+    }
+
+    /**
+     * Applies a BAL overlay when the queried world state's accumulator is created.
+     *
+     * @param blockAccessListOverlay the overlay to configure on the accumulator
+     * @return the builder
+     */
+    public Builder withBalOverlay(final BlockAccessListOverlay blockAccessListOverlay) {
+      this.blockAccessListOverlay = Optional.of(blockAccessListOverlay);
       return this;
     }
 

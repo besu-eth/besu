@@ -104,14 +104,6 @@ public interface SenderBalanceChecker {
 
       final var senderBalance = senderBalancesCache.computeIfAbsent(sender, this::getSenderBalance);
 
-      if (senderBalance.equals(Wei.ZERO)) {
-        LOG.atTrace()
-            .setMessage("Sender has zero balance for transaction {}")
-            .addArgument(pendingTransaction::toTraceLog)
-            .log();
-        return false;
-      }
-
       final var gasCalculator =
           protocolSchedule.getByBlockHeader(blockchain.getChainHeadHeader()).getGasCalculator();
       final var upfrontCost = tx.getUpfrontCost(gasCalculator.blobGasCost(tx.getBlobCount()));
