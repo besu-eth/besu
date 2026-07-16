@@ -38,6 +38,7 @@ import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.services.tasks.InMemoryTasksPriorityQueues;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -53,6 +54,8 @@ import org.slf4j.LoggerFactory;
 public class SnapV2WorldStateDownloader implements WorldStateDownloader {
 
   private static final Logger LOG = LoggerFactory.getLogger(SnapV2WorldStateDownloader.class);
+
+  static final int NO_PEER_RETRY_DELAY_MILLISECONDS = 5_000;
 
   private final long minMillisBeforeStalling;
   private final Clock clock;
@@ -142,6 +145,17 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
             new IllegalStateException(
                 "Cannot run an already running " + this.getClass().getSimpleName()));
         return failed;
+      }
+
+      if (ethContext.getEthPeers().peerCount() == 0) {
+        LOG.debug(
+            "No peers available, deferring snap/2 world state pipeline start for {} ms",
+            NO_PEER_RETRY_DELAY_MILLISECONDS);
+        return ethContext
+            .getScheduler()
+            .scheduleFutureTask(
+                () -> run(fastSyncActions, snapSyncState),
+                Duration.ofMillis(NO_PEER_RETRY_DELAY_MILLISECONDS));
       }
 
       final BlockHeader header = snapSyncState.getPivotBlockHeader().orElseThrow();
