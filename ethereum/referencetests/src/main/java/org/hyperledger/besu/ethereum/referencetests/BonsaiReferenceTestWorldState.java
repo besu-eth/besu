@@ -57,6 +57,8 @@ public class BonsaiReferenceTestWorldState extends BonsaiWorldState
     implements ReferenceTestWorldState {
 
   private static final Logger LOG = LoggerFactory.getLogger(BonsaiReferenceTestWorldState.class);
+  private static final ReferenceTestStateRootCommitter REFERENCE_TEST_STATE_ROOT_COMMITTER =
+      new ReferenceTestStateRootCommitter();
 
   private final BonsaiReferenceTestWorldStateStorage refTestStorage;
   private final BonsaiPreImageProxy preImageProxy;
@@ -116,6 +118,11 @@ public class BonsaiReferenceTestWorldState extends BonsaiWorldState
   @Override
   protected void verifyWorldStateRoot(final Hash calculatedStateRoot, final BlockHeader header) {
     // The test harness validates the root hash, no need to validate in-line for reference test
+  }
+
+  @Override
+  public void persist(final BlockHeader blockHeader) {
+    persist(blockHeader, REFERENCE_TEST_STATE_ROOT_COMMITTER);
   }
 
   @Override
@@ -303,8 +310,7 @@ public class BonsaiReferenceTestWorldState extends BonsaiWorldState
   }
 
   @Override
-  protected Hash hashAndSavePreImage(final Bytes value) {
-    // by default do not save has preImages
+  public Hash hashAndSavePreImage(final Bytes value) {
     return preImageProxy.hashAndSavePreImage(value);
   }
 }

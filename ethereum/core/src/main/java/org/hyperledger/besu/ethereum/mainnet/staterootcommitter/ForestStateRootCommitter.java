@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -14,18 +14,21 @@
  */
 package org.hyperledger.besu.ethereum.mainnet.staterootcommitter;
 
-import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.core.MutableWorldState;
+import org.hyperledger.besu.ethereum.trie.forest.worldview.ForestMutableWorldState;
+import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 
-import java.util.Optional;
+/** Forest archive root from accumulated block updates at persist. */
+public enum ForestStateRootCommitter implements StateRootCommitter {
+  INSTANCE;
 
-public final class DefaultStateRootCommitterFactory implements StateRootCommitterFactory {
   @Override
-  public StateRootCommitter forBlock(
-      final ProtocolContext protocolContext,
+  public StateRootComputation compute(
+      final MutableWorldState worldState,
       final BlockHeader blockHeader,
-      final Optional<BlockAccessList> maybeBal) {
-    return StateRootCommitter.SYNCHRONOUS;
+      final WorldUpdater worldUpdater) {
+    return StateRootComputation.forest(
+        ((ForestMutableWorldState) worldState).applyAndComputeRoot());
   }
 }

@@ -48,6 +48,28 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
       final EvmConfiguration evmConfiguration,
       final Supplier<WorldStateHealer> worldStateHealerSupplier,
       final CodeCache codeCache) {
+    this(
+        worldStateKeyValueStorage,
+        blockchain,
+        pathBasedExtraStorageConfiguration,
+        bonsaiCachedMerkleTrieLoader,
+        pluginContext,
+        evmConfiguration,
+        worldStateHealerSupplier,
+        codeCache,
+        Optional.empty());
+  }
+
+  public BonsaiArchiveWorldStateProvider(
+      final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
+      final Blockchain blockchain,
+      final PathBasedExtraStorageConfiguration pathBasedExtraStorageConfiguration,
+      final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader,
+      final ServiceManager pluginContext,
+      final EvmConfiguration evmConfiguration,
+      final Supplier<WorldStateHealer> worldStateHealerSupplier,
+      final CodeCache codeCache,
+      final Optional<Long> amsterdamMilestone) {
     super(
         worldStateKeyValueStorage,
         blockchain,
@@ -56,7 +78,8 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
         pluginContext,
         evmConfiguration,
         worldStateHealerSupplier,
-        codeCache);
+        codeCache,
+        amsterdamMilestone);
   }
 
   @Override

@@ -21,6 +21,7 @@ import static org.hyperledger.besu.ethereum.trie.pathbased.common.provider.World
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams.withStateRootAndBlockHashAndUpdateNodeHead;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -166,7 +167,7 @@ class BonsaiWorldStateProviderTest {
     bonsaiWorldStateArchive.getWorldState().persist(blockHeader511);
 
     final BonsaiWorldState mockWorldState = createMockWorldState(genesis.getHash());
-    when(cachedWorldStorageManager.getWorldState(genesis.getHash()))
+    when(cachedWorldStorageManager.getWorldState(eq(genesis.getHash())))
         .thenReturn(Optional.of(mockWorldState));
 
     when(trieLogManager.getMaxLayersToLoad()).thenReturn(512L);
