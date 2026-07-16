@@ -96,7 +96,7 @@ public class EngineNewPayloadV4 extends AbstractEngineNewPayload {
         PRAGUE,
         pragueMilestone,
         AMSTERDAM,
-        protocolSchedule.flatMap(s -> s.milestoneFor(AMSTERDAM)),
+        maybeProtocolSchedule.flatMap(s -> s.milestoneFor(AMSTERDAM)),
         blockTimestamp);
   }
 }

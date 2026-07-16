@@ -22,23 +22,32 @@ import java.util.Optional;
 
 public class ForkSupportHelper {
 
+  // TRANSITIONAL SHIM (remove in cleanup PR): kept so not-yet-migrated engine methods that still
+  // pass an Optional<Long> milestone keep compiling alongside the new Long-based overload.
   public static ValidationResult<RpcErrorType> validateForkSupported(
       final HardforkId firstSupportedHardforkId,
       final Optional<Long> maybeFirstSupportedForkMilestone,
       final long blockTimestamp) {
-
     if (maybeFirstSupportedForkMilestone.isEmpty()) {
       return ValidationResult.invalid(
           RpcErrorType.UNSUPPORTED_FORK,
           "Configuration error, no schedule for " + firstSupportedHardforkId.name() + " fork set");
     }
+    return validateForkSupported(
+        firstSupportedHardforkId, maybeFirstSupportedForkMilestone.get(), blockTimestamp);
+  }
 
-    if (Long.compareUnsigned(blockTimestamp, maybeFirstSupportedForkMilestone.get()) < 0) {
+  public static ValidationResult<RpcErrorType> validateForkSupported(
+      final HardforkId firstSupportedHardforkId,
+      final Long firstSupportedForkMilestone,
+      final long blockTimestamp) {
+
+    if (Long.compareUnsigned(blockTimestamp, firstSupportedForkMilestone) < 0) {
       return ValidationResult.invalid(
           RpcErrorType.UNSUPPORTED_FORK,
           firstSupportedHardforkId.name()
               + " configured to start at timestamp: "
-              + maybeFirstSupportedForkMilestone.get());
+              + firstSupportedForkMilestone);
     }
 
     return ValidationResult.valid();
@@ -51,12 +60,14 @@ public class ForkSupportHelper {
       final Optional<Long> maybeFirstUnsupportedMilestone,
       final long blockTimestamp) {
 
-    var result =
-        validateForkSupported(
-            firstSupportedHardforkId, maybeFirstSupportedForkMilestone, blockTimestamp);
+    if (maybeFirstSupportedForkMilestone.isPresent()) {
+      var result =
+          validateForkSupported(
+              firstSupportedHardforkId, maybeFirstSupportedForkMilestone.get(), blockTimestamp);
 
-    if (!result.isValid()) {
-      return result;
+      if (!result.isValid()) {
+        return result;
+      }
     }
 
     if (maybeFirstUnsupportedMilestone.isPresent()
