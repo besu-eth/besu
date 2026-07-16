@@ -15,6 +15,7 @@
 package org.hyperledger.besu.consensus.common.bft;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -25,10 +26,13 @@ import static org.mockito.Mockito.verify;
 
 import org.hyperledger.besu.consensus.common.bft.events.RoundExpiry;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.BeforeEach;
@@ -125,6 +129,64 @@ public class BftProcessorTest {
 
     // The processor task has woken up and exited
     assertThat(processorFuture.isDone()).isTrue();
+  }
+
+  @Test
+  public void awaitStopWaitsForProcessorAfterRestart() throws Exception {
+    final BftEventQueue mockQueue = mock(BftEventQueue.class);
+    final AtomicReference<CountDownLatch> pollEntered =
+        new AtomicReference<>(new CountDownLatch(1));
+    final AtomicReference<CountDownLatch> releasePoll =
+        new AtomicReference<>(new CountDownLatch(1));
+    Mockito.when(mockQueue.poll(anyLong(), any()))
+        .thenAnswer(
+            invocation -> {
+              pollEntered.get().countDown();
+              releasePoll.get().await();
+              return null;
+            });
+
+    final BftProcessor processor = new BftProcessor(mockQueue, mockeEventMultiplexer);
+    final ExecutorService processorExecutor = Executors.newSingleThreadExecutor();
+    final ExecutorService awaitExecutor = Executors.newSingleThreadExecutor();
+
+    try {
+      processor.start();
+      final Future<?> firstRun = processorExecutor.submit(processor);
+      assertThat(pollEntered.get().await(1, TimeUnit.SECONDS)).isTrue();
+      processor.stop();
+      releasePoll.get().countDown();
+      processor.awaitStop();
+      firstRun.get(1, TimeUnit.SECONDS);
+
+      pollEntered.set(new CountDownLatch(1));
+      releasePoll.set(new CountDownLatch(1));
+      processor.start();
+      final Future<?> secondRun = processorExecutor.submit(processor);
+      assertThat(pollEntered.get().await(1, TimeUnit.SECONDS)).isTrue();
+      processor.stop();
+
+      final CountDownLatch awaitStarted = new CountDownLatch(1);
+      final Future<Void> secondAwait =
+          awaitExecutor.submit(
+              () -> {
+                awaitStarted.countDown();
+                processor.awaitStop();
+                return null;
+              });
+      assertThat(awaitStarted.await(1, TimeUnit.SECONDS)).isTrue();
+
+      assertThatThrownBy(() -> secondAwait.get(100, TimeUnit.MILLISECONDS))
+          .isInstanceOf(TimeoutException.class);
+
+      releasePoll.get().countDown();
+      secondAwait.get(1, TimeUnit.SECONDS);
+      secondRun.get(1, TimeUnit.SECONDS);
+    } finally {
+      releasePoll.get().countDown();
+      processorExecutor.shutdownNow();
+      awaitExecutor.shutdownNow();
+    }
   }
 
   @Test

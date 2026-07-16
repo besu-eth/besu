@@ -31,7 +31,7 @@ public class BftProcessor implements Runnable {
   private final BftEventQueue incomingQueue;
   private volatile boolean shutdown = false;
   private final EventMultiplexer eventMultiplexer;
-  private final CountDownLatch shutdownLatch = new CountDownLatch(1);
+  private volatile CountDownLatch shutdownLatch = new CountDownLatch(1);
 
   /**
    * Construct a new BftProcessor
@@ -46,6 +46,7 @@ public class BftProcessor implements Runnable {
 
   /** Indicate to the processor that it can be started */
   public synchronized void start() {
+    shutdownLatch = new CountDownLatch(1);
     shutdown = false;
   }
 
@@ -65,6 +66,7 @@ public class BftProcessor implements Runnable {
 
   @Override
   public void run() {
+    final CountDownLatch currentShutdownLatch = shutdownLatch;
     try {
       // Start the event queue. Until it is started it won't accept new events from peers
       incomingQueue.start();
@@ -79,7 +81,7 @@ public class BftProcessor implements Runnable {
     }
     // Clean up the executor service the round timer has been utilising
     LOG.info("Shutting down BFT event processor");
-    shutdownLatch.countDown();
+    currentShutdownLatch.countDown();
   }
 
   private Optional<BftEvent> nextEvent() {
