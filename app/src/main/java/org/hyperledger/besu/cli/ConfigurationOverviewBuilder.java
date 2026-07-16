@@ -508,7 +508,9 @@ public class ConfigurationOverviewBuilder {
       lines.add(
           "RocksDB max open files: "
               + rocksDbMaxOpenFiles
-              + (rocksDbMaxOpenFilesExplicitlySet ? " (set)" : " (derived)"));
+              + (rocksDbMaxOpenFilesExplicitlySet
+                  ? " (set)"
+                  : " (derived from available resources)"));
     }
 
     if (syncMode != null) {

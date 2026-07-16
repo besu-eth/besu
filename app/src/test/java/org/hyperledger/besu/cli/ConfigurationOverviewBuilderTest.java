@@ -350,7 +350,8 @@ class ConfigurationOverviewBuilderTest {
   void setRocksDbMaxOpenFilesDerived() {
     builder.setRocksDbMaxOpenFiles(4096, false);
     final String overview = builder.build();
-    assertThat(overview).contains("RocksDB max open files: 4096 (derived)");
+    assertThat(overview)
+        .contains("RocksDB max open files: 4096 (derived from available resources)");
   }
 
   @Test
