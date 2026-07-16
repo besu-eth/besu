@@ -198,6 +198,16 @@ public class BonsaiWorldState extends PathBasedWorldState {
         Bytes32.wrap(worldStateRootHash.getBytes()));
   }
 
+  /** Storage trie for the given account rooted at the provided storage root. */
+  public MerkleTrie<Bytes, Bytes> createStorageTrie(
+      final Hash accountHash, final Hash storageRoot) {
+    return createTrie(
+        (location, key) ->
+            bonsaiCachedMerkleTrieLoader.getAccountStorageTrieNode(
+                getWorldStateStorage(), accountHash, location, key),
+        Bytes32.wrap(storageRoot.getBytes()));
+  }
+
   public MerkleTrie<Bytes, Bytes> createTrie(final NodeLoader nodeLoader, final Bytes32 rootHash) {
     if (worldStateConfig.isTrieDisabled()) {
       return new NoOpMerkleTrie<>();

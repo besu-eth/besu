@@ -204,13 +204,7 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
               ? Hash.EMPTY_TRIE_HASH
               : accountOriginal.getStorageRoot();
       final MerkleTrie<Bytes, Bytes> storageTrie =
-          bonsai.createTrie(
-              (location, key) ->
-                  bonsai
-                      .getBonsaiCachedMerkleTrieLoader()
-                      .getAccountStorageTrieNode(
-                          bonsai.getWorldStateStorage(), updatedAddressHash, location, key),
-              Bytes32.wrap(storageRoot.getBytes()));
+          bonsai.createStorageTrie(updatedAddressHash, storageRoot);
 
       for (final Map.Entry<StorageSlotKey, PathBasedValue<UInt256>> storageUpdate :
           storageUpdates.entrySet()) {
@@ -269,9 +263,7 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
         }
         final Hash addressHash = addressHasher.apply(bonsai, address);
         final MerkleTrie<Bytes, Bytes> storageTrie =
-            bonsai.createTrie(
-                (location, key) -> bonsai.getStorageTrieNode(addressHash, location, key),
-                Bytes32.wrap(oldAccount.getStorageRoot().getBytes()));
+            bonsai.createStorageTrie(addressHash, oldAccount.getStorageRoot());
         try {
           StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>> storageToDelete = null;
           Bytes32 nextKeyHash = Bytes32.ZERO;

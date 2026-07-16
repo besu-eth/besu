@@ -329,9 +329,7 @@ public final class BalStateRootCommitter implements StateRootCommitter {
               .orElse(Hash.EMPTY_TRIE_HASH);
 
       final MerkleTrie<Bytes, Bytes> storageTrie =
-          worldState.createTrie(
-              (location, key) -> worldState.getStorageTrieNode(accountHash, location, key),
-              Bytes32.wrap(priorStorageRoot.getBytes()));
+          worldState.createStorageTrie(accountHash, priorStorageRoot);
 
       for (final Map.Entry<StorageSlotKey, BlockAccessList.SlotChanges> sc :
           changes.getStorageEntries(address).entrySet()) {
