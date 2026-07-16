@@ -94,7 +94,7 @@ public class EngineNewPayloadV3 extends AbstractEngineNewPayload {
         CANCUN,
         cancunMilestone,
         PRAGUE,
-        protocolSchedule.flatMap(s -> s.milestoneFor(PRAGUE)),
+        maybeProtocolSchedule.flatMap(s -> s.milestoneFor(PRAGUE)),
         blockTimestamp);
   }
 }
