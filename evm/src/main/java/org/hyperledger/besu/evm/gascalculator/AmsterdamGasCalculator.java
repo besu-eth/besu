@@ -62,16 +62,10 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
   // EIP-8037: New regular gas constants for Amsterdam
   private static final long TX_CREATE_COST = 9_000L;
 
-  // --- Amsterdam shared resource-price constants ---
-  // Foundation prices for the Amsterdam resource-based gas repricing, referenced by the individual
-  // repricing EIPs (EIP-8038 execution access, EIP-2780 intrinsic gas, EIP-8246 SELFDESTRUCT,
-  // EIP-7702 authorization refunds). Declared once here so those EIPs can be reviewed and merged
-  // independently of each other.
-
-  /** Cold account access cost (was 2,600). */
+  /** Cold account access cost. */
   protected static final long COLD_ACCOUNT_ACCESS = 3_000L;
 
-  /** Cold storage slot access cost (was 2,100). */
+  /** Cold storage slot access cost. */
   protected static final long COLD_STORAGE_ACCESS = 3_000L;
 
   /** Account write cost (value-bearing CALL / new account). */
