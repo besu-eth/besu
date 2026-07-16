@@ -22,6 +22,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.BlockProcessingExecutors;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
@@ -43,7 +44,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.Executors;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -64,7 +64,7 @@ public final class BalStateRootCommitter implements StateRootCommitter {
                 return runComputation(parent, accountLookup, storageFrozen);
               }
             },
-            Executors.newSingleThreadScheduledExecutor());
+            BlockProcessingExecutors.stateRootExecutor());
   }
 
   /** Cancels the background computation; {@link #compute} will throw if called afterwards. */
@@ -215,7 +215,9 @@ public final class BalStateRootCommitter implements StateRootCommitter {
           final Hash accountHash = address.addressHash();
           storageFutures.put(
               address,
-              CompletableFuture.supplyAsync(() -> updateStorageTrie(accountHash, changes)));
+              CompletableFuture.supplyAsync(
+                  () -> updateStorageTrie(accountHash, changes),
+                  BlockProcessingExecutors.ioExecutor()));
         }
       }
 
