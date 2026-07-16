@@ -82,9 +82,6 @@ public class SnapV2AccountRangeRequest extends SnapV2DataRequest {
     final AtomicInteger nbNodesSaved = new AtomicInteger();
     final NodeUpdater nodeUpdater =
         (location, hash, value) -> {
-          if (location.isEmpty()) {
-            downloadState.setRootNodeData(value);
-          }
           applyForStrategy(
               updater,
               onBonsai -> onBonsai.putAccountStateTrieNode(location, hash, value),

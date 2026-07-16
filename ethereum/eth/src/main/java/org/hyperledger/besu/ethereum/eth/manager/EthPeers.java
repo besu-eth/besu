@@ -698,8 +698,11 @@ public class EthPeers implements PeerSelector {
     return rlpxAgent.canExceedConnectionLimits(peerId);
   }
 
-  private int compareConnectionInitiationTimes(final PeerConnection a, final PeerConnection b) {
-    return Math.toIntExact(a.getInitiatedAt() - b.getInitiatedAt());
+  @VisibleForTesting
+  int compareConnectionInitiationTimes(final PeerConnection a, final PeerConnection b) {
+    // Long.compare avoids the integer overflow that subtracting epoch millisecond timestamps
+    // can produce once connections are more than ~24.8 days apart
+    return Long.compare(a.getInitiatedAt(), b.getInitiatedAt());
   }
 
   private int compareByMaskedNodeId(final PeerConnection a, final PeerConnection b) {
