@@ -39,7 +39,9 @@ import org.hyperledger.besu.cryptoservices.NodeKeyUtils;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.testutil.TestClock;
 
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -149,7 +151,7 @@ public class ValidatorContractTest {
             .indexOfFirstLocallyProposedBlock(0)
             .nodeParams(
                 List.of(new NodeParams(NODE_ADDRESS, NodeKeyUtils.createFrom(NODE_PRIVATE_KEY))))
-            .clock(TestClock.fixed())
+            .clock(Clock.fixed(Instant.ofEpochSecond(1_672_531_210L), ZoneId.systemDefault()))
             .genesisFile(
                 Resources.getResource("genesis_validator_contract_shanghai.json").getFile())
             .useValidatorContract(true)
@@ -158,8 +160,8 @@ public class ValidatorContractTest {
             .buildAndStart();
 
     createNewBlockAsProposerFixedTime(
-        context, 1,
-        266L); // 10s ahead of genesis timestamp in genesis_validator_contract_shanghai.json
+        context, 1, 1_672_531_210L); // 10s ahead of genesis timestamp in
+    // genesis_validator_contract_shanghai.json
 
     final QbftValidatorProvider validatorProvider = context.getValidatorProvider();
     final QbftBlockHeader genesisBlock = context.getBlockHeader(0);
@@ -200,7 +202,7 @@ public class ValidatorContractTest {
             .indexOfFirstLocallyProposedBlock(0)
             .nodeParams(
                 List.of(new NodeParams(NODE_ADDRESS, NodeKeyUtils.createFrom(NODE_PRIVATE_KEY))))
-            .clock(TestClock.fixed())
+            .clock(Clock.fixed(Instant.ofEpochSecond(1_672_531_210L), ZoneId.systemDefault()))
             .genesisFile(
                 Resources.getResource("genesis_validator_contract_shanghai.json").getFile())
             .useValidatorContract(true)
@@ -209,8 +211,8 @@ public class ValidatorContractTest {
             .buildAndStart();
 
     createNewBlockAsProposerFixedTime(
-        context, 1,
-        266L); // 10s ahead of genesis timestamp in genesis_validator_contract_shanghai.json
+        context, 1, 1_672_531_210L); // 10s ahead of genesis timestamp in
+    // genesis_validator_contract_shanghai.json
 
     final QbftValidatorProvider validatorProvider = context.getValidatorProvider();
     final QbftBlockHeader genesisBlock = context.getBlockHeader(0);

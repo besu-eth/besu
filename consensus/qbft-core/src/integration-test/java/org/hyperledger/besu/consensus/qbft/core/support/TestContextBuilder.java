@@ -444,7 +444,7 @@ public class TestContextBuilder {
     if (useLondonMilestone) {
       genesisConfigOptions.londonBlock(0);
     } else if (useShanghaiMilestone) {
-      genesisConfigOptions.shanghaiTime(10);
+      genesisConfigOptions.shanghaiTime(1_672_531_200L);
     } else {
       genesisConfigOptions.berlinBlock(0);
     }

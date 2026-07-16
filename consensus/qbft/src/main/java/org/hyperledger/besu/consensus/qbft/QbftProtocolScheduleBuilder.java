@@ -67,18 +67,62 @@ public class QbftProtocolScheduleBuilder extends BaseBftProtocolScheduleBuilder 
       final boolean isParallelTxProcessingEnabled,
       final BalConfiguration balConfiguration,
       final MetricsSystem metricsSystem) {
-    return new QbftProtocolScheduleBuilder()
-        .createProtocolSchedule(
-            config,
-            qbftForksSchedule,
-            isRevertReasonEnabled,
-            bftExtraDataCodec,
-            evmConfiguration,
-            miningConfiguration,
-            badBlockManager,
-            isParallelTxProcessingEnabled,
-            balConfiguration,
-            metricsSystem);
+    return create(
+        config,
+        qbftForksSchedule,
+        isRevertReasonEnabled,
+        bftExtraDataCodec,
+        evmConfiguration,
+        miningConfiguration,
+        badBlockManager,
+        isParallelTxProcessingEnabled,
+        balConfiguration,
+        metricsSystem,
+        true);
+  }
+
+  /**
+   * Create protocol schedule.
+   *
+   * @param config the config
+   * @param qbftForksSchedule the qbft forks schedule
+   * @param isRevertReasonEnabled the is revert reason enabled
+   * @param bftExtraDataCodec the bft extra data codec
+   * @param evmConfiguration the evm configuration
+   * @param miningConfiguration The mining parameters
+   * @param badBlockManager the cache to use to keep invalid blocks
+   * @param isParallelTxProcessingEnabled indicates whether parallel transaction is enabled.
+   * @param balConfiguration configuration related to block-level access lists
+   * @param metricsSystem A metricSystem instance to be able to expose metrics in the underlying
+   *     calls
+   * @param validateTransitions when false, skips BFT fork transition epoch validation
+   * @return the protocol schedule
+   */
+  public static BftProtocolSchedule create(
+      final GenesisConfigOptions config,
+      final ForksSchedule<QbftConfigOptions> qbftForksSchedule,
+      final boolean isRevertReasonEnabled,
+      final BftExtraDataCodec bftExtraDataCodec,
+      final EvmConfiguration evmConfiguration,
+      final MiningConfiguration miningConfiguration,
+      final BadBlockManager badBlockManager,
+      final boolean isParallelTxProcessingEnabled,
+      final BalConfiguration balConfiguration,
+      final MetricsSystem metricsSystem,
+      final boolean validateTransitions) {
+    final QbftProtocolScheduleBuilder builder = new QbftProtocolScheduleBuilder();
+    builder.validateBftTransitions = validateTransitions;
+    return builder.createProtocolSchedule(
+        config,
+        qbftForksSchedule,
+        isRevertReasonEnabled,
+        bftExtraDataCodec,
+        evmConfiguration,
+        miningConfiguration,
+        badBlockManager,
+        isParallelTxProcessingEnabled,
+        balConfiguration,
+        metricsSystem);
   }
 
   /**

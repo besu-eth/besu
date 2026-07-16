@@ -15,6 +15,8 @@
 package org.hyperledger.besu.consensus.qbft;
 
 import static java.util.Collections.singletonList;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 import static org.hyperledger.besu.consensus.common.bft.BftContextBuilder.setupContextWithBftExtraDataEncoder;
 import static org.mockito.Mockito.mock;
@@ -24,6 +26,7 @@ import org.hyperledger.besu.config.JsonGenesisConfigOptions;
 import org.hyperledger.besu.config.JsonQbftConfigOptions;
 import org.hyperledger.besu.config.JsonUtil;
 import org.hyperledger.besu.config.QbftConfigOptions;
+import org.hyperledger.besu.config.StubGenesisConfigOptions;
 import org.hyperledger.besu.consensus.common.ForkSpec;
 import org.hyperledger.besu.consensus.common.ForksSchedule;
 import org.hyperledger.besu.consensus.common.bft.BftContext;
@@ -127,6 +130,72 @@ public class QbftProtocolScheduleTest {
     assertThat(validateHeader(schedule, validators, parentHeader, blockHeader, 0)).isTrue();
     assertThat(validateHeader(schedule, validators, parentHeader, blockHeader, 1)).isTrue();
     assertThat(validateHeader(schedule, validators, parentHeader, blockHeader, 2)).isTrue();
+  }
+
+  @Test
+  public void shanghaiAtGenesisWithQbftTransitionsThrowsForBlockNumbersBelowEpoch() {
+    // With shanghaiTime=0 every timestamp value satisfies the Shanghai activation threshold,
+    // so QBFT forks at small block numbers (e.g. 1, 100) are classified as TIME-based and
+    // then fail the minimum-epoch check (< 1681338455).
+    final StubGenesisConfigOptions genesisConfig =
+        new StubGenesisConfigOptions().londonBlock(0).shanghaiTime(0);
+
+    final MutableQbftConfigOptions transition =
+        new MutableQbftConfigOptions(JsonQbftConfigOptions.DEFAULT);
+    transition.setBlockPeriodSeconds(3);
+
+    assertThatThrownBy(
+            () ->
+                createProtocolSchedule(
+                    genesisConfig,
+                    List.of(
+                        new ForkSpec<>(0, JsonQbftConfigOptions.DEFAULT),
+                        new ForkSpec<>(1, transition),
+                        new ForkSpec<>(100, transition))))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("TIMESTAMP")
+        .hasMessageContaining("1681338455");
+  }
+
+  @Test
+  public void shanghaiAtGenesisWithValidationDisabledAcceptsWideVarietyOfForksAndEvmSpecs() {
+    // Same shanghaiTime=0 misconfiguration, now with London + Shanghai + Cancun EVM milestones.
+    // With --Xbft-validate-transitions=false the epoch boundary check is skipped entirely,
+    // so QBFT forks at any block value are accepted.  setForkType is still called for each fork.
+    final StubGenesisConfigOptions genesisConfig =
+        new StubGenesisConfigOptions().londonBlock(0).shanghaiTime(0).cancunTime(1_681_338_456L);
+
+    final MutableQbftConfigOptions shortPeriod =
+        new MutableQbftConfigOptions(JsonQbftConfigOptions.DEFAULT);
+    shortPeriod.setBlockPeriodSeconds(1);
+
+    final MutableQbftConfigOptions contractMode =
+        new MutableQbftConfigOptions(JsonQbftConfigOptions.DEFAULT);
+    contractMode.setValidatorContractAddress(
+        Optional.of("0x1234567890123456789012345678901234567890"));
+
+    assertThatCode(
+            () ->
+                QbftProtocolScheduleBuilder.create(
+                    genesisConfig,
+                    new ForksSchedule<>(
+                        List.of(
+                            new ForkSpec<>(0, JsonQbftConfigOptions.DEFAULT),
+                            new ForkSpec<>(1, shortPeriod),
+                            new ForkSpec<>(100, shortPeriod),
+                            new ForkSpec<>(1_000L, shortPeriod),
+                            new ForkSpec<>(500_000L, contractMode),
+                            new ForkSpec<>(1_681_338_456L, shortPeriod))),
+                    false,
+                    bftExtraDataCodec,
+                    EvmConfiguration.DEFAULT,
+                    MiningConfiguration.MINING_DISABLED,
+                    new BadBlockManager(),
+                    false,
+                    BalConfiguration.DEFAULT,
+                    new NoOpMetricsSystem(),
+                    false)) // validateTransitions=false
+        .doesNotThrowAnyException();
   }
 
   private BftProtocolSchedule createProtocolSchedule(

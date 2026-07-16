@@ -59,7 +59,7 @@ public abstract class ParameterizedBftTestBase extends AcceptanceTestBase {
     final ObjectNode genesisConfigNode = JsonUtil.objectNodeFromString(genesisConfig.orElseThrow());
     final ObjectNode config = (ObjectNode) genesisConfigNode.get("config");
     config.remove("berlinBlock");
-    config.put("shanghaiTime", 100);
+    config.put("shanghaiTime", 1_672_531_200L);
     config.put("zeroBaseFee", zeroBaseFeeEnabled);
     minerNode.setGenesisConfig(genesisConfigNode.toString());
   }
