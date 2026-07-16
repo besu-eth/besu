@@ -201,7 +201,7 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
             .map(ws -> ws.stream().map(WithdrawalParameter::toWithdrawal).collect(toList()));
 
     if (!getWithdrawalsValidator(
-            protocolSchedule.get(), blockParam.getTimestamp(), blockParam.getBlockNumber())
+            maybeProtocolSchedule.get(), blockParam.getTimestamp(), blockParam.getBlockNumber())
         .validateWithdrawals(maybeWithdrawals)) {
       return new JsonRpcErrorResponse(reqId, RpcErrorType.INVALID_WITHDRAWALS_PARAMS);
     }
@@ -221,7 +221,7 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
     }
 
     if (!getRequestsValidator(
-            protocolSchedule.get(), blockParam.getTimestamp(), blockParam.getBlockNumber())
+            maybeProtocolSchedule.get(), blockParam.getTimestamp(), blockParam.getBlockNumber())
         .validate(maybeRequests)) {
       return new JsonRpcErrorResponse(reqId, RpcErrorType.INVALID_EXECUTION_REQUESTS_PARAMS);
     }
@@ -318,7 +318,7 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
             newBlockHeader,
             maybeParentHeader,
             maybeVersionedHashes,
-            protocolSchedule.get().getByBlockHeader(newBlockHeader));
+            maybeProtocolSchedule.get().getByBlockHeader(newBlockHeader));
     if (!blobValidationResult.isValid()) {
       return respondWithInvalid(
           reqId,

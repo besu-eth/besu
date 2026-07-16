@@ -33,6 +33,7 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.services.tasks.Task;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
@@ -51,6 +52,8 @@ import org.slf4j.LoggerFactory;
 public class SnapV2RequestDataStep {
 
   private static final Logger LOG = LoggerFactory.getLogger(SnapV2RequestDataStep.class);
+
+  static final Duration FAILED_REQUEST_BACKOFF = Duration.ofSeconds(1);
 
   private final EthContext ethContext;
   private final WorldStateProofProvider worldStateProofProvider;
@@ -115,7 +118,8 @@ public class SnapV2RequestDataStep {
                     .log();
               }
               return requestTask;
-            });
+            })
+        .thenCompose(this::maybeBackOffFailedRequest);
   }
 
   public CompletableFuture<List<Task<SnapDataRequest>>> requestStorage(
@@ -199,7 +203,8 @@ public class SnapV2RequestDataStep {
                     .log();
               }
               return requestTasks;
-            });
+            })
+        .thenCompose(this::maybeBackOffFailedRequests);
   }
 
   public CompletableFuture<List<Task<SnapDataRequest>>> requestCode(
@@ -240,6 +245,27 @@ public class SnapV2RequestDataStep {
                     .log();
               }
               return requestTasks;
-            });
+            })
+        .thenCompose(this::maybeBackOffFailedRequests);
+  }
+
+  private CompletableFuture<Task<SnapDataRequest>> maybeBackOffFailedRequest(
+      final Task<SnapDataRequest> task) {
+    if (task.getData().isResponseReceived()) {
+      return CompletableFuture.completedFuture(task);
+    }
+    return ethContext
+        .getScheduler()
+        .scheduleFutureTask(() -> CompletableFuture.completedFuture(task), FAILED_REQUEST_BACKOFF);
+  }
+
+  private CompletableFuture<List<Task<SnapDataRequest>>> maybeBackOffFailedRequests(
+      final List<Task<SnapDataRequest>> tasks) {
+    if (tasks.stream().anyMatch(task -> task.getData().isResponseReceived())) {
+      return CompletableFuture.completedFuture(tasks);
+    }
+    return ethContext
+        .getScheduler()
+        .scheduleFutureTask(() -> CompletableFuture.completedFuture(tasks), FAILED_REQUEST_BACKOFF);
   }
 }

@@ -242,7 +242,7 @@ public abstract class AbstractEngineForkchoiceUpdatedV4 extends ExecutionEngineJ
         return maybeError.get();
       }
       if (!getWithdrawalsValidator(
-              protocolSchedule.get(), newHead, maybePayloadAttributes.get().getTimestamp())
+              maybeProtocolSchedule.get(), newHead, maybePayloadAttributes.get().getTimestamp())
           .validateWithdrawals(withdrawals)) {
         return new JsonRpcErrorResponse(requestId, getInvalidPayloadAttributesError());
       }

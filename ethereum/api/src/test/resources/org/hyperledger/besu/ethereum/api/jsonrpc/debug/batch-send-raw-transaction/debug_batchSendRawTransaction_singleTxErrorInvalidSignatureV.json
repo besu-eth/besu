@@ -14,7 +14,7 @@
       {
         "index": 0,
         "success": false,
-        "errorMessage": "An unsupported encoded `v` value of 31 was found"
+        "errorMessage": "Invalid RLP in raw transaction hex"
       }
     ]
   },
