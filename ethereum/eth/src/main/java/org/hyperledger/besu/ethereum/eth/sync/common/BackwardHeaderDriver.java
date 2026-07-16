@@ -147,6 +147,8 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
   @Override
   public void accept(final List<BlockHeader> blockHeaders) {
     if (!blockHeaders.getFirst().getHash().equals(lowestImportedHeader.getParentHash())) {
+      stopped = true;
+      decision.complete(false);
       final String message =
           "Received invalid header list: expected hash "
               + lowestImportedHeader.getParentHash()
