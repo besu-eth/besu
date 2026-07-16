@@ -18,11 +18,10 @@ import static org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.Path
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAddressView;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
@@ -57,13 +56,13 @@ public final class BalStateRootCommitter implements StateRootCommitter {
   public BalStateRootCommitter(
       final ProtocolContext protocolContext,
       final BlockHeader blockHeader,
-      final BlockAccessListAddressView blockAccessListAddressView,
+      final BlockAccessListAccountLookup accountLookup,
       final boolean storageFrozen) {
     this.backgroundComputation =
         CompletableFuture.supplyAsync(
             () -> {
               try (BonsaiWorldState parent = openParentWorldState(protocolContext, blockHeader)) {
-                return runComputation(parent, blockAccessListAddressView, storageFrozen);
+                return runComputation(parent, accountLookup, storageFrozen);
               }
             },
             Executors.newSingleThreadScheduledExecutor());
@@ -112,12 +111,12 @@ public final class BalStateRootCommitter implements StateRootCommitter {
 
   private BackgroundResult runComputation(
       final BonsaiWorldState worldState,
-      final BlockAccessListAddressView blockAccessListAddressView,
+      final BlockAccessListAccountLookup accountLookup,
       final boolean storageFrozen) {
-    if (blockAccessListAddressView.getAccountEntries().isEmpty()) {
+    if (accountLookup.isEmpty()) {
       return new BackgroundResult(worldState.getWorldStateRootHash(), List.of(), Map.of());
     }
-    return new BalComputation(worldState, blockAccessListAddressView, storageFrozen).execute();
+    return new BalComputation(worldState, accountLookup, storageFrozen).execute();
   }
 
   private BackgroundResult awaitBackgroundComputation(
@@ -170,7 +169,7 @@ public final class BalStateRootCommitter implements StateRootCommitter {
   private static final class BalComputation {
 
     private final BonsaiWorldState worldState;
-    private final BlockAccessListAddressView blockAccessListAddressView;
+    private final BlockAccessListAccountLookup accountLookup;
 
     /** When {@code true}, trie updates are in-memory only; no deferred KV writes are collected. */
     private final boolean storageFrozen;
@@ -190,10 +189,10 @@ public final class BalStateRootCommitter implements StateRootCommitter {
 
     BalComputation(
         final BonsaiWorldState worldState,
-        final BlockAccessListAddressView blockAccessListAddressView,
+        final BlockAccessListAccountLookup accountLookup,
         final boolean storageFrozen) {
       this.worldState = worldState;
-      this.blockAccessListAddressView = blockAccessListAddressView;
+      this.accountLookup = accountLookup;
       this.storageFrozen = storageFrozen;
     }
 
@@ -211,27 +210,24 @@ public final class BalStateRootCommitter implements StateRootCommitter {
 
       // Step 1: for every account with storage changes, launch a storage future eagerly so
       // storage I/O overlaps with step 2.
-      for (Map.Entry<Address, BlockAccessListAddressView.AccountEntry> entry :
-          blockAccessListAddressView.getAccountEntries().entrySet()) {
-        if (entry.getValue().hasStorageChanges()) {
-          final Address address = entry.getKey();
+      for (final BlockAccessList.AccountChanges changes : accountLookup.accountChanges()) {
+        if (!changes.storageChanges().isEmpty()) {
+          final Address address = changes.address();
           final Hash accountHash = address.addressHash();
           storageFutures.put(
               address,
-              CompletableFuture.supplyAsync(
-                  () -> updateStorageTrie(address, accountHash, blockAccessListAddressView)));
+              CompletableFuture.supplyAsync(() -> updateStorageTrie(accountHash, changes)));
         }
       }
 
       // Step 2: for each changed account, stage a deferred update — the trie passes the existing
       // leaf RLP.
-      for (Map.Entry<Address, BlockAccessListAddressView.AccountEntry> entry :
-          blockAccessListAddressView.getAccountEntries().entrySet()) {
-        final Address address = entry.getKey();
+      for (final BlockAccessList.AccountChanges changes : accountLookup.accountChanges()) {
+        final Address address = changes.address();
         final Hash accountHash = address.addressHash();
         accountTrie.putDeferred(
             accountHash.getBytes(),
-            existingRlp -> resolveAccount(accountHash, address, entry.getValue(), existingRlp));
+            existingRlp -> resolveAccount(accountHash, address, changes, existingRlp));
       }
 
       if (!storageFrozen) {
@@ -247,28 +243,28 @@ public final class BalStateRootCommitter implements StateRootCommitter {
     private Optional<Bytes> resolveAccount(
         final Hash accountHash,
         final Address address,
-        final BlockAccessListAddressView.AccountEntry changes,
+        final BlockAccessList.AccountChanges changes,
         final Optional<Bytes> maybeRlp) {
 
       final PmtStateTrieAccountValue priorAccount =
           maybeRlp.map(rlp -> PmtStateTrieAccountValue.readFrom(RLP.input(rlp))).orElse(null);
 
       final long newNonce;
-      if (!changes.hasNonceChanges()) {
+      if (changes.nonceChanges().isEmpty()) {
         newNonce = priorAccount != null ? priorAccount.getNonce() : 0L;
       } else {
         newNonce = changes.nonceChanges().getLast().newNonce();
       }
 
       final Wei newBalance;
-      if (!changes.hasBalanceChanges()) {
+      if (changes.balanceChanges().isEmpty()) {
         newBalance = priorAccount != null ? priorAccount.getBalance() : Wei.ZERO;
       } else {
         newBalance = changes.balanceChanges().getLast().postBalance();
       }
 
       final Hash newCodeHash;
-      if (!changes.hasCodeChange()) {
+      if (changes.codeChanges().isEmpty()) {
         newCodeHash = priorAccount != null ? priorAccount.getCodeHash() : Hash.EMPTY;
       } else {
         final BlockAccessList.CodeChange codeChange = changes.codeChanges().getLast();
@@ -287,7 +283,7 @@ public final class BalStateRootCommitter implements StateRootCommitter {
       // Storage root: if there are no storage changes, parse the prior root from the existing
       // account RLP passed in by putDeferred (no separate KV lookup needed).
       final Hash newStorageRoot;
-      if (!changes.hasStorageChanges()) {
+      if (changes.storageChanges().isEmpty()) {
         newStorageRoot =
             priorAccount != null ? priorAccount.getStorageRoot() : Hash.EMPTY_TRIE_HASH;
       } else {
@@ -318,7 +314,7 @@ public final class BalStateRootCommitter implements StateRootCommitter {
      * and slot/trie-node KV writes are not recorded.
      */
     private Hash updateStorageTrie(
-        final Address address, final Hash accountHash, final BlockAccessListAddressView changes) {
+        final Hash accountHash, final BlockAccessList.AccountChanges accountChanges) {
 
       // Read the storage trie root node directly (one raw KV lookup, no account RLP parsing).
       final Hash priorStorageRoot =
@@ -331,10 +327,9 @@ public final class BalStateRootCommitter implements StateRootCommitter {
       final MerkleTrie<Bytes, Bytes> storageTrie =
           worldState.createStorageTrie(accountHash, priorStorageRoot);
 
-      for (final Map.Entry<StorageSlotKey, BlockAccessList.SlotChanges> sc :
-          changes.getStorageEntries(address).entrySet()) {
-        final Hash slotHash = sc.getKey().getSlotHash();
-        final UInt256 value = sc.getValue().changes().getLast().newValue();
+      for (final BlockAccessList.SlotChanges slotChanges : accountChanges.storageChanges()) {
+        final Hash slotHash = slotChanges.slot().getSlotHash();
+        final UInt256 value = slotChanges.changes().getLast().newValue();
         if (value.equals(UInt256.ZERO)) {
           if (!storageFrozen) {
             writes.add(updater -> updater.removeStorageValueBySlotHash(accountHash, slotHash));

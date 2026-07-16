@@ -17,7 +17,7 @@ package org.hyperledger.besu.ethereum.mainnet.staterootcommitter;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAddressView;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
 import org.hyperledger.besu.ethereum.trie.forest.ForestWorldStateArchive;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.PathBasedWorldStateProvider;
 import org.hyperledger.besu.plugin.data.BlockHeader;
@@ -58,7 +58,7 @@ public final class StateRootCommitterFactory {
           new BalStateRootCommitter(
               protocolContext,
               blockHeader,
-              BlockAccessListAddressView.of(maybeBal.get()),
+              BlockAccessListAccountLookup.of(maybeBal.get()),
               storageFrozen);
       case DEFAULT -> new DefaultStateRootCommitter();
       case FOREST -> ForestStateRootCommitter.INSTANCE;

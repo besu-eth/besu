@@ -37,7 +37,7 @@ import org.hyperledger.besu.ethereum.core.ExecutionContextTestFixture;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor.TransactionReceiptFactory;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAddressView;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.MainnetParallelBlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelTransactionPreprocessing;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.BalStateRootCommitter;
@@ -1293,7 +1293,7 @@ class AbstractBlockProcessorIntegrationTest {
         new BalStateRootCommitter(
             protocolContext,
             block.getHeader(),
-            BlockAccessListAddressView.of(blockAccessList),
+            BlockAccessListAccountLookup.of(blockAccessList),
             false);
 
     final BlockHeader parentHeader =

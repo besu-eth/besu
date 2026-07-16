@@ -44,7 +44,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.C
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.NonceChange;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.SlotChanges;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.StorageChange;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAddressView;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
 import org.hyperledger.besu.ethereum.storage.keyvalue.WorldStatePreimageKeyValueStorage;
@@ -473,7 +473,7 @@ class StateRootCommitterIntegrationTest {
         worldState.freezeStorage();
         final BalStateRootCommitter committer =
             new BalStateRootCommitter(
-                harness.protocolContext(), blockHeader, BlockAccessListAddressView.of(bal), true);
+                harness.protocolContext(), blockHeader, BlockAccessListAccountLookup.of(bal), true);
         worldState.persist(blockHeader, committer);
       }
 

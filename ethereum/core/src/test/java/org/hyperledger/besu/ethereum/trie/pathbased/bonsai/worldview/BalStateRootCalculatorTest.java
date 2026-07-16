@@ -32,7 +32,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.C
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.NonceChange;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.SlotChanges;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.StorageChange;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAddressView;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.BalStateRootCommitter;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.DefaultStateRootCommitter;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
@@ -305,7 +305,7 @@ class BalStateRootCalculatorTest {
     try {
       final BalStateRootCommitter committer =
           new BalStateRootCommitter(
-              protocolContext, blockHeader, BlockAccessListAddressView.of(bal), false);
+              protocolContext, blockHeader, BlockAccessListAccountLookup.of(bal), false);
       return committer.compute(worldState, null, worldState.updater()).root();
     } finally {
       worldState.close();
