@@ -30,14 +30,11 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
-import io.vertx.core.Vertx;
-
 public class DefaultPeerDiscoveryAgentFactory implements PeerDiscoveryAgentFactory {
 
   private final PeerDiscoveryAgentFactory delegate;
 
   private DefaultPeerDiscoveryAgentFactory(
-      final Vertx vertx,
       final NodeKey nodeKey,
       final NetworkingConfiguration config,
       final PeerPermissions peerPermissions,
@@ -53,7 +50,6 @@ public class DefaultPeerDiscoveryAgentFactory implements PeerDiscoveryAgentFacto
 
     this.delegate =
         createPeerDiscoveryAgentFactory(
-            vertx,
             nodeKey,
             config,
             peerPermissions,
@@ -64,7 +60,6 @@ public class DefaultPeerDiscoveryAgentFactory implements PeerDiscoveryAgentFacto
   }
 
   private static PeerDiscoveryAgentFactory createPeerDiscoveryAgentFactory(
-      final Vertx vertx,
       final NodeKey nodeKey,
       final NetworkingConfiguration config,
       final PeerPermissions peerPermissions,
@@ -83,7 +78,6 @@ public class DefaultPeerDiscoveryAgentFactory implements PeerDiscoveryAgentFacto
           forkIdManager);
     }
     return new PeerDiscoveryAgentFactoryV4(
-        vertx,
         nodeKey,
         config,
         peerPermissions,
@@ -104,7 +98,6 @@ public class DefaultPeerDiscoveryAgentFactory implements PeerDiscoveryAgentFacto
 
   public static final class Builder {
 
-    private Vertx vertx;
     private NodeKey nodeKey;
     private NetworkingConfiguration config;
     private PeerPermissions peerPermissions;
@@ -116,11 +109,6 @@ public class DefaultPeerDiscoveryAgentFactory implements PeerDiscoveryAgentFacto
     private List<Long> timestampForks;
 
     private Builder() {}
-
-    public Builder vertx(final Vertx vertx) {
-      this.vertx = vertx;
-      return this;
-    }
 
     public Builder nodeKey(final NodeKey nodeKey) {
       this.nodeKey = nodeKey;
@@ -170,7 +158,6 @@ public class DefaultPeerDiscoveryAgentFactory implements PeerDiscoveryAgentFacto
     public DefaultPeerDiscoveryAgentFactory build() {
       validate();
       return new DefaultPeerDiscoveryAgentFactory(
-          vertx,
           nodeKey,
           config,
           peerPermissions,
@@ -183,7 +170,6 @@ public class DefaultPeerDiscoveryAgentFactory implements PeerDiscoveryAgentFacto
     }
 
     private void validate() {
-      Objects.requireNonNull(vertx, "vertx must be set");
       Objects.requireNonNull(nodeKey, "nodeKey must be set");
       Objects.requireNonNull(config, "config must be set");
       Objects.requireNonNull(peerPermissions, "peerPermissions must be set");

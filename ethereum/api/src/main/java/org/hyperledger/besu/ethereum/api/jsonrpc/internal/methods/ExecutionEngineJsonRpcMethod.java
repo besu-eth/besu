@@ -15,9 +15,11 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import org.hyperledger.besu.consensus.merge.MergeContext;
+import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineCallListener;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.ForkSupportHelper;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
@@ -31,6 +33,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
 
+import com.fasterxml.jackson.databind.JsonMappingException;
 import io.vertx.core.Vertx;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -52,33 +55,72 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
   private static final Logger LOG = LoggerFactory.getLogger(ExecutionEngineJsonRpcMethod.class);
   protected final Optional<MergeContext> mergeContextOptional;
   protected final Supplier<MergeContext> mergeContext;
-  protected final Optional<ProtocolSchedule> protocolSchedule;
+  protected final ProtocolSchedule protocolSchedule;
+
+  // TRANSITIONAL SHIM (remove in cleanup PR): not-yet-migrated engine methods reference the
+  // protocol schedule as an Optional under this name; new methods use the non-optional field above.
+  protected final Optional<ProtocolSchedule> maybeProtocolSchedule;
+
   protected final ProtocolContext protocolContext;
   protected final EngineCallListener engineCallListener;
 
+  private final Optional<Long> minForkTimestamp;
+  private final Optional<Long> maxForkTimestamp;
+
+  private final HardforkId minSupportedFork;
+  private final HardforkId firstUnsupportedFork;
+
+  // TRANSITIONAL SHIM (remove in cleanup PR): old constructor signature used by not-yet-migrated
+  // engine methods (vertx-first, optional protocol schedule).
   protected ExecutionEngineJsonRpcMethod(
       final Vertx vertx,
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
       final EngineCallListener engineCallListener) {
-    this.syncVertx = vertx;
-    this.protocolSchedule = Optional.of(protocolSchedule);
-    this.protocolContext = protocolContext;
-    this.mergeContextOptional = protocolContext.safeConsensusContext(MergeContext.class);
-    this.mergeContext = mergeContextOptional::orElseThrow;
-    this.engineCallListener = engineCallListener;
+    this(protocolSchedule, protocolContext, vertx, engineCallListener, null, null);
   }
 
+  // TRANSITIONAL SHIM (remove in cleanup PR): old constructor signature for methods that have no
+  // protocol schedule.
   protected ExecutionEngineJsonRpcMethod(
       final Vertx vertx,
       final ProtocolContext protocolContext,
       final EngineCallListener engineCallListener) {
+    this(null, protocolContext, vertx, engineCallListener, null, null);
+  }
+
+  protected ExecutionEngineJsonRpcMethod(
+      final ProtocolSchedule protocolSchedule,
+      final ProtocolContext protocolContext,
+      final Vertx vertx,
+      final EngineCallListener engineCallListener) {
+    this(protocolSchedule, protocolContext, vertx, engineCallListener, null, null);
+  }
+
+  protected ExecutionEngineJsonRpcMethod(
+      final ProtocolSchedule protocolSchedule,
+      final ProtocolContext protocolContext,
+      final Vertx vertx,
+      final EngineCallListener engineCallListener,
+      final HardforkId minSupportedFork,
+      final HardforkId firstUnsupportedFork) {
     this.syncVertx = vertx;
-    this.protocolSchedule = Optional.empty();
+    this.protocolSchedule = protocolSchedule;
+    this.maybeProtocolSchedule = Optional.ofNullable(protocolSchedule);
     this.protocolContext = protocolContext;
     this.mergeContextOptional = protocolContext.safeConsensusContext(MergeContext.class);
     this.mergeContext = mergeContextOptional::orElseThrow;
     this.engineCallListener = engineCallListener;
+    this.minSupportedFork = minSupportedFork;
+    this.firstUnsupportedFork = firstUnsupportedFork;
+    this.minForkTimestamp =
+        minSupportedFork != null
+            ? protocolSchedule.milestoneFor(minSupportedFork)
+            : Optional.empty();
+    this.maxForkTimestamp =
+        firstUnsupportedFork != null
+            ? protocolSchedule.milestoneFor(firstUnsupportedFork)
+            : Optional.empty();
   }
 
   @Override
@@ -139,7 +181,30 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
     return engineCallListener;
   }
 
+  // TRANSITIONAL: not 'final' yet (restored in cleanup PR) so not-yet-migrated engine methods can
+  // still override it; new methods inherit this implementation.
   protected ValidationResult<RpcErrorType> validateForkSupported(final long blockTimestamp) {
-    return ValidationResult.valid();
+    return ForkSupportHelper.validateForkSupported(
+        minSupportedFork, minForkTimestamp, firstUnsupportedFork, maxForkTimestamp, blockTimestamp);
+  }
+
+  protected static <T> Optional<T> extractCauseByType(
+      final Throwable throwable, final Class<T> type) {
+    Throwable cause = throwable;
+    while (cause != null) {
+      if (type.isAssignableFrom(cause.getClass())) {
+        return Optional.of(type.cast(cause));
+      }
+      cause = cause.getCause();
+    }
+    return Optional.empty();
+  }
+
+  protected static Optional<String> extractJsonPath(final JsonMappingException fieldEx) {
+
+    if (fieldEx.getPath().isEmpty()) {
+      return Optional.empty();
+    }
+    return Optional.ofNullable(fieldEx.getPath().getFirst().getFieldName());
   }
 }

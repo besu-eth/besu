@@ -102,7 +102,7 @@ public class SnapV2BlockAccessListApplier {
       return;
     }
 
-    final MerkleTrie<Bytes, Bytes> accountTrie = openAccountTrie(currentPivotBlockHeader);
+    final MerkleTrie<Bytes, Bytes> accountTrie = openAccountTrie();
 
     final BalApplicationStats stats =
         stageAccountChanges(
@@ -193,13 +193,18 @@ public class SnapV2BlockAccessListApplier {
     return pendingAffected;
   }
 
-  private MerkleTrie<Bytes, Bytes> openAccountTrie(final BlockHeader pivotHeader) {
+  private MerkleTrie<Bytes, Bytes> openAccountTrie() {
     final Function<Bytes, Bytes> identity = Function.identity();
     final NodeLoader accountNodeLoader =
         (location, hash) -> worldStateStorageCoordinator.getAccountStateTrieNode(location, hash);
 
-    return new StoredMerklePatriciaTrie<>(
-        accountNodeLoader, Bytes32.wrap(pivotHeader.getStateRoot().getBytes()), identity, identity);
+    final Bytes32 rootHash =
+        worldStateStorageCoordinator
+            .getTrieNodeUnsafe(Bytes.EMPTY)
+            .map(node -> Bytes32.wrap(Hash.hash(node).getBytes()))
+            .orElse(MerkleTrie.EMPTY_TRIE_NODE_HASH);
+
+    return new StoredMerklePatriciaTrie<>(accountNodeLoader, rootHash, identity, identity);
   }
 
   /**
@@ -379,6 +384,10 @@ public class SnapV2BlockAccessListApplier {
                     accountHash, update.slotHash, update.newValue.toBytes()),
             onForest -> {});
       }
+    }
+
+    if (downloadedSlots == 0) {
+      return new StorageRootResult(oldStorageRoot, 0);
     }
 
     storageTrie.commit(storageNodeUpdater);
