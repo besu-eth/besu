@@ -667,10 +667,14 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
         .forEach(
             (address, change) ->
                 rollAccountChange(address, change.getPrior(), change.getUpdated()));
-    layer
-        .getCodeChanges()
-        .forEach(
-            (address, change) -> rollCodeChange(address, change.getPrior(), change.getUpdated()));
+    // Code is not part of an account or storage proof (the account leaf already carries the
+    // codeHash), so an archive proof roll skips code entirely — including its getCode read.
+    if (!isArchiveProofRoll()) {
+      layer
+          .getCodeChanges()
+          .forEach(
+              (address, change) -> rollCodeChange(address, change.getPrior(), change.getUpdated()));
+    }
     layer
         .getStorageChanges()
         .forEach(
@@ -691,10 +695,14 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
         .forEach(
             (address, change) ->
                 rollAccountChange(address, change.getUpdated(), change.getPrior()));
-    layer
-        .getCodeChanges()
-        .forEach(
-            (address, change) -> rollCodeChange(address, change.getUpdated(), change.getPrior()));
+    // Code is not part of an account or storage proof (the account leaf already carries the
+    // codeHash), so an archive proof roll skips code entirely — including its getCode read.
+    if (!isArchiveProofRoll()) {
+      layer
+          .getCodeChanges()
+          .forEach(
+              (address, change) -> rollCodeChange(address, change.getUpdated(), change.getPrior()));
+    }
     layer
         .getStorageChanges()
         .forEach(
@@ -725,7 +733,10 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
       accountValue = new PathBasedValue<>(seeded, createAccount(this, address, expectedValue, true));
       accountsToUpdate.put(address, accountValue);
     }
-    if (accountValue == null) {
+    // In an archive proof roll, a still-null accountValue means expectedValue was null: the account
+    // was created within the window and did not exist at the checkpoint. Skip the loadAccountFromParent
+    // read and fall through to the create branch below — the read would only confirm its absence.
+    if (accountValue == null && !isArchiveProofRoll()) {
       accountValue = loadAccountFromParent(address, accountValue);
     }
     if (accountValue == null) {
