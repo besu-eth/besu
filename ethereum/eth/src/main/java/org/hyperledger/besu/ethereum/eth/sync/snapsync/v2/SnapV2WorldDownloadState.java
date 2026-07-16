@@ -526,21 +526,6 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
                 failPivotCatchup(error);
                 return;
               }
-              if (!blockchain.areBothBlocksOnCanonicalChain(
-                  currentPivotBlockHeader.getHash(), newPivotBlockHeader.getHash())) {
-                failPivotCatchup(
-                    new WorldStateDownloaderException(
-                        "Chain reorg detected during snap/2 pivot catch-up: current pivot "
-                            + currentPivotBlockHeader.getNumber()
-                            + " ("
-                            + currentPivotBlockHeader.getHash()
-                            + ") and new pivot "
-                            + newPivotBlockHeader.getNumber()
-                            + " ("
-                            + newPivotBlockHeader.getHash()
-                            + ") are not both on the canonical chain. Sync restart required."));
-                return;
-              }
               finishPivotCatchup(currentPivotBlockHeader, newPivotBlockHeader);
             });
   }
@@ -578,6 +563,22 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
           failPivotCatchup(e);
           return;
         }
+      }
+      if (!blockchain.areBothBlocksOnCanonicalChain(
+          currentPivotBlockHeader.getHash(), newPivotBlockHeader.getHash())) {
+        failPivotCatchup(
+            new WorldStateDownloaderException(
+                "Chain reorg detected during snap/2 pivot catch-up after draining in-flight tasks:"
+                    + " current pivot "
+                    + currentPivotBlockHeader.getNumber()
+                    + " ("
+                    + currentPivotBlockHeader.getHash()
+                    + ") and new pivot "
+                    + newPivotBlockHeader.getNumber()
+                    + " ("
+                    + newPivotBlockHeader.getHash()
+                    + ") are not both on the canonical chain. Sync restart required."));
+        return;
       }
       try {
         final Set<Hash> pendingAffected =
