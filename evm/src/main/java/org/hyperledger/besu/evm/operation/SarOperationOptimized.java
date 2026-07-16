@@ -105,30 +105,30 @@ public class SarOperationOptimized extends AbstractFixedCostOperation {
     // Remaining intra-word bit shift (shift % 64).
     final int bitShift = shift & 63;
     switch (wordShift) {
-      case 0 -> {
+      case 0:
         w3 = shiftRight(w3, w2, bitShift);
         w2 = shiftRight(w2, w1, bitShift);
         w1 = shiftRight(w1, w0, bitShift);
         w0 = shiftRight(w0, fill, bitShift);
-      }
-      case 1 -> {
+        break;
+      case 1:
         w3 = shiftRight(w2, w1, bitShift);
         w2 = shiftRight(w1, w0, bitShift);
         w1 = shiftRight(w0, fill, bitShift);
         w0 = fill;
-      }
-      case 2 -> {
+        break;
+      case 2:
         w3 = shiftRight(w1, w0, bitShift);
         w2 = shiftRight(w0, fill, bitShift);
         w1 = fill;
         w0 = fill;
-      }
-      case 3 -> {
+        break;
+      case 3:
         w3 = shiftRight(w0, fill, bitShift);
         w2 = fill;
         w1 = fill;
         w0 = fill;
-      }
+        break;
     }
     final byte[] out = new byte[32];
     putLong(out, 0, w0);

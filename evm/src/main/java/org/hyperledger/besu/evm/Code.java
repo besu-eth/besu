@@ -58,7 +58,7 @@ public class Code {
    * @param codeHash the hash of the bytecode
    */
   public Code(final Bytes byteCode, final Hash codeHash) {
-    this.bytes = byteCode;
+    this.bytes = Bytes.wrap(byteCode.toArrayUnsafe());
     this.codeHash = codeHash;
   }
 
@@ -226,45 +226,142 @@ public class Code {
         if (operationNum >= JumpDestOperation.OPCODE) {
           switch (operationNum) {
             // JUMPDEST opcode (0x5b): mark as a valid jump destination
-            case JumpDestOperation.OPCODE -> thisEntry |= 1L << j;
-            // PUSH1–PUSH32 opcodes (0x60–0x7f): skip the 1-32 immediate data bytes
-            case 0x60,
-                0x61,
-                0x62,
-                0x63,
-                0x64,
-                0x65,
-                0x66,
-                0x67,
-                0x68,
-                0x69,
-                0x6a,
-                0x6b,
-                0x6c,
-                0x6d,
-                0x6e,
-                0x6f,
-                0x70,
-                0x71,
-                0x72,
-                0x73,
-                0x74,
-                0x75,
-                0x76,
-                0x77,
-                0x78,
-                0x79,
-                0x7a,
-                0x7b,
-                0x7c,
-                0x7d,
-                0x7e,
-                0x7f -> {
-              final int skip = operationNum - 0x5f;
-              i += skip;
-              j += skip;
-            }
-            default -> {} // other opcodes >= 0x5b: no-op
+            case JumpDestOperation.OPCODE:
+              thisEntry |= 1L << j; // Set the bit at position j
+              break;
+            // PUSH1–PUSH32 opcodes (0x60–0x7f): these consume 1-32 bytes of data that should be
+            // skipped
+            case 0x60:
+              i += 1;
+              j += 1;
+              break;
+            case 0x61:
+              i += 2;
+              j += 2;
+              break;
+            case 0x62:
+              i += 3;
+              j += 3;
+              break;
+            case 0x63:
+              i += 4;
+              j += 4;
+              break;
+            case 0x64:
+              i += 5;
+              j += 5;
+              break;
+            case 0x65:
+              i += 6;
+              j += 6;
+              break;
+            case 0x66:
+              i += 7;
+              j += 7;
+              break;
+            case 0x67:
+              i += 8;
+              j += 8;
+              break;
+            case 0x68:
+              i += 9;
+              j += 9;
+              break;
+            case 0x69:
+              i += 10;
+              j += 10;
+              break;
+            case 0x6a:
+              i += 11;
+              j += 11;
+              break;
+            case 0x6b:
+              i += 12;
+              j += 12;
+              break;
+            case 0x6c:
+              i += 13;
+              j += 13;
+              break;
+            case 0x6d:
+              i += 14;
+              j += 14;
+              break;
+            case 0x6e:
+              i += 15;
+              j += 15;
+              break;
+            case 0x6f:
+              i += 16;
+              j += 16;
+              break;
+            case 0x70:
+              i += 17;
+              j += 17;
+              break;
+            case 0x71:
+              i += 18;
+              j += 18;
+              break;
+            case 0x72:
+              i += 19;
+              j += 19;
+              break;
+            case 0x73:
+              i += 20;
+              j += 20;
+              break;
+            case 0x74:
+              i += 21;
+              j += 21;
+              break;
+            case 0x75:
+              i += 22;
+              j += 22;
+              break;
+            case 0x76:
+              i += 23;
+              j += 23;
+              break;
+            case 0x77:
+              i += 24;
+              j += 24;
+              break;
+            case 0x78:
+              i += 25;
+              j += 25;
+              break;
+            case 0x79:
+              i += 26;
+              j += 26;
+              break;
+            case 0x7a:
+              i += 27;
+              j += 27;
+              break;
+            case 0x7b:
+              i += 28;
+              j += 28;
+              break;
+            case 0x7c:
+              i += 29;
+              j += 29;
+              break;
+            case 0x7d:
+              i += 30;
+              j += 30;
+              break;
+            case 0x7e:
+              i += 31;
+              j += 31;
+              break;
+            case 0x7f:
+              i += 32;
+              j += 32;
+              break;
+            default:
+              // No default case needed: any unhandled opcode >= 0x5b but not PUSH or JUMPDEST is
+              // skipped
           }
         }
       }

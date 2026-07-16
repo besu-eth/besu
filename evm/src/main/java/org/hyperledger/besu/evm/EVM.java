@@ -229,8 +229,6 @@ public class EVM {
   // name of performance. This is one of the hottest sections of code.
   //
   // Please benchmark before refactoring.
-  @SuppressWarnings(
-      "ReferenceEquality") // NO_TRACING is a singleton sentinel; reference equality is intentional
   public void runToHalt(final MessageFrame frame, @NonNull final OperationTracer operationTracer) {
     // do not remove assert! A single, monomorphic tracer, is allowed in the EVM execution if
     // tracing is disabled for
@@ -249,10 +247,10 @@ public class EVM {
       Operation currentOperation;
       int opcode;
       int pc = frame.getPC();
-      try {
+      if (pc < code.length) {
         opcode = code[pc] & 0xff;
         currentOperation = operationArray[opcode];
-      } catch (ArrayIndexOutOfBoundsException aiiobe) {
+      } else {
         opcode = 0;
         currentOperation = endOfScriptStop;
       }
@@ -480,10 +478,10 @@ public class EVM {
       Operation currentOperation;
       int opcode;
       int pc = frame.getPC();
-      try {
+      if (pc < code.length) {
         opcode = code[pc] & 0xff;
         currentOperation = operationArray[opcode];
-      } catch (ArrayIndexOutOfBoundsException aiiobe) {
+      } else {
         opcode = 0;
         currentOperation = endOfScriptStop;
       }

@@ -795,30 +795,30 @@ public record UInt256(long u3, long u2, long u1, long u0) {
       // Remaining intra-word bit shift (shift % 64)
       final int bitShift = shift & 63;
       switch (wordShift) {
-        case 0 -> {
+        case 0:
           w0 = shiftRightWord(w0, w1, bitShift);
           w1 = shiftRightWord(w1, w2, bitShift);
           w2 = shiftRightWord(w2, w3, bitShift);
           w3 = shiftRightWord(w3, fill, bitShift);
-        }
-        case 1 -> {
+          break;
+        case 1:
           w0 = shiftRightWord(w1, w2, bitShift);
           w1 = shiftRightWord(w2, w3, bitShift);
           w2 = shiftRightWord(w3, fill, bitShift);
           w3 = fill;
-        }
-        case 2 -> {
+          break;
+        case 2:
           w0 = shiftRightWord(w2, w3, bitShift);
           w1 = shiftRightWord(w3, fill, bitShift);
           w2 = fill;
           w3 = fill;
-        }
-        case 3 -> {
+          break;
+        case 3:
           w0 = shiftRightWord(w3, fill, bitShift);
           w1 = fill;
           w2 = fill;
           w3 = fill;
-        }
+          break;
       }
     }
     return new UInt256(w3, w2, w1, w0);
@@ -867,30 +867,30 @@ public record UInt256(long u3, long u2, long u1, long u0) {
       // Remaining intra-word bit shift (shift % 64)
       final int bitShift = shift & 63;
       switch (wordShift) {
-        case 0 -> {
+        case 0:
           w3 = shiftLeftWord(w3, w2, bitShift);
           w2 = shiftLeftWord(w2, w1, bitShift);
           w1 = shiftLeftWord(w1, w0, bitShift);
           w0 = shiftLeftWord(w0, 0, bitShift);
-        }
-        case 1 -> {
+          break;
+        case 1:
           w3 = shiftLeftWord(w2, w1, bitShift);
           w2 = shiftLeftWord(w1, w0, bitShift);
           w1 = shiftLeftWord(w0, 0, bitShift);
           w0 = 0;
-        }
-        case 2 -> {
+          break;
+        case 2:
           w3 = shiftLeftWord(w1, w0, bitShift);
           w2 = shiftLeftWord(w0, 0, bitShift);
           w1 = 0;
           w0 = 0;
-        }
-        case 3 -> {
+          break;
+        case 3:
           w3 = shiftLeftWord(w0, 0, bitShift);
           w2 = 0;
           w1 = 0;
           w0 = 0;
-        }
+          break;
       }
     }
     return new UInt256(w3, w2, w1, w0);
@@ -2159,7 +2159,7 @@ public record UInt256(long u3, long u2, long u1, long u0) {
       return new UInt256(u3, u2, u1, u0);
     }
 
-    private UInt512 shiftLeftWide(final int shift) {
+    UInt512 shiftLeftWide(final int shift) {
       if (shift == 0) return new UInt512(0, u6, u5, u4, u3, u2, u1, u0);
       int invShift = (N_BITS_PER_LIMB - shift);
       long z0 = (u0 << shift);

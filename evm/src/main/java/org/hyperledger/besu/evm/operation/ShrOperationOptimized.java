@@ -105,30 +105,30 @@ public class ShrOperationOptimized extends AbstractFixedCostOperation {
     final int bitShift = shift & 63;
 
     switch (wordShift) {
-      case 0 -> {
+      case 0:
         w3 = shiftRight(w3, w2, bitShift);
         w2 = shiftRight(w2, w1, bitShift);
         w1 = shiftRight(w1, w0, bitShift);
         w0 = shiftRight(w0, 0, bitShift);
-      }
-      case 1 -> {
+        break;
+      case 1:
         w3 = shiftRight(w2, w1, bitShift);
         w2 = shiftRight(w1, w0, bitShift);
         w1 = shiftRight(w0, 0, bitShift);
         w0 = 0;
-      }
-      case 2 -> {
+        break;
+      case 2:
         w3 = shiftRight(w1, w0, bitShift);
         w2 = shiftRight(w0, 0, bitShift);
         w1 = 0;
         w0 = 0;
-      }
-      case 3 -> {
+        break;
+      case 3:
         w3 = shiftRight(w0, 0, bitShift);
         w2 = 0;
         w1 = 0;
         w0 = 0;
-      }
+        break;
     }
 
     final byte[] out = new byte[32];

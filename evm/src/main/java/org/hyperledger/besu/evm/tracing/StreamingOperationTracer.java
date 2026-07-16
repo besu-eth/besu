@@ -103,8 +103,7 @@ public class StreamingOperationTracer implements OperationTracer {
   @Override
   public void tracePreExecution(final MessageFrame messageFrame) {
     final Operation currentOp = messageFrame.getCurrentOperation();
-    traceOpcode = traceOpcode(currentOp);
-    if (!traceOpcode) {
+    if (!(traceOpcode = traceOpcode(currentOp))) {
       return;
     }
     stack = new ArrayList<>(messageFrame.stackSize());

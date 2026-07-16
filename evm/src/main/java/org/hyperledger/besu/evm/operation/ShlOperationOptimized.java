@@ -100,30 +100,30 @@ public class ShlOperationOptimized extends AbstractFixedCostOperation {
     // Remaining intra-word bit shift (shift % 64).
     final int bitShift = shift & 63;
     switch (wordShift) {
-      case 0 -> {
+      case 0:
         w0 = shiftLeft(w0, w1, bitShift);
         w1 = shiftLeft(w1, w2, bitShift);
         w2 = shiftLeft(w2, w3, bitShift);
         w3 = shiftLeft(w3, 0, bitShift);
-      }
-      case 1 -> {
+        break;
+      case 1:
         w0 = shiftLeft(w1, w2, bitShift);
         w1 = shiftLeft(w2, w3, bitShift);
         w2 = shiftLeft(w3, 0, bitShift);
         w3 = 0;
-      }
-      case 2 -> {
+        break;
+      case 2:
         w0 = shiftLeft(w2, w3, bitShift);
         w1 = shiftLeft(w3, 0, bitShift);
         w2 = 0;
         w3 = 0;
-      }
-      case 3 -> {
+        break;
+      case 3:
         w0 = shiftLeft(w3, 0, bitShift);
         w1 = 0;
         w2 = 0;
         w3 = 0;
-      }
+        break;
     }
     final byte[] out = new byte[32];
     putLong(out, 0, w0);

@@ -51,10 +51,10 @@ public class SarOperation extends AbstractFixedCostOperation {
    * @return the operation result
    */
   public static OperationResult staticOperation(final MessageFrame frame) {
-    Bytes shiftAmount = frame.popStackItem().trimLeadingZeros();
+    Bytes shiftAmount = frame.popStackItem();
     final Bytes value = leftPad(frame.popStackItem());
     final boolean negativeNumber = value.get(0) < 0;
-    if (shiftAmount.size() > 4) {
+    if (shiftAmount.size() > 4 && (shiftAmount = shiftAmount.trimLeadingZeros()).size() > 4) {
       frame.pushStackItem(negativeNumber ? ALL_BITS : Bytes.EMPTY);
     } else {
       final int shiftAmountInt = shiftAmount.toInt();
