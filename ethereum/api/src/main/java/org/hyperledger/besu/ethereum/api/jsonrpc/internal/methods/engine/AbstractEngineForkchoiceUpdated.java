@@ -186,7 +186,7 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
         return maybeError.get();
       }
       if (!getWithdrawalsValidator(
-              protocolSchedule.get(), newHead, maybePayloadAttributes.get().getTimestamp())
+              maybeProtocolSchedule.get(), newHead, maybePayloadAttributes.get().getTimestamp())
           .validateWithdrawals(withdrawals)) {
         return new JsonRpcErrorResponse(requestId, getInvalidWithdrawalsError());
       }

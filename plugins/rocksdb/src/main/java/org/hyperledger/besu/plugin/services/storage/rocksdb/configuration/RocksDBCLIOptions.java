@@ -16,8 +16,10 @@ package org.hyperledger.besu.plugin.services.storage.rocksdb.configuration;
 
 import java.lang.management.ManagementFactory;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 import com.google.common.base.MoreObjects;
+import com.google.common.base.Suppliers;
 import com.sun.management.OperatingSystemMXBean;
 import picocli.CommandLine;
 
@@ -160,6 +162,10 @@ public class RocksDBCLIOptions {
       description = "Blob garbage collection force threshold (default: ${DEFAULT-VALUE})")
   Optional<Double> blobGarbageCollectionForceThreshold = Optional.empty();
 
+  private final Supplier<Integer> resolvedMaxOpenFilesSupplier =
+      Suppliers.memoize(
+          () -> maxOpenFiles.orElseGet(RocksDBCLIOptions::deriveMaxOpenFilesFromAvailableMemory));
+
   private RocksDBCLIOptions() {}
 
   /**
@@ -197,7 +203,7 @@ public class RocksDBCLIOptions {
    */
   public RocksDBFactoryConfiguration toDomainObject() {
     return new RocksDBFactoryConfiguration(
-        maxOpenFiles.orElseGet(RocksDBCLIOptions::deriveMaxOpenFilesFromAvailableMemory),
+        resolveMaxOpenFiles(),
         backgroundThreadCount,
         cacheCapacity,
         isHighSpec,
@@ -207,6 +213,10 @@ public class RocksDBCLIOptions {
         blobGarbageCollectionForceThreshold);
   }
 
+  private int resolveMaxOpenFiles() {
+    return resolvedMaxOpenFilesSupplier.get();
+  }
+
   /**
    * Is high spec.
    *
@@ -214,6 +224,25 @@ public class RocksDBCLIOptions {
    */
   public boolean isHighSpec() {
     return isHighSpec;
+  }
+
+  /**
+   * Returns the max open files value that will be used, either explicitly set or derived from
+   * available memory.
+   *
+   * @return the resolved max open files value
+   */
+  public int getResolvedMaxOpenFiles() {
+    return resolveMaxOpenFiles();
+  }
+
+  /**
+   * Returns whether max open files was explicitly set via CLI.
+   *
+   * @return true if max open files was set via CLI, false if derived from available memory
+   */
+  public boolean isMaxOpenFilesExplicitlySet() {
+    return maxOpenFiles.isPresent();
   }
 
   /**

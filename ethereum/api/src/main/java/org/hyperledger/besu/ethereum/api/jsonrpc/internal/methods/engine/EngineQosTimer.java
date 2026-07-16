@@ -16,6 +16,8 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.QosTimer;
 
+import java.util.function.Consumer;
+
 import com.google.common.annotations.VisibleForTesting;
 import io.vertx.core.Vertx;
 import org.slf4j.Logger;
@@ -29,6 +31,13 @@ public class EngineQosTimer implements EngineCallListener {
 
   public EngineQosTimer(final Vertx vertx) {
     qosTimer = new QosTimer(vertx, QOS_TIMEOUT_MILLIS, lastCall -> logTimeoutWarning());
+    qosTimer.resetTimer();
+  }
+
+  @VisibleForTesting
+  EngineQosTimer(
+      final Vertx vertx, final long qosTimeoutMillis, final Consumer<Long> timeoutHandler) {
+    qosTimer = new QosTimer(vertx, qosTimeoutMillis, timeoutHandler);
     qosTimer.resetTimer();
   }
 
