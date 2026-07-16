@@ -120,10 +120,6 @@ public class BonsaiWorldState extends PathBasedWorldState {
     return evmConfiguration;
   }
 
-  public BonsaiCachedMerkleTrieLoader getBonsaiCachedMerkleTrieLoader() {
-    return bonsaiCachedMerkleTrieLoader;
-  }
-
   @Override
   public Account get(final Address address) {
     return getWorldStateStorage()
