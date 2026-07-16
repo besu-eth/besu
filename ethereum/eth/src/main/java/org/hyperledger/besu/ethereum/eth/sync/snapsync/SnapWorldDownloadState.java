@@ -54,7 +54,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
-import java.util.function.Predicate;
 import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -357,9 +356,7 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest>
       final Consumer<Void> unBlocked) {
     boolean isWaiting = false;
     while (!internalFuture.isDone()) {
-      while (queueDependencies.stream()
-          .map(TaskCollection::allTasksCompleted)
-          .anyMatch(Predicate.isEqual(false))) {
+      while (hasIncompleteDependency(queueDependencies)) {
         try {
           isWaiting = true;
           wait();
@@ -385,6 +382,24 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest>
       }
     }
     return null;
+  }
+
+  /**
+   * Returns {@code true} if any of the given queue dependencies still has incomplete tasks. This is
+   * a lightweight, allocation-free alternative to the previous stream-based check ({@code
+   * queueDependencies.stream().map(...).anyMatch(...)}) which allocated a new Stream pipeline and
+   * lambda objects on every invocation. Since this method is called inside a {@code synchronized}
+   * wait-loop that is woken on every {@link #enqueueRequest} call, eliminating those allocations
+   * reduces GC pressure and lock contention during snap sync.
+   */
+  private static boolean hasIncompleteDependency(
+      final List<TaskCollection<SnapDataRequest>> queueDependencies) {
+    for (final TaskCollection<SnapDataRequest> dependency : queueDependencies) {
+      if (!dependency.allTasksCompleted()) {
+        return true;
+      }
+    }
+    return false;
   }
 
   public synchronized Task<SnapDataRequest> dequeueAccountRequestBlocking() {
