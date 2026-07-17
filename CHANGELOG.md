@@ -23,6 +23,7 @@
 
 ### Additions and Improvements
 - Upgrade jackson dependencies to 2.21.5 and opentelemetry to 1.62.0 [#10775](https://github.com/besu-eth/besu/pull/10775)
+- Upgrade netty to 4.2.16.Final [#10822](https://github.com/besu-eth/besu/pull/10822)
 - Migrate the DiscV4 peer discovery UDP transport from Vert.x to Netty. The `vertx_eventloop_pending_tasks` metric is dropped with no replacement (it was Vert.x-specific); all other discovery metrics (`besu_network_discovery_*`) are unaffected. [#10716](https://github.com/besu-eth/besu/pull/10716)
 
 ## 26.7.0
