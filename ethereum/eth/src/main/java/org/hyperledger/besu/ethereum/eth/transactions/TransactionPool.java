@@ -505,16 +505,13 @@ public class TransactionPool implements BlockAddedObserver {
       final FeeMarket feeMarket) {
 
     if (isLocal) {
-      // Local (RPC) fee cap: a zero cap currently disables the check. A separate change updates
-      // this to treat zero as "cap fees to zero"; that is intentionally left to that change, so
-      // the local branch is untouched here.
+      // Local (RPC) fee cap
       if (!configuration.getTxFeeCap().isZero()
           && getMaxGasPrice(transaction).get().greaterThan(configuration.getTxFeeCap())) {
         return TransactionInvalidReason.TX_FEECAP_EXCEEDED;
       }
     } else {
-      // Remote (P2P) fee cap: a zero cap means "cap fees to zero" (reject any transaction whose gas
-      // price exceeds zero), NOT "disable the cap". This matches the new RPC fee cap semantics.
+      // Remote (P2P) fee cap
       if (getMaxGasPrice(transaction).get().greaterThan(configuration.getP2pTxFeeCap())) {
         return TransactionInvalidReason.TX_FEECAP_EXCEEDED;
       }
