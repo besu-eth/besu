@@ -58,6 +58,9 @@ public class EIP7778GasAccountingAcceptanceTest extends AcceptanceTestBase {
   public static final Bytes SENDER_PRIVATE_KEY =
       Bytes.fromHexString("3a4ff6d22d7502ef2452368165422861c01a0f72f851793b372b87888dc3c453");
 
+  // Pre-existing, funded EOA from the Amsterdam genesis. Sending value to an account that already
+  // exists avoids the EIP-2780/EIP-8038 new-account state-gas charge, keeping a plain transfer at
+  // the canonical 21,000 gas so this test's exact gas-accounting assertions still hold.
   private static final Address RECIPIENT =
       Address.fromHexStringStrict("0xa4664C40AACeBD82A2Db79f0ea36C06Bc6A19Adb");
 
