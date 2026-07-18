@@ -105,7 +105,9 @@ public class EIP7708TransferLogAcceptanceTest extends AcceptanceTestBase {
             .nonce(0)
             .maxPriorityFeePerGas(Wei.of(1_000_000_000))
             .maxFeePerGas(Wei.fromHexString("0x02540BE400"))
-            .gasLimit(21_000)
+            // EIP-2780/EIP-8038 (Amsterdam): a value transfer to a new account costs the 21,000
+            // regular intrinsic plus new-account state gas, well above the legacy 21,000 flat cost.
+            .gasLimit(300_000)
             .to(Address.fromHexStringStrict(recipient.getAddress()))
             .value(transferAmount)
             .payload(Bytes.EMPTY)
