@@ -25,7 +25,8 @@ import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import java.nio.file.Path;
 
 /** A concrete implementation of BesuConfiguration which is used in Besu plugin framework. */
-public class BesuConfigurationImpl implements BesuConfiguration {
+public class BesuConfigurationImpl
+    implements BesuConfiguration, org.hyperledger.besu.plugin.BesuConfiguration {
   private Path storagePath;
   private Path dataPath;
   private DataStorageConfiguration dataStorageConfiguration;

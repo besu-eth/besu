@@ -798,6 +798,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     } else {
       this.pluginCommonConfiguration = new BesuConfigurationImpl();
       besuPluginContext.addService(BesuConfiguration.class, this.pluginCommonConfiguration);
+      besuPluginContext.addService(
+          org.hyperledger.besu.plugin.BesuConfiguration.class, this.pluginCommonConfiguration);
     }
     this.rpcEndpointServiceImpl = rpcEndpointServiceImpl;
     this.transactionSelectionServiceImpl = transactionSelectionServiceImpl;
