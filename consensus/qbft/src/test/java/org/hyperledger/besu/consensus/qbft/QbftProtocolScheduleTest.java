@@ -141,7 +141,8 @@ public class QbftProtocolScheduleTest {
         new BadBlockManager(),
         false,
         BalConfiguration.DEFAULT,
-        new NoOpMetricsSystem());
+        new NoOpMetricsSystem(),
+        Long.MAX_VALUE);
   }
 
   private boolean validateHeader(

@@ -516,6 +516,11 @@ public class BesuNodeFactory {
 
   public BesuNode createExecutionEngineGenesisNode(final String name, final String genesisPath)
       throws IOException {
+    return createExecutionEngineGenesisNode(name, genesisPath, true);
+  }
+
+  public BesuNode createExecutionEngineGenesisNode(
+      final String name, final String genesisPath, final boolean p2pEnabled) throws IOException {
     final String genesisFile = GenesisConfigurationFactory.readGenesisFile(genesisPath);
 
     return create(
@@ -524,6 +529,7 @@ public class BesuNodeFactory {
             .genesisConfigProvider((a) -> Optional.of(genesisFile))
             .devMode(false)
             .bootnodeEligible(false)
+            .p2pEnabled(p2pEnabled)
             .miningConfiguration(
                 MiningConfiguration.newDefault()
                     .setCoinbase(AddressHelpers.ofValue(1))

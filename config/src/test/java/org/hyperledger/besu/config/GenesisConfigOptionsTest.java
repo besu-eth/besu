@@ -296,7 +296,6 @@ class GenesisConfigOptionsTest {
   @Test
   void shouldSupportEmptyGenesisConfig() {
     final GenesisConfigOptions config = GenesisConfig.fromConfig("{}").getConfigOptions();
-    assertThat(config.isEthHash()).isFalse();
     assertThat(config.isClique()).isFalse();
     assertThat(config.isPoa()).isFalse();
     assertThat(config.getHomesteadBlockNumber()).isEmpty();

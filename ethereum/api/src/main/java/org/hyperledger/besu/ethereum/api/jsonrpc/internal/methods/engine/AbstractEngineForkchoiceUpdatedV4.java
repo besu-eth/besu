@@ -242,7 +242,7 @@ public abstract class AbstractEngineForkchoiceUpdatedV4 extends ExecutionEngineJ
         return maybeError.get();
       }
       if (!getWithdrawalsValidator(
-              protocolSchedule.get(), newHead, maybePayloadAttributes.get().getTimestamp())
+              maybeProtocolSchedule.get(), newHead, maybePayloadAttributes.get().getTimestamp())
           .validateWithdrawals(withdrawals)) {
         return new JsonRpcErrorResponse(requestId, getInvalidPayloadAttributesError());
       }
@@ -277,6 +277,7 @@ public abstract class AbstractEngineForkchoiceUpdatedV4 extends ExecutionEngineJ
                         .parentBeaconBlockRoot(
                             Optional.ofNullable(payloadAttributes.getParentBeaconBlockRoot()))
                         .slotNumber(Optional.ofNullable(payloadAttributes.getSlotNumber()))
+                        .targetGasLimit(Optional.ofNullable(payloadAttributes.getTargetGasLimit()))
                         .build()));
 
     payloadId.ifPresent(

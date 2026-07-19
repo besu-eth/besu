@@ -33,11 +33,9 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -47,11 +45,7 @@ public abstract class PathBasedWorldStateCacheManager implements StorageSubscrib
   private final PathBasedWorldStateProvider archive;
   private final EvmConfiguration evmConfiguration;
   protected final WorldStateConfig worldStateConfig;
-  private final Cache<Hash, BlockHeader> stateRootToBlockHeaderCache =
-      Caffeine.newBuilder()
-          .maximumSize(RETAINED_LAYERS)
-          .expireAfterWrite(100, TimeUnit.MINUTES)
-          .build();
+  private final Map<Hash, BlockHeader> stateRootToBlockHeaderCache = new ConcurrentHashMap<>();
 
   private final PathBasedWorldStateKeyValueStorage rootWorldStateStorage;
   private final Map<Hash, PathBasedCachedWorldStateView> cachedWorldStatesByHash;
@@ -118,8 +112,8 @@ public abstract class PathBasedWorldStateCacheManager implements StorageSubscrib
   }
 
   private synchronized void scrubCachedLayers(final long newMaxHeight) {
+    final long waterline = newMaxHeight - RETAINED_LAYERS;
     if (cachedWorldStatesByHash.size() > RETAINED_LAYERS) {
-      final long waterline = newMaxHeight - RETAINED_LAYERS;
       cachedWorldStatesByHash.values().stream()
           .filter(layer -> layer.getBlockNumber() < waterline)
           .toList()
@@ -129,6 +123,7 @@ public abstract class PathBasedWorldStateCacheManager implements StorageSubscrib
                 layer.close();
               });
     }
+    stateRootToBlockHeaderCache.values().removeIf(h -> h.getNumber() < waterline);
   }
 
   public Optional<PathBasedWorldState> getWorldState(final Hash blockHash) {
@@ -207,6 +202,7 @@ public abstract class PathBasedWorldStateCacheManager implements StorageSubscrib
 
   public void reset() {
     this.cachedWorldStatesByHash.clear();
+    this.stateRootToBlockHeaderCache.clear();
   }
 
   public void primeRootToBlockHashCache(final Blockchain blockchain, final int numEntries) {
@@ -229,7 +225,7 @@ public abstract class PathBasedWorldStateCacheManager implements StorageSubscrib
    */
   public synchronized Optional<PathBasedWorldStateKeyValueStorage> getStorageByRootHash(
       final Hash rootHash) {
-    return Optional.ofNullable(stateRootToBlockHeaderCache.getIfPresent(rootHash))
+    return Optional.ofNullable(stateRootToBlockHeaderCache.get(rootHash))
         .flatMap(
             header ->
                 Optional.ofNullable(cachedWorldStatesByHash.get(header.getBlockHash()))
@@ -250,26 +246,31 @@ public abstract class PathBasedWorldStateCacheManager implements StorageSubscrib
   @Override
   public void onClearStorage() {
     this.cachedWorldStatesByHash.clear();
+    this.stateRootToBlockHeaderCache.clear();
   }
 
   @Override
   public void onClearFlatDatabaseStorage() {
     this.cachedWorldStatesByHash.clear();
+    this.stateRootToBlockHeaderCache.clear();
   }
 
   @Override
   public void onClearTrieLog() {
     this.cachedWorldStatesByHash.clear();
+    this.stateRootToBlockHeaderCache.clear();
   }
 
   @Override
   public void onClearTrie() {
     this.cachedWorldStatesByHash.clear();
+    this.stateRootToBlockHeaderCache.clear();
   }
 
   @Override
   public void onCloseStorage() {
     this.cachedWorldStatesByHash.clear();
+    this.stateRootToBlockHeaderCache.clear();
   }
 
   public abstract PathBasedWorldState createWorldState(

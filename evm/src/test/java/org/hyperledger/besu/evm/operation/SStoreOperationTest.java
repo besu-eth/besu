@@ -113,7 +113,7 @@ class SStoreOperationTest {
                     return blockGasLimit;
                   }
                 })
-            .initialGas(100_000L)
+            .initialGas(200_000L)
             .build();
     worldStateUpdater.getOrCreate(address).setBalance(Wei.of(1));
     worldStateUpdater.commit();
@@ -125,9 +125,7 @@ class SStoreOperationTest {
     final OperationResult result = operation.execute(frame, null);
     assertThat(result.getHaltReason()).isNull();
 
-    // State gas: 32 * cpsb(36M) = 32 * 150 = 4_800
-    final long expectedStateGas =
-        32L * new Eip8037StateGasCostCalculator().costPerStateByte(blockGasLimit);
+    final long expectedStateGas = new Eip8037StateGasCostCalculator().storageSetStateGas();
     assertThat(frame.getStateGasUsed()).isEqualTo(expectedStateGas);
   }
 
@@ -213,9 +211,8 @@ class SStoreOperationTest {
     final OperationResult result1 = operation.execute(frame, null);
     assertThat(result1.getHaltReason()).isNull();
 
-    final long expectedStateGas =
-        32L * new Eip8037StateGasCostCalculator().costPerStateByte(blockGasLimit);
-    assertThat(frame.getStateGasUsed()).isEqualTo(expectedStateGas); // 37,568
+    final long expectedStateGas = new Eip8037StateGasCostCalculator().storageSetStateGas();
+    assertThat(frame.getStateGasUsed()).isEqualTo(expectedStateGas);
 
     // Second SSTORE: key=1, value=0 (nonzero -> 0, original=0 triggers state gas refund)
     frame.pushStackItem(UInt256.ZERO);
@@ -223,10 +220,14 @@ class SStoreOperationTest {
     final OperationResult result2 = operation.execute(frame, null);
     assertThat(result2.getHaltReason()).isNull();
 
-    // State gas refund (37,568) + regular SSTORE refund for 0->X->0 (2,800)
-    assertThat(frame.getGasRefund()).isEqualTo(expectedStateGas + 2_800L);
-    // stateGasUsed tracks gross consumption, not decremented by refunds
-    assertThat(frame.getStateGasUsed()).isEqualTo(expectedStateGas);
+    // EIP-8037: state gas refund is credited directly to
+    // state_gas_reservoir (not refund_counter, bypassing the 20% cap) and stateGasUsed is
+    // decremented. EIP-8038: the regular refund for 0→X→0 is the flat STORAGE_WRITE (10,000)
+    // charged on the first change, refunded when the slot is restored to its original (zero) value;
+    // it still goes via refund_counter.
+    assertThat(frame.getGasRefund()).isEqualTo(10_000L);
+    assertThat(frame.getStateGasUsed()).isZero();
+    assertThat(frame.getStateGasReservoir()).isEqualTo(100_000L);
   }
 
   @Test
@@ -270,8 +271,9 @@ class SStoreOperationTest {
 
     // No state gas for clearing when original was nonzero
     assertThat(frame.getStateGasUsed()).isEqualTo(0L);
-    // Only the regular SSTORE_CLEARS_SCHEDULE refund (4,800)
-    assertThat(frame.getGasRefund()).isEqualTo(4_800L);
+    // EIP-8038: storage-clear refund = (STORAGE_WRITE 10,000 + COLD_STORAGE_ACCESS 3,000) * 4800 /
+    // 5000 = 12,480 (replaces the London SSTORE_CLEARS_SCHEDULE of 4,800).
+    assertThat(frame.getGasRefund()).isEqualTo(12_480L);
   }
 
   @Test
@@ -280,7 +282,6 @@ class SStoreOperationTest {
     final SStoreOperation operation =
         new SStoreOperation(amsterdamCalc, SStoreOperation.EIP_1706_MINIMUM);
 
-    final long blockGasLimit = 36_000_000L;
     final Address address = Address.fromHexString("0x18675309");
     final ToyWorld toyWorld = new ToyWorld();
 
@@ -295,29 +296,27 @@ class SStoreOperationTest {
         new TestMessageFrameBuilder()
             .address(address)
             .worldUpdater(txUpdater)
-            .blockValues(
-                new FakeBlockValues(1337) {
-                  @Override
-                  public long getGasLimit() {
-                    return blockGasLimit;
-                  }
-                })
-            .initialGas(100_000L)
+            .blockValues(new FakeBlockValues(1337))
+            // EIP-8038: the regular SSTORE cost for a cold 0->nonzero set is now 13,000
+            // (2,900 cold access + 100 warm base + 10,000 STORAGE_WRITE), up from 5,000. The frame
+            // must retain enough gas after that deduction to absorb the state-gas spill
+            // (97,920 - 10,000 = 87,920), so initialGas is raised accordingly.
+            .initialGas(200_000L)
             .build();
 
     // Set reservoir to less than what the SSTORE will need
     frame.setStateGasReservoir(10_000L);
     final long gasBeforeSstore = frame.getRemainingGas();
 
-    // SSTORE 0 -> nonzero: needs 37,568 state gas but only 10k in reservoir
+    // SSTORE 0 -> nonzero: state gas demand exceeds the 10k reservoir, the excess must spill to
+    // regular gas.
     frame.pushStackItem(UInt256.valueOf(42));
     frame.pushStackItem(UInt256.ONE);
     final OperationResult result = operation.execute(frame, null);
     assertThat(result.getHaltReason()).isNull();
 
-    final long expectedStateGas =
-        32L * new Eip8037StateGasCostCalculator().costPerStateByte(blockGasLimit);
-    final long expectedSpill = expectedStateGas - 10_000L; // 27,568
+    final long expectedStateGas = new Eip8037StateGasCostCalculator().storageSetStateGas();
+    final long expectedSpill = expectedStateGas - 10_000L;
 
     // Reservoir fully drained
     assertThat(frame.getStateGasReservoir()).isEqualTo(0L);

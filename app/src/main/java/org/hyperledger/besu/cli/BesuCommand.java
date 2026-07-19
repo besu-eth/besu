@@ -1546,7 +1546,11 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
   private void validateMiningParams() {
     miningOptions.validate(
-        commandLine, genesisConfigOptionsSupplier.get(), isMergeEnabled(), logger);
+        commandLine,
+        genesisConfigOptionsSupplier.get(),
+        isMergeEnabled(),
+        genesisFile == null,
+        logger);
   }
 
   private void validateP2POptions() {
@@ -2114,6 +2118,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .cacheLastBlockHeaders(numberOfBlockHeadersToCache)
             .isCacheLastBlockHeadersPreloadEnabled(isCacheLastBlockHeadersPreloadEnabled)
             .senderNonceIndexingEnabled(txSenderNonceIndexEnabled)
+            .p2pEnabled(p2PDiscoveryOptions.p2pEnabled)
             .genesisStateHashCacheEnabled(genesisStateHashCacheEnabled)
             .apiConfiguration(apiConfiguration)
             .balConfiguration(balConfiguration)
@@ -2968,7 +2973,9 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         .setEvmV2(unstableEvmOptions.toDomainObject().enableEvmV2())
         .setPluginContext(this.besuPluginContext)
         .setHistoryExpiryPruneEnabled(getDataStorageConfiguration().getHistoryExpiryPruneEnabled())
-        .setBlobDBSettings(rocksDBPlugin.getBlobDBSettings());
+        .setBlobDBSettings(rocksDBPlugin.getBlobDBSettings())
+        .setRocksDbMaxOpenFiles(
+            rocksDBPlugin.getResolvedMaxOpenFiles(), rocksDBPlugin.isMaxOpenFilesExplicitlySet());
 
     return builder.build();
   }

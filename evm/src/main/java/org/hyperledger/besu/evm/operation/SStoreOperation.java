@@ -20,14 +20,20 @@ import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
+import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
+import org.hyperledger.besu.evm.gascalculator.StorageTransition;
 
 import java.util.function.Supplier;
 
 import com.google.common.base.Suppliers;
 import org.apache.tuweni.units.bigints.UInt256;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** The SStore operation. */
 public class SStoreOperation extends AbstractOperation {
+
+  private static final Logger LOG = LoggerFactory.getLogger(SStoreOperation.class);
 
   /** The constant FRONTIER_MINIMUM. */
   public static final long FRONTIER_MINIMUM = 0L;
@@ -63,15 +69,6 @@ public class SStoreOperation extends AbstractOperation {
 
   @Override
   public OperationResult execute(final MessageFrame frame, final EVM evm) {
-
-    final UInt256 key = UInt256.fromBytes(frame.popStackItem());
-    final UInt256 newValue = UInt256.fromBytes(frame.popStackItem());
-
-    final MutableAccount account = getMutableAccount(frame.getRecipientAddress(), frame);
-    if (account == null) {
-      return ILLEGAL_STATE_CHANGE;
-    }
-
     final long remainingGas = frame.getRemainingGas();
 
     if (frame.isStatic()) {
@@ -82,16 +79,30 @@ public class SStoreOperation extends AbstractOperation {
       return new OperationResult(minimumGasRemaining, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 
-    final Address address = account.getAddress();
-    final boolean slotIsWarm = frame.warmUpStorage(address, key);
+    final UInt256 key = UInt256.fromBytes(frame.popStackItem());
+    final UInt256 newValue = UInt256.fromBytes(frame.popStackItem());
+
+    final Address address = frame.getRecipientAddress();
+
+    final long sloadCost =
+        frame.warmUpStorage(address, key) ? 0L : gasCalculator().getSStoreColdAccessGasCost();
+    if (remainingGas < sloadCost) {
+      return new OperationResult(sloadCost, ExceptionalHaltReason.INSUFFICIENT_GAS);
+    }
+
+    final MutableAccount account = getMutableAccount(address, frame);
+    if (account == null) {
+      return ILLEGAL_STATE_CHANGE;
+    }
+
     final Supplier<UInt256> currentValueSupplier =
         Suppliers.memoize(() -> getStorageValue(account, key, frame));
     final Supplier<UInt256> originalValueSupplier =
         Suppliers.memoize(() -> account.getOriginalStorageValue(key));
 
     final long cost =
-        gasCalculator().calculateStorageCost(newValue, currentValueSupplier, originalValueSupplier)
-            + (slotIsWarm ? 0L : gasCalculator().getColdSloadCost());
+        gasCalculator().slotAccessCost(newValue, currentValueSupplier, originalValueSupplier)
+            + sloadCost;
     if (remainingGas < cost) {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
@@ -106,15 +117,25 @@ public class SStoreOperation extends AbstractOperation {
         gasCalculator()
             .calculateStorageRefundAmount(newValue, currentValueSupplier, originalValueSupplier));
 
-    // EIP-8037: Refund state gas for 0→X→0 (storage set then clear)
-    gasCalculator()
-        .stateGasCostCalculator()
-        .refundStorageSetStateGas(frame, newValue, currentValueSupplier, originalValueSupplier);
+    LOG.trace(
+        "EIP-8037 REC_STORAGE depth={} addr={} key={} txEntryIsZero={} beforeIsZero={} afterIsZero={}",
+        frame.getDepth(),
+        address.toHexString(),
+        "0x" + key.toHexString().substring(2),
+        originalValueSupplier.get().isZero(),
+        currentValueSupplier.get().isZero(),
+        newValue.isZero());
 
-    // EIP-8037: Charge state gas for storage set (0 -> nonzero)
-    if (!gasCalculator()
-        .stateGasCostCalculator()
-        .chargeStorageSetStateGas(frame, newValue, currentValueSupplier, originalValueSupplier)) {
+    final StateGasCostCalculator stateGasCalc = gasCalculator().stateGasCostCalculator();
+    final StorageTransition transition =
+        StorageTransition.of(newValue, currentValueSupplier, originalValueSupplier);
+    final long storageSetStateGas = stateGasCalc.storageSetStateGas();
+
+    // EIP-8037: Refund state gas for 0→X→0 (storage set then clear), otherwise charge state gas
+    // for a storage set (0 → nonzero). The two transitions are mutually exclusive.
+    if (transition.isUnwoundSet()) {
+      frame.refillStateGasReservoir(storageSetStateGas);
+    } else if (transition.isStorageSet() && !frame.consumeStateGas(storageSetStateGas)) {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 

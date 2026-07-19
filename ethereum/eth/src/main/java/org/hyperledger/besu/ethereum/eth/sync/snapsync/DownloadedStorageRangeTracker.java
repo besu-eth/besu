@@ -48,7 +48,7 @@ public class DownloadedStorageRangeTracker {
     }
     final ConcurrentSkipListMap<Bytes32, Bytes32> ranges =
         accountStorageRanges.computeIfAbsent(accountHash, k -> new ConcurrentSkipListMap<>());
-    assertNoOverlap(ranges, startSlot, endSlot);
+    assertNoOverlap(accountHash, ranges, startSlot, endSlot);
     ranges.put(startSlot, endSlot);
   }
 
@@ -99,6 +99,7 @@ public class DownloadedStorageRangeTracker {
   }
 
   private void assertNoOverlap(
+      final Bytes32 accountHash,
       final ConcurrentSkipListMap<Bytes32, Bytes32> ranges,
       final Bytes32 start,
       final Bytes32 end) {
@@ -107,8 +108,8 @@ public class DownloadedStorageRangeTracker {
       if (start.compareTo(entry.getValue()) <= 0 && entry.getKey().compareTo(end) <= 0) {
         final String message =
             String.format(
-                "Overlapping storage slot range detected for account: [%s,%s] vs existing [%s,%s]",
-                start, end, entry.getKey(), entry.getValue());
+                "Overlapping storage slot range detected for account %s: [%s,%s] vs existing [%s,%s]",
+                accountHash, start, end, entry.getKey(), entry.getValue());
         LOG.error(message);
         throw new IllegalStateException(message);
       }
