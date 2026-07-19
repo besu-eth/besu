@@ -83,6 +83,10 @@ public class SnapV2BytecodeRequest extends SnapV2DataRequest {
     return accountHash;
   }
 
+  public SnapV2BytecodeRequest retarget(final BlockHeader newPivotBlockHeader) {
+    return new SnapV2BytecodeRequest(newPivotBlockHeader, accountHash, codeHash, getRangeStart());
+  }
+
   public Bytes32 getCodeHash() {
     return codeHash;
   }

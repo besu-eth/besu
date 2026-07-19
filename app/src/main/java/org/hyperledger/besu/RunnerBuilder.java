@@ -119,6 +119,7 @@ import org.hyperledger.besu.nat.docker.DockerNatManager;
 import org.hyperledger.besu.nat.upnp.UpnpNatManager;
 import org.hyperledger.besu.plugin.BesuPlugin;
 import org.hyperledger.besu.plugin.data.EnodeURL;
+import org.hyperledger.besu.plugin.services.HealthCheckService;
 import org.hyperledger.besu.services.BesuPluginContextImpl;
 import org.hyperledger.besu.services.PermissioningServiceImpl;
 import org.hyperledger.besu.services.RpcEndpointServiceImpl;
@@ -147,6 +148,7 @@ import graphql.GraphQL;
 import inet.ipaddr.IPAddress;
 import io.vertx.core.Vertx;
 import io.vertx.core.VertxOptions;
+import io.vertx.core.json.JsonObject;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.slf4j.Logger;
@@ -773,7 +775,6 @@ public class RunnerBuilder {
 
     PeerDiscoveryAgentFactory peerDiscoveryAgentFactory =
         DefaultPeerDiscoveryAgentFactory.builder()
-            .vertx(vertx)
             .nodeKey(nodeKey)
             .config(networkingConfiguration)
             .peerPermissions(peerPermissions)
@@ -920,8 +921,8 @@ public class RunnerBuilder {
                   metricsSystem,
                   natService,
                   nonEngineMethods,
-                  new HealthService(new LivenessCheck()),
-                  new HealthService(new ReadinessCheck(peerNetwork, synchronizer))));
+                  createLivenessHealthService(besuPluginContext),
+                  createReadinessHealthService(besuPluginContext, peerNetwork, synchronizer)));
     }
 
     final SubscriptionManager subscriptionManager =
@@ -1000,8 +1001,8 @@ public class RunnerBuilder {
                   Optional.ofNullable(engineSocketConfig),
                   besuController.getProtocolManager().ethContext().getScheduler(),
                   authToUse,
-                  new HealthService(new LivenessCheck()),
-                  new HealthService(new ReadinessCheck(peerNetwork, synchronizer))));
+                  createLivenessHealthService(besuPluginContext),
+                  createReadinessHealthService(besuPluginContext, peerNetwork, synchronizer)));
     }
 
     Optional<GraphQLHttpService> graphQLHttpService = Optional.empty();
@@ -1492,5 +1493,31 @@ public class RunnerBuilder {
 
   private Optional<MetricsService> createMetricsService(final MetricsConfiguration configuration) {
     return MetricsService.create(configuration, metricsSystem);
+  }
+
+  private HealthService createLivenessHealthService(final BesuPluginContextImpl pluginContext) {
+    return pluginContext
+        .getService(HealthCheckService.class)
+        .flatMap(HealthCheckService::getLivenessCheck)
+        .map(provider -> new HealthService(adaptProvider(provider)))
+        .orElseGet(() -> new HealthService(new LivenessCheck()));
+  }
+
+  private HealthService createReadinessHealthService(
+      final BesuPluginContextImpl pluginContext,
+      final P2PNetwork peerNetwork,
+      final Synchronizer synchronizer) {
+    return pluginContext
+        .getService(HealthCheckService.class)
+        .flatMap(HealthCheckService::getReadinessCheck)
+        .map(provider -> new HealthService(adaptProvider(provider)))
+        .orElseGet(() -> new HealthService(new ReadinessCheck(peerNetwork, synchronizer)));
+  }
+
+  private HealthService.HealthCheck adaptProvider(
+      final HealthCheckService.HealthCheckProvider provider) {
+    return healthServiceParams ->
+        new HealthService.HealthCheckResult(
+            provider.isHealthy(healthServiceParams::getParam), new JsonObject());
   }
 }

@@ -39,8 +39,8 @@ import org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor.TransactionR
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.MainnetParallelBlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelTransactionPreprocessing;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiAccount;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BalStateRootCalculator;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.bal.BlockAccessListStateRootCalculator;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
@@ -252,7 +252,7 @@ class AbstractBlockProcessorIntegrationTest {
     MutableWorldState worldState = worldStateArchive.getWorldState();
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x811a7edeb2747665e5e5937310b30154386ef71cda786b46d13f38e0b3005c15",
+            "0x5c3eb9b66ee0016bbd4443e2a96de010f1aea042553298fc24aad8c82919acaa",
             Wei.of(5),
             setSlot1Transaction,
             getSlot1Transaction,
@@ -690,7 +690,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x9e6593d2efd9e4c44345322bf7827e24e1eeb358ff56c243bb68298f26c4bc15",
+            "0x9aab329c4af98f869db7f442984be199a3d48957e812821278e833f3a050913f",
             Wei.of(5),
             setSlot1Transaction,
             getSlot1Transaction,
@@ -750,7 +750,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0xdb4e2dc94bbfa48bc713f908900abc327c28e7c219c720b4bdeab52ad8b88616",
+            "0x0dd020feb29c0b4b28b14670361fee996011649a6893729009efb175d04d37b9",
             Wei.of(5),
             getSlot1Transaction,
             setSlot1Transaction,
@@ -818,7 +818,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0xb86579f36603f3ebbafaee05790c98a66caf7e92d3f04bfd3a8e72ed78699ed3",
+            "0xa222751c4f6a7029e22a33a85a55589643fe5a9f41f9f20656afeab9ef326afd",
             Wei.of(5),
             transactionTransfer,
             getcontractBalanceTransaction,
@@ -886,7 +886,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x3ff3e1c296c331175247757bcfc3e6125bf0694b4c0398e080165b1125e44ff6",
+            "0x8a78d780cf70d21eeaabd27f3e77b24230d5d7470681da8de09ab1049dacb903",
             Wei.of(5),
             transactionTransfer,
             sendEthFromContractTransaction,
@@ -953,7 +953,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x78b95f5e24d63002d261ae40a6d1417150f55009df606beddce2c2982d9819ea",
+            "0x384e58316a44ae4ba496f9db5516e6b67c3db31837580d79a4efa4f87e3b77a4",
             Wei.of(5),
             transactionTransfer,
             getcontractBalanceTransaction,
@@ -1022,7 +1022,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x78b95f5e24d63002d261ae40a6d1417150f55009df606beddce2c2982d9819ea",
+            "0x384e58316a44ae4ba496f9db5516e6b67c3db31837580d79a4efa4f87e3b77a4",
             Wei.of(5),
             transactionTransfer,
             sendEthFromContractTransaction,
@@ -1286,7 +1286,8 @@ class AbstractBlockProcessorIntegrationTest {
         result.getYield().orElseThrow().getBlockAccessList().orElseThrow();
 
     final Hash computedRoot =
-        BalStateRootCalculator.computeAsync(protocolContext, block.getHeader(), blockAccessList)
+        BlockAccessListStateRootCalculator.computeAsync(
+                protocolContext, block.getHeader(), blockAccessList)
             .join()
             .root();
 

@@ -212,6 +212,8 @@ public class DefaultP2PNetwork implements P2PNetwork {
     final String address = config.discoveryConfiguration().getAdvertisedHost();
 
     Optional.ofNullable(config.discoveryConfiguration().getDNSDiscoveryURL())
+        .map(String::strip)
+        .filter(url -> !url.isBlank())
         .ifPresent(
             disco -> {
               // These lists are updated every 12h
@@ -377,10 +379,18 @@ public class DefaultP2PNetwork implements P2PNetwork {
 
   @VisibleForTesting
   DNSDaemonListener createDaemonListener() {
-    return (seq, records) ->
-        records.stream()
-            .map(DiscoveryPeerFactory::fromEthereumNodeRecord)
-            .forEach(peerDiscoveryAgent::addPeer);
+    return (seq, records) -> {
+      for (final EthereumNodeRecord record : records) {
+        try {
+          peerDiscoveryAgent.addPeer(DiscoveryPeerFactory.fromEthereumNodeRecord(record));
+        } catch (final RuntimeException e) {
+          LOG.trace(
+              "Ignoring unusable ENR from DNS discovery for {}: {}",
+              record.publicKey(),
+              e.getMessage());
+        }
+      }
+    };
   }
 
   @VisibleForTesting

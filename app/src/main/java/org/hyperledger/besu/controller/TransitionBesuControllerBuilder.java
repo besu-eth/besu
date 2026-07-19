@@ -296,6 +296,9 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
   public BesuController build() {
     final BesuController controller = super.build();
     mergeBesuControllerBuilder.getPostMergeContext().setSyncState(controller.getSyncState());
+    if (!p2pEnabled) {
+      controller.getSyncState().setReachedTerminalDifficulty(true);
+    }
     return controller;
   }
 

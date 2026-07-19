@@ -432,6 +432,49 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
   }
 
   @Test
+  public void shouldRejectCodeDelegationTransactionWhenAuthorizationChainIdIsOutOfRange() {
+    final TransactionValidator validator =
+        createTransactionValidator(
+            gasCalculator,
+            GasLimitCalculator.constant(),
+            FeeMarket.london(0L),
+            false,
+            Optional.of(BigInteger.ONE),
+            Set.of(TransactionType.DELEGATE_CODE),
+            Integer.MAX_VALUE);
+    final BigInteger twoPow256 = BigInteger.TWO.pow(256);
+    final Transaction transaction =
+        Transaction.builder()
+            .type(TransactionType.DELEGATE_CODE)
+            .nonce(0)
+            .maxPriorityFeePerGas(Wei.of(1))
+            .maxFeePerGas(Wei.of(2))
+            .gasLimit(21_000)
+            .to(Address.ZERO)
+            .value(Wei.ZERO)
+            .payload(Bytes.EMPTY)
+            .chainId(BigInteger.ONE)
+            .codeDelegations(
+                List.of(
+                    new org.hyperledger.besu.ethereum.core.CodeDelegation(
+                        twoPow256,
+                        Address.ZERO,
+                        0L,
+                        SIGNATURE_ALGORITHM.createCodeDelegationSignature(
+                            BigInteger.ONE, BigInteger.ONE, (byte) 0))))
+            .signAndBuild(senderKeys);
+
+    final ValidationResult<TransactionInvalidReason> validationResult =
+        validator.validate(
+            transaction, Optional.of(Wei.ONE), Optional.empty(), transactionPoolParams);
+
+    assertThat(validationResult.isValid()).isFalse();
+    assertThat(validationResult.getInvalidReason()).isEqualTo(INVALID_TRANSACTION_FORMAT);
+    assertThat(validationResult.getErrorMessage())
+        .isEqualTo("Invalid 'chainId' value, should be < 2^256 but got " + twoPow256);
+  }
+
+  @Test
   public void shouldRejectTransactionWithMaxBlobPriorityFeeSmallerThanBlobBaseFee() {
     final TransactionValidator validator =
         createTransactionValidator(

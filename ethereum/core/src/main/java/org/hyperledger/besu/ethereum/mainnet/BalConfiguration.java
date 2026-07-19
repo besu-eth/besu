@@ -22,11 +22,9 @@ public interface BalConfiguration {
 
   BalConfiguration DEFAULT = ImmutableBalConfiguration.builder().build();
 
-  /** Returns whether the BAL-computed state root should be trusted without verification. */
-  @Value.Default
-  default boolean isBalStateRootTrusted() {
-    return false;
-  }
+  /** Configuration with BAL state root disabled (uses standard accumulator-based root). */
+  BalConfiguration DISABLED =
+      ImmutableBalConfiguration.builder().isBalStateRootEnabled(false).build();
 
   /**
    * Returns whether to use the BAL-based state root commit path when a BAL is available. When
@@ -43,12 +41,15 @@ public interface BalConfiguration {
     return true;
   }
 
-  /**
-   * Returns whether mismatches between BAL and synchronously computed state roots should only log
-   * an error instead of throwing an exception.
-   */
+  /** Returns whether prefetching of state data based on BAL read operations is enabled. */
   @Value.Default
-  default boolean isBalLenientOnStateRootMismatch() {
+  default boolean isBalPreFetchReadingEnabled() {
+    return true;
+  }
+
+  /** Returns whether BAL sorting optimization should be enabled during prefetch. */
+  @Value.Default
+  default boolean isBalPreFetchSortingEnabled() {
     return true;
   }
 
@@ -56,5 +57,14 @@ public interface BalConfiguration {
   @Value.Default
   default boolean shouldLogBalsOnMismatch() {
     return false;
+  }
+
+  /**
+   * Returns the batch size for prefetch operations. A value of 0 or negative means no batching
+   * (fetch all at once).
+   */
+  @Value.Default
+  default int getBalPreFetchBatchSize() {
+    return 8;
   }
 }

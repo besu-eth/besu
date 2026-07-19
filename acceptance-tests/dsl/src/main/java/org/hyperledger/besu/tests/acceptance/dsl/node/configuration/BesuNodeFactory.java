@@ -516,6 +516,11 @@ public class BesuNodeFactory {
 
   public BesuNode createExecutionEngineGenesisNode(final String name, final String genesisPath)
       throws IOException {
+    return createExecutionEngineGenesisNode(name, genesisPath, true);
+  }
+
+  public BesuNode createExecutionEngineGenesisNode(
+      final String name, final String genesisPath, final boolean p2pEnabled) throws IOException {
     final String genesisFile = GenesisConfigurationFactory.readGenesisFile(genesisPath);
 
     return create(
@@ -524,6 +529,7 @@ public class BesuNodeFactory {
             .genesisConfigProvider((a) -> Optional.of(genesisFile))
             .devMode(false)
             .bootnodeEligible(false)
+            .p2pEnabled(p2pEnabled)
             .miningConfiguration(
                 MiningConfiguration.newDefault()
                     .setCoinbase(AddressHelpers.ofValue(1))
@@ -640,7 +646,8 @@ public class BesuNodeFactory {
             .webSocketConfiguration(node.createWebSocketEnabledConfig())
             .devMode(false)
             .jsonRpcTxPool()
-            .genesisConfigProvider(GenesisConfigurationFactory::createQbft256r1GenesisConfig);
+            .genesisConfigProvider(GenesisConfigurationFactory::createQbft256r1GenesisConfig)
+            .discoveryV5Enabled(false); // DiscV5 only supports secp256k1 node keys
 
     return builder.keyPair(keyPair);
   }

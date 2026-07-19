@@ -124,7 +124,7 @@ public class PeerDiscoveryAgentV4Test {
   }
 
   @Test
-  public void testNodeRecordCreatedUpdatesDiscoveryPeer() {
+  public void testUpdateNodeRecordReusesEnrWhenNothingChanged() {
     final KeyPair keyPair =
         SIGNATURE_ALGORITHM.createKeyPair(
             SIGNATURE_ALGORITHM.createPrivateKey(
@@ -139,9 +139,12 @@ public class PeerDiscoveryAgentV4Test {
                 .bindPort(30303));
     agent.start(30303);
     final NodeRecord pre = agent.getLocalNode().get().getNodeRecord().get();
+    // Between start() and updateNodeRecord(), nothing has changed (address, ports, forkId,
+    // pubkey are all the same). NodeRecordManager's equality check should detect this and
+    // reuse the existing ENR — the seqno must not advance and pre/post must compare equal.
     agent.updateNodeRecord();
     final NodeRecord post = agent.getLocalNode().get().getNodeRecord().get();
-    assertThat(pre).isNotEqualTo(post);
+    assertThat(pre).isEqualTo(post);
   }
 
   @Test
@@ -238,7 +241,7 @@ public class PeerDiscoveryAgentV4Test {
         neighborsPacket.packet.getPacketData(NeighborsPacketData.class).get();
     assertThat(neighbors).isNotNull();
     assertThat(neighbors.getNodes()).hasSize(13);
-    assertThat(packetPackage.packetSerializer().encode(neighborsPacket.packet).length())
+    assertThat(packetPackage.packetSerializer().encode(neighborsPacket.packet).size())
         .isLessThanOrEqualTo(1280); // under max MTU
 
     // Assert that after removing those 13 items we're left with either 7 or 8.

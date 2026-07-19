@@ -246,7 +246,8 @@ public class Create2OperationTest {
   @Test
   void amsterdamMaxInitCodeSizeCreate() {
     final UInt256 memoryOffset = UInt256.fromHexString("0xFF");
-    final UInt256 memoryLength = UInt256.fromHexString("0x10000");
+    // exactly MAX_INITCODE_SIZE_AMSTERDAM (0x20000)
+    final UInt256 memoryLength = UInt256.fromHexString("0x20000");
     final MessageFrame messageFrame = testMemoryFrame(memoryOffset, memoryLength);
 
     when(account.getNonce()).thenReturn(55L);
@@ -267,7 +268,8 @@ public class Create2OperationTest {
   @Test
   void amsterdamMaxInitCodeSizePlus1Create() {
     final UInt256 memoryOffset = UInt256.fromHexString("0xFF");
-    final UInt256 memoryLength = UInt256.fromHexString("0x10001");
+    // MAX_INITCODE_SIZE_AMSTERDAM (0x20000) + 1
+    final UInt256 memoryLength = UInt256.fromHexString("0x20001");
     final MessageFrame messageFrame = testMemoryFrame(memoryOffset, memoryLength);
 
     when(account.getNonce()).thenReturn(55L);
@@ -306,6 +308,46 @@ public class Create2OperationTest {
     assertThat(result.getHaltReason()).isNull();
   }
 
+  @Test
+  void oversizedInitCodeOnStackAbortsBeforeMemoryExpansion() {
+    // EIP-3860: when the declared initcode size on the stack exceeds the limit, the
+    // operation is an early exceptional abort and must not have memory side-effects.
+    // CREATE2 carries an extra salt item on the stack, so this guards getInputSize against a
+    // regression if the stack layout ever diverges from CREATE.
+    final UInt256 memoryOffset = UInt256.ZERO;
+    final UInt256 memoryLength =
+        UInt256.fromHexString("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+    final MessageFrame messageFrame =
+        MessageFrame.builder()
+            .type(MessageFrame.Type.CONTRACT_CREATION)
+            .contract(Address.ZERO)
+            .inputData(Bytes.EMPTY)
+            .sender(Address.fromHexString(SENDER))
+            .value(Wei.ZERO)
+            .apparentValue(Wei.ZERO)
+            .code(new Code(SIMPLE_CREATE))
+            .completer(__ -> {})
+            .address(Address.fromHexString(SENDER))
+            .blockHashLookup((__, ___) -> Hash.ZERO)
+            .blockValues(mock(BlockValues.class))
+            .gasPrice(Wei.ZERO)
+            .miningBeneficiary(Address.ZERO)
+            .originator(Address.ZERO)
+            .initialGas(Long.MAX_VALUE)
+            .worldUpdater(worldUpdater)
+            .build();
+    messageFrame.pushStackItem(Bytes.EMPTY); // salt
+    messageFrame.pushStackItem(memoryLength);
+    messageFrame.pushStackItem(memoryOffset);
+    messageFrame.pushStackItem(UInt256.ZERO);
+
+    final EVM evm = MainnetEVMs.shanghai(DEV_NET_CHAIN_ID, EvmConfiguration.DEFAULT);
+    var result = operation.execute(messageFrame, evm);
+
+    assertThat(result.getHaltReason()).isEqualTo(CODE_TOO_LARGE);
+    assertThat(messageFrame.memoryWordSize()).isEqualTo(0);
+  }
+
   @NotNull
   private MessageFrame testMemoryFrame(final UInt256 memoryOffset, final UInt256 memoryLength) {
     final MessageFrame messageFrame =
@@ -324,7 +366,9 @@ public class Create2OperationTest {
             .gasPrice(Wei.ZERO)
             .miningBeneficiary(Address.ZERO)
             .originator(Address.ZERO)
-            .initialGas(100000L)
+            // Enough to cover memory expansion plus CREATE2 keccak hashing of a 128KiB+ initcode so
+            // the MAX_INIT_CODE_SIZE check is reached rather than halting on gas first.
+            .initialGas(1_000_000L)
             .worldUpdater(worldUpdater)
             .build();
     messageFrame.pushStackItem(Bytes.EMPTY);

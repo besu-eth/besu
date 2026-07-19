@@ -66,19 +66,38 @@ public class RetryingGetBlockAccessListsFromPeerTask
     }
 
     final List<Integer> requestedIndexes = List.copyOf(pendingIndexes);
+    return requestBlockAccessListsFromPeer(peer, requestedIndexes)
+        .thenApply(
+            receivedBlockAccessLists -> {
+              final int pendingCountBeforeProcessing = pendingIndexes.size();
+              processBlockAccessLists(requestedIndexes, receivedBlockAccessLists);
+              if (pendingIndexes.isEmpty()) {
+                return completedBlockAccessLists();
+              }
+              if (pendingIndexes.size() < pendingCountBeforeProcessing) {
+                resetRetryCount();
+              }
+              throw new IncompleteResultsException(
+                  "Downloaded "
+                      + (blockHeaders.size() - pendingIndexes.size())
+                      + " of "
+                      + blockHeaders.size()
+                      + " block access lists");
+            });
+  }
+
+  protected CompletableFuture<List<SyncBlockAccessList>> requestBlockAccessListsFromPeer(
+      final EthPeer peer, final List<Integer> requestedIndexes) {
     final GetBlockAccessListsFromPeerTask task =
         new GetBlockAccessListsFromPeerTask(
             ethContext, requestedIndexes.stream().map(blockHeaders::get).toList(), metricsSystem);
     task.assignPeer(peer);
-    return executeSubTask(task::run)
-        .thenApply(
-            peerResult -> {
-              processBlockAccessLists(requestedIndexes, peerResult.getResult());
-              if (pendingIndexes.isEmpty()) {
-                return completedBlockAccessLists();
-              }
-              throw new IncompleteResultsException();
-            });
+    return executeSubTask(task::run).thenApply(peerResult -> peerResult.getResult());
+  }
+
+  @Override
+  protected boolean isRetryableError(final Throwable error) {
+    return super.isRetryableError(error) || error instanceof IncompleteResultsException;
   }
 
   @VisibleForTesting

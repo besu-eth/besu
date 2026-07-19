@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.evm.gascalculator;
 
+import static org.hyperledger.besu.evm.internal.Words.clampedAdd;
+
 import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Transaction;
@@ -448,6 +450,25 @@ public interface GasCalculator {
       UInt256 newValue, Supplier<UInt256> currentValue, Supplier<UInt256> originalValue);
 
   /**
+   * Returns the regular-gas cost of an SSTORE, i.e. the portion charged as regular gas (as opposed
+   * to state gas). Through Osaka this is the whole SSTORE cost, so it delegates to {@link
+   * #calculateStorageCost}. EIP-8038 (Amsterdam) splits the cost into regular and state gas and
+   * overrides this to return only the regular portion; a future fork that moves the remaining
+   * regular portion to state gas can zero it out.
+   *
+   * @param newValue the new value to be stored
+   * @param currentValue the supplier of the current value
+   * @param originalValue the supplier of the original value
+   * @return the regular-gas cost for the SSTORE operation
+   */
+  default long slotAccessCost(
+      final UInt256 newValue,
+      final Supplier<UInt256> currentValue,
+      final Supplier<UInt256> originalValue) {
+    return calculateStorageCost(newValue, currentValue, originalValue);
+  }
+
+  /**
    * Returns the refund amount for an SSTORE operation.
    *
    * @param newValue the new value to be stored
@@ -472,6 +493,17 @@ public interface GasCalculator {
    */
   default long getColdSloadCost() {
     return 0L;
+  }
+
+  /**
+   * Returns the cold access surcharge charged for an SSTORE to a storage slot not previously
+   * accessed in the TX context. By default this equals the cold SLOAD cost; EIP-8038 overrides it
+   * to exclude the warm access base already included in {@link #slotAccessCost}.
+   *
+   * @return the SSTORE cold access surcharge.
+   */
+  default long getSStoreColdAccessGasCost() {
+    return getColdSloadCost();
   }
 
   /**
@@ -531,6 +563,24 @@ public interface GasCalculator {
    * @return the transaction's intrinsic gas cost
    */
   long transactionIntrinsicGasCost(Transaction transaction, long baselineGas);
+
+  /**
+   * Returns the regular-dimension intrinsic gas cost of a transaction, including the gas for its
+   * access list and EIP-7702 code-delegation authorizations.
+   *
+   * <p>This is the single entry point for callers that have a {@link Transaction} and want the full
+   * regular intrinsic cost: it derives the access-list and code-delegation baseline internally and
+   * delegates to {@link #transactionIntrinsicGasCost(Transaction, long)}, so the summing lives in
+   * one place rather than at every call site.
+   *
+   * @param transaction the transaction
+   * @return the transaction's regular intrinsic gas cost
+   */
+  default long transactionIntrinsicRegularGas(final Transaction transaction) {
+    final long accessListGas = accessListGasCost(transaction.getAccessList().orElse(List.of()));
+    final long codeDelegationGas = delegateCodeGasCost(transaction.codeDelegationListSize());
+    return transactionIntrinsicGasCost(transaction, clampedAdd(accessListGas, codeDelegationGas));
+  }
 
   /**
    * Returns the floor gas cost of a transaction, i.e. the minimum gas cost that a transaction will

@@ -61,8 +61,8 @@ public class NewBlockMessage extends AbstractMessageData {
   }
 
   public static NewBlockMessage readFrom(final MessageData message) {
-    if (message instanceof NewBlockMessage) {
-      return (NewBlockMessage) message;
+    if (message instanceof NewBlockMessage newBlockMessage) {
+      return newBlockMessage;
     }
     final int code = message.getCode();
     if (code != NewBlockMessage.MESSAGE_CODE) {

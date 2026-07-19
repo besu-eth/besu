@@ -107,9 +107,14 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
 
     var mergeContext = protocolContext.getConsensusContext(MergeContext.class);
 
+    // Default an absent TTD to ZERO, matching createConsensusContext. With TTD=0 the comparator
+    // degenerates to "longest chain wins", which is correct for a pure PoS-from-genesis chain.
     var mergeBestPeerComparator =
         new TransitionBestPeerComparator(
-            genesisConfigOptions.getTerminalTotalDifficulty().map(Difficulty::of).orElseThrow());
+            genesisConfigOptions
+                .getTerminalTotalDifficulty()
+                .map(Difficulty::of)
+                .orElse(Difficulty.ZERO));
     ethPeers.setBestPeerComparator(mergeBestPeerComparator);
     mergeContext.observeNewIsPostMergeState(mergeBestPeerComparator);
 
@@ -259,6 +264,9 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
   public BesuController build() {
     final BesuController controller = super.build();
     postMergeContext.setSyncState(syncState.get());
+    if (!p2pEnabled) {
+      syncState.get().setReachedTerminalDifficulty(true);
+    }
     return controller;
   }
 

@@ -15,8 +15,8 @@
 package org.hyperledger.besu.evm.processor;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hyperledger.besu.evm.frame.MessageFrame.State.COMPLETED_FAILED;
 import static org.hyperledger.besu.evm.frame.MessageFrame.State.COMPLETED_SUCCESS;
+import static org.hyperledger.besu.evm.frame.MessageFrame.State.EXCEPTIONAL_HALT;
 
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.EvmSpecVersion;
@@ -55,10 +55,10 @@ class ContractCreationProcessorTest
     messageFrame.setGasRemaining(10600L);
 
     processor.codeSuccess(messageFrame, OperationTracer.NO_TRACING);
-    // At depth 0, validation failures use COMPLETED_FAILED to preserve state gas reservoir
-    assertThat(messageFrame.getState()).isEqualTo(COMPLETED_FAILED);
-    // Gas should be cleared — failCodeDepositWithoutRollback burns all remaining gas
-    assertThat(messageFrame.getRemainingGas()).isEqualTo(0L);
+    // EIP-8037: validation failures use EXCEPTIONAL_HALT so handleStateGasHalt refunds
+    // execution state gas to the reservoir; gasRemaining is cleared by exceptionalHalt() in
+    // process(), not codeSuccess() in isolation.
+    assertThat(messageFrame.getState()).isEqualTo(EXCEPTIONAL_HALT);
   }
 
   @Test
@@ -102,10 +102,10 @@ class ContractCreationProcessorTest
     messageFrame.setGasRemaining(10_000_000L);
 
     processor.codeSuccess(messageFrame, OperationTracer.NO_TRACING);
-    // At depth 0, validation failures use COMPLETED_FAILED to preserve state gas reservoir
-    assertThat(messageFrame.getState()).isEqualTo(COMPLETED_FAILED);
-    // Gas should be cleared — failCodeDepositWithoutRollback burns all remaining gas
-    assertThat(messageFrame.getRemainingGas()).isEqualTo(0L);
+    // EIP-8037: validation failures use EXCEPTIONAL_HALT so handleStateGasHalt refunds
+    // execution state gas to the reservoir; gasRemaining is cleared by exceptionalHalt() in
+    // process(), not codeSuccess() in isolation.
+    assertThat(messageFrame.getState()).isEqualTo(EXCEPTIONAL_HALT);
   }
 
   @Test
@@ -143,10 +143,10 @@ class ContractCreationProcessorTest
     messageFrame.setGasRemaining(10_000_000L);
 
     processor.codeSuccess(messageFrame, OperationTracer.NO_TRACING);
-    // At depth 0, validation failures use COMPLETED_FAILED to preserve state gas reservoir
-    assertThat(messageFrame.getState()).isEqualTo(COMPLETED_FAILED);
-    // Gas should be cleared — failCodeDepositWithoutRollback burns all remaining gas
-    assertThat(messageFrame.getRemainingGas()).isEqualTo(0L);
+    // EIP-8037: validation failures use EXCEPTIONAL_HALT so handleStateGasHalt refunds
+    // execution state gas to the reservoir; gasRemaining is cleared by exceptionalHalt() in
+    // process(), not codeSuccess() in isolation.
+    assertThat(messageFrame.getState()).isEqualTo(EXCEPTIONAL_HALT);
   }
 
   @Test
@@ -162,7 +162,8 @@ class ContractCreationProcessorTest
         Bytes.fromHexString("00".repeat(EvmSpecVersion.AMSTERDAM.getMaxCodeSize()));
     final MessageFrame messageFrame = new TestMessageFrameBuilder().build();
     messageFrame.setOutputData(contractCode);
-    messageFrame.setGasRemaining(10_000_000L);
+    // EIP-7954: 64KiB code deposit costs 200 * 0x10000 = 13_107_200 regular gas.
+    messageFrame.setGasRemaining(15_000_000L);
 
     processor.codeSuccess(messageFrame, OperationTracer.NO_TRACING);
     assertThat(messageFrame.getState()).isEqualTo(COMPLETED_SUCCESS);

@@ -16,7 +16,7 @@ package org.hyperledger.besu.evmtool;
 
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCacheModule;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCacheModule;
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.metrics.MetricsConfigurationModule;
@@ -53,7 +53,7 @@ import dagger.Component;
       EvmToolCommandOptionsModule.class,
       MetricsConfigurationModule.class,
       MetricsSystemModule.class,
-      CodeCacheModule.class,
+      PathBasedCodeCacheModule.class,
     })
 public interface EvmToolComponent {
 

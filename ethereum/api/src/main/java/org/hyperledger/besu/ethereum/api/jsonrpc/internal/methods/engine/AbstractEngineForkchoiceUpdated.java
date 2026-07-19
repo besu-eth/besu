@@ -133,7 +133,7 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
         mergeCoordinator.getOrSyncHeadByHash(
             forkChoice.getHeadBlockHash(), forkChoice.getFinalizedBlockHash());
 
-    if (maybeNewHead.isEmpty() || mergeContext.get().isSyncing()) {
+    if (maybeNewHead.isEmpty()) {
       return syncingResponse(requestId, forkChoice);
     }
 
@@ -186,7 +186,7 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
         return maybeError.get();
       }
       if (!getWithdrawalsValidator(
-              protocolSchedule.get(), newHead, maybePayloadAttributes.get().getTimestamp())
+              maybeProtocolSchedule.get(), newHead, maybePayloadAttributes.get().getTimestamp())
           .validateWithdrawals(withdrawals)) {
         return new JsonRpcErrorResponse(requestId, getInvalidWithdrawalsError());
       }
@@ -225,6 +225,7 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
                         .parentBeaconBlockRoot(
                             Optional.ofNullable(payloadAttributes.getParentBeaconBlockRoot()))
                         .slotNumber(Optional.ofNullable(payloadAttributes.getSlotNumber()))
+                        .targetGasLimit(Optional.empty())
                         .build()));
 
     payloadId.ifPresent(
@@ -265,31 +266,26 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
 
   private JsonRpcResponse handleNonValidForkchoiceUpdate(
       final Object requestId, final ForkchoiceResult result) {
-    JsonRpcResponse response;
-
     final Optional<Hash> latestValid = result.getLatestValid();
 
-    switch (result.getStatus()) {
-      case INVALID:
-        response =
-            new JsonRpcSuccessResponse(
-                requestId,
-                new EngineUpdateForkchoiceResult(
-                    INVALID, latestValid.orElse(null), null, result.getErrorMessage()));
-        break;
-      case IGNORE_UPDATE_TO_OLD_HEAD:
-        response =
-            new JsonRpcSuccessResponse(
-                requestId,
-                new EngineUpdateForkchoiceResult(
-                    VALID, latestValid.orElse(null), null, result.getErrorMessage()));
-        break;
-      default:
-        throw new AssertionError(
-            "ForkchoiceResult.Status "
-                + result.getStatus()
-                + " not handled in EngineForkchoiceUpdated.handleForkchoiceError");
-    }
+    JsonRpcResponse response =
+        switch (result.getStatus()) {
+          case INVALID ->
+              new JsonRpcSuccessResponse(
+                  requestId,
+                  new EngineUpdateForkchoiceResult(
+                      INVALID, latestValid.orElse(null), null, result.getErrorMessage()));
+          case IGNORE_UPDATE_TO_OLD_HEAD ->
+              new JsonRpcSuccessResponse(
+                  requestId,
+                  new EngineUpdateForkchoiceResult(
+                      VALID, latestValid.orElse(null), null, result.getErrorMessage()));
+          default ->
+              throw new AssertionError(
+                  "ForkchoiceResult.Status "
+                      + result.getStatus()
+                      + " not handled in EngineForkchoiceUpdated.handleForkchoiceError");
+        };
 
     return response;
   }

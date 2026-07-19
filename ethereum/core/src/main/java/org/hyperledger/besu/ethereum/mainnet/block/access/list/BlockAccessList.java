@@ -17,7 +17,10 @@ package org.hyperledger.besu.ethereum.mainnet.block.access.list;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListDecoder;
 import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListEncoder;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
@@ -32,6 +35,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonValue;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 
@@ -45,15 +50,19 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
     this(accountChanges, Optional.of(rawRlp));
   }
 
+  @JsonCreator
+  public static BlockAccessList fromBytes(final Bytes bytes) {
+    return BlockAccessListDecoder.decode(new BytesValueRLPInput(bytes, false));
+  }
+
   @Override
   public boolean equals(final Object o) {
     if (this == o) {
       return true;
     }
-    if (!(o instanceof BlockAccessList)) {
+    if (!(o instanceof BlockAccessList that)) {
       return false;
     }
-    final BlockAccessList that = (BlockAccessList) o;
     return Objects.equals(accountChanges, that.accountChanges);
   }
 
@@ -77,6 +86,13 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
 
   public void writeTo(final RLPOutput out) {
     BlockAccessListEncoder.encode(this, out);
+  }
+
+  @JsonValue
+  public Bytes encode() {
+    final BytesValueRLPOutput output = new BytesValueRLPOutput();
+    writeTo(output);
+    return output.encoded();
   }
 
   public static BlockAccessListBuilder builder() {

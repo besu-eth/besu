@@ -20,12 +20,19 @@ web3j { generatedPackageName = 'org.hyperledger.besu.tests.web3j.generated' }
 
 sourceSets.main.solidity.srcDirs = ["$projectDir/contracts"]
 
+// Provide solc directly rather than through web3j-sokt's broken release index (see the root
+// build.gradle for details).
+def solcDownload = rootProject.registerSolcDownload('0.8.19')
+
 solidity {
   resolvePackages = false
   // TODO: remove the forced version, when DEV network is upgraded to support latest forks
   version = '0.8.19'
+  executable = rootProject.solcExecutable('0.8.19').absolutePath
   evmVersion = 'london'
 }
+
+tasks.named('compileSolidity').configure { dependsOn solcDownload }
 
 testing {
   suites {
@@ -37,6 +44,7 @@ testing {
 
         implementation project(':acceptance-tests:dsl')
         implementation project(':acceptance-tests:tests:shanghai')
+        implementation project(':acceptance-tests:tests:osaka')
         implementation project(':config')
         implementation project(':crypto:algorithms')
         implementation project(':datatypes')
@@ -66,6 +74,8 @@ testing {
         implementation 'org.assertj:assertj-core'
         implementation 'org.awaitility:awaitility'
         implementation 'org.junit.jupiter:junit-jupiter'
+        implementation 'com.fasterxml.jackson.core:jackson-annotations'
+        implementation 'com.fasterxml.jackson.core:jackson-databind'
         implementation 'org.web3j:abi'
         implementation 'org.web3j:core'
       }

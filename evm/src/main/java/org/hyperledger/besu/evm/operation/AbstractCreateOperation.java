@@ -82,6 +82,16 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
     if (frame.getRemainingGas() < cost) {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
+
+    // EIP-3860: the initcode-size limit is an early exceptional abort, so it must be
+    // evaluated against the stack-declared size before initcode is resolved from
+    // memory (which would expand memory based on an unvalidated length) and before
+    // state gas is charged below.
+    if (getInputSize(frame) > evm.getMaxInitcodeSize()) {
+      frame.popStackItems(getStackItemsConsumed());
+      return new OperationResult(cost, ExceptionalHaltReason.CODE_TOO_LARGE);
+    }
+
     final Wei value = Wei.wrap(frame.getStackItem(0));
 
     final Address address = frame.getRecipientAddress();
@@ -89,32 +99,28 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
 
     frame.clearReturnData();
 
-    // Resolve initcode and validate MAX_INIT_CODE_SIZE BEFORE charging state gas.
-    // A CREATE with oversized initcode must not persist state_gas_used for an account
-    // that was never created.
-    final Code code = codeSupplier.get();
-
-    if (code != null && code.getSize() > evm.getMaxInitcodeSize()) {
-      frame.popStackItems(getStackItemsConsumed());
-      return new OperationResult(cost, ExceptionalHaltReason.CODE_TOO_LARGE);
-    }
-
     // EIP-8037: Deduct regular gas before charging state gas (ordering requirement).
     frame.decrementRemainingGas(cost);
 
     // EIP-8037: Charge state gas for CREATE operation.
-    if (!gasCalculator().stateGasCostCalculator().chargeCreateStateGas(frame)) {
+    final long newContractStateGas = gasCalculator().stateGasCostCalculator().newContractStateGas();
+    if (!frame.consumeStateGas(newContractStateGas)) {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 
     // Add regular gas back — the EVM loop will deduct it via the OperationResult.
     frame.incrementRemainingGas(cost);
 
+    final Code code = codeSupplier.get();
+
     final boolean insufficientBalance = value.compareTo(account.getBalance()) > 0;
     final boolean maxDepthReached = frame.getDepth() >= 1024;
     final boolean invalidState = account.getNonce() == -1 || code == null;
 
     if (insufficientBalance || maxDepthReached || invalidState) {
+      // EIP-8037: on opcode-level silent failure no account
+      // is created, so refund the 112 × cpsb account-creation state gas to the reservoir.
+      frame.refillStateGasReservoir(newContractStateGas);
       fail(frame);
       // Set soft failure reason for callTracer compatibility
       final SoftFailureReason softFailureReason =
@@ -168,6 +174,17 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
    * @return the initcode, raw bytes, unparsed and unvalidated
    */
   protected abstract Code getInitCode(MessageFrame frame, EVM evm);
+
+  /**
+   * Returns the declared initcode size from the stack, clamped to a long. Used for the EIP-3860
+   * size check before initcode is resolved from memory.
+   *
+   * @param frame the message frame the operation executed in
+   * @return the requested initcode size
+   */
+  protected long getInputSize(final MessageFrame frame) {
+    return clampedToLong(frame.getStackItem(2));
+  }
 
   /**
    * Handles stack items when operation fails for validation reasons (noe enough ether, bad eof
@@ -243,6 +260,13 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
       frame.setReturnData(Bytes.EMPTY);
       onSuccess(frame, createdAddress);
     } else {
+      // EIP-8037: on child frame revert or exceptional
+      // halt, the account-creation state gas (112 × cpsb) charged at this CREATE/CREATE2 opcode
+      // is refunded to the reservoir — no account was created so no state gas should be paid.
+      // The child's own state gas charges (e.g. inner SSTOREs, code deposits) are already
+      // refunded into the reservoir by handleStateGasRevertSpill / handleStateGasHalt in
+      // AbstractMessageProcessor.
+      frame.refillStateGasReservoir(gasCalculator().stateGasCostCalculator().newContractStateGas());
       frame.setReturnData(childFrame.getOutputData());
       frame.pushStackItem(Bytes.EMPTY);
       onFailure(frame, childFrame.getExceptionalHaltReason());

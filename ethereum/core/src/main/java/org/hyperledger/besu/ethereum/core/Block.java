@@ -93,10 +93,9 @@ public class Block {
     if (obj == this) {
       return true;
     }
-    if (!(obj instanceof Block)) {
+    if (!(obj instanceof Block other)) {
       return false;
     }
-    final Block other = (Block) obj;
     return header.equals(other.header) && body.equals(other.body);
   }
 

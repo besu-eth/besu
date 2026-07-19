@@ -14,9 +14,13 @@
  */
 package org.hyperledger.besu.plugin.services.storage.rocksdb.configuration;
 
+import java.lang.management.ManagementFactory;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 import com.google.common.base.MoreObjects;
+import com.google.common.base.Suppliers;
+import com.sun.management.OperatingSystemMXBean;
 import picocli.CommandLine;
 
 /** The RocksDb cli options. */
@@ -24,6 +28,20 @@ public class RocksDBCLIOptions {
 
   /** The constant DEFAULT_MAX_OPEN_FILES. */
   public static final int DEFAULT_MAX_OPEN_FILES = 1024;
+
+  /** Max open files for machines with at least 4 GiB available memory. */
+  public static final int MAX_OPEN_FILES_4GB = 2048;
+
+  /** Max open files for machines with at least 8 GiB available memory. */
+  public static final int MAX_OPEN_FILES_8GB = 4096;
+
+  /** Max open files for machines with at least 16 GiB available memory. */
+  public static final int MAX_OPEN_FILES_16GB = 8192;
+
+  /** Max open files for machines with at least 32 GiB available memory. */
+  public static final int MAX_OPEN_FILES_32GB = 16384;
+
+  private static final long GIB = 1024L * 1024L * 1024L;
 
   /** The constant DEFAULT_CACHE_CAPACITY. */
   public static final long DEFAULT_CACHE_CAPACITY = 134217728;
@@ -70,10 +88,10 @@ public class RocksDBCLIOptions {
   @CommandLine.Option(
       names = {MAX_OPEN_FILES_FLAG},
       hidden = true,
-      defaultValue = "1024",
       paramLabel = "<INTEGER>",
-      description = "Max number of files RocksDB will open (default: ${DEFAULT-VALUE})")
-  int maxOpenFiles;
+      description =
+          "Max number of files RocksDB will open. If unset, derives a value from available memory.")
+  Optional<Integer> maxOpenFiles = Optional.empty();
 
   /** The Cache capacity. */
   @CommandLine.Option(
@@ -144,6 +162,10 @@ public class RocksDBCLIOptions {
       description = "Blob garbage collection force threshold (default: ${DEFAULT-VALUE})")
   Optional<Double> blobGarbageCollectionForceThreshold = Optional.empty();
 
+  private final Supplier<Integer> resolvedMaxOpenFilesSupplier =
+      Suppliers.memoize(
+          () -> maxOpenFiles.orElseGet(RocksDBCLIOptions::deriveMaxOpenFilesFromAvailableMemory));
+
   private RocksDBCLIOptions() {}
 
   /**
@@ -163,7 +185,7 @@ public class RocksDBCLIOptions {
    */
   public static RocksDBCLIOptions fromConfig(final RocksDBConfiguration config) {
     final RocksDBCLIOptions options = create();
-    options.maxOpenFiles = config.getMaxOpenFiles();
+    options.maxOpenFiles = Optional.of(config.getMaxOpenFiles());
     options.cacheCapacity = config.getCacheCapacity();
     options.backgroundThreadCount = config.getBackgroundThreadCount();
     options.isHighSpec = config.isHighSpec();
@@ -181,7 +203,7 @@ public class RocksDBCLIOptions {
    */
   public RocksDBFactoryConfiguration toDomainObject() {
     return new RocksDBFactoryConfiguration(
-        maxOpenFiles,
+        resolveMaxOpenFiles(),
         backgroundThreadCount,
         cacheCapacity,
         isHighSpec,
@@ -191,6 +213,10 @@ public class RocksDBCLIOptions {
         blobGarbageCollectionForceThreshold);
   }
 
+  private int resolveMaxOpenFiles() {
+    return resolvedMaxOpenFilesSupplier.get();
+  }
+
   /**
    * Is high spec.
    *
@@ -198,6 +224,62 @@ public class RocksDBCLIOptions {
    */
   public boolean isHighSpec() {
     return isHighSpec;
+  }
+
+  /**
+   * Returns the max open files value that will be used, either explicitly set or derived from
+   * available memory.
+   *
+   * @return the resolved max open files value
+   */
+  public int getResolvedMaxOpenFiles() {
+    return resolveMaxOpenFiles();
+  }
+
+  /**
+   * Returns whether max open files was explicitly set via CLI.
+   *
+   * @return true if max open files was set via CLI, false if derived from available memory
+   */
+  public boolean isMaxOpenFilesExplicitlySet() {
+    return maxOpenFiles.isPresent();
+  }
+
+  /**
+   * Derives max open files from the host's available memory.
+   *
+   * @return the max open files value for the current machine, or {@link #DEFAULT_MAX_OPEN_FILES} if
+   *     memory information is unavailable
+   */
+  public static int deriveMaxOpenFilesFromAvailableMemory() {
+    final java.lang.management.OperatingSystemMXBean osBean =
+        ManagementFactory.getOperatingSystemMXBean();
+    if (osBean instanceof OperatingSystemMXBean operatingSystemMXBean) {
+      return calculateMaxOpenFiles(operatingSystemMXBean.getFreeMemorySize());
+    }
+    return DEFAULT_MAX_OPEN_FILES;
+  }
+
+  /**
+   * Calculates max open files for the given available memory.
+   *
+   * @param availableMemoryBytes the available memory in bytes
+   * @return the max open files value for the matching memory tier
+   */
+  public static int calculateMaxOpenFiles(final long availableMemoryBytes) {
+    if (availableMemoryBytes >= 32L * GIB) {
+      return MAX_OPEN_FILES_32GB;
+    }
+    if (availableMemoryBytes >= 16L * GIB) {
+      return MAX_OPEN_FILES_16GB;
+    }
+    if (availableMemoryBytes >= 8L * GIB) {
+      return MAX_OPEN_FILES_8GB;
+    }
+    if (availableMemoryBytes >= 4L * GIB) {
+      return MAX_OPEN_FILES_4GB;
+    }
+    return DEFAULT_MAX_OPEN_FILES;
   }
 
   /**

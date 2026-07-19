@@ -132,10 +132,17 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
   public abstract void shouldReturnExpectedMethodName();
 
   @Test
-  public void shouldReturnSyncingIfForwardSync() {
-    when(mergeContext.isSyncing()).thenReturn(true);
+  public void shouldProceedWithForkChoiceWhenHeadKnownEvenIfSyncing() {
+    // isSyncing() is no longer checked in FCU; if the head block is found, we proceed.
+    BlockHeader mockHeader = blockHeaderBuilder.buildHeader();
+    when(mergeCoordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO))
+        .thenReturn(Optional.of(mockHeader));
+
     assertSuccessWithPayloadForForkchoiceResult(
-        mockFcuParam, Optional.empty(), mock(ForkchoiceResult.class), SYNCING);
+        new EngineForkchoiceUpdatedParameter(mockHeader.getHash(), Hash.ZERO, Hash.ZERO),
+        Optional.empty(),
+        ForkchoiceResult.withResult(Optional.empty(), Optional.of(mockHeader)),
+        VALID);
   }
 
   @Test
@@ -247,6 +254,7 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
             Address.ECREC.toString(),
             null,
             null,
+            null,
             null);
     var mockPayloadId =
         PayloadIdentifier.forPayloadParams(
@@ -254,6 +262,7 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
             payloadParams.getTimestamp(),
             payloadParams.getPrevRandao(),
             payloadParams.getSuggestedFeeRecipient(),
+            Optional.empty(),
             Optional.empty(),
             Optional.empty(),
             Optional.empty());
@@ -438,6 +447,7 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
             Address.ECREC.toString(),
             null,
             null,
+            null,
             null);
 
     var resp =
@@ -476,6 +486,7 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
             Address.ECREC.toString(),
             emptyList(),
             null,
+            null,
             null);
 
     var resp =
@@ -501,6 +512,7 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
             Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
             Address.ECREC.toString(),
             emptyList(),
+            null,
             null,
             null);
 
@@ -528,6 +540,7 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
             Address.ECREC.toString(),
             null,
             null,
+            null,
             null);
 
     var mockPayloadId =
@@ -536,6 +549,7 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
             payloadParams.getTimestamp(),
             payloadParams.getPrevRandao(),
             payloadParams.getSuggestedFeeRecipient(),
+            Optional.empty(),
             Optional.empty(),
             Optional.empty(),
             Optional.empty());
@@ -565,6 +579,7 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
             String.valueOf(mockHeader.getTimestamp() + 1),
             Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
             Address.ECREC.toString(),
+            null,
             null,
             null,
             null);
@@ -604,6 +619,7 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
             Address.ECREC.toString(),
             withdrawalParameters,
             null,
+            null,
             null);
 
     final Optional<List<Withdrawal>> withdrawals =
@@ -619,6 +635,7 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
             payloadParams.getPrevRandao(),
             payloadParams.getSuggestedFeeRecipient(),
             withdrawals,
+            Optional.empty(),
             Optional.empty(),
             Optional.empty());
 
@@ -648,6 +665,7 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
             Address.ECREC.toString(),
             null,
             null,
+            null,
             null);
 
     var mockPayloadId =
@@ -656,6 +674,7 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
             payloadParams.getTimestamp(),
             payloadParams.getPrevRandao(),
             payloadParams.getSuggestedFeeRecipient(),
+            Optional.empty(),
             Optional.empty(),
             Optional.empty(),
             Optional.empty());

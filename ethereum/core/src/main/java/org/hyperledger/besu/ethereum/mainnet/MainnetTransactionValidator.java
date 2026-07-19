@@ -161,34 +161,24 @@ public class MainnetTransactionValidator implements TransactionValidator {
           "transaction code delegation transactions must have a to address");
     }
 
-    final Optional<ValidationResult<TransactionInvalidReason>> validationResult =
-        transaction
-            .getCodeDelegationList()
-            .map(
-                codeDelegations -> {
-                  for (CodeDelegation codeDelegation : codeDelegations) {
-                    if (codeDelegation.chainId().compareTo(TWO_POW_256) >= 0) {
-                      throw new IllegalArgumentException(
-                          "Invalid 'chainId' value, should be < 2^256 but got "
-                              + codeDelegation.chainId());
-                    }
+    for (CodeDelegation codeDelegation : transaction.getCodeDelegationList().orElseThrow()) {
+      if (codeDelegation.chainId().compareTo(TWO_POW_256) >= 0) {
+        return ValidationResult.invalid(
+            TransactionInvalidReason.INVALID_TRANSACTION_FORMAT,
+            "Invalid 'chainId' value, should be < 2^256 but got " + codeDelegation.chainId());
+      }
 
-                    if (codeDelegation.r().compareTo(TWO_POW_256) >= 0) {
-                      throw new IllegalArgumentException(
-                          "Invalid 'r' value, should be < 2^256 but got " + codeDelegation.r());
-                    }
+      if (codeDelegation.r().compareTo(TWO_POW_256) >= 0) {
+        return ValidationResult.invalid(
+            TransactionInvalidReason.INVALID_TRANSACTION_FORMAT,
+            "Invalid 'r' value, should be < 2^256 but got " + codeDelegation.r());
+      }
 
-                    if (codeDelegation.s().compareTo(TWO_POW_256) >= 0) {
-                      throw new IllegalArgumentException(
-                          "Invalid 's' value, should be < 2^256 but got " + codeDelegation.s());
-                    }
-                  }
-
-                  return ValidationResult.valid();
-                });
-
-    if (validationResult.isPresent() && !validationResult.get().isValid()) {
-      return validationResult.get();
+      if (codeDelegation.s().compareTo(TWO_POW_256) >= 0) {
+        return ValidationResult.invalid(
+            TransactionInvalidReason.INVALID_TRANSACTION_FORMAT,
+            "Invalid 's' value, should be < 2^256 but got " + codeDelegation.s());
+      }
     }
 
     return ValidationResult.valid();
@@ -208,7 +198,7 @@ public class MainnetTransactionValidator implements TransactionValidator {
     if (maybeBaseFee.isPresent()) {
       final Wei price = feeMarket.getTransactionPriceCalculator().price(transaction, maybeBaseFee);
       if (!transactionValidationParams.allowUnderpriced()
-          && !transactionValidationParams.isPreserveCallerGasPricing()
+          && !transactionValidationParams.isAllowExceedingBalance()
           && price.compareTo(maybeBaseFee.orElseThrow()) < 0) {
         return ValidationResult.invalid(
             TransactionInvalidReason.GAS_PRICE_BELOW_CURRENT_BASE_FEE,
@@ -262,6 +252,17 @@ public class MainnetTransactionValidator implements TransactionValidator {
         Math.max(
             gasCalculator.transactionIntrinsicGasCost(transaction, baselineGas),
             gasCalculator.transactionFloorCost(transaction));
+
+    // EIP-8037: cap max(intrinsic_regular, calldata_floor) rather than tx.gas itself.
+    final long intrinsicGasLimitCap = gasLimitCalculator.transactionIntrinsicGasLimitCap();
+    if (!transactionValidationParams.isAllowExceedingGasLimit()
+        && Long.compareUnsigned(intrinsicGasCostOrFloor, intrinsicGasLimitCap) > 0) {
+      return ValidationResult.invalid(
+          TransactionInvalidReason.INTRINSIC_GAS_EXCEEDS_GAS_LIMIT,
+          String.format(
+              "intrinsic gas cost %s exceeds gas limit %s",
+              intrinsicGasCostOrFloor, intrinsicGasLimitCap));
+    }
 
     if (Long.compareUnsigned(intrinsicGasCostOrFloor, transaction.getGasLimit()) > 0) {
       return ValidationResult.invalid(

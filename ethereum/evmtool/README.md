@@ -75,7 +75,7 @@ Assuming homebrew and SDKMan are both installed, the complete script is
 ```zsh
 sdk install java 25.0.3-tem 
 sdk use java 25.0.3-tem
-git clone https://github.com/hyperledger/besu
+git clone https://github.com/besu-eth/besu
 cd besu
 ./gradlew installDist -x test
 cd ..

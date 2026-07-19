@@ -51,31 +51,27 @@ public class PeerPermissionsAdapter extends PeerPermissions {
 
   @Override
   public boolean isPermitted(final Peer localNode, final Peer remotePeer, final Action action) {
-    switch (action) {
-      case DISCOVERY_ALLOW_IN_PEER_TABLE:
-        return outboundIsPermitted(localNode, remotePeer);
-      case DISCOVERY_ALLOW_OUTBOUND_NEIGHBORS_REQUEST:
-        return allowOutboundNeighborsRequests(localNode, remotePeer);
-      case DISCOVERY_ALLOW_OUTBOUND_BONDING:
-        return allowOutboundBonding(localNode, remotePeer);
-      case DISCOVERY_ACCEPT_INBOUND_BONDING:
-      case DISCOVERY_SERVE_INBOUND_NEIGHBORS_REQUEST:
-      case RLPX_ALLOW_NEW_INBOUND_CONNECTION:
-        return inboundIsPermitted(localNode, remotePeer);
-      case RLPX_ALLOW_NEW_OUTBOUND_CONNECTION:
-        return outboundIsPermitted(localNode, remotePeer);
-      case RLPX_ALLOW_ONGOING_LOCALLY_INITIATED_CONNECTION:
-        return outboundIsPermitted(localNode, remotePeer);
-      case RLPX_ALLOW_ONGOING_REMOTELY_INITIATED_CONNECTION:
-        return inboundIsPermitted(localNode, remotePeer);
-      default:
+    return switch (action) {
+      case DISCOVERY_ALLOW_IN_PEER_TABLE -> outboundIsPermitted(localNode, remotePeer);
+      case DISCOVERY_ALLOW_OUTBOUND_NEIGHBORS_REQUEST ->
+          allowOutboundNeighborsRequests(localNode, remotePeer);
+      case DISCOVERY_ALLOW_OUTBOUND_BONDING -> allowOutboundBonding(localNode, remotePeer);
+      case DISCOVERY_ACCEPT_INBOUND_BONDING,
+          DISCOVERY_SERVE_INBOUND_NEIGHBORS_REQUEST,
+          RLPX_ALLOW_NEW_INBOUND_CONNECTION,
+          RLPX_ALLOW_ONGOING_REMOTELY_INITIATED_CONNECTION ->
+          inboundIsPermitted(localNode, remotePeer);
+      case RLPX_ALLOW_NEW_OUTBOUND_CONNECTION, RLPX_ALLOW_ONGOING_LOCALLY_INITIATED_CONNECTION ->
+          outboundIsPermitted(localNode, remotePeer);
+      default -> {
         // Return false for unknown / unhandled permissions
         LOG.error(
             "Permissions denied for unknown action {}",
             action.name(),
             new IllegalStateException("Unhandled permissions action " + action.name()));
-        return false;
-    }
+        yield false;
+      }
+    };
   }
 
   private boolean allowOutboundBonding(final Peer localNode, final Peer remotePeer) {

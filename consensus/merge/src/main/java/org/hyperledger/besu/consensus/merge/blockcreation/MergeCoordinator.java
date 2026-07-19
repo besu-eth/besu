@@ -209,11 +209,6 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   }
 
   @Override
-  public Optional<Address> getCoinbase() {
-    return miningConfiguration.getCoinbase();
-  }
-
-  @Override
   public Optional<Block> createBlock(
       final BlockHeader parentHeader,
       final List<Transaction> transactions,
@@ -244,6 +239,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     final Optional<List<Withdrawal>> withdrawals = preparePayloadArgs.withdrawals();
     final Optional<Bytes32> parentBeaconBlockRoot = preparePayloadArgs.parentBeaconBlockRoot();
     final Optional<Long> slotNumber = preparePayloadArgs.slotNumber();
+    final Optional<Long> targetGasLimit = preparePayloadArgs.targetGasLimit();
 
     // we assume that preparePayload is always called sequentially, since the RPC Engine calls
     // are sequential, if this assumption changes then more synchronization should be added to
@@ -257,7 +253,8 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
             feeRecipient,
             withdrawals,
             parentBeaconBlockRoot,
-            slotNumber);
+            slotNumber,
+            targetGasLimit);
 
     if (blockCreationTasks.containsKey(payloadIdentifier)) {
       LOG.debug(
@@ -280,6 +277,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
             withdrawals,
             parentBeaconBlockRoot,
             slotNumber,
+            targetGasLimit,
             parentHeader);
     final Block emptyBlock = emptyBlockResult.getBlock();
 
@@ -316,6 +314,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
         withdrawals,
         parentBeaconBlockRoot,
         slotNumber,
+        targetGasLimit,
         parentHeader);
 
     return payloadIdentifier;
@@ -419,6 +418,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
       final Optional<List<Withdrawal>> withdrawals,
       final Optional<Bytes32> parentBeaconBlockRoot,
       final Optional<Long> slotNumber,
+      final Optional<Long> targetGasLimit,
       final BlockHeader parentHeader) {
 
     final Supplier<BlockCreationResult> blockCreator =
@@ -430,6 +430,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
                 withdrawals,
                 parentBeaconBlockRoot,
                 slotNumber,
+                targetGasLimit,
                 parentHeader);
 
     LOG.debug(
