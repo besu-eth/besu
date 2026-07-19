@@ -37,7 +37,8 @@ compileJava {
 
 tasks.named('compileTestJava', JavaCompile).configure {
   options.errorprone {
-    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.OFF)
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.ERROR)
+    option('NullAway:AnnotatedPackages', 'org.hyperledger.besu.consensus.clique')
   }
 }
 
