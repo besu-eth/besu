@@ -2577,6 +2577,17 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
                       })
                   .toList());
         } else {
+          rawBootnodes.stream()
+              .filter(node -> node.regionMatches(true, 0, "enr:", 0, 4))
+              .findFirst()
+              .ifPresent(
+                  enr -> {
+                    throw new ParameterException(
+                        commandLine,
+                        "ENR bootnodes require discv5 discovery. Enable it with --Xv5-discovery-enabled. Invalid bootnode: '"
+                            + enr
+                            + "'.");
+                  });
           final List<EnodeURLImpl> enodes = buildEnodes(rawBootnodes, getEnodeDnsConfiguration());
           DiscoveryConfiguration.assertValidBootnodes(enodes);
           builder.setEnodeBootNodes(enodes);

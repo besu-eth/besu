@@ -20,6 +20,7 @@
 - Layered txpool: fix the sender balance check rejecting zero upfront cost transactions from zero balance senders, which caused free gas networks to produce only empty blocks [#10751](https://github.com/besu-eth/besu/pull/10751)
 - Fix `eth_sendRawTransaction` returning `-32603 Internal Error` instead of `-32602 Invalid params` for malformed RLP inputs such as `0x80`. [#10735](https://github.com/besu-eth/besu/issues/10735)
 - Skip DNS discovery records that fail enode conversion (e.g. out-of-range port) instead of dropping the rest of the batch [#10752](https://github.com/besu-eth/besu/pull/10752)
+- Fix misleading "Invalid enode URL syntax" error when an `enr:` bootnode is passed to `--bootnodes` without `--Xv5-discovery-enabled`; Besu now reports a clear error directing the user to enable discv5
 
 ### Additions and Improvements
 - Upgrade jackson dependencies to 2.21.5 and opentelemetry to 1.62.0 [#10775](https://github.com/besu-eth/besu/pull/10775)
