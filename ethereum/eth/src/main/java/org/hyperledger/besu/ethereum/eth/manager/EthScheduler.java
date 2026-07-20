@@ -268,6 +268,7 @@ public class EthScheduler {
       scheduler.shutdownNow();
       servicesExecutor.shutdownNow();
       computationExecutor.shutdownNow();
+      blockCreationExecutor.shutdownNow();
       shutdown.countDown();
     } else {
       LOG.atTrace()
@@ -298,6 +299,10 @@ public class EthScheduler {
     if (!computationExecutor.awaitTermination(30, TimeUnit.SECONDS)) {
       LOG.error(
           "{} computation executor did not shutdown cleanly.", this.getClass().getSimpleName());
+    }
+    if (!blockCreationExecutor.awaitTermination(30, TimeUnit.SECONDS)) {
+      LOG.error(
+          "{} block creation executor did not shutdown cleanly.", this.getClass().getSimpleName());
     }
     LOG.trace("{} stopped.", this.getClass().getSimpleName());
   }
