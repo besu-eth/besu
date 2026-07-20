@@ -76,7 +76,7 @@ import org.hyperledger.besu.ethereum.mainnet.parallelization.MainnetParallelBloc
 import org.hyperledger.besu.ethereum.mainnet.requests.MainnetRequestsValidator;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestContractAddresses;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
-import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.BalStateRootCommitterFactory;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitterFactory;
 import org.hyperledger.besu.ethereum.mainnet.transactionpool.OsakaTransactionPoolPreProcessor;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.evm.MainnetEVMs;
@@ -1262,7 +1262,7 @@ public abstract class MainnetProtocolSpecs {
                     .build())
         .blockAccessListFactory(new BlockAccessListFactory())
         .blockAccessListValidatorBuilder(MainnetBlockAccessListValidator::create)
-        .stateRootCommitterFactory(new BalStateRootCommitterFactory(balConfiguration))
+        .stateRootCommitterFactory(new StateRootCommitterFactory(balConfiguration))
         // EIP-8037: Disable validation-time TX_MAX_GAS_LIMIT cap (enforced at runtime on regular
         // gas)
         .gasLimitCalculatorBuilder(

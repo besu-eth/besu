@@ -12,10 +12,17 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.mainnet.staterootcommitter;
+package org.hyperledger.besu.ethereum.referencetests;
 
-import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.DefaultStateRootCommitter;
 
-@SuppressWarnings("rawtypes")
-public record BalRootComputation(Hash root, PathBasedWorldStateUpdateAccumulator accumulator) {}
+/**
+ * State root committer for reference tests that persists address pre-images via {@link
+ * org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState#hashAndSavePreImage}.
+ */
+public final class ReferenceTestStateRootCommitter extends DefaultStateRootCommitter {
+
+  public ReferenceTestStateRootCommitter() {
+    super((bonsai, address) -> bonsai.hashAndSavePreImage(address.getBytes()));
+  }
+}

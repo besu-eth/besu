@@ -36,6 +36,16 @@ public interface WorldStateArchive extends Closeable {
   boolean isWorldStateAvailable(Hash rootHash, Hash blockHash);
 
   /**
+   * Hook for archive implementations to adjust world-state behaviour before block processing (e.g.
+   * disable trie preload after a configured fork).
+   *
+   * @param blockHeader the header of the block about to be processed
+   * @param worldState the mutable world state to prepare for block processing
+   */
+  default void prepareWorldStateForBlock(
+      final BlockHeader blockHeader, final MutableWorldState worldState) {}
+
+  /**
    * Gets a mutable world state based on the provided query parameters.
    *
    * <p>This method retrieves the mutable world state using the provided query parameters. The query
