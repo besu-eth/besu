@@ -214,6 +214,14 @@ public class SnapSyncDownloader implements SnapSyncController {
         return CompletableFuture.failedFuture(
             new CancellationException("SnapSyncDownloader stopped"));
       }
+
+      // A genesis pivot means there is nothing to snap-sync (we already hold genesis state). Skip
+      // all downloading and hand off to full/backward sync via the NoSyncRequired path.
+      if (currentState.getPivotBlockHeader().map(h -> h.getNumber() == 0L).orElse(false)) {
+        LOG.info("Pivot is genesis; no snap sync required, proceeding to full/backward sync.");
+        return CompletableFuture.failedFuture(new NoSyncRequiredException());
+      }
+
       final ChainDownloader chainDownloader =
           fastSyncActions.createChainDownloader(currentState, syncDurationMetrics);
 

@@ -532,26 +532,25 @@ public class SnapSyncChainDownloader
                   stage1Duration.toSeconds());
 
               final Optional<BlockHeader> matched = pipelineResult.driver().getMatchedAncestor();
-              if (matched.isPresent()) {
-                final ChainSyncState before = chainSyncState.get();
-                LOG.info(
-                    "Stage 1 recovery extended anchor: previous anchor at #{}, matched ancestor at #{} ({})",
-                    before.bodyCheckpoint().getNumber(),
-                    matched.get().getNumber(),
-                    matched.get().getHash());
-                chainSyncState.updateAndGet(s -> s.withRecoveryMatch(matched.get()));
-                chainSyncStateStorage.storeState(chainSyncState.get());
-              }
+              matched.ifPresent(
+                  m ->
+                      LOG.info(
+                          "Stage 1 recovery extended anchor: previous anchor at #{}, matched ancestor at #{} ({})",
+                          chainSyncState.get().headerDownloadAnchor().getNumber(),
+                          m.getNumber(),
+                          m.getHash()));
 
-              // Mark headers download as complete and persist
-              chainSyncState.updateAndGet(ChainSyncState::withHeadersDownloadComplete);
-              chainSyncStateStorage.storeState(chainSyncState.get());
-              currentDriver = null;
-              LOG.debug("Persisted backward header download completion state");
-
+              // Verify the checkpoint before marking headers complete, so we never persist a
+              // completion flag for headers that don't match the trusted checkpoint.
               if (checkpointValidated.compareAndSet(false, true)) {
                 verifyCheckpointHeaderMatches(state.bodyCheckpoint());
               }
+
+              chainSyncState.updateAndGet(
+                  s -> matched.map(s::withRecoveryMatch).orElse(s).withHeadersDownloadComplete());
+              chainSyncStateStorage.storeState(chainSyncState.get());
+              currentDriver = null;
+              LOG.debug("Persisted backward header download completion state");
 
               return null;
             });

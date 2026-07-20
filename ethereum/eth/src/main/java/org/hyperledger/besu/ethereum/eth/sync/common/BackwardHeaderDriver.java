@@ -15,6 +15,8 @@
  */
 package org.hyperledger.besu.ethereum.eth.sync.common;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -87,6 +89,17 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
     final long anchorNumber = anchorHeader.getNumber();
     final long pivotNumber = pivotHeader.getNumber();
 
+    // The pivot must be above the anchor. A pivot at or below the anchor (e.g. a genesis pivot)
+    // means
+    // there is nothing to download and must be handled before snap sync starts (SnapSyncDownloader
+    // short-circuits it via NoSyncRequired), so reaching here with such a pivot is a programming
+    // error — fail fast rather than block forever in hasNext().
+    checkArgument(
+        pivotNumber > anchorNumber,
+        "BackwardHeaderDriver requires pivot (%s) to be above anchor (%s)",
+        pivotNumber,
+        anchorNumber);
+
     this.lowestHeaderToImport = anchorNumber + 1;
     this.anchorHash = anchorHeader.getHash();
     this.totalHeaders = pivotNumber - anchorNumber;
@@ -105,6 +118,16 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
         pivotNumber,
         anchorNumber,
         batchSize);
+
+    // When the pivot sits exactly at anchor+1 there are no Phase-1 blocks to emit, so hasNext()
+    // would otherwise block forever waiting for an accept() that is never triggered. The already-
+    // stored pivot is the lowest header, so resolve the anchor boundary eagerly instead (matched ->
+    // done, mismatch -> recovery). Reachable when the pivot advances by a single block or rolls
+    // back
+    // to just above the anchor.
+    if (pivotNumber == lowestHeaderToImport) {
+      resolveAnchorBoundary();
+    }
   }
 
   @Override
@@ -219,22 +242,7 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
     blockchainStorage.storeBlockHeaders(blockHeaders);
 
     if (lowestImportedHeaderNumber == lowestHeaderToImport) {
-      if (lowestImportedHeader.getParentHash().equals(anchorHash)) {
-        LOG.info("Header import progress 100.00%");
-        stopped = true;
-        decision.complete(false);
-      } else {
-        if (lowestHeaderToImport == 1) {
-          stopped = true;
-          decision.complete(false);
-          throw new WrongChainException(
-              "Backward header download reached genesis boundary without matching parent hash.");
-        }
-        emitRecoveryStartLog(lowestImportedHeader);
-        recoveryMode = true;
-        currentBlock.set(lowestHeaderToImport - 1);
-        startOrExtendRecovery();
-      }
+      resolveAnchorBoundary();
       return;
     }
 
@@ -247,6 +255,32 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
           String.format("Header import progress %.2f%%", headersPercent),
           isTimeToLog,
           LOG_DELAY_SECONDS);
+    }
+  }
+
+  /**
+   * Resolves the anchor boundary once the lowest imported header sits at {@code
+   * lowestHeaderToImport} (anchor + 1). If it links to the anchor, Stage 1 is complete; otherwise
+   * the anchor was on a competing fork and recovery walks further back to find a canonical common
+   * ancestor. Callable both from {@link #accept} when the final batch lands and from the
+   * constructor when the pivot sits directly above the anchor so there is no batch to download.
+   */
+  private void resolveAnchorBoundary() {
+    if (lowestImportedHeader.getParentHash().equals(anchorHash)) {
+      LOG.info("Header import progress 100.00%");
+      stopped = true;
+      decision.complete(false);
+    } else {
+      if (lowestHeaderToImport == 1) {
+        stopped = true;
+        decision.complete(false);
+        throw new WrongChainException(
+            "Backward header download reached genesis boundary without matching parent hash.");
+      }
+      emitRecoveryStartLog(lowestImportedHeader);
+      recoveryMode = true;
+      currentBlock.set(lowestHeaderToImport - 1);
+      startOrExtendRecovery();
     }
   }
 

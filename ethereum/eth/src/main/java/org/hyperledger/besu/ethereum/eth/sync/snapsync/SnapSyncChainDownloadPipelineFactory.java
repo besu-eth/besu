@@ -98,7 +98,7 @@ public class SnapSyncChainDownloadPipelineFactory {
         headerRequestSize,
         ethContext.getEthPeers().peerCount());
 
-    final BackwardHeaderDriver driver =
+    final BackwardHeaderDriver backwardHeaderDriver =
         new BackwardHeaderDriver(
             headerRequestSize,
             lowerAnchor,
@@ -117,7 +117,7 @@ public class SnapSyncChainDownloadPipelineFactory {
     final Pipeline<Long> pipeline =
         PipelineBuilder.createPipelineFrom(
                 "backwardHeaderSource",
-                driver,
+                backwardHeaderDriver,
                 downloaderParallelism,
                 metricsSystem.createLabelledCounter(
                     BesuMetricCategory.SYNCHRONIZER,
@@ -131,9 +131,9 @@ public class SnapSyncChainDownloadPipelineFactory {
                 "downloadBackwardHeaders",
                 downloadStep,
                 downloaderParallelism * headerDownloadParallelismFactor)
-            .andFinishWith("importHeadersStep", driver);
+            .andFinishWith("importHeadersStep", backwardHeaderDriver);
 
-    return new BackwardHeaderPipelineResult(pipeline, driver);
+    return new BackwardHeaderPipelineResult(pipeline, backwardHeaderDriver);
   }
 
   /**

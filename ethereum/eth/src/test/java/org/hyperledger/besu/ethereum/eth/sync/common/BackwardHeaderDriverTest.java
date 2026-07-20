@@ -151,6 +151,56 @@ public class BackwardHeaderDriverTest {
   }
 
   @Test
+  public void shouldCompleteWithoutDownloadWhenPivotIsDirectlyAboveAnchorAndLinks() {
+    // pivot == anchor + 1 and the pivot links to the anchor: there is nothing to download, so
+    // Stage 1 is trivially complete. Previously hasNext() would block forever here because no
+    // Phase-1 block is ever emitted and accept() is never triggered.
+    final BlockHeader anchorAt50 = blocks.get(50).getHeader();
+    final BlockHeader pivotAt51 = blocks.get(51).getHeader();
+
+    final BackwardHeaderDriver driver =
+        new BackwardHeaderDriver(BATCH_SIZE, anchorAt50, pivotAt51, anchorHeader, blockchain);
+
+    assertThat(driver.hasNext()).isFalse();
+    assertThat(driver.getMatchedAncestor()).isEmpty();
+    // Only the pivot header is stored (in the constructor); no batches are downloaded.
+    verify(blockchain, times(1)).storeBlockHeaders(any());
+  }
+
+  @Test
+  public void shouldEnterRecoveryWhenPivotIsDirectlyAboveAnchorButDoesNotLink() {
+    // pivot == anchor + 1 but the pivot does not link to the anchor (the anchor was reorged off
+    // our chain). The driver must enter recovery rather than blocking or falsely completing.
+    final BlockDataGenerator otherGenerator = new BlockDataGenerator(99);
+    final BlockHeader reorgedAnchorAt50 = otherGenerator.blockSequence(51).get(50).getHeader();
+    final BlockHeader pivotAt51 = blocks.get(51).getHeader();
+    assertThat(pivotAt51.getParentHash()).isNotEqualTo(reorgedAnchorAt50.getHash());
+
+    final BackwardHeaderDriver driver =
+        new BackwardHeaderDriver(
+            BATCH_SIZE, reorgedAnchorAt50, pivotAt51, anchorHeader, blockchain);
+
+    // Recovery started: no match yet, and the iterator has recovery batches to emit (no hang).
+    assertThat(driver.getMatchedAncestor()).isEmpty();
+    assertThat(driver.hasNext()).isTrue();
+  }
+
+  @Test
+  public void shouldRejectPivotAtOrBelowAnchor() {
+    // pivot number <= anchor number must never reach the driver: a genesis pivot is short-circuited
+    // before snap sync starts (SnapSyncDownloader -> NoSyncRequired). Constructing one is a
+    // programming error and must fail fast rather than block in hasNext().
+    final BlockHeader blockAt60 = blocks.get(60).getHeader();
+
+    assertThatThrownBy(
+            () ->
+                new BackwardHeaderDriver(
+                    BATCH_SIZE, blockAt60, blockAt60, anchorHeader, blockchain))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("pivot");
+  }
+
+  @Test
   public void shouldThrowWrongChainExceptionWhenRecoveryWalksToGenesisWithMismatchedParent() {
     // Pivot at wrong-chain block 100, anchor at default-chain block 50 (the anchor hash does
     // not match wrong-chain's block 50). Recovery walks down to block 1 via two batches. At

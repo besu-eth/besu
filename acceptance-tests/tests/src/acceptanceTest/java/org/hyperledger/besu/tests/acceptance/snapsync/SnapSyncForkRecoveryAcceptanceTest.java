@@ -33,6 +33,7 @@ import java.math.BigInteger;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -533,20 +534,28 @@ public class SnapSyncForkRecoveryAcceptanceTest extends AcceptanceTestBase {
       assertThat(payloadId).isNotEmpty();
     }
 
-    // Give the miner time to assemble the payload: empty blocks are ready almost immediately, but
-    // the heavy contract-deploy blocks need longer to execute and pack their transactions.
-    sleep(expectedTxCount > 0 ? 500 : 150);
-
+    // The miner assembles the payload asynchronously after forkchoiceUpdated and keeps improving it
+    // in the background; engine_getPayloadV1 returns the best block built so far. Poll it until the
+    // block has packed all the expected transactions instead of sleeping a fixed (brittle)
+    // duration.
     final String getPayload =
         "{\"jsonrpc\":\"2.0\",\"method\":\"engine_getPayloadV1\",\"params\":[\""
             + payloadId
             + "\"],\"id\":67}";
-    final ObjectNode executionPayload;
-    try (Response response = engineCall(miner, getPayload).execute()) {
-      assertThat(response.code()).isEqualTo(200);
-      executionPayload = (ObjectNode) result(response);
-    }
-    assertThat(executionPayload.get("transactions").size()).isEqualTo(expectedTxCount);
+    final AtomicReference<ObjectNode> executionPayloadRef = new AtomicReference<>();
+    await()
+        .atMost(Duration.ofSeconds(30))
+        .pollInterval(Duration.ofMillis(50))
+        .untilAsserted(
+            () -> {
+              try (Response response = engineCall(miner, getPayload).execute()) {
+                assertThat(response.code()).isEqualTo(200);
+                final ObjectNode payload = (ObjectNode) result(response);
+                assertThat(payload.get("transactions").size()).isEqualTo(expectedTxCount);
+                executionPayloadRef.set(payload);
+              }
+            });
+    final ObjectNode executionPayload = executionPayloadRef.get();
 
     importBlock(miner, executionPayload);
     return executionPayload;
@@ -619,15 +628,6 @@ public class SnapSyncForkRecoveryAcceptanceTest extends AcceptanceTestBase {
             .url(node.engineRpcUrl().get())
             .post(RequestBody.create(request, MEDIA_TYPE_JSON))
             .build());
-  }
-
-  private static void sleep(final long millis) {
-    try {
-      Thread.sleep(millis);
-    } catch (final InterruptedException e) {
-      Thread.currentThread().interrupt();
-      throw new RuntimeException(e);
-    }
   }
 
   /**

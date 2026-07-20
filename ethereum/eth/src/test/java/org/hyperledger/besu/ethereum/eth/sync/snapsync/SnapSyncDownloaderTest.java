@@ -21,6 +21,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -31,6 +32,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.eth.sync.ChainDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.TrailingPeerRequirements;
 import org.hyperledger.besu.ethereum.eth.sync.common.CheckpointReorgException;
+import org.hyperledger.besu.ethereum.eth.sync.common.NoSyncRequiredState;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncActions;
 import org.hyperledger.besu.ethereum.eth.sync.common.SyncError;
 import org.hyperledger.besu.ethereum.eth.sync.common.SyncException;
@@ -101,6 +103,27 @@ public class SnapSyncDownloaderTest {
         .run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader)));
     verifyNoMoreInteractions(fastSyncActions, worldStateDownloader);
     assertThat(result).isCompletedWithValue(snapSyncState(pivotBlockHeader));
+  }
+
+  @Test
+  public void shouldNotDownloadAnythingWhenPivotIsGenesis() {
+    setup();
+    final SnapSyncProcessState selectPivotBlockState = new SnapSyncProcessState(0);
+    final BlockHeader genesisPivot = new BlockHeaderTestFixture().number(0).buildHeader();
+    final SnapSyncProcessState resolvedState = new SnapSyncProcessState(genesisPivot);
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
+        .thenReturn(completedFuture(selectPivotBlockState));
+    when(fastSyncActions.resolvePivotBlockHeader(selectPivotBlockState))
+        .thenReturn(completedFuture(resolvedState));
+
+    final CompletableFuture<SnapSyncProcessState> result = downloader.start();
+
+    // A genesis pivot means no snap sync is required: the node hands off to full/backward sync and
+    // no chain download or world-state download is started.
+    assertThat(result).isCompleted();
+    assertThat(result.join()).isInstanceOf(NoSyncRequiredState.class);
+    verify(fastSyncActions, never()).createChainDownloader(any(), any());
+    verify(worldStateDownloader, never()).run(any(), any());
   }
 
   @Test

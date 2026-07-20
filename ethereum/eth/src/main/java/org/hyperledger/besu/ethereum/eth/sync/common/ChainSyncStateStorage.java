@@ -38,7 +38,7 @@ import org.slf4j.LoggerFactory;
 public class ChainSyncStateStorage {
   private static final Logger LOG = LoggerFactory.getLogger(ChainSyncStateStorage.class);
   private static final String STATE_FILE_NAME = "chain-sync-state.rlp";
-  private static final byte FORMAT_VERSION = 6;
+  private static final byte FORMAT_VERSION = 5;
 
   private final File stateFile;
   private final File tempFile;
