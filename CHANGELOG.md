@@ -56,6 +56,7 @@
 - Upgrade netty dependencies to 4.2.15.Final [#10693](https://github.com/besu-eth/besu/pull/10693) 
 - Besu now falls back to Proof of Stake when the genesis file declares no consensus mechanism (e.g. an empty `"config": {}`). [#10266](https://github.com/besu-eth/besu/pull/10266)
 - Add `HealthCheckService` plugin API enabling custom health check implementations. The plugin-based `/readiness` response body is simplified to `{"status":"UP"|"DOWN"}` and no longer includes the previous `{peers, sync}` detail. [#10167](https://github.com/besu-eth/besu/pull/10167)
+- Added opt-in per-transaction gas limit override (`pertxgaslimit` under `config.qbft` / `config.ibft2`) for QBFT and IBFT2 private networks.  Replaces the previous QBFT-only `pertxgaslimitcap` and supports fork transitions via `BftFork`. [#10722](https://github.com/besu-eth/besu/pull/10722)
 
 ## 26.6.1
 
