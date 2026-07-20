@@ -18,6 +18,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.BlockProcessingExecutors;
 import org.hyperledger.besu.ethereum.trie.forest.ForestWorldStateArchive;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.bal.BlockAccessListStateRootCalculator;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.PathBasedWorldStateProvider;
@@ -33,10 +34,8 @@ import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
-import java.util.concurrent.ForkJoinPool;
 import java.util.function.Supplier;
 
 @SuppressWarnings({"rawtypes", "unchecked"})
@@ -46,7 +45,7 @@ public final class BalStateRootCommitterFactory implements StateRootCommitterFac
   private final Executor balAsyncExecutor;
 
   public BalStateRootCommitterFactory(final BalConfiguration balConfiguration) {
-    this(balConfiguration, ForkJoinPool.commonPool());
+    this(balConfiguration, BlockProcessingExecutors.stateRootExecutor());
   }
 
   public BalStateRootCommitterFactory(
@@ -71,7 +70,6 @@ public final class BalStateRootCommitterFactory implements StateRootCommitterFac
     final CompletableFuture<BalRootComputation> balFuture =
         BlockAccessListStateRootCalculator.computeAsync(
             protocolContext, blockHeader, maybeBal.get(), balAsyncExecutor);
-
     return new BalCommitter(balFuture);
   }
 
@@ -137,13 +135,6 @@ public final class BalStateRootCommitterFactory implements StateRootCommitterFac
       throw new IllegalStateException("Interrupted while waiting for BAL state root", e);
     } catch (final CancellationException e) {
       throw new IllegalStateException("BAL state root computation was cancelled", e);
-    } catch (final CompletionException e) {
-      final Throwable cause = e.getCause();
-      if (cause instanceof CancellationException ce) {
-        throw new IllegalStateException("BAL state root computation was cancelled", ce);
-      }
-      throw new IllegalStateException(
-          "Failed to compute BAL state root", cause != null ? cause : e);
     }
   }
 

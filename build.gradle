@@ -199,7 +199,10 @@ configure(allprojects - project(':platform')) {
     }
     exclusiveContent {
       forRepositories(ethExecSpecTestsRepo)
-      filter { includeModule('ethereum', 'execution-spec-tests')}
+      filter {
+        includeModule('ethereum', 'execution-spec-tests')
+        includeModule('ethereum', 'execution-specs')
+      }
     }
   }
 
@@ -479,124 +482,150 @@ configure(allprojects - project(':platform')) {
   }
 }
 
-ext.collectExternalComponentIds = {
-  ->
-  def componentIds = new HashSet()
-  def unresolvedConfigs = 0
-
-  def collectComponentIds = { configs, String label ->
-    configs.matching { it.canBeResolved }.each { config ->
-      try {
-        config.incoming.resolutionResult.allComponents.each { component ->
-          componentIds.add(component.id)
+// Resolves the "sources" documentation variant of a configuration the same way IDEs
+// (e.g. IntelliJ's Gradle sync) do. Unlike the legacy ArtifactResolutionQuery API, this goes
+// through real dependency resolution, so it is subject to dependency verification - which is
+// exactly why it must be used here: it is the only way to reproduce, from the command line,
+// the checksum failures IDEs hit on refresh.
+ext.forEachProjectSourceArtifact = { Project proj, Closure action ->
+  proj.configurations.matching { it.canBeResolved }.each { cfg ->
+    try {
+      def view = cfg.incoming.artifactView {
+        withVariantReselection()
+        attributes {
+          attribute(Category.CATEGORY_ATTRIBUTE, proj.objects.named(Category, Category.DOCUMENTATION))
+          attribute(DocsType.DOCS_TYPE_ATTRIBUTE, proj.objects.named(DocsType, DocsType.SOURCES))
         }
-      } catch (Exception e) {
-        unresolvedConfigs++
-        logger.info("Could not resolve ${label} '${config.name}': ${e.message}")
+        lenient(true)
       }
+      view.artifacts.each { artifact -> action(artifact.id.componentIdentifier, artifact) }
+    } catch (Exception e) {
+      // A checksum mismatch/missing entry must fail the build - swallowing it here is exactly
+      // how this class of bug used to slip past CI while still breaking IDE Gradle syncs.
+      if (e.message?.contains('Dependency verification failed')) {
+        throw e
+      }
+      logger.info("Could not resolve sources for ${proj.path} config '${cfg.name}': ${e.message}")
     }
   }
-
-  allprojects.each { proj ->
-    collectComponentIds(proj.configurations, "${proj.path} config")
-    collectComponentIds(proj.buildscript.configurations, "${proj.path} buildscript config")
-  }
-
-  if (unresolvedConfigs > 0) {
-    logger.warn("${unresolvedConfigs} configurations could not be resolved (run with --info for details)")
-  }
-
-  return componentIds.findAll { it instanceof org.gradle.api.artifacts.component.ModuleComponentIdentifier }
 }
 
-// Retries buildscript repositories (which include the Gradle Plugin Portal) for any
-// components whose sources did not resolve against the project repositories.
-ext.forEachResolvedSourceArtifact = { Collection externalIds, Closure action ->
-  def resolvedComponentIds = new HashSet()
+// A configuration can only be resolved by a task owned by the same project - resolving it from
+// a task in a different project fails with "attempted without an exclusive lock". That is why
+// these are registered per-project rather than resolved from a single root-project task, which
+// used to silently skip almost every subproject's configurations.
+allprojects { proj ->
+  proj.tasks.register('resolveProjectSourceArtifacts') {
+    group = 'verification'
+    description = "Resolves source artifacts for ${proj.path}'s resolvable configurations"
+    doLast {
+      def resolved = new HashSet()
+      forEachProjectSourceArtifact(proj) { id, artifact ->
+        artifact.file // access .file to trigger download and register with verification metadata
+        if (id instanceof ModuleComponentIdentifier) {
+          resolved.add(id)
+        }
+      }
+      logger.lifecycle("[${proj.path}] resolved sources for ${resolved.size()} components")
+    }
+  }
 
-  def resolveSources = { depHandler, componentIdsToResolve, String label ->
-    def sizeBefore = resolvedComponentIds.size()
-    def result = depHandler.createArtifactResolutionQuery()
-      .forComponents(componentIdsToResolve)
-      .withArtifacts(JvmLibrary, SourcesArtifact)
-      .execute()
-    result.resolvedComponents.each { component ->
-      component.getArtifacts(SourcesArtifact).each { source ->
-        if (source instanceof ResolvedArtifactResult) {
-          action(component.id, source)
-          resolvedComponentIds.add(component.id)
-        } else {
-          logger.info("Could not resolve sources for ${component.id}: ${source}")
+  proj.tasks.register('verifyProjectSourceArtifacts') {
+    group = 'verification'
+    description = "Checks that gradle/verification-metadata.xml records source artifacts resolved for ${proj.path}"
+    doLast {
+      forEachProjectSourceArtifact(proj) { id, artifact ->
+        if (id instanceof ModuleComponentIdentifier) {
+          def key = "${id.group}:${id.module}:${id.version}".toString()
+          if (!rootProject.ext.recordedSourceComponents.contains(key)) {
+            rootProject.ext.missingSourceComponents.add(key)
+          }
         }
       }
     }
-    def count = resolvedComponentIds.size() - sizeBefore
-    logger.lifecycle("Resolved sources for ${count} components from ${label}")
   }
+}
 
-  resolveSources(dependencies, externalIds, "project repositories")
+// Plugin/buildscript classpath dependencies (declared via the `plugins {}` block) aren't
+// published with documentation variants, so their sources still need the legacy
+// ArtifactResolutionQuery API. Only the root project declares plugins, so no per-project
+// resolution (and no exclusive-lock issue) is needed here.
+ext.forEachBuildscriptSourceArtifact = { Closure action ->
+  def componentIds = buildscript.configurations
+    .matching { it.canBeResolved }
+    .collectMany {
+      it.incoming.resolutionResult.allComponents.collect { c ->
+        c.id
+      }
+    }
+    .findAll { it instanceof ModuleComponentIdentifier }
 
-  def unresolvedIds = externalIds.findAll { !resolvedComponentIds.contains(it) }
-  if (!unresolvedIds.isEmpty()) {
-    resolveSources(buildscript.dependencies, unresolvedIds, "buildscript repositories")
+  def result = buildscript.dependencies.createArtifactResolutionQuery()
+    .forComponents(componentIds)
+    .withArtifacts(JvmLibrary, SourcesArtifact)
+    .execute()
+  result.resolvedComponents.each { component ->
+    component.getArtifacts(SourcesArtifact).each { source ->
+      if (source instanceof ResolvedArtifactResult) {
+        action(component.id, source)
+      } else {
+        logger.info("Could not resolve sources for ${component.id}: ${source}")
+      }
+    }
   }
-
-  return resolvedComponentIds
 }
 
 task resolveSourceArtifacts {
   group = 'verification'
-  description = 'Resolves source artifacts for all configurations so they can be included in dependency verification metadata'
+  description = 'Resolves source artifacts for all configurations (including the plugin classpath) so they can be included in dependency verification metadata'
+  dependsOn getAllprojects().collect { it.tasks.named('resolveProjectSourceArtifacts') }
   doLast {
-    def externalIds = collectExternalComponentIds()
-    logger.lifecycle("Resolving sources for ${externalIds.size()} external dependencies...")
-
-    def resolvedComponentIds = forEachResolvedSourceArtifact(externalIds) { id, source ->
+    def resolved = new HashSet()
+    forEachBuildscriptSourceArtifact { id, source ->
       source.file // access .file to trigger download and register with verification metadata
+      resolved.add(id)
     }
-
-    def finalUnresolved = externalIds.size() - resolvedComponentIds.size()
-    if (finalUnresolved > 0) {
-      logger.warn("${finalUnresolved} dependencies have no published source artifacts")
-    }
-    logger.lifecycle("Total: sources resolved for ${resolvedComponentIds.size()}/${externalIds.size()} components")
+    logger.lifecycle("Resolved sources for ${resolved.size()} plugin classpath components")
   }
 }
+
+ext.recordedSourceComponents = {
+  def metadataFile = rootProject.file('gradle/verification-metadata.xml')
+  def slurper = new groovy.xml.XmlSlurper()
+  slurper.setFeature('http://xml.org/sax/features/namespaces', false)
+  def metadata = slurper.parse(metadataFile)
+
+  def components = new HashSet()
+  metadata.components.component.each { comp ->
+    def group = comp.@group.text()
+    def name = comp.@name.text()
+    def version = comp.@version.text()
+    def expected = "${name}-${version}-sources.jar".toString()
+    if (comp.artifact.any { it.@name.text() == expected }) {
+      components.add("${group}:${name}:${version}".toString())
+    }
+  }
+  return components
+}()
+ext.missingSourceComponents = new java.util.concurrent.ConcurrentSkipListSet()
 
 task verifySourceArtifacts {
   group = 'verification'
   description = 'Fails the build if gradle/verification-metadata.xml is missing source artifact entries for any resolvable dependency'
+  dependsOn getAllprojects().collect { it.tasks.named('verifyProjectSourceArtifacts') }
   doLast {
-    def metadataFile = rootProject.file('gradle/verification-metadata.xml')
-    def slurper = new groovy.xml.XmlSlurper()
-    slurper.setFeature('http://xml.org/sax/features/namespaces', false)
-    def metadata = slurper.parse(metadataFile)
-
-    def componentsWithRecordedSources = new HashSet()
-    metadata.components.component.each { comp ->
-      def group = comp.@group.text()
-      def name = comp.@name.text()
-      def version = comp.@version.text()
-      def expected = "${name}-${version}-sources.jar".toString()
-      if (comp.artifact.any { it.@name.text() == expected }) {
-        componentsWithRecordedSources.add("${group}:${name}:${version}".toString())
-      }
-    }
-
-    def externalIds = collectExternalComponentIds()
-    def missing = new TreeSet()
-    forEachResolvedSourceArtifact(externalIds) { id, source ->
+    forEachBuildscriptSourceArtifact { id, source ->
       def key = "${id.group}:${id.module}:${id.version}".toString()
-      if (!componentsWithRecordedSources.contains(key)) {
-        missing.add(key)
+      if (!recordedSourceComponents.contains(key)) {
+        missingSourceComponents.add(key)
       }
     }
 
-    if (!missing.isEmpty()) {
-      def list = missing.collect { "  - ${it}" }.join('\n')
+    if (!missingSourceComponents.isEmpty()) {
+      def list = missingSourceComponents.collect { "  - ${it}" }.join('\n')
       throw new GradleException(
-      "gradle/verification-metadata.xml is missing source artifact entries for ${missing.size()} " +
-      "${missing.size() == 1 ? 'dependency' : 'dependencies'}:\n" +
+      "gradle/verification-metadata.xml is missing source artifact entries for ${missingSourceComponents.size()} " +
+      "${missingSourceComponents.size() == 1 ? 'dependency' : 'dependencies'}:\n" +
       "${list}\n\n" +
       "Regenerate the metadata by running:\n" +
       "  ./gradlew --write-verification-metadata sha256 resolveSourceArtifacts\n" +
@@ -799,6 +828,7 @@ subprojects {
     jmh {
       jmhVersion = '1.37'
       fork = 3
+      resultFormat = 'JSON'
       var inc = _strListCmdArg('includes', [''])
       includes = inc.size() > 1 ? [".*(${inc.join('|')}).*"] : inc
       excludes = _strListCmdArg('excludes', [])

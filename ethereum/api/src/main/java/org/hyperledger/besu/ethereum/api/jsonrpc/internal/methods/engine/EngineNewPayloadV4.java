@@ -82,6 +82,9 @@ public class EngineNewPayloadV4 extends AbstractEngineNewPayload {
     } else if (maybeRequestsParam.isEmpty()) {
       return ValidationResult.invalid(
           RpcErrorType.INVALID_EXECUTION_REQUESTS_PARAMS, "Missing execution requests field");
+    } else if (payloadParameter.getBlockAccessList() != null) {
+      return ValidationResult.invalid(
+          RpcErrorType.INVALID_ENGINE_NEW_PAYLOAD_PARAMS, "Unexpected block access list field");
     } else {
       return ValidationResult.valid();
     }
@@ -93,7 +96,7 @@ public class EngineNewPayloadV4 extends AbstractEngineNewPayload {
         PRAGUE,
         pragueMilestone,
         AMSTERDAM,
-        protocolSchedule.flatMap(s -> s.milestoneFor(AMSTERDAM)),
+        maybeProtocolSchedule.flatMap(s -> s.milestoneFor(AMSTERDAM)),
         blockTimestamp);
   }
 }

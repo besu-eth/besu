@@ -186,7 +186,7 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
         return maybeError.get();
       }
       if (!getWithdrawalsValidator(
-              protocolSchedule.get(), newHead, maybePayloadAttributes.get().getTimestamp())
+              maybeProtocolSchedule.get(), newHead, maybePayloadAttributes.get().getTimestamp())
           .validateWithdrawals(withdrawals)) {
         return new JsonRpcErrorResponse(requestId, getInvalidWithdrawalsError());
       }
@@ -225,6 +225,7 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
                         .parentBeaconBlockRoot(
                             Optional.ofNullable(payloadAttributes.getParentBeaconBlockRoot()))
                         .slotNumber(Optional.ofNullable(payloadAttributes.getSlotNumber()))
+                        .targetGasLimit(Optional.empty())
                         .build()));
 
     payloadId.ifPresent(

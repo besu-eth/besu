@@ -114,6 +114,15 @@ public class ProtocolSpecBuilder {
     return this;
   }
 
+  /**
+   * Gets the current gas limit calculator builder.
+   *
+   * @return the gas limit calculator builder
+   */
+  public GasLimitCalculatorBuilder getGasLimitCalculatorBuilder() {
+    return gasLimitCalculatorBuilder;
+  }
+
   public ProtocolSpecBuilder blockReward(final Wei blockReward) {
     this.blockReward = blockReward;
     return this;
