@@ -192,7 +192,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
         Bytes32.wrap(storageRoot.getBytes()));
   }
 
-  private MerkleTrie<Bytes, Bytes> createTrie(final NodeLoader nodeLoader, final Bytes32 rootHash) {
+  public MerkleTrie<Bytes, Bytes> createTrie(final NodeLoader nodeLoader, final Bytes32 rootHash) {
     if (worldStateConfig.isTrieDisabled()) {
       return new NoOpMerkleTrie<>();
     }
