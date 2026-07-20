@@ -40,6 +40,7 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.function.BiFunction;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -47,9 +48,18 @@ import org.apache.tuweni.rlp.RLP;
 import org.apache.tuweni.units.bigints.UInt256;
 
 /** Bonsai path-based root from accumulated block updates (no BAL background). */
-public final class DefaultStateRootCommitter implements StateRootCommitter {
+public class DefaultStateRootCommitter implements StateRootCommitter {
 
-  public DefaultStateRootCommitter() {}
+  private final BiFunction<BonsaiWorldState, Address, Hash> addressHasher;
+
+  public DefaultStateRootCommitter() {
+    this((bonsai, address) -> address.addressHash());
+  }
+
+  public DefaultStateRootCommitter(
+      final BiFunction<BonsaiWorldState, Address, Hash> addressHasher) {
+    this.addressHasher = addressHasher;
+  }
 
   @Override
   public StateRootComputation compute(
@@ -62,7 +72,11 @@ public final class DefaultStateRootCommitter implements StateRootCommitter {
     final boolean storageFrozen = mutableWorldState.isStorageFrozen();
     final List<StateRootComputation.UpdaterWrite> writes = new ArrayList<>();
     final Hash root =
-        new DefaultComputation(bonsai, (BonsaiWorldStateUpdateAccumulator) accumulator, storageFrozen)
+        new DefaultComputation(
+                bonsai,
+                (BonsaiWorldStateUpdateAccumulator) accumulator,
+                storageFrozen,
+                addressHasher)
             .executeInto(writes);
     if (blockHeader != null && bonsai.isTrieDisabled()) {
       return StateRootComputation.pathBased(blockHeader.getStateRoot(), writes);
@@ -75,6 +89,7 @@ public final class DefaultStateRootCommitter implements StateRootCommitter {
     private final BonsaiWorldState bonsai;
     private final BonsaiWorldStateUpdateAccumulator worldStateUpdater;
     private final boolean storageFrozen;
+    private final BiFunction<BonsaiWorldState, Address, Hash> addressHasher;
 
     /** Lock-free queue; storage futures and account staging may append concurrently. */
     private final ConcurrentLinkedQueue<StateRootComputation.UpdaterWrite> writes =
@@ -89,10 +104,12 @@ public final class DefaultStateRootCommitter implements StateRootCommitter {
     DefaultComputation(
         final BonsaiWorldState bonsai,
         final BonsaiWorldStateUpdateAccumulator worldStateUpdater,
-        final boolean storageFrozen) {
+        final boolean storageFrozen,
+        final BiFunction<BonsaiWorldState, Address, Hash> addressHasher) {
       this.bonsai = bonsai;
       this.worldStateUpdater = worldStateUpdater;
       this.storageFrozen = storageFrozen;
+      this.addressHasher = addressHasher;
     }
 
     Hash executeInto(final List<StateRootComputation.UpdaterWrite> writeSink) {
@@ -121,7 +138,7 @@ public final class DefaultStateRootCommitter implements StateRootCommitter {
           worldStateUpdater.getAccountsToUpdate().entrySet()) {
         final Address address = accountUpdate.getKey();
         final PathBasedValue<BonsaiAccount> accountValue = accountUpdate.getValue();
-        final Hash addressHash = address.addressHash();
+        final Hash addressHash = addressHasher.apply(bonsai, address);
         try {
           if (accountValue.getUpdated() == null) {
             final CompletableFuture<Hash> storageFuture = storageFutures.get(address);
@@ -191,13 +208,7 @@ public final class DefaultStateRootCommitter implements StateRootCommitter {
               ? Hash.EMPTY_TRIE_HASH
               : accountOriginal.getStorageRoot();
       final MerkleTrie<Bytes, Bytes> storageTrie =
-          bonsai.createTrie(
-              (location, key) ->
-                  bonsai
-                      .getBonsaiCachedMerkleTrieLoader()
-                      .getAccountStorageTrieNode(
-                          bonsai.getWorldStateStorage(), updatedAddressHash, location, key),
-              Bytes32.wrap(storageRoot.getBytes()));
+          bonsai.createStorageTrie(updatedAddressHash, storageRoot);
 
       for (final Map.Entry<StorageSlotKey, PathBasedValue<UInt256>> storageUpdate :
           storageUpdates.entrySet()) {
@@ -251,11 +262,9 @@ public final class DefaultStateRootCommitter implements StateRootCommitter {
         if (oldAccount == null) {
           continue;
         }
-        final Hash addressHash = address.addressHash();
+        final Hash addressHash = addressHasher.apply(bonsai, address);
         final MerkleTrie<Bytes, Bytes> storageTrie =
-            bonsai.createTrie(
-                (location, key) -> bonsai.getStorageTrieNode(addressHash, location, key),
-                Bytes32.wrap(oldAccount.getStorageRoot().getBytes()));
+            bonsai.createStorageTrie(addressHash, oldAccount.getStorageRoot());
         try {
           StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>> storageToDelete = null;
           Bytes32 nextKeyHash = Bytes32.ZERO;

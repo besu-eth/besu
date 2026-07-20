@@ -19,7 +19,6 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
-import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.DefaultStateRootCommitter;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.NoOpMerkleTrie;
 import org.hyperledger.besu.ethereum.trie.NodeLoader;
@@ -240,6 +239,16 @@ public class BonsaiWorldState extends PathBasedWorldState {
             bonsaiCachedMerkleTrieLoader.getAccountStateTrieNode(
                 getWorldStateStorage(), location, hash),
         Bytes32.wrap(worldStateRootHash.getBytes()));
+  }
+
+  /** Per-account storage trie rooted at {@code storageRoot}. */
+  public MerkleTrie<Bytes, Bytes> createStorageTrie(
+      final Hash accountHash, final Hash storageRoot) {
+    return createTrie(
+        (location, key) ->
+            bonsaiCachedMerkleTrieLoader.getAccountStorageTrieNode(
+                getWorldStateStorage(), accountHash, location, key),
+        Bytes32.wrap(storageRoot.getBytes()));
   }
 
   public MerkleTrie<Bytes, Bytes> createTrie(final NodeLoader nodeLoader, final Bytes32 rootHash) {
