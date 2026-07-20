@@ -220,7 +220,7 @@ public final class BalStateRootCommitter implements StateRootCommitter {
               address,
               CompletableFuture.supplyAsync(
                   () -> updateStorageTrie(address, accountHash, blockAccessListAddressView),
-                  BlockProcessingExecutors.ioExecutor()));
+                  BlockProcessingExecutors.storageTrieExecutor()));
         }
       }
 
@@ -228,11 +228,13 @@ public final class BalStateRootCommitter implements StateRootCommitter {
       // leaf RLP.
       for (Map.Entry<Address, BlockAccessListAddressView.AccountEntry> entry :
           blockAccessListAddressView.getAccountEntries().entrySet()) {
-        final Address address = entry.getKey();
-        final Hash accountHash = entry.getValue().getAddressHash();
-        accountTrie.putDeferred(
-            accountHash.getBytes(),
-            existingRlp -> resolveAccount(accountHash, address, entry.getValue(), existingRlp));
+        if (entry.getValue().hasChanges()) {
+          final Address address = entry.getKey();
+          final Hash accountHash = entry.getValue().getAddressHash();
+          accountTrie.putDeferred(
+              accountHash.getBytes(),
+              existingRlp -> resolveAccount(accountHash, address, entry.getValue(), existingRlp));
+        }
       }
 
       if (!storageFrozen) {
