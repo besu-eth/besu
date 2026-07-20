@@ -32,9 +32,14 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 import com.google.common.annotations.VisibleForTesting;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class RetryingGetBlockAccessListsFromPeerTask
     extends AbstractRetryingSwitchingPeerTask<List<SyncBlockAccessList>> {
+
+  private static final Logger LOG =
+      LoggerFactory.getLogger(RetryingGetBlockAccessListsFromPeerTask.class);
 
   public static final int MAX_RETRIES = 16;
 
@@ -66,15 +71,36 @@ public class RetryingGetBlockAccessListsFromPeerTask
     }
 
     final List<Integer> requestedIndexes = List.copyOf(pendingIndexes);
+    LOG.atDebug()
+        .setMessage(
+            "Requesting {} block access list(s) from peer {} (attempt {}/{}, {} of {} still pending)")
+        .addArgument(requestedIndexes::size)
+        .addArgument(peer::getLoggableId)
+        .addArgument(() -> getRetryCount() + 1)
+        .addArgument(this::getMaxRetries)
+        .addArgument(pendingIndexes::size)
+        .addArgument(blockHeaders::size)
+        .log();
     return requestBlockAccessListsFromPeer(peer, requestedIndexes)
         .thenApply(
             receivedBlockAccessLists -> {
               final int pendingCountBeforeProcessing = pendingIndexes.size();
               processBlockAccessLists(requestedIndexes, receivedBlockAccessLists);
               if (pendingIndexes.isEmpty()) {
+                LOG.atDebug()
+                    .setMessage("All {} block access list(s) fetched from peers")
+                    .addArgument(blockHeaders::size)
+                    .log();
                 return completedBlockAccessLists();
               }
               if (pendingIndexes.size() < pendingCountBeforeProcessing) {
+                LOG.atDebug()
+                    .setMessage(
+                        "Block access list partial progress: {}/{} fetched, {} still pending, retrying")
+                    .addArgument(() -> blockHeaders.size() - pendingIndexes.size())
+                    .addArgument(blockHeaders::size)
+                    .addArgument(pendingIndexes::size)
+                    .log();
                 resetRetryCount();
               }
               throw new IncompleteResultsException(
