@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.mainnet.staterootcommitter;
 
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.trie.forest.worldview.ForestMutableWorldState;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
