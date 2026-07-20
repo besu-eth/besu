@@ -129,7 +129,7 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
               address,
               CompletableFuture.supplyAsync(
                   () -> updateStorageTrie(address, storageAccountUpdate.getValue()),
-                  BlockProcessingExecutors.ioExecutor()));
+                  BlockProcessingExecutors.storageTrieExecutor()));
         }
       }
 

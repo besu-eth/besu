@@ -80,6 +80,10 @@ public final class BlockAccessListAddressView {
       this.storageBySlot = buildStorageBySlot(accountChanges.storageChanges());
     }
 
+    public boolean hasChanges() {
+      return hasBalanceChanges() || hasNonceChanges() || hasCodeChange() || hasStorageChanges();
+    }
+
     public boolean hasBalanceChanges() {
       return !accountChanges.balanceChanges().isEmpty();
     }
