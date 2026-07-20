@@ -631,7 +631,10 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
         pendingLargeStorageRequests.outstandingTaskCount(),
         pendingCodeRequests.outstandingTaskCount());
     blockAccessListApplier.applyBlockAccessLists(
-        currentPivotBlockHeader, newPivotBlockHeader, accountRangeTracker, storageRangeTracker);
+        currentPivotBlockHeader.getNumber() + 1,
+        newPivotBlockHeader.getNumber(),
+        accountRangeTracker,
+        storageRangeTracker);
   }
 
   private void retargetQueuedRequests(
