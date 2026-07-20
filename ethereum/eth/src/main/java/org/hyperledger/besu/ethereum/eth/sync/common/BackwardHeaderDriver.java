@@ -59,7 +59,7 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
   private final AtomicBoolean isTimeToLog = new AtomicBoolean(true);
   private volatile BlockHeader lowestImportedHeader;
 
-  private volatile CompletableFuture<Boolean> decision = new CompletableFuture<>();
+  private volatile CompletableFuture<Boolean> recoveryDecision = new CompletableFuture<>();
   private int extraBatchesRequested = 0;
   private volatile BlockHeader matchedAncestor;
   private boolean recoveryMode = false;
