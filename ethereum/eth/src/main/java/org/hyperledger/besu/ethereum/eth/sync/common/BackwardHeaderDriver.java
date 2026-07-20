@@ -140,7 +140,7 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
     }
     // Below the original anchor: wait for the completer to decide extend-or-stop, see accept()
     try {
-      return decision.get();
+      return recoveryDecision.get();
     } catch (final InterruptedException e) {
       Thread.currentThread().interrupt();
       return false;
@@ -159,8 +159,8 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
     }
     // Recovery-mode emit. hasNext() must have observed an "extend" decision. Install a fresh
     // future so the next hasNext() blocks again until the completer decides on this batch.
-    if (decision.getNow(Boolean.FALSE)) {
-      decision = new CompletableFuture<>();
+    if (recoveryDecision.getNow(Boolean.FALSE)) {
+      recoveryDecision = new CompletableFuture<>();
       return block;
     }
     LOG.debug("BackwardHeaderDriver exhausted at block {}", block);
@@ -171,7 +171,7 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
   public void accept(final List<BlockHeader> blockHeaders) {
     if (!blockHeaders.getFirst().getHash().equals(lowestImportedHeader.getParentHash())) {
       stopped = true;
-      decision.complete(false);
+      recoveryDecision.complete(false);
       final String message =
           "Received invalid header list: expected hash "
               + lowestImportedHeader.getParentHash()
@@ -200,7 +200,7 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
         blockchainStorage.storeBlockHeaders(blockHeaders);
         matchedAncestor = potentialParent.get();
         stopped = true;
-        decision.complete(false);
+        recoveryDecision.complete(false);
         emitRecoverySuccessLog(matchedAncestor);
         return;
       }
@@ -208,7 +208,7 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
         // Genesis floor reached without a canonical match: the pivot's chain does not connect to
         // our genesis.
         stopped = true;
-        decision.complete(false);
+        recoveryDecision.complete(false);
         LOG.error(
             "Backward header download reached block number 1 with hash {}, but it's parent hash {} is not matching the genesis hash {}.",
             lowestImportedHeader.getBlockHash(),
@@ -223,7 +223,7 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
         // Recovery reached the trusted checkpoint without reconnecting to the canonical chain
         // above it: the pivot is not on the checkpoint's chain.
         stopped = true;
-        decision.complete(false);
+        recoveryDecision.complete(false);
         final String message =
             "Anchor recovery reached the trusted checkpoint #"
                 + checkpointFloorNumber
@@ -269,11 +269,11 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
     if (lowestImportedHeader.getParentHash().equals(anchorHash)) {
       LOG.info("Header import progress 100.00%");
       stopped = true;
-      decision.complete(false);
+      recoveryDecision.complete(false);
     } else {
       if (lowestHeaderToImport == 1) {
         stopped = true;
-        decision.complete(false);
+        recoveryDecision.complete(false);
         throw new WrongChainException(
             "Backward header download reached genesis boundary without matching parent hash.");
       }
@@ -286,7 +286,7 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
 
   private void startOrExtendRecovery() {
     extraBatchesRequested++;
-    decision.complete(true);
+    recoveryDecision.complete(true);
     LOG.debug(
         "BackwardHeaderDriver: extending walk by one batch (extraBatches={})",
         extraBatchesRequested);
