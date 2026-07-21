@@ -471,10 +471,7 @@ configure(allprojects - project(':platform')) {
       '-org.hyperledger.besu.ethereum.rlp,' +
       // trie module
       '-org.hyperledger.besu.ethereum.trie.*,' +
-      '-org.hyperledger.besu.ethereum.trie,' +
-      // verkle trie module
-      '-org.hyperledger.besu.ethereum.verkletrie,' +
-      '-org.hyperledger.besu.ethereum.verkletrie.*',
+      '-org.hyperledger.besu.ethereum.trie,',
       true)
     options.addStringOption('Xmaxerrs','65535')
     options.addStringOption('Xmaxwarns','65535')

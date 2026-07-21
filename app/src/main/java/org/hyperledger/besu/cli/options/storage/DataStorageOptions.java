@@ -63,7 +63,7 @@ public class DataStorageOptions implements CLIOptions<DataStorageConfiguration> 
 
   /**
    * Options specific to path-based storage modes. Holds the necessary parameters to configure
-   * path-based storage, such as the Bonsai mode or Verkle in the future.
+   * path-based storage, such as the Bonsai mode or a future binary trie mode.
    */
   @Mixin
   private PathBasedExtraStorageOptions pathBasedExtraStorageOptions =
