@@ -15,10 +15,7 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE;
-import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE;
-import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.CODE_STORAGE;
-import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
+import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.BONSAI_WORLD_STATE_SEGMENTS;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig.createStatefulConfigWithTrie;
 
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
@@ -65,12 +62,7 @@ public class RollingImport {
             new PathBasedCodeCache());
     final SegmentedInMemoryKeyValueStorage worldStateKeyValueStorage =
         (SegmentedInMemoryKeyValueStorage)
-            provider.getStorageBySegmentIdentifiers(
-                List.of(
-                    ACCOUNT_INFO_STATE,
-                    CODE_STORAGE,
-                    ACCOUNT_STORAGE_STORAGE,
-                    TRIE_BRANCH_STORAGE));
+            provider.getStorageBySegmentIdentifiers(BONSAI_WORLD_STATE_SEGMENTS);
 
     final InMemoryKeyValueStorage trieLogStorage =
         (InMemoryKeyValueStorage)

@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.trie.pathbased.common.storage;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.CODE_STORAGE;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.STORAGE_TRIE_BRANCH_STORAGE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 
 import org.hyperledger.besu.datatypes.Hash;
@@ -27,6 +28,7 @@ import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorageTransaction;
+import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
@@ -60,6 +62,14 @@ public abstract class PathBasedWorldStateKeyValueStorage
   public static final byte[] WORLD_BLOCK_NUMBER_KEY =
       "worldBlockNumber".getBytes(StandardCharsets.UTF_8);
 
+  public static final List<SegmentIdentifier> BONSAI_WORLD_STATE_SEGMENTS =
+      List.of(
+          ACCOUNT_INFO_STATE,
+          CODE_STORAGE,
+          ACCOUNT_STORAGE_STORAGE,
+          TRIE_BRANCH_STORAGE,
+          STORAGE_TRIE_BRANCH_STORAGE);
+
   private final AtomicBoolean shouldClose = new AtomicBoolean(false);
 
   protected final AtomicBoolean isClosed = new AtomicBoolean(false);
@@ -70,9 +80,7 @@ public abstract class PathBasedWorldStateKeyValueStorage
 
   public PathBasedWorldStateKeyValueStorage(final StorageProvider provider) {
     this.composedWorldStateStorage =
-        provider.getStorageBySegmentIdentifiers(
-            List.of(
-                ACCOUNT_INFO_STATE, CODE_STORAGE, ACCOUNT_STORAGE_STORAGE, TRIE_BRANCH_STORAGE));
+        provider.getStorageBySegmentIdentifiers(BONSAI_WORLD_STATE_SEGMENTS);
     this.trieLogStorage =
         provider.getStorageBySegmentIdentifier(KeyValueSegmentIdentifier.TRIE_LOG_STORAGE);
   }
@@ -184,6 +192,7 @@ public abstract class PathBasedWorldStateKeyValueStorage
   public void clearTrie() {
     subscribers.forEach(StorageSubscriber::onClearTrie);
     composedWorldStateStorage.clear(TRIE_BRANCH_STORAGE);
+    composedWorldStateStorage.clear(STORAGE_TRIE_BRANCH_STORAGE);
   }
 
   public void clearFlatDatabase() {

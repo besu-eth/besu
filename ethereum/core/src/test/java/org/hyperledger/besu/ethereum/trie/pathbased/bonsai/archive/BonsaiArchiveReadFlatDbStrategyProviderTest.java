@@ -15,10 +15,8 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE;
-import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE;
-import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.CODE_STORAGE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
+import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.BONSAI_WORLD_STATE_SEGMENTS;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.FlatDbStrategyProvider.FLAT_DB_MODE;
 
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
@@ -29,8 +27,6 @@ import org.hyperledger.besu.ethereum.worldstate.ImmutablePathBasedExtraStorageCo
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
-
-import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
@@ -46,13 +42,7 @@ public class BonsaiArchiveReadFlatDbStrategyProviderTest {
   @Test
   void alwaysReturnsBonsaiArchiveFlatDbStrategy() {
     final SegmentedKeyValueStorage storage =
-        new InMemoryKeyValueStorageProvider()
-            .getStorageBySegmentIdentifiers(
-                List.of(
-                    TRIE_BRANCH_STORAGE,
-                    ACCOUNT_INFO_STATE,
-                    CODE_STORAGE,
-                    ACCOUNT_STORAGE_STORAGE));
+        new InMemoryKeyValueStorageProvider().getStorageBySegmentIdentifiers(BONSAI_WORLD_STATE_SEGMENTS);
 
     final BonsaiArchiveReadFlatDbStrategyProvider provider =
         new BonsaiArchiveReadFlatDbStrategyProvider(new NoOpMetricsSystem(), CONFIG);
@@ -65,13 +55,7 @@ public class BonsaiArchiveReadFlatDbStrategyProviderTest {
   void returnsArchiveStrategyEvenForFullMode() {
     // Simulate a DB that has FlatDbMode.FULL stored — provider should still return archive
     final SegmentedKeyValueStorage storage =
-        new InMemoryKeyValueStorageProvider()
-            .getStorageBySegmentIdentifiers(
-                List.of(
-                    TRIE_BRANCH_STORAGE,
-                    ACCOUNT_INFO_STATE,
-                    CODE_STORAGE,
-                    ACCOUNT_STORAGE_STORAGE));
+        new InMemoryKeyValueStorageProvider().getStorageBySegmentIdentifiers(BONSAI_WORLD_STATE_SEGMENTS);
 
     // Write FULL mode to the DB
     final var tx = storage.startTransaction();

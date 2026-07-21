@@ -16,8 +16,9 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage;
 
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE;
-import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.CODE_STORAGE;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.STORAGE_TRIE_BRANCH_STORAGE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
+import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.BONSAI_WORLD_STATE_SEGMENTS;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
@@ -44,7 +45,6 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTran
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Optional;
@@ -80,10 +80,9 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
       final DataStorageConfiguration dataStorageConfiguration,
       final FlatDbCacheManager cacheManager) {
     super(
-        provider.getStorageBySegmentIdentifiers(
-            List.of(
-                ACCOUNT_INFO_STATE, CODE_STORAGE, ACCOUNT_STORAGE_STORAGE, TRIE_BRANCH_STORAGE)),
+        provider.getStorageBySegmentIdentifiers(BONSAI_WORLD_STATE_SEGMENTS),
         provider.getStorageBySegmentIdentifier(KeyValueSegmentIdentifier.TRIE_LOG_STORAGE));
+    BonsaiStorageTrieSegmentMigrator.migrateIfNeeded(composedWorldStateStorage);
     this.flatDbStrategyProvider =
         new BonsaiFlatDbStrategyProvider(metricsSystem, dataStorageConfiguration);
     flatDbStrategyProvider.loadFlatDbStrategy(composedWorldStateStorage);
@@ -206,16 +205,28 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
     if (nodeHash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
       return Optional.of(MerkleTrie.EMPTY_TRIE_NODE);
     }
+    final byte[] key = BonsaiTrieStorageKeys.storageTrieKey(accountHash, location);
     return composedWorldStateStorage
-        .get(
-            TRIE_BRANCH_STORAGE,
-            Bytes.concatenate(accountHash.getBytes(), location).toArrayUnsafe())
+        .get(STORAGE_TRIE_BRANCH_STORAGE, key)
         .map(Bytes::wrap)
-        .filter(b -> Hash.hash(b).getBytes().equals(nodeHash));
+        .filter(b -> Hash.hash(b).getBytes().equals(nodeHash))
+        .or(
+            () ->
+                composedWorldStateStorage
+                    .get(TRIE_BRANCH_STORAGE, key)
+                    .map(Bytes::wrap)
+                    .filter(b -> Hash.hash(b).getBytes().equals(nodeHash)));
   }
 
   public Optional<Bytes> getTrieNodeUnsafe(final Bytes key) {
-    return composedWorldStateStorage.get(TRIE_BRANCH_STORAGE, key.toArrayUnsafe()).map(Bytes::wrap);
+    final byte[] keyBytes = key.toArrayUnsafe();
+    if (BonsaiTrieStorageKeys.isStorageTrieKey(keyBytes)) {
+      return composedWorldStateStorage
+          .get(STORAGE_TRIE_BRANCH_STORAGE, keyBytes)
+          .map(Bytes::wrap)
+          .or(() -> composedWorldStateStorage.get(TRIE_BRANCH_STORAGE, keyBytes).map(Bytes::wrap));
+    }
+    return composedWorldStateStorage.get(TRIE_BRANCH_STORAGE, keyBytes).map(Bytes::wrap);
   }
 
   public NavigableMap<Bytes32, AccountStorageEntry> storageEntriesFrom(
@@ -387,8 +398,8 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
         return this;
       }
       composedWorldStateTransaction.put(
-          TRIE_BRANCH_STORAGE,
-          Bytes.concatenate(accountHash.getBytes(), location).toArrayUnsafe(),
+          STORAGE_TRIE_BRANCH_STORAGE,
+          BonsaiTrieStorageKeys.storageTrieKey(accountHash, location),
           node.toArrayUnsafe());
       return this;
     }
