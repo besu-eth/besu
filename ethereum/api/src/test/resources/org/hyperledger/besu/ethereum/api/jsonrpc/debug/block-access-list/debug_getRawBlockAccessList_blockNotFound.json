@@ -1,0 +1,19 @@
+{
+  "request": {
+    "id": 9,
+    "jsonrpc": "2.0",
+    "method": "debug_getRawBlockAccessList",
+    "params": [
+      "0x999999"
+    ]
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 9,
+    "error": {
+      "code": -32000,
+      "message": "Block not found"
+    }
+  },
+  "statusCode": 200
+}

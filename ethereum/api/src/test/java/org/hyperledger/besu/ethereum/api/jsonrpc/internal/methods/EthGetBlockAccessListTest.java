@@ -93,10 +93,12 @@ public class EthGetBlockAccessListTest {
 
     assertThat(response).isInstanceOf(JsonRpcSuccessResponse.class);
     final JsonRpcSuccessResponse successResponse = (JsonRpcSuccessResponse) response;
-    assertThat(successResponse.getResult()).isInstanceOf(BlockAccessListResult.class);
+    assertThat(successResponse.getResult()).isInstanceOf(List.class);
 
-    final BlockAccessListResult result = (BlockAccessListResult) successResponse.getResult();
-    assertThat(result.getAccountChanges()).hasSize(2);
+    @SuppressWarnings("unchecked")
+    final List<BlockAccessListResult.AccountChangesResult> result =
+        (List<BlockAccessListResult.AccountChangesResult>) successResponse.getResult();
+    assertThat(result).hasSize(2);
   }
 
   @Test
@@ -113,7 +115,7 @@ public class EthGetBlockAccessListTest {
 
     assertThat(response).isInstanceOf(JsonRpcSuccessResponse.class);
     final JsonRpcSuccessResponse successResponse = (JsonRpcSuccessResponse) response;
-    assertThat(successResponse.getResult()).isInstanceOf(BlockAccessListResult.class);
+    assertThat(successResponse.getResult()).isInstanceOf(List.class);
   }
 
   @Test
@@ -158,8 +160,7 @@ public class EthGetBlockAccessListTest {
 
     assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
     final JsonRpcErrorResponse errorResponse = (JsonRpcErrorResponse) response;
-    assertThat(errorResponse.getErrorType())
-        .isEqualTo(RpcErrorType.BLOCK_ACCESS_LIST_NOT_AVAILABLE_FOR_PRE_AMSTERDAM_BLOCKS);
+    assertThat(errorResponse.getErrorType()).isEqualTo(RpcErrorType.RESOURCE_NOT_FOUND);
   }
 
   @Test
@@ -214,8 +215,7 @@ public class EthGetBlockAccessListTest {
 
     assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
     final JsonRpcErrorResponse errorResponse = (JsonRpcErrorResponse) response;
-    assertThat(errorResponse.getErrorType())
-        .isEqualTo(RpcErrorType.BLOCK_ACCESS_LIST_NOT_AVAILABLE_FOR_PRE_AMSTERDAM_BLOCKS);
+    assertThat(errorResponse.getErrorType()).isEqualTo(RpcErrorType.RESOURCE_NOT_FOUND);
   }
 
   @Test

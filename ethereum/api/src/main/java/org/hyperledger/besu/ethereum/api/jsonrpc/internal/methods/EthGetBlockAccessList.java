@@ -63,8 +63,7 @@ public class EthGetBlockAccessList extends AbstractBlockParameterOrBlockHashMeth
     final BlockHeader header = maybeHeader.get();
     if (!getBlockchainQueries().isBlockAccessListSupported(header)) {
       return new JsonRpcErrorResponse(
-          request.getRequest().getId(),
-          RpcErrorType.BLOCK_ACCESS_LIST_NOT_AVAILABLE_FOR_PRE_AMSTERDAM_BLOCKS);
+          request.getRequest().getId(), RpcErrorType.RESOURCE_NOT_FOUND);
     }
 
     final var maybeAccessList =
