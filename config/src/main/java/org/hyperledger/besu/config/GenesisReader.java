@@ -140,7 +140,7 @@ interface GenesisReader {
     private static class AllocationIterator implements Iterator<GenesisAccount> {
       final JsonParser parser;
 
-      public AllocationIterator(final JsonParser parser) {
+      AllocationIterator(final JsonParser parser) {
         this.parser = parser;
       }
 
@@ -169,23 +169,23 @@ interface GenesisReader {
           parser.nextToken(); // consume start object
           while (parser.nextToken() != JsonToken.END_OBJECT) {
             switch (normalizeKey(parser.currentName())) {
-              case "nonce":
+              case "nonce" -> {
                 parser.nextToken();
                 nonce = ParserUtils.parseUnsignedLong(parser.getText());
-                break;
-              case "balance":
+              }
+              case "balance" -> {
                 parser.nextToken();
                 balance = ParserUtils.parseBalance(parser.getText());
-                break;
-              case "code":
+              }
+              case "code" -> {
                 parser.nextToken();
                 code = Bytes.fromHexStringLenient(parser.getText());
-                break;
-              case "privatekey":
+              }
+              case "privatekey" -> {
                 parser.nextToken();
                 privateKey = Bytes32.fromHexStringLenient(parser.getText());
-                break;
-              case "storage":
+              }
+              case "storage" -> {
                 parser.nextToken();
                 storage = new HashMap<>();
                 while (parser.nextToken() != JsonToken.END_OBJECT) {
@@ -194,7 +194,8 @@ interface GenesisReader {
                   final var value = UInt256.fromHexString(parser.getText());
                   storage.put(key, value);
                 }
-                break;
+              }
+              default -> {} // unknown keys ignored below
             }
             if (parser.currentToken() == JsonToken.START_OBJECT) {
               // ignore any unknown nested object

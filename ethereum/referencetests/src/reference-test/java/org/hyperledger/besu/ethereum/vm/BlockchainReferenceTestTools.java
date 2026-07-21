@@ -215,9 +215,10 @@ public class BlockchainReferenceTestTools {
                             final String actualError = processingResult.errorMessage.orElse("");
                             assertThat(BlockExceptionMatcher.matches(expectedExceptionKey, actualError))
                                     .as(
-                                            "Block rejected for wrong reason.\n"
-                                                    + "  Expected exception : %s (%s)\n"
-                                                    + "  Actual error       : %s",
+                                            """
+                                            Block rejected for wrong reason.
+                                              Expected exception : %s (%s)
+                                              Actual error       : %s""",
                                             expectedExceptionKey,
                                             BlockExceptionMatcher.describeExpected(expectedExceptionKey).orElse("unknown key"),
                                             actualError)
