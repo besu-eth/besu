@@ -20,9 +20,11 @@
 - Layered txpool: fix the sender balance check rejecting zero upfront cost transactions from zero balance senders, which caused free gas networks to produce only empty blocks [#10751](https://github.com/besu-eth/besu/pull/10751)
 - Fix `eth_sendRawTransaction` returning `-32603 Internal Error` instead of `-32602 Invalid params` for malformed RLP inputs such as `0x80`. [#10735](https://github.com/besu-eth/besu/issues/10735)
 - Skip DNS discovery records that fail enode conversion (e.g. out-of-range port) instead of dropping the rest of the batch [#10752](https://github.com/besu-eth/besu/pull/10752)
+- Fix QBFT/IBFT mining continuing to seal blocks after the merge terminal total difficulty (TTD) is reached [#10733](https://github.com/besu-eth/besu/pull/10733)
 
 ### Additions and Improvements
 - Upgrade jackson dependencies to 2.21.5 and opentelemetry to 1.62.0 [#10775](https://github.com/besu-eth/besu/pull/10775)
+- Upgrade commons-io dependency to 2.22.0 [#10809](https://github.com/besu-eth/besu/pull/10809)
 - Migrate the DiscV4 peer discovery UDP transport from Vert.x to Netty. The `vertx_eventloop_pending_tasks` metric is dropped with no replacement (it was Vert.x-specific); all other discovery metrics (`besu_network_discovery_*`) are unaffected. [#10716](https://github.com/besu-eth/besu/pull/10716)
 
 ## 26.7.0
@@ -55,6 +57,7 @@
 - Upgrade netty dependencies to 4.2.15.Final [#10693](https://github.com/besu-eth/besu/pull/10693) 
 - Besu now falls back to Proof of Stake when the genesis file declares no consensus mechanism (e.g. an empty `"config": {}`). [#10266](https://github.com/besu-eth/besu/pull/10266)
 - Add `HealthCheckService` plugin API enabling custom health check implementations. The plugin-based `/readiness` response body is simplified to `{"status":"UP"|"DOWN"}` and no longer includes the previous `{peers, sync}` detail. [#10167](https://github.com/besu-eth/besu/pull/10167)
+- Added opt-in per-transaction gas limit override (`pertxgaslimit` under `config.qbft` / `config.ibft2`) for QBFT and IBFT2 private networks.  Replaces the previous QBFT-only `pertxgaslimitcap` and supports fork transitions via `BftFork`. [#10722](https://github.com/besu-eth/besu/pull/10722)
 
 ## 26.6.1
 

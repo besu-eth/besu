@@ -96,7 +96,7 @@ dependencies {
 
     api 'com.github.seancfoley:ipaddress:5.6.1'
 
-    api 'commons-io:commons-io:2.21.0'
+    api 'commons-io:commons-io:2.22.0'
 
     api 'dnsjava:dnsjava:3.6.4'
 

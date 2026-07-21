@@ -31,7 +31,8 @@ public class BftProcessor implements Runnable {
   private final BftEventQueue incomingQueue;
   private volatile boolean shutdown = false;
   private final EventMultiplexer eventMultiplexer;
-  private final CountDownLatch shutdownLatch = new CountDownLatch(1);
+  private volatile CountDownLatch shutdownLatch = new CountDownLatch(1);
+  private volatile Thread processorThread;
 
   /**
    * Construct a new BftProcessor
@@ -47,6 +48,11 @@ public class BftProcessor implements Runnable {
   /** Indicate to the processor that it can be started */
   public synchronized void start() {
     shutdown = false;
+    // A fresh latch per start/stop cycle: BftMiningCoordinator reuses this processor across
+    // multiple start/stop cycles (e.g. pausing/resuming for sync), and the previous cycle's
+    // latch is already counted down to zero, which would make awaitStop() return immediately
+    // without actually waiting for this cycle's event loop to exit.
+    shutdownLatch = new CountDownLatch(1);
   }
 
   /** Indicate to the processor that it should gracefully stop at its next opportunity */
@@ -55,22 +61,49 @@ public class BftProcessor implements Runnable {
   }
 
   /**
-   * Await stop.
+   * Await stop. Returns immediately if {@link #run()} has never executed (no thread was ever
+   * scheduled), since there is then nothing to wait for and {@link #shutdownLatch} would never be
+   * counted down.
    *
    * @throws InterruptedException the interrupted exception
    */
   public void awaitStop() throws InterruptedException {
+    if (processorThread == null) {
+      return;
+    }
     shutdownLatch.await();
+  }
+
+  /**
+   * Returns whether the calling thread is the thread currently executing this processor's event
+   * loop. Callers performing a blocking shutdown (e.g. waiting on {@link #awaitStop()}) must not do
+   * so from the event thread itself.
+   *
+   * @return true if the calling thread is the BFT event processing thread
+   */
+  public boolean isEventThread() {
+    return Thread.currentThread() == processorThread;
   }
 
   @Override
   public void run() {
+    processorThread = Thread.currentThread();
+    // Snapshot the latch for this run cycle: start() may install a new one for a subsequent
+    // cycle as soon as this thread begins, and this cycle must count down the latch that
+    // callers of awaitStop() are (or will be) waiting on for it, not a later cycle's latch.
+    final CountDownLatch currentShutdownLatch = shutdownLatch;
     try {
       // Start the event queue. Until it is started it won't accept new events from peers
       incomingQueue.start();
 
       while (!shutdown) {
-        nextEvent().ifPresent(eventMultiplexer::handleBftEvent);
+        final Optional<BftEvent> event = nextEvent();
+        // Re-check the shutdown flag after polling: stop() may have been requested while
+        // this event was being polled, in which case it must not be dispatched (e.g. a
+        // queued BlockTimerExpiry would otherwise seal one more block after shutdown).
+        if (!shutdown) {
+          event.ifPresent(eventMultiplexer::handleBftEvent);
+        }
       }
 
       incomingQueue.stop();
@@ -79,7 +112,7 @@ public class BftProcessor implements Runnable {
     }
     // Clean up the executor service the round timer has been utilising
     LOG.info("Shutting down BFT event processor");
-    shutdownLatch.countDown();
+    currentShutdownLatch.countDown();
   }
 
   private Optional<BftEvent> nextEvent() {
