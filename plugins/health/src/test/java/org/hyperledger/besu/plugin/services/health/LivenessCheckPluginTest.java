@@ -64,7 +64,7 @@ public class LivenessCheckPluginTest {
     final HealthCheckService.ParamSource params = mock(HealthCheckService.ParamSource.class);
     when(params.getParam(any())).thenReturn(null);
 
-    org.assertj.core.api.Assertions.assertThat(provider.isHealthy(params)).isTrue();
+    org.assertj.core.api.Assertions.assertThat(provider.check(params).isHealthy()).isTrue();
   }
 
   @Test

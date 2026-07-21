@@ -21,6 +21,8 @@ import org.hyperledger.besu.plugin.services.BesuEvents;
 import org.hyperledger.besu.plugin.services.HealthCheckService;
 import org.hyperledger.besu.plugin.services.p2p.P2PService;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
 
 /** The readiness check plugin. */
@@ -75,11 +77,9 @@ public class ReadinessCheckPlugin implements BesuPlugin {
 
   private ServiceManager context;
   private P2PService p2pService;
-  // Push model: the sync status is fed by a BesuEvents listener registered in start() rather than
-  // pulled live from the synchronizer on every health check. Until the first listener callback
-  // arrives, cachedSyncStatus is empty, and checkReadiness treats the node as healthy
-  // (orElse(true))
-  // to avoid a false-negative at startup before any sync event has been delivered.
+  // Push model: sync status is fed by a BesuEvents listener registered in start().
+  // Until the first callback, cachedSyncStatus is empty and the sync check is skipped
+  // (node treated as sync-healthy) to avoid a false-negative at startup.
   private volatile Optional<SyncStatus> cachedSyncStatus = Optional.empty();
   private long syncListenerId = -1;
 
@@ -110,37 +110,69 @@ public class ReadinessCheckPlugin implements BesuPlugin {
     syncListenerId = besuEvents.addSyncStatusListener(status -> cachedSyncStatus = status);
   }
 
-  private boolean checkReadiness(final HealthCheckService.ParamSource params) {
+  private HealthCheckService.HealthCheckResult checkReadiness(
+      final HealthCheckService.ParamSource params) {
     if (p2pService == null) {
-      return false;
+      return HealthCheckService.HealthCheckResult.of(false);
     }
+
+    final Map<String, Object> checks = new LinkedHashMap<>();
+    boolean healthy = true;
 
     final String minPeersStr = params.getParam("minPeers");
     final Optional<Integer> minPeers = parseNonNegativeInt(minPeersStr, DEFAULT_MIN_PEERS);
     if (minPeers.isEmpty()) {
-      return false;
+      healthy = false;
+      if (p2pService.isP2pEnabled()) {
+        final Map<String, Object> peersDetail = new LinkedHashMap<>();
+        peersDetail.put("status", false);
+        peersDetail.put("currentPeers", p2pService.getPeerCount());
+        peersDetail.put("error", "invalid minPeers parameter: " + minPeersStr);
+        checks.put("peers", peersDetail);
+      }
+    } else if (p2pService.isP2pEnabled()) {
+      final int peerCount = p2pService.getPeerCount();
+      final boolean peersOk = peerCount >= minPeers.get();
+      final Map<String, Object> peersDetail = new LinkedHashMap<>();
+      peersDetail.put("status", peersOk);
+      peersDetail.put("currentPeers", peerCount);
+      peersDetail.put("requiredPeers", minPeers.get());
+      checks.put("peers", peersDetail);
+      if (!peersOk) {
+        healthy = false;
+      }
     }
-    if (p2pService.isP2pEnabled() && p2pService.getPeerCount() < minPeers.get()) {
-      return false;
-    }
-
     final String maxBlocksStr = params.getParam("maxBlocksBehind");
     final Optional<Long> maxBlocksBehind =
         parseNonNegativeLong(maxBlocksStr, DEFAULT_MAX_BLOCKS_BEHIND);
-    if (maxBlocksBehind.isEmpty()) {
-      return false;
+    final Optional<SyncStatus> syncStatusOpt = cachedSyncStatus;
+    if (syncStatusOpt.isPresent()) {
+      final SyncStatus syncStatus = syncStatusOpt.get();
+      final long highestBlock = syncStatus.getHighestBlock();
+      final long currentBlock = syncStatus.getCurrentBlock();
+      final long blocksBehind = highestBlock - currentBlock;
+      final Map<String, Object> syncDetail = new LinkedHashMap<>();
+      final boolean syncOk;
+      if (maxBlocksBehind.isEmpty()) {
+        syncOk = false;
+        syncDetail.put("error", "invalid maxBlocksBehind parameter: " + maxBlocksStr);
+      } else if (currentBlock > Long.MAX_VALUE - maxBlocksBehind.get()) {
+        syncOk = true;
+      } else {
+        syncOk = highestBlock <= currentBlock + maxBlocksBehind.get();
+      }
+      syncDetail.put("status", syncOk);
+      syncDetail.put("blocksBehind", blocksBehind);
+      maxBlocksBehind.ifPresent(v -> syncDetail.put("maxBlocksBehind", v));
+      checks.put("sync", syncDetail);
+      if (!syncOk) {
+        healthy = false;
+      }
+    } else if (maxBlocksBehind.isEmpty()) {
+      healthy = false;
     }
-    return cachedSyncStatus
-        .map(
-            syncStatus -> {
-              long highestBlock = syncStatus.getHighestBlock();
-              long currentBlock = syncStatus.getCurrentBlock();
-              if (currentBlock > Long.MAX_VALUE - maxBlocksBehind.get()) {
-                return true;
-              }
-              return highestBlock <= currentBlock + maxBlocksBehind.get();
-            })
-        .orElse(true);
+
+    return new HealthCheckService.HealthCheckResult(healthy, checks);
   }
 
   @Override

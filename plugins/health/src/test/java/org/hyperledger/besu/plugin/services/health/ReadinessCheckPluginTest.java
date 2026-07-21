@@ -79,7 +79,13 @@ public class ReadinessCheckPluginTest {
     when(p2pService.isP2pEnabled()).thenReturn(true);
     when(p2pService.getPeerCount()).thenReturn(3);
 
-    org.assertj.core.api.Assertions.assertThat(provider.isHealthy(params)).isFalse();
+    final var result = provider.check(params);
+    org.assertj.core.api.Assertions.assertThat(result.isHealthy()).isFalse();
+    org.assertj.core.api.Assertions.assertThat(result.getDetails()).containsKey("peers");
+    final var peers = (java.util.Map<?, ?>) result.getDetails().get("peers");
+    org.assertj.core.api.Assertions.assertThat(peers.get("status")).isEqualTo(false);
+    org.assertj.core.api.Assertions.assertThat(peers.get("currentPeers")).isEqualTo(3);
+    org.assertj.core.api.Assertions.assertThat(peers.get("requiredPeers")).isEqualTo(5);
   }
 
   @Test
@@ -101,7 +107,7 @@ public class ReadinessCheckPluginTest {
     when(p2pService.isP2pEnabled()).thenReturn(true);
     when(p2pService.getPeerCount()).thenReturn(5);
 
-    org.assertj.core.api.Assertions.assertThat(provider.isHealthy(params)).isTrue();
+    org.assertj.core.api.Assertions.assertThat(provider.check(params).isHealthy()).isTrue();
   }
 
   @Test
@@ -152,7 +158,7 @@ public class ReadinessCheckPluginTest {
     when(p2pService.isP2pEnabled()).thenReturn(true);
     when(p2pService.getPeerCount()).thenReturn(1);
 
-    org.assertj.core.api.Assertions.assertThat(provider.isHealthy(params)).isTrue();
+    org.assertj.core.api.Assertions.assertThat(provider.check(params).isHealthy()).isTrue();
   }
 
   @Test
@@ -178,7 +184,7 @@ public class ReadinessCheckPluginTest {
     when(p2pService.isP2pEnabled()).thenReturn(true);
     when(p2pService.getPeerCount()).thenReturn(1);
 
-    org.assertj.core.api.Assertions.assertThat(provider.isHealthy(params)).isFalse();
+    org.assertj.core.api.Assertions.assertThat(provider.check(params).isHealthy()).isFalse();
   }
 
   @Test
@@ -204,7 +210,7 @@ public class ReadinessCheckPluginTest {
     when(p2pService.isP2pEnabled()).thenReturn(true);
     when(p2pService.getPeerCount()).thenReturn(1);
 
-    org.assertj.core.api.Assertions.assertThat(provider.isHealthy(params)).isTrue();
+    org.assertj.core.api.Assertions.assertThat(provider.check(params).isHealthy()).isTrue();
   }
 
   @Test
@@ -223,7 +229,7 @@ public class ReadinessCheckPluginTest {
     when(params.getParam("minPeers")).thenReturn("not-a-number");
     when(p2pService.getPeerCount()).thenReturn(100);
 
-    org.assertj.core.api.Assertions.assertThat(provider.isHealthy(params)).isFalse();
+    org.assertj.core.api.Assertions.assertThat(provider.check(params).isHealthy()).isFalse();
   }
 
   @Test
@@ -249,7 +255,7 @@ public class ReadinessCheckPluginTest {
     when(p2pService.isP2pEnabled()).thenReturn(true);
     when(p2pService.getPeerCount()).thenReturn(100);
 
-    org.assertj.core.api.Assertions.assertThat(provider.isHealthy(params)).isFalse();
+    org.assertj.core.api.Assertions.assertThat(provider.check(params).isHealthy()).isFalse();
   }
 
   @Test
@@ -268,7 +274,7 @@ public class ReadinessCheckPluginTest {
     when(params.getParam("minPeers")).thenReturn("-1");
     when(p2pService.getPeerCount()).thenReturn(100);
 
-    org.assertj.core.api.Assertions.assertThat(provider.isHealthy(params)).isFalse();
+    org.assertj.core.api.Assertions.assertThat(provider.check(params).isHealthy()).isFalse();
   }
 
   @Test
@@ -294,7 +300,7 @@ public class ReadinessCheckPluginTest {
     when(p2pService.isP2pEnabled()).thenReturn(true);
     when(p2pService.getPeerCount()).thenReturn(100);
 
-    org.assertj.core.api.Assertions.assertThat(provider.isHealthy(params)).isFalse();
+    org.assertj.core.api.Assertions.assertThat(provider.check(params).isHealthy()).isFalse();
   }
 
   @Test
@@ -320,7 +326,7 @@ public class ReadinessCheckPluginTest {
     when(p2pService.isP2pEnabled()).thenReturn(true);
     when(p2pService.getPeerCount()).thenReturn(1);
 
-    org.assertj.core.api.Assertions.assertThat(provider.isHealthy(params)).isFalse();
+    org.assertj.core.api.Assertions.assertThat(provider.check(params).isHealthy()).isFalse();
   }
 
   @Test
@@ -346,7 +352,7 @@ public class ReadinessCheckPluginTest {
     when(p2pService.isP2pEnabled()).thenReturn(true);
     when(p2pService.getPeerCount()).thenReturn(1);
 
-    org.assertj.core.api.Assertions.assertThat(provider.isHealthy(params)).isTrue();
+    org.assertj.core.api.Assertions.assertThat(provider.check(params).isHealthy()).isTrue();
   }
 
   @Test
@@ -369,7 +375,7 @@ public class ReadinessCheckPluginTest {
     when(p2pService.isP2pEnabled()).thenReturn(false);
     when(p2pService.getPeerCount()).thenReturn(0);
 
-    org.assertj.core.api.Assertions.assertThat(provider.isHealthy(params)).isTrue();
+    org.assertj.core.api.Assertions.assertThat(provider.check(params).isHealthy()).isTrue();
   }
 
   @SuppressWarnings("unchecked")

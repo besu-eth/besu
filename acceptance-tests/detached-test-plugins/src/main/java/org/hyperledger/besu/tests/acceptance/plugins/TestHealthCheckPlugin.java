@@ -51,13 +51,13 @@ public class TestHealthCheckPlugin implements BesuPlugin {
                   LIVENESS_ENDPOINT,
                   params -> {
                     markCalled(LIVENESS_CALLED_FILE);
-                    return true;
+                    return HealthCheckService.HealthCheckResult.of(true);
                   });
               healthCheckService.registerHealthCheck(
                   READINESS_ENDPOINT,
                   params -> {
                     markCalled(READINESS_CALLED_FILE);
-                    return true;
+                    return HealthCheckService.HealthCheckResult.of(true);
                   });
             });
   }
