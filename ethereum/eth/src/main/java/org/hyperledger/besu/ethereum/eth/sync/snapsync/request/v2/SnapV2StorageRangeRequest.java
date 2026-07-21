@@ -47,7 +47,7 @@ import kotlin.collections.ArrayDeque;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
-/** Snap/2 storage range data request. Commits all trie nodes including incomplete ones. */
+/** snap/2 storage range data request. Commits all trie nodes including incomplete ones. */
 public class SnapV2StorageRangeRequest extends SnapV2DataRequest {
 
   private final Hash accountHash;

@@ -336,13 +336,15 @@ public class TestContextBuilder {
         IbftProtocolScheduleBuilder.create(
             genesisConfigOptions,
             forksSchedule,
+            false,
             IBFT_EXTRA_DATA_ENCODER,
             EvmConfiguration.DEFAULT,
             MiningConfiguration.MINING_DISABLED,
             new BadBlockManager(),
             false,
             BalConfiguration.DEFAULT,
-            new NoOpMetricsSystem());
+            new NoOpMetricsSystem(),
+            Long.MAX_VALUE);
 
     /////////////////////////////////////////////////////////////////////////////////////
     // From here down is BASICALLY taken from IbftBesuController

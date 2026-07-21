@@ -17,7 +17,10 @@
 ### Bug fixes
 - Fix `engine_newPayload` responding with a `-32600 Invalid Request` JSON-RPC error instead of an `INVALID` payload status when the payload contains a legacy transaction with an invalid `v` value. `eth_sendRawTransaction` and `debug_batchSendRawTransaction` now report the standard `Invalid RLP in raw transaction hex` invalid-params error for such transactions instead of an unhandled internal error. [#10784](https://github.com/besu-eth/besu/pull/10784)
 - Fix potential `ArithmeticException: integer overflow` when prioritizing peer connections whose initiation timestamps are more than ~24.8 days apart. `EthPeers.compareConnectionInitiationTimes` now uses `Long.compare` instead of narrowing the timestamp difference to an `int`. [#10787](https://github.com/besu-eth/besu/issues/10787)
+- Layered txpool: fix the sender balance check rejecting zero upfront cost transactions from zero balance senders, which caused free gas networks to produce only empty blocks [#10751](https://github.com/besu-eth/besu/pull/10751)
+- Fix `eth_sendRawTransaction` returning `-32603 Internal Error` instead of `-32602 Invalid params` for malformed RLP inputs such as `0x80`. [#10735](https://github.com/besu-eth/besu/issues/10735)
 - Skip DNS discovery records that fail enode conversion (e.g. out-of-range port) instead of dropping the rest of the batch [#10752](https://github.com/besu-eth/besu/pull/10752)
+- Fix QBFT/IBFT mining continuing to seal blocks after the merge terminal total difficulty (TTD) is reached [#10733](https://github.com/besu-eth/besu/pull/10733)
 
 ### Additions and Improvements
 - Upgrade jackson dependencies to 2.21.5 and opentelemetry to 1.62.0 [#10775](https://github.com/besu-eth/besu/pull/10775)
@@ -54,6 +57,7 @@
 - Upgrade netty dependencies to 4.2.15.Final [#10693](https://github.com/besu-eth/besu/pull/10693) 
 - Besu now falls back to Proof of Stake when the genesis file declares no consensus mechanism (e.g. an empty `"config": {}`). [#10266](https://github.com/besu-eth/besu/pull/10266)
 - Add `HealthCheckService` plugin API enabling custom health check implementations. The plugin-based `/readiness` response body is simplified to `{"status":"UP"|"DOWN"}` and no longer includes the previous `{peers, sync}` detail. [#10167](https://github.com/besu-eth/besu/pull/10167)
+- Added opt-in per-transaction gas limit override (`pertxgaslimit` under `config.qbft` / `config.ibft2`) for QBFT and IBFT2 private networks.  Replaces the previous QBFT-only `pertxgaslimitcap` and supports fork transitions via `BftFork`. [#10722](https://github.com/besu-eth/besu/pull/10722)
 
 ## 26.6.1
 

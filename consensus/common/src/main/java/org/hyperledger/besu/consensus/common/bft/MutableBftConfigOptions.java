@@ -23,6 +23,7 @@ import org.hyperledger.besu.datatypes.Address;
 import java.math.BigInteger;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 /**
  * A mutable {@link BftConfigOptions} that is used for building config for transitions in the {@link
@@ -41,6 +42,7 @@ public class MutableBftConfigOptions implements BftConfigOptions {
   private int futureMessageMaxDistance;
   private Optional<Address> miningBeneficiary;
   private BigInteger blockRewardWei;
+  private OptionalLong transactionGasLimit;
 
   /**
    * Instantiates a new Mutable bft config options.
@@ -60,6 +62,7 @@ public class MutableBftConfigOptions implements BftConfigOptions {
     this.futureMessageMaxDistance = bftConfigOptions.getFutureMessagesMaxDistance();
     this.miningBeneficiary = bftConfigOptions.getMiningBeneficiary();
     this.blockRewardWei = bftConfigOptions.getBlockRewardWei();
+    this.transactionGasLimit = bftConfigOptions.getTransactionGasLimit();
   }
 
   @Override
@@ -120,6 +123,20 @@ public class MutableBftConfigOptions implements BftConfigOptions {
   @Override
   public BigInteger getBlockRewardWei() {
     return blockRewardWei;
+  }
+
+  @Override
+  public OptionalLong getTransactionGasLimit() {
+    return transactionGasLimit;
+  }
+
+  /**
+   * Sets transaction gas limit.
+   *
+   * @param transactionGasLimit the transaction gas limit
+   */
+  public void setTransactionGasLimit(final OptionalLong transactionGasLimit) {
+    this.transactionGasLimit = transactionGasLimit;
   }
 
   @Override

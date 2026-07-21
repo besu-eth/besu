@@ -22,12 +22,23 @@ import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.services.tasks.Task;
 
-/** Snap/2 task completion step. Manages completion status. */
+import java.util.concurrent.atomic.AtomicLong;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/** snap/2 task completion step. Manages completion status. */
 public class SnapV2CompleteTaskStep {
+
+  private static final Logger LOG = LoggerFactory.getLogger(SnapV2CompleteTaskStep.class);
+
+  private static final long REQUEUE_LOG_INTERVAL_MS = 30_000L;
 
   private final SnapSyncProcessState snapSyncState;
   private final Counter completedRequestsCounter;
   private final Counter retriedRequestsCounter;
+  private final AtomicLong requeueCount = new AtomicLong();
+  private final AtomicLong lastRequeueLogMillis = new AtomicLong();
 
   public SnapV2CompleteTaskStep(
       final SnapSyncProcessState snapSyncState, final MetricsSystem metricsSystem) {
@@ -56,6 +67,7 @@ public class SnapV2CompleteTaskStep {
       downloadState.checkCompletion(snapSyncState.getPivotBlockHeader().orElseThrow());
     } else {
       retriedRequestsCounter.inc();
+      logRequeue(request);
       task.markFailed();
     }
     downloadState.notifyTaskAvailable();
@@ -74,5 +86,21 @@ public class SnapV2CompleteTaskStep {
         + requestPivot
         + ", current pivot "
         + currentPivot;
+  }
+
+  private void logRequeue(final SnapDataRequest request) {
+    requeueCount.incrementAndGet();
+    final long now = System.currentTimeMillis();
+    final long last = lastRequeueLogMillis.get();
+    if (now - last >= REQUEUE_LOG_INTERVAL_MS && lastRequeueLogMillis.compareAndSet(last, now)) {
+      final long loggedCount = requeueCount.getAndSet(0);
+      LOG.warn(
+          "snap/2 requeued {} request(s) in the last {}s (most recent type: {}): "
+              + "no valid response — peer may have returned empty data, sent invalid proof, "
+              + "or the request timed out",
+          loggedCount,
+          REQUEUE_LOG_INTERVAL_MS / 1000,
+          request.getRequestType());
+    }
   }
 }
