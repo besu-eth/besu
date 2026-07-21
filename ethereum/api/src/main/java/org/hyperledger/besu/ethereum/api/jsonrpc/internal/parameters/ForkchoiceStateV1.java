@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -19,33 +19,32 @@ import org.hyperledger.besu.datatypes.Hash;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-public class EngineForkchoiceUpdatedParameter {
+public class ForkchoiceStateV1 {
+
   private final Hash headBlockHash;
-
   private final Hash safeBlockHash;
-
   private final Hash finalizedBlockHash;
+
+  @JsonCreator
+  public ForkchoiceStateV1(
+      @JsonProperty("headBlockHash") final Hash headBlockHash,
+      @JsonProperty("safeBlockHash") final Hash safeBlockHash,
+      @JsonProperty("finalizedBlockHash") final Hash finalizedBlockHash) {
+    this.headBlockHash = headBlockHash;
+    this.safeBlockHash = safeBlockHash;
+    this.finalizedBlockHash = finalizedBlockHash;
+  }
 
   public Hash getHeadBlockHash() {
     return headBlockHash;
-  }
-
-  public Hash getFinalizedBlockHash() {
-    return finalizedBlockHash;
   }
 
   public Hash getSafeBlockHash() {
     return safeBlockHash;
   }
 
-  @JsonCreator
-  public EngineForkchoiceUpdatedParameter(
-      @JsonProperty("headBlockHash") final Hash headBlockHash,
-      @JsonProperty("finalizedBlockHash") final Hash finalizedBlockHash,
-      @JsonProperty("safeBlockHash") final Hash safeBlockHash) {
-    this.finalizedBlockHash = finalizedBlockHash;
-    this.headBlockHash = headBlockHash;
-    this.safeBlockHash = safeBlockHash;
+  public Hash getFinalizedBlockHash() {
+    return finalizedBlockHash;
   }
 
   @Override
