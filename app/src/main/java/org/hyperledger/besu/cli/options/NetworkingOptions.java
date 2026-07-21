@@ -35,7 +35,6 @@ public class NetworkingOptions implements CLIOptions<NetworkingConfiguration> {
       "--Xp2p-check-maintained-connections-frequency";
   private final String P2P_PEER_TASK_TIMEOUT = "--Xp2p-peer-task-timeout";
   private final String DNS_DISCOVERY_SERVER_OVERRIDE_FLAG = "--Xp2p-dns-discovery-server";
-  private final String DISCOVERY_PROTOCOL_V5_ENABLED = "--Xv5-discovery-enabled";
 
   /** The constant FILTER_ON_ENR_FORK_ID. */
   public static final String FILTER_ON_ENR_FORK_ID = "--filter-on-enr-fork-id";
@@ -80,12 +79,6 @@ public class NetworkingOptions implements CLIOptions<NetworkingConfiguration> {
       description =
           "DNS server host to use for doing DNS Discovery of peers, rather than the machine's configured DNS server")
   private Optional<String> dnsDiscoveryServerOverride = Optional.empty();
-
-  @CommandLine.Option(
-      names = DISCOVERY_PROTOCOL_V5_ENABLED,
-      hidden = true,
-      description = "Whether to enable P2P Discovery Protocol v5 (default: ${DEFAULT-VALUE})")
-  private final Boolean isPeerDiscoveryV5Enabled = false;
 
   @CommandLine.Option(
       names = FILTER_ON_ENR_FORK_ID,
@@ -161,7 +154,6 @@ public class NetworkingOptions implements CLIOptions<NetworkingConfiguration> {
   @Override
   public NetworkingConfiguration toDomainObject() {
     final var discovery = DiscoveryConfiguration.create();
-    discovery.setDiscoveryV5Enabled(isPeerDiscoveryV5Enabled);
     discovery.setFilterOnEnrForkId(filterOnEnrForkId);
     discovery.setDiscV5DiscoveryIntervalSeconds((int) discV5DiscoveryIntervalSeconds.toSeconds());
     discovery.setDiscV5DiscoveryTimeoutSeconds((int) discV5DiscoveryTimeoutSeconds.toSeconds());

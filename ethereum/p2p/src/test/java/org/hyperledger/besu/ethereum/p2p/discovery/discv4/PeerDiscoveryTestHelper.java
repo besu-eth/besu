@@ -56,6 +56,7 @@ import org.ethereum.beacon.discovery.schema.NodeRecord;
 
 public class PeerDiscoveryTestHelper {
   private static final String LOOPBACK_IP_ADDR = "127.0.0.1";
+  private static final int IPV6_TCP_PORT = 30304;
 
   private final AtomicInteger nextAvailablePort = new AtomicInteger(1);
   Map<Bytes, MockPeerDiscoveryAgent> agents = new HashMap<>();
@@ -237,6 +238,7 @@ public class PeerDiscoveryTestHelper {
     private boolean enabled = true;
     private PeerPermissions peerPermissions = PeerPermissions.noop();
     private String advertisedHost = "127.0.0.1";
+    private Optional<String> advertisedHostIpv6 = Optional.empty();
     private OptionalInt bindPort = OptionalInt.empty();
     private NodeKey nodeKey = NodeKeyUtils.generate();
     private NodeRecord nodeRecord =
@@ -282,6 +284,12 @@ public class PeerDiscoveryTestHelper {
       return this;
     }
 
+    public AgentBuilder advertisedHostIpv6(final String host) {
+      checkNotNull(host);
+      this.advertisedHostIpv6 = Optional.of(host);
+      return this;
+    }
+
     public AgentBuilder bindPort(final int bindPort) {
       if (bindPort == 0) {
         // Zero means pick the next available port
@@ -312,6 +320,11 @@ public class PeerDiscoveryTestHelper {
       config.setBindPort(port);
       config.setEnabled(enabled);
       config.setFilterOnEnrForkId(false);
+      advertisedHostIpv6.ifPresent(
+          host -> {
+            config.setAdvertisedHostIpv6(Optional.of(host));
+            config.setBindPortIpv6(nextAvailablePort.incrementAndGet());
+          });
 
       final ForkIdManager mockForkIdManager = mock(ForkIdManager.class);
       final ForkId forkId = new ForkId(Bytes.EMPTY, Bytes.EMPTY);
@@ -320,6 +333,8 @@ public class PeerDiscoveryTestHelper {
       final RlpxAgent rlpxAgent = mock(RlpxAgent.class);
       when(rlpxAgent.connect(any()))
           .thenReturn(CompletableFuture.failedFuture(new RuntimeException()));
+      advertisedHostIpv6.ifPresent(
+          host -> when(rlpxAgent.getIpv6ListeningPort()).thenReturn(Optional.of(IPV6_TCP_PORT)));
       final MockPeerDiscoveryAgent mockPeerDiscoveryAgent =
           new MockPeerDiscoveryAgent(
               nodeKey, config, peerPermissions, agents, natService, mockForkIdManager, rlpxAgent);
