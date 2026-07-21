@@ -26,6 +26,7 @@
 - Upgrade jackson dependencies to 2.21.5 and opentelemetry to 1.62.0 [#10775](https://github.com/besu-eth/besu/pull/10775)
 - Upgrade commons-io dependency to 2.22.0 [#10809](https://github.com/besu-eth/besu/pull/10809)
 - Migrate the DiscV4 peer discovery UDP transport from Vert.x to Netty. The `vertx_eventloop_pending_tasks` metric is dropped with no replacement (it was Vert.x-specific); all other discovery metrics (`besu_network_discovery_*`) are unaffected. [#10716](https://github.com/besu-eth/besu/pull/10716)
+- Add QBFT genesis config option `goquorumcompatibilitymode` (default false) which skips the block gas-limit range and delta validation, allowing chains produced by GoQuorum's QBFT (where proposers may change the gas limit by an arbitrary amount per block) to be imported. [#10723](https://github.com/besu-eth/besu/issues/10723)
 
 ## 26.7.0
 
