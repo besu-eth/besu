@@ -26,8 +26,9 @@ public record ReorgPlan(
     BlockHeader oldPivot,
     BlockHeader newPivot,
     /**
-     * Account hashes touched on the orphaned fork but absent from the canonical BALs, scoped to
-     * persisted account ranges.
+     * Account hashes with scalar fields (balance, nonce or code) changed only on the orphaned fork.
+     * The canonical BALs don't cover those fields, so the account record must be re-fetched at the
+     * new pivot. Scoped to persisted account ranges.
      */
     Set<Hash> divergedAccounts,
     /**

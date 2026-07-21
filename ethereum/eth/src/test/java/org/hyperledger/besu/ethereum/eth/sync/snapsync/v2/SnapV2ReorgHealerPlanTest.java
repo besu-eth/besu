@@ -176,8 +176,8 @@ class SnapV2ReorgHealerPlanTest {
    *          +-- 2c (A,C,F,G balances)             canonical, diff 20
    * </pre>
    *
-   * Diverged: D and NC (with slots s1,s2) -- stale-only. Overlapping (A,C,F), canonical-only (G)
-   * and untouched (B,E) accounts are not diverged.
+   * Diverged: D's account (balance) and NC's slots (s1,s2) -- stale-only. Overlapping (A,C,F),
+   * canonical-only (G) and untouched (B,E) accounts are not diverged.
    */
   @Test
   void identifiesDivergedEntries() {
@@ -209,11 +209,12 @@ class SnapV2ReorgHealerPlanTest {
     assertThat(plan.fromBlock()).isEqualTo(2L);
     assertThat(plan.toBlock()).isEqualTo(2L);
 
-    // Dave and NewContract were touched only in the stale block -> diverged.
-    assertDivergedAccounts(plan, DAVE, NEW_CONTRACT);
-    // Alice, Charlie, and Frank overlap on both forks; Grace is canonical-only;
-    // Bob and Eve are untouched. None of these are diverged.
-    assertNoDivergedAccounts(plan, ALICE, CHARLIE, FRANK, GRACE, BOB, EVE);
+    // Dave was touched only in the stale block (balance change) -> diverged account.
+    assertDivergedAccounts(plan, DAVE);
+    // NewContract changed only storage on the stale block: no scalar field diverged, so its
+    // account record needs no re-fetch — the diverged slots below suffice. Alice, Charlie, and
+    // Frank overlap on both forks; Grace is canonical-only; Bob and Eve are untouched.
+    assertNoDivergedAccounts(plan, NEW_CONTRACT, ALICE, CHARLIE, FRANK, GRACE, BOB, EVE);
 
     // NewContract's slots were touched only in the stale block -> diverged.
     assertThat(plan.divergedSlotsByAccount()).containsOnlyKeys(NEW_CONTRACT.addressHash());
@@ -299,6 +300,40 @@ class SnapV2ReorgHealerPlanTest {
     // Slot 5 was touched only in the stale fork -> diverged at the slot level.
     assertDivergedSlots(plan, NEW_CONTRACT, slotOnlyInStale);
     // Slot divergence alone is enough to make the plan non-clean.
+    assertThat(plan.isClean()).isFalse();
+  }
+
+  /**
+   * An account touched on the orphaned fork with storage-only changes needs no account re-fetch:
+   * its nonce/balance/code are untouched, and repairing its stale slots restores the storage root.
+   *
+   * <pre>
+   * gen -- 1 +-- 2s (NC:s5)       stale
+   *          +-- 2c (A balance)   canonical
+   * </pre>
+   */
+  @Test
+  void storageOnlyStaleAccountNeedsNoAccountRefetch() {
+    final Block ancestor = b.appendBlockWithBal(b.header(0), b.emptyBal(), 1L);
+
+    final UInt256 slot5 = UInt256.valueOf(5);
+
+    // Stale: NewContract writes slot 5 only. Canonical: NewContract is untouched.
+    final Block staleBlock =
+        b.appendStale(
+            ancestor.getHeader(),
+            b.balWithStorageChanges(NEW_CONTRACT, Map.of(slot5, UInt256.valueOf(99))),
+            2L);
+    final Block canonicalBlock =
+        b.appendCanonical(ancestor.getHeader(), b.balWithBalanceTouches(ALICE), 2L);
+
+    final ReorgPlan plan =
+        plan(staleBlock, canonicalBlock, fullAccountRange(), fullStorageFor(NEW_CONTRACT));
+
+    // No scalar field changed, so the account record itself is intact...
+    assertNoDivergedAccounts(plan, NEW_CONTRACT);
+    // ...but its stale slot must be repaired, which also restores the storage root.
+    assertDivergedSlots(plan, NEW_CONTRACT, slot5);
     assertThat(plan.isClean()).isFalse();
   }
 
@@ -999,6 +1034,234 @@ class SnapV2ReorgHealerPlanTest {
     assertNoDivergedAccounts(plan, ALICE);
     // Slot 5 was touched in orphaned block 3s (a different orphaned block than Alice's 2s balance
     // touch) and is absent from the canonical fork -> diverged. Touches must merge across blocks.
+    assertDivergedSlots(plan, ALICE, slot5);
+    assertThat(plan.isClean()).isFalse();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Account divergence: per-scalar-field granularity (balance/nonce/code).
+  // ---------------------------------------------------------------------------
+
+  /**
+   * The motivating scenario: the balance changed on the orphaned fork while the code changed on the
+   * canonical fork. Applying the canonical BAL fixes the code but would leave the orphaned balance
+   * in place, because BALs carry post-values only for the fields that changed. The account record
+   * must be re-fetched.
+   *
+   * <pre>
+   * gen -- 1 +-- 2s (A balance)   stale
+   *          +-- 2c (A code)      canonical
+   * </pre>
+   */
+  @Test
+  void divergedAccountWhenBalanceOrphanedOnlyAndCodeCanonicalOnly() {
+    final Block ancestor = b.appendBlockWithBal(b.header(0), b.emptyBal(), 1L);
+
+    final Block staleBlock =
+        b.appendStale(ancestor.getHeader(), b.balWithBalanceTouches(ALICE), 2L);
+    final Block canonicalBlock =
+        b.appendCanonical(
+            ancestor.getHeader(), b.balWithCodeChange(ALICE, Bytes.of(0x60, 0x80)), 2L);
+
+    final ReorgPlan plan = plan(staleBlock, canonicalBlock);
+
+    assertDivergedAccounts(plan, ALICE);
+    assertThat(plan.divergedSlotsByAccount()).isEmpty();
+    assertThat(plan.isClean()).isFalse();
+  }
+
+  /**
+   * Nonce changed on the orphaned fork only; balance changed on the canonical fork only.
+   *
+   * <pre>
+   * gen -- 1 +-- 2s (A nonce=1)   stale
+   *          +-- 2c (A balance)   canonical
+   * </pre>
+   */
+  @Test
+  void divergedAccountWhenNonceOrphanedOnlyAndBalanceCanonicalOnly() {
+    final Block ancestor = b.appendBlockWithBal(b.header(0), b.emptyBal(), 1L);
+
+    final Block staleBlock =
+        b.appendStale(ancestor.getHeader(), b.balWithNonceChange(ALICE, 1L), 2L);
+    final Block canonicalBlock =
+        b.appendCanonical(ancestor.getHeader(), b.balWithBalanceTouches(ALICE), 2L);
+
+    final ReorgPlan plan = plan(staleBlock, canonicalBlock);
+
+    assertDivergedAccounts(plan, ALICE);
+    assertThat(plan.isClean()).isFalse();
+  }
+
+  /**
+   * Code changed on the orphaned fork only; balance changed on the canonical fork only.
+   *
+   * <pre>
+   * gen -- 1 +-- 2s (A code)      stale
+   *          +-- 2c (A balance)   canonical
+   * </pre>
+   */
+  @Test
+  void divergedAccountWhenCodeOrphanedOnlyAndBalanceCanonicalOnly() {
+    final Block ancestor = b.appendBlockWithBal(b.header(0), b.emptyBal(), 1L);
+
+    final Block staleBlock =
+        b.appendStale(ancestor.getHeader(), b.balWithCodeChange(ALICE, Bytes.of(0x60, 0x80)), 2L);
+    final Block canonicalBlock =
+        b.appendCanonical(ancestor.getHeader(), b.balWithBalanceTouches(ALICE), 2L);
+
+    final ReorgPlan plan = plan(staleBlock, canonicalBlock);
+
+    assertDivergedAccounts(plan, ALICE);
+    assertThat(plan.isClean()).isFalse();
+  }
+
+  /**
+   * Balance changed on the orphaned fork only; the canonical fork touched the account solely via a
+   * storage write. Account-level overlap must not hide the stale balance.
+   *
+   * <pre>
+   * gen -- 1 +-- 2s (A balance)   stale
+   *          +-- 2c (A:s3)        canonical
+   * </pre>
+   */
+  @Test
+  void divergedAccountWhenBalanceOrphanedOnlyAndStorageCanonicalOnly() {
+    final Block ancestor = b.appendBlockWithBal(b.header(0), b.emptyBal(), 1L);
+
+    final UInt256 slot3 = UInt256.valueOf(3);
+
+    final Block staleBlock =
+        b.appendStale(ancestor.getHeader(), b.balWithBalanceTouches(ALICE), 2L);
+    final Block canonicalBlock =
+        b.appendCanonical(
+            ancestor.getHeader(),
+            b.balWithStorageChanges(ALICE, Map.of(slot3, UInt256.valueOf(7))),
+            2L);
+
+    final ReorgPlan plan =
+        plan(staleBlock, canonicalBlock, fullAccountRange(), fullStorageFor(ALICE));
+
+    assertDivergedAccounts(plan, ALICE);
+    // The canonical slot write is not stale-only, so nothing is slot-diverged.
+    assertNoDivergedSlots(plan, ALICE, slot3);
+    assertThat(plan.divergedSlotsByAccount()).isEmpty();
+    assertThat(plan.isClean()).isFalse();
+  }
+
+  /**
+   * The same scalar field changed on both forks is overwritten by the canonical BAL: no divergence.
+   *
+   * <pre>
+   * gen -- 1 +-- 2s (A=50)   stale
+   *          +-- 2c (A=80)   canonical
+   * </pre>
+   */
+  @Test
+  void noDivergenceWhenSameFieldChangesOnBothForks() {
+    final Block ancestor = b.appendBlockWithBal(b.header(0), b.emptyBal(), 1L);
+
+    final Block staleBlock =
+        b.appendStale(ancestor.getHeader(), b.balWithBalances(Map.of(ALICE, Wei.of(50))), 2L);
+    final Block canonicalBlock =
+        b.appendCanonical(ancestor.getHeader(), b.balWithBalances(Map.of(ALICE, Wei.of(80))), 2L);
+
+    final ReorgPlan plan = plan(staleBlock, canonicalBlock);
+
+    assertNoDivergedAccounts(plan, ALICE);
+    assertClean(plan);
+  }
+
+  /**
+   * Scalar touches merge across all blocks of a fork: a nonce changed in a later orphaned block
+   * only makes the account diverged even though its balance changed on both forks.
+   *
+   * <pre>
+   *            2s (A balance) -- 3s (A nonce)     stale
+   *           /
+   * gen -- 1 +
+   *           \
+   *            2c (A balance) -- 3c (empty)       canonical
+   * </pre>
+   */
+  @Test
+  void accountDivergenceMergesAcrossOrphanedBlocks() {
+    final Block ancestor = b.appendBlockWithBal(b.header(0), b.emptyBal(), 1L);
+
+    final Block block2s = b.appendStale(ancestor.getHeader(), b.balWithBalanceTouches(ALICE), 2L);
+    final Block block3s = b.appendStale(block2s.getHeader(), b.balWithNonceChange(ALICE, 1L), 3L);
+
+    final Block block2c =
+        b.appendCanonical(ancestor.getHeader(), b.balWithBalanceTouches(ALICE), 2L);
+    final Block block3c = b.appendCanonical(block2c.getHeader(), b.emptyBal(), 3L);
+
+    assertThat(b.blockchain().blockIsOnCanonicalChain(block3s.getHash())).isFalse();
+    assertThat(b.blockchain().blockIsOnCanonicalChain(block3c.getHash())).isTrue();
+
+    final ReorgPlan plan = plan(block3s, block3c);
+
+    // The balance overlaps on both forks, but the nonce changed on the orphaned fork only.
+    assertDivergedAccounts(plan, ALICE);
+    assertThat(plan.isClean()).isFalse();
+  }
+
+  /**
+   * Account divergence is scoped to persisted account ranges, like slot divergence.
+   *
+   * <pre>
+   * gen -- 1 +-- 2s (A balance)   stale
+   *          +-- 2c (A code)      canonical
+   * </pre>
+   */
+  @Test
+  void excludesDivergenceWhenAccountNotPersisted() {
+    final Block ancestor = b.appendBlockWithBal(b.header(0), b.emptyBal(), 1L);
+
+    final Block staleBlock =
+        b.appendStale(ancestor.getHeader(), b.balWithBalanceTouches(ALICE), 2L);
+    final Block canonicalBlock =
+        b.appendCanonical(
+            ancestor.getHeader(), b.balWithCodeChange(ALICE, Bytes.of(0x60, 0x80)), 2L);
+
+    // Only Bob's account range is persisted; Alice's scalar divergence is irrelevant locally.
+    final ReorgPlan plan =
+        plan(
+            staleBlock,
+            canonicalBlock,
+            persistedAccounts(BOB),
+            new DownloadedStorageRangeTracker());
+
+    assertClean(plan);
+  }
+
+  /**
+   * Account and slot divergence coexist on the same account: the orphaned fork changed the balance
+   * and slot s5; the canonical fork changed only the code.
+   *
+   * <pre>
+   * gen -- 1 +-- 2s (A balance; A:s5)   stale
+   *          +-- 2c (A code)            canonical
+   * </pre>
+   */
+  @Test
+  void accountAndSlotDivergenceCoexistOnSameAccount() {
+    final Block ancestor = b.appendBlockWithBal(b.header(0), b.emptyBal(), 1L);
+
+    final UInt256 slot5 = UInt256.valueOf(5);
+
+    final BlockAccessList staleBal =
+        b.merge(
+            b.balWithBalanceTouches(ALICE),
+            b.balWithStorageChanges(ALICE, Map.of(slot5, UInt256.valueOf(42))));
+    final Block staleBlock = b.appendStale(ancestor.getHeader(), staleBal, 2L);
+    final Block canonicalBlock =
+        b.appendCanonical(
+            ancestor.getHeader(), b.balWithCodeChange(ALICE, Bytes.of(0x60, 0x80)), 2L);
+
+    final ReorgPlan plan =
+        plan(staleBlock, canonicalBlock, fullAccountRange(), fullStorageFor(ALICE));
+
+    assertDivergedAccounts(plan, ALICE);
     assertDivergedSlots(plan, ALICE, slot5);
     assertThat(plan.isClean()).isFalse();
   }

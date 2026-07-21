@@ -42,8 +42,9 @@ import org.slf4j.LoggerFactory;
  *   <li>Accounts and slots that appear in the canonical BALs (whether overlapping with the orphaned
  *       fork or canonical-only) are resolved by {@link #applyCanonicalBals}, which applies the
  *       canonical BALs starting from the common ancestor {@code W}+1.
- *   <li><em>Diverged</em> entries — touched on the orphaned fork but absent from the canonical BALs
- *       — are <em>identified</em> by {@link #planReorg} but not yet corrected here.
+ *   <li>Entries changed only on the orphaned fork are identified by {@link #planReorg} but not yet
+ *       corrected here. They are tracked per state element: accounts whose scalar fields (balance,
+ *       nonce, code) diverged, and individual storage slots.
  * </ul>
  */
 public class SnapV2ReorgHealer {
@@ -152,8 +153,9 @@ public class SnapV2ReorgHealer {
 
     checkBalActivation(commonAncestor, fromBlock);
 
-    final Map<Hash, Set<Hash>> orphanedTouches = collectOrphanedTouches(oldPivot, commonAncestor);
-    final Map<Hash, Set<Hash>> canonicalTouches = collectCanonicalTouches(fromBlock, toBlock);
+    final Map<Hash, AccountTouches> orphanedTouches =
+        collectOrphanedTouches(oldPivot, commonAncestor);
+    final Map<Hash, AccountTouches> canonicalTouches = collectCanonicalTouches(fromBlock, toBlock);
     final Set<Hash> divergedAccounts =
         computeDivergedAccounts(orphanedTouches, canonicalTouches, accountRangeTracker);
     final Map<Hash, Set<Hash>> divergedSlotsByAccount =
@@ -182,9 +184,9 @@ public class SnapV2ReorgHealer {
         plan.fromBlock(), plan.toBlock(), accountRangeTracker, storageRangeTracker);
   }
 
-  private Map<Hash, Set<Hash>> collectOrphanedTouches(
+  private Map<Hash, AccountTouches> collectOrphanedTouches(
       final BlockHeader oldPivot, final BlockHeader commonAncestor) {
-    final Map<Hash, Set<Hash>> touches = new HashMap<>();
+    final Map<Hash, AccountTouches> touches = new HashMap<>();
     BlockHeader header = oldPivot;
     while (header != null && header.getNumber() > commonAncestor.getNumber()) {
       final BlockHeader current = header;
@@ -211,8 +213,9 @@ public class SnapV2ReorgHealer {
     return touches;
   }
 
-  private Map<Hash, Set<Hash>> collectCanonicalTouches(final long fromBlock, final long toBlock) {
-    final Map<Hash, Set<Hash>> touches = new HashMap<>();
+  private Map<Hash, AccountTouches> collectCanonicalTouches(
+      final long fromBlock, final long toBlock) {
+    final Map<Hash, AccountTouches> touches = new HashMap<>();
     for (long blockNumber = fromBlock; blockNumber <= toBlock; blockNumber++) {
       final long bn = blockNumber;
       final BlockHeader header = loadCanonicalHeader(bn);
@@ -229,15 +232,19 @@ public class SnapV2ReorgHealer {
   }
 
   private static void collectTouches(
-      final BlockAccessList bal, final Map<Hash, Set<Hash>> touches) {
+      final BlockAccessList bal, final Map<Hash, AccountTouches> touches) {
     for (final BlockAccessList.AccountChanges accountChanges : bal.accountChanges()) {
       if (!accountChanges.hasAnyChange()) {
         continue;
       }
       final Hash accountHash = accountChanges.address().addressHash();
-      final Set<Hash> slots = touches.computeIfAbsent(accountHash, k -> new HashSet<>());
+      final AccountTouches accountTouches =
+          touches.computeIfAbsent(accountHash, k -> new AccountTouches());
+      accountTouches.balanceChanged |= !accountChanges.balanceChanges().isEmpty();
+      accountTouches.nonceChanged |= !accountChanges.nonceChanges().isEmpty();
+      accountTouches.codeChanged |= !accountChanges.codeChanges().isEmpty();
       for (final BlockAccessList.SlotChanges slotChanges : accountChanges.storageChanges()) {
-        slots.add(slotChanges.slot().getSlotHash());
+        accountTouches.slots.add(slotChanges.slot().getSlotHash());
       }
     }
   }
@@ -255,36 +262,51 @@ public class SnapV2ReorgHealer {
     }
   }
 
+  /**
+   * Accounts whose scalar fields (balance, nonce or code) changed on the orphaned fork but not on
+   * the canonical fork. The canonical BALs cannot repair such a field — BALs carry post-values only
+   * for the fields that changed — so the account record must be re-fetched at the new pivot
+   * (restored, or deleted if absent there; an account created on the orphaned fork always records a
+   * scalar change, so every delete-case surfaces here). Accounts touched only via storage need no
+   * account re-fetch: repairing their diverged slots restores the storage root.
+   */
   private Set<Hash> computeDivergedAccounts(
-      final Map<Hash, Set<Hash>> orphanedTouches,
-      final Map<Hash, Set<Hash>> canonicalTouches,
+      final Map<Hash, AccountTouches> orphanedTouches,
+      final Map<Hash, AccountTouches> canonicalTouches,
       final DownloadedAccountRangeTracker accountRangeTracker) {
     final Set<Hash> diverged = new HashSet<>();
-    for (final Hash account : orphanedTouches.keySet()) {
-      if (!canonicalTouches.containsKey(account)
-          && accountRangeTracker.isAccountHashPersisted(asBytes32(account))) {
-        diverged.add(account);
+    for (final Map.Entry<Hash, AccountTouches> entry : orphanedTouches.entrySet()) {
+      if (!accountRangeTracker.isAccountHashPersisted(asBytes32(entry.getKey()))) {
+        continue;
+      }
+      final AccountTouches orphaned = entry.getValue();
+      final AccountTouches canonical = canonicalTouches.get(entry.getKey());
+      if ((orphaned.balanceChanged && (canonical == null || !canonical.balanceChanged))
+          || (orphaned.nonceChanged && (canonical == null || !canonical.nonceChanged))
+          || (orphaned.codeChanged && (canonical == null || !canonical.codeChanged))) {
+        diverged.add(entry.getKey());
       }
     }
     return diverged;
   }
 
   private Map<Hash, Set<Hash>> computeDivergedSlots(
-      final Map<Hash, Set<Hash>> orphanedTouches,
-      final Map<Hash, Set<Hash>> canonicalTouches,
+      final Map<Hash, AccountTouches> orphanedTouches,
+      final Map<Hash, AccountTouches> canonicalTouches,
       final DownloadedAccountRangeTracker accountRangeTracker,
       final DownloadedStorageRangeTracker storageRangeTracker) {
     final Map<Hash, Set<Hash>> diverged = new HashMap<>();
-    for (final Map.Entry<Hash, Set<Hash>> entry : orphanedTouches.entrySet()) {
+    for (final Map.Entry<Hash, AccountTouches> entry : orphanedTouches.entrySet()) {
       final Hash account = entry.getKey();
       final Bytes32 accountHash = asBytes32(account);
       if (!accountRangeTracker.isAccountHashPersisted(accountHash)) {
         continue;
       }
       final boolean isAccountCompleted = accountRangeTracker.isAccountHashDownloaded(accountHash);
-      final Set<Hash> canonicalAccountSlots = canonicalTouches.getOrDefault(account, Set.of());
+      final AccountTouches canonical = canonicalTouches.get(account);
+      final Set<Hash> canonicalAccountSlots = canonical == null ? Set.of() : canonical.slots;
       final Set<Hash> divergedSlots = new HashSet<>();
-      for (final Hash slot : entry.getValue()) {
+      for (final Hash slot : entry.getValue().slots) {
         if (!canonicalAccountSlots.contains(slot)
             && (isAccountCompleted
                 || storageRangeTracker.isSlotHashDownloaded(accountHash, asBytes32(slot)))) {
@@ -309,5 +331,12 @@ public class SnapV2ReorgHealer {
 
   private static Bytes32 asBytes32(final Hash hash) {
     return Bytes32.wrap(hash.getBytes());
+  }
+
+  private static final class AccountTouches {
+    private boolean balanceChanged;
+    private boolean nonceChanged;
+    private boolean codeChanged;
+    private final Set<Hash> slots = new HashSet<>();
   }
 }
