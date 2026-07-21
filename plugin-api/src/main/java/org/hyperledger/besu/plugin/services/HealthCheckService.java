@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.plugin.services;
 
+import java.util.Collections;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -66,6 +68,46 @@ public interface HealthCheckService extends BesuService {
     return getHealthCheck("/readiness");
   }
 
+  /** Result of a health check evaluation, including optional diagnostic details. */
+  final class HealthCheckResult {
+    private final boolean healthy;
+    private final Map<String, Object> details;
+
+    /**
+     * Creates a health check result.
+     *
+     * @param healthy whether the check passed
+     * @param details diagnostic details to include under {@code checks}; may be null or empty
+     */
+    public HealthCheckResult(final boolean healthy, final Map<String, Object> details) {
+      this.healthy = healthy;
+      this.details =
+          details == null || details.isEmpty()
+              ? Collections.emptyMap()
+              : Collections.unmodifiableMap(details);
+    }
+
+    /**
+     * Creates a healthy or unhealthy result with no details.
+     *
+     * @param healthy whether the check passed
+     * @return the result
+     */
+    public static HealthCheckResult of(final boolean healthy) {
+      return new HealthCheckResult(healthy, Collections.emptyMap());
+    }
+
+    /** Returns true if healthy. */
+    public boolean isHealthy() {
+      return healthy;
+    }
+
+    /** Returns diagnostic details for the response {@code checks} object. */
+    public Map<String, Object> getDetails() {
+      return details;
+    }
+  }
+
   /** Functional interface for health check providers. */
   @FunctionalInterface
   interface HealthCheckProvider {
@@ -73,9 +115,9 @@ public interface HealthCheckService extends BesuService {
      * Evaluates the health status based on query parameters.
      *
      * @param paramSource the query parameter source from the health check request
-     * @return true if healthy, false otherwise
+     * @return the health check result, including optional structured details
      */
-    boolean isHealthy(ParamSource paramSource);
+    HealthCheckResult check(ParamSource paramSource);
   }
 
   /** Functional interface for accessing query parameters. */

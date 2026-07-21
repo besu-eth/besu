@@ -3,6 +3,7 @@
 ## Unreleased Changes
 
 ### Breaking Changes
+<<<<<<< HEAD
 - The experimental `--Xv5-discovery-enabled` flag is removed; use `--discovery-mode=V5` or `--discovery-mode=BOTH` instead.
 - The genesis file `v5Bootnodes` key is removed; ENR bootnodes must now be listed in the unified `bootnodes` array alongside enode URLs. Besu's bundled network genesis files were migrated automatically - this only affects custom/downstream genesis files that still use the old `v5Bootnodes` key, whose ENR entries will otherwise be silently dropped.
 - Removed the legacy `PANTHEON_` environment variable prefix for configuration options, everyone should already use the `BESU_` prefix at this time.
@@ -55,6 +56,10 @@
 ### Breaking Changes
 - If you are a heavy user of `eth_newFilter`/`eth_newBlockFilter`/`eth_newPendingTransactionFilter` RPC methods, you may need to review the default values of the new configuration options `--rpc-max-active-filters` (default `1000`; `0` = no limit) which rejects filter creation past the cap, and `--rpc-filter-timeout-seconds` (seconds; default 120) which makes the previously hardcoded 10-minute filter expiry configurable.
 - If you are a heavy user of `eth_subscribe` websocket RPC, you may need to review the default values of the new configuration options `--rpc-ws-max-active-subscriptions` (default `100,000`; `0` = no limit) which rejects subscription creation past the cap.
+=======
+- Plugin API: `HealthCheckProvider` now returns `HealthCheckResult` (status + details map) instead of `boolean` [#10687](https://github.com/besu-eth/besu/issues/10687)
+
+>>>>>>> 30dd0d6049 (Restore structured health-check details in plugin readiness responses)
 
 ### Upcoming Breaking Changes
 - `--min-block-occupancy-ratio` is deprecated and will be removed in a future release
@@ -67,12 +72,16 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
+<<<<<<< HEAD
 - Cap the number of concurrently-active JSON-RPC filters (`eth_newFilter`, `eth_newBlockFilter`, `eth_newPendingTransactionFilter`) via `--rpc-max-active-filters`, and expire filters that go unpolled via `--rpc-filter-timeout-seconds`, closing an unbounded-memory-growth path where a client could create filters indefinitely without ever polling or uninstalling them.
 - Cap the number of globally-active WebSocket `eth_subscribe` subscriptions via `--rpc-ws-max-active-subscriptions` (default 100,000, 0 for no limit), closing an unbounded-memory-growth path where a client could open subscriptions indefinitely. Subscriptions belonging to a connection are now also cleaned up if the connection closes mid-subscribe.
 - Add defense-in-depth in `MainnetTransactionProcessor` so a failed transaction's selfdestruct markers can never trigger `deleteAccount` on world state. The root cause (a stale-marker leak via the regular-gas-limit-exceeded path) has since been fixed by the block-level gas accounting refactor, but the unconditional deletion loop itself offered no protection against any future leak path reaching it.
 - Key precompiled-contract result caches (BLAKE2F and others sharing `AbstractPrecompiledContract`) by the actual input content instead of a 32-bit `Arrays.hashCode` digest of it. Two distinct inputs could share the same 32-bit digest, so an attacker able to construct such a collision could evict/replace the same cache entry on every call, causing deterministic cache thrashing.
 - Bound QBFT/IBFT `FutureMessageBuffer` memory by total retained byte size (default 64MB), not just message count. A message-count limit alone doesn't bound memory when individual BFT messages (e.g. a QBFT PROPOSAL carrying a full block) are multiple megabytes each.
 - Fix an O(N^2) HashDoS in per-transaction warm-address/warm-storage/transient-storage tracking: these collections were backed by `HashSet`/`HashSet` keyed on `Address`/`Bytes32`, whose `hashCode()` is a grindable base-31 hash with no `Comparable` declaration, so bucket treeification never engaged. An attacker could grind keys sharing a hash bucket and force O(n) bucket walks per insert. Switch to `TreeSet`/`TreeBasedTable` (sorted by natural ordering) so insert cost stays bounded regardless of key distribution.
+=======
+- Restore structured `{peers, sync}` detail in plugin-based `/readiness` responses via `HealthCheckProvider` [#10687](https://github.com/besu-eth/besu/issues/10687)
+>>>>>>> 30dd0d6049 (Restore structured health-check details in plugin readiness responses)
 - Fix `engine_newPayload` responding with a `-32600 Invalid Request` JSON-RPC error instead of an `INVALID` payload status when the payload contains a legacy transaction with an invalid `v` value. `eth_sendRawTransaction` and `debug_batchSendRawTransaction` now report the standard `Invalid RLP in raw transaction hex` invalid-params error for such transactions instead of an unhandled internal error. [#10784](https://github.com/besu-eth/besu/pull/10784)
 - Fix potential `ArithmeticException: integer overflow` when prioritizing peer connections whose initiation timestamps are more than ~24.8 days apart. `EthPeers.compareConnectionInitiationTimes` now uses `Long.compare` instead of narrowing the timestamp difference to an `int`. [#10787](https://github.com/besu-eth/besu/issues/10787)
 - Layered txpool: fix the sender balance check rejecting zero upfront cost transactions from zero balance senders, which caused free gas networks to produce only empty blocks [#10751](https://github.com/besu-eth/besu/pull/10751)
