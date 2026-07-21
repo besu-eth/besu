@@ -33,7 +33,6 @@ import java.math.BigInteger;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicReference;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -135,6 +134,16 @@ public class SnapSyncForkRecoveryAcceptanceTest extends AcceptanceTestBase {
   private static final long DEPLOY_GAS_LIMIT = 1_000_000L;
   private static final long CHAIN_ID = 1L;
 
+  // Block-build retry bounds (see buildBlock): each attempt runs a fresh build with a longer
+  // window, so a heavily loaded miner still gets time to pack all the storage-heavy deploys.
+  private static final int MAX_BUILD_ATTEMPTS = 10;
+  private static final long MAX_BUILD_WINDOW_MILLIS = 8_000L;
+  // Empty blocks are ready almost immediately, so they always use this short, fixed window.
+  private static final long EMPTY_BUILD_WINDOW_MILLIS = 150L;
+  // Starting window for transaction-bearing blocks, before any adaptive growth (see
+  // transactionBlockBuildWindowMillis).
+  private static final long INITIAL_BUILD_WINDOW_MILLIS = 500L;
+
   private static final String FEE_RECIPIENT_A = "0x1111111111111111111111111111111111111111";
   private static final String FEE_RECIPIENT_B = "0x2222222222222222222222222222222222222222";
 
@@ -148,6 +157,11 @@ public class SnapSyncForkRecoveryAcceptanceTest extends AcceptanceTestBase {
 
   // Benefactor nonce for the fork-A deploy transactions.
   private long nonceForkA = 0;
+
+  // Adaptive build window for transaction-bearing blocks: remembered across blocks so that once one
+  // heavy block proves a longer window is needed on this (possibly loaded) machine, later heavy
+  // blocks start from that proven duration instead of re-climbing from the minimum each time.
+  private long transactionBlockBuildWindowMillis = INITIAL_BUILD_WINDOW_MILLIS;
 
   @Test
   public void recoversAndSyncsToCompetingForkAfterPivotReorg() throws Exception {
@@ -508,8 +522,47 @@ public class SnapSyncForkRecoveryAcceptanceTest extends AcceptanceTestBase {
       throws IOException {
     final EthBlock.Block head = miner.execute(ethTransactions.block());
     final String headHash = head.getHash();
-    final long nextTimestamp = head.getTimestamp().longValue() + 1;
+    final long baseTimestamp = head.getTimestamp().longValue() + 1;
 
+    final boolean hasTransactions = expectedTxCount > 0;
+    // Empty blocks always use the short fixed window; transaction-bearing blocks start from the
+    // adaptively-remembered window and grow it per attempt if the build was still incomplete.
+    long buildWindowMillis =
+        hasTransactions ? transactionBlockBuildWindowMillis : EMPTY_BUILD_WINDOW_MILLIS;
+    ObjectNode executionPayload = null;
+    for (int attempt = 0; attempt < MAX_BUILD_ATTEMPTS; attempt++) {
+      // Distinct timestamp per attempt => distinct payload id => a fresh, uncancelled build over
+      // the full transaction pool, rather than the deduplicated, already-finalized previous build.
+      final String payloadId =
+          startBlockBuild(miner, headHash, baseTimestamp + attempt, feeRecipient);
+      sleep(buildWindowMillis);
+      final ObjectNode payload = fetchPayload(miner, payloadId);
+      if (payload.get("transactions").size() == expectedTxCount) {
+        executionPayload = payload;
+        break;
+      }
+      buildWindowMillis = Math.min(buildWindowMillis * 2, MAX_BUILD_WINDOW_MILLIS);
+    }
+    assertThat(executionPayload)
+        .as(
+            "miner did not build a block with %s transaction(s) within %s attempts",
+            expectedTxCount, MAX_BUILD_ATTEMPTS)
+        .isNotNull();
+
+    // Remember the window that worked for transaction-bearing blocks so later heavy blocks start
+    // from a proven-sufficient duration. Empty blocks never feed back into it.
+    if (hasTransactions) {
+      transactionBlockBuildWindowMillis = buildWindowMillis;
+    }
+
+    importBlock(miner, executionPayload);
+    return executionPayload;
+  }
+
+  /** engine_forkchoiceUpdatedV1 with payload attributes; returns the payload id for the build. */
+  private String startBlockBuild(
+      final BesuNode miner, final String headHash, final long timestamp, final String feeRecipient)
+      throws IOException {
     final String fcuWithAttributes =
         "{\"jsonrpc\":\"2.0\",\"method\":\"engine_forkchoiceUpdatedV1\",\"params\":["
             + "{\"headBlockHash\":\""
@@ -520,45 +573,39 @@ public class SnapSyncForkRecoveryAcceptanceTest extends AcceptanceTestBase {
             + ZERO_HASH
             + "\"},"
             + "{\"timestamp\":\"0x"
-            + Long.toHexString(nextTimestamp)
+            + Long.toHexString(timestamp)
             + "\",\"prevRandao\":\""
             + ZERO_HASH
             + "\",\"suggestedFeeRecipient\":\""
             + feeRecipient
             + "\"}],\"id\":67}";
-
-    final String payloadId;
     try (Response response = engineCall(miner, fcuWithAttributes).execute()) {
       assertThat(response.code()).isEqualTo(200);
-      payloadId = result(response).get("payloadId").asText();
+      final String payloadId = result(response).get("payloadId").asText();
       assertThat(payloadId).isNotEmpty();
+      return payloadId;
     }
+  }
 
-    // The miner assembles the payload asynchronously after forkchoiceUpdated and keeps improving it
-    // in the background; engine_getPayloadV1 returns the best block built so far. Poll it until the
-    // block has packed all the expected transactions instead of sleeping a fixed (brittle)
-    // duration.
+  /** engine_getPayloadV1 for the given payload id; returns the execution payload. */
+  private ObjectNode fetchPayload(final BesuNode miner, final String payloadId) throws IOException {
     final String getPayload =
         "{\"jsonrpc\":\"2.0\",\"method\":\"engine_getPayloadV1\",\"params\":[\""
             + payloadId
             + "\"],\"id\":67}";
-    final AtomicReference<ObjectNode> executionPayloadRef = new AtomicReference<>();
-    await()
-        .atMost(Duration.ofSeconds(30))
-        .pollInterval(Duration.ofMillis(50))
-        .untilAsserted(
-            () -> {
-              try (Response response = engineCall(miner, getPayload).execute()) {
-                assertThat(response.code()).isEqualTo(200);
-                final ObjectNode payload = (ObjectNode) result(response);
-                assertThat(payload.get("transactions").size()).isEqualTo(expectedTxCount);
-                executionPayloadRef.set(payload);
-              }
-            });
-    final ObjectNode executionPayload = executionPayloadRef.get();
+    try (Response response = engineCall(miner, getPayload).execute()) {
+      assertThat(response.code()).isEqualTo(200);
+      return (ObjectNode) result(response);
+    }
+  }
 
-    importBlock(miner, executionPayload);
-    return executionPayload;
+  private static void sleep(final long millis) {
+    try {
+      Thread.sleep(millis);
+    } catch (final InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new RuntimeException(e);
+    }
   }
 
   /** engine_newPayloadV1 (VALID) + engine_forkchoiceUpdatedV1 to make the block canonical. */
