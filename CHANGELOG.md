@@ -3,6 +3,8 @@
 ## Unreleased Changes
 
 ### Breaking Changes
+- Plugin API: `HealthCheckProvider` now returns `HealthCheckResult` (status + details map) instead of `boolean` [#10687](https://github.com/besu-eth/besu/issues/10687)
+
 
 ### Upcoming Breaking Changes
 - `--min-block-occupancy-ratio` is deprecated and will be removed in a future release
@@ -15,6 +17,7 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
+- Restore structured `{peers, sync}` detail in plugin-based `/readiness` responses via `HealthCheckProvider` [#10687](https://github.com/besu-eth/besu/issues/10687)
 - Fix `engine_newPayload` responding with a `-32600 Invalid Request` JSON-RPC error instead of an `INVALID` payload status when the payload contains a legacy transaction with an invalid `v` value. `eth_sendRawTransaction` and `debug_batchSendRawTransaction` now report the standard `Invalid RLP in raw transaction hex` invalid-params error for such transactions instead of an unhandled internal error. [#10784](https://github.com/besu-eth/besu/pull/10784)
 - Fix potential `ArithmeticException: integer overflow` when prioritizing peer connections whose initiation timestamps are more than ~24.8 days apart. `EthPeers.compareConnectionInitiationTimes` now uses `Long.compare` instead of narrowing the timestamp difference to an `int`. [#10787](https://github.com/besu-eth/besu/issues/10787)
 - Layered txpool: fix the sender balance check rejecting zero upfront cost transactions from zero balance senders, which caused free gas networks to produce only empty blocks [#10751](https://github.com/besu-eth/besu/pull/10751)

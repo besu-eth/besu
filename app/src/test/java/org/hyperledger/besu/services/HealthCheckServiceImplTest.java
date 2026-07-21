@@ -32,7 +32,8 @@ public class HealthCheckServiceImplTest {
 
   @Test
   void shouldRegisterHealthCheck() {
-    final HealthCheckService.HealthCheckProvider provider = params -> true;
+    final HealthCheckService.HealthCheckProvider provider =
+        params -> HealthCheckService.HealthCheckResult.of(true);
 
     healthCheckService.registerHealthCheck("/test", provider);
 
@@ -42,8 +43,10 @@ public class HealthCheckServiceImplTest {
 
   @Test
   void shouldAllowOverridingExistingEndpoint() {
-    final HealthCheckService.HealthCheckProvider provider1 = params -> true;
-    final HealthCheckService.HealthCheckProvider provider2 = params -> false;
+    final HealthCheckService.HealthCheckProvider provider1 =
+        params -> HealthCheckService.HealthCheckResult.of(true);
+    final HealthCheckService.HealthCheckProvider provider2 =
+        params -> HealthCheckService.HealthCheckResult.of(false);
     healthCheckService.registerHealthCheck("/test", provider1);
 
     healthCheckService.registerHealthCheck("/test", provider2);
@@ -54,7 +57,8 @@ public class HealthCheckServiceImplTest {
 
   @Test
   void shouldUnregisterHealthCheck() {
-    final HealthCheckService.HealthCheckProvider provider = params -> true;
+    final HealthCheckService.HealthCheckProvider provider =
+        params -> HealthCheckService.HealthCheckResult.of(true);
     healthCheckService.registerHealthCheck("/test", provider);
 
     healthCheckService.unregisterHealthCheck("/test");
@@ -69,7 +73,8 @@ public class HealthCheckServiceImplTest {
 
   @Test
   void shouldGetLivenessCheck() {
-    final HealthCheckService.HealthCheckProvider provider = params -> true;
+    final HealthCheckService.HealthCheckProvider provider =
+        params -> HealthCheckService.HealthCheckResult.of(true);
     healthCheckService.registerHealthCheck("/liveness", provider);
 
     assertThat(healthCheckService.getLivenessCheck()).isPresent();
@@ -77,7 +82,8 @@ public class HealthCheckServiceImplTest {
 
   @Test
   void shouldGetReadinessCheck() {
-    final HealthCheckService.HealthCheckProvider provider = params -> true;
+    final HealthCheckService.HealthCheckProvider provider =
+        params -> HealthCheckService.HealthCheckResult.of(true);
     healthCheckService.registerHealthCheck("/readiness", provider);
 
     assertThat(healthCheckService.getReadinessCheck()).isPresent();

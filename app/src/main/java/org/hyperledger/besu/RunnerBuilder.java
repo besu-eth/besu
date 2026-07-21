@@ -1516,8 +1516,11 @@ public class RunnerBuilder {
 
   private HealthService.HealthCheck adaptProvider(
       final HealthCheckService.HealthCheckProvider provider) {
-    return healthServiceParams ->
-        new HealthService.HealthCheckResult(
-            provider.isHealthy(healthServiceParams::getParam), new JsonObject());
+    return healthServiceParams -> {
+      final HealthCheckService.HealthCheckResult result =
+          provider.check(healthServiceParams::getParam);
+      return new HealthService.HealthCheckResult(
+          result.isHealthy(), new JsonObject(result.getDetails()));
+    };
   }
 }
