@@ -1611,10 +1611,12 @@ public class BesuCommandTest extends CommandTestAbstract {
     final Path toml =
         createTempFile(
             "toml",
-            "metrics-push-host=\"0.0.0.0\"\n"
-                + "metrics-push-port=1234\n"
-                + "metrics-push-interval=2\n"
-                + "metrics-push-prometheus-job=\"job-name\"\n");
+            """
+            metrics-push-host="0.0.0.0"
+            metrics-push-port=1234
+            metrics-push-interval=2
+            metrics-push-prometheus-job="job-name"
+            """);
 
     parseCommand("--config-file", toml.toString());
 
@@ -1641,7 +1643,13 @@ public class BesuCommandTest extends CommandTestAbstract {
 
   @Test
   public void metricsOptionsRequiresPullMetricsToBeEnabledToml() throws IOException {
-    final Path toml = createTempFile("toml", "metrics-host=\"0.0.0.0\"\n" + "metrics-port=1234\n");
+    final Path toml =
+        createTempFile(
+            "toml",
+            """
+            metrics-host="0.0.0.0"
+            metrics-port=1234
+            """);
 
     parseCommand("--config-file", toml.toString());
 

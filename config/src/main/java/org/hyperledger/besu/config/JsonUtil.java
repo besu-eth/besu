@@ -652,7 +652,7 @@ public class JsonUtil {
   private static class NameExcludeFilter extends TokenFilter {
     private final Set<String> names;
 
-    public NameExcludeFilter(final String... names) {
+    NameExcludeFilter(final String... names) {
       this.names = Set.of(names);
     }
 
