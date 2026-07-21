@@ -52,6 +52,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.slf4j.Logger;
@@ -76,6 +77,8 @@ public class SnapSyncChainDownloader
   public static final int SMALL_DELAY_MILLISECONDS = 100;
   static final int NO_PEER_RETRY_DELAY_MILLISECONDS = 5_000;
   private static final int MAX_SAME_STATE_RETRIES = 20;
+  private static final long RETRY_WARN_INTERVAL_MS = 30_000L;
+  private static final long RETRY_MAX_BACKOFF_MS = 30_000L;
 
   private final SnapSyncChainDownloadPipelineFactory pipelineFactory;
 
@@ -103,6 +106,10 @@ public class SnapSyncChainDownloader
   private final AtomicInteger sameStateRetryCount = new AtomicInteger(0);
   private volatile ChainSyncState lastRetriedState = null;
   private volatile long lastRetriedChainHead = -1;
+  private final AtomicLong retryFailureCount = new AtomicLong();
+  private final AtomicLong lastRetryWarnMillis = new AtomicLong();
+  private long lastNoPeerLogMillis;
+  private long retryBackoffMs = SMALL_DELAY_MILLISECONDS;
 
   private volatile Pipeline<?> currentPipeline;
   private volatile BackwardHeaderDriver currentDriver;
@@ -223,7 +230,7 @@ public class SnapSyncChainDownloader
     if (newPivotBlockHeader.getNumber() <= currentPivotBlockHeader.getNumber()) {
       return CompletableFuture.failedFuture(
           new IllegalArgumentException(
-              "Snap/2 pivot catch-up requires an increasing pivot number"));
+              "snap/2 pivot catch-up requires an increasing pivot number"));
     }
 
     final CompletableFuture<Void> completionFuture = new CompletableFuture<>();
@@ -235,7 +242,7 @@ public class SnapSyncChainDownloader
       final SnapV2PivotCatchupRequest previousRequest = pendingSnapV2PivotCatchup.get();
       if (previousRequest != null && !previousRequest.completionFuture().isDone()) {
         return CompletableFuture.failedFuture(
-            new IllegalStateException("Snap/2 pivot catch-up is already in progress"));
+            new IllegalStateException("snap/2 pivot catch-up is already in progress"));
       }
       pendingSnapV2PivotCatchup.set(request);
       pendingPivotUpdate.getAndSet(newPivotBlockHeader);
@@ -568,14 +575,14 @@ public class SnapSyncChainDownloader
 
     if (anchorNumber >= pivotBlockNumber) {
       LOG.debug(
-          "Snap/2 BAL download: anchor ({}) already at or past pivot ({}). Nothing to download.",
+          "snap/2 BAL download: anchor ({}) already at or past pivot ({}). Nothing to download.",
           anchorNumber,
           pivotBlockNumber);
       return CompletableFuture.completedFuture(null);
     }
 
     LOG.debug(
-        "Snap/2 BAL download: downloading BALs from {} to pivot {}",
+        "snap/2 BAL download: downloading BALs from {} to pivot {}",
         anchorNumber,
         pivotBlockNumber);
 
@@ -591,7 +598,7 @@ public class SnapSyncChainDownloader
         .thenApply(
             ignore -> {
               final Duration balDuration = Duration.between(balStartTime, Instant.now());
-              LOG.debug("Snap/2 BAL download finished in {} seconds", balDuration.toSeconds());
+              LOG.debug("snap/2 BAL download finished in {} seconds", balDuration.toSeconds());
               completeSnapV2PivotCatchupIfNeeded(pivotBlockHeader);
               return null;
             });
@@ -737,9 +744,7 @@ public class SnapSyncChainDownloader
     // With no peers every future immediately hits NO_PEER_AVAILABLE, spins for 60 s, and
     // the pipeline restarts every 60 s accumulating scheduler/thread overhead indefinitely.
     if (ethContext.getEthPeers().peerCount() == 0) {
-      LOG.debug(
-          "No peers available, deferring chain sync pipeline start for {} ms",
-          NO_PEER_RETRY_DELAY_MILLISECONDS);
+      logNoPeersWaiting();
       ethContext
           .getScheduler()
           .scheduleFutureTask(
@@ -754,6 +759,7 @@ public class SnapSyncChainDownloader
               if (error != null) {
                 handleDownloadError(error, overallResult);
               } else {
+                resetRetryFailureTracking();
                 // we are stopping the time after the initial chain download has finished. From now
                 // on we are only waiting for new pivots or the world state download to finish.
                 syncDurationMetrics.stopTimer(SyncDurationMetrics.Labels.CHAIN_DOWNLOAD_DURATION);
@@ -799,7 +805,7 @@ public class SnapSyncChainDownloader
         && request.newPivotBlockHeader().getHash().equals(completedPivotBlockHeader.getHash())
         && pendingSnapV2PivotCatchup.compareAndSet(request, null)) {
       LOG.info(
-          "Snap/2 chain catch-up completed for pivot block {}",
+          "snap/2 chain catch-up completed for pivot block {}",
           completedPivotBlockHeader.getNumber());
       request.completionFuture().complete(null);
     }
@@ -813,7 +819,8 @@ public class SnapSyncChainDownloader
   }
 
   /**
-   * Handles error from a download cycle. Updates state and decides whether to retry.
+   * Handles an error from a download cycle: either retries from the saved state with exponential
+   * backoff, or fails the download for non-retryable errors.
    *
    * @param error the error that occurred
    * @param overallResult the future to complete/continue
@@ -827,12 +834,63 @@ public class SnapSyncChainDownloader
       failSnapV2PivotCatchupIfNeeded(failWith.get());
       overallResult.completeExceptionally(failWith.get());
     } else {
-      LOG.debug("Chain sync encountered error, will retry from saved state", error);
-      // Schedule next attempt without recursion; small delay to avoid tight retry loops
+      logRetryFailure(error);
+      // Schedule next attempt without recursion; exponential backoff to avoid tight retry loops
+      final long delay = retryBackoffMs;
+      retryBackoffMs = Math.min(retryBackoffMs * 2, RETRY_MAX_BACKOFF_MS);
+      LOG.debug(
+          "Chain sync retrying in {}ms (next backoff {}ms, max {}ms)",
+          delay,
+          retryBackoffMs,
+          RETRY_MAX_BACKOFF_MS);
       ethContext
           .getScheduler()
-          .scheduleFutureTask(
-              () -> attemptDownload(overallResult), Duration.ofMillis(SMALL_DELAY_MILLISECONDS));
+          .scheduleFutureTask(() -> attemptDownload(overallResult), Duration.ofMillis(delay));
+    }
+  }
+
+  /**
+   * Logs a retryable download-cycle failure at DEBUG, escalating to a rate-limited WARN when
+   * failures persist so a stuck retry loop (e.g. no peer serving required BALs) is visible at
+   * default log level.
+   */
+  private void logRetryFailure(final Throwable error) {
+    LOG.debug("Chain sync encountered error, will retry from saved state", error);
+    retryFailureCount.incrementAndGet();
+    final long now = System.currentTimeMillis();
+    final long last = lastRetryWarnMillis.get();
+    if (last == 0) {
+      // First failure of a streak: start the window, don't warn yet
+      lastRetryWarnMillis.compareAndSet(last, now);
+      return;
+    }
+    if (now - last >= RETRY_WARN_INTERVAL_MS && lastRetryWarnMillis.compareAndSet(last, now)) {
+      final long failures = retryFailureCount.getAndSet(0);
+      final Throwable cause =
+          error instanceof CompletionException && error.getCause() != null
+              ? error.getCause()
+              : error;
+      LOG.warn(
+          "Chain sync still retrying after {} failure(s) in the last {}s; most recent: {}",
+          failures,
+          RETRY_WARN_INTERVAL_MS / 1000,
+          cause.getMessage() != null ? cause.getMessage() : cause.getClass().getSimpleName());
+    }
+  }
+
+  private void resetRetryFailureTracking() {
+    retryFailureCount.set(0);
+    lastRetryWarnMillis.set(0);
+    retryBackoffMs = SMALL_DELAY_MILLISECONDS;
+  }
+
+  private void logNoPeersWaiting() {
+    final long now = System.currentTimeMillis();
+    if (now - lastNoPeerLogMillis >= RETRY_WARN_INTERVAL_MS) {
+      lastNoPeerLogMillis = now;
+      LOG.info(
+          "No peers available, waiting to start snap/2 chain download (retrying every {} ms)",
+          NO_PEER_RETRY_DELAY_MILLISECONDS);
     }
   }
 

@@ -301,8 +301,8 @@ public class SnapSyncChainDownloaderTest {
   @Test
   public void shouldApplyRecoveryMatchAndPersistUpdatedAnchorsAfterStage1() throws Exception {
     //   1. Driver.getMatchedAncestor() returns a non-empty value (mocked here).
-    //   2. Stage 1's thenApply reads it and calls
-    //      chainSyncState.updateAndGet(s -> s.withRecoveryMatch(matched.get())).
+    //   2. Stage 1's thenApply reads it and applies the recovery-match anchor and the
+    //      headers-download-complete flag in a single atomic updateAndGet/storeState.
     //   3. The persisted ChainSyncState (captured before the success-path cleanup) has
     //      headerDownloadAnchor() set to the matched ancestor while bodyCheckpoint() is preserved,
     //      and headersDownloadComplete() == true.
@@ -360,9 +360,9 @@ public class SnapSyncChainDownloaderTest {
     downloader.onWorldStateHealFinished();
     downloader.start().get(5, TimeUnit.SECONDS);
 
-    // Capture every storeState() call. After the initial seed (1x), Stage 1 should have written:
-    //   - the recovery-match update (bodyCheckpoint + headerDownloadAnchor == 400)
-    //   - the headers-download-complete update (headersDownloadComplete == true)
+    // Capture every storeState() call. After the initial seed (1x) and the re-pivot restart (1x),
+    // Stage 1 with a recovery match now writes a single consolidated store that applies the
+    // recovery-match anchor (#600) and the headers-download-complete flag atomically.
     final ArgumentCaptor<ChainSyncState> stateCaptor =
         ArgumentCaptor.forClass(ChainSyncState.class);
     verify(spiedStorage, atLeastOnce()).storeState(stateCaptor.capture());
@@ -370,26 +370,20 @@ public class SnapSyncChainDownloaderTest {
     final List<ChainSyncState> states = new ArrayList<>(stateCaptor.getAllValues());
 
     // First captured store is the seed initial state. Second is the re-pivot (headersComplete
-    // reset to false so Stage 1 re-runs from the same pivot). Both have anchor=500.
-    assertThat(states).hasSizeGreaterThanOrEqualTo(4);
+    // reset to false so Stage 1 re-runs from the same pivot). Both have the original anchor.
+    assertThat(states).hasSizeGreaterThanOrEqualTo(3);
     assertThat(states.get(0).bodyCheckpoint().getNumber()).isEqualTo(500L);
     assertThat(states.get(0).headersDownloadComplete()).isFalse();
 
-    // After Stage 1 recovery: the header download anchor is set to the matched ancestor at #600,
-    // while the body checkpoint is preserved at #500. This is the state immediately after the
-    // withRecoveryMatch updateAndGet/storeState pair, before withHeadersDownloadComplete runs.
-    // Index 1 is the re-pivot/restart store, so recovery is at 2.
-    final ChainSyncState afterRecovery = states.get(2);
-    assertThat(afterRecovery.bodyCheckpoint().getNumber()).isEqualTo(500L);
-    assertThat(afterRecovery.headerDownloadAnchor()).isNotNull();
-    assertThat(afterRecovery.headerDownloadAnchor().getNumber()).isEqualTo(600L);
-    assertThat(afterRecovery.headersDownloadComplete()).isFalse();
-
-    // After withHeadersDownloadComplete: header anchor preserved at #600, body checkpoint
-    // preserved at #500, marked complete.
-    final ChainSyncState afterComplete = states.get(3);
-    assertThat(afterComplete.bodyCheckpoint().getNumber()).isEqualTo(500L);
-    assertThat(afterComplete.headersDownloadComplete()).isTrue();
+    // After Stage 1 recovery: the recovery-match anchor (#600) and the headers-download-complete
+    // flag are persisted together in one atomic updateAndGet/storeState (the previously separate
+    // recovery-match and completion writes were consolidated). The body checkpoint is preserved at
+    // #500. This is the last store before the success-path cleanup.
+    final ChainSyncState afterRecoveryComplete = states.get(states.size() - 1);
+    assertThat(afterRecoveryComplete.bodyCheckpoint().getNumber()).isEqualTo(500L);
+    assertThat(afterRecoveryComplete.headerDownloadAnchor()).isNotNull();
+    assertThat(afterRecoveryComplete.headerDownloadAnchor().getNumber()).isEqualTo(600L);
+    assertThat(afterRecoveryComplete.headersDownloadComplete()).isTrue();
 
     // Stage 2 derives its start block from the canonical chain head (the default chain head at
     // #500 here), independently of the recovery match, which only moves the Stage 1 header anchor.
