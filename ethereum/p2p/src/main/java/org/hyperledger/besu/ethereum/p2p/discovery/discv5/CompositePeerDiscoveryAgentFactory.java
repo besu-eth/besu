@@ -165,6 +165,7 @@ public final class CompositePeerDiscoveryAgentFactory implements PeerDiscoveryAg
             .maskingKey(maskingKey)
             .v4Enabled(v4Enabled)
             .v5Enabled(v5Enabled)
+            .metricsSystem(metricsSystem)
             .build();
 
     // Shared NodeRecordManager so both agents see the same local ENR state

@@ -14,6 +14,10 @@
  */
 package org.hyperledger.besu.ethereum.p2p.discovery.transport;
 
+import org.hyperledger.besu.metrics.BesuMetricCategory;
+import org.hyperledger.besu.plugin.services.MetricsSystem;
+import org.hyperledger.besu.plugin.services.metrics.Counter;
+import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 import org.hyperledger.besu.util.NetworkUtility;
 
 import java.net.InetAddress;
@@ -84,6 +88,8 @@ public final class SharedDiscoveryTransport {
   private static final Sinks.EmitFailureHandler RETRY_ON_CONCURRENT =
       (signalType, result) -> result == Sinks.EmitResult.FAIL_NON_SERIALIZED;
 
+  private final DemuxCounters demuxCounters;
+
   // Lazily created in start() - constructing it eagerly here would spawn a permanently-idle
   // thread whenever a transport is built but never started (e.g. discovery disabled).
   private volatile EventLoopGroup eventLoopGroup;
@@ -138,6 +144,23 @@ public final class SharedDiscoveryTransport {
                 ipv4BindAddress.get().getPort(),
                 ipv6BindAddress.get().getHostString(),
                 ipv6BindAddress.get().getPort());
+    this.demuxCounters = buildDemuxCounters(builder.metricsSystem);
+  }
+
+  private static DemuxCounters buildDemuxCounters(final MetricsSystem metricsSystem) {
+    if (metricsSystem == null) {
+      return DemuxCounters.NO_OP;
+    }
+    final LabelledMetric<Counter> demuxCounter =
+        metricsSystem.createLabelledCounter(
+            BesuMetricCategory.NETWORK,
+            "discovery_demux_packets_total",
+            "UDP packets demultiplexed by discovery protocol",
+            "protocol");
+    return new DemuxCounters(
+        demuxCounter.labels(DemuxProtocol.V4.label()),
+        demuxCounter.labels(DemuxProtocol.V5.label()),
+        demuxCounter.labels(DemuxProtocol.DROPPED.label()));
   }
 
   /**
@@ -279,7 +302,8 @@ public final class SharedDiscoveryTransport {
                             v5Enabled,
                             v5Enabled ? maskingKey : null,
                             v4Enabled ? v4Sink : null,
-                            v5Enabled ? v5PacketSink : null));
+                            v5Enabled ? v5PacketSink : null,
+                            demuxCounters));
               }
             })
         .bind(bindAddr)
@@ -444,6 +468,7 @@ public final class SharedDiscoveryTransport {
     private byte[] maskingKey;
     private boolean v4Enabled = false;
     private boolean v5Enabled = false;
+    private MetricsSystem metricsSystem;
 
     private Builder() {}
 
@@ -474,6 +499,11 @@ public final class SharedDiscoveryTransport {
 
     public Builder v5Enabled(final boolean enabled) {
       this.v5Enabled = enabled;
+      return this;
+    }
+
+    public Builder metricsSystem(final MetricsSystem metricsSystem) {
+      this.metricsSystem = metricsSystem;
       return this;
     }
 

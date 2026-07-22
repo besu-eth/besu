@@ -25,9 +25,13 @@ import org.hyperledger.besu.ethereum.p2p.discovery.PeerDiscoveryAgent;
 import org.hyperledger.besu.ethereum.p2p.peers.Peer;
 import org.hyperledger.besu.ethereum.p2p.peers.PeerId;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions;
+import org.hyperledger.besu.ethereum.p2p.rlpx.ConnectSource;
 import org.hyperledger.besu.ethereum.p2p.rlpx.RlpxAgent;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
+import org.hyperledger.besu.plugin.services.metrics.Counter;
+import org.hyperledger.besu.plugin.services.metrics.Histogram;
+import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 
 import java.net.InetSocketAddress;
 import java.util.Collection;
@@ -94,6 +98,8 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
   private final NodeRecordManager nodeRecordManager;
   private final RlpxAgent rlpxAgent;
   private final MetricsSystem metricsSystem;
+  private final Histogram discoveryRoundDurationHistogram;
+  private final LabelledMetric<Counter> discoveryRoundOutcomeCounter;
   private final boolean preferIpv6Outbound;
   private final DiscoverySystemFactory discoverySystemFactory;
 
@@ -143,6 +149,18 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
         Objects.requireNonNull(nodeRecordManager, "nodeRecordManager must not be null");
     this.rlpxAgent = Objects.requireNonNull(rlpxAgent, "rlpxAgent must not be null");
     this.metricsSystem = Objects.requireNonNull(metricsSystem, "metricsSystem must not be null");
+    this.discoveryRoundDurationHistogram =
+        metricsSystem.createHistogram(
+            BesuMetricCategory.NETWORK,
+            "discv5_discovery_round_duration_seconds",
+            "Duration of DiscV5 discovery rounds",
+            new double[] {0.5, 1, 2, 5, 10, 20, 30, 45, 60, 90});
+    this.discoveryRoundOutcomeCounter =
+        metricsSystem.createLabelledCounter(
+            BesuMetricCategory.NETWORK,
+            "discv5_discovery_round_total",
+            "Total number of DiscV5 discovery rounds by outcome",
+            "outcome");
     this.preferIpv6Outbound = preferIpv6Outbound;
     this.discoverySystemFactory =
         Objects.requireNonNull(discoverySystemFactory, "discoverySystemFactory must not be null");
@@ -433,17 +451,26 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
       discoveryInProgress.set(false);
       return;
     }
+    final long startNanos = System.nanoTime();
     system
         .searchForNewPeers()
         .orTimeout(discoveryConfig.getDiscV5DiscoveryTimeoutSeconds(), TimeUnit.SECONDS)
         .whenComplete(
             (nodeRecords, error) -> {
               try {
+                discoveryRoundDurationHistogram.observe(
+                    (System.nanoTime() - startNanos) / 1_000_000_000.0);
                 if (error != null) {
+                  // Failures observed live are overwhelmingly discv5-library recursive-lookup
+                  // timeouts (see the discv5-discovery-timeout fix); a single "timeout" outcome
+                  // keeps the label set small while still surfacing round-failure rate.
+                  discoveryRoundOutcomeCounter.labels("timeout").inc();
                   LOG.warn("DiscV5 peer discovery failed", error);
                   return;
                 }
-                candidatePeers(nodeRecords).forEach(rlpxAgent::connect);
+                discoveryRoundOutcomeCounter.labels("success").inc();
+                candidatePeers(nodeRecords)
+                    .forEach(p -> rlpxAgent.connect(p, ConnectSource.DISCV5));
               } finally {
                 discoveryInProgress.set(false);
               }

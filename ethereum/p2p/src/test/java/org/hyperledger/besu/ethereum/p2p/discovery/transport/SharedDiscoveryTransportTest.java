@@ -17,7 +17,15 @@ package org.hyperledger.besu.ethereum.p2p.discovery.transport;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.metrics.BesuMetricCategory;
+import org.hyperledger.besu.plugin.services.MetricsSystem;
+import org.hyperledger.besu.plugin.services.metrics.Counter;
+import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 import org.hyperledger.besu.util.NetworkUtility;
 
 import java.net.DatagramPacket;
@@ -29,11 +37,14 @@ import java.net.InetSocketAddress;
 import java.net.StandardProtocolFamily;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.crypto.Cipher;
 import javax.crypto.spec.IvParameterSpec;
@@ -295,6 +306,64 @@ public class SharedDiscoveryTransportTest {
     Awaitility.await()
         .atMost(2, TimeUnit.SECONDS)
         .untilAsserted(() -> assertThat(received.get()).isEqualTo(expected));
+  }
+
+  @Test
+  public void metricsSystem_incrementsDemuxCounterForDeliveredV4Packet() throws Exception {
+    final Map<String, AtomicLong> counts = new ConcurrentHashMap<>();
+    final MetricsSystem metricsSystem = mock(MetricsSystem.class);
+    final LabelledMetric<Counter> demuxCounter =
+        labels ->
+            new Counter() {
+              private final AtomicLong count =
+                  counts.computeIfAbsent(labels[0], key -> new AtomicLong());
+
+              @Override
+              public void inc() {
+                count.incrementAndGet();
+              }
+
+              @Override
+              public void inc(final long amount) {
+                count.addAndGet(amount);
+              }
+            };
+    when(metricsSystem.createLabelledCounter(
+            eq(BesuMetricCategory.NETWORK),
+            eq("discovery_demux_packets_total"),
+            any(),
+            eq("protocol")))
+        .thenReturn(demuxCounter);
+
+    transport1 =
+        SharedDiscoveryTransport.builder()
+            .ipv4BindAddress(ephemeral())
+            .maskingKey(MASKING_KEY)
+            .v4Enabled(true)
+            .v5Enabled(true)
+            .metricsSystem(metricsSystem)
+            .build();
+    transport2 =
+        SharedDiscoveryTransport.builder()
+            .ipv4BindAddress(ephemeral())
+            .maskingKey(MASKING_KEY)
+            .v4Enabled(true)
+            .v5Enabled(true)
+            .build();
+    transport1.setV4Handler((sender, data) -> {});
+
+    transport1.start().get(5, TimeUnit.SECONDS);
+    transport2.start().get(5, TimeUnit.SECONDS);
+
+    final byte[] payload = new byte[98];
+    new Random().nextBytes(payload);
+    sendRawUdp(payload, transport1.getBoundAddress(StandardProtocolFamily.INET));
+
+    Awaitility.await()
+        .atMost(2, TimeUnit.SECONDS)
+        .untilAsserted(() -> assertThat(counts.get("v4").get()).isEqualTo(1));
+    assertThat(counts.getOrDefault("v5", new AtomicLong()).get()).isZero();
+    assertThat(counts.getOrDefault("dropped", new AtomicLong()).get()).isZero();
   }
 
   @Test

@@ -61,16 +61,20 @@ final class SharedDiscoveryDemuxHandler extends SimpleChannelInboundHandler<Data
   private final Cipher cipher;
   private final SecretKeySpec secretKey;
 
+  private final DemuxCounters counters;
+
   SharedDiscoveryDemuxHandler(
       final boolean v4Enabled,
       final boolean v5Enabled,
       final byte[] maskingKey,
       final BiConsumer<InetSocketAddress, Bytes> v4Sink,
-      final Consumer<DatagramPacket> v5Sink) {
+      final Consumer<DatagramPacket> v5Sink,
+      final DemuxCounters counters) {
     this.v4Enabled = v4Enabled;
     this.v5Enabled = v5Enabled;
     this.v4Sink = v4Sink;
     this.v5Sink = v5Sink;
+    this.counters = counters;
     if (v5Enabled && maskingKey != null) {
       try {
         this.cipher = Cipher.getInstance("AES/CTR/NoPadding");
@@ -93,11 +97,13 @@ final class SharedDiscoveryDemuxHandler extends SimpleChannelInboundHandler<Data
     }
 
     if (v5Enabled && isV5Packet(msg.content())) {
+      counters.v5().inc();
       if (v5Sink != null) {
         msg.retain();
         v5Sink.accept(msg);
       }
     } else if (v4Enabled && size >= MIN_V4_PACKET_SIZE) {
+      counters.v4().inc();
       if (size > PeerDiscoveryAgentV4.MAX_PACKET_SIZE_BYTES) {
         // Drop before allocating/copying - a UDP datagram can be up to ~64KiB, not worth
         // duplicating in memory just to be discarded by this same size check downstream.
@@ -110,6 +116,7 @@ final class SharedDiscoveryDemuxHandler extends SimpleChannelInboundHandler<Data
         v4Sink.accept(msg.sender(), Bytes.wrap(bytes));
       }
     } else {
+      counters.dropped().inc();
       LOG.trace("Dropping unrecognized packet ({} bytes) from {}", size, msg.sender());
     }
   }
