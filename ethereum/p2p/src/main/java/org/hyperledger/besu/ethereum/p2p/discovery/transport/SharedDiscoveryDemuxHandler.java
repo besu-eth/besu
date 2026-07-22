@@ -93,9 +93,6 @@ final class SharedDiscoveryDemuxHandler extends SimpleChannelInboundHandler<Data
     }
 
     if (v5Enabled && isV5Packet(msg.content())) {
-      // Stopgap visibility for a live single-stack IPv6 investigation - correlate against a
-      // packet capture to confirm demux classification isn't where a reply gets lost.
-      LOG.debug("Classified inbound packet from {} ({} bytes) as V5", msg.sender(), size);
       if (v5Sink != null) {
         msg.retain();
         v5Sink.accept(msg);
