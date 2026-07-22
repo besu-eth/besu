@@ -40,6 +40,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
@@ -471,20 +472,41 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
 
     // Combine newly discovered peers with known peers and filter for suitability
     final Stream<NodeRecord> knownPeers = system.streamLiveNodes();
+    // Stopgap funnel counters for a live investigation into candidatePeers() yielding zero
+    // results despite healthy underlying FINDNODE/NODES exchange - pinpoints which filter stage
+    // is rejecting everything.
+    final AtomicLong afterNotSelf = new AtomicLong();
+    final AtomicLong afterListening = new AtomicLong();
+    final AtomicLong afterForkId = new AtomicLong();
+    final AtomicLong afterPermitted = new AtomicLong();
     final List<DiscoveryPeer> candidates =
         Stream.concat(newPeers.stream(), knownPeers)
             .distinct()
             // Defensive: exclude the local node record that streamLiveNodes may include.
             // The discovery library currently excludes it, but this is not an API guarantee.
             .filter(nr -> !nr.getNodeId().equals(localNodeId))
+            .peek(nr -> afterNotSelf.incrementAndGet())
             .map(nr -> DiscoveryPeerFactory.fromNodeRecord(nr, preferIpv6Outbound))
             // Use isListening() instead of isReadyForConnections() because
             // DiscoveryPeerV4.isReadyForConnections() requires DiscV4 bonding status,
             // which is never set for DiscV5-discovered peers.
             .filter(DiscoveryPeer::isListening)
+            .peek(peer -> afterListening.incrementAndGet())
             .filter(peer -> peer.getForkId().map(forkIdManager::peerCheck).orElse(true))
+            .peek(peer -> afterForkId.incrementAndGet())
             .filter(peer -> isPeerPermitted(localNode, peer))
+            .peek(peer -> afterPermitted.incrementAndGet())
             .toList();
+    if (LOG.isDebugEnabled() && afterNotSelf.get() > 0) {
+      LOG.debug(
+          "candidatePeers funnel: localNodeInitialized={}, notSelf={} -> isListening={} ->"
+              + " forkIdOk={} -> permitted={}",
+          localNode != null,
+          afterNotSelf.get(),
+          afterListening.get(),
+          afterForkId.get(),
+          afterPermitted.get());
+    }
     if (LOG.isTraceEnabled() && !candidates.isEmpty()) {
       LOG.trace("Total unique peers eligible for connection: {}", candidates.size());
     }
