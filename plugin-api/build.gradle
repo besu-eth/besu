@@ -14,6 +14,7 @@
 import java.security.MessageDigest
 
 apply plugin: 'java-library'
+apply plugin: 'me.champeau.gradle.japicmp'
 jar {
   archiveBaseName = calculateArtifactId(project)
   manifest {
@@ -74,6 +75,66 @@ tasks.register('checkAPIChanges', FileStateChecker) {
   knownHash = 'Mc4IqsIWfGEZpe9Tztrmz+hXXyMsagpfDDMsP7CCjy4='
 }
 check.dependsOn('checkAPIChanges')
+
+// The released jar to compare against; the transitive configuration lets the baseline
+// type hierarchy resolve, so missing supertypes do not show up as API changes.
+def apiBaselineJar = configurations.detachedConfiguration(
+  dependencies.create("org.hyperledger.besu:besu-plugin-api:${apiBaselineVersion}") { transitive = false })
+def apiBaselineClasspath = configurations.detachedConfiguration(
+  dependencies.create("org.hyperledger.besu:besu-plugin-api:${apiBaselineVersion}"))
+
+tasks.register('checkAPICompatibility', me.champeau.gradle.japicmp.JapicmpTask) {
+  description = "Checks that the Plugin API remains binary and source compatible with the last released version, allowing only additions"
+  group = 'verification'
+
+  oldArchives.from(apiBaselineJar)
+  oldClasspath.from(apiBaselineClasspath)
+  // When the Plugin API is split into modules, each new jar is added here so the union is checked
+  newArchives.from(tasks.named('jar'))
+  newClasspath.from(sourceSets.main.runtimeClasspath)
+
+  packageIncludes = [
+    'org.hyperledger.besu.plugin*'
+  ]
+  onlyModified = true
+  failOnModification = true
+  failOnSourceIncompatibility = true
+  // Plugin authors subclass API types, so protected members are API too (default is public only)
+  accessModifier = 'protected'
+  // Track compiler-generated bridge methods, whose removal is a real binary break
+  includeSynthetic = true
+  // Baseline signatures reference types outside the API jar (evm, datatypes, tuweni, ...)
+  ignoreMissingClasses = true
+
+  // An intentional breaking change is recorded here in the same PR, as the narrowest
+  // exclusion covering it (method/field/class/compatibilityChangeExcludes), e.g.
+  //   methodExcludes = ['org.hyperledger.besu.plugin.services.metrics.Counter#inc(long)']
+  // Exclusions are cleared by the release PR that bumps apiBaselineVersion.
+
+  txtOutputFile = layout.buildDirectory.file('reports/japicmp/plugin-api-compatibility.txt')
+  htmlOutputFile = layout.buildDirectory.file('reports/japicmp/plugin-api-compatibility.html')
+}
+check.dependsOn('checkAPICompatibility')
+
+// Prints the change list into the build log when the compatibility check fails
+tasks.register('printAPICompatibilityReport') {
+  def compatTask = tasks.named('checkAPICompatibility')
+  def txtReport = layout.buildDirectory.file('reports/japicmp/plugin-api-compatibility.txt')
+  doLast {
+    def reportFile = txtReport.get().asFile
+    if (compatTask.get().state.failure != null && reportFile.exists()) {
+      def maxLines = 100
+      def lines = reportFile.readLines()
+      def message = "Plugin API compatibility check failed. Changes against the baseline:\n\n" +
+        lines.take(maxLines).join('\n')
+      if (lines.size() > maxLines) {
+        message += "\n... truncated (${lines.size() - maxLines} more lines), full report: ${reportFile}"
+      }
+      logger.error(message)
+    }
+  }
+}
+tasks.named('checkAPICompatibility') { finalizedBy('printAPICompatibilityReport') }
 
 publishing {
   publications {
