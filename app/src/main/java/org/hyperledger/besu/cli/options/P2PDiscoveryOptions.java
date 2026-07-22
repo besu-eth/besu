@@ -18,6 +18,7 @@ import org.hyperledger.besu.cli.DefaultCommandValues;
 import org.hyperledger.besu.cli.converter.PercentageConverter;
 import org.hyperledger.besu.cli.converter.SubnetCidrConverter;
 import org.hyperledger.besu.cli.util.CommandLineUtils;
+import org.hyperledger.besu.ethereum.p2p.config.DiscoveryMode;
 import org.hyperledger.besu.ethereum.p2p.discovery.P2PDiscoveryConfiguration;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.util.NetworkUtility;
@@ -81,6 +82,17 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
       arity = "1")
   public final Boolean peerDiscoveryEnabled = true;
 
+  /** Selects which discovery protocol(s) the node runs. */
+  @CommandLine.Option(
+      names = {"--discovery-mode"},
+      description =
+          "Discovery protocol(s) to run: BOTH (default), V5, or V4. "
+              + "BOTH runs DiscV4 and DiscV5 concurrently on a shared UDP socket. "
+              + "V5 runs only DiscV5 (requires a secp256k1 node key; falls back to V4 if unsupported). "
+              + "V4 runs only DiscV4.",
+      defaultValue = "BOTH")
+  public DiscoveryMode discoveryMode = DiscoveryMode.BOTH;
+
   /**
    * A list of bootstrap nodes can be passed and a hardcoded list will be used otherwise by the
    * Runner.
@@ -90,9 +102,7 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
       names = {"--bootnodes"},
       paramLabel = "<enode://id@host:port>|<enr:base64Enr>",
       description =
-          "Comma separated enode or ENR URLs for P2P discovery bootstrap. "
-              + "Must be either all enode URLs (discovery V4) or all ENR URLs (discovery V5). "
-              + "Default is a predefined list.",
+          "Comma separated enode URLs (DiscV4) and/or ENR strings (DiscV5) for P2P discovery bootstrap. Defaults to genesis-provided bootnodes.",
       split = ",",
       arity = "0..*")
   public final List<String> bootNodes = null;
@@ -271,6 +281,7 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
     return new P2PDiscoveryConfiguration(
         p2pEnabled,
         peerDiscoveryEnabled,
+        discoveryMode,
         p2pHost,
         p2pInterface,
         p2pPort,

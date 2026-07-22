@@ -3,6 +3,8 @@
 ## Unreleased Changes
 
 ### Breaking Changes
+- The experimental `--Xv5-discovery-enabled` flag is removed; use `--discovery-mode=V5` or `--discovery-mode=BOTH` instead.
+- The genesis file `v5Bootnodes` key is removed; ENR bootnodes must now be listed in the unified `bootnodes` array alongside enode URLs. Besu's bundled network genesis files were migrated automatically - this only affects custom/downstream genesis files that still use the old `v5Bootnodes` key, whose ENR entries will otherwise be silently dropped.
 
 ### Upcoming Breaking Changes
 - `--min-block-occupancy-ratio` is deprecated and will be removed in a future release
@@ -21,6 +23,7 @@
 - Layered txpool: fix the sender balance check rejecting zero upfront cost transactions from zero balance senders, which caused free gas networks to produce only empty blocks [#10751](https://github.com/besu-eth/besu/pull/10751)
 - Fix `eth_sendRawTransaction` returning `-32603 Internal Error` instead of `-32602 Invalid params` for malformed RLP inputs such as `0x80`. [#10735](https://github.com/besu-eth/besu/issues/10735)
 - Skip DNS discovery records that fail enode conversion (e.g. out-of-range port) instead of dropping the rest of the batch [#10752](https://github.com/besu-eth/besu/pull/10752)
+- Raise the default DiscV5 discovery round timeout (`--Xv5-discovery-timeout-seconds`) from 30 to 60 seconds to avoid spurious round failures on networks with many unreachable candidates [#10800](https://github.com/besu-eth/besu/pull/10800)
 - Fix QBFT/IBFT mining continuing to seal blocks after the merge terminal total difficulty (TTD) is reached [#10733](https://github.com/besu-eth/besu/pull/10733)
 
 ### Additions and Improvements
@@ -29,6 +32,8 @@
 - Upgrade netty to 4.2.16.Final [#10822](https://github.com/besu-eth/besu/pull/10822)
 - Upgrade commons-io dependency to 2.22.0 [#10809](https://github.com/besu-eth/besu/pull/10809)
 - Migrate the DiscV4 peer discovery UDP transport from Vert.x to Netty. The `vertx_eventloop_pending_tasks` metric is dropped with no replacement (it was Vert.x-specific); all other discovery metrics (`besu_network_discovery_*`) are unaffected. [#10716](https://github.com/besu-eth/besu/pull/10716)
+- DiscV4 now supports IPv6 dual-stack RLPx: a node running `--discovery-mode=V4` with `--p2p-interface-ipv6`/`--p2p-host-ipv6` set now binds a second IPv6 RLPx TCP socket and advertises IPv6 ENR/enode fields, instead of those options being ignored with a warning. [#10800](https://github.com/besu-eth/besu/pull/10800)
+- Dual-stack discovery and RLPx now support binding the same port number for both `--p2p-port` and `--p2p-port-ipv6`, using a single dual-stack socket instead of two independent per-family sockets - simplifying firewall rules for operators. Previously this configuration could fail to start with a port-conflict error. [#10800](https://github.com/besu-eth/besu/pull/10800)
 
 ## 26.7.0
 

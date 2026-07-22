@@ -32,6 +32,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.handshake.ecies.ECIESHandshaker;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.data.EnodeURL;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
+import org.hyperledger.besu.util.NetworkUtility;
 import org.hyperledger.besu.util.Subscribers;
 
 import java.io.IOException;
@@ -120,6 +121,11 @@ public class NettyConnectionInitializer
     }
     this.listeningAddressesFuture = startupFuture;
 
+    if (isMergeableDualStackBind()) {
+      startMergedDualStackServer(startupFuture);
+      return startupFuture;
+    }
+
     this.server =
         new ServerBootstrap()
             .group(boss, workers)
@@ -177,6 +183,54 @@ public class NettyConnectionInitializer
     return startupFuture;
   }
 
+  /**
+   * Delegates to {@link NetworkUtility#isMergeableDualStackBind} using this initializer's
+   * configured RLPx bind addresses.
+   */
+  private boolean isMergeableDualStackBind() {
+    return config.isDualStackEnabled()
+        && NetworkUtility.isMergeableDualStackBind(
+            config.getBindHost(),
+            config.getBindPort(),
+            config.getBindHostIpv6().orElseThrow(),
+            config.getBindPortIpv6().orElseThrow());
+  }
+
+  /**
+   * Binds a single dual-stack IPv6 socket, assigning it to both {@link #server} and {@link
+   * #serverIpv6} so {@link #stop()}'s existing per-field close logic tears it down exactly once.
+   */
+  private void startMergedDualStackServer(
+      final CompletableFuture<ListeningAddresses> startupFuture) {
+    final String ipv6Host = config.getBindHostIpv6().orElseThrow();
+    final int ipv6Port = config.getBindPortIpv6().orElseThrow();
+    this.server =
+        new ServerBootstrap()
+            .group(boss, workers)
+            .channel(NioServerSocketChannel.class)
+            .childHandler(inboundChannelInitializer())
+            .bind(ipv6Host, ipv6Port);
+    this.serverIpv6 = this.server;
+    server.addListener(
+        future -> {
+          final InetSocketAddress boundAddress =
+              (InetSocketAddress) server.channel().localAddress();
+          if (!future.isSuccess() || boundAddress == null) {
+            final String message =
+                String.format(
+                    "Unable to start listening on %s:%s. Check for port conflicts.",
+                    ipv6Host, ipv6Port);
+            startupFuture.completeExceptionally(new IllegalStateException(message, future.cause()));
+            return;
+          }
+          LOG.info(
+              "P2P RLPx agent started and listening on {} (single dual-stack socket serving both"
+                  + " IPv4 and IPv6)",
+              boundAddress);
+          startupFuture.complete(new ListeningAddresses(boundAddress, Optional.of(boundAddress)));
+        });
+  }
+
   @Override
   public CompletableFuture<Void> stop() {
     final CompletableFuture<Void> stoppedFuture = new CompletableFuture<>();
@@ -222,8 +276,9 @@ public class NettyConnectionInitializer
                   });
 
           // Read serverIpv6 here — the start() listener has already run (listener
-          // ordering), so this is the final state.
-          final ChannelFuture ipv6 = serverIpv6;
+          // ordering), so this is the final state. If merged, serverIpv6 == server and
+          // ipv4Close above already closed it, so treat it as absent here.
+          final ChannelFuture ipv6 = serverIpv6 == server ? null : serverIpv6;
           if (ipv6 != null) {
             final CompletableFuture<Void> ipv6Close = new CompletableFuture<>();
             ipv6.addListener(

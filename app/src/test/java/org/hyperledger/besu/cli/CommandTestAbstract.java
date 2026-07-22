@@ -567,6 +567,10 @@ public abstract class CommandTestAbstract {
       return unstableNetworkingOptions;
     }
 
+    public P2PDiscoveryOptions getP2PDiscoveryOptions() {
+      return p2PDiscoveryOptions;
+    }
+
     public SynchronizerOptions getSynchronizerOptions() {
       return unstableSynchronizerOptions;
     }

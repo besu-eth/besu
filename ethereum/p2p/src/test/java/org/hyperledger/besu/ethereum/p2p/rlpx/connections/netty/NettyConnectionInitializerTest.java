@@ -146,6 +146,33 @@ public class NettyConnectionInitializerTest {
   }
 
   @Test
+  public void startMergedDualStackBindsSingleSocketForBothFamilies() throws Exception {
+    // Same port + both wildcard hosts is the config that reliably BindExceptions with two
+    // independent per-family sockets on Linux (see NetworkUtility.isMergeableDualStackBind) - so
+    // this must resolve to exactly one bound socket shared by both families.
+    assumeTrue(NetworkUtility.isIPv6Available(), "IPv6 not available on this host");
+
+    initializer = createInitializer(mergedDualStackConfig());
+
+    final ListeningAddresses addrs = initializer.start().get(10, TimeUnit.SECONDS);
+
+    assertThat(addrs.ipv6Address()).isPresent();
+    assertThat(addrs.ipv4Address()).isEqualTo(addrs.ipv6Address().get());
+    final int port = addrs.ipv4Address().getPort();
+    assertThat(port).isGreaterThan(0);
+
+    // Verify the single socket accepts both IPv4 and IPv6 TCP connections.
+    try (var conn = new Socket()) {
+      conn.connect(new InetSocketAddress(InetAddresses.forString("127.0.0.1"), port), 5_000);
+      assertThat(conn.isConnected()).isTrue();
+    }
+    try (var conn = new Socket()) {
+      conn.connect(new InetSocketAddress(InetAddresses.forString("::1"), port), 5_000);
+      assertThat(conn.isConnected()).isTrue();
+    }
+  }
+
+  @Test
   public void stopImmediatelyAfterStartCompletesWithoutHanging() throws Exception {
     initializer = createInitializer(ipv4OnlyConfig());
 
@@ -195,6 +222,14 @@ public class NettyConnectionInitializerTest {
         .setBindHost("127.0.0.1")
         .setBindPort(0)
         .setBindHostIpv6(Optional.of("::1"))
+        .setBindPortIpv6(Optional.of(0));
+  }
+
+  private static RlpxConfiguration mergedDualStackConfig() {
+    return RlpxConfiguration.create()
+        .setBindHost("0.0.0.0")
+        .setBindPort(0)
+        .setBindHostIpv6(Optional.of("::"))
         .setBindPortIpv6(Optional.of(0));
   }
 
