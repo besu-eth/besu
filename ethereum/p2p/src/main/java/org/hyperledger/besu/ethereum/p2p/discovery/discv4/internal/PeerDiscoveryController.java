@@ -248,11 +248,11 @@ public class PeerDiscoveryController {
             "Total number of interaction retries performed",
             "type");
 
-    metricsSystem.createIntegerGauge(
+    metricsSystem.createLongGauge(
         BesuMetricCategory.NETWORK,
         "discv4_known_peers_current",
         "Current number of peers known to the DiscV4 routing table",
-        () -> (int) peerTable.streamAllPeers().count());
+        () -> peerTable.streamAllPeers().count());
 
     this.cachedEnrRequests =
         maybeCacheForEnrRequests.orElse(
