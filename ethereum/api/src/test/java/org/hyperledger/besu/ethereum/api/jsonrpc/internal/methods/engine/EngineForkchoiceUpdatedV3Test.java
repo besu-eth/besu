@@ -21,6 +21,7 @@ import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ConstructorArgumentsBuilder;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ForkchoiceStateV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttributesV3;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
@@ -46,11 +47,14 @@ public class EngineForkchoiceUpdatedV3Test extends EngineForkchoiceUpdatedV2Test
   @Override
   protected EngineForkchoiceUpdatedV1<?> createMethodInstance() {
     return new EngineForkchoiceUpdatedV3<>(
-        protocolSchedule,
-        protocolContext,
-        vertx,
-        engineCallListener,
-        mergeCoordinator,
+        new ConstructorArgumentsBuilder()
+            .protocolSchedule(protocolSchedule)
+            .protocolContext(protocolContext)
+            .vertx(vertx)
+            .engineCallListener(engineCallListener)
+            .mergeCoordinator(mergeCoordinator)
+            .maxRequestBlocks(0)
+            .build(),
         CANCUN,
         AMSTERDAM);
   }

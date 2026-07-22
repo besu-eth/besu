@@ -27,10 +27,12 @@ import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator
 import org.hyperledger.besu.consensus.merge.blockcreation.PayloadIdentifier;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ConstructorArgumentsBuilder;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePreparePayloadParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EnginePreparePayloadResult;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 
 import java.util.Optional;
 
@@ -46,6 +48,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 public class EnginePreparePayloadDebugTest {
   private static final Vertx vertx = Vertx.vertx();
   EnginePreparePayloadDebug method;
+  @Mock private ProtocolSchedule protocolSchedule;
   @Mock private ProtocolContext protocolContext;
   @Mock private EngineCallListener engineCallListener;
   @Mock private MergeMiningCoordinator mergeCoordinator;
@@ -65,7 +68,14 @@ public class EnginePreparePayloadDebugTest {
     method =
         spy(
             new EnginePreparePayloadDebug(
-                vertx, protocolContext, engineCallListener, mergeCoordinator));
+                new ConstructorArgumentsBuilder()
+                    .protocolSchedule(protocolSchedule)
+                    .protocolContext(protocolContext)
+                    .vertx(vertx)
+                    .engineCallListener(engineCallListener)
+                    .mergeCoordinator(mergeCoordinator)
+                    .maxRequestBlocks(0)
+                    .build()));
   }
 
   @Test

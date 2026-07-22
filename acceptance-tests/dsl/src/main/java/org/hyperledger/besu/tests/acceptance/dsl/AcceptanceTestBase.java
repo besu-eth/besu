@@ -142,7 +142,8 @@ public class AcceptanceTestBase {
 
   @AfterEach
   public void tearDownAcceptanceTestBase() {
-    reportMemory();
+    // commented by default, since it is quite verbose, uncomment if needed for debugging
+    // reportMemory();
     cluster.close();
   }
 

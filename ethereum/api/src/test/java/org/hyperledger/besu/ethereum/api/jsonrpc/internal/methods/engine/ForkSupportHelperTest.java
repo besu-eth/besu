@@ -30,26 +30,24 @@ class ForkSupportHelperTest {
 
   @Test
   void validForkIfMilestoneOlderThanBlock() {
-    assertThat(validateForkSupported(PRAGUE, Optional.of(0L), 1))
-        .isEqualTo(ValidationResult.valid());
+    assertThat(validateForkSupported(PRAGUE, 0L, 1)).isEqualTo(ValidationResult.valid());
   }
 
   @Test
   void validForkIfMilestoneEqualToBlock() {
-    assertThat(validateForkSupported(PRAGUE, Optional.of(0L), 0))
-        .isEqualTo(ValidationResult.valid());
+    assertThat(validateForkSupported(PRAGUE, 0L, 0)).isEqualTo(ValidationResult.valid());
   }
 
   @Test
   void validForkWhenTimestampOverflowsSignedLong() {
     long unsignedLongMaxValue = Long.parseUnsignedLong("18446744073709551615");
-    assertThat(validateForkSupported(PRAGUE, Optional.of(1L), unsignedLongMaxValue))
+    assertThat(validateForkSupported(PRAGUE, 1L, unsignedLongMaxValue))
         .isEqualTo(ValidationResult.valid());
   }
 
   @Test
   void unsupportedForkIfMilestoneMisconfigured() {
-    assertThat(validateForkSupported(PRAGUE, Optional.empty(), 0))
+    assertThat(validateForkSupported(PRAGUE, Optional.empty(), null, Optional.empty(), 0))
         .isEqualTo(
             ValidationResult.invalid(RpcErrorType.UNSUPPORTED_FORK, "message equality ignored"));
   }
@@ -78,7 +76,7 @@ class ForkSupportHelperTest {
 
   @Test
   void unsupportedForkIfBlockOlderThanMilestone() {
-    assertThat(validateForkSupported(PRAGUE, Optional.of(1L), 0))
+    assertThat(validateForkSupported(PRAGUE, 1L, 0))
         .isEqualTo(
             ValidationResult.invalid(RpcErrorType.UNSUPPORTED_FORK, "message equality ignored"));
   }

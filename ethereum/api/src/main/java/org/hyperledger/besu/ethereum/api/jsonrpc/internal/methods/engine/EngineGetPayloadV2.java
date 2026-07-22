@@ -14,43 +14,28 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
-
 import org.hyperledger.besu.consensus.merge.PayloadWrapper;
-import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
-import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
-import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
-import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV2;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineGetPayloadResultV2;
+import org.hyperledger.besu.ethereum.core.Block;
+import org.hyperledger.besu.ethereum.core.BlockBody;
+import org.hyperledger.besu.ethereum.core.Withdrawal;
 
+import java.util.List;
 import java.util.Optional;
 
-import io.vertx.core.Vertx;
-
-public class EngineGetPayloadV2 extends AbstractEngineGetPayload {
-
-  private final Optional<Long> cancunMilestone;
+public sealed class EngineGetPayloadV2 extends EngineGetPayloadV1 permits EngineGetPayloadV3 {
+  private final Optional<Long> shanghaiTimestamp;
 
   public EngineGetPayloadV2(
-      final Vertx vertx,
-      final ProtocolContext protocolContext,
-      final MergeMiningCoordinator mergeMiningCoordinator,
-      final BlockResultFactory blockResultFactory,
-      final EngineCallListener engineCallListener,
-      final ProtocolSchedule schedule) {
-    super(
-        vertx,
-        schedule,
-        protocolContext,
-        mergeMiningCoordinator,
-        blockResultFactory,
-        engineCallListener);
-    cancunMilestone = schedule.milestoneFor(CANCUN);
+      final ConstructorArguments constructorArguments,
+      final HardforkId minSupportedFork,
+      final HardforkId firstUnsupportedFork) {
+    super(constructorArguments, minSupportedFork, firstUnsupportedFork);
+    shanghaiTimestamp = protocolSchedule.milestoneFor(HardforkId.MainnetHardforkId.SHANGHAI);
   }
 
   @Override
@@ -59,18 +44,46 @@ public class EngineGetPayloadV2 extends AbstractEngineGetPayload {
   }
 
   @Override
-  protected JsonRpcResponse createResponse(
-      final JsonRpcRequestContext request, final PayloadWrapper payload) {
-    final var result = blockResultFactory.payloadTransactionCompleteV2(payload);
-    return new JsonRpcSuccessResponse(request.getRequest().getId(), result);
+  protected Object createResponse(final PayloadWrapper payload) {
+    return new EngineGetPayloadResultV2(createExecutionPayload(payload), payload.blockValue());
   }
 
   @Override
-  protected ValidationResult<RpcErrorType> validateForkSupported(final long blockTimestamp) {
-    if (cancunMilestone.isPresent() && blockTimestamp >= cancunMilestone.get()) {
-      return ValidationResult.invalid(RpcErrorType.UNSUPPORTED_FORK);
-    }
+  protected ExecutionPayloadV1 createExecutionPayload(final PayloadWrapper payload) {
+    final Block block = payload.blockWithReceipts().getBlock();
+    final BlockBody blockBody = block.getBody();
 
-    return ValidationResult.valid();
+    // ExecutionPayloadV1 MUST be returned if the payload timestamp is lower than the Shanghai
+    // timestamp
+    // ExecutionPayloadV2 MUST be returned if the payload timestamp is greater or equal to the
+    // Shanghai timestamp
+    final long timestamp = block.getHeader().getTimestamp();
+    if (shanghaiTimestamp.isEmpty() || timestamp < shanghaiTimestamp.get()) {
+      if (blockBody.getWithdrawals().isPresent()) {
+        throw new IllegalStateException(
+            "Withdrawals should not be present before Shanghai hardfork");
+      }
+      return new ExecutionPayloadV1(block.getHeader(), blockBody.getTransactions());
+    } else {
+      return new ExecutionPayloadV2(
+          block.getHeader(), blockBody.getTransactions(), getWithdrawals(blockBody));
+    }
+  }
+
+  protected List<Withdrawal> getWithdrawals(final BlockBody blockBody) {
+    return blockBody
+        .getWithdrawals()
+        .orElseThrow(
+            () ->
+                new IllegalStateException("Withdrawals should be present after Shanghai hardfork"));
+  }
+
+  @Override
+  protected String versionSpecificLogInfo(final Block block) {
+    return block
+        .getBody()
+        .getWithdrawals()
+        .map(withdrawals -> String.format(" | %d ws", withdrawals.size()))
+        .orElseGet(() -> super.versionSpecificLogInfo(block));
   }
 }

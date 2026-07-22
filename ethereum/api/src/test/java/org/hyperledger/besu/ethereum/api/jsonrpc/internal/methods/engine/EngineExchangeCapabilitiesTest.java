@@ -22,8 +22,10 @@ import static org.mockito.Mockito.verify;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ConstructorArgumentsBuilder;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
 import java.util.Collections;
@@ -42,13 +44,22 @@ public class EngineExchangeCapabilitiesTest {
   private EngineExchangeCapabilities method;
   private static final Vertx vertx = Vertx.vertx();
 
+  @Mock private ProtocolSchedule protocolSchedule;
   @Mock private ProtocolContext protocolContext;
 
   @Mock private EngineCallListener engineCallListener;
 
   @BeforeEach
   public void setUp() {
-    this.method = new EngineExchangeCapabilities(vertx, protocolContext, engineCallListener);
+    this.method =
+        new EngineExchangeCapabilities(
+            new ConstructorArgumentsBuilder()
+                .protocolSchedule(protocolSchedule)
+                .protocolContext(protocolContext)
+                .vertx(vertx)
+                .engineCallListener(engineCallListener)
+                .maxRequestBlocks(0)
+                .build());
   }
 
   @Test

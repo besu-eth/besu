@@ -20,88 +20,81 @@ import org.hyperledger.besu.ethereum.core.kzg.BlobsWithCommitments;
 import org.hyperledger.besu.ethereum.core.kzg.KZGCommitment;
 import org.hyperledger.besu.ethereum.core.kzg.KZGProof;
 
-import java.security.InvalidParameterException;
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
+import java.util.function.UnaryOperator;
 
 import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
-import org.apache.tuweni.bytes.Bytes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 @JsonPropertyOrder({"commitments", "proofs", "blobs"})
-public class BlobsBundleV1 {
+public sealed class BlobsBundleV1 permits BlobsBundleV2 {
 
   private static final Logger LOG = LoggerFactory.getLogger(BlobsBundleV1.class);
-  private final List<String> commitments;
+  private final List<KZGCommitment> commitments;
 
-  private final List<String> proofs;
+  private final List<KZGProof> proofs;
 
-  private final List<String> blobs;
+  private final List<Blob> blobs;
 
   public BlobsBundleV1(final List<Transaction> transactions) {
+    this(transactions, UnaryOperator.identity());
+  }
+
+  protected BlobsBundleV1(
+      final List<Transaction> transactions,
+      final UnaryOperator<BlobsWithCommitments> blobsWithCommitmentsProcessor) {
     final List<BlobsWithCommitments> blobsWithCommitments =
         transactions.stream()
             .map(Transaction::getBlobsWithCommitments)
             .filter(Optional::isPresent)
             .map(Optional::get)
+            .map(blobsWithCommitmentsProcessor)
             .toList();
 
     this.commitments =
         blobsWithCommitments.stream()
-            .flatMap(b -> b.getKzgCommitments().stream())
-            .map(KZGCommitment::getData)
-            .map(Bytes::toString)
-            .collect(Collectors.toList());
+            .map(BlobsWithCommitments::getKzgCommitments)
+            .flatMap(List::stream)
+            .toList();
 
     this.proofs =
         blobsWithCommitments.stream()
-            .flatMap(b -> b.getKzgProofs().stream())
-            .map(KZGProof::getData)
-            .map(Bytes::toString)
-            .collect(Collectors.toList());
+            .map(BlobsWithCommitments::getKzgProofs)
+            .flatMap(List::stream)
+            .toList();
 
     this.blobs =
         blobsWithCommitments.stream()
-            .flatMap(b -> b.getBlobs().stream())
-            .map(Blob::getData)
-            .map(Bytes::toString)
-            .collect(Collectors.toList());
+            .map(BlobsWithCommitments::getBlobs)
+            .flatMap(List::stream)
+            .toList();
 
-    LOG.debug(
-        "BlobsBundleV1: totalTxs: {}, blobTxs: {}, commitments: {}, proofs: {}, blobs: {}",
-        transactions.size(),
-        blobsWithCommitments.size(),
-        commitments.size(),
-        proofs.size(),
-        blobs.size());
-  }
-
-  public BlobsBundleV1(
-      final List<String> commitments, final List<String> proofs, final List<String> blobs) {
-    if (blobs.size() != commitments.size() || blobs.size() != proofs.size()) {
-      throw new InvalidParameterException(
-          "There must be an equal number of blobs, commitments and proofs");
-    }
-    this.commitments = commitments;
-    this.proofs = proofs;
-    this.blobs = blobs;
+    LOG.atDebug()
+        .setMessage(
+            "BlobsBundleV1: totalTxs: {}, blobTxs: {}, commitments: {}, proofs: {}, blobs: {}")
+        .addArgument(transactions::size)
+        .addArgument(blobsWithCommitments::size)
+        .addArgument(commitments::size)
+        .addArgument(proofs::size)
+        .addArgument(blobs::size)
+        .log();
   }
 
   @JsonGetter("commitments")
-  public List<String> getCommitments() {
+  public List<KZGCommitment> getCommitments() {
     return commitments;
   }
 
   @JsonGetter("proofs")
-  public List<String> getProofs() {
+  public List<KZGProof> getProofs() {
     return proofs;
   }
 
   @JsonGetter("blobs")
-  public List<String> getBlobs() {
+  public List<Blob> getBlobs() {
     return blobs;
   }
 }

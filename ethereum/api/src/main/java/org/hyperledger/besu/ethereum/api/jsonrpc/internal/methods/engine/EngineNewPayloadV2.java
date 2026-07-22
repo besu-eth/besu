@@ -14,47 +14,38 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID;
 
-import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
-import org.hyperledger.besu.datatypes.VersionedHash;
-import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePayloadParameter;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV2;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
+import org.hyperledger.besu.ethereum.core.Block;
+import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
-import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
+import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
-import org.hyperledger.besu.plugin.services.MetricsSystem;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
-import io.vertx.core.Vertx;
+public sealed class EngineNewPayloadV2<
+        EP extends ExecutionPayloadV2, NPRP extends NewPayloadRequestParametersV1<? extends EP>>
+    extends EngineNewPayloadV1<EP, NPRP> permits EngineNewPayloadV3 {
 
-public class EngineNewPayloadV2 extends AbstractEngineNewPayload {
-  private final Optional<Long> cancunMilestone;
+  private final Optional<Long> shanghaiTimestamp;
 
   public EngineNewPayloadV2(
-      final Vertx vertx,
-      final ProtocolSchedule protocolSchedule,
-      final ProtocolContext protocolContext,
-      final MergeMiningCoordinator mergeCoordinator,
-      final EthPeers ethPeers,
-      final EngineCallListener engineCallListener,
-      final MetricsSystem metricsSystem) {
-    super(
-        vertx,
-        protocolSchedule,
-        protocolContext,
-        mergeCoordinator,
-        ethPeers,
-        engineCallListener,
-        metricsSystem);
-    cancunMilestone = protocolSchedule.milestoneFor(CANCUN);
+      final ConstructorArguments constructorArguments,
+      final HardforkId minSupportedFork,
+      final HardforkId firstUnsupportedFork) {
+    super(constructorArguments, minSupportedFork, firstUnsupportedFork);
+    shanghaiTimestamp = protocolSchedule.milestoneFor(HardforkId.MainnetHardforkId.SHANGHAI);
   }
 
   @Override
@@ -63,38 +54,99 @@ public class EngineNewPayloadV2 extends AbstractEngineNewPayload {
   }
 
   @Override
-  protected ValidationResult<RpcErrorType> validateParameters(
-      final EnginePayloadParameter payloadParameter,
-      final Optional<List<String>> maybeVersionedHashParam,
-      final Optional<String> maybeBeaconBlockRootParam,
-      final Optional<List<String>> maybeRequestsParam) {
-    if (payloadParameter.getBlobGasUsed() != null) {
-      return ValidationResult.invalid(
-          RpcErrorType.INVALID_BLOB_GAS_USED_PARAMS, "Unexpected blob gas used field present");
-    }
-    if (payloadParameter.getExcessBlobGas() != null) {
-      return ValidationResult.invalid(
-          RpcErrorType.INVALID_EXCESS_BLOB_GAS_PARAMS, "Unexpected excess blob gas field present");
+  protected EngineStatus getInvalidBlockHashStatus() {
+    return INVALID;
+  }
+
+  @Override
+  protected Class<? extends ExecutionPayloadV1> getPayloadParameterClass() {
+    return ExecutionPayloadV2.class;
+  }
+
+  @Override
+  protected ValidationResult<RpcErrorType> validateParameters(final NPRP requestParameters) {
+    final ValidationResult<RpcErrorType> result = super.validateParameters(requestParameters);
+    return result.isValid() ? validateParametersV2(requestParameters) : result;
+  }
+
+  private ValidationResult<RpcErrorType> validateParametersV2(
+      final NewPayloadRequestParametersV1<? extends EP> requestParameters) {
+    final ExecutionPayloadV2 executionPayload = requestParameters.payloadParameter();
+    // engine_newPayloadV2 is peculiar since it allows 2 different versions of execution payload,
+    // so we need to check the timestamp for withdrawal validation.
+
+    // Spec: executionPayload: instance of ExecutionPayloadV1 | ExecutionPayloadV2, where:
+    // ExecutionPayloadV1 MUST be used if the timestamp value is lower than the Shanghai timestamp,
+    // ExecutionPayloadV2 MUST be used if the timestamp value is greater or equal to the
+    // Shanghai timestamp,
+    // Client software MUST return -32602: Invalid params error if the wrong version of the
+    // structure is used in the method call.
+    if (executionPayload.getTimestamp() < shanghaiTimestamp.orElse(0L)) {
+      if (executionPayload.getWithdrawals() != null) {
+        return ValidationResult.invalid(
+            RpcErrorType.INVALID_WITHDRAWALS_PARAMS,
+            "Withdrawals must not be present before Shanghai hardfork");
+      }
+    } else {
+      if (executionPayload.getWithdrawals() == null) {
+        return ValidationResult.invalid(
+            RpcErrorType.INVALID_WITHDRAWALS_PARAMS,
+            "Withdrawals must be present after Shanghai hardfork");
+      }
     }
     return ValidationResult.valid();
   }
 
   @Override
-  protected ValidationResult<RpcErrorType> validateBlobs(
-      final List<Transaction> transactions,
-      final BlockHeader header,
+  protected ValidationResult<RpcErrorType> validateNewBlock(
+      final Block newBlock,
+      final ProtocolSpec protocolSpec,
       final Optional<BlockHeader> maybeParentHeader,
-      final Optional<List<VersionedHash>> maybeVersionedHashParam,
-      final ProtocolSpec protocolSpec) {
-    return ValidationResult.valid();
+      final NPRP requestParameters) {
+    final ValidationResult<RpcErrorType> result =
+        super.validateNewBlock(newBlock, protocolSpec, maybeParentHeader, requestParameters);
+    return result.isValid() ? validateExecutionPayloadV2(newBlock, protocolSpec) : result;
+  }
+
+  private ValidationResult<RpcErrorType> validateExecutionPayloadV2(
+      final Block newBlock, final ProtocolSpec protocolSpec) {
+    return protocolSpec
+            .getWithdrawalsValidator()
+            .validateWithdrawals(newBlock.getBody().getWithdrawals())
+        ? ValidationResult.valid()
+        : ValidationResult.invalid(RpcErrorType.INVALID_WITHDRAWALS_PARAMS);
   }
 
   @Override
-  protected ValidationResult<RpcErrorType> validateForkSupported(final long blockTimestamp) {
-    if (cancunMilestone.isPresent() && blockTimestamp >= cancunMilestone.get()) {
-      return ValidationResult.invalid(RpcErrorType.UNSUPPORTED_FORK);
+  protected void setBlockHeaderFields(
+      final BlockHeaderBuilder blockHeaderBuilder, final NPRP requestParameters) {
+    super.setBlockHeaderFields(blockHeaderBuilder, requestParameters);
+    final ExecutionPayloadV2 executionPayloadV2 = requestParameters.payloadParameter();
+    if (executionPayloadV2.getWithdrawals() != null) {
+      blockHeaderBuilder.withdrawalsRoot(
+          BodyValidation.withdrawalsRoot(executionPayloadV2.getWithdrawals()));
     }
+  }
 
-    return ValidationResult.valid();
+  @Override
+  protected BlockBody createBlockBody(final EP executionPayload) {
+    return new BlockBody(
+        executionPayload.getTransactions(),
+        Collections.emptyList(),
+        Optional.ofNullable(executionPayload.getWithdrawals()));
+  }
+
+  @Override
+  protected void appendVersionSpecificLogInfo(
+      final StringBuilder message, final List<Object> messageArgs, final Block block) {
+    super.appendVersionSpecificLogInfo(message, messageArgs, block);
+    block
+        .getBody()
+        .getWithdrawals()
+        .ifPresent(
+            withdrawals -> {
+              message.append("| %2d ws");
+              messageArgs.add(withdrawals.size());
+            });
   }
 }
