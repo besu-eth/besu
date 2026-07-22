@@ -25,19 +25,25 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
+import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncodingConfiguration;
 import org.hyperledger.besu.ethereum.eth.EthPeerTestUtil;
+import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.messages.BlockBodiesMessage;
 import org.hyperledger.besu.ethereum.eth.messages.BlockHeadersMessage;
 import org.hyperledger.besu.ethereum.eth.messages.ReceiptsMessage;
+import org.hyperledger.besu.ethereum.eth.messages.StatusMessage;
 import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidator;
+import org.hyperledger.besu.ethereum.forkid.ForkId;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection.PeerNotConnected;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.PeerInfo;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.PingMessage;
 import org.hyperledger.besu.plugin.services.permissioning.NodeMessagePermissioningProvider;
 import org.hyperledger.besu.testutil.TestClock;
@@ -343,6 +349,30 @@ public class EthPeerTest {
     assertThat(peer.getReputation().compareTo(peer2.getReputation())).isGreaterThan(0);
   }
 
+  @Test
+  public void shouldReactivateWhenReadyDuplicateReplacesDisconnectedConnection() {
+    final MockPeerConnection selectedConnection = new MockPeerConnection(Set.of(EthProtocol.ETH68));
+    final MockPeerConnection replacementConnection =
+        new MockPeerConnection(Set.of(EthProtocol.ETH68));
+    final AtomicInteger statusCallbacks = new AtomicInteger();
+    final EthPeer peer =
+        new EthPeer(
+            selectedConnection,
+            ignored -> statusCallbacks.incrementAndGet(),
+            emptyList(),
+            EthProtocolConfiguration.DEFAULT_MAX_MESSAGE_SIZE,
+            clock,
+            emptyList(),
+            Bytes.random(64));
+
+    exchangeStatus(peer, selectedConnection);
+    selectedConnection.disconnect(DisconnectReason.ALREADY_CONNECTED);
+    exchangeStatus(peer, replacementConnection);
+
+    assertThat(peer.getConnection()).isSameAs(replacementConnection);
+    assertThat(statusCallbacks.get()).isEqualTo(2);
+  }
+
   private void messageStream(
       final ResponseStreamSupplier getStream,
       final MessageData targetMessage,
@@ -437,6 +467,20 @@ public class EthPeerTest {
 
   private EthPeer createPeer() {
     return createPeer(Collections.emptyList(), Collections.emptyList());
+  }
+
+  private void exchangeStatus(final EthPeer peer, final PeerConnection connection) {
+    peer.registerStatusSent(connection);
+    peer.registerStatusReceived(
+        StatusMessage.builder()
+            .protocolVersion(EthProtocol.ETH68.getVersion())
+            .networkId(BigInteger.ONE)
+            .totalDifficulty(Difficulty.ZERO)
+            .bestHash(gen.hash())
+            .genesisHash(gen.hash())
+            .forkId(new ForkId(Hash.ZERO.getBytes(), 0))
+            .build(),
+        connection);
   }
 
   private EthPeer createPeer(final PeerValidator... peerValidators) {

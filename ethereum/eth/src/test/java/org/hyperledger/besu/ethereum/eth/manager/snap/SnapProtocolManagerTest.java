@@ -16,25 +16,40 @@ package org.hyperledger.besu.ethereum.eth.manager.snap;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.same;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.eth.SnapProtocol;
+import org.hyperledger.besu.ethereum.eth.manager.EthMessage;
 import org.hyperledger.besu.ethereum.eth.manager.EthMessages;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.manager.MockPeerConnection;
+import org.hyperledger.besu.ethereum.eth.messages.snap.GetAccountRangeMessage;
+import org.hyperledger.besu.ethereum.eth.messages.snap.SnapV1;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
+import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.DefaultMessage;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 
+import java.math.BigInteger;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
+import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -100,6 +115,34 @@ class SnapProtocolManagerTest {
     // ethPeer (mock) receives the disconnect call
     org.mockito.Mockito.verify(ethPeer)
         .disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+  }
+
+  @Test
+  void sendsResponseOnConnectionThatReceivedRequest() throws PeerConnection.PeerNotConnected {
+    final MockPeerConnection requestConnection =
+        new MockPeerConnection(new HashSet<>(Collections.singletonList(SnapProtocol.SNAP1)));
+    final MessageData request =
+        GetAccountRangeMessage.create(Hash.ZERO, Bytes32.ZERO, Bytes32.ZERO)
+            .wrapMessageData(BigInteger.ONE);
+    final MessageData response = new RawMessage(SnapV1.ACCOUNT_RANGE, Bytes.EMPTY);
+
+    when(ethPeers.peer(requestConnection)).thenReturn(ethPeer);
+    when(ethPeer.validateReceivedMessage(any(EthMessage.class), eq(SnapProtocol.NAME)))
+        .thenReturn(true);
+    doAnswer(
+            invocation -> {
+              ((Runnable) invocation.getArgument(0)).run();
+              return CompletableFuture.<Void>completedFuture(null);
+            })
+        .when(ethScheduler)
+        .scheduleServiceTask(any(Runnable.class));
+    when(snapMessages.dispatch(any(EthMessage.class), eq(SnapProtocol.SNAP1)))
+        .thenReturn(Optional.of(response));
+
+    snapProtocolManager.processMessage(
+        SnapProtocol.SNAP1, new DefaultMessage(requestConnection, request));
+
+    verify(ethPeer).send(any(MessageData.class), eq(SnapProtocol.NAME), same(requestConnection));
   }
 
   private SnapProtocolManager createSnapProtocolManager() {

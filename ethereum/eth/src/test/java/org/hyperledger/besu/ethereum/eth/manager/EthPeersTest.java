@@ -20,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -33,6 +34,7 @@ import org.hyperledger.besu.ethereum.eth.manager.exceptions.NoAvailablePeersExce
 import org.hyperledger.besu.ethereum.eth.manager.exceptions.PeerDisconnectedException;
 import org.hyperledger.besu.ethereum.eth.messages.BlockBodiesMessage;
 import org.hyperledger.besu.ethereum.eth.sync.ChainHeadTracker;
+import org.hyperledger.besu.ethereum.p2p.peers.Peer;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection.PeerNotConnected;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
@@ -40,11 +42,13 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.Di
 
 import java.math.BigInteger;
 import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -56,6 +60,7 @@ public class EthPeersTest {
 
   private EthProtocolManager ethProtocolManager;
   private EthPeers ethPeers;
+  private ChainHeadTracker chainHeadTracker;
   private final PeerRequest peerRequest = mock(PeerRequest.class);
   private final RequestManager.ResponseStream responseStream =
       mock(RequestManager.ResponseStream.class);
@@ -65,11 +70,81 @@ public class EthPeersTest {
     when(peerRequest.sendRequest(any())).thenReturn(responseStream);
     ethProtocolManager = EthProtocolManagerTestBuilder.builder().build();
     ethPeers = ethProtocolManager.ethContext().getEthPeers();
-    final ChainHeadTracker mock = mock(ChainHeadTracker.class);
+    chainHeadTracker = mock(ChainHeadTracker.class);
     final BlockHeader blockHeader = mock(BlockHeader.class);
-    when(mock.getBestHeaderFromPeer(any()))
+    when(chainHeadTracker.getBestHeaderFromPeer(any()))
         .thenReturn(CompletableFuture.completedFuture(blockHeader));
-    ethPeers.setChainHeadTracker(mock);
+    ethPeers.setChainHeadTracker(chainHeadTracker);
+  }
+
+  @Test
+  public void shouldReactivatePeerWhenSelectedConnectionDisconnectsWithReadyDuplicate() {
+    final Peer remotePeer = mock(Peer.class);
+    when(remotePeer.getId()).thenReturn(Peer.randomId());
+
+    final PeerConnection selectedConnection = mock(PeerConnection.class);
+    final PeerConnection replacementConnection = mock(PeerConnection.class);
+    when(selectedConnection.getPeer()).thenReturn(remotePeer);
+    when(replacementConnection.getPeer()).thenReturn(remotePeer);
+    when(selectedConnection.getStatusExchanged()).thenReturn(true);
+    when(replacementConnection.getStatusExchanged()).thenReturn(true);
+    when(selectedConnection.getInitiatedAt()).thenReturn(1L);
+    when(replacementConnection.getInitiatedAt()).thenReturn(2L);
+
+    when(chainHeadTracker.getBestHeaderFromPeer(any()))
+        .thenAnswer(ignored -> new CompletableFuture<BlockHeader>());
+    ethPeers.registerNewConnection(selectedConnection, emptyList());
+    ethPeers.registerNewConnection(replacementConnection, emptyList());
+    final EthPeer peer = ethPeers.peer(selectedConnection);
+
+    peer.registerStatusSent(selectedConnection);
+    peer.registerStatusSent(replacementConnection);
+    when(selectedConnection.isDisconnected()).thenReturn(true);
+
+    ethPeers.registerDisconnect(selectedConnection);
+
+    assertThat(peer.getConnection()).isSameAs(replacementConnection);
+    verify(chainHeadTracker, times(2)).getBestHeaderFromPeer(peer);
+  }
+
+  @Test
+  public void shouldIgnoreChainHeadFailureFromReplacedConnection() {
+    final Peer remotePeer = mock(Peer.class);
+    when(remotePeer.getId()).thenReturn(Peer.randomId());
+
+    final PeerConnection firstConnection = mock(PeerConnection.class);
+    final PeerConnection secondConnection = mock(PeerConnection.class);
+    when(firstConnection.getPeer()).thenReturn(remotePeer);
+    when(secondConnection.getPeer()).thenReturn(remotePeer);
+    when(firstConnection.getStatusExchanged()).thenReturn(true);
+    when(secondConnection.getStatusExchanged()).thenReturn(true);
+    when(firstConnection.getInitiatedAt()).thenReturn(2L);
+    when(secondConnection.getInitiatedAt()).thenReturn(1L);
+
+    final CompletableFuture<BlockHeader> firstLookup = new CompletableFuture<>();
+    final CompletableFuture<BlockHeader> secondLookup = new CompletableFuture<>();
+    final CompletableFuture<BlockHeader> replacementLookup = new CompletableFuture<>();
+    final AtomicInteger lookupCount = new AtomicInteger();
+    when(chainHeadTracker.getBestHeaderFromPeer(any()))
+        .thenAnswer(
+            ignored ->
+                List.of(firstLookup, secondLookup, replacementLookup)
+                    .get(lookupCount.getAndIncrement()));
+
+    ethPeers.registerNewConnection(firstConnection, emptyList());
+    ethPeers.registerNewConnection(secondConnection, emptyList());
+    final EthPeer peer = ethPeers.peer(firstConnection);
+
+    peer.registerStatusSent(firstConnection);
+    peer.registerStatusSent(secondConnection);
+    when(secondConnection.isDisconnected()).thenReturn(true);
+    ethPeers.registerDisconnect(secondConnection);
+    firstLookup.complete(null);
+
+    assertThat(peer.getConnection()).isSameAs(firstConnection);
+    verify(firstConnection, never()).disconnect(any());
+
+    replacementLookup.complete(mock(BlockHeader.class));
   }
 
   @Test

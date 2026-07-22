@@ -142,7 +142,7 @@ public class SnapProtocolManager implements ProtocolManager {
 
     // GET_* requests are handled off the Netty event loop to avoid blocking ETH protocol traffic.
     if (SnapV1.REQUEST_CODES.contains(code) || SnapV2.REQUEST_CODES.contains(code)) {
-      scheduleSnapRequest(ethPeer, decodedEthMessage, cap, code);
+      scheduleSnapRequest(ethPeer, decodedEthMessage, cap, code, message.getConnection());
     }
   }
 
@@ -150,7 +150,8 @@ public class SnapProtocolManager implements ProtocolManager {
       final EthPeer ethPeer,
       final EthMessage decodedEthMessage,
       final Capability cap,
-      final int code) {
+      final int code,
+      final PeerConnection connection) {
     ethScheduler
         .scheduleServiceTask(
             () -> {
@@ -172,7 +173,8 @@ public class SnapProtocolManager implements ProtocolManager {
                     e);
                 ethPeer.disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
               }
-              maybeResponseData.ifPresent(responseData -> sendSnapResponse(ethPeer, responseData));
+              maybeResponseData.ifPresent(
+                  responseData -> sendSnapResponse(ethPeer, responseData, connection));
             })
         .exceptionally(
             e -> {
@@ -188,9 +190,10 @@ public class SnapProtocolManager implements ProtocolManager {
             });
   }
 
-  private void sendSnapResponse(final EthPeer ethPeer, final MessageData responseData) {
+  private void sendSnapResponse(
+      final EthPeer ethPeer, final MessageData responseData, final PeerConnection connection) {
     try {
-      ethPeer.send(responseData, getSupportedProtocol());
+      ethPeer.send(responseData, getSupportedProtocol(), connection);
     } catch (final PeerConnection.PeerNotConnected e) {
       LOG.atTrace()
           .setMessage("Peer disconnected before we could respond - nothing to do {}")

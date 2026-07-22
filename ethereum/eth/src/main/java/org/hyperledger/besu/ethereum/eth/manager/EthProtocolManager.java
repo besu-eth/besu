@@ -346,7 +346,7 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
     maybeResponseData.ifPresent(
         responseData -> {
           try {
-            ethPeer.send(responseData, getSupportedProtocol());
+            ethPeer.send(responseData, getSupportedProtocol(), message.getConnection());
           } catch (final PeerNotConnected __) {
             // Peer disconnected before we could respond - nothing to do
           }
@@ -412,7 +412,8 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
   private void handleStatusMessage(final EthPeer peer, final Message message) {
     final StatusMessage status = StatusMessage.readFrom(message.getData());
     final ForkId forkId = status.forkId();
-    peer.getConnection().getPeer().setForkId(forkId);
+    final PeerConnection connection = message.getConnection();
+    connection.getPeer().setForkId(forkId);
     try {
       if (!status.networkId().equals(networkId)) {
         LOG.atDebug()
@@ -445,7 +446,7 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
             .log();
         handleDisconnect(
             peer.getConnection(), DisconnectReason.SUBPROTOCOL_TRIGGERED_POW_DIFFICULTY, false);
-      } else if (EthProtocol.isEth69Compatible(peer.getConnection().capability(EthProtocol.NAME))
+      } else if (EthProtocol.isEth69Compatible(connection.capability(EthProtocol.NAME))
           && !status.isEth69Compatible()) {
         LOG.atDebug()
             .setMessage("{} sent invalid status message {}")
@@ -460,7 +461,7 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
             .addArgument(status::toString)
             .addArgument(message::getConnection)
             .log();
-        peer.registerStatusReceived(status, peer.getConnection());
+        peer.registerStatusReceived(status, connection);
       }
     } catch (final RLPException e) {
       LOG.atDebug()
