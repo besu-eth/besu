@@ -28,6 +28,7 @@
 - Fix QBFT/IBFT mining continuing to seal blocks after the merge terminal total difficulty (TTD) is reached [#10733](https://github.com/besu-eth/besu/pull/10733)
 
 ### Additions and Improvements
+- Add a japicmp compatibility check (`:plugin-api:checkAPICompatibility`) that fails the build if the Plugin API changes in any way that is not a pure addition against the last released version [#10823](https://github.com/besu-eth/besu/pull/10823)
 - Update besu-native to 2.0.0
 - Upgrade jackson dependencies to 2.21.5 and opentelemetry to 1.62.0 [#10775](https://github.com/besu-eth/besu/pull/10775)
 - Upgrade netty to 4.2.16.Final [#10822](https://github.com/besu-eth/besu/pull/10822)
