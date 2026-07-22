@@ -43,7 +43,7 @@ public class DiscoveryConfiguration {
   private Optional<String> advertisedHostIpv6 = Optional.empty();
   private boolean preferIpv6Outbound = false;
   private int discV5DiscoveryIntervalSeconds = 1;
-  private int discV5DiscoveryTimeoutSeconds = 30;
+  private int discV5DiscoveryTimeoutSeconds = 60;
   private double discV5MinimumPeerRatio = 0.8;
   private DiscoveryMode discoveryMode = DiscoveryMode.BOTH;
 

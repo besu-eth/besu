@@ -99,9 +99,9 @@ public class NetworkingOptions implements CLIOptions<NetworkingConfiguration> {
       hidden = true,
       paramLabel = "<INTEGER>",
       description =
-          "The timeout (in seconds) for each DiscV5 peer discovery operation (default: 30)",
+          "The timeout (in seconds) for each DiscV5 peer discovery operation (default: 60)",
       converter = DurationSecondsConverter.class)
-  private Duration discV5DiscoveryTimeoutSeconds = Duration.ofSeconds(30);
+  private Duration discV5DiscoveryTimeoutSeconds = Duration.ofSeconds(60);
 
   @CommandLine.Option(
       names = DISCV5_MINIMUM_PEER_RATIO,

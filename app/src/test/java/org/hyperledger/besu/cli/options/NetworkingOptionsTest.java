@@ -154,6 +154,32 @@ public class NetworkingOptionsTest
   }
 
   @Test
+  public void discV5DiscoveryTimeoutSecondsFlag_isSet() {
+    final TestBesuCommand cmd = parseCommand("--Xv5-discovery-timeout-seconds", "90");
+
+    final NetworkingOptions options = cmd.getNetworkingOptions();
+    final NetworkingConfiguration networkingConfig = options.toDomainObject();
+    assertThat(networkingConfig.discoveryConfiguration().getDiscV5DiscoveryTimeoutSeconds())
+        .isEqualTo(90);
+
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void discV5DiscoveryTimeoutSecondsFlag_isNotSet() {
+    final TestBesuCommand cmd = parseCommand();
+
+    final NetworkingOptions options = cmd.getNetworkingOptions();
+    final NetworkingConfiguration networkingConfig = options.toDomainObject();
+    assertThat(networkingConfig.discoveryConfiguration().getDiscV5DiscoveryTimeoutSeconds())
+        .isEqualTo(60);
+
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
   public void checkFilterByForkIdNotSet() {
     final TestBesuCommand cmd = parseCommand();
 
