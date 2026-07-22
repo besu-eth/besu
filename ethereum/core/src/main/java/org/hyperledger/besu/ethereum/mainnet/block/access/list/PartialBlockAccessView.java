@@ -87,10 +87,10 @@ public final class PartialBlockAccessView {
     return Objects.hash(accountChanges);
   }
 
-  public record SlotChange(StorageSlotKey slot, UInt256 newValue) {
+  public record SlotChange(StorageSlotKey slot, UInt256 previousValue, UInt256 newValue) {
     @Override
     public String toString() {
-      return "SlotChange{newValue=" + newValue + '}';
+      return "SlotChange{previousValue=" + previousValue + ", newValue=" + newValue + '}';
     }
   }
 
@@ -226,7 +226,12 @@ public final class PartialBlockAccessView {
 
     public AccountChangesBuilder addStorageChange(
         final StorageSlotKey slot, final UInt256 newValue) {
-      storageChanges.add(new SlotChange(slot, newValue));
+      return addStorageChange(slot, null, newValue);
+    }
+
+    public AccountChangesBuilder addStorageChange(
+        final StorageSlotKey slot, final UInt256 previousValue, final UInt256 newValue) {
+      storageChanges.add(new SlotChange(slot, previousValue, newValue));
       return this;
     }
 
