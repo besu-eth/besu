@@ -26,17 +26,25 @@ import org.hyperledger.besu.ethereum.core.BlockDataGenerator.BlockOptions;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.LogWithMetadata;
+import org.hyperledger.besu.ethereum.core.SyncBlock;
+import org.hyperledger.besu.ethereum.core.SyncBlockBody;
+import org.hyperledger.besu.ethereum.core.SyncBlockWithReceipts;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
+import org.hyperledger.besu.ethereum.mainnet.DefaultProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStoragePrefixedKeyBlockchainStorage;
 import org.hyperledger.besu.ethereum.storage.keyvalue.VariablesKeyValueStorage;
 import org.hyperledger.besu.metrics.MetricsSystemFactory;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
+import org.hyperledger.besu.plugin.services.storage.KeyValueStorageTransaction;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
+import java.math.BigInteger;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -44,6 +52,11 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
@@ -240,6 +253,47 @@ public class DefaultBlockchainTest {
     assertBlockIsHead(blockchain, newBlock);
     assertTotalDifficultiesAreConsistent(blockchain, newBlock);
     assertThat(blockchain.getForks()).isEmpty();
+  }
+
+  @Test
+  public void unsafeImportSyncBodiesAndReceiptsDoesNotPublishHeadBeforeCommit() throws Exception {
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final CommitBlockingKeyValueStorage chainStorage = new CommitBlockingKeyValueStorage();
+    final KeyValueStorage variablesStorage = new InMemoryKeyValueStorage();
+    final Block genesisBlock = gen.genesisBlock();
+    final DefaultBlockchain blockchain =
+        createMutableBlockchain(chainStorage, variablesStorage, genesisBlock);
+    final Block importedBlock =
+        gen.block(
+            new BlockDataGenerator.BlockOptions()
+                .setBlockNumber(1L)
+                .setParentHash(genesisBlock.getHash()));
+    blockchain.storeBlockHeaders(List.of(importedBlock.getHeader()));
+    final SyncBlockWithReceipts syncBlockWithReceipts = toSyncBlockWithReceipts(importedBlock);
+    final ExecutorService executor = Executors.newSingleThreadExecutor();
+
+    chainStorage.blockNextCommit();
+    final Future<?> importFuture =
+        executor.submit(
+            () ->
+                blockchain.unsafeImportSyncBodiesAndReceipts(
+                    List.of(syncBlockWithReceipts), false));
+    try {
+      assertThat(chainStorage.awaitCommit()).isTrue();
+      assertThat(blockchain.getChainHeadBlockNumber())
+          .isEqualTo(genesisBlock.getHeader().getNumber());
+      assertThat(blockchain.getBlockByNumber(blockchain.getChainHeadBlockNumber())).isPresent();
+
+      chainStorage.releaseCommit();
+      importFuture.get(10, TimeUnit.SECONDS);
+
+      assertThat(blockchain.getChainHeadBlockNumber())
+          .isEqualTo(importedBlock.getHeader().getNumber());
+      assertThat(blockchain.getBlockByNumber(blockchain.getChainHeadBlockNumber())).isPresent();
+    } finally {
+      chainStorage.releaseCommit();
+      executor.shutdownNow();
+    }
   }
 
   @Test
@@ -1102,6 +1156,18 @@ public class DefaultBlockchainTest {
         false);
   }
 
+  private SyncBlockWithReceipts toSyncBlockWithReceipts(final Block block) {
+    final BytesValueRLPOutput output = new BytesValueRLPOutput();
+    block.getBody().writeWrappedBodyTo(output);
+    final SyncBlockBody body =
+        SyncBlockBody.readWrappedBodyFrom(
+            new BytesValueRLPInput(output.encoded(), false),
+            false,
+            new DefaultProtocolSchedule(Optional.of(BigInteger.ONE)));
+    return new SyncBlockWithReceipts(
+        new SyncBlock(block.getHeader(), body), Collections.emptyList());
+  }
+
   private DefaultBlockchain createMutableBlockchain(
       final KeyValueStorage kvStore,
       final KeyValueStorage kvStorageVariables,
@@ -1226,5 +1292,65 @@ public class DefaultBlockchainTest {
     }
     when(blockchain.getChainHeadBlockNumber()).thenReturn(lastBlockNumber);
     return blockchain;
+  }
+
+  private static class CommitBlockingKeyValueStorage extends InMemoryKeyValueStorage {
+    private final AtomicBoolean blockNextCommit = new AtomicBoolean();
+    private final CountDownLatch commitStarted = new CountDownLatch(1);
+    private final CountDownLatch releaseCommit = new CountDownLatch(1);
+
+    void blockNextCommit() {
+      blockNextCommit.set(true);
+    }
+
+    boolean awaitCommit() throws InterruptedException {
+      return commitStarted.await(10, TimeUnit.SECONDS);
+    }
+
+    void releaseCommit() {
+      releaseCommit.countDown();
+    }
+
+    @Override
+    public KeyValueStorageTransaction startTransaction() {
+      final KeyValueStorageTransaction transaction = super.startTransaction();
+      return new KeyValueStorageTransaction() {
+        @Override
+        public void put(final byte[] key, final byte[] value) {
+          transaction.put(key, value);
+        }
+
+        @Override
+        public void remove(final byte[] key) {
+          transaction.remove(key);
+        }
+
+        @Override
+        public void commit() {
+          if (blockNextCommit.compareAndSet(true, false)) {
+            commitStarted.countDown();
+            try {
+              if (!releaseCommit.await(10, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("Timed out waiting to release the commit");
+              }
+            } catch (final InterruptedException e) {
+              Thread.currentThread().interrupt();
+              throw new IllegalStateException("Interrupted while waiting to release the commit", e);
+            }
+          }
+          transaction.commit();
+        }
+
+        @Override
+        public void rollback() {
+          transaction.rollback();
+        }
+
+        @Override
+        public void close() {
+          transaction.close();
+        }
+      };
+    }
   }
 }
