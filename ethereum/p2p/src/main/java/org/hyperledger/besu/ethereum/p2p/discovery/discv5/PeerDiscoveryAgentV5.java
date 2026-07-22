@@ -151,15 +151,15 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
   /**
    * Starts the DiscV5 discovery system and the adaptive discovery loop.
    *
-   * <p>The local node record (ENR) is initialized here using the supplied {@code tcpPort}, ensuring
-   * the {@code tcp} and {@code tcp6} ENR fields reflect the actual RLPx listening port rather than
-   * the discovery bind port.
+   * <p>The local node record (ENR) is initialized here using the supplied {@code rlpxTcpPort},
+   * ensuring the {@code tcp} and {@code tcp6} ENR fields reflect the actual RLPx listening port
+   * rather than the discovery bind port.
    *
-   * @param tcpPort the local RLPx TCP port used for inbound peer connections
+   * @param rlpxTcpPort the local RLPx TCP port used for inbound peer connections
    * @return a future completed with the UDP discovery port once discovery has started
    */
   @Override
-  public CompletableFuture<Integer> start(final int tcpPort) {
+  public CompletableFuture<Integer> start(final int rlpxTcpPort) {
     if (!isEnabled()) {
       LOG.trace("DiscV5 peer discovery is disabled; not starting agent");
       return CompletableFuture.completedFuture(0);
@@ -177,7 +177,7 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
 
     final MutableDiscoverySystem system;
     try {
-      final NodeRecord localNodeRecord = initializeLocalNodeRecord(tcpPort);
+      final NodeRecord localNodeRecord = initializeLocalNodeRecord(rlpxTcpPort);
       system = discoverySystemFactory.create(localNodeRecord, this::handleBoundPortResolved);
       discoverySystem.set(system);
       registerMetrics(system);
@@ -535,10 +535,10 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
    * auto-discovery hint. The hint carries only the port — never a host — and is consumed once
    * DiscV5 peers reach consensus on an external IPv6 address.
    *
-   * @param tcpPort the effective IPv4 RLPx TCP port returned by {@link RlpxAgent#start()}
+   * @param rlpxTcpPort the effective IPv4 RLPx TCP port returned by {@link RlpxAgent#start()}
    * @return the initialized local {@link NodeRecord}
    */
-  private NodeRecord initializeLocalNodeRecord(final int tcpPort) {
+  private NodeRecord initializeLocalNodeRecord(final int rlpxTcpPort) {
     final Optional<Integer> ipv6TcpPort = rlpxAgent.getIpv6ListeningPort();
 
     // Include IPv6 ENR fields only when the discovery layer has an active IPv6 UDP socket
@@ -565,11 +565,18 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
             ? ipv6TcpPort
             : Optional.empty();
 
-    nodeRecordManager.initializeLocalNode(
-        new HostEndpoint(
-            discoveryConfig.getAdvertisedHost(), discoveryConfig.getBindPort(), tcpPort),
-        ipv6Endpoint,
-        ipv6AutoDiscoveryTcpPort);
+    // In BOTH mode, if the DiscV4 agent already initialized the shared manager with its more
+    // accurate resolved endpoints, only register this agent's IPv6 hint rather than clobbering
+    // that state. No-op check for the normal, non-shared V5-only case.
+    if (nodeRecordManager.isInitialized()) {
+      nodeRecordManager.registerIpv6AutoDiscoveryHint(ipv6AutoDiscoveryTcpPort);
+    } else {
+      nodeRecordManager.initializeLocalNode(
+          new HostEndpoint(
+              discoveryConfig.getAdvertisedHost(), discoveryConfig.getBindPort(), rlpxTcpPort),
+          ipv6Endpoint,
+          ipv6AutoDiscoveryTcpPort);
+    }
 
     return nodeRecordManager
         .getLocalNode()

@@ -47,12 +47,12 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
     INVALID_BLOCK_HASH;
   }
 
+  private static final Logger LOG = LoggerFactory.getLogger(ExecutionEngineJsonRpcMethod.class);
   public static final long ENGINE_API_LOGGING_THRESHOLD = 60000L;
   // Must be <= the engine HTTP timeout so Thread A is released before the HTTP timer writes a
   // response. Uses the same default (30s) as JsonRpcConfiguration.DEFAULT_HTTP_TIMEOUT_SEC.
   private static final long ENGINE_API_RESPONSE_TIMEOUT_MS = 30_000L;
   private final Vertx syncVertx;
-  private static final Logger LOG = LoggerFactory.getLogger(ExecutionEngineJsonRpcMethod.class);
   protected final Optional<MergeContext> mergeContextOptional;
   protected final Supplier<MergeContext> mergeContext;
   protected final ProtocolSchedule protocolSchedule;
@@ -130,10 +130,11 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
 
     syncVertx.<JsonRpcResponse>executeBlocking(
         z -> {
-          LOG.trace(
-              "execution engine JSON-RPC request {} {}",
-              this.getName(),
-              request.getRequest().getParams());
+          logger()
+              .trace(
+                  "execution engine JSON-RPC request {} {}",
+                  this.getName(),
+                  request.getRequest().getParams());
           z.tryComplete(syncResponse(request));
         },
         true,
@@ -141,14 +142,16 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
             cf.complete(
                 resp.otherwise(
                         t -> {
-                          if (LOG.isDebugEnabled()) {
-                            LOG.atDebug()
+                          if (logger().isDebugEnabled()) {
+                            logger()
+                                .atDebug()
                                 .setMessage("failed to exec consensus method {}")
                                 .addArgument(this.getName())
                                 .setCause(t)
                                 .log();
                           } else {
-                            LOG.atError()
+                            logger()
+                                .atError()
                                 .setMessage("failed to exec consensus method {}, error: {}")
                                 .addArgument(this.getName())
                                 .addArgument(t.getMessage())
@@ -161,18 +164,39 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
     try {
       return cf.get(ENGINE_API_RESPONSE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
     } catch (TimeoutException e) {
-      LOG.debug(
-          "Timeout waiting for engine API response for {}, releasing worker thread",
-          this.getName());
+      logger()
+          .debug(
+              "Timeout waiting for engine API response for {}, releasing worker thread",
+              this.getName());
       return new JsonRpcErrorResponse(request.getRequest().getId(), RpcErrorType.TIMEOUT_ERROR);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
-      LOG.error("Failed to get execution engine response", e);
+      logger().error("Failed to get execution engine response", e);
       return new JsonRpcErrorResponse(request.getRequest().getId(), RpcErrorType.TIMEOUT_ERROR);
     } catch (ExecutionException e) {
-      LOG.error("Failed to get execution engine response", e);
+      logger().error("Failed to get execution engine response", e);
       return new JsonRpcErrorResponse(request.getRequest().getId(), RpcErrorType.INTERNAL_ERROR);
     }
+  }
+
+  /**
+   * Returns the SLF4J logger for this engine method.
+   *
+   * <p>The default implementation returns a logger bound to {@link ExecutionEngineJsonRpcMethod},
+   * which is correct for most subclasses whose logic lives entirely in their own class. Subclasses
+   * that share implementation code across a version hierarchy (such as the {@code
+   * engine_forkchoiceUpdated} V1–V4 sealed hierarchy, where all logic lives in V1 but instances may
+   * be V2/V3/V4) should override this method so that log lines name the actual running version:
+   *
+   * <pre>{@code
+   * private static final Logger LOG = LoggerFactory.getLogger(EngineForkchoiceUpdatedV3.class);
+   *
+   * @Override
+   * protected Logger logger() { return LOG; }
+   * }</pre>
+   */
+  protected Logger logger() {
+    return LOG;
   }
 
   public abstract JsonRpcResponse syncResponse(final JsonRpcRequestContext request);

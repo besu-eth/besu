@@ -337,6 +337,7 @@ public class TransactionSelectionResult {
   }
 
   @Override
+  @SuppressWarnings("ReferenceEquality") // status is an enum; reference equality is correct
   public boolean equals(final Object o) {
     if (this == o) return true;
     if (o == null || getClass() != o.getClass()) return false;
