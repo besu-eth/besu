@@ -152,7 +152,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
         continue;
       }
 
-      final MutableAccount accountValue = getAccount(address);
+      final MutableAccount accountValue = getOrCreate(address);
 
       accountChanges.getPostBalance().ifPresent(accountValue::setBalance);
       accountChanges.getNonceChange().ifPresent(accountValue::setNonce);
