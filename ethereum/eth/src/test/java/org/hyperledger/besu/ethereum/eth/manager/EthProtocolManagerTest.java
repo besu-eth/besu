@@ -199,6 +199,57 @@ public final class EthProtocolManagerTest {
           EthProtocol.LATEST, new DefaultMessage(secondConnection, statusMessage));
 
       verify(secondConnection).setStatusReceived();
+      final EthPeer ethPeer = ethPeers.peer(secondConnection);
+      assertThat(ethPeer.statusHasBeenReceived(secondConnection)).isTrue();
+      assertThat(ethPeer.statusHasBeenReceived(firstConnection)).isFalse();
+    }
+  }
+
+  @Test
+  public void disconnectsConnectionThatSentInvalidStatus() {
+    try (final EthProtocolManager ethManager =
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setEthScheduler(new DeterministicEthScheduler(() -> false))
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.DEFAULT)
+            .build()) {
+      final Peer peer = mock(Peer.class);
+      when(peer.getId()).thenReturn(Peer.randomId());
+      final PeerConnection selectedConnection = mock(PeerConnection.class);
+      final PeerConnection statusConnection = mock(PeerConnection.class);
+      final Set<Capability> capabilities = Set.of(EthProtocol.LATEST);
+      when(selectedConnection.getPeer()).thenReturn(peer);
+      when(statusConnection.getPeer()).thenReturn(peer);
+      when(selectedConnection.getAgreedCapabilities()).thenReturn(capabilities);
+      when(statusConnection.getAgreedCapabilities()).thenReturn(capabilities);
+      when(selectedConnection.capability(EthProtocol.NAME)).thenReturn(EthProtocol.LATEST);
+      when(statusConnection.capability(EthProtocol.NAME)).thenReturn(EthProtocol.LATEST);
+
+      final EthPeers ethPeers = ethManager.ethContext().getEthPeers();
+      ethPeers.registerNewConnection(selectedConnection, List.of());
+      ethPeers.registerNewConnection(statusConnection, List.of());
+
+      final StatusMessage statusMessage =
+          StatusMessage.builder()
+              .protocolVersion(EthProtocol.LATEST.getVersion())
+              .networkId(BigInteger.valueOf(2222))
+              .bestHash(blockchain.getChainHeadHash())
+              .genesisHash(
+                  blockchain.getBlockHeader(BlockHeader.GENESIS_BLOCK_NUMBER).get().getHash())
+              .forkId(forkId)
+              .blockRange(new StatusMessage.BlockRange(10L, blockchain.getChainHeadBlockNumber()))
+              .build();
+
+      ethManager.processMessage(
+          EthProtocol.LATEST, new DefaultMessage(statusConnection, statusMessage));
+
+      verify(statusConnection)
+          .disconnect(DisconnectReason.SUBPROTOCOL_TRIGGERED_MISMATCHED_NETWORK);
+      verify(selectedConnection, times(0))
+          .disconnect(DisconnectReason.SUBPROTOCOL_TRIGGERED_MISMATCHED_NETWORK);
     }
   }
 
@@ -225,7 +276,7 @@ public final class EthProtocolManagerTest {
       final MessageData response = BlockHeadersMessage.create(Collections.emptyList());
 
       when(ethPeers.peer(requestConnection)).thenReturn(peer);
-      when(peer.statusHasBeenReceived()).thenReturn(true);
+      when(peer.statusHasBeenReceived(requestConnection)).thenReturn(true);
       when(peer.validateReceivedMessage(any(EthMessage.class), eq(EthProtocol.NAME)))
           .thenReturn(true);
       when(ethMessages.dispatch(any(EthMessage.class), eq(EthProtocol.ETH69)))
@@ -234,6 +285,38 @@ public final class EthProtocolManagerTest {
       ethManager.processMessage(EthProtocol.ETH69, new DefaultMessage(requestConnection, request));
 
       verify(peer).send(any(MessageData.class), eq(EthProtocol.NAME), same(requestConnection));
+    }
+  }
+
+  @Test
+  public void disconnectsConnectionThatSendsRequestBeforeStatus() {
+    final EthPeers ethPeers = mock(EthPeers.class);
+    final EthPeer peer = mock(EthPeer.class);
+    final PeerConnection selectedConnection = mock(PeerConnection.class);
+    final PeerConnection requestConnection = mock(PeerConnection.class);
+
+    try (final EthProtocolManager ethManager =
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setEthScheduler(new DeterministicEthScheduler(() -> false))
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.DEFAULT)
+            .setEthPeers(ethPeers)
+            .build()) {
+      final MessageData request =
+          GetBlockHeadersMessage.create(1, 1, 0, false).wrapMessageData(BigInteger.ONE);
+      when(ethPeers.peer(requestConnection)).thenReturn(peer);
+      when(peer.getConnection()).thenReturn(selectedConnection);
+      when(peer.statusHasBeenReceived(requestConnection)).thenReturn(false);
+
+      ethManager.processMessage(EthProtocol.ETH69, new DefaultMessage(requestConnection, request));
+
+      verify(requestConnection)
+          .disconnect(DisconnectReason.BREACH_OF_PROTOCOL_RECEIVED_OTHER_MESSAGE_BEFORE_STATUS);
+      verify(selectedConnection, times(0))
+          .disconnect(DisconnectReason.BREACH_OF_PROTOCOL_RECEIVED_OTHER_MESSAGE_BEFORE_STATUS);
     }
   }
 

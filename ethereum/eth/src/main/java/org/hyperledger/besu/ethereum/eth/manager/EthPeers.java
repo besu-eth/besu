@@ -247,6 +247,7 @@ public class EthPeers implements PeerSelector {
           .log();
       return false;
     }
+    peer.unregisterConnection(connection);
     if (peer.getConnection().equals(connection)) {
       final Bytes id = peer.getId();
       final Optional<PeerConnection> replacementConnection =

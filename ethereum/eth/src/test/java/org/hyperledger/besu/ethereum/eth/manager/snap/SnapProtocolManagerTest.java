@@ -19,6 +19,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -104,6 +106,7 @@ class SnapProtocolManagerTest {
         new MockPeerConnection(
             new HashSet<>(Collections.singletonList(SnapProtocol.SNAP1)), (cap, msg, conn) -> {});
     when(ethPeers.peer(peerConnection)).thenReturn(ethPeer);
+    when(ethPeer.statusHasBeenReceived(peerConnection)).thenReturn(true);
     when(ethPeer.validateReceivedMessage(any(), any())).thenReturn(true);
 
     // Create a RawMessage with invalid compressed data that will throw FramingException
@@ -111,9 +114,8 @@ class SnapProtocolManagerTest {
     snapProtocolManager.processMessage(
         SnapProtocol.SNAP1, new DefaultMessage(peerConnection, badMessage));
 
-    assertThat(peerConnection.isDisconnected()).isFalse();
-    // ethPeer (mock) receives the disconnect call
-    org.mockito.Mockito.verify(ethPeer)
+    assertThat(peerConnection.isDisconnected()).isTrue();
+    verify(ethPeer, never())
         .disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
   }
 
@@ -127,6 +129,7 @@ class SnapProtocolManagerTest {
     final MessageData response = new RawMessage(SnapV1.ACCOUNT_RANGE, Bytes.EMPTY);
 
     when(ethPeers.peer(requestConnection)).thenReturn(ethPeer);
+    when(ethPeer.statusHasBeenReceived(requestConnection)).thenReturn(true);
     when(ethPeer.validateReceivedMessage(any(EthMessage.class), eq(SnapProtocol.NAME)))
         .thenReturn(true);
     doAnswer(
@@ -143,6 +146,25 @@ class SnapProtocolManagerTest {
         SnapProtocol.SNAP1, new DefaultMessage(requestConnection, request));
 
     verify(ethPeer).send(any(MessageData.class), eq(SnapProtocol.NAME), same(requestConnection));
+  }
+
+  @Test
+  void disconnectsConnectionThatSendsSnapMessageBeforeStatus() {
+    final PeerConnection selectedConnection = mock(PeerConnection.class);
+    final PeerConnection requestConnection = mock(PeerConnection.class);
+    final MessageData request = new RawMessage(SnapV1.GET_ACCOUNT_RANGE, Bytes.EMPTY);
+
+    when(ethPeers.peer(requestConnection)).thenReturn(ethPeer);
+    when(ethPeer.getConnection()).thenReturn(selectedConnection);
+    when(ethPeer.statusHasBeenReceived(requestConnection)).thenReturn(false);
+
+    snapProtocolManager.processMessage(
+        SnapProtocol.SNAP1, new DefaultMessage(requestConnection, request));
+
+    verify(requestConnection)
+        .disconnect(DisconnectReason.BREACH_OF_PROTOCOL_RECEIVED_OTHER_MESSAGE_BEFORE_STATUS);
+    verify(selectedConnection, never())
+        .disconnect(DisconnectReason.BREACH_OF_PROTOCOL_RECEIVED_OTHER_MESSAGE_BEFORE_STATUS);
   }
 
   private SnapProtocolManager createSnapProtocolManager() {
