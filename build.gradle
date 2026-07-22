@@ -480,13 +480,25 @@ configure(allprojects - project(':platform')) {
   }
 }
 
-// Resolves the "sources" documentation variant of a configuration the same way IDEs
-// (e.g. IntelliJ's Gradle sync) do. Unlike the legacy ArtifactResolutionQuery API, this goes
-// through real dependency resolution, so it is subject to dependency verification - which is
-// exactly why it must be used here: it is the only way to reproduce, from the command line,
-// the checksum failures IDEs hit on refresh.
+// IntelliJ's Gradle sync resolves sources through two different mechanisms depending on how a
+// component is published, and either one can fail dependency verification on refresh - so both
+// have to be reproduced/checked here, or missing checksums for one style silently slip through:
+//
+// 1. The "sources" documentation variant, for components that publish Gradle Module Metadata
+//    declaring it (e.g. jackson, netty's regular jars).
+// 2. The legacy ArtifactResolutionQuery/SourcesArtifact API, for components published only via
+//    a plain Maven POM with a "-sources.jar" classifier convention (e.g. the besu-native
+//    artifacts, netty's native-transport jars, reactor-core).
 ext.forEachProjectSourceArtifact = { Project proj, Closure action ->
-  proj.configurations.matching { it.canBeResolved }.each { cfg ->
+  def resolvableConfigs = proj.configurations.matching { it.canBeResolved }
+  def seen = new HashSet()
+  def guardedAction = { id, artifact ->
+    if (seen.add(id)) {
+      action(id, artifact)
+    }
+  }
+
+  resolvableConfigs.each { cfg ->
     try {
       def view = cfg.incoming.artifactView {
         withVariantReselection()
@@ -496,7 +508,7 @@ ext.forEachProjectSourceArtifact = { Project proj, Closure action ->
         }
         lenient(true)
       }
-      view.artifacts.each { artifact -> action(artifact.id.componentIdentifier, artifact) }
+      view.artifacts.each { artifact -> guardedAction(artifact.id.componentIdentifier, artifact) }
     } catch (Exception e) {
       // A checksum mismatch/missing entry must fail the build - swallowing it here is exactly
       // how this class of bug used to slip past CI while still breaking IDE Gradle syncs.
@@ -505,6 +517,34 @@ ext.forEachProjectSourceArtifact = { Project proj, Closure action ->
       }
       logger.info("Could not resolve sources for ${proj.path} config '${cfg.name}': ${e.message}")
     }
+  }
+
+  def componentIds = new HashSet()
+  resolvableConfigs.each { cfg ->
+    try {
+      cfg.incoming.resolutionResult.allComponents.each { c -> componentIds.add(c.id) }
+    } catch (Exception e) {
+      logger.info("Could not resolve ${proj.path} config '${cfg.name}': ${e.message}")
+    }
+  }
+  def externalIds = componentIds.findAll { it instanceof ModuleComponentIdentifier }
+  try {
+    def result = proj.dependencies.createArtifactResolutionQuery()
+      .forComponents(externalIds)
+      .withArtifacts(JvmLibrary, SourcesArtifact)
+      .execute()
+    result.resolvedComponents.each { component ->
+      component.getArtifacts(SourcesArtifact).each { source ->
+        if (source instanceof ResolvedArtifactResult) {
+          guardedAction(component.id, source)
+        }
+      }
+    }
+  } catch (Exception e) {
+    if (e.message?.contains('Dependency verification failed')) {
+      throw e
+    }
+    logger.info("Could not resolve legacy sources for ${proj.path}: ${e.message}")
   }
 }
 
