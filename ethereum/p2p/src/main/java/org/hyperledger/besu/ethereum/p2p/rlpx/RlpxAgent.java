@@ -234,7 +234,10 @@ public class RlpxAgent {
   }
 
   /**
-   * Connect to the peer, recording the originating source for metrics.
+   * Connect to the peer, recording the originating source for metrics. The source counter is only
+   * incremented for a genuinely new outbound attempt - not for a call that is coalesced onto an
+   * already in-flight connection to the same peer, nor for one rejected before an attempt is ever
+   * made (not ready, not listening, not permitted, or gated).
    *
    * @param peer The peer to connect to
    * @param source The originating source of this connection attempt
@@ -242,8 +245,7 @@ public class RlpxAgent {
    *     peer.
    */
   public CompletableFuture<PeerConnection> connect(final Peer peer, final ConnectSource source) {
-    connectAttemptCounter.labels(source.label()).inc();
-    return connect(peer);
+    return connect(peer, () -> connectAttemptCounter.labels(source.label()).inc());
   }
 
   /**
@@ -254,6 +256,10 @@ public class RlpxAgent {
    *     peer.
    */
   public CompletableFuture<PeerConnection> connect(final Peer peer) {
+    return connect(peer, () -> {});
+  }
+
+  private CompletableFuture<PeerConnection> connect(final Peer peer, final Runnable onNewAttempt) {
     // Check if we're ready to establish connections
     if (!localNode.isReady()) {
       return CompletableFuture.failedFuture(
@@ -284,7 +290,11 @@ public class RlpxAgent {
         synchronized (this) {
           peerConnectionCompletableFuture =
               peersConnectingCache.get(
-                  peer.getId(), () -> createPeerConnectionCompletableFuture(peer));
+                  peer.getId(),
+                  () -> {
+                    onNewAttempt.run();
+                    return createPeerConnectionCompletableFuture(peer);
+                  });
         }
       } catch (final ExecutionException e) {
         throw new RuntimeException(e);

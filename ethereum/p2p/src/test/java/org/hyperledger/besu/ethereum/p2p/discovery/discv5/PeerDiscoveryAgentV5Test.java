@@ -47,6 +47,7 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Stream;
 
 import org.awaitility.Awaitility;
@@ -480,7 +481,7 @@ class PeerDiscoveryAgentV5Test {
   }
 
   @Test
-  void discoveryRoundFailure_incrementsTimeoutOutcomeCounter() throws Exception {
+  void discoveryRoundNonTimeoutFailure_incrementsErrorOutcomeCounter() throws Exception {
     final StubMetricsSystem stubMetrics = new StubMetricsSystem();
     when(mockSystem.start()).thenReturn(CompletableFuture.completedFuture(null));
     when(mockSystem.searchForNewPeers())
@@ -504,9 +505,44 @@ class PeerDiscoveryAgentV5Test {
           .atMost(3, TimeUnit.SECONDS)
           .untilAsserted(
               () ->
+                  assertThat(stubMetrics.getCounterValue("discv5_discovery_round_total", "error"))
+                      .isGreaterThanOrEqualTo(1));
+      assertThat(stubMetrics.getCounterValue("discv5_discovery_round_total", "success")).isZero();
+      assertThat(stubMetrics.getCounterValue("discv5_discovery_round_total", "timeout")).isZero();
+    } finally {
+      metricsAgent.stop();
+    }
+  }
+
+  @Test
+  void discoveryRoundTimeout_incrementsTimeoutOutcomeCounter() throws Exception {
+    final StubMetricsSystem stubMetrics = new StubMetricsSystem();
+    when(mockSystem.start()).thenReturn(CompletableFuture.completedFuture(null));
+    when(mockSystem.searchForNewPeers())
+        .thenReturn(CompletableFuture.failedFuture(new TimeoutException("round timed out")));
+
+    final PeerDiscoveryAgentV5 metricsAgent =
+        new PeerDiscoveryAgentV5(
+            config,
+            PeerPermissions.NOOP,
+            forkIdManager,
+            nodeRecordManager,
+            rlpxAgent,
+            stubMetrics,
+            false,
+            (nodeRecord, listener) -> mockSystem);
+    try {
+      metricsAgent.start(1234).get();
+
+      Awaitility.await()
+          .pollInterval(50, TimeUnit.MILLISECONDS)
+          .atMost(3, TimeUnit.SECONDS)
+          .untilAsserted(
+              () ->
                   assertThat(stubMetrics.getCounterValue("discv5_discovery_round_total", "timeout"))
                       .isGreaterThanOrEqualTo(1));
       assertThat(stubMetrics.getCounterValue("discv5_discovery_round_total", "success")).isZero();
+      assertThat(stubMetrics.getCounterValue("discv5_discovery_round_total", "error")).isZero();
     } finally {
       metricsAgent.stop();
     }

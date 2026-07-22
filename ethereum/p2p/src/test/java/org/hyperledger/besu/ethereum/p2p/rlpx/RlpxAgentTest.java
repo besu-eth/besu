@@ -199,6 +199,34 @@ public class RlpxAgentTest {
   }
 
   @Test
+  public void connectWithSource_coalescedDuplicateConnectDoesNotDoubleCount() {
+    connectionInitializer.setAutocompleteConnections(false);
+    final RlpxAgent sourceAwareAgent = agentWithCapturingMetrics();
+    sourceAwareAgent.start();
+    localNode.setEnode(enodeBuilder().build());
+
+    final Peer peer = createPeer();
+    sourceAwareAgent.connect(peer, ConnectSource.DISCV5);
+    sourceAwareAgent.connect(peer, ConnectSource.DISCV5);
+
+    assertThat(attemptCounts.get(ConnectSource.DISCV5.label()).get()).isEqualTo(1);
+  }
+
+  @Test
+  public void connectWithSource_rejectedBeforeAttemptDoesNotIncrementCounter() {
+    final RlpxAgent sourceAwareAgent = agentWithCapturingMetrics();
+    sourceAwareAgent.start();
+    localNode.setEnode(enodeBuilder().build());
+
+    final Peer notListeningPeer =
+        DefaultPeer.fromEnodeURL(enodeBuilder().disableListening().build());
+    sourceAwareAgent.connect(notListeningPeer, ConnectSource.DISCV5);
+
+    assertThat(attemptCounts.getOrDefault(ConnectSource.DISCV5.label(), new AtomicLong()).get())
+        .isZero();
+  }
+
+  @Test
   public void connect_success_recordsSuccessOutcome() {
     final RlpxAgent outcomeAwareAgent = agentWithCapturingMetrics();
     outcomeAwareAgent.start();

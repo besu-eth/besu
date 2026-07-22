@@ -43,6 +43,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
@@ -461,10 +462,12 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
                 discoveryRoundDurationHistogram.observe(
                     (System.nanoTime() - startNanos) / 1_000_000_000.0);
                 if (error != null) {
-                  // Failures observed live are overwhelmingly discv5-library recursive-lookup
-                  // timeouts (see the discv5-discovery-timeout fix); a single "timeout" outcome
-                  // keeps the label set small while still surfacing round-failure rate.
-                  discoveryRoundOutcomeCounter.labels("timeout").inc();
+                  // orTimeout() completes this stage directly with an unwrapped TimeoutException
+                  // when the configured round timeout elapses first; any other exception is a
+                  // genuine discovery-system failure, not a timeout.
+                  discoveryRoundOutcomeCounter
+                      .labels(error instanceof TimeoutException ? "timeout" : "error")
+                      .inc();
                   LOG.warn("DiscV5 peer discovery failed", error);
                   return;
                 }

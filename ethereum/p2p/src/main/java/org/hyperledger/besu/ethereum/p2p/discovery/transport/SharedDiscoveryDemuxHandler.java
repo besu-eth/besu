@@ -92,6 +92,7 @@ final class SharedDiscoveryDemuxHandler extends SimpleChannelInboundHandler<Data
   protected void channelRead0(final ChannelHandlerContext ctx, final DatagramPacket msg) {
     final int size = msg.content().readableBytes();
     if (size < MIN_PACKET_SIZE) {
+      counters.dropped().inc();
       LOG.trace("Dropping too-small packet ({} bytes) from {}", size, msg.sender());
       return;
     }

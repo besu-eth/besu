@@ -226,12 +226,12 @@ public class SharedDiscoveryDemuxHandlerTest {
   }
 
   @Test
-  public void doesNotIncrementAnyCounterForTooSmallPacket() {
+  public void incrementsDroppedCounterForTooSmallPacket() {
     final EmbeddedChannel channel = newChannel(true, true);
     channel.writeInbound(randomPacket(62));
 
     assertThat(v4Count.get()).isZero();
     assertThat(v5Count.get()).isZero();
-    assertThat(droppedCount.get()).isZero();
+    assertThat(droppedCount.get()).isEqualTo(1);
   }
 }
