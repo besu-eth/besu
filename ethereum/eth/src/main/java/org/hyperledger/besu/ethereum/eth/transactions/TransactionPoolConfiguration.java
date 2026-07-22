@@ -93,6 +93,11 @@ public interface TransactionPoolConfiguration {
   Percentage DEFAULT_PRICE_BUMP = Percentage.fromInt(10);
   Percentage DEFAULT_BLOB_PRICE_BUMP = Percentage.fromInt(100);
   Wei DEFAULT_RPC_TX_FEE_CAP = Wei.fromEth(1);
+  // Mirrors the RPC fee cap default. Note that a value of 0 does NOT disable capping: it caps fees
+  // to 0 (rejecting any transaction with a positive gas price), consistent with the RPC fee cap.
+  // The 1 ETH default is effectively non-capping for real traffic (the cap is compared against the
+  // per-gas price), so it does not change behaviour for existing networks.
+  Wei DEFAULT_P2P_TX_FEE_CAP = Wei.fromEth(1);
   boolean DEFAULT_NO_LOCAL_PRIORITY = false;
   boolean DEFAULT_ENABLE_SAVE_RESTORE = false;
   File DEFAULT_SAVE_FILE = new File(DEFAULT_SAVE_FILE_NAME);
@@ -143,6 +148,11 @@ public interface TransactionPoolConfiguration {
   @Value.Default
   default Wei getTxFeeCap() {
     return DEFAULT_RPC_TX_FEE_CAP;
+  }
+
+  @Value.Default
+  default Wei getP2pTxFeeCap() {
+    return DEFAULT_P2P_TX_FEE_CAP;
   }
 
   @Value.Default

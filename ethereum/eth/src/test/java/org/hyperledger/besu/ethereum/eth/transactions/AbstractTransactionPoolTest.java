@@ -574,12 +574,85 @@ public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoo
     final Transaction remoteTransaction = createTransaction(0, twoEthers.add(1));
     final Set<Address> prioritySenders =
         hasPriority ? Set.of(remoteTransaction.getSender()) : Set.of();
+    // the RPC fee cap (txFeeCap) must not gate remote txs; keep the P2P cap high enough to admit
+    // this transaction so we isolate that behaviour
     transactionPool =
-        createTransactionPool(b -> b.txFeeCap(twoEthers).prioritySenders(prioritySenders));
+        createTransactionPool(
+            b ->
+                b.txFeeCap(twoEthers).p2pTxFeeCap(Wei.fromEth(3)).prioritySenders(prioritySenders));
 
     givenTransactionIsValid(remoteTransaction);
 
     addAndAssertRemoteTransactionsValid(hasPriority, remoteTransaction);
+  }
+
+  @Test
+  public void shouldRejectRemoteTransactionIfP2pFeeCapExceeded() {
+    final Wei twoEthers = Wei.fromEth(2);
+    transactionPool = createTransactionPool(b -> b.p2pTxFeeCap(twoEthers));
+
+    final Transaction remoteTransaction = createTransaction(0, twoEthers.add(1));
+
+    givenTransactionIsValid(remoteTransaction);
+
+    // rejected at admission, so neither pooled nor gossiped onward
+    addAndAssertRemoteTransactionInvalid(remoteTransaction);
+  }
+
+  @Test
+  public void shouldAcceptRemoteTransactionIfP2pFeeCapNotExceeded() {
+    final Wei twoEthers = Wei.fromEth(2);
+    transactionPool = createTransactionPool(b -> b.p2pTxFeeCap(twoEthers));
+
+    final Transaction remoteTransaction = createTransaction(0, twoEthers);
+
+    givenTransactionIsValid(remoteTransaction);
+
+    addAndAssertRemoteTransactionsValid(remoteTransaction);
+  }
+
+  @Test
+  public void shouldRejectRemoteTransactionWithPositiveFeeWhenP2pFeeCapIsZero() {
+    // A zero P2P fee cap means "cap fees to zero", not "disable capping".
+    transactionPool = createTransactionPool(b -> b.p2pTxFeeCap(Wei.ZERO).minGasPrice(Wei.ZERO));
+
+    final Transaction remoteTransaction = createTransaction(0, Wei.of(1));
+
+    givenTransactionIsValid(remoteTransaction);
+
+    addAndAssertRemoteTransactionInvalid(remoteTransaction);
+  }
+
+  @Test
+  public void shouldAcceptRemoteZeroFeeTransactionWhenP2pFeeCapIsZero() {
+    // A zero P2P fee cap still admits zero-gas-price transactions (fee <= cap of zero).
+    transactionPool = createTransactionPool(b -> b.p2pTxFeeCap(Wei.ZERO).minGasPrice(Wei.ZERO));
+
+    final Transaction remoteTransaction = createTransaction(0, Wei.ZERO);
+
+    givenTransactionIsValid(remoteTransaction);
+
+    addAndAssertRemoteTransactionsValid(remoteTransaction);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  public void shouldAcceptLocalTransactionEvenIfP2pFeeCapExceeded(final boolean noLocalPriority) {
+    // the P2P fee cap must not leak into the local (RPC) path; use a high local cap so this holds
+    // regardless of the local cap's zero-semantics
+    final Wei twoEthers = Wei.fromEth(2);
+    transactionPool =
+        createTransactionPool(
+            b ->
+                b.p2pTxFeeCap(twoEthers)
+                    .txFeeCap(Wei.fromEth(10))
+                    .noLocalPriority(noLocalPriority));
+
+    final Transaction localTransaction = createTransaction(0, twoEthers.add(1));
+
+    givenTransactionIsValid(localTransaction);
+
+    addAndAssertTransactionViaApiValid(localTransaction, noLocalPriority);
   }
 
   @ParameterizedTest

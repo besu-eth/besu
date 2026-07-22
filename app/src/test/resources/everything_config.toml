@@ -186,6 +186,7 @@ tx-pool="layered"
 tx-pool-price-bump=13
 tx-pool-blob-price-bump=100
 rpc-tx-feecap=2000000000000000000
+p2p-tx-feecap=2000000000000000000
 strict-tx-replay-protection-enabled=true
 tx-pool-no-local-priority=false
 tx-pool-priority-senders=["0xABC0000000000000000000000000000000001234","0xDEF0000000000000000000000000000000001234"]

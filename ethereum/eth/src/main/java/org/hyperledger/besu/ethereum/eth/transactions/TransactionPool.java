@@ -505,8 +505,14 @@ public class TransactionPool implements BlockAddedObserver {
       final FeeMarket feeMarket) {
 
     if (isLocal) {
+      // Local (RPC) fee cap
       if (!configuration.getTxFeeCap().isZero()
           && getMaxGasPrice(transaction).get().greaterThan(configuration.getTxFeeCap())) {
+        return TransactionInvalidReason.TX_FEECAP_EXCEEDED;
+      }
+    } else {
+      // Remote (P2P) fee cap
+      if (getMaxGasPrice(transaction).get().greaterThan(configuration.getP2pTxFeeCap())) {
         return TransactionInvalidReason.TX_FEECAP_EXCEEDED;
       }
     }
