@@ -78,6 +78,8 @@ public class ConfigurationOverviewBuilder {
   private Long targetGasLimit;
   private Integer maxBlobsPerTransaction;
   private Integer maxBlobsPerBlock;
+  private Integer rocksDbMaxOpenFiles;
+  private boolean rocksDbMaxOpenFilesExplicitlySet;
   private static final String SNAP_SYNC_MODE = "SNAP";
 
   /**
@@ -437,6 +439,20 @@ public class ConfigurationOverviewBuilder {
   }
 
   /**
+   * Sets the RocksDB max open files value and whether it was explicitly set via CLI.
+   *
+   * @param maxOpenFiles the max open files value
+   * @param explicitlySet true if the value was set via CLI, false if derived from available memory
+   * @return the builder
+   */
+  public ConfigurationOverviewBuilder setRocksDbMaxOpenFiles(
+      final int maxOpenFiles, final boolean explicitlySet) {
+    this.rocksDbMaxOpenFiles = maxOpenFiles;
+    this.rocksDbMaxOpenFilesExplicitlySet = explicitlySet;
+    return this;
+  }
+
+  /**
    * Sets the chain pruning configuration.
    *
    * @param pruningStrategy the chain pruning strategy
@@ -486,6 +502,15 @@ public class ConfigurationOverviewBuilder {
 
     if (dataStorage != null) {
       lines.add("Data storage: " + dataStorage);
+    }
+
+    if (rocksDbMaxOpenFiles != null) {
+      lines.add(
+          "RocksDB max open files: "
+              + rocksDbMaxOpenFiles
+              + (rocksDbMaxOpenFilesExplicitlySet
+                  ? " (set)"
+                  : " (derived from available resources)"));
     }
 
     if (syncMode != null) {

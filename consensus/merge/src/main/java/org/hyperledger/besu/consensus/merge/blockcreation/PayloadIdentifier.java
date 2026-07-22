@@ -55,6 +55,55 @@ public class PayloadIdentifier implements Quantity {
    * Create payload identifier for payload params. This is a deterministic hash of all payload
    * parameters that aims to avoid collisions
    *
+   * @param preparePayloadArgs the payload parameters
+   * @return the payload identifier
+   */
+  public static PayloadIdentifier forPayloadParams(
+      final MergeMiningCoordinator.PreparePayloadArgs preparePayloadArgs) {
+
+    // normally timestamp and parentHash should be enough to uniquely identify a payload
+    // but in special cases, reorgs, CL configuration changes (feeRecipient), or other edge case
+    // reasons CL may change other params, so for extra safety we include all the fields in
+    // the payload generation process
+
+    final long parentBeaconBlockRootPart =
+        preparePayloadArgs
+            .parentBeaconBlockRoot()
+            .map(b32 -> (long) b32.hashCode())
+            .orElse(Long.MAX_VALUE);
+
+    // for withdrawals the order in the list is not important so we sum all the hashCode
+    final long withdrawalPart =
+        preparePayloadArgs
+            .withdrawals()
+            .map(ws -> ws.stream().mapToLong(Withdrawal::hashCode).sum())
+            .orElse(-1L);
+
+    final long slotNumberPart = preparePayloadArgs.slotNumber().orElse(-1L);
+
+    final long targetGasLimitPart = preparePayloadArgs.targetGasLimit().orElse(-1L);
+
+    // we finally spread all the values over 64bit, rotating only values where the shift could lose
+    // bits
+    return new PayloadIdentifier(
+        preparePayloadArgs.timestamp()
+            ^ ((long) preparePayloadArgs.parentHeader().getHash().getBytes().hashCode()) << 8
+            ^ ((long) preparePayloadArgs.prevRandao().hashCode()) << 16
+            ^ ((long) preparePayloadArgs.feeRecipient().getBytes().hashCode()) << 24
+            ^ parentBeaconBlockRootPart << 32
+            ^ slotNumberPart << 40
+            ^ slotNumberPart >> 24
+            ^ withdrawalPart << 48
+            ^ withdrawalPart >> 16
+            ^ targetGasLimitPart << 56
+            ^ targetGasLimitPart >> 8);
+  }
+
+  /**
+   * TRANSITIONAL SHIM (removed in the getPayload migration PR): positional overload kept so
+   * not-yet-migrated engine getPayload tests keep compiling alongside the {@link
+   * MergeMiningCoordinator.PreparePayloadArgs} form.
+   *
    * @param parentHash the parent hash
    * @param timestamp the timestamp
    * @param prevRandao the prev randao
@@ -74,19 +123,10 @@ public class PayloadIdentifier implements Quantity {
       final Optional<Bytes32> parentBeaconBlockRoot,
       final Optional<Long> slotNumber,
       final Optional<Long> targetGasLimit) {
-
-    // normally timestamp and parentHash should be enough to uniquely identify a payload
-    // but in special cases, reorgs, CL configuration changes (feeRecipient), or other edge case
-    // reasons CL may change other params, so for extra safety we include all the fields in
-    // the payload generation process
-
     final long parentBeaconBlockRootPart =
         parentBeaconBlockRoot.map(b32 -> (long) b32.hashCode()).orElse(Long.MAX_VALUE);
-
-    // for withdrawals the order in the list is not important so we sum all the hashCode
     final long withdrawalPart =
         withdrawals.map(ws -> ws.stream().mapToLong(Withdrawal::hashCode).sum()).orElse(-1L);
-
     final long slotNumberPart = slotNumber.orElse(-1L);
 
     final long targetGasLimitPart = targetGasLimit.orElse(-1L);

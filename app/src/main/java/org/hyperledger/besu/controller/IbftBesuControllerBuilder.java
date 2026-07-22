@@ -285,7 +285,8 @@ public class IbftBesuControllerBuilder extends BesuControllerBuilder {
         badBlockManager,
         isParallelTxProcessingEnabled,
         balConfiguration,
-        metricsSystem);
+        metricsSystem,
+        genesisConfig.getGasLimit());
   }
 
   @Override

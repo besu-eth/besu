@@ -189,10 +189,6 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
     params.add("--discovery-enabled");
     params.add(Boolean.toString(node.isDiscoveryEnabled()));
 
-    if (node.getNetworkingConfiguration().discoveryConfiguration().isDiscoveryV5Enabled()) {
-      params.add("--Xv5-discovery-enabled");
-    }
-
     params.add("--p2p-host");
     params.add(node.p2pListenHost());
 

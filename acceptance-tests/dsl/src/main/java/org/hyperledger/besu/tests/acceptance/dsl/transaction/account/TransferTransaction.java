@@ -51,6 +51,7 @@ public class TransferTransaction implements Transaction<Hash> {
   private final Optional<BigInteger> chainId;
   private final SignatureAlgorithm signatureAlgorithm;
   private final TransactionType transactionType;
+  private final Optional<BigInteger> gasLimit;
   private byte[] signedTxData = null;
 
   public TransferTransaction(
@@ -61,7 +62,8 @@ public class TransferTransaction implements Transaction<Hash> {
       final BigInteger nonce,
       final Optional<BigInteger> chainId,
       final SignatureAlgorithm signatureAlgorithm,
-      final TransactionType transactionType) {
+      final TransactionType transactionType,
+      final Optional<BigInteger> gasLimit) {
     this.sender = sender;
     this.recipient = recipient;
     this.transferAmount = transferAmount.getValue();
@@ -71,6 +73,7 @@ public class TransferTransaction implements Transaction<Hash> {
     this.chainId = chainId;
     this.signatureAlgorithm = signatureAlgorithm;
     this.transactionType = transactionType;
+    this.gasLimit = gasLimit;
   }
 
   @Override
@@ -133,7 +136,7 @@ public class TransferTransaction implements Transaction<Hash> {
     return RawTransaction.createEtherTransaction(
         getNonce(),
         gasPrice,
-        INTRINSIC_GAS,
+        gasLimit.orElse(INTRINSIC_GAS),
         recipient.getAddress(),
         Convert.toWei(transferAmount, transferUnit).toBigIntegerExact());
   }
@@ -142,7 +145,7 @@ public class TransferTransaction implements Transaction<Hash> {
     return RawTransaction.createEtherTransaction(
         chainId.longValueExact(),
         getNonce(),
-        INTRINSIC_GAS,
+        gasLimit.orElse(INTRINSIC_GAS),
         recipient.getAddress(),
         Convert.toWei(transferAmount, transferUnit).toBigIntegerExact(),
         BigInteger.ZERO,
