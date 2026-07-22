@@ -89,7 +89,6 @@ import org.hyperledger.besu.cli.util.ConfigDefaultValueProviderStrategy;
 import org.hyperledger.besu.cli.util.VersionProvider;
 import org.hyperledger.besu.components.BesuComponent;
 import org.hyperledger.besu.config.CheckpointConfigOptions;
-import org.hyperledger.besu.config.DiscoveryOptions;
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.config.JsonUtil;
@@ -127,6 +126,8 @@ import org.hyperledger.besu.ethereum.eth.transactions.ImmutableTransactionPoolCo
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.DiscoveryConfiguration;
+import org.hyperledger.besu.ethereum.p2p.config.DiscoveryMode;
+import org.hyperledger.besu.ethereum.p2p.config.DiscoveryModeResolver;
 import org.hyperledger.besu.ethereum.p2p.discovery.NodeIdentifier;
 import org.hyperledger.besu.ethereum.p2p.discovery.P2PDiscoveryConfiguration;
 import org.hyperledger.besu.ethereum.p2p.discovery.dns.EthereumNodeRecord;
@@ -225,6 +226,7 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import com.fasterxml.jackson.core.StreamReadConstraints;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -2426,6 +2428,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .allowedSubnets(p2PDiscoveryConfig.allowedSubnets())
             .poaDiscoveryRetryBootnodes(p2PDiscoveryConfig.poaDiscoveryRetryBootnodes())
             .preferIpv6Outbound(p2PDiscoveryConfig.preferIpv6Outbound())
+            .discoveryMode(p2PDiscoveryConfig.discoveryMode())
             .transactionValidatorService(transactionValidatorServiceImpl)
             .build();
 
@@ -2533,12 +2536,12 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       discoveryDnsUrlFromGenesis.ifPresent(builder::setDnsDiscoveryUrl);
     }
 
+    // clear enr/enode bootnodes that may be pre-populated in the builder based on default network.
+    builder.setEnrBootNodes(Collections.emptyList());
+    builder.setEnodeBootNodes(Collections.emptyList());
+
     // Resolve bootnodes: CLI --bootnodes overrides genesis defaults.
-    // The discovery protocol version determines the expected format:
-    //   V5 → ENR strings ("enr:..."),  V4 → enode URLs ("enode://...")
-    final boolean isV5 =
-        unstableNetworkingOptions.toDomainObject().discoveryConfiguration().isDiscoveryV5Enabled();
-    List<String> rawBootnodes = null;
+    final List<String> rawBootnodes;
     final boolean cliBootnodesProvided = p2PDiscoveryOptions.bootNodes != null;
     if (cliBootnodesProvided) {
       try {
@@ -2547,62 +2550,60 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         throw new ParameterException(commandLine, e.getMessage(), e);
       }
     } else {
-      final DiscoveryOptions discoveryOptions =
-          genesisConfigOptionsSupplier.get().getDiscoveryOptions();
       rawBootnodes =
-          isV5
-              ? discoveryOptions.getV5BootNodes().orElse(null)
-              : discoveryOptions.getBootNodes().orElse(null);
+          genesisConfigOptionsSupplier.get().getDiscoveryOptions().getBootNodes().orElse(null);
     }
 
-    if (rawBootnodes != null && !rawBootnodes.isEmpty()) {
-      if (!p2PDiscoveryOptions.peerDiscoveryEnabled) {
-        logger.warn("Discovery disabled: bootnodes will be ignored.");
-      }
-      try {
-        if (isV5) {
-          builder.setEnrBootNodes(
-              rawBootnodes.stream()
-                  .map(
-                      enr -> {
-                        try {
-                          return EthereumNodeRecord.fromEnr(enr);
-                        } catch (final Exception e) {
-                          throw new ParameterException(
-                              commandLine,
-                              "Invalid ENR bootnode: '"
-                                  + enr
-                                  + "'. ENR bootnodes must start with 'enr:'. Error: "
-                                  + e.getMessage(),
-                              e);
-                        }
-                      })
-                  .toList());
-        } else {
-          final List<EnodeURLImpl> enodes = buildEnodes(rawBootnodes, getEnodeDnsConfiguration());
-          DiscoveryConfiguration.assertValidBootnodes(enodes);
-          builder.setEnodeBootNodes(enodes);
-        }
-        // CLI --bootnodes is a full override: clear the unused protocol's list
-        if (cliBootnodesProvided) {
-          if (isV5) {
-            builder.setEnodeBootNodes(Collections.emptyList());
-          } else {
-            builder.setEnrBootNodes(Collections.emptyList());
-          }
-        }
-      } catch (final ParameterException e) {
-        throw e; // re-throw ParameterException from ENR parsing as-is
-      } catch (final IllegalArgumentException e) {
-        throw new ParameterException(commandLine, e.getMessage());
-      } catch (final RuntimeException e) {
-        throw new ParameterException(commandLine, "Invalid bootnode format: " + e.getMessage(), e);
-      }
-    } else if (cliBootnodesProvided) {
-      // Explicitly empty --bootnodes clears all default bootnodes
-      builder.setEnodeBootNodes(Collections.emptyList());
-      builder.setEnrBootNodes(Collections.emptyList());
+    // if resolved bootnodes are null/empty build and return early
+    if (rawBootnodes == null || rawBootnodes.isEmpty()) {
+      return builder.build();
     }
+
+    if (!p2PDiscoveryOptions.peerDiscoveryEnabled) {
+      logger.warn("Discovery disabled: bootnodes will be ignored.");
+    }
+
+    // separate enr/enodes from resolved raw bootnodes.
+    try {
+      final List<EthereumNodeRecord> enrBootnodes = new ArrayList<>();
+      final List<EnodeURLImpl> enodeBootnodes = new ArrayList<>();
+
+      for (final String entry : rawBootnodes) {
+        if (entry == null || entry.isBlank()) {
+          // Silently skip, matching BootnodeResolver's precedent for the CLI --bootnodes path -
+          // this loop also serves the genesis-file bootnodes path, which isn't pre-filtered.
+          continue;
+        }
+        try {
+          if (entry.startsWith("enr:")) {
+            enrBootnodes.add(EthereumNodeRecord.fromEnr(entry));
+          } else {
+            enodeBootnodes.add(EnodeURLImpl.fromString(entry, getEnodeDnsConfiguration()));
+          }
+        } catch (final Exception e) {
+          throw new ParameterException(
+              commandLine, "Invalid bootnode: '" + entry + "'. Error: " + e.getMessage(), e);
+        }
+      }
+
+      // additional validation that bootnodes have discovery ports in it
+      DiscoveryConfiguration.assertValidBootnodes(
+          Stream.concat(enodeBootnodes.stream(), enrBootnodes.stream()));
+
+      builder.setEnrBootNodes(enrBootnodes);
+      builder.setEnodeBootNodes(enodeBootnodes);
+
+      if (p2PDiscoveryOptions.peerDiscoveryEnabled) {
+        warnOnBootnodeMismatch(p2PDiscoveryOptions.discoveryMode, enrBootnodes, enodeBootnodes);
+      }
+    } catch (final ParameterException e) {
+      throw e; // re-throw ParameterException from ENR parsing as-is
+    } catch (final IllegalArgumentException e) {
+      throw new ParameterException(commandLine, e.getMessage());
+    } catch (final RuntimeException e) {
+      throw new ParameterException(commandLine, "Invalid bootnode format: " + e.getMessage(), e);
+    }
+
     return builder.build();
   }
 
@@ -2656,12 +2657,30 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     return staticNodes;
   }
 
-  private List<EnodeURLImpl> buildEnodes(
-      final List<String> bootNodes, final EnodeDnsConfiguration enodeDnsConfiguration) {
-    return bootNodes.stream()
-        .filter(bootNode -> !bootNode.isEmpty())
-        .map(bootNode -> EnodeURLImpl.fromString(bootNode, enodeDnsConfiguration))
-        .collect(Collectors.toList());
+  private void warnOnBootnodeMismatch(
+      final DiscoveryMode mode,
+      final List<EthereumNodeRecord> enrBootnodes,
+      final List<EnodeURLImpl> enodeBootnodes) {
+    // Same resolution CompositePeerDiscoveryAgentFactory uses, so this can't warn about a
+    // protocol that already silently fell back (e.g. V5 without a secp256k1 key).
+    final DiscoveryModeResolver.Resolution resolution =
+        DiscoveryModeResolver.resolve(mode, DiscoveryModeResolver.isV5CurveSupported());
+    final boolean v5Active = resolution.v5Enabled();
+    final boolean v4Active = resolution.v4Enabled();
+    if (v5Active && enrBootnodes.isEmpty() && !enodeBootnodes.isEmpty()) {
+      logger.warn(
+          "--discovery-mode={} but no ENR (enr:) bootnodes provided; "
+              + "DiscV5 will start with no bootstrap peers. "
+              + "Add ENR bootnodes for DiscV5 peer discovery.",
+          mode);
+    }
+    if (v4Active && enodeBootnodes.isEmpty() && !enrBootnodes.isEmpty()) {
+      logger.warn(
+          "--discovery-mode={} but no enode:// bootnodes provided; "
+              + "DiscV4 will start with no bootstrap peers. "
+              + "Add enode:// bootnodes for DiscV4 peer discovery.",
+          mode);
+    }
   }
 
   /**
@@ -2984,7 +3003,9 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         .setEvmV2(unstableEvmOptions.toDomainObject().enableEvmV2())
         .setPluginContext(this.besuPluginContext)
         .setHistoryExpiryPruneEnabled(getDataStorageConfiguration().getHistoryExpiryPruneEnabled())
-        .setBlobDBSettings(rocksDBPlugin.getBlobDBSettings());
+        .setBlobDBSettings(rocksDBPlugin.getBlobDBSettings())
+        .setRocksDbMaxOpenFiles(
+            rocksDBPlugin.getResolvedMaxOpenFiles(), rocksDBPlugin.isMaxOpenFilesExplicitlySet());
 
     return builder.build();
   }

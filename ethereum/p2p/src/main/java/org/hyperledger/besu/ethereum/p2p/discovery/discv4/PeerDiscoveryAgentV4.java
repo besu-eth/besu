@@ -169,8 +169,11 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
 
   /**
    * Wires the V4 inbound handler and lazily initialises worker + dispatch executors. Idempotent.
+   * The composite agent calls this on every sub-agent before binding the shared UDP transport so
+   * packets arriving during the bind → start window are not dropped.
    */
-  private void prepareHandlers() {
+  @Override
+  public void prepareHandlers() {
     if (workerExecutor == null) {
       workerExecutor = createWorkerExecutor();
     }
@@ -194,10 +197,6 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
     }
     final InetSocketAddress recipient =
         new InetSocketAddress(peer.getEnodeURL().getIpAsString(), peer.getEndpoint().getUdpPort());
-    if (recipient.getAddress() instanceof java.net.Inet6Address) {
-      LOG.trace("Skipping IPv6 peer {} (IPv4-only transport)", peer);
-      return CompletableFuture.completedFuture(null);
-    }
     return transport.send(recipient, packetSerializer.encode(packet));
   }
 
@@ -244,9 +243,9 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
   }
 
   @Override
-  public CompletableFuture<Integer> start(final int tcpPort) {
+  public CompletableFuture<Integer> start(final int rlpxTcpPort) {
     // Note: no idempotency guard at this level. Tests legitimately re-invoke start() with a
-    // different tcpPort to control the NodeRecord, and production paths only ever single-start.
+    // different rlpxTcpPort to control the NodeRecord, and production paths only ever single-start.
     // The transport itself enforces a single-bind invariant via its own start guard.
     if (config.isEnabled()) {
       final String host = config.getBindHost();
@@ -265,9 +264,21 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
               (InetSocketAddress localAddress) -> {
                 // Once listener is set up, finish initializing
                 final int discoveryPort = localAddress.getPort();
-                nodeRecordManager.initializeLocalNode(
-                    new HostEndpoint(config.getAdvertisedHost(), discoveryPort, tcpPort),
-                    Optional.empty());
+                // In BOTH mode, whichever agent starts first performs the one real
+                // initialization on the shared manager - a no-op check for the normal
+                // V4-only (dedicated, never pre-initialized) case.
+                if (!nodeRecordManager.isInitialized()) {
+                  nodeRecordManager.initializeLocalNode(
+                      new HostEndpoint(config.getAdvertisedHost(), discoveryPort, rlpxTcpPort),
+                      config
+                          .getAdvertisedHostIpv6()
+                          .map(
+                              v6Host ->
+                                  new HostEndpoint(
+                                      v6Host,
+                                      resolvedIpv6DiscoveryPort(),
+                                      rlpxAgent.getIpv6ListeningPort().orElse(rlpxTcpPort))));
+                }
                 startController(
                     nodeRecordManager
                         .getLocalNode()
@@ -305,9 +316,22 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
   }
 
   private PeerDiscoveryController createController(final DiscoveryPeerV4 localNode) {
+    final Optional<Endpoint> localPeerV6Endpoint =
+        config
+            .getAdvertisedHostIpv6()
+            .map(
+                v6Host ->
+                    new Endpoint(
+                        v6Host,
+                        resolvedIpv6DiscoveryPort(),
+                        Optional.of(
+                            rlpxAgent
+                                .getIpv6ListeningPort()
+                                .orElse(localNode.getEndpoint().getFunctionalTcpPort()))));
     return PeerDiscoveryController.builder()
         .nodeKey(nodeKey)
         .localPeer(localNode)
+        .localPeerV6Endpoint(localPeerV6Endpoint)
         .bootstrapNodes(bootstrapPeers)
         .outboundMessageHandler(this::handleOutgoingPacket)
         .timerUtil(createTimer())
@@ -321,6 +345,17 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
         .peerTable(peerTable)
         .includeBootnodesOnPeerRefresh(config.getIncludeBootnodesOnPeerRefresh())
         .build();
+  }
+
+  /**
+   * Returns the actual bound IPv6 discovery UDP port if a shared dual-stack socket has one bound,
+   * else falls back to the configured port (e.g. ephemeral {@code --p2p-port-ipv6} before bind).
+   */
+  private int resolvedIpv6DiscoveryPort() {
+    return transport
+        .getIpv6BoundAddress()
+        .map(InetSocketAddress::getPort)
+        .orElse(config.getBindPortIpv6());
   }
 
   protected boolean validatePacketSize(final int packetSize) {

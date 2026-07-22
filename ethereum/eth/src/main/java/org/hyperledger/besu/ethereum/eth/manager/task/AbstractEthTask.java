@@ -128,6 +128,7 @@ public abstract class AbstractEthTask<T> implements EthTask<T> {
    * @param <S> the type of data returned from the CompletableFuture
    * @return The completableFuture that was executed
    */
+  @SuppressWarnings("CollectionUndefinedEquality") // CompletableFuture uses identity equality
   protected final <S> CompletableFuture<S> executeSubTask(
       final Supplier<CompletableFuture<S>> subTask) {
     synchronized (result) {

@@ -68,6 +68,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguratio
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
+import org.hyperledger.besu.ethereum.p2p.config.DiscoveryMode;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.evm.precompile.AbstractAltBnPrecompiledContract;
@@ -114,6 +115,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
@@ -168,6 +170,15 @@ public class BesuCommandTest extends CommandTestAbstract {
                       new JsonObject()
                           .put("bootnodes", List.of(VALID_ENODE_STRINGS))
                           .put("dns", DNS_DISCOVERY_URL)));
+
+  private static final JsonObject GENESIS_WITH_BLANK_BOOTNODE_ENTRY =
+      new JsonObject()
+          .put(
+              "config",
+              new JsonObject()
+                  .put(
+                      "discovery",
+                      new JsonObject().put("bootnodes", List.of("", VALID_ENODE_STRINGS[0]))));
 
   private static final JsonObject GENESIS_WITH_DATA_BLOBS_ENABLED =
       new JsonObject().put("config", new JsonObject().put("cancunTime", 1L));
@@ -866,6 +877,40 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
+  public void discoveryModeDefaultIsBoth() {
+    parseCommand();
+
+    verify(mockRunnerBuilder).discoveryMode(eq(DiscoveryMode.BOTH));
+    verify(mockRunnerBuilder).build();
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @ParameterizedTest
+  @EnumSource(DiscoveryMode.class)
+  public void discoveryModeMustBeUsed(final DiscoveryMode mode) {
+    parseCommand("--discovery-mode", mode.name());
+
+    verify(mockRunnerBuilder).discoveryMode(eq(mode));
+    verify(mockRunnerBuilder).build();
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void discoveryModeBothMustBeUsed() {
+    parseCommand("--discovery-mode", "BOTH");
+
+    verify(mockRunnerBuilder).discoveryMode(eq(DiscoveryMode.BOTH));
+    verify(mockRunnerBuilder).build();
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
   public void loadDiscoveryOptionsFromGenesisFile() throws IOException {
     final Path genesisFile = createFakeGenesisFile(VALID_GENESIS_WITH_DISCOVERY_OPTIONS);
     parseCommand("--genesis-file", genesisFile.toString());
@@ -882,6 +927,26 @@ public class BesuCommandTest extends CommandTestAbstract {
     assertThat(config.enodeBootNodes())
         .extracting(bootnode -> bootnode.toURI().toString())
         .containsExactly(VALID_ENODE_STRINGS);
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void genesisBootnodesWithBlankEntryAreIgnored() throws IOException {
+    final Path genesisFile = createFakeGenesisFile(GENESIS_WITH_BLANK_BOOTNODE_ENTRY);
+    parseCommand("--genesis-file", genesisFile.toString());
+
+    final ArgumentCaptor<EthNetworkConfig> networkArg =
+        ArgumentCaptor.forClass(EthNetworkConfig.class);
+
+    verify(mockControllerBuilderFactory).fromEthNetworkConfig(networkArg.capture(), any());
+    verify(mockControllerBuilder).build();
+
+    final EthNetworkConfig config = networkArg.getValue();
+    // The blank entry must be silently skipped rather than aborting startup with a
+    // ParameterException, matching the CLI --bootnodes path's existing blank-tolerance.
+    assertThat(config.enodeBootNodes())
+        .extracting(bootnode -> bootnode.toURI().toString())
+        .containsExactly(VALID_ENODE_STRINGS[0]);
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
   }
 
@@ -978,6 +1043,7 @@ public class BesuCommandTest extends CommandTestAbstract {
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     verify(mockRunnerBuilder).build();
     verify(mockLogger, atLeast(1)).warn("Discovery disabled: bootnodes will be ignored.");
+    verify(mockLogger, never()).warn(contains("will start with no bootstrap peers"));
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
   }
 
@@ -985,10 +1051,11 @@ public class BesuCommandTest extends CommandTestAbstract {
   public void callingWithInvalidBootnodeMustDisplayError() {
     parseCommand("--bootnodes", "invalid_enode_url");
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
-    final String expectedErrorOutputStart =
-        "Invalid enode URL syntax 'invalid_enode_url'. Enode URL should have the following format "
-            + "'enode://<node_id>@<ip>:<listening_port>[?discport=<discovery_port>]'.";
-    assertThat(commandErrorOutput.toString(UTF_8)).startsWith(expectedErrorOutputStart);
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .startsWith("Invalid bootnode: 'invalid_enode_url'.")
+        .contains(
+            "Invalid enode URL syntax 'invalid_enode_url'. Enode URL should have the following"
+                + " format 'enode://<node_id>@<ip>:<listening_port>[?discport=<discovery_port>]'.");
   }
 
   @Test
@@ -1010,10 +1077,11 @@ public class BesuCommandTest extends CommandTestAbstract {
   public void callingWithInvalidBootnodeAndEqualSignMustDisplayError() {
     parseCommand("--bootnodes=invalid_enode_url");
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
-    final String expectedErrorOutputStart =
-        "Invalid enode URL syntax 'invalid_enode_url'. Enode URL should have the following format "
-            + "'enode://<node_id>@<ip>:<listening_port>[?discport=<discovery_port>]'.";
-    assertThat(commandErrorOutput.toString(UTF_8)).startsWith(expectedErrorOutputStart);
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .startsWith("Invalid bootnode: 'invalid_enode_url'.")
+        .contains(
+            "Invalid enode URL syntax 'invalid_enode_url'. Enode URL should have the following"
+                + " format 'enode://<node_id>@<ip>:<listening_port>[?discport=<discovery_port>]'.");
   }
 
   private static final String VALID_ENR_1 =
@@ -1022,8 +1090,8 @@ public class BesuCommandTest extends CommandTestAbstract {
       "enr:-Iu4QEDJ4Wa_UQNbK8Ay1hFEkXvd8psolVK6OhfTL9irqz3nbXxxWyKwEplPfkju4zduVQj6mMhUCm9R2Lc4YM5jPcIBgmlkgnY0gmlwhANrfESJc2VjcDI1NmsxoQJCYz2-nsqFpeEj6eov9HSi9QssIVIVNr0I89J1vXM9foN0Y3CCIyiDdWRwgiMo";
 
   @Test
-  public void callingWithValidEnrBootnodeAndV5EnabledMustSucceed() {
-    parseCommand("--Xv5-discovery-enabled", "--bootnodes", VALID_ENR_1);
+  public void callingWithValidEnrBootnodeMustSucceed() {
+    parseCommand("--bootnodes", VALID_ENR_1);
 
     verify(mockRunnerBuilder).ethNetworkConfig(ethNetworkConfigArgumentCaptor.capture());
     verify(mockRunnerBuilder).build();
@@ -1035,8 +1103,8 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
-  public void callingWithMultipleValidEnrBootnodesAndV5EnabledMustSucceed() {
-    parseCommand("--Xv5-discovery-enabled", "--bootnodes", VALID_ENR_1 + "," + VALID_ENR_2);
+  public void callingWithMultipleValidEnrBootnodesMustSucceed() {
+    parseCommand("--bootnodes", VALID_ENR_1 + "," + VALID_ENR_2);
 
     verify(mockRunnerBuilder).ethNetworkConfig(ethNetworkConfigArgumentCaptor.capture());
     verify(mockRunnerBuilder).build();
@@ -1048,12 +1116,38 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"enr:-invalidenrdata", "enr:invalidvalue", "invalidvalue"})
-  public void callingWithInvalidBootnodeAndV5EnabledMustDisplayError(final String bootnode) {
-    parseCommand("--Xv5-discovery-enabled", "--bootnodes", bootnode);
+  @ValueSource(strings = {"enr:-invalidenrdata", "enr:invalidvalue"})
+  public void callingWithInvalidEnrBootnodeMustDisplayError(final String bootnode) {
+    parseCommand("--bootnodes", bootnode);
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
-    assertThat(commandErrorOutput.toString(UTF_8))
-        .contains("Invalid ENR bootnode: '" + bootnode + "'");
+    assertThat(commandErrorOutput.toString(UTF_8)).contains("Invalid bootnode: '" + bootnode + "'");
+  }
+
+  @Test
+  public void callingWithMixedBootnodesRoutesCorrectly() {
+    parseCommand("--bootnodes", VALID_ENR_1 + "," + VALID_ENODE_STRINGS[0]);
+
+    verify(mockRunnerBuilder).ethNetworkConfig(ethNetworkConfigArgumentCaptor.capture());
+    verify(mockRunnerBuilder).build();
+
+    assertThat(ethNetworkConfigArgumentCaptor.getValue().enrBootNodes()).hasSize(1);
+    assertThat(ethNetworkConfigArgumentCaptor.getValue().enodeBootNodes()).hasSize(1);
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void callingWithOnlyEnodeBootnodesSucceeds() {
+    parseCommand("--bootnodes", String.join(",", VALID_ENODE_STRINGS));
+
+    verify(mockRunnerBuilder).ethNetworkConfig(ethNetworkConfigArgumentCaptor.capture());
+    verify(mockRunnerBuilder).build();
+
+    assertThat(ethNetworkConfigArgumentCaptor.getValue().enrBootNodes()).isEmpty();
+    assertThat(ethNetworkConfigArgumentCaptor.getValue().enodeBootNodes())
+        .hasSize(VALID_ENODE_STRINGS.length);
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
   }
 
   @Test
@@ -1611,10 +1705,12 @@ public class BesuCommandTest extends CommandTestAbstract {
     final Path toml =
         createTempFile(
             "toml",
-            "metrics-push-host=\"0.0.0.0\"\n"
-                + "metrics-push-port=1234\n"
-                + "metrics-push-interval=2\n"
-                + "metrics-push-prometheus-job=\"job-name\"\n");
+            """
+            metrics-push-host="0.0.0.0"
+            metrics-push-port=1234
+            metrics-push-interval=2
+            metrics-push-prometheus-job="job-name"
+            """);
 
     parseCommand("--config-file", toml.toString());
 
@@ -1641,7 +1737,13 @@ public class BesuCommandTest extends CommandTestAbstract {
 
   @Test
   public void metricsOptionsRequiresPullMetricsToBeEnabledToml() throws IOException {
-    final Path toml = createTempFile("toml", "metrics-host=\"0.0.0.0\"\n" + "metrics-port=1234\n");
+    final Path toml =
+        createTempFile(
+            "toml",
+            """
+            metrics-host="0.0.0.0"
+            metrics-port=1234
+            """);
 
     parseCommand("--config-file", toml.toString());
 

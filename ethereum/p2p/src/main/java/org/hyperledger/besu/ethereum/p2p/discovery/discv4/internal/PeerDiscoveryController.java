@@ -21,6 +21,7 @@ import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
 import org.hyperledger.besu.cryptoservices.NodeKey;
+import org.hyperledger.besu.ethereum.p2p.discovery.discv4.Endpoint;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.DaggerPacketPackage;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.Packet;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.PacketData;
@@ -71,6 +72,7 @@ import java.util.stream.Stream;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
+import inet.ipaddr.IPAddressString;
 import org.apache.tuweni.bytes.Bytes;
 import org.ethereum.beacon.discovery.schema.NodeRecord;
 import org.slf4j.Logger;
@@ -140,6 +142,8 @@ public class PeerDiscoveryController {
   private final NodeKey nodeKey;
   // The peer representation of this node
   private final DiscoveryPeerV4 localPeer;
+  // IPv6 local endpoint used as PING "from" field when bonding with IPv6 peers
+  private final Optional<Endpoint> localPeerV6Endpoint;
   private final OutboundMessageHandler outboundMessageHandler;
   private final PeerDiscoveryPermissions peerPermissions;
   private final DiscoveryProtocolLogger discoveryProtocolLogger;
@@ -196,10 +200,12 @@ public class PeerDiscoveryController {
       final FindNeighborsPacketDataFactory findNeighborsPacketDataFactory,
       final NeighborsPacketDataFactory neighborsPacketDataFactory,
       final EnrRequestPacketDataFactory enrRequestPacketDataFactory,
-      final EnrResponsePacketDataFactory enrResponsePacketDataFactory) {
+      final EnrResponsePacketDataFactory enrResponsePacketDataFactory,
+      final Optional<Endpoint> localPeerV6Endpoint) {
     this.timerUtil = timerUtil;
     this.nodeKey = nodeKey;
     this.localPeer = localPeer;
+    this.localPeerV6Endpoint = localPeerV6Endpoint;
     this.bootstrapNodes = bootstrapNodes;
     this.peerTable = peerTable;
     this.workerExecutor = workerExecutor;
@@ -576,9 +582,13 @@ public class PeerDiscoveryController {
 
     final Consumer<PeerInteractionState> action =
         interaction -> {
+          final Endpoint fromEndpoint =
+              localPeerV6Endpoint
+                  .filter(__ -> isIpv6Endpoint(peer.getEndpoint()))
+                  .orElse(localPeer.getEndpoint());
           final PingPacketData data =
               pingPacketDataFactory.create(
-                  Optional.of(localPeer.getEndpoint()),
+                  Optional.of(fromEndpoint),
                   peer.getEndpoint(),
                   localPeer.getNodeRecord().map(NodeRecord::getSeq).orElse(null));
           createPacket(
@@ -604,6 +614,15 @@ public class PeerDiscoveryController {
     final PeerInteractionState peerInteractionState =
         new PeerInteractionState(action, peer.getId(), PacketType.PONG, packet -> false);
     dispatchInteraction(peer, peerInteractionState);
+  }
+
+  private static boolean isIpv6Endpoint(final Endpoint endpoint) {
+    final String host = endpoint.getHost();
+    if (host.isEmpty()) {
+      return false;
+    }
+    final var parsed = new IPAddressString(host).getAddress();
+    return parsed != null && parsed.isIPv6();
   }
 
   /**
@@ -903,6 +922,7 @@ public class PeerDiscoveryController {
     private Cache<Bytes, Packet> cachedEnrRequests =
         CacheBuilder.newBuilder().maximumSize(50).expireAfterWrite(10, SECONDS).build();
     private RlpxAgent rlpxAgent;
+    private Optional<Endpoint> localPeerV6Endpoint = Optional.empty();
 
     // set defaults for all PacketPackage classes, allowing calling code to override if needed
     private final PacketPackage packetPackage = DaggerPacketPackage.create();
@@ -947,7 +967,8 @@ public class PeerDiscoveryController {
           findNeighborsPacketDataFactory,
           neighborsPacketDataFactory,
           enrRequestPacketDataFactory,
-          enrResponsePacketDataFactory);
+          enrResponsePacketDataFactory,
+          localPeerV6Endpoint);
     }
 
     private void validate() {
@@ -973,6 +994,11 @@ public class PeerDiscoveryController {
     public Builder localPeer(final DiscoveryPeerV4 localPeer) {
       checkNotNull(localPeer);
       this.localPeer = localPeer;
+      return this;
+    }
+
+    public Builder localPeerV6Endpoint(final Optional<Endpoint> endpoint) {
+      this.localPeerV6Endpoint = endpoint;
       return this;
     }
 

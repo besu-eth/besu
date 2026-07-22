@@ -17,12 +17,16 @@ package org.hyperledger.besu.ethereum.p2p.discovery.discv4.transport;
 import org.hyperledger.besu.ethereum.p2p.discovery.PeerDiscoveryServiceException;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.PeerDiscoveryAgentV4;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.Transport;
+import org.hyperledger.besu.ethereum.p2p.discovery.transport.SharedDiscoveryTransport;
 
 import java.io.IOException;
 import java.net.BindException;
 import java.net.Inet6Address;
 import java.net.InetSocketAddress;
 import java.net.SocketException;
+import java.net.StandardProtocolFamily;
+import java.nio.channels.UnsupportedAddressTypeException;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
@@ -51,7 +55,17 @@ import org.ethereum.beacon.discovery.util.DecodeException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Netty-backed {@link Transport} that binds and owns its own UDP socket. */
+/**
+ * Netty-backed {@link Transport}. Two construction modes:
+ *
+ * <ul>
+ *   <li><b>Shared-channel</b> ({@link #createShared}): borrows a channel from a {@link
+ *       SharedDiscoveryTransport}, which is bound and owned externally — used whenever DiscV4 and
+ *       DiscV5 demux off the same UDP socket.
+ *   <li><b>Owned-channel</b> ({@link #create}): binds and owns its own UDP socket. Used by tests
+ *       that exercise this transport in isolation.
+ * </ul>
+ */
 public final class NettyTransport implements Transport {
 
   private static final Logger LOG = LoggerFactory.getLogger(NettyTransport.class);
@@ -69,13 +83,17 @@ public final class NettyTransport implements Transport {
   private static final long SHUTDOWN_QUIET_PERIOD_MS = 0;
   private static final long SHUTDOWN_TIMEOUT_MS = 500;
 
+  // Owned-channel mode field (null in shared mode).
   private final InetSocketAddress bindAddress;
 
-  // Lazily created in start(), so a node that never starts this transport (e.g. discovery
-  // disabled) doesn't pay for a permanently-idle event-loop thread.
+  // Shared-channel mode field (null in owned mode).
+  private final SharedDiscoveryTransport sharedTransport;
+
+  // Lazily created in start() so an unstarted transport doesn't pay for an idle event-loop
+  // thread. Owned mode only - shared mode has SharedDiscoveryTransport own the event loop group.
   private volatile EventLoopGroup eventLoopGroup;
 
-  private volatile NioDatagramChannel channel;
+  private volatile NioDatagramChannel channel; // owned mode only
   private volatile InboundV4Handler inboundHandler;
 
   private final AtomicBoolean started = new AtomicBoolean(false);
@@ -83,15 +101,37 @@ public final class NettyTransport implements Transport {
 
   private NettyTransport(final InetSocketAddress bindAddress) {
     this.bindAddress = bindAddress;
+    this.sharedTransport = null;
+  }
+
+  private NettyTransport(final SharedDiscoveryTransport sharedTransport) {
+    this.bindAddress = null;
+    this.sharedTransport = sharedTransport;
   }
 
   public static NettyTransport create(final InetSocketAddress bindAddress) {
     return new NettyTransport(bindAddress);
   }
 
+  /** Creates a transport that borrows its channel from a {@link SharedDiscoveryTransport}. */
+  public static NettyTransport createShared(final SharedDiscoveryTransport sharedTransport) {
+    return new NettyTransport(sharedTransport);
+  }
+
   @Override
   public void setInboundHandler(final InboundV4Handler handler) {
     this.inboundHandler = handler;
+    if (sharedTransport != null) {
+      sharedTransport.setV4Handler(handler::onPacket);
+    }
+  }
+
+  @Override
+  public Optional<InetSocketAddress> getIpv6BoundAddress() {
+    if (sharedTransport == null) {
+      return Optional.empty();
+    }
+    return Optional.ofNullable(sharedTransport.getBoundAddress(StandardProtocolFamily.INET6));
   }
 
   @Override
@@ -103,6 +143,23 @@ public final class NettyTransport implements Transport {
     if (!started.compareAndSet(false, true)) {
       return CompletableFuture.failedFuture(
           new IllegalStateException("NettyTransport already started"));
+    }
+
+    if (sharedTransport != null) {
+      // Prefer IPv4, falling back to IPv6 for a single-stack IPv6-only bind (a legitimate
+      // config that just can't reach an IPv4 recipient - that surfaces per-send, not here).
+      InetSocketAddress bound = sharedTransport.getBoundAddress(StandardProtocolFamily.INET);
+      if (bound == null) {
+        bound = sharedTransport.getBoundAddress(StandardProtocolFamily.INET6);
+      }
+      if (bound == null) {
+        return CompletableFuture.failedFuture(
+            new IllegalStateException(
+                "SharedDiscoveryTransport has no channel bound - was transport.start() called "
+                    + "first?"));
+      }
+      LOG.debug("DiscV4 shared transport ready on {}", bound);
+      return CompletableFuture.completedFuture(bound);
     }
 
     this.eventLoopGroup =
@@ -175,7 +232,22 @@ public final class NettyTransport implements Transport {
 
   @Override
   public CompletableFuture<Void> send(final InetSocketAddress recipient, final Bytes data) {
-    final NioDatagramChannel ch = this.channel;
+    final NioDatagramChannel ch;
+    if (sharedTransport != null) {
+      final StandardProtocolFamily family =
+          recipient.getAddress() instanceof Inet6Address
+              ? StandardProtocolFamily.INET6
+              : StandardProtocolFamily.INET;
+      final Optional<NioDatagramChannel> maybeChannel = sharedTransport.getChannel(family);
+      if (maybeChannel.isEmpty()) {
+        // No channel bound for this family (e.g. an IPv6 peer on an IPv4-only shared transport)
+        // is expected, not a failure - the caller quiet-traces UnsupportedAddressTypeException.
+        return CompletableFuture.failedFuture(new UnsupportedAddressTypeException());
+      }
+      ch = maybeChannel.get();
+    } else {
+      ch = this.channel;
+    }
     if (ch == null || !ch.isActive()) {
       return CompletableFuture.failedFuture(
           new IllegalStateException("Transport is not started or already stopped"));
