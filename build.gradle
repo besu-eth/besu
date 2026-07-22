@@ -25,6 +25,7 @@ plugins {
   id 'com.diffplug.spotless' version '7.0.3'
   id 'com.github.jk1.dependency-license-report' version '3.1.4'
   id 'com.jfrog.artifactory' version '5.2.5'
+  id 'me.champeau.gradle.japicmp' version '0.4.6' apply false
   id 'me.champeau.jmh' version '0.7.3' apply false
   id 'net.ltgt.errorprone' version '4.4.0'
   id 'maven-publish'
@@ -470,10 +471,7 @@ configure(allprojects - project(':platform')) {
       '-org.hyperledger.besu.ethereum.rlp,' +
       // trie module
       '-org.hyperledger.besu.ethereum.trie.*,' +
-      '-org.hyperledger.besu.ethereum.trie,' +
-      // verkle trie module
-      '-org.hyperledger.besu.ethereum.verkletrie,' +
-      '-org.hyperledger.besu.ethereum.verkletrie.*',
+      '-org.hyperledger.besu.ethereum.trie,',
       true)
     options.addStringOption('Xmaxerrs','65535')
     options.addStringOption('Xmaxwarns','65535')

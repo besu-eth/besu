@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -12,21 +12,16 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.verkletrie.bandersnatch;
+package org.hyperledger.besu.ethereum.p2p.config;
 
-import org.hyperledger.besu.ethereum.verkletrie.bandersnatch.fp.Element;
+/** Controls which discovery protocol(s) the node runs. */
+public enum DiscoveryMode {
+  /** Run both DiscV4 and DiscV5 concurrently on a shared UDP socket (default). */
+  BOTH,
 
-public class PointAffine {
+  /** Run only DiscV5. Requires a secp256k1 node key; falls back to V4 if unsupported. */
+  V5,
 
-  final Element x;
-  final Element y;
-
-  public PointAffine(final Element x, final Element y) {
-    this.x = x;
-    this.y = y;
-  }
-
-  public static PointAffine fromProj(final Point point) {
-    return new PointAffine(point.x.divide(point.z), point.y.divide(point.z));
-  }
+  /** Run only DiscV4. */
+  V4
 }

@@ -77,10 +77,10 @@ Instructions for how to get started with developing on the Besu codebase. Please
 This project uses [Gradle dependency verification](https://docs.gradle.org/current/userguide/dependency_verification.html). When adding or updating dependencies, regenerate `gradle/verification-metadata.xml` with:
 
 ```shell
-./gradlew --write-verification-metadata sha256 resolveSourceArtifacts
+./gradlew --write-verification-metadata sha256 --refresh-dependencies resolveSourceArtifacts :plugin-api:checkAPICompatibility --rerun-tasks
 ```
 
-The `resolveSourceArtifacts` task ensures source JARs are included in the metadata, which is required for IDE sync (e.g. IntelliJ automatically downloads sources).
+The `resolveSourceArtifacts` task ensures source JARs are included in the metadata, which is required for IDE sync (e.g. IntelliJ automatically downloads sources). The `:plugin-api:checkAPICompatibility` task resolves the released Plugin API baseline so its artifacts are recorded as well. The `--rerun-tasks` and `--refresh-dependencies` flags make the regeneration behave like a clean checkout: without them, cached task results and cached dependency metadata can produce a silently incomplete file that passes locally but fails on a fresh clone.
 
 ### Profiling Besu
 
