@@ -28,9 +28,26 @@ jar {
   }
 }
 
+compileJava {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.ERROR)
+    option('NullAway:AnnotatedPackages', 'org.hyperledger.besu.consensus.clique')
+  }
+}
+
+tasks.named('compileTestJava', JavaCompile).configure {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.ERROR)
+    option('NullAway:AnnotatedPackages', 'org.hyperledger.besu.consensus.clique')
+  }
+}
+
 repositories { mavenCentral() }
 
 dependencies {
+  errorprone 'com.uber.nullaway:nullaway'
+  compileOnly 'org.jspecify:jspecify'
+
   implementation project(':config')
   implementation project(':consensus:common')
   implementation project(':crypto:services')

@@ -106,9 +106,8 @@ public class BlockHeaderValidationRulesetFactory {
             .addRule(new CoinbaseHeaderValidationRule(epochManager))
             .addRule(new GasUsageValidationRule());
 
-    if (baseFeeMarket.isPresent()) {
-      builder.addRule(new BaseFeeMarketBlockHeaderGasPriceValidationRule(baseFeeMarket.get()));
-    }
+    baseFeeMarket.ifPresent(
+        market -> builder.addRule(new BaseFeeMarketBlockHeaderGasPriceValidationRule(market)));
 
     if (!createEmptyBlocks) {
       builder.addRule(new CliqueNoEmptyBlockValidationRule());
