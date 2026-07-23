@@ -54,6 +54,7 @@ import org.hyperledger.besu.cli.options.GraphQlOptions;
 import org.hyperledger.besu.cli.options.InProcessRpcOptions;
 import org.hyperledger.besu.cli.options.IpcOptions;
 import org.hyperledger.besu.cli.options.JsonRpcHttpOptions;
+import org.hyperledger.besu.cli.options.LoggingFormat;
 import org.hyperledger.besu.cli.options.LoggingLevelOption;
 import org.hyperledger.besu.cli.options.MetricsOptions;
 import org.hyperledger.besu.cli.options.MiningOptions;
@@ -242,8 +243,10 @@ import io.vertx.core.json.DecodeException;
 import io.vertx.core.json.jackson.DatabindCodec;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.Appender;
 import org.apache.logging.log4j.core.LoggerContext;
 import org.apache.logging.log4j.core.impl.Log4jContextFactory;
+import org.apache.logging.log4j.core.layout.PatternLayout;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.slf4j.Logger;
@@ -918,6 +921,22 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     }
   }
 
+  /**
+   * Whether the active Log4j2 "Console" appender uses a {@link PatternLayout}. This reflects the
+   * actual runtime configuration rather than the {@code --logging-format} CLI value, so it is still
+   * correct when a user-supplied {@code LOG4J_CONFIGURATION_FILE} overrides the bundled
+   * configuration selected by {@code --logging-format}.
+   *
+   * @return true if a framed, human-readable overview should be logged; false if the active layout
+   *     is structured (e.g. JSON) and a single-line rendering should be used instead
+   */
+  @SuppressWarnings("BannedMethod")
+  private boolean isPatternLayoutActive() {
+    final Appender consoleAppender =
+        LoggerContext.getContext(false).getConfiguration().getAppenders().get("Console");
+    return consoleAppender == null || consoleAppender.getLayout() instanceof PatternLayout;
+  }
+
   private IExecutionStrategy createDefaultValueProviderTask(final IExecutionStrategy nextStep) {
     return new ConfigDefaultValueProviderStrategy(nextStep, environment);
   }
@@ -1394,8 +1413,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
    * @param announce sets to true to print the logging level on standard output
    */
   public void configureLogging(final boolean announce) {
-    // To change the configuration if color was enabled/disabled
-    LogConfigurator.reconfigure();
     // set log level per CLI flags
     final String logLevel = loggingLevelOption.getLogLevel();
     if (logLevel != null) {
@@ -2015,7 +2032,9 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
     instantiateSignatureAlgorithmFactory();
 
-    logger.info(generateConfigurationOverview());
+    // The multi-line framed overview embeds poorly as a single escaped string in structured log
+    // formats, so those get a single-line, semicolon-separated rendering of the same fields.
+    logger.info(generateConfigurationOverview(isPatternLayoutActive()));
     logger.info("Security Module: {}", securityModuleName);
   }
 
@@ -2797,6 +2816,11 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     return loggingLevelOption.getLogLevel();
   }
 
+  @VisibleForTesting
+  LoggingFormat getLoggingFormat() {
+    return loggingLevelOption.getLoggingFormat();
+  }
+
   /**
    * Returns the flag indicating that version compatibility checks will be made.
    *
@@ -2889,7 +2913,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         .orElse(genesisFile != null || networkId != null);
   }
 
-  private String generateConfigurationOverview() {
+  private String generateConfigurationOverview(final boolean framed) {
     final ConfigurationOverviewBuilder builder = new ConfigurationOverviewBuilder(logger);
 
     if (environment != null) {
@@ -2996,7 +3020,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         .setRocksDbMaxOpenFiles(
             rocksDBPlugin.getResolvedMaxOpenFiles(), rocksDBPlugin.isMaxOpenFilesExplicitlySet());
 
-    return builder.build();
+    return framed ? builder.build() : builder.buildCompact();
   }
 
   /**

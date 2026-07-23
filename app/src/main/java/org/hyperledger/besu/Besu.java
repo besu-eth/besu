@@ -15,7 +15,7 @@
 package org.hyperledger.besu;
 
 import org.hyperledger.besu.cli.BesuCommand;
-import org.hyperledger.besu.cli.logging.BesuLoggingConfigurationFactory;
+import org.hyperledger.besu.cli.logging.LoggingBootstrapConfigurator;
 import org.hyperledger.besu.components.BesuComponent;
 import org.hyperledger.besu.components.DaggerBesuComponent;
 
@@ -36,7 +36,7 @@ public final class Besu {
    * @param args command line arguments.
    */
   public static void main(final String... args) {
-    setupLogging();
+    setupLogging(args);
     final BesuComponent besuComponent = DaggerBesuComponent.create();
     final BesuCommand besuCommand = besuComponent.getBesuCommand();
     int exitCode =
@@ -54,8 +54,18 @@ public final class Besu {
   /**
    * a Logger setup for handling any exceptions during the bootstrap process, to indicate to users
    * their CLI configuration had problems.
+   *
+   * @param args the raw command line arguments, used to resolve the logging format/color settings
+   *     before the first logger is created
    */
-  public static void setupLogging() {
+  public static void setupLogging(final String... args) {
+    try {
+      LoggingBootstrapConfigurator.configure(args);
+    } catch (Throwable t) {
+      System.out.printf(
+          "Could not resolve logging format/color configuration: %s - %s%n",
+          t.getClass().getSimpleName(), t.getMessage());
+    }
     try {
       InternalLoggerFactory.setDefaultFactory(Log4J2LoggerFactory.INSTANCE);
     } catch (Throwable t) {
@@ -67,8 +77,6 @@ public final class Besu {
       System.setProperty(
           "vertx.logger-delegate-factory-class-name",
           "io.vertx.core.logging.Log4j2LogDelegateFactory");
-      System.setProperty(
-          "log4j.configurationFactory", BesuLoggingConfigurationFactory.class.getName());
       System.setProperty("log4j.skipJansi", String.valueOf(false));
     } catch (Throwable t) {
       System.out.printf(

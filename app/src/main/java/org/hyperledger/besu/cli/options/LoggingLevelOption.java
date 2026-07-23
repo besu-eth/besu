@@ -72,4 +72,31 @@ public class LoggingLevelOption {
   public String getLogLevel() {
     return logLevel;
   }
+
+  private LoggingFormat loggingFormat = LoggingFormat.PLAIN;
+
+  /**
+   * Sets logging format.
+   *
+   * @param loggingFormat the logging format
+   */
+  @CommandLine.Option(
+      names = {"--logging-format"},
+      paramLabel = "<LOGGING FORMAT>",
+      defaultValue = "PLAIN",
+      description =
+          "Structured logging format for console output. Options: PLAIN, ECS, GCP, LOGSTASH,"
+              + " GELF (default: ${DEFAULT-VALUE})")
+  public void setLoggingFormat(final LoggingFormat loggingFormat) {
+    this.loggingFormat = loggingFormat;
+  }
+
+  /**
+   * Gets logging format.
+   *
+   * @return the logging format
+   */
+  public LoggingFormat getLoggingFormat() {
+    return loggingFormat;
+  }
 }
