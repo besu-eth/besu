@@ -104,7 +104,7 @@ class TransactionsMessageProcessor {
 
       transactionPool.addRemoteTransactions(freshTransactions);
 
-    } catch (final RLPException ex) {
+    } catch (final RLPException | IllegalArgumentException ex) {
       if (peer != null) {
         LOG.debug(
             "Malformed transaction message received (BREACH_OF_PROTOCOL), disconnecting: {}",

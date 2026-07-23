@@ -23,17 +23,26 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
+import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManagerTestUtil;
+import org.hyperledger.besu.ethereum.eth.manager.RespondingEthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.ethtaskutils.PeerMessageTaskTest;
+import org.hyperledger.besu.ethereum.eth.messages.BlockBodiesMessage;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt64;
 import org.junit.jupiter.api.Test;
 
 public class GetBodiesFromPeerTaskTest extends PeerMessageTaskTest<List<Block>> {
+
+  private static final Bytes MALFORMED_BODIES_RLP =
+      Bytes.fromHexString(
+          "0xf871b86f04f86c83301824800285012a05f2008307a1209471562b71999873db5b286df957af199ec94617f78080c0c080a0df13441160d9e36a96c4f27f7be42f0a67de1b27345d32e562d7a7e80cc61332a04160c3339755fd0f41d852dff56da6b71a975eda6fefdf1d00ba6d8b3ce3e0d2");
 
   @Override
   protected List<Block> generateDataToBeRequested() {
@@ -79,5 +88,22 @@ public class GetBodiesFromPeerTaskTest extends PeerMessageTaskTest<List<Block>> 
     assertThat(
             new BodyIdentifier(emptyBodyBlock).equals(new BodyIdentifier(bodyBlockWithWithdrawal)))
         .isFalse();
+  }
+
+  @Test
+  public void disconnectsPeerWhenBodyContainsEmptyAuthorizationListCodeDelegationTx() {
+    final RespondingEthPeer respondingPeer =
+        EthProtocolManagerTestUtil.createPeer(ethProtocolManager, 32);
+
+    final List<Block> requestedData = generateDataToBeRequested();
+    final EthTask<AbstractPeerTask.PeerTaskResult<List<Block>>> task = createTask(requestedData);
+    final CompletableFuture<?> future = task.run();
+
+    final RespondingEthPeer.Responder malformed =
+        (cap, peer, msg) -> Optional.of(BlockBodiesMessage.createUnsafe(MALFORMED_BODIES_RLP));
+    respondingPeer.respondWhile(malformed, () -> !future.isDone());
+
+    assertThat(respondingPeer.getPeerConnection().isDisconnected()).isTrue();
+    assertThat(future).isCompletedExceptionally();
   }
 }
