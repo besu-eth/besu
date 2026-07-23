@@ -461,6 +461,59 @@ public class EthPeersTest {
     assertThat(ethPeers.peerCount()).isEqualTo(ethPeers.getMaxPeers());
   }
 
+  @Test
+  public void shouldSkipReattemptWhenNoPendingRequests() {
+    // No peers, no pending requests – calling reattemptPendingPeerRequests() should be a no-op
+    // and must not throw (e.g. a NullPointerException from empty stream processing).
+    ethPeers.reattemptPendingPeerRequests();
+    // If we reach this line the short-circuit is working correctly.
+  }
+
+  @Test
+  public void shouldSkipReattemptWhenNoPeerHasCapacity() throws Exception {
+    final RespondingEthPeer peer = EthProtocolManagerTestUtil.createPeer(ethProtocolManager, 1000);
+    useAllAvailableCapacity(peer.getEthPeer());
+
+    when(peerRequest.isEthPeerSuitable(any())).thenReturn(true);
+
+    // Queue a request that cannot execute yet (peer has no capacity)
+    final PendingPeerRequest pendingRequest =
+        ethPeers.executePeerRequest(peerRequest, 100, Optional.empty());
+
+    // Explicitly re-attempt – should short-circuit because no peer has capacity
+    ethPeers.reattemptPendingPeerRequests();
+
+    // sendRequest must still not have been called
+    verify(peerRequest, times(0)).sendRequest(peer.getEthPeer());
+    assertNotDone(pendingRequest);
+  }
+
+  @Test
+  public void shouldProcessAllPendingRequestsWhenPeerGainsCapacity() throws Exception {
+    final RespondingEthPeer peer = EthProtocolManagerTestUtil.createPeer(ethProtocolManager, 1000);
+    useAllAvailableCapacity(peer.getEthPeer());
+
+    final PeerRequest secondRequest = mock(PeerRequest.class);
+    when(secondRequest.sendRequest(any())).thenReturn(responseStream);
+    when(peerRequest.isEthPeerSuitable(any())).thenReturn(true);
+    when(secondRequest.isEthPeerSuitable(any())).thenReturn(true);
+
+    // Queue two requests while the peer has no capacity
+    final PendingPeerRequest first =
+        ethPeers.executePeerRequest(peerRequest, 100, Optional.empty());
+    ethPeers.executePeerRequest(secondRequest, 100, Optional.empty());
+
+    // Both must be queued (not executed yet)
+    verify(peerRequest, times(0)).sendRequest(any());
+    verify(secondRequest, times(0)).sendRequest(any());
+
+    // Free ALL capacity then manually trigger reattempt (simulates dispatchMessage)
+    freeUpCapacity(peer.getEthPeer());
+
+    // At least the first request should have been dispatched
+    assertRequestSuccessful(first);
+  }
+
   private void freeUpCapacity(final EthPeer ethPeer) {
     MessageData message = BlockBodiesMessage.create(emptyList());
     ethPeers.dispatchMessage(

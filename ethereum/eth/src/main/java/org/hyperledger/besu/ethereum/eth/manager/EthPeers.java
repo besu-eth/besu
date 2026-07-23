@@ -322,16 +322,35 @@ public class EthPeers implements PeerSelector {
   @VisibleForTesting
   void reattemptPendingPeerRequests() {
     synchronized (this) {
+      // Short-circuit early to avoid any iteration overhead when there is nothing to do.
+      if (pendingRequests.isEmpty() || !hasPeerWithCapacity()) {
+        return;
+      }
       final Iterator<PendingPeerRequest> iterator = pendingRequests.iterator();
-      while (iterator.hasNext()
-          && streamAvailablePeers()
-              .anyMatch(EthPeerImmutableAttributes::hasAvailableRequestCapacity)) {
+      while (iterator.hasNext()) {
         final PendingPeerRequest request = iterator.next();
         if (request.attemptExecution()) {
           pendingRequests.remove(request);
         }
       }
     }
+  }
+
+  /**
+   * Returns {@code true} if at least one active, non-disconnected peer currently has available
+   * request capacity. This is a lightweight alternative to calling {@code
+   * streamAvailablePeers().anyMatch(...)} which would allocate a new {@link
+   * EthPeerImmutableAttributes} object for every peer examined. This method walks {@code
+   * activeConnections} directly so it can be safely called under the {@code EthPeers} monitor lock
+   * without generating unnecessary garbage or streaming overhead.
+   */
+  private boolean hasPeerWithCapacity() {
+    for (final EthPeer peer : activeConnections.values()) {
+      if (!peer.isDisconnected() && peer.hasAvailableRequestCapacity()) {
+        return true;
+      }
+    }
+    return false;
   }
 
   public long subscribeConnect(final ConnectCallback callback) {
