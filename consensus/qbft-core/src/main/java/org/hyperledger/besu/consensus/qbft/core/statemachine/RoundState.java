@@ -15,9 +15,11 @@
 package org.hyperledger.besu.consensus.qbft.core.statemachine;
 
 import org.hyperledger.besu.consensus.common.bft.ConsensusRoundIdentifier;
+import org.hyperledger.besu.consensus.common.bft.payload.SignedData;
 import org.hyperledger.besu.consensus.qbft.core.messagewrappers.Commit;
 import org.hyperledger.besu.consensus.qbft.core.messagewrappers.Prepare;
 import org.hyperledger.besu.consensus.qbft.core.messagewrappers.Proposal;
+import org.hyperledger.besu.consensus.qbft.core.payload.PreparePayload;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlock;
 import org.hyperledger.besu.consensus.qbft.core.validation.MessageValidator;
 import org.hyperledger.besu.crypto.SECPSignature;
@@ -25,7 +27,9 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
 import java.util.Collection;
+import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -48,8 +52,15 @@ public class RoundState {
 
   // Must track the actual Prepare message, not just the sender, as these may need to be reused
   // to send out in a PrepareCertificate.
-  private final Map<Address, Prepare> prepareMessages = new LinkedHashMap<>();
-  private final Map<Address, Commit> commitMessages = new LinkedHashMap<>();
+  //
+  // Synchronized maps: writes (e.g. addCommitMessage) happen on the BFT processor thread while
+  // reads that iterate (e.g. getCommitSeals from block import) can run on another thread. A plain
+  // LinkedHashMap's fail-fast iterator throws ConcurrentModificationException in that case
+  // (see #10806). Insertion order is preserved; every iteration below holds the map's monitor.
+  private final Map<Address, Prepare> prepareMessages =
+      Collections.synchronizedMap(new LinkedHashMap<>());
+  private final Map<Address, Commit> commitMessages =
+      Collections.synchronizedMap(new LinkedHashMap<>());
 
   private boolean prepared = false;
   private boolean committed = false;
@@ -99,8 +110,12 @@ public class RoundState {
     if (proposalMessage.isEmpty()) {
       if (validator.validateProposal(msg)) {
         proposalMessage = Optional.of(msg);
-        prepareMessages.entrySet().removeIf(e -> !validator.validatePrepare(e.getValue()));
-        commitMessages.entrySet().removeIf(e -> !validator.validateCommit(e.getValue()));
+        synchronized (prepareMessages) {
+          prepareMessages.entrySet().removeIf(e -> !validator.validatePrepare(e.getValue()));
+        }
+        synchronized (commitMessages) {
+          commitMessages.entrySet().removeIf(e -> !validator.validateCommit(e.getValue()));
+        }
         updateState();
         return true;
       }
@@ -191,9 +206,11 @@ public class RoundState {
    * @return the commit seals
    */
   public Collection<SECPSignature> getCommitSeals() {
-    return commitMessages.values().stream()
-        .map(cp -> cp.getSignedPayload().getPayload().getCommitSeal())
-        .collect(Collectors.toList());
+    synchronized (commitMessages) {
+      return commitMessages.values().stream()
+          .map(cp -> cp.getSignedPayload().getPayload().getCommitSeal())
+          .collect(Collectors.toList());
+    }
   }
 
   /**
@@ -203,12 +220,17 @@ public class RoundState {
    */
   public Optional<PreparedCertificate> constructPreparedCertificate() {
     if (isPrepared()) {
+      final List<SignedData<PreparePayload>> preparePayloads;
+      synchronized (prepareMessages) {
+        preparePayloads =
+            prepareMessages.values().stream()
+                .map(Prepare::getSignedPayload)
+                .collect(Collectors.toList());
+      }
       return Optional.of(
           new PreparedCertificate(
               proposalMessage.get().getSignedPayload().getPayload().getProposedBlock(),
-              prepareMessages.values().stream()
-                  .map(Prepare::getSignedPayload)
-                  .collect(Collectors.toList()),
+              preparePayloads,
               roundIdentifier.getRoundNumber(),
               proposalMessage.get().getBlockAccessList()));
     }
