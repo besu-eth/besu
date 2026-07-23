@@ -250,13 +250,11 @@ public class EthPeers implements PeerSelector {
     peer.unregisterConnection(connection);
     if (peer.getConnection().equals(connection)) {
       final Bytes id = peer.getId();
-      final Optional<PeerConnection> replacementConnection =
+      final boolean connectionReplaced =
           getIncompleteConnections(id).stream()
               .filter(candidate -> !candidate.isDisconnected())
-              .filter(PeerConnection::getStatusExchanged)
-              .findFirst();
-      if (replacementConnection.isPresent()
-          && peer.replaceConnection(connection, replacementConnection.get())) {
+              .anyMatch(candidate -> peer.replaceConnection(connection, candidate));
+      if (connectionReplaced) {
         ethPeerStatusExchanged(peer);
       } else if (!peerHasIncompleteConnection(id)) {
         removed = activeConnections.remove(id, peer);
