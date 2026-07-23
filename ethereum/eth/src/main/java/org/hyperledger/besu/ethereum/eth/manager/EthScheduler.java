@@ -234,8 +234,11 @@ public class EthScheduler {
         () -> {
           final var originalName = Thread.currentThread().getName();
           Thread.currentThread().setName(originalName + "-" + blockNumber);
-          task.run();
-          Thread.currentThread().setName(originalName);
+          try {
+            task.run();
+          } finally {
+            Thread.currentThread().setName(originalName);
+          }
         },
         blockCreationExecutor);
   }
