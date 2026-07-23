@@ -243,8 +243,8 @@ import io.vertx.core.json.DecodeException;
 import io.vertx.core.json.jackson.DatabindCodec;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.core.Appender;
 import org.apache.logging.log4j.core.LoggerContext;
+import org.apache.logging.log4j.core.appender.ConsoleAppender;
 import org.apache.logging.log4j.core.impl.Log4jContextFactory;
 import org.apache.logging.log4j.core.layout.PatternLayout;
 import org.apache.tuweni.bytes.Bytes;
@@ -922,19 +922,27 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   }
 
   /**
-   * Whether the active Log4j2 "Console" appender uses a {@link PatternLayout}. This reflects the
+   * Whether the active Log4j2 console appender uses a {@link PatternLayout}. This reflects the
    * actual runtime configuration rather than the {@code --logging-format} CLI value, so it is still
    * correct when a user-supplied {@code LOG4J_CONFIGURATION_FILE} overrides the bundled
-   * configuration selected by {@code --logging-format}.
+   * configuration selected by {@code --logging-format}. The console appender is identified by type
+   * (not by the conventional "Console" name our own bundled configs use), so a custom configuration
+   * that names its console appender differently is still handled correctly.
    *
    * @return true if a framed, human-readable overview should be logged; false if the active layout
    *     is structured (e.g. JSON) and a single-line rendering should be used instead
    */
-  @SuppressWarnings("BannedMethod")
   private boolean isPatternLayoutActive() {
-    final Appender consoleAppender =
-        LoggerContext.getContext(false).getConfiguration().getAppenders().get("Console");
-    return consoleAppender == null || consoleAppender.getLayout() instanceof PatternLayout;
+    return LoggerContext.getContext(false)
+        .getConfiguration()
+        .getRootLogger()
+        .getAppenders()
+        .values()
+        .stream()
+        .filter(ConsoleAppender.class::isInstance)
+        .findFirst()
+        .map(appender -> appender.getLayout() instanceof PatternLayout)
+        .orElse(true);
   }
 
   private IExecutionStrategy createDefaultValueProviderTask(final IExecutionStrategy nextStep) {

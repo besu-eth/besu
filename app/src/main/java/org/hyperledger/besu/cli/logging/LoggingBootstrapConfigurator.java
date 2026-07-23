@@ -184,7 +184,9 @@ public final class LoggingBootstrapConfigurator {
       if (result.hasErrors() || !result.contains(tomlKey)) {
         return Optional.empty();
       }
-      return Optional.ofNullable(result.getString(tomlKey));
+      // Use the generic getter rather than getString(): a TOML key can be an unquoted boolean
+      // (e.g. color-enabled=false), and getString() throws a type error for non-string values.
+      return Optional.ofNullable(result.get(tomlKey)).map(Object::toString);
     } catch (final Exception e) {
       // Best-effort only; normal Picocli/TOML parsing will surface real errors later.
       return Optional.empty();

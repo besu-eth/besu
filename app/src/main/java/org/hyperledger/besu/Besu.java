@@ -62,14 +62,14 @@ public final class Besu {
     try {
       LoggingBootstrapConfigurator.configure(args);
     } catch (Throwable t) {
-      System.out.printf(
+      System.err.printf(
           "Could not resolve logging format/color configuration: %s - %s%n",
           t.getClass().getSimpleName(), t.getMessage());
     }
     try {
       InternalLoggerFactory.setDefaultFactory(Log4J2LoggerFactory.INSTANCE);
     } catch (Throwable t) {
-      System.out.printf(
+      System.err.printf(
           "Could not set netty log4j logger factory: %s - %s%n",
           t.getClass().getSimpleName(), t.getMessage());
     }
@@ -79,7 +79,7 @@ public final class Besu {
           "io.vertx.core.logging.Log4j2LogDelegateFactory");
       System.setProperty("log4j.skipJansi", String.valueOf(false));
     } catch (Throwable t) {
-      System.out.printf(
+      System.err.printf(
           "Could not set logging system property: %s - %s%n",
           t.getClass().getSimpleName(), t.getMessage());
     }

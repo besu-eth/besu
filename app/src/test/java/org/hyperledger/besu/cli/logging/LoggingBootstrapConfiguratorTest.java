@@ -166,4 +166,17 @@ public class LoggingBootstrapConfiguratorTest {
     assertThat(System.getProperty(LoggingBootstrapConfigurator.DISABLE_ANSI_PROPERTY))
         .isEqualTo("true");
   }
+
+  @Test
+  public void resolvesColorEnabledFromTomlUnquotedBooleanValue() throws IOException {
+    // color-enabled=false is an unquoted TOML boolean, not a string - readTomlValue must not
+    // use getString() (which throws a type error for non-string values) to read it.
+    final Path config = tempDir.resolve("config.toml");
+    Files.writeString(config, "color-enabled=false\n");
+
+    final boolean colorEnabled =
+        LoggingBootstrapConfigurator.resolveColorEnabled(
+            new String[] {"--config-file", config.toString()}, Map.of());
+    assertThat(colorEnabled).isFalse();
+  }
 }
