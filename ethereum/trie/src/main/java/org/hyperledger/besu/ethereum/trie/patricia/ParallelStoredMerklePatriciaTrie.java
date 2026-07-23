@@ -55,16 +55,19 @@ import org.apache.tuweni.bytes.Bytes32;
 public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
     extends StoredMerklePatriciaTrie<K, V> {
 
-  private static final int NCPU = Runtime.getRuntime().availableProcessors();
-
   /**
-   * Shared ForkJoinPool with 2x cores for I/O-bound operations. This choice was validated by
-   * testing, and that ForkJoinPool performed best despite not being an obvious fit.
+   * Default pool for tests and callers that do not inject a dedicated pool.
+   *
+   * <p>Production code should pass separate pools for account and storage tries to avoid deadlock
+   * when account workers join storage futures while storage hashing runs in parallel.
    */
-  private static final ForkJoinPool FORK_JOIN_POOL = new ForkJoinPool(NCPU * 2);
+  private static final ForkJoinPool DEFAULT_FORK_JOIN_POOL =
+      new ForkJoinPool(Runtime.getRuntime().availableProcessors() * 2);
 
   /** Pending updates accumulated between commits. */
   private final Map<K, PendingUpdate<V>> pendingUpdates = new ConcurrentHashMap<>();
+
+  private final ForkJoinPool forkJoinPool;
 
   /**
    * Stages a deferred operation for the given key. The function is called with the existing value
@@ -92,7 +95,16 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
       final NodeLoader nodeLoader,
       final Function<V, Bytes> valueSerializer,
       final Function<Bytes, V> valueDeserializer) {
+    this(nodeLoader, valueSerializer, valueDeserializer, DEFAULT_FORK_JOIN_POOL);
+  }
+
+  public ParallelStoredMerklePatriciaTrie(
+      final NodeLoader nodeLoader,
+      final Function<V, Bytes> valueSerializer,
+      final Function<Bytes, V> valueDeserializer,
+      final ForkJoinPool forkJoinPool) {
     super(nodeLoader, valueSerializer, valueDeserializer);
+    this.forkJoinPool = forkJoinPool;
   }
 
   /**
@@ -110,7 +122,24 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
       final Bytes rootLocation,
       final Function<V, Bytes> valueSerializer,
       final Function<Bytes, V> valueDeserializer) {
+    this(
+        nodeLoader,
+        rootHash,
+        rootLocation,
+        valueSerializer,
+        valueDeserializer,
+        DEFAULT_FORK_JOIN_POOL);
+  }
+
+  public ParallelStoredMerklePatriciaTrie(
+      final NodeLoader nodeLoader,
+      final Bytes32 rootHash,
+      final Bytes rootLocation,
+      final Function<V, Bytes> valueSerializer,
+      final Function<Bytes, V> valueDeserializer,
+      final ForkJoinPool forkJoinPool) {
     super(nodeLoader, rootHash, rootLocation, valueSerializer, valueDeserializer);
+    this.forkJoinPool = forkJoinPool;
   }
 
   /**
@@ -126,7 +155,18 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
       final Bytes32 rootHash,
       final Function<V, Bytes> valueSerializer,
       final Function<Bytes, V> valueDeserializer) {
+    this(
+        nodeLoader, rootHash, valueSerializer, valueDeserializer, DEFAULT_FORK_JOIN_POOL);
+  }
+
+  public ParallelStoredMerklePatriciaTrie(
+      final NodeLoader nodeLoader,
+      final Bytes32 rootHash,
+      final Function<V, Bytes> valueSerializer,
+      final Function<Bytes, V> valueDeserializer,
+      final ForkJoinPool forkJoinPool) {
     super(nodeLoader, rootHash, valueSerializer, valueDeserializer);
+    this.forkJoinPool = forkJoinPool;
   }
 
   /**
@@ -137,7 +177,15 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
    */
   public ParallelStoredMerklePatriciaTrie(
       final StoredNodeFactory<V> nodeFactory, final Bytes32 rootHash) {
+    this(nodeFactory, rootHash, DEFAULT_FORK_JOIN_POOL);
+  }
+
+  public ParallelStoredMerklePatriciaTrie(
+      final StoredNodeFactory<V> nodeFactory,
+      final Bytes32 rootHash,
+      final ForkJoinPool forkJoinPool) {
     super(nodeFactory, rootHash);
+    this.forkJoinPool = forkJoinPool;
   }
 
   /**
@@ -211,7 +259,7 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
       final boolean shouldCommit = maybeNodeUpdater.isPresent();
 
       this.root =
-          FORK_JOIN_POOL.invoke(
+          forkJoinPool.invoke(
               ForkJoinTask.adapt(
                   () ->
                       processNode(
