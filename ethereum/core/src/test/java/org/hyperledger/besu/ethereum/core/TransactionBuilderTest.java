@@ -110,6 +110,25 @@ class TransactionBuilderTest {
   }
 
   @Test
+  void zeroCodeDelegationAuthorizationIsInvalid() {
+    TransactionTestFixture ttf =
+        new TransactionTestFixture()
+            .type(TransactionType.DELEGATE_CODE)
+            .chainId(Optional.of(BigInteger.ONE))
+            .codeDelegations(List.of())
+            .maxFeePerGas(Optional.of(Wei.of(5)))
+            .maxPriorityFeePerGas(Optional.of(Wei.of(5)))
+            .maxFeePerBlobGas(Optional.of(Wei.of(5)));
+    try {
+      ttf.createTransaction(senderKeys);
+      fail();
+    } catch (IllegalArgumentException iea) {
+      assertThat(iea)
+          .hasMessage("Code delegation transaction must have at least one authorization");
+    }
+  }
+
+  @Test
   @SuppressWarnings("ReferenceEquality")
   void copyFromIsIdentical() {
     final TransactionTestFixture fixture = new TransactionTestFixture();

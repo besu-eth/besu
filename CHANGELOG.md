@@ -27,6 +27,7 @@
 - Skip DNS discovery records that fail enode conversion (e.g. out-of-range port) instead of dropping the rest of the batch [#10752](https://github.com/besu-eth/besu/pull/10752)
 - Raise the default DiscV5 discovery round timeout (`--Xv5-discovery-timeout-seconds`) from 30 to 60 seconds to avoid spurious round failures on networks with many unreachable candidates [#10800](https://github.com/besu-eth/besu/pull/10800)
 - Fix QBFT/IBFT mining continuing to seal blocks after the merge terminal total difficulty (TTD) is reached [#10733](https://github.com/besu-eth/besu/pull/10733)
+- Reject EIP-7702 code-delegation (type 0x04) transactions with an empty `authorization_list`, which is invalid per the spec. Such transactions are now rejected at build/decode time, and peers that send them (in a transactions broadcast or in a block-bodies response) are disconnected with `BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED`. [#10853](https://github.com/besu-eth/besu/pull/10853)
 
 ### Additions and Improvements
 - Add `--logging-format` CLI option to select structured JSON console logging (`ECS`, `GCP`, `LOGSTASH`, `GELF`) in addition to the default `PLAIN` pattern output, without requiring a custom `LOG4J_CONFIGURATION_FILE`. Each format is a bundled Log4j2 configuration file selected at startup. [#9626](https://github.com/besu-eth/besu/issues/9626)
