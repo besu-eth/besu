@@ -287,7 +287,6 @@ public class MergeCoordinatorCacheReorgTest implements MergeGenesisConfigHelper 
     // === Step 3: Import A1 — rememberBlock(A1) + FCU(A1) ===
     BlockProcessingResult resultA1 = coordinator.rememberBlock(blockA1);
     assertThat(resultA1.getYield()).describedAs("Block A1 should process successfully").isPresent();
-    resultA1.getYield().get().getWorldState().persist(blockA1.getHeader());
 
     coordinator.updateForkChoice(
         blockA1.getHeader(), genesisState.getBlock().getHash(), genesisState.getBlock().getHash());
