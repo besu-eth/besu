@@ -93,6 +93,22 @@ public class ReadinessCheckTest {
   }
 
   @Test
+  public void shouldNotBeReadyWhenMinimumPeersParamIsNegative() {
+    when(p2pNetwork.isP2pEnabled()).thenReturn(true);
+    when(p2pNetwork.getPeerCount()).thenReturn(0);
+    when(synchronizer.getSyncStatus()).thenReturn(Optional.empty());
+
+    params.put(MIN_PEERS_PARAM, "-1");
+
+    final HealthService.HealthCheckResult result = readinessCheck.checkHealth(paramSource);
+
+    assertThat(result.isHealthy()).isFalse();
+    final JsonObject peers = result.getDetails().getJsonObject("peers");
+    assertThat(peers.getBoolean("status")).isFalse();
+    assertThat(peers.getString("error")).isEqualTo("invalid minPeers parameter: -1");
+  }
+
+  @Test
   public void shouldBeReadyWhenLessThanDefaultMaxBlocksBehind() {
     when(p2pNetwork.isP2pEnabled()).thenReturn(true);
     when(p2pNetwork.getPeerCount()).thenReturn(5);
@@ -141,6 +157,22 @@ public class ReadinessCheckTest {
     params.put("maxBlocksBehind", "abc");
 
     assertThat(readinessCheck.checkHealth(paramSource).isHealthy()).isFalse();
+  }
+
+  @Test
+  public void shouldNotBeReadyWhenCustomMaxBlocksBehindIsNegative() {
+    when(p2pNetwork.isP2pEnabled()).thenReturn(true);
+    when(p2pNetwork.getPeerCount()).thenReturn(5);
+    when(synchronizer.getSyncStatus()).thenReturn(createSyncStatus(500, 500));
+
+    params.put("maxBlocksBehind", "-1");
+
+    final HealthService.HealthCheckResult result = readinessCheck.checkHealth(paramSource);
+
+    assertThat(result.isHealthy()).isFalse();
+    final JsonObject sync = result.getDetails().getJsonObject("sync");
+    assertThat(sync.getBoolean("status")).isFalse();
+    assertThat(sync.getString("error")).isEqualTo("invalid maxBlocksBehind parameter: -1");
   }
 
   @Test
