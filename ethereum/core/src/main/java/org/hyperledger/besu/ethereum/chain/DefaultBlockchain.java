@@ -713,6 +713,7 @@ public class DefaultBlockchain implements MutableBlockchain {
     final BlockchainStorage.Updater updater = blockchainStorage.updater();
     BlockHeader lastImportedHeader = chainHeader;
     Difficulty lastImportedTotalDifficulty = totalDifficulty;
+    int lastImportedTransactionCount = chainHeadTransactionCount;
     for (final SyncBlockWithReceipts blockAndReceipts : blocksAndReceipts) {
       final SyncBlock block = blockAndReceipts.getBlock();
       final BlockHeader header = block.getHeader();
@@ -724,6 +725,7 @@ public class DefaultBlockchain implements MutableBlockchain {
       lastImportedTotalDifficulty = calculateTotalDifficultyForSyncing(header);
       updater.putTotalDifficulty(blockHash, lastImportedTotalDifficulty);
       lastImportedHeader = header;
+      lastImportedTransactionCount = body.getEncodedTransactions().size();
       if (indexTransactions) {
         final List<Hash> listOfTxHashes =
             body.getEncodedTransactions().stream().map(Hash::hash).toList();
@@ -732,6 +734,7 @@ public class DefaultBlockchain implements MutableBlockchain {
     }
     updater.setChainHead(lastImportedHeader.getBlockHash());
     updater.commit();
+    chainHeadTransactionCount = lastImportedTransactionCount;
     totalDifficulty = lastImportedTotalDifficulty;
     chainHeader = lastImportedHeader;
   }
