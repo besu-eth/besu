@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 import com.google.common.base.Splitter;
 import com.google.common.collect.Iterables;
@@ -471,11 +472,28 @@ public class ConfigurationOverviewBuilder {
   }
 
   /**
-   * Build configuration overview.
+   * Build configuration overview as a framed, human-readable block.
    *
    * @return the string representing configuration overview
    */
   public String build() {
+    return FramedLogMessage.generate(buildLines());
+  }
+
+  /**
+   * Build configuration overview as a single unframed line, suitable for structured (e.g. JSON)
+   * logging formats where a multi-line framed block would embed poorly as an escaped string.
+   *
+   * @return the configuration overview as a single line of semicolon-separated fields
+   */
+  public String buildCompact() {
+    return buildLines().stream()
+        .map(String::strip)
+        .filter(line -> !line.isEmpty())
+        .collect(Collectors.joining("; "));
+  }
+
+  private List<String> buildLines() {
     final List<String> lines = new ArrayList<>();
     lines.add("Besu version " + BesuVersionUtils.shortVersion());
     lines.add("");
@@ -661,7 +679,7 @@ public class ConfigurationOverviewBuilder {
       lines.addAll(besuPluginContext.getPluginsSummaryLog());
     }
 
-    return FramedLogMessage.generate(lines);
+    return lines;
   }
 
   private boolean hasCustomBlobDBSettings() {

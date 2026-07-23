@@ -961,7 +961,12 @@ def defaultJvmOpts21 = application.applicationDefaultJvmArgs + [
 ]
 
 def defaultJvmOpts25 = defaultJvmOpts21 + [
-  "-XX:+UseCompactObjectHeaders"
+  "-XX:+UseCompactObjectHeaders",
+  // log4j-layout-template-json opportunistically uses a jctools queue (already on the classpath
+  // via netty-all) to recycle buffers for structured logging formats, which triggers the JEP 471
+  // terminally-deprecated sun.misc.Unsafe warning on first use. This flag was only added in
+  // JDK 23, so it must stay in the Java 25+ bucket, not the shared/21+ default JVM args.
+  "--sun-misc-unsafe-memory-access=allow"
 ]
 
 def untunedJvmOpts = application.applicationDefaultJvmArgs
