@@ -49,6 +49,11 @@ public class EthGetBlockAccessList extends AbstractBlockParameterOrBlockHashMeth
   }
 
   @Override
+  protected Object pendingResult(final JsonRpcRequestContext request) {
+    return null;
+  }
+
+  @Override
   protected Object resultByBlockHash(final JsonRpcRequestContext request, final Hash blockHash) {
     return getBlockAccessListResult(request, blockHash);
   }

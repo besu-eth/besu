@@ -14,23 +14,25 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameter;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameterOrBlockHash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
-import com.google.common.base.Suppliers;
+import org.apache.tuweni.bytes.Bytes;
 
-public class DebugGetRawBlockAccessList extends AbstractBlockParameterMethod {
+public class DebugGetRawBlockAccessList extends AbstractBlockParameterOrBlockHashMethod {
 
   public DebugGetRawBlockAccessList(final BlockchainQueries blockchain) {
-    super(Suppliers.ofInstance(blockchain));
+    super(blockchain);
   }
 
   @Override
@@ -39,29 +41,36 @@ public class DebugGetRawBlockAccessList extends AbstractBlockParameterMethod {
   }
 
   @Override
-  protected BlockParameter blockParameter(final JsonRpcRequestContext request) {
+  protected BlockParameterOrBlockHash blockParameterOrBlockHash(
+      final JsonRpcRequestContext request) {
     try {
-      return request.getRequiredParameter(0, BlockParameter.class);
+      return request.getRequiredParameter(0, BlockParameterOrBlockHash.class);
     } catch (JsonRpcParameterException e) {
       throw new InvalidJsonRpcParameters(
-          "Invalid block parameter (index 0)", RpcErrorType.INVALID_BLOCK_PARAMS, e);
+          "Invalid block or block hash parameters (index 0)", RpcErrorType.INVALID_BLOCK_PARAMS, e);
     }
   }
 
   @Override
-  protected Object resultByBlockNumber(
-      final JsonRpcRequestContext request, final long blockNumber) {
-    return getBlockchainQueries()
-        .getBlockHeaderByNumber(blockNumber)
-        .map(header -> getRawBlockAccessList(request, header))
-        .orElseGet(
-            () ->
-                new JsonRpcErrorResponse(
-                    request.getRequest().getId(), RpcErrorType.BLOCK_NOT_FOUND));
+  protected Object pendingResult(final JsonRpcRequestContext request) {
+    return null;
   }
 
-  private Object getRawBlockAccessList(
-      final JsonRpcRequestContext request, final BlockHeader header) {
+  @Override
+  protected JsonRpcResponse blockNotFoundResponse(final JsonRpcRequestContext requestContext) {
+    return new JsonRpcErrorResponse(
+        requestContext.getRequest().getId(), RpcErrorType.RESOURCE_NOT_FOUND);
+  }
+
+  @Override
+  protected Object resultByBlockHash(final JsonRpcRequestContext request, final Hash blockHash) {
+    final var maybeHeader = getBlockchainQueries().getBlockHeaderByHash(blockHash);
+    if (maybeHeader.isEmpty()) {
+      return new JsonRpcErrorResponse(
+          request.getRequest().getId(), RpcErrorType.RESOURCE_NOT_FOUND);
+    }
+
+    final BlockHeader header = maybeHeader.get();
     if (!getBlockchainQueries().isBlockAccessListSupported(header)) {
       return new JsonRpcErrorResponse(
           request.getRequest().getId(), RpcErrorType.RESOURCE_NOT_FOUND);
@@ -70,15 +79,17 @@ public class DebugGetRawBlockAccessList extends AbstractBlockParameterMethod {
     return getBlockchainQueries()
         .getBlockchain()
         .getBlockAccessList(header.getHash())
-        .<Object>map(
-            blockAccessList -> {
-              final BytesValueRLPOutput output = new BytesValueRLPOutput();
-              blockAccessList.writeTo(output);
-              return output.encoded().toHexString();
-            })
+        .<Object>map(this::encodeBlockAccessList)
         .orElseGet(
             () ->
                 new JsonRpcErrorResponse(
                     request.getRequest().getId(), RpcErrorType.PRUNED_HISTORY_UNAVAILABLE));
+  }
+
+  private String encodeBlockAccessList(final BlockAccessList blockAccessList) {
+    return blockAccessList
+        .rawRlp()
+        .map(Bytes::toHexString)
+        .orElseGet(() -> blockAccessList.encode().toHexString());
   }
 }

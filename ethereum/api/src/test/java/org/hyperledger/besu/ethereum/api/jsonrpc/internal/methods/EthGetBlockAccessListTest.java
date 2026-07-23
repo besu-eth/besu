@@ -219,6 +219,14 @@ public class EthGetBlockAccessListTest {
   }
 
   @Test
+  public void shouldReturnNullForPendingTag() {
+    final JsonRpcResponse response = requestBlockAccessList("pending");
+
+    assertThat(response).isInstanceOf(JsonRpcSuccessResponse.class);
+    assertThat(((JsonRpcSuccessResponse) response).getResult()).isNull();
+  }
+
+  @Test
   public void shouldThrowInvalidJsonRpcParametersForInvalidParameter() {
     final JsonRpcRequestContext requestContext =
         new JsonRpcRequestContext(

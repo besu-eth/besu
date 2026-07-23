@@ -1,19 +1,16 @@
 {
   "request": {
-    "id": 9,
+    "id": 12,
     "jsonrpc": "2.0",
     "method": "debug_getRawBlockAccessList",
     "params": [
-      "0x999999"
+      "pending"
     ]
   },
   "response": {
     "jsonrpc": "2.0",
-    "id": 9,
-    "error": {
-      "code": -32001,
-      "message": "Resource not found"
-    }
+    "id": 12,
+    "result": null
   },
   "statusCode": 200
 }

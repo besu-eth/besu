@@ -22,6 +22,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
@@ -33,6 +34,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import java.util.Collections;
 import java.util.Optional;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -61,39 +63,114 @@ public class DebugGetRawBlockAccessListTest {
     final BlockHeader header = blockDataGenerator.header(blockNumber);
     final Hash blockHash = header.getHash();
 
-    when(blockchainQueries.getBlockHeaderByNumber(blockNumber)).thenReturn(Optional.of(header));
+    when(blockchainQueries.headBlockNumber()).thenReturn(10L);
+    when(blockchainQueries.getBlockHashByNumber(blockNumber)).thenReturn(Optional.of(blockHash));
+    when(blockchainQueries.getBlockHeaderByHash(blockHash)).thenReturn(Optional.of(header));
     when(blockchainQueries.isBlockAccessListSupported(header)).thenReturn(true);
     when(blockchain.getBlockAccessList(blockHash))
         .thenReturn(Optional.of(new BlockAccessList(Collections.emptyList())));
 
     final JsonRpcSuccessResponse response =
-        (JsonRpcSuccessResponse)
-            method.response(
-                new JsonRpcRequestContext(
-                    new JsonRpcRequest(
-                        "2.0",
-                        method.getName(),
-                        new Object[] {String.format("0x%X", blockNumber)})));
+        (JsonRpcSuccessResponse) requestRawBlockAccessList(String.format("0x%X", blockNumber));
 
     assertThat(response.getResult()).isEqualTo("0xc0");
+  }
+
+  @Test
+  public void shouldReturnRlpEncodedBlockAccessListForBlockHash() {
+    final BlockHeader header = blockDataGenerator.header(5L);
+    final Hash blockHash = header.getHash();
+
+    when(blockchainQueries.getBlockHeaderByHash(blockHash)).thenReturn(Optional.of(header));
+    when(blockchainQueries.isBlockAccessListSupported(header)).thenReturn(true);
+    when(blockchain.getBlockAccessList(blockHash))
+        .thenReturn(Optional.of(new BlockAccessList(Collections.emptyList())));
+
+    final JsonRpcSuccessResponse response =
+        (JsonRpcSuccessResponse) requestRawBlockAccessList(blockHash.toHexString());
+
+    assertThat(response.getResult()).isEqualTo("0xc0");
+  }
+
+  @Test
+  public void shouldPreferRawRlpWhenAvailable() {
+    final BlockHeader header = blockDataGenerator.header(5L);
+    final Hash blockHash = header.getHash();
+    final Bytes rawRlp = Bytes.fromHexString("0xdeadbeef");
+
+    when(blockchainQueries.getBlockHeaderByHash(blockHash)).thenReturn(Optional.of(header));
+    when(blockchainQueries.isBlockAccessListSupported(header)).thenReturn(true);
+    when(blockchain.getBlockAccessList(blockHash))
+        .thenReturn(
+            Optional.of(
+                new BlockAccessList(Collections.emptyList(), rawRlp)));
+
+    final JsonRpcSuccessResponse response =
+        (JsonRpcSuccessResponse) requestRawBlockAccessList(blockHash.toHexString());
+
+    assertThat(response.getResult()).isEqualTo("0xdeadbeef");
+  }
+
+  @Test
+  public void shouldReturnNullForPendingTag() {
+    final JsonRpcResponse response = requestRawBlockAccessList("pending");
+
+    assertThat(response).isInstanceOf(JsonRpcSuccessResponse.class);
+    assertThat(((JsonRpcSuccessResponse) response).getResult()).isNull();
+  }
+
+  @Test
+  public void shouldReturnResourceNotFoundForUnknownBlockNumber() {
+    final long blockNumber = 5L;
+
+    when(blockchainQueries.headBlockNumber()).thenReturn(10L);
+    when(blockchainQueries.getBlockHashByNumber(blockNumber)).thenReturn(Optional.empty());
+    when(blockchainQueries.getBlockHeaderByHash(Hash.EMPTY)).thenReturn(Optional.empty());
+
+    final JsonRpcErrorResponse response =
+        (JsonRpcErrorResponse) requestRawBlockAccessList(String.format("0x%X", blockNumber));
+
+    assertThat(response.getErrorType()).isEqualTo(RpcErrorType.RESOURCE_NOT_FOUND);
+  }
+
+  @Test
+  public void shouldReturnResourceNotFoundForUnknownBlockHash() {
+    final Hash unknownHash =
+        Hash.fromHexString("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+
+    when(blockchainQueries.getBlockHeaderByHash(unknownHash)).thenReturn(Optional.empty());
+
+    final JsonRpcErrorResponse response =
+        (JsonRpcErrorResponse) requestRawBlockAccessList(unknownHash.toHexString());
+
+    assertThat(response.getErrorType()).isEqualTo(RpcErrorType.RESOURCE_NOT_FOUND);
+  }
+
+  @Test
+  public void shouldReturnResourceNotFoundForFutureBlockNumber() {
+    final long blockNumber = 999L;
+
+    when(blockchainQueries.headBlockNumber()).thenReturn(10L);
+
+    final JsonRpcErrorResponse response =
+        (JsonRpcErrorResponse) requestRawBlockAccessList(String.format("0x%X", blockNumber));
+
+    assertThat(response.getErrorType()).isEqualTo(RpcErrorType.RESOURCE_NOT_FOUND);
   }
 
   @Test
   public void shouldReturnResourceNotFoundForPreAmsterdamBlocks() {
     final long blockNumber = 5L;
     final BlockHeader header = blockDataGenerator.header(blockNumber);
+    final Hash blockHash = header.getHash();
 
-    when(blockchainQueries.getBlockHeaderByNumber(blockNumber)).thenReturn(Optional.of(header));
+    when(blockchainQueries.headBlockNumber()).thenReturn(10L);
+    when(blockchainQueries.getBlockHashByNumber(blockNumber)).thenReturn(Optional.of(blockHash));
+    when(blockchainQueries.getBlockHeaderByHash(blockHash)).thenReturn(Optional.of(header));
     when(blockchainQueries.isBlockAccessListSupported(header)).thenReturn(false);
 
     final JsonRpcErrorResponse response =
-        (JsonRpcErrorResponse)
-            method.response(
-                new JsonRpcRequestContext(
-                    new JsonRpcRequest(
-                        "2.0",
-                        method.getName(),
-                        new Object[] {String.format("0x%X", blockNumber)})));
+        (JsonRpcErrorResponse) requestRawBlockAccessList(String.format("0x%X", blockNumber));
 
     assertThat(response.getErrorType()).isEqualTo(RpcErrorType.RESOURCE_NOT_FOUND);
   }
@@ -104,19 +181,21 @@ public class DebugGetRawBlockAccessListTest {
     final BlockHeader header = blockDataGenerator.header(blockNumber);
     final Hash blockHash = header.getHash();
 
-    when(blockchainQueries.getBlockHeaderByNumber(blockNumber)).thenReturn(Optional.of(header));
+    when(blockchainQueries.headBlockNumber()).thenReturn(10L);
+    when(blockchainQueries.getBlockHashByNumber(blockNumber)).thenReturn(Optional.of(blockHash));
+    when(blockchainQueries.getBlockHeaderByHash(blockHash)).thenReturn(Optional.of(header));
     when(blockchainQueries.isBlockAccessListSupported(header)).thenReturn(true);
     when(blockchain.getBlockAccessList(blockHash)).thenReturn(Optional.empty());
 
     final JsonRpcErrorResponse response =
-        (JsonRpcErrorResponse)
-            method.response(
-                new JsonRpcRequestContext(
-                    new JsonRpcRequest(
-                        "2.0",
-                        method.getName(),
-                        new Object[] {String.format("0x%X", blockNumber)})));
+        (JsonRpcErrorResponse) requestRawBlockAccessList(String.format("0x%X", blockNumber));
 
     assertThat(response.getErrorType()).isEqualTo(RpcErrorType.PRUNED_HISTORY_UNAVAILABLE);
+  }
+
+  private JsonRpcResponse requestRawBlockAccessList(final String blockParameter) {
+    return method.response(
+        new JsonRpcRequestContext(
+            new JsonRpcRequest("2.0", method.getName(), new Object[] {blockParameter})));
   }
 }
