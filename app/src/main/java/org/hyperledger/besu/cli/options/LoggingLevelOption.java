@@ -56,7 +56,7 @@ public class LoggingLevelOption {
     if ("FATAL".equalsIgnoreCase(logLevel)) {
       // Not routed through the logger: printed during Picocli parsing, before logging is fully
       // configured. Written to stderr so it doesn't corrupt a structured (JSON) stdout stream.
-      System.err.println("FATAL level is deprecated");
+      System.err.println("FATAL level is deprecated, using ERROR instead");
       this.logLevel = "ERROR";
     } else if (ACCEPTED_VALUES.contains(logLevel.toUpperCase(Locale.ROOT))) {
       this.logLevel = logLevel.toUpperCase(Locale.ROOT);

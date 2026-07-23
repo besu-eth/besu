@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -14,8 +14,11 @@
  */
 package org.hyperledger.besu.cli.logging;
 
+import org.hyperledger.besu.cli.config.InternalProfileName;
 import org.hyperledger.besu.cli.options.LoggingFormat;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
@@ -31,9 +34,11 @@ import org.apache.tuweni.toml.TomlParseResult;
  * Resolves the effective {@code --logging-format} and color settings before the first Log4j2 logger
  * is created, so that the correct bundled configuration file is loaded from the very first log
  * line. This runs ahead of Picocli parsing, so values are resolved via a best-effort scan of raw
- * CLI args, environment variables, and (if present) the TOML config file. The authoritative,
- * fully-validated values are still established later by normal Picocli parsing; this bootstrap step
- * only needs to agree with that later resolution in the common cases.
+ * CLI args, environment variables, and (if present) the {@code --config-file}/{@code --profile}
+ * TOML sources, in the same precedence order as {@code ConfigDefaultValueProviderStrategy}'s
+ * cascading default providers. The authoritative, fully-validated values are still established
+ * later by normal Picocli parsing; this bootstrap step only needs to agree with that later
+ * resolution in the common cases.
  */
 public final class LoggingBootstrapConfigurator {
 
@@ -43,6 +48,8 @@ public final class LoggingBootstrapConfigurator {
   static final String COLOR_ENABLED_ENV = "BESU_COLOR_ENABLED";
   static final String CONFIG_FILE_OPTION = "--config-file";
   static final String CONFIG_FILE_ENV = "BESU_CONFIG_FILE";
+  static final String PROFILE_OPTION = "--profile";
+  static final String PROFILE_ENV = "BESU_PROFILE";
   static final String NO_COLOR_ENV = "NO_COLOR";
   static final String LOGGING_FORMAT_TOML_KEY = "logging-format";
   static final String COLOR_ENABLED_TOML_KEY = "color-enabled";
@@ -140,14 +147,17 @@ public final class LoggingBootstrapConfigurator {
         .isPresent();
   }
 
+  // Picocli option *names* are case-sensitive (e.g. --Logging-Format is an unknown option), so
+  // matching here must be too. Only the enum/boolean *value* that follows is case-insensitive,
+  // matching Picocli's own setCaseInsensitiveEnumValuesAllowed(true).
   private static Optional<String> scanArgValue(final String[] args, final String optionName) {
     final String prefix = optionName + "=";
     for (int i = 0; i < args.length; i++) {
       final String arg = args[i];
-      if (arg.regionMatches(true, 0, prefix, 0, prefix.length())) {
+      if (arg.startsWith(prefix)) {
         return Optional.of(arg.substring(prefix.length()));
       }
-      if (arg.equalsIgnoreCase(optionName) && i + 1 < args.length) {
+      if (arg.equals(optionName) && i + 1 < args.length) {
         return Optional.of(args[i + 1]);
       }
     }
@@ -157,17 +167,26 @@ public final class LoggingBootstrapConfigurator {
   private static Optional<Boolean> scanFlagValue(final String[] args, final String optionName) {
     final String prefix = optionName + "=";
     for (final String arg : args) {
-      if (arg.regionMatches(true, 0, prefix, 0, prefix.length())) {
+      if (arg.startsWith(prefix)) {
         return Optional.of(Boolean.parseBoolean(arg.substring(prefix.length())));
       }
-      if (arg.equalsIgnoreCase(optionName)) {
+      if (arg.equals(optionName)) {
         return Optional.of(true);
       }
     }
     return Optional.empty();
   }
 
+  // Mirrors ConfigDefaultValueProviderStrategy's CascadingDefaultProvider precedence for a value
+  // not set directly on the CLI/env: --config-file, then --profile (only used as a last resort by
+  // Picocli's own resolution, so it belongs after the config file here too).
   private static Optional<String> readTomlValue(
+      final String[] args, final Map<String, String> environment, final String tomlKey) {
+    return readConfigFileTomlValue(args, environment, tomlKey)
+        .or(() -> readProfileTomlValue(args, environment, tomlKey));
+  }
+
+  private static Optional<String> readConfigFileTomlValue(
       final String[] args, final Map<String, String> environment, final String tomlKey) {
     final Optional<String> configFilePath =
         scanArgValue(args, CONFIG_FILE_OPTION)
@@ -175,21 +194,63 @@ public final class LoggingBootstrapConfigurator {
     if (configFilePath.isEmpty()) {
       return Optional.empty();
     }
-    try {
-      final Path path = Path.of(configFilePath.get());
-      if (!Files.isRegularFile(path)) {
-        return Optional.empty();
-      }
-      final TomlParseResult result = Toml.parse(path);
-      if (result.hasErrors() || !result.contains(tomlKey)) {
-        return Optional.empty();
-      }
-      // Use the generic getter rather than getString(): a TOML key can be an unquoted boolean
-      // (e.g. color-enabled=false), and getString() throws a type error for non-string values.
-      return Optional.ofNullable(result.get(tomlKey)).map(Object::toString);
+    final Path path = Path.of(configFilePath.get());
+    if (!Files.isRegularFile(path)) {
+      return Optional.empty();
+    }
+    try (InputStream in = Files.newInputStream(path)) {
+      return extractTomlValue(Toml.parse(in), tomlKey);
     } catch (final Exception e) {
       // Best-effort only; normal Picocli/TOML parsing will surface real errors later.
       return Optional.empty();
     }
+  }
+
+  private static Optional<String> readProfileTomlValue(
+      final String[] args, final Map<String, String> environment, final String tomlKey) {
+    final Optional<String> profileName =
+        scanArgValue(args, PROFILE_OPTION)
+            .or(() -> Optional.ofNullable(environment.get(PROFILE_ENV)));
+    if (profileName.isEmpty()) {
+      return Optional.empty();
+    }
+    try (InputStream in = openProfileStream(profileName.get())) {
+      if (in == null) {
+        return Optional.empty();
+      }
+      return extractTomlValue(Toml.parse(in), tomlKey);
+    } catch (final Exception e) {
+      // Best-effort only; normal Picocli/TOML parsing will surface real errors later.
+      return Optional.empty();
+    }
+  }
+
+  // Mirrors ProfileFinder's resolution: an internal (bundled, classpath) profile by name, else an
+  // external *.toml file in the profiles directory.
+  private static InputStream openProfileStream(final String profileName) throws IOException {
+    final Optional<InternalProfileName> internalProfile =
+        InternalProfileName.valueOfIgnoreCase(profileName);
+    if (internalProfile.isPresent()) {
+      return LoggingBootstrapConfigurator.class
+          .getClassLoader()
+          .getResourceAsStream(internalProfile.get().getConfigFile());
+    }
+    final String profilesDirProperty = System.getProperty("besu.profiles.dir");
+    final Path profilesDir =
+        profilesDirProperty != null
+            ? Path.of(profilesDirProperty)
+            : Path.of(System.getProperty("besu.home", "."), "profiles");
+    final Path externalProfile = profilesDir.resolve(profileName + ".toml");
+    return Files.isRegularFile(externalProfile) ? Files.newInputStream(externalProfile) : null;
+  }
+
+  private static Optional<String> extractTomlValue(
+      final TomlParseResult result, final String tomlKey) {
+    if (result.hasErrors() || !result.contains(tomlKey)) {
+      return Optional.empty();
+    }
+    // Use the generic getter rather than getString(): a TOML key can be an unquoted boolean
+    // (e.g. color-enabled=false), and getString() throws a type error for non-string values.
+    return Optional.ofNullable(result.get(tomlKey)).map(Object::toString);
   }
 }
