@@ -39,6 +39,7 @@ import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.ping.P
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.p2p.peers.Peer;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions;
+import org.hyperledger.besu.ethereum.p2p.rlpx.ConnectSource;
 import org.hyperledger.besu.ethereum.p2p.rlpx.RlpxAgent;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.nat.NatService;
@@ -91,7 +92,9 @@ class NettyPeerDiscoveryAgentTest {
 
     final RlpxAgent rlpxAgent = mock(RlpxAgent.class);
     lenient()
-        .when(rlpxAgent.connect(org.mockito.ArgumentMatchers.any()))
+        .when(
+            rlpxAgent.connect(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
         .thenReturn(CompletableFuture.failedFuture(new RuntimeException()));
 
     final NatService natService = new NatService(Optional.empty());
@@ -236,7 +239,7 @@ class NettyPeerDiscoveryAgentTest {
 
     final RlpxAgent rlpxAgent = mock(RlpxAgent.class);
     lenient()
-        .when(rlpxAgent.connect(any()))
+        .when(rlpxAgent.connect(any(), any(ConnectSource.class)))
         .thenReturn(CompletableFuture.failedFuture(new RuntimeException()));
     lenient().when(rlpxAgent.getIpv6ListeningPort()).thenReturn(Optional.of(30304));
 
