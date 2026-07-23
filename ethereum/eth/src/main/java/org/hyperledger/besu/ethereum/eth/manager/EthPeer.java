@@ -497,6 +497,7 @@ public class EthPeer implements Comparable<EthPeer> {
       final PeerConnection disconnectedConnection, final PeerConnection replacementConnection) {
     synchronized (this) {
       if (!connection.equals(disconnectedConnection)
+          || replacementConnection.isDisconnected()
           || !replacementConnection.getStatusExchanged()) {
         return false;
       }

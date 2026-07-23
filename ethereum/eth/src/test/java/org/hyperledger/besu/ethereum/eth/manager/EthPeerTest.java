@@ -373,6 +373,30 @@ public class EthPeerTest {
     assertThat(statusCallbacks.get()).isEqualTo(2);
   }
 
+  @Test
+  public void shouldNotReplaceDisconnectedConnection() {
+    final MockPeerConnection selectedConnection = new MockPeerConnection(Set.of(EthProtocol.ETH68));
+    final MockPeerConnection replacementConnection =
+        new MockPeerConnection(Set.of(EthProtocol.ETH68));
+    final EthPeer peer =
+        new EthPeer(
+            selectedConnection,
+            ignored -> {},
+            emptyList(),
+            EthProtocolConfiguration.DEFAULT_MAX_MESSAGE_SIZE,
+            clock,
+            emptyList(),
+            Bytes.random(64));
+
+    replacementConnection.setStatusSent();
+    replacementConnection.setStatusReceived();
+    selectedConnection.disconnect(DisconnectReason.ALREADY_CONNECTED);
+    replacementConnection.disconnect(DisconnectReason.ALREADY_CONNECTED);
+
+    assertThat(peer.replaceConnection(selectedConnection, replacementConnection)).isFalse();
+    assertThat(peer.getConnection()).isSameAs(selectedConnection);
+  }
+
   private void messageStream(
       final ResponseStreamSupplier getStream,
       final MessageData targetMessage,
