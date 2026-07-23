@@ -19,6 +19,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.BlockProcessingExecutors;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.NoOpMerkleTrie;
 import org.hyperledger.besu.ethereum.trie.NodeLoader;
@@ -42,6 +43,7 @@ import org.hyperledger.besu.evm.internal.EvmConfiguration;
 
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ForkJoinPool;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -238,7 +240,8 @@ public class BonsaiWorldState extends PathBasedWorldState {
         (location, hash) ->
             bonsaiCachedMerkleTrieLoader.getAccountStateTrieNode(
                 getWorldStateStorage(), location, hash),
-        Bytes32.wrap(worldStateRootHash.getBytes()));
+        Bytes32.wrap(worldStateRootHash.getBytes()),
+        BlockProcessingExecutors.accountTrieForkJoinPool());
   }
 
   /** Per-account storage trie rooted at {@code storageRoot}. */
@@ -248,16 +251,24 @@ public class BonsaiWorldState extends PathBasedWorldState {
         (location, key) ->
             bonsaiCachedMerkleTrieLoader.getAccountStorageTrieNode(
                 getWorldStateStorage(), accountHash, location, key),
-        Bytes32.wrap(storageRoot.getBytes()));
+        Bytes32.wrap(storageRoot.getBytes()),
+        BlockProcessingExecutors.storageTrieForkJoinPool());
   }
 
   public MerkleTrie<Bytes, Bytes> createTrie(final NodeLoader nodeLoader, final Bytes32 rootHash) {
+    return createTrie(nodeLoader, rootHash, BlockProcessingExecutors.accountTrieForkJoinPool());
+  }
+
+  private MerkleTrie<Bytes, Bytes> createTrie(
+      final NodeLoader nodeLoader,
+      final Bytes32 rootHash,
+      final ForkJoinPool forkJoinPool) {
     if (worldStateConfig.isTrieDisabled()) {
       return new NoOpMerkleTrie<>();
     }
     if (worldStateConfig.isParallelStateRootComputationEnabled()) {
       return new ParallelStoredMerklePatriciaTrie<>(
-          nodeLoader, rootHash, Function.identity(), Function.identity());
+          nodeLoader, rootHash, Function.identity(), Function.identity(), forkJoinPool);
     }
     return new StoredMerklePatriciaTrie<>(
         nodeLoader, rootHash, Function.identity(), Function.identity());
