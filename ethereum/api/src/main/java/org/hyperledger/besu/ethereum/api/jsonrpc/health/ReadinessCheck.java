@@ -51,7 +51,13 @@ public class ReadinessCheck implements HealthService.HealthCheck {
       if (peersParam != null) {
         try {
           requiredPeers = Integer.parseInt(peersParam);
-          peersOk = peerCount >= requiredPeers;
+          if (requiredPeers < 0) {
+            LOG.debug("Negative minPeers: {}. Reporting as not ready.", peersParam);
+            peersOk = false;
+            peersError = "invalid minPeers parameter: " + peersParam;
+          } else {
+            peersOk = peerCount >= requiredPeers;
+          }
         } catch (final NumberFormatException e) {
           LOG.debug("Invalid minPeers: {}. Reporting as not ready.", peersParam);
           peersOk = false;
@@ -85,7 +91,14 @@ public class ReadinessCheck implements HealthService.HealthCheck {
       if (maxBlocksBehindParam != null) {
         try {
           maxBlocksBehind = Long.parseLong(maxBlocksBehindParam);
-          syncOk = blocksBehind <= maxBlocksBehind;
+          if (maxBlocksBehind < 0) {
+            LOG.debug(
+                "Negative maxBlocksBehind: {}. Reporting as not ready.", maxBlocksBehindParam);
+            syncOk = false;
+            syncError = "invalid maxBlocksBehind parameter: " + maxBlocksBehindParam;
+          } else {
+            syncOk = blocksBehind <= maxBlocksBehind;
+          }
         } catch (final NumberFormatException e) {
           LOG.debug("Invalid maxBlocksBehind: {}. Reporting as not ready.", maxBlocksBehindParam);
           syncOk = false;
