@@ -198,6 +198,8 @@ tx-pool-max-prioritized=9876
 tx-pool-max-prioritized-by-type=["BLOB=10","FRONTIER=100"]
 tx-pool-max-future-by-sender=321
 tx-pool-enable-balance-check=false
+tx-pool-no-late-funding=false
+tx-pool-forget-invalid-txn-mins=-1
 ## Legacy/Sequenced
 tx-pool-retention-hours=999
 tx-pool-max-size=1234

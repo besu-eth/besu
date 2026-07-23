@@ -48,6 +48,8 @@ import picocli.CommandLine;
 public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfiguration> {
   private static final String TX_POOL_IMPLEMENTATION = "--tx-pool";
   private static final String TX_POOL_NO_LOCAL_PRIORITY = "--tx-pool-no-local-priority";
+  private static final String TX_POOL_NO_LATE_FUNDING = "--tx-pool-no-late-funding";
+  private static final String TX_POOL_FORGET_INVALID_TXN_MINS = "--tx-pool-forget-invalid-txn-mins";
   private static final String TX_POOL_ENABLE_SAVE_RESTORE = "--tx-pool-enable-save-restore";
   private static final String TX_POOL_SAVE_FILE = "--tx-pool-save-file";
   private static final String TX_POOL_PRICE_BUMP = "--tx-pool-price-bump";
@@ -75,6 +77,31 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
       fallbackValue = "true",
       arity = "0..1")
   private Boolean noLocalPriority = TransactionPoolConfiguration.DEFAULT_NO_LOCAL_PRIORITY;
+
+  @CommandLine.Option(
+      names = {TX_POOL_NO_LATE_FUNDING},
+      paramLabel = "<Boolean>",
+      description =
+          "When enabled, transactions whose sender has insufficient balance at block-selection time "
+              + "are immediately removed from the pool and tracked to prevent re-admission from peers. "
+              + "When disabled (default), such transactions are retained in the pool and retried in "
+              + "a later block (default: ${DEFAULT-VALUE})",
+      fallbackValue = "true",
+      arity = "0..1")
+  private Boolean noLateFunding = TransactionPoolConfiguration.DEFAULT_TX_POOL_NO_LATE_FUNDING;
+
+  @CommandLine.Option(
+      names = {TX_POOL_FORGET_INVALID_TXN_MINS},
+      paramLabel = "<INTEGER>",
+      description =
+          "Controls how long a seen-but-invalid transaction is remembered before being forgotten "
+              + "and potentially re-accepted from peers. "
+              + "-1 disables forgetting (LRU eviction only), "
+              + "0 forgets immediately on drop, "
+              + "N > 0 forgets after N minutes (default: ${DEFAULT-VALUE})",
+      arity = "1")
+  private Integer forgetInvalidTxnMins =
+      TransactionPoolConfiguration.DEFAULT_TX_POOL_FORGET_INVALID_TXN_MINS;
 
   @CommandLine.Option(
       names = {TX_POOL_ENABLE_SAVE_RESTORE},
@@ -351,6 +378,8 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
     options.txPoolImplementation = config.getTxPoolImplementation();
     options.saveRestoreEnabled = config.getEnableSaveRestore();
     options.noLocalPriority = config.getNoLocalPriority();
+    options.noLateFunding = config.getNoLateFunding();
+    options.forgetInvalidTxnMins = config.getForgetInvalidTxnMins();
     options.priceBump = config.getPriceBump();
     options.blobPriceBump = config.getBlobPriceBump();
     options.txFeeCap = config.getTxFeeCap();
@@ -418,6 +447,8 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
         .txPoolImplementation(txPoolImplementation)
         .enableSaveRestore(saveRestoreEnabled)
         .noLocalPriority(noLocalPriority)
+        .noLateFunding(noLateFunding)
+        .forgetInvalidTxnMins(forgetInvalidTxnMins)
         .priceBump(priceBump)
         .blobPriceBump(blobPriceBump)
         .txFeeCap(txFeeCap)

@@ -109,6 +109,43 @@ public class TransactionPoolOptionsTest
   }
 
   @Test
+  public void noLateFundingDefaultIsFalse() {
+    internalTestSuccess(config -> assertThat(config.getNoLateFunding()).isFalse());
+  }
+
+  @Test
+  public void noLateFundingCanBeEnabled() {
+    internalTestSuccess(
+        config -> assertThat(config.getNoLateFunding()).isTrue(), "--tx-pool-no-late-funding=true");
+  }
+
+  @Test
+  public void noLateFundingCanBeDisabledExplicitly() {
+    internalTestSuccess(
+        config -> assertThat(config.getNoLateFunding()).isFalse(),
+        "--tx-pool-no-late-funding=false");
+  }
+
+  @Test
+  public void forgetInvalidTxnMinsDefaultIsDisabled() {
+    internalTestSuccess(config -> assertThat(config.getForgetInvalidTxnMins()).isEqualTo(-1));
+  }
+
+  @Test
+  public void forgetInvalidTxnMinsZeroForgetImmediately() {
+    internalTestSuccess(
+        config -> assertThat(config.getForgetInvalidTxnMins()).isZero(),
+        "--tx-pool-forget-invalid-txn-mins=0");
+  }
+
+  @Test
+  public void forgetInvalidTxnMinsCanBeSetToMinutes() {
+    internalTestSuccess(
+        config -> assertThat(config.getForgetInvalidTxnMins()).isEqualTo(60),
+        "--tx-pool-forget-invalid-txn-mins=60");
+  }
+
+  @Test
   public void saveToFileDisabledByDefault() {
     internalTestSuccess(config -> assertThat(config.getEnableSaveRestore()).isFalse());
   }

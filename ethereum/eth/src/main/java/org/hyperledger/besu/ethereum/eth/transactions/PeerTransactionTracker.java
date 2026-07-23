@@ -40,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.SequencedSet;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -59,6 +60,7 @@ public class PeerTransactionTracker
   private final EthScheduler ethScheduler;
   private final int maxSendQueueSizePerPeer;
   private final boolean forgetEvictedTxsEnabled;
+  private final int forgetInvalidTxnMins;
   private final FixedCapacityLRUMap<Hash, PeersSeenState> peersSeenStateByHash;
   private final Map<EthPeer, SequencedSet<Transaction>> transactionsToSend = new HashMap<>();
   private final Map<EthPeer, SequencedSet<Transaction>> announcementsToSend = new HashMap<>();
@@ -75,11 +77,16 @@ public class PeerTransactionTracker
     this.ethScheduler = scheduler;
     this.maxSendQueueSizePerPeer = txPoolConfig.getUnstable().getMaxSendQueueSizePerPeer();
     this.forgetEvictedTxsEnabled = txPoolConfig.getUnstable().getPeerTrackerForgetEvictedTxs();
+    this.forgetInvalidTxnMins = txPoolConfig.getForgetInvalidTxnMins();
     this.peersSeenStateByHash =
         new FixedCapacityLRUMap<>(txPoolConfig.getUnstable().getMaxTrackedSeenTxs());
     this.peerToSlotIndexMap = HashBiMap.create(ethPeers.getMaxPeers());
     ethScheduler.scheduleFutureTaskWithFixedDelay(
         this::logStats, Duration.ofMinutes(1), Duration.ofMinutes(1));
+    if (forgetInvalidTxnMins > 0) {
+      ethScheduler.scheduleFutureTaskWithFixedDelay(
+          this::purgeExpiredSeenTransactions, Duration.ofMinutes(1), Duration.ofMinutes(1));
+    }
   }
 
   public synchronized void reset() {
@@ -89,6 +96,20 @@ public class PeerTransactionTracker
     announcementsToSend.clear();
     announcementsToRequestByHash.clear();
     inProgressAnnouncements.clear();
+  }
+
+  private synchronized void purgeExpiredSeenTransactions() {
+    final long cutoffMillis =
+        System.currentTimeMillis() - TimeUnit.MINUTES.toMillis(forgetInvalidTxnMins);
+    final int before = peersSeenStateByHash.size();
+    peersSeenStateByHash.entrySet().removeIf(e -> e.getValue().addedAtMillis() < cutoffMillis);
+    final int removed = before - peersSeenStateByHash.size();
+    if (removed > 0) {
+      LOG.debug(
+          "Purged {} expired seen-transaction entries (older than {} min)",
+          removed,
+          forgetInvalidTxnMins);
+    }
   }
 
   private synchronized void logStats() {
@@ -425,7 +446,7 @@ public class PeerTransactionTracker
       removeAnnouncementsToRequest(droppedHashes);
     }
 
-    if (reason.stopTracking() && forgetEvictedTxsEnabled) {
+    if (forgetInvalidTxnMins == 0 || (reason.stopTracking() && forgetEvictedTxsEnabled)) {
       peersSeenStateByHash.remove(transaction.getHash());
     }
   }
@@ -483,9 +504,9 @@ public class PeerTransactionTracker
     }
   }
 
-  private record PeersSeenState(BitSet transactions, BitSet announcements) {
+  private record PeersSeenState(BitSet transactions, BitSet announcements, long addedAtMillis) {
     PeersSeenState(final int maxSlots) {
-      this(new BitSet(maxSlots), new BitSet(maxSlots));
+      this(new BitSet(maxSlots), new BitSet(maxSlots), System.currentTimeMillis());
     }
 
     public void transactionSeenAll() {
