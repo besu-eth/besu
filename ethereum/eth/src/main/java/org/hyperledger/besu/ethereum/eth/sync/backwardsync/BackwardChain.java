@@ -281,6 +281,11 @@ public class BackwardChain {
     this.hashesToAppend.add(newBlockHash);
   }
 
+  synchronized void replaceQueuedHashesWith(final Hash newBlockHash) {
+    hashesToAppend.clear();
+    hashesToAppend.add(newBlockHash);
+  }
+
   public synchronized Optional<Hash> getFirstHashToAppend() {
     return Optional.ofNullable(hashesToAppend.peek());
   }

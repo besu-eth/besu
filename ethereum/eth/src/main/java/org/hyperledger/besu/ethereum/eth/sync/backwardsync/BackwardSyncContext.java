@@ -141,7 +141,11 @@ public class BackwardSyncContext {
           .setMessage("Appending new head block hash {} to backward sync")
           .addArgument(() -> newBlockHash.getBytes().toHexString())
           .log();
-      backwardChain.addNewHash(newBlockHash);
+      if (isReady()) {
+        backwardChain.addNewHash(newBlockHash);
+      } else {
+        backwardChain.replaceQueuedHashesWith(newBlockHash);
+      }
     }
 
     final Status status = getOrStartSyncSession();

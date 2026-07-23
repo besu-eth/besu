@@ -317,9 +317,25 @@ public class BackwardSyncContextTest {
     final Hash hash = getRemoteBlockByNumber(REMOTE_HEIGHT).getHash();
     final CompletableFuture<Void> future = context.syncBackwardsUntil(hash);
 
+    future.orTimeout(30, TimeUnit.SECONDS);
     future.get();
 
     assertThat(backwardChain.getFirstHashToAppend()).contains(hash);
+  }
+
+  @Test
+  public void shouldKeepOnlyLatestHashQueuedWhileNotReady() {
+    doReturn(false).when(context).isReady();
+    when(backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(context))
+        .thenReturn(backwardSyncAlgorithm);
+    when(backwardSyncAlgorithm.executeBackwardsSync(null)).thenReturn(new CompletableFuture<>());
+
+    final Hash firstHash = getRemoteBlockByNumber(REMOTE_HEIGHT - 1).getHash();
+    final Hash latestHash = getRemoteBlockByNumber(REMOTE_HEIGHT).getHash();
+    context.syncBackwardsUntil(firstHash);
+    context.syncBackwardsUntil(latestHash);
+
+    assertThat(backwardChain.getHashesToAppend()).containsExactly(latestHash);
   }
 
   @Test
