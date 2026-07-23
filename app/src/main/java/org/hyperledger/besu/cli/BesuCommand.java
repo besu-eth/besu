@@ -994,6 +994,11 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   public void run() {
     if (network != null && network.isDeprecated()) {
       logger.warn(NetworkDeprecationMessage.generate(network));
+      if (network.isRemoved()) {
+        throw new ParameterException(
+            this.commandLine,
+            "--network=" + network.name().toLowerCase(Locale.ROOT) + " is no longer supported.");
+      }
     }
     try {
       configureLogging(true);

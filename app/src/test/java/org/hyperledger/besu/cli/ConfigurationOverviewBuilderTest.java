@@ -224,9 +224,9 @@ class ConfigurationOverviewBuilderTest {
 
   @Test
   void setProfile() {
-    builder.setProfile(InternalProfileName.DEV.name());
+    builder.setProfile(InternalProfileName.STAKER.name());
     final String profileSelected = builder.build();
-    assertThat(profileSelected).contains("Profile: DEV");
+    assertThat(profileSelected).contains("Profile: STAKER");
   }
 
   @Test
