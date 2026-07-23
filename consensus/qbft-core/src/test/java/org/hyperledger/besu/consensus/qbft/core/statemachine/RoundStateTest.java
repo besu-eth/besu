@@ -38,9 +38,13 @@ import org.hyperledger.besu.cryptoservices.NodeKeyUtils;
 import org.hyperledger.besu.datatypes.Hash;
 
 import java.math.BigInteger;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -376,5 +380,70 @@ public class RoundStateTest {
             .map(BftMessage::getSignedPayload)
             .collect(Collectors.toList());
     assertThat(preparedCertificate.get().getPrepares()).isEqualTo(expectedPrepares);
+  }
+
+  @Test
+  public void getCommitSealsIsThreadSafeWhileCommitsAreBeingAdded() throws InterruptedException {
+    when(messageValidator.validateProposal(any())).thenReturn(true);
+    when(messageValidator.validateCommit(any())).thenReturn(true);
+
+    final RoundState roundState = new RoundState(roundIdentifier, 1, messageValidator);
+    roundState.setProposedBlock(
+        validatorMessageFactories
+            .getFirst()
+            .createProposal(
+                roundIdentifier, block, Collections.emptyList(), Collections.emptyList()));
+
+    // Each commit needs a distinct author so it structurally mutates the backing map
+    // (putIfAbsent), which is what makes a fail-fast iterator in getCommitSeals throw.
+    final int commitCount = 500;
+    final List<Commit> commits = new ArrayList<>(commitCount);
+    for (int i = 0; i < commitCount; i++) {
+      final MessageFactory factory = new MessageFactory(NodeKeyUtils.generate(), blockEncoder);
+      commits.add(
+          factory.createCommit(
+              roundIdentifier,
+              blockHash,
+              SIGNATURE_ALGORITHM.createSignature(
+                  BigInteger.valueOf(i + 1), BigInteger.ONE, (byte) 0)));
+    }
+
+    final AtomicReference<Throwable> failure = new AtomicReference<>();
+    final CountDownLatch start = new CountDownLatch(1);
+
+    final Thread writer =
+        new Thread(
+            () -> {
+              try {
+                start.await();
+                for (final Commit commit : commits) {
+                  roundState.addCommitMessage(commit);
+                }
+              } catch (final Throwable t) {
+                failure.compareAndSet(null, t);
+              }
+            });
+
+    final Thread reader =
+        new Thread(
+            () -> {
+              try {
+                start.await();
+                for (int i = 0; i < 5_000 && failure.get() == null; i++) {
+                  roundState.getCommitSeals();
+                }
+              } catch (final Throwable t) {
+                failure.compareAndSet(null, t);
+              }
+            });
+
+    writer.start();
+    reader.start();
+    start.countDown();
+    writer.join(TimeUnit.SECONDS.toMillis(30));
+    reader.join(TimeUnit.SECONDS.toMillis(30));
+
+    assertThat(failure.get()).isNull();
+    assertThat(roundState.getCommitSeals()).hasSize(commitCount);
   }
 }
