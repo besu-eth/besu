@@ -186,8 +186,7 @@ public class PivotSelectorFromSafeBlock
                       currentPivot.getNumber(),
                       distanceFromHead,
                       effectiveThreshold);
-                  return CompletableFuture.completedFuture(
-                      new SnapSyncProcessState(currentPivot, true));
+                  return CompletableFuture.completedFuture(new SnapSyncProcessState(currentPivot));
                 }
               }
 
@@ -195,15 +194,14 @@ public class PivotSelectorFromSafeBlock
               if (cachedSafe != null
                   && head.getNumber() - cachedSafe.getNumber() < effectiveThreshold) {
                 LOG.debug("Using safe block {} as pivot", cachedSafe.getNumber());
-                return CompletableFuture.completedFuture(
-                    new SnapSyncProcessState(cachedSafe, true));
+                return CompletableFuture.completedFuture(new SnapSyncProcessState(cachedSafe));
               }
 
               final int blocksToWalk = (int) Math.min(PIVOT_DISTANCE, head.getNumber());
               LOG.debug(
                   "Walking back {} blocks from head {} for pivot", blocksToWalk, head.getNumber());
               return walkBackParents(head, blocksToWalk)
-                  .thenApply(newPivot -> new SnapSyncProcessState(newPivot, true));
+                  .thenApply(newPivot -> new SnapSyncProcessState(newPivot));
             })
         .thenApply(
             state -> {

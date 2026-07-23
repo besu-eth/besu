@@ -126,6 +126,63 @@ public class PeerDenylistManagerTest {
     checkPermissions(denylist, peer.getPeer(), true);
   }
 
+  @Test
+  public void denylistPeerForMismatchedNetwork() {
+    final PeerConnection peer = generatePeerConnection();
+
+    checkPermissions(denylist, peer.getPeer(), true);
+    peerDenylistManager.onDisconnect(
+        peer, DisconnectReason.SUBPROTOCOL_TRIGGERED_MISMATCHED_NETWORK, false);
+    checkPermissions(denylist, peer.getPeer(), false);
+  }
+
+  @Test
+  public void denylistPeerForMismatchedGenesisHash() {
+    final PeerConnection peer = generatePeerConnection();
+
+    checkPermissions(denylist, peer.getPeer(), true);
+    peerDenylistManager.onDisconnect(
+        peer, DisconnectReason.SUBPROTOCOL_TRIGGERED_MISMATCHED_GENESIS_HASH, false);
+    checkPermissions(denylist, peer.getPeer(), false);
+  }
+
+  @Test
+  public void denylistPeerForNullNodeId() {
+    final PeerConnection peer = generatePeerConnection();
+
+    checkPermissions(denylist, peer.getPeer(), true);
+    peerDenylistManager.onDisconnect(peer, DisconnectReason.NULL_NODE_ID, false);
+    checkPermissions(denylist, peer.getPeer(), false);
+  }
+
+  @Test
+  public void denylistPeerForLocalIdentity() {
+    final PeerConnection peer = generatePeerConnection();
+
+    checkPermissions(denylist, peer.getPeer(), true);
+    peerDenylistManager.onDisconnect(peer, DisconnectReason.LOCAL_IDENTITY, false);
+    checkPermissions(denylist, peer.getPeer(), false);
+  }
+
+  @Test
+  public void denylistPeerForUnexpectedId() {
+    final PeerConnection peer = generatePeerConnection();
+
+    checkPermissions(denylist, peer.getPeer(), true);
+    peerDenylistManager.onDisconnect(peer, DisconnectReason.UNEXPECTED_ID, false);
+    checkPermissions(denylist, peer.getPeer(), false);
+  }
+
+  @Test
+  public void doesNotDenylistPeerForMismatchedForkId() {
+    final PeerConnection peer = generatePeerConnection();
+
+    checkPermissions(denylist, peer.getPeer(), true);
+    peerDenylistManager.onDisconnect(
+        peer, DisconnectReason.SUBPROTOCOL_TRIGGERED_MISMATCHED_FORKID, false);
+    checkPermissions(denylist, peer.getPeer(), true);
+  }
+
   private void checkPermissions(
       final PeerPermissionsDenylist denylist, final Peer remotePeer, final boolean expectedResult) {
     for (PeerPermissions.Action action : PeerPermissions.Action.values()) {

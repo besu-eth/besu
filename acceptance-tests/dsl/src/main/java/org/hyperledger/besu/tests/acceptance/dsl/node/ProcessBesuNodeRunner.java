@@ -67,7 +67,7 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
 
   private final Map<String, Process> besuProcesses = new HashMap<>();
   private final ExecutorService outputProcessorExecutor = Executors.newCachedThreadPool();
-  private boolean capturingConsole;
+  private volatile boolean capturingConsole;
   private final ByteArrayOutputStream consoleContents = new ByteArrayOutputStream();
   private final PrintStream consoleOut = new PrintStream(consoleContents);
   private static final int MAX_STARTUP_OUTPUT_LINES = 200;
@@ -188,10 +188,6 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
 
     params.add("--discovery-enabled");
     params.add(Boolean.toString(node.isDiscoveryEnabled()));
-
-    if (node.getNetworkingConfiguration().discoveryConfiguration().isDiscoveryV5Enabled()) {
-      params.add("--Xv5-discovery-enabled");
-    }
 
     params.add("--p2p-host");
     params.add(node.p2pListenHost());
@@ -685,6 +681,11 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
   @Override
   public String getConsoleContents() {
     capturingConsole = false;
+    return consoleContents.toString(UTF_8);
+  }
+
+  @Override
+  public String peekConsoleContents() {
     return consoleContents.toString(UTF_8);
   }
 }

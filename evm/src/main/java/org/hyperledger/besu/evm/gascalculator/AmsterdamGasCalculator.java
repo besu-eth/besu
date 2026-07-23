@@ -38,6 +38,8 @@ import org.apache.tuweni.units.bigints.UInt256;
  * is reduced.
  *
  * <UL>
+ *   <LI>EIP-8038: state-access gas repricing (cold access, account/storage write, CALL value,
+ *       CREATE/CREATE2 access, access-list per-entry cost)
  *   <LI>EIP-7928: gas cost per item for block access list size limit
  *   <LI>EIP-7976: calldata floor cost raised to 64 gas per byte
  *   <LI>EIP-7981: access list data priced at the 64 gas/byte floor
@@ -62,16 +64,37 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
   // EIP-8037: New regular gas constants for Amsterdam
   private static final long TX_CREATE_COST = 9_000L;
 
-  // EIP-8037: SSTORE_SET regular gas drops from 20,000 to 2,900 (state portion charged separately)
-  private static final long SSTORE_SET_GAS = SSTORE_RESET_GAS;
+  // --- EIP-8038: state-access gas repricing (see the EIP for the authoritative values) ---
 
-  // EIP-8037: 0→X→0 refund is 2,800 per spec (GAS_STORAGE_UPDATE - GAS_COLD_SLOAD -
-  // GAS_WARM_ACCESS)
-  private static final long SSTORE_SET_GAS_LESS_SLOAD_GAS = SSTORE_SET_GAS - WARM_STORAGE_READ_COST;
+  /** Cold account access cost. */
+  protected static final long COLD_ACCOUNT_ACCESS = 3_000L;
 
-  // SSTORE_CLEARS_SCHEDULE unchanged from EIP-3529 (London): 4,800
-  private static final long SSTORE_CLEARS_SCHEDULE = SSTORE_RESET_GAS + ACCESS_LIST_STORAGE_COST;
-  private static final long NEGATIVE_SSTORE_CLEARS_SCHEDULE = -SSTORE_CLEARS_SCHEDULE;
+  /** Cold storage slot access cost. */
+  protected static final long COLD_STORAGE_ACCESS = 3_000L;
+
+  /** Account write cost (value-bearing CALL / new account). */
+  protected static final long ACCOUNT_WRITE = 8_000L;
+
+  /**
+   * Flat write cost charged once per slot, on its first change in the transaction. Replaces the
+   * Berlin SSTORE set/reset distinction; the set-from-zero surcharge now lives entirely in state
+   * gas (see {@link Eip8037StateGasCostCalculator#storageSetStateGas}).
+   */
+  private static final long STORAGE_WRITE = 10_000L;
+
+  /** Refund for clearing a slot: {@code (STORAGE_WRITE + COLD_STORAGE_ACCESS) * 4800 / 5000}. */
+  private static final long STORAGE_CLEAR_REFUND =
+      (STORAGE_WRITE + COLD_STORAGE_ACCESS) * 4800L / 5000L;
+
+  /**
+   * Regular-gas state-access cost for {@code CREATE}/{@code CREATE2}: {@code ACCOUNT_WRITE +
+   * COLD_ACCOUNT_ACCESS}. The new-account state creation cost is charged separately as state gas
+   * (see {@link Eip8037StateGasCostCalculator}).
+   */
+  private static final long CREATE_ACCESS = ACCOUNT_WRITE + COLD_ACCOUNT_ACCESS;
+
+  /** Per-word copy cost used for EXTCODECOPY memory-copy accounting. */
+  private static final long COPY_WORD_GAS_COST = 3L;
 
   /**
    * EIP-7928: gas cost per item for block access list size limit (bal_items <= block_gas_limit /
@@ -131,14 +154,13 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
 
   @Override
   public long accessListGasCost(final int addresses, final int storageSlots) {
-    // EIP-2930 baseline (2400 per address, 1900 per key) plus EIP-7981 data floor
-    // (1280 per address, 2048 per storage key), so access list data is always charged
-    // at floor rate regardless of which branch of the gasUsed max() wins.
+    // EIP-8038: per-entry access cost is the cold access cost for both addresses and storage keys.
+    // EIP-7981: plus the access-list data floor, so the data is always charged at the floor rate
+    // regardless of which branch of the gasUsed max() wins.
     return clampedAdd(
-        super.accessListGasCost(addresses, storageSlots),
-        clampedAdd(
-            clampedMultiply(addresses, ACCESS_LIST_ADDRESS_FLOOR_COST),
-            clampedMultiply(storageSlots, ACCESS_LIST_STORAGE_KEY_FLOOR_COST)));
+        clampedMultiply(addresses, clampedAdd(COLD_ACCOUNT_ACCESS, ACCESS_LIST_ADDRESS_FLOOR_COST)),
+        clampedMultiply(
+            storageSlots, clampedAdd(COLD_STORAGE_ACCESS, ACCESS_LIST_STORAGE_KEY_FLOOR_COST)));
   }
 
   private static long accessListBytes(final List<AccessListEntry> accessList) {
@@ -150,11 +172,55 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
     return bytes;
   }
 
+  // --- EIP-8038 state-access gas repricing ---
+
+  @Override
+  public long getColdSloadCost() {
+    return COLD_STORAGE_ACCESS;
+  }
+
+  @Override
+  public long getColdAccountAccessCost() {
+    return COLD_ACCOUNT_ACCESS;
+  }
+
+  @Override
+  public long getSStoreColdAccessGasCost() {
+    // The warm access base is already folded into slotAccessCost, so SSTORE adds only the
+    // cold surcharge on top of it: full cold access minus that warm base.
+    return COLD_STORAGE_ACCESS - WARM_STORAGE_READ_COST;
+  }
+
+  @Override
+  public long callValueTransferGasCost() {
+    // The stipend is charged here but handed back to the callee via getAdditionalCallStipend(), so
+    // the net caller cost for the value transfer is ACCOUNT_WRITE.
+    return ACCOUNT_WRITE + ADDITIONAL_CALL_STIPEND;
+  }
+
+  @Override
+  public long getExtCodeSizeOperationGasCost() {
+    // Extra "code reading" surcharge on top of the account access added by the operation.
+    return WARM_STORAGE_READ_COST;
+  }
+
+  @Override
+  public long extCodeCopyOperationGasCost(
+      final MessageFrame frame, final long offset, final long length) {
+    // Extra "code reading" surcharge (the base argument) on top of the account access added by the
+    // operation.
+    return copyWordsToMemoryGasCost(
+        frame, WARM_STORAGE_READ_COST, COPY_WORD_GAS_COST, offset, length);
+  }
+
   // --- EIP-8037 Gas Cost Overrides ---
 
   @Override
   public long txCreateCost() {
-    return TX_CREATE_COST;
+    // EIP-8038: CREATE/CREATE2 opcodes are charged CREATE_ACCESS in regular gas (plus the
+    // new-account state-creation cost as state gas). The transaction-intrinsic create cost is
+    // repriced separately by EIP-2780; txCreateExtraGasCost() below keeps the EIP-8037 value.
+    return CREATE_ACCESS;
   }
 
   @Override
@@ -186,22 +252,18 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
   }
 
   @Override
-  public long calculateStorageCost(
+  public long slotAccessCost(
       final UInt256 newValue,
       final Supplier<UInt256> currentValue,
       final Supplier<UInt256> originalValue) {
-    // Same Berlin truth table, but SSTORE_SET_GAS is now 2,900 (state portion charged separately)
+    // Regular gas only: the warm access base is always charged, plus a flat STORAGE_WRITE on the
+    // first change to the slot this transaction (its current value still equals the original).
+    // Dirty re-writes and no-ops pay the access base only. The set-from-zero surcharge is state
+    // gas, not regular. (originalValue is only read when the value actually changes.)
     final UInt256 localCurrentValue = currentValue.get();
-    if (localCurrentValue.equals(newValue)) {
-      return WARM_STORAGE_READ_COST;
-    } else {
-      final UInt256 localOriginalValue = originalValue.get();
-      if (localOriginalValue.equals(localCurrentValue)) {
-        return localOriginalValue.isZero() ? SSTORE_SET_GAS : SSTORE_RESET_GAS;
-      } else {
-        return WARM_STORAGE_READ_COST;
-      }
-    }
+    final boolean firstChange =
+        !localCurrentValue.equals(newValue) && originalValue.get().equals(localCurrentValue);
+    return firstChange ? WARM_STORAGE_READ_COST + STORAGE_WRITE : WARM_STORAGE_READ_COST;
   }
 
   @Override
@@ -252,39 +314,30 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
       final UInt256 newValue,
       final Supplier<UInt256> currentValue,
       final Supplier<UInt256> originalValue) {
-    // Same Berlin truth table structure, but with updated constants
+    // Regular-gas refunds (credited to the refund counter): the storage-clear refund is granted
+    // when a slot is first cleared and reversed if that clear is later undone, and the flat
+    // STORAGE_WRITE is refunded when the slot ends up back at its original value. There is no
+    // per-set/reset distinction.
     final UInt256 localCurrentValue = currentValue.get();
     if (localCurrentValue.equals(newValue)) {
       return 0L;
-    } else {
-      final UInt256 localOriginalValue = originalValue.get();
-      if (localOriginalValue.equals(localCurrentValue)) {
-        if (localOriginalValue.isZero()) {
-          return 0L;
-        } else if (newValue.isZero()) {
-          return SSTORE_CLEARS_SCHEDULE;
-        } else {
-          return 0L;
-        }
-      } else {
-        long refund = 0L;
-        if (!localOriginalValue.isZero()) {
-          if (localCurrentValue.isZero()) {
-            refund = NEGATIVE_SSTORE_CLEARS_SCHEDULE;
-          } else if (newValue.isZero()) {
-            refund = SSTORE_CLEARS_SCHEDULE;
-          }
-        }
-
-        if (localOriginalValue.equals(newValue)) {
-          refund =
-              refund
-                  + (localOriginalValue.isZero()
-                      ? SSTORE_SET_GAS_LESS_SLOAD_GAS
-                      : SSTORE_RESET_GAS_LESS_SLOAD_GAS);
-        }
-        return refund;
+    }
+    final UInt256 localOriginalValue = originalValue.get();
+    long refund = 0L;
+    if (!localOriginalValue.isZero()) {
+      if (!localCurrentValue.isZero() && newValue.isZero()) {
+        // Slot cleared for the first time this transaction.
+        refund += STORAGE_CLEAR_REFUND;
+      } else if (localCurrentValue.isZero() && !newValue.isZero()) {
+        // An earlier clear is being undone: the slot is written back to a non-zero value.
+        // (x -> 0 -> 0 never reaches here — the current == new guard above returns first.)
+        refund -= STORAGE_CLEAR_REFUND;
       }
     }
+    if (localOriginalValue.equals(newValue)) {
+      // Slot restored to its original value: refund the STORAGE_WRITE charged on the first change.
+      refund += STORAGE_WRITE;
+    }
+    return refund;
   }
 }

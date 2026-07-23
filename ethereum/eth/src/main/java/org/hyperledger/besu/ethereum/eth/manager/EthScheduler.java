@@ -128,6 +128,7 @@ public class EthScheduler {
     syncWorkerExecutor.execute(command);
   }
 
+  @SuppressWarnings("CollectionUndefinedEquality") // CompletableFuture uses identity equality
   public <T> CompletableFuture<T> scheduleSyncWorkerTask(final EthTask<T> task) {
     final CompletableFuture<T> syncFuture = task.runAsync(syncWorkerExecutor);
     pendingFutures.add(syncFuture);
@@ -147,6 +148,7 @@ public class EthScheduler {
     return CompletableFuture.runAsync(task, servicesExecutor);
   }
 
+  @SuppressWarnings("CollectionUndefinedEquality") // CompletableFuture uses identity equality
   public <T> CompletableFuture<T> scheduleServiceTask(final EthTask<T> task) {
     final CompletableFuture<T> serviceFuture = task.runAsync(servicesExecutor);
     pendingFutures.add(serviceFuture);
@@ -167,6 +169,7 @@ public class EthScheduler {
     return promise;
   }
 
+  @SuppressWarnings("CollectionUndefinedEquality") // CompletableFuture uses identity equality
   public CompletableFuture<Void> startPipeline(final Pipeline<?> pipeline) {
     final CompletableFuture<Void> pipelineFuture = pipeline.start(servicesExecutor);
     pendingFutures.add(pipelineFuture);
@@ -271,6 +274,7 @@ public class EthScheduler {
       scheduler.shutdownNow();
       servicesExecutor.shutdownNow();
       computationExecutor.shutdownNow();
+      blockCreationExecutor.shutdownNow();
       shutdown.countDown();
     } else {
       LOG.atTrace()
@@ -301,6 +305,10 @@ public class EthScheduler {
     if (!computationExecutor.awaitTermination(30, TimeUnit.SECONDS)) {
       LOG.error(
           "{} computation executor did not shutdown cleanly.", this.getClass().getSimpleName());
+    }
+    if (!blockCreationExecutor.awaitTermination(30, TimeUnit.SECONDS)) {
+      LOG.error(
+          "{} block creation executor did not shutdown cleanly.", this.getClass().getSimpleName());
     }
     LOG.trace("{} stopped.", this.getClass().getSimpleName());
   }

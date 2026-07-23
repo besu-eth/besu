@@ -265,7 +265,7 @@ public class RangeHeadersFetcherTest {
             .build(),
         protocolSchedule,
         ethContext,
-        new SnapSyncProcessState(targetHeader, false));
+        new SnapSyncProcessState(targetHeader));
   }
 
   private BlockHeader header(final long blockNumber) {

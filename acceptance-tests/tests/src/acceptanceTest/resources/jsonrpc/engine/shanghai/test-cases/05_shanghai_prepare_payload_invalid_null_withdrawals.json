@@ -21,7 +21,8 @@
     "id" : 67,
     "error" : {
       "code" : -38003,
-      "message" : "Invalid payload attributes"
+      "message" : "Invalid payload attributes",
+      "data" : "Withdrawals must not be null after Shanghai hardfork"
     }
   },
   "statusCode" : 200

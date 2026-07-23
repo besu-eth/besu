@@ -155,15 +155,8 @@ public class TransitionCoordinator extends TransitionUtils<MiningCoordinator>
   }
 
   @Override
-  public ForkchoiceResult updateForkChoiceWithoutLegacySkip(
-      final BlockHeader newHead, final Hash finalizedBlockHash, final Hash safeBlockHash) {
-    return mergeCoordinator.updateForkChoiceWithoutLegacySkip(
-        newHead, finalizedBlockHash, safeBlockHash);
-  }
-
-  @Override
-  public boolean isAncestorOfFinalized(final Hash candidateHeadHash) {
-    return mergeCoordinator.isAncestorOfFinalized(candidateHeadHash);
+  public boolean isAncestorOfFinalized(final BlockHeader candidateHeadBlockHeader) {
+    return mergeCoordinator.isAncestorOfFinalized(candidateHeadBlockHeader);
   }
 
   @Override

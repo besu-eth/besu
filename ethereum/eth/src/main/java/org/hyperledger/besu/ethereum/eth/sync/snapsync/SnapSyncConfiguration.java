@@ -62,6 +62,11 @@ public class SnapSyncConfiguration {
   }
 
   @Value.Default
+  public long getPivotBlockCheckIntervalMillis() {
+    return DEFAULT_PIVOT_CHECK_INTERVAL_MILLIS;
+  }
+
+  @Value.Default
   public int getStorageCountPerRequest() {
     return DEFAULT_STORAGE_COUNT_PER_REQUEST;
   }
