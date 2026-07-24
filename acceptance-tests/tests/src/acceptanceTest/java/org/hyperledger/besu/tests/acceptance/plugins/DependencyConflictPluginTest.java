@@ -27,7 +27,6 @@ import org.hyperledger.besu.tests.acceptance.dsl.AcceptanceTestBase;
 import org.hyperledger.besu.tests.acceptance.dsl.node.BesuNode;
 
 import java.io.IOException;
-import java.util.Collections;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -38,12 +37,15 @@ public class DependencyConflictPluginTest extends AcceptanceTestBase {
   @Test
   public void warnOnOutdatedPluginByDefault() throws IOException {
     pluginNode =
-        besu.createQbftPluginsNode(
+        besu.createPluginsNode(
             "pluginNode",
             List.of("dependencyConflictPlugin1", "dependencyConflictPlugin2"),
-            PluginConfiguration.DEFAULT,
-            Collections.emptyList(),
-            "DEBUG");
+            builder ->
+                builder
+                    .jsonRpcEnabled()
+                    .jsonRpcAdmin()
+                    .jsonRpcDebug()
+                    .pluginConfiguration(PluginConfiguration.DEFAULT));
 
     cluster.startConsoleCapture();
     cluster.runNodeStart(pluginNode);
@@ -66,14 +68,18 @@ public class DependencyConflictPluginTest extends AcceptanceTestBase {
   @Test
   public void failsToStartOnOutdatedPluginIfToldSo() throws IOException {
     pluginNode =
-        besu.createQbftPluginsNode(
+        besu.createPluginsNode(
             "pluginNode",
             List.of("dependencyConflictPlugin1", "dependencyConflictPlugin2"),
-            ImmutablePluginConfiguration.builder()
-                .pluginsVerificationMode(PluginsVerificationMode.FULL)
-                .build(),
-            Collections.emptyList(),
-            "DEBUG");
+            builder ->
+                builder
+                    .jsonRpcEnabled()
+                    .jsonRpcAdmin()
+                    .jsonRpcDebug()
+                    .pluginConfiguration(
+                        ImmutablePluginConfiguration.builder()
+                            .pluginsVerificationMode(PluginsVerificationMode.FULL)
+                            .build()));
 
     cluster.startConsoleCapture();
 
