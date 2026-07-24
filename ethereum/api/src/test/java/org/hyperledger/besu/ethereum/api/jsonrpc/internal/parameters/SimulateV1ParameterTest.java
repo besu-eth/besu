@@ -20,6 +20,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.StateOverride;
 import org.hyperledger.besu.datatypes.StateOverrideMap;
 import org.hyperledger.besu.datatypes.parameters.UnsignedLongParameter;
+import org.hyperledger.besu.ethereum.transaction.ImmutableCallParameter;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError;
 
 import java.util.List;
@@ -77,6 +78,22 @@ public class SimulateV1ParameterTest {
         List.of(blockStateCall), BlockStateCallError.INVALID_PRECOMPILE_ADDRESS);
   }
 
+  @Test
+  public void shouldNotPrevalidateDecreasingNonces() {
+    final Address sender = Address.fromHexString("0xc000000000000000000000000000000000000000");
+    final JsonBlockStateCallParameter blockStateCall =
+        new JsonBlockStateCallParameter(
+            List.of(
+                callWithNonce(sender, 0L), callWithNonce(sender, 1L), callWithNonce(sender, 0L)),
+            null,
+            null);
+
+    final SimulateV1Parameter simulateV1Parameter =
+        new SimulateV1Parameter(List.of(blockStateCall), true, false, false, false, false);
+
+    assertThat(simulateV1Parameter.validate(VALID_PRECOMPILE_ADDRESSES)).isEmpty();
+  }
+
   private JsonBlockStateCallParameter createBlockStateCallParameter(
       final Long blockNumber, final Long timestamp, final StateOverrideMap stateOverrideMap) {
 
@@ -97,5 +114,9 @@ public class SimulateV1ParameterTest {
             Optional.empty());
 
     return new JsonBlockStateCallParameter(List.of(), blockOverridesParameter, stateOverrideMap);
+  }
+
+  private ImmutableCallParameter callWithNonce(final Address sender, final long nonce) {
+    return ImmutableCallParameter.builder().sender(sender).to(sender).nonce(nonce).build();
   }
 }

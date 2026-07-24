@@ -19,9 +19,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonBlockStateCallParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.SimulateV1Parameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
@@ -35,6 +37,8 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.transaction.BlockSimulationParameter;
 import org.hyperledger.besu.ethereum.transaction.BlockSimulator;
+import org.hyperledger.besu.ethereum.transaction.ImmutableCallParameter;
+import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallException;
@@ -142,6 +146,58 @@ public class EthSimulateV1Test {
   }
 
   @Test
+  public void shouldReturnSimulatorErrorWhenCallsContainDecreasingNonces() {
+    setupMethodWithMockSimulator();
+    setupBlockchainForLatest();
+    when(blockSimulator.process(any(BlockHeader.class), any(), any(OperationTracer.class)))
+        .thenThrow(
+            new BlockStateCallException(
+                "BaseFeePerGas too low", BlockStateCallError.GAS_PRICE_BELOW_BASE_FEE));
+
+    final JsonRpcRequestContext request =
+        ethSimulateV1Request(simulateParameterWithDecreasingNonces(), "latest");
+
+    final JsonRpcResponse response = method.response(request);
+
+    assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
+    assertThat(((JsonRpcErrorResponse) response).getError().getCode())
+        .isEqualTo(BlockStateCallError.GAS_PRICE_BELOW_BASE_FEE.getCode());
+    verify(blockSimulator).process(any(BlockHeader.class), any(), any(OperationTracer.class));
+  }
+
+  @Test
+  public void shouldReturnNonceTooLowErrorCodeFromSimulatorValidation() {
+    setupMethodWithMockSimulator();
+    setupBlockchainForLatest();
+    when(blockSimulator.process(any(BlockHeader.class), any(), any(OperationTracer.class)))
+        .thenThrow(
+            new BlockStateCallException("Nonce too low", TransactionInvalidReason.NONCE_TOO_LOW));
+
+    final JsonRpcResponse response =
+        method.response(ethSimulateV1Request(simulateParameter(true), "latest"));
+
+    assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
+    assertThat(((JsonRpcErrorResponse) response).getError().getCode())
+        .isEqualTo(BlockStateCallError.NONCE_TOO_LOW.getCode());
+  }
+
+  @Test
+  public void shouldReturnNonceTooHighErrorCodeFromSimulatorValidation() {
+    setupMethodWithMockSimulator();
+    setupBlockchainForLatest();
+    when(blockSimulator.process(any(BlockHeader.class), any(), any(OperationTracer.class)))
+        .thenThrow(
+            new BlockStateCallException("Nonce too high", TransactionInvalidReason.NONCE_TOO_HIGH));
+
+    final JsonRpcResponse response =
+        method.response(ethSimulateV1Request(simulateParameter(true), "latest"));
+
+    assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
+    assertThat(((JsonRpcErrorResponse) response).getError().getCode())
+        .isEqualTo(BlockStateCallError.NONCE_TOO_HIGH.getCode());
+  }
+
+  @Test
   public void shouldNotReturnInvalidParamsWhenInputAndDataHaveDifferentValues() {
     setupMethodWithMockSimulator();
     setupBlockchainForLatest();
@@ -207,6 +263,21 @@ public class EthSimulateV1Test {
 
   private SimulateV1Parameter simulateParameter(final boolean validation) {
     return new SimulateV1Parameter(List.of(), validation, false, false, false, false);
+  }
+
+  private SimulateV1Parameter simulateParameterWithDecreasingNonces() {
+    final Address sender = Address.fromHexString("0xc000000000000000000000000000000000000000");
+    final JsonBlockStateCallParameter blockStateCall =
+        new JsonBlockStateCallParameter(
+            List.of(
+                callWithNonce(sender, 0L), callWithNonce(sender, 1L), callWithNonce(sender, 0L)),
+            null,
+            null);
+    return new SimulateV1Parameter(List.of(blockStateCall), true, false, false, false, false);
+  }
+
+  private ImmutableCallParameter callWithNonce(final Address sender, final long nonce) {
+    return ImmutableCallParameter.builder().sender(sender).to(sender).nonce(nonce).build();
   }
 
   private JsonRpcRequestContext ethSimulateV1Request(

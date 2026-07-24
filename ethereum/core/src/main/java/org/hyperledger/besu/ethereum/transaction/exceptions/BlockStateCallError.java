@@ -30,6 +30,10 @@ public enum BlockStateCallError {
   INVALID_PRECOMPILE_ADDRESS(-32000, "Invalid precompile address"),
   /** Duplicated move precompile target. */
   DUPLICATED_PRECOMPILE_TARGET(-38023, "Duplicated move precompile target"),
+  /** Transaction nonce is too low. */
+  NONCE_TOO_LOW(-38010, "Nonce too low"),
+  /** Transaction nonce is too high. */
+  NONCE_TOO_HIGH(-38011, "Nonce too high"),
   /** The nonce is invalid. */
   INVALID_NONCES(-32602, "Invalid nonces"),
   /** Block gas limit exceeded by the block's transactions. */
