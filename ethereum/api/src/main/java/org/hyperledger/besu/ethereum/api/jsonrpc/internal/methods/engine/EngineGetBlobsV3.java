@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.StreamingJsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
@@ -38,10 +39,16 @@ import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.util.HexUtils;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.vertx.core.Vertx;
 import jakarta.validation.constraints.NotNull;
 import org.jspecify.annotations.Nullable;
@@ -64,7 +71,8 @@ import org.slf4j.LoggerFactory;
  *   <li>Only supports KZG_CELL_PROOFS blob type (rejects KZG_PROOF)
  * </ul>
  */
-public class EngineGetBlobsV3 extends ExecutionEngineJsonRpcMethod {
+public class EngineGetBlobsV3 extends ExecutionEngineJsonRpcMethod
+    implements StreamingJsonRpcMethod {
   private static final Logger LOG = LoggerFactory.getLogger(EngineGetBlobsV3.class);
   public static final int REQUEST_MAX_VERSIONED_HASHES = 128;
 
@@ -152,6 +160,74 @@ public class EngineGetBlobsV3 extends ExecutionEngineJsonRpcMethod {
         availableCount < versionedHashes.length);
 
     return new JsonRpcSuccessResponse(requestContext.getRequest().getId(), result);
+  }
+
+  @Override
+  public void streamResponse(
+      final JsonRpcRequestContext requestContext, final OutputStream out, final ObjectMapper mapper)
+      throws IOException {
+    final VersionedHash[] versionedHashes = extractVersionedHashes(requestContext);
+    if (versionedHashes.length > REQUEST_MAX_VERSIONED_HASHES) {
+      mapper.writeValue(
+          out,
+          new JsonRpcErrorResponse(
+              requestContext.getRequest().getId(),
+              RpcErrorType.INVALID_ENGINE_GET_BLOBS_TOO_LARGE_REQUEST));
+      return;
+    }
+    if (mergeContext.get().isSyncing()) {
+      out.write(
+          ("{\"jsonrpc\":\"2.0\",\"id\":"
+                  + mapper.writeValueAsString(requestContext.getRequest().getId())
+                  + ",\"result\":null}")
+              .getBytes(StandardCharsets.UTF_8));
+      return;
+    }
+    final long timestamp = protocolContext.getBlockchain().getChainHeadHeader().getTimestamp();
+    final ValidationResult<RpcErrorType> forkValidationResult = validateForkSupported(timestamp);
+    if (!forkValidationResult.isValid()) {
+      mapper.writeValue(
+          out, new JsonRpcErrorResponse(requestContext.getRequest().getId(), forkValidationResult));
+      return;
+    }
+
+    requestedCounter.inc(versionedHashes.length);
+
+    // pre-build all entries before writing — separates hex encoding from I/O
+    final List<BlobAndProofV2> results = getBlobV3Result(versionedHashes);
+    final long availableCount = results.stream().filter(Objects::nonNull).count();
+
+    out.write(
+        ("{\"jsonrpc\":\"2.0\",\"id\":"
+                + mapper.writeValueAsString(requestContext.getRequest().getId())
+                + ",\"result\":[")
+            .getBytes(StandardCharsets.UTF_8));
+    final ByteArrayOutputStream entryBuf = new ByteArrayOutputStream(200 * 1024);
+    for (int i = 0; i < results.size(); i++) {
+      entryBuf.reset();
+      if (i > 0) entryBuf.write(',');
+      final BlobAndProofV2 entry = results.get(i);
+      if (entry == null) {
+        entryBuf.write("null".getBytes(StandardCharsets.UTF_8));
+      } else {
+        mapper.writeValue(entryBuf, entry);
+      }
+      entryBuf.writeTo(out);
+    }
+    out.write("]}".getBytes(StandardCharsets.UTF_8));
+
+    availableCounter.inc(availableCount);
+    if (availableCount == versionedHashes.length) {
+      fullResponseCounter.inc();
+    } else {
+      partialResponseCounter.inc();
+    }
+
+    LOG.debug(
+        "Requested {} bundles, found {} valid bundles ({} partial response)",
+        versionedHashes.length,
+        availableCount,
+        availableCount < versionedHashes.length);
   }
 
   private VersionedHash[] extractVersionedHashes(final JsonRpcRequestContext requestContext) {
