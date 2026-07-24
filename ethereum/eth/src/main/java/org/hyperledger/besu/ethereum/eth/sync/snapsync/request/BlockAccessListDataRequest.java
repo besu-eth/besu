@@ -14,7 +14,9 @@
  */
 package org.hyperledger.besu.ethereum.eth.sync.snapsync.request;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.RequestType;
@@ -22,7 +24,7 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapWorldDownloadState;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListChanges;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAddressView;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
@@ -30,6 +32,7 @@ import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Stream;
@@ -80,8 +83,16 @@ public class BlockAccessListDataRequest extends SnapDataRequest {
 
     blockAccessList.ifPresent(
         bal -> {
-          for (final var accountChanges : BlockAccessListChanges.latestChanges(bal)) {
-            final Hash accountHash = Hash.hash(accountChanges.address().getBytes());
+          final BlockAccessListAddressView addressView = BlockAccessListAddressView.of(bal);
+          for (final Map.Entry<Address, BlockAccessListAddressView.AccountEntry> entry :
+              addressView.getAccountEntries().entrySet()) {
+            final Address address = entry.getKey();
+            final BlockAccessListAddressView.AccountEntry accountEntry = entry.getValue();
+            if (!hasAnyChange(accountEntry)) {
+              continue;
+            }
+
+            final Hash accountHash = accountEntry.getAddressHash();
 
             final PmtStateTrieAccountValue trieAccountValue =
                 accountTrie
@@ -92,20 +103,20 @@ public class BlockAccessListDataRequest extends SnapDataRequest {
                         new PmtStateTrieAccountValue(
                             0, Wei.ZERO, Hash.EMPTY_TRIE_HASH, Hash.EMPTY));
 
-            final var updatedCode = accountChanges.code();
-            final Hash updatedCodeHash = resolveUpdatedCodeHash(accountChanges, trieAccountValue);
+            final Optional<Bytes> updatedCode = resolveUpdatedCode(accountEntry);
+            final Hash updatedCodeHash = resolveUpdatedCodeHash(accountEntry, trieAccountValue);
             updatedCode.ifPresent(
                 code -> bonsaiUpdater.putCode(accountHash, updatedCodeHash, code));
 
             final Hash updatedStorageRoot = trieAccountValue.getStorageRoot();
-            if (!accountChanges.storageChanges().isEmpty()) {
-              applyStorageChanges(accountHash, accountChanges, bonsaiUpdater);
+            if (accountEntry.hasStorageChanges()) {
+              applyStorageChanges(accountHash, addressView, address, bonsaiUpdater);
             }
 
             final PmtStateTrieAccountValue updatedValue =
                 new PmtStateTrieAccountValue(
-                    resolveUpdatedNonce(accountChanges, trieAccountValue),
-                    resolveUpdatedBalance(accountChanges, trieAccountValue),
+                    resolveUpdatedNonce(accountEntry, trieAccountValue),
+                    resolveUpdatedBalance(accountEntry, trieAccountValue),
                     updatedStorageRoot,
                     updatedCodeHash);
             bonsaiUpdater.putAccountInfoState(accountHash, RLP.encode(updatedValue::writeTo));
@@ -115,13 +126,23 @@ public class BlockAccessListDataRequest extends SnapDataRequest {
     return 0;
   }
 
+  private boolean hasAnyChange(final BlockAccessListAddressView.AccountEntry accountEntry) {
+    return accountEntry.hasBalanceChanges()
+        || accountEntry.hasNonceChanges()
+        || accountEntry.hasCodeChange()
+        || accountEntry.hasStorageChanges();
+  }
+
   private void applyStorageChanges(
       final Hash accountHash,
-      final BlockAccessListChanges.AccountFinalChanges accountChanges,
+      final BlockAccessListAddressView addressView,
+      final Address address,
       final BonsaiWorldStateKeyValueStorage.Updater bonsaiUpdater) {
-    for (final var storageChange : accountChanges.storageChanges()) {
-      final Hash slotHash = storageChange.slot().getSlotHash();
-      final UInt256 value = storageChange.value();
+    for (final Map.Entry<StorageSlotKey, BlockAccessList.SlotChanges> storageEntry :
+        addressView.getStorageEntries(address).entrySet()) {
+      final Hash slotHash = storageEntry.getKey().getSlotHash();
+      final BlockAccessList.StorageChange lastChange = storageEntry.getValue().changes().getLast();
+      final UInt256 value = lastChange.newValue() == null ? UInt256.ZERO : lastChange.newValue();
       if (value.equals(UInt256.ZERO)) {
         bonsaiUpdater.removeStorageValueBySlotHash(accountHash, slotHash);
       } else {
@@ -131,21 +152,34 @@ public class BlockAccessListDataRequest extends SnapDataRequest {
   }
 
   private long resolveUpdatedNonce(
-      final BlockAccessListChanges.AccountFinalChanges accountChanges,
+      final BlockAccessListAddressView.AccountEntry accountEntry,
       final PmtStateTrieAccountValue trieAccountValue) {
-    return accountChanges.nonce().orElse(trieAccountValue.getNonce());
+    return accountEntry.hasNonceChanges()
+        ? accountEntry.nonceChanges().getLast().newNonce()
+        : trieAccountValue.getNonce();
   }
 
   private Wei resolveUpdatedBalance(
-      final BlockAccessListChanges.AccountFinalChanges accountChanges,
+      final BlockAccessListAddressView.AccountEntry accountEntry,
       final PmtStateTrieAccountValue trieAccountValue) {
-    return accountChanges.balance().orElse(trieAccountValue.getBalance());
+    return accountEntry.hasBalanceChanges()
+        ? accountEntry.balanceChanges().getLast().postBalance()
+        : trieAccountValue.getBalance();
+  }
+
+  private Optional<Bytes> resolveUpdatedCode(
+      final BlockAccessListAddressView.AccountEntry accountEntry) {
+    return accountEntry.hasCodeChange()
+        ? Optional.of(accountEntry.codeChanges().getLast().newCode())
+        : Optional.empty();
   }
 
   private Hash resolveUpdatedCodeHash(
-      final BlockAccessListChanges.AccountFinalChanges accountChanges,
+      final BlockAccessListAddressView.AccountEntry accountEntry,
       final PmtStateTrieAccountValue trieAccountValue) {
-    return accountChanges.code().map(Hash::hash).orElse(trieAccountValue.getCodeHash());
+    return accountEntry.hasCodeChange()
+        ? Hash.hash(accountEntry.codeChanges().getLast().newCode())
+        : trieAccountValue.getCodeHash();
   }
 
   @Override

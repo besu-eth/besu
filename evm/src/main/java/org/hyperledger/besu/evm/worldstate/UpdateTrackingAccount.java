@@ -26,6 +26,7 @@ import org.hyperledger.besu.evm.account.AccountStorageEntry;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.internal.CodeCache;
 
+import java.util.Comparator;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.TreeMap;
@@ -47,6 +48,30 @@ import org.jspecify.annotations.Nullable;
  * @param <A> the type parameter
  */
 public class UpdateTrackingAccount<A extends Account> implements MutableAccount {
+
+  // Same ordering as Bytes.compareTo but monomorphic (UInt256 is final), using the
+  // Long.compareUnsigned and Integer.numberOfLeadingZeros JVM intrinsics.
+  static final Comparator<UInt256> STORAGE_KEY_COMPARATOR =
+      (final UInt256 a, final UInt256 b) -> {
+        // Fast path: small storage slots
+        if (a.fitsLong() && b.fitsLong()) {
+          return Long.compareUnsigned(a.toLong(), b.toLong());
+        }
+        final int lza = a.numberOfLeadingZeros();
+        final int lzb = b.numberOfLeadingZeros();
+        if (lza != lzb) {
+          // More leading zeros means smaller value
+          return lza > lzb ? -1 : 1;
+        }
+        for (int i = lza >> 3; i < 32; i++) {
+          final int cmp = (a.get(i) & 0xFF) - (b.get(i) & 0xFF);
+          if (cmp != 0) {
+            return cmp;
+          }
+        }
+        return 0;
+      };
+
   private final Address address;
   private final Hash addressHash;
 
@@ -86,7 +111,7 @@ public class UpdateTrackingAccount<A extends Account> implements MutableAccount 
     this.updatedCode = Bytes.EMPTY;
     this.oldCode = Bytes.EMPTY;
     this.oldCodeHash = Hash.EMPTY;
-    this.updatedStorage = new TreeMap<>();
+    this.updatedStorage = new TreeMap<>(STORAGE_KEY_COMPARATOR);
   }
 
   /**
@@ -110,7 +135,7 @@ public class UpdateTrackingAccount<A extends Account> implements MutableAccount 
     this.oldCode = account.getCode();
     this.oldCodeHash = account.getCodeHash();
 
-    this.updatedStorage = new TreeMap<>();
+    this.updatedStorage = new TreeMap<>(STORAGE_KEY_COMPARATOR);
 
     // if the original account to be tracked is a BonsaiAccount, we can use its code cache.
     final CodeCache codeCache = account.getCodeCache();

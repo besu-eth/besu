@@ -51,6 +51,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldSt
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.NoOpTrieLogManager;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.account.Account;
@@ -330,8 +331,8 @@ class BalTransactionProcessorUnitTest {
       writeAccount.withPostBalance(postBalance);
       writeAccount.withNonceChange(nonce);
       writeAccount.withNewCode(code);
-      writeAccount.addStorageChange(slotOne, UInt256.valueOf(11));
-      writeAccount.addStorageChange(slotTwo, null);
+      writeAccount.addStorageChange(slotOne, UInt256.valueOf(5), UInt256.valueOf(11));
+      writeAccount.addStorageChange(slotTwo, UInt256.valueOf(99), null);
       partialBuilder.getOrCreateAccountBuilder(readOnlyAddress).addStorageRead(readOnlySlot);
       final PartialBlockAccessView partialBlockAccessView = partialBuilder.build();
 
@@ -385,6 +386,19 @@ class BalTransactionProcessorUnitTest {
       assertEquals(
           UInt256.valueOf(11), account.getStorageValue(slotOneKey), "Slot one should be applied");
       assertEquals(UInt256.ZERO, account.getStorageValue(slotTwoKey), "Null slot clears to zero");
+
+      final PathBasedWorldStateUpdateAccumulator<?> accumulator = env.worldState().updater();
+      assertNotNull(
+          accumulator.getAccountsToUpdate().get(writeAddress),
+          "Write account should be in accountsToUpdate");
+      assertEquals(
+          UInt256.valueOf(5),
+          accumulator.getStorageToUpdate().get(writeAddress).get(slotOne).getPrior(),
+          "Slot one prior should be imported as PathBasedValue");
+      assertEquals(
+          UInt256.valueOf(99),
+          accumulator.getStorageToUpdate().get(writeAddress).get(slotTwo).getPrior(),
+          "Slot two prior should be imported as PathBasedValue");
       assertNull(
           env.worldState().updater().get(readOnlyAddress),
           "Read-only partial BAL entries should not create account writes");

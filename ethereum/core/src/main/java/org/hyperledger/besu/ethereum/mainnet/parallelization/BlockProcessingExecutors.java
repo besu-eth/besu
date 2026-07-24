@@ -16,14 +16,17 @@ package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.ForkJoinWorkerThread;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Typed thread pools for block processing: one for CPU work (tx execution), one for IO (RocksDB
- * prefetch), one for BAL state-root. Sizes can be set with system properties {@code
- * besu.block.cpuThreads}, {@code besu.block.ioThreads}, {@code besu.block.stateRootThreads}. All
- * threads are daemon.
+ * prefetch), one for parallel storage-trie updates, one for BAL state-root. Sizes can be set with
+ * system properties {@code besu.block.cpuThreads}, {@code besu.block.ioThreads}, {@code
+ * besu.block.storageTrieThreads}, {@code besu.block.accountTrieThreads}, {@code
+ * besu.block.stateRootThreads}. All threads are daemon.
  */
 public final class BlockProcessingExecutors {
 
@@ -31,6 +34,10 @@ public final class BlockProcessingExecutors {
 
   private static final int CPU_THREADS = intProperty("besu.block.cpuThreads", NCPU);
   private static final int IO_THREADS = intProperty("besu.block.ioThreads", NCPU * 2);
+  private static final int STORAGE_TRIE_THREADS =
+      intProperty("besu.block.storageTrieThreads", NCPU * 2);
+  private static final int ACCOUNT_TRIE_THREADS =
+      intProperty("besu.block.accountTrieThreads", NCPU);
   private static final int STATE_ROOT_THREADS = intProperty("besu.block.stateRootThreads", 2);
 
   // CPU work: parallel tx execution (EVM, keccak, RLP). Bounded to cores.
@@ -42,6 +49,18 @@ public final class BlockProcessingExecutors {
   private static final ExecutorService IO_EXECUTOR =
       Executors.newFixedThreadPool(
           IO_THREADS, namedDaemonThreadFactory("besu-block-io", Thread.NORM_PRIORITY));
+
+  // Parallel per-account storage-trie updates during state-root commit. Work-stealing
+  // suits many short independent tasks (same model as parallelStream / common pool).
+  private static final ForkJoinPool STORAGE_TRIE_FORK_JOIN_POOL =
+      newWorkStealingPool(STORAGE_TRIE_THREADS, "besu-block-storage-trie", Thread.NORM_PRIORITY);
+
+  // Parallel account-trie updates during state-root commit. Kept separate from the storage-trie
+  // pool so account workers can block on storage futures without starving storage root hashing.
+  private static final ForkJoinPool ACCOUNT_TRIE_FORK_JOIN_POOL =
+      newWorkStealingPool(ACCOUNT_TRIE_THREADS, "besu-block-account-trie", Thread.NORM_PRIORITY);
+
+  private static final ExecutorService STORAGE_TRIE_EXECUTOR = STORAGE_TRIE_FORK_JOIN_POOL;
 
   // BAL state-root: small dedicated pool, not the common pool.
   private static final ExecutorService STATE_ROOT_EXECUTOR =
@@ -70,6 +89,33 @@ public final class BlockProcessingExecutors {
   }
 
   /**
+   * Work-stealing pool for parallel storage-trie updates during state-root commit.
+   *
+   * @return the storage-trie executor
+   */
+  public static ExecutorService storageTrieExecutor() {
+    return STORAGE_TRIE_EXECUTOR;
+  }
+
+  /**
+   * ForkJoinPool for parallel account-trie hashing during state-root commit.
+   *
+   * @return the account-trie fork-join pool
+   */
+  public static ForkJoinPool accountTrieForkJoinPool() {
+    return ACCOUNT_TRIE_FORK_JOIN_POOL;
+  }
+
+  /**
+   * ForkJoinPool for parallel storage-trie hashing during state-root commit.
+   *
+   * @return the storage-trie fork-join pool
+   */
+  public static ForkJoinPool storageTrieForkJoinPool() {
+    return STORAGE_TRIE_FORK_JOIN_POOL;
+  }
+
+  /**
    * Pool for BAL state-root computation.
    *
    * @return the state-root executor
@@ -89,6 +135,27 @@ public final class BlockProcessingExecutors {
     } catch (final NumberFormatException e) {
       return defaultValue;
     }
+  }
+
+  // Error Prone don't like setPriority
+  @SuppressWarnings("ThreadPriorityCheck")
+  private static ForkJoinPool newWorkStealingPool(
+      final int parallelism, final String prefix, final int priority) {
+    final int clampedPriority =
+        Math.max(Thread.MIN_PRIORITY, Math.min(Thread.MAX_PRIORITY, priority));
+    final AtomicInteger counter = new AtomicInteger();
+    return new ForkJoinPool(
+        parallelism,
+        pool -> {
+          final ForkJoinWorkerThread worker =
+              ForkJoinPool.defaultForkJoinWorkerThreadFactory.newThread(pool);
+          worker.setName(prefix + "-" + counter.getAndIncrement());
+          worker.setDaemon(true);
+          worker.setPriority(clampedPriority);
+          return worker;
+        },
+        null,
+        false);
   }
 
   // Error Prone don't like setPriority

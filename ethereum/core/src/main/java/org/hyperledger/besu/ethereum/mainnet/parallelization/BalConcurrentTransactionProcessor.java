@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
 import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -35,7 +34,6 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorld
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
-import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
@@ -46,8 +44,6 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
-import org.apache.tuweni.bytes.Bytes;
-import org.apache.tuweni.units.bigints.UInt256;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -215,15 +211,16 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
         final TransactionProcessingResult result = ctx.transactionProcessingResult();
         final Optional<PartialBlockAccessView> maybePartialBlockAccessView =
             result.getPartialBlockAccessView();
-        if (maybePartialBlockAccessView.isEmpty()) {
-          LOG.trace("Partial block access view for transaction {} is empty.", txIndex);
+        if (maybePartialBlockAccessView.isEmpty() || !result.isSuccessful()) {
+          LOG.trace(
+              "Skipping import for transaction {} (partialView={}, successful={}).",
+              txIndex,
+              maybePartialBlockAccessView.isPresent(),
+              result.isSuccessful());
           return Optional.empty();
         }
 
-        applyWritesFromPartialBlockAccessView(
-            maybePartialBlockAccessView.get(),
-            blockAccumulator,
-            transactionProcessor.getClearEmptyAccounts());
+        blockAccumulator.importStateChangesFromPartialView(maybePartialBlockAccessView.get());
 
         confirmedParallelizedTransactionCounter.ifPresent(Counter::inc);
         result.setIsProcessedInParallel(Optional.of(Boolean.TRUE));
@@ -238,57 +235,5 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
 
     LOG.error("No future found for transaction {}.", txIndex);
     return Optional.empty();
-  }
-
-  private void applyWritesFromPartialBlockAccessView(
-      final PartialBlockAccessView partialBlockAccessView,
-      final PathBasedWorldStateUpdateAccumulator<?> worldStateUpdater,
-      final boolean clearEmptyAccounts) {
-    for (var accountChanges : partialBlockAccessView.accountChanges()) {
-      MutableAccount account = null;
-      boolean shouldCheckForEmptyAccount = false;
-
-      final Optional<Wei> postBalance = accountChanges.getPostBalance();
-      if (postBalance.isPresent()) {
-        account = worldStateUpdater.getOrCreate(accountChanges.getAddress());
-        final Wei balance = postBalance.get();
-        account.setBalance(balance);
-        shouldCheckForEmptyAccount = clearEmptyAccounts && balance.isZero();
-      }
-
-      final Optional<Long> nonceChange = accountChanges.getNonceChange();
-      if (nonceChange.isPresent()) {
-        if (account == null) {
-          account = worldStateUpdater.getOrCreate(accountChanges.getAddress());
-        }
-        final long nonce = nonceChange.get();
-        account.setNonce(nonce);
-        shouldCheckForEmptyAccount |= clearEmptyAccounts && nonce == 0L;
-      }
-
-      final Optional<Bytes> newCode = accountChanges.getNewCode();
-      if (newCode.isPresent()) {
-        if (account == null) {
-          account = worldStateUpdater.getOrCreate(accountChanges.getAddress());
-        }
-        final Bytes code = newCode.get();
-        account.setCode(code);
-        shouldCheckForEmptyAccount |= clearEmptyAccounts && code.isEmpty();
-      }
-
-      for (var slotChange : accountChanges.getStorageChanges()) {
-        final StorageSlotKey slot = slotChange.slot();
-        if (account == null) {
-          account = worldStateUpdater.getOrCreate(accountChanges.getAddress());
-        }
-        account.setStorageValue(
-            slot.getSlotKey().orElseThrow(),
-            slotChange.newValue() != null ? slotChange.newValue() : UInt256.ZERO);
-      }
-
-      if (shouldCheckForEmptyAccount && account != null && account.isEmpty()) {
-        worldStateUpdater.deleteAccount(accountChanges.getAddress());
-      }
-    }
   }
 }

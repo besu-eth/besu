@@ -45,6 +45,10 @@ public final class BlockAccessListAddressView {
     return new BlockAccessListAddressView(entries);
   }
 
+  public Map<Address, AccountEntry> getAccountEntries() {
+    return accountEntries;
+  }
+
   public Optional<BlockAccessList.AccountChanges> getAccountChanges(final Address address) {
     final AccountEntry entry = accountEntries.get(address);
     return entry == null ? Optional.empty() : Optional.of(entry.accountChanges);
@@ -55,13 +59,17 @@ public final class BlockAccessListAddressView {
     return entry == null ? Optional.empty() : Optional.of(entry.addressHash);
   }
 
+  public Map<StorageSlotKey, BlockAccessList.SlotChanges> getStorageEntries(final Address address) {
+    return accountEntries.get(address).storageBySlot;
+  }
+
   Optional<BlockAccessList.SlotChanges> getSlotChanges(
       final Address address, final StorageSlotKey storageSlotKey) {
     final AccountEntry entry = accountEntries.get(address);
     return entry == null ? Optional.empty() : entry.slotChanges(storageSlotKey);
   }
 
-  private static final class AccountEntry {
+  public static final class AccountEntry {
     private final BlockAccessList.AccountChanges accountChanges;
     private final Hash addressHash;
     private final Map<StorageSlotKey, BlockAccessList.SlotChanges> storageBySlot;
@@ -70,6 +78,46 @@ public final class BlockAccessListAddressView {
       this.accountChanges = accountChanges;
       this.addressHash = accountChanges.address().addressHash();
       this.storageBySlot = buildStorageBySlot(accountChanges.storageChanges());
+    }
+
+    public boolean hasChanges() {
+      return hasBalanceChanges() || hasNonceChanges() || hasCodeChange() || hasStorageChanges();
+    }
+
+    public boolean hasBalanceChanges() {
+      return !accountChanges.balanceChanges().isEmpty();
+    }
+
+    public boolean hasNonceChanges() {
+      return !accountChanges.nonceChanges().isEmpty();
+    }
+
+    public boolean hasCodeChange() {
+      return !accountChanges.codeChanges().isEmpty();
+    }
+
+    public boolean hasStorageChanges() {
+      return !storageBySlot.isEmpty();
+    }
+
+    public Hash getAddressHash() {
+      return addressHash;
+    }
+
+    public List<BlockAccessList.BalanceChange> balanceChanges() {
+      return accountChanges.balanceChanges();
+    }
+
+    public List<BlockAccessList.NonceChange> nonceChanges() {
+      return accountChanges.nonceChanges();
+    }
+
+    public List<BlockAccessList.CodeChange> codeChanges() {
+      return accountChanges.codeChanges();
+    }
+
+    public Optional<BlockAccessList.SlotChanges> slotChanges(final StorageSlotKey storageSlotKey) {
+      return Optional.ofNullable(storageBySlot.get(storageSlotKey));
     }
 
     private static Map<StorageSlotKey, BlockAccessList.SlotChanges> buildStorageBySlot(
@@ -83,10 +131,6 @@ public final class BlockAccessListAddressView {
         built.put(slotChange.slot(), slotChange);
       }
       return built;
-    }
-
-    Optional<BlockAccessList.SlotChanges> slotChanges(final StorageSlotKey storageSlotKey) {
-      return Optional.ofNullable(storageBySlot.get(storageSlotKey));
     }
   }
 }

@@ -407,6 +407,34 @@ class ParallelStoredMerklePatriciaTrieTest {
   }
 
   @Test
+  void shouldPutDeferredUpdateAndRemove() {
+    final Bytes key = createKey(0x01, 0x02, 0x03, 0x04);
+    final Bytes value = createValue(100);
+    final Bytes updatedValue = createValue(200);
+
+    parallelTrie.put(key, value);
+    sequentialTrie.put(key, value);
+    parallelTrie.commit(parallelStorage::put);
+    sequentialTrie.commit(sequentialStorage::put);
+
+    parallelTrie.putDeferred(key, prior -> Optional.of(updatedValue));
+    sequentialTrie.putDeferred(key, prior -> Optional.of(updatedValue));
+    parallelTrie.commit(parallelStorage::put);
+    sequentialTrie.commit(sequentialStorage::put);
+
+    assertThat(parallelTrie.get(key)).isEqualTo(Optional.of(updatedValue));
+    assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
+
+    parallelTrie.putDeferred(key, prior -> Optional.empty());
+    sequentialTrie.putDeferred(key, prior -> Optional.empty());
+    parallelTrie.commit(parallelStorage::put);
+    sequentialTrie.commit(sequentialStorage::put);
+
+    assertThat(parallelTrie.get(key)).isEmpty();
+    assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
+  }
+
+  @Test
   void shouldLoadStoredKeys() {
     final int numKeys = 10;
     final Bytes[] keys = new Bytes[numKeys];
