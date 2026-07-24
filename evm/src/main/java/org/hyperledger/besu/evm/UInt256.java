@@ -421,6 +421,24 @@ public record UInt256(long u3, long u2, long u1, long u0) {
   }
 
   /**
+   * Keep the low {@code n} bits, zero the rest; used by the power-of-two modulus fast path in
+   * {@link #addMod(UInt256, UInt256)} where mod-by-2^n is a bitmask.
+   *
+   * @param n number of low bits to keep; caller guarantees {@code 1 <= n < 256}.
+   * @return {@code this & ((1 << n) - 1)}.
+   */
+  private UInt256 maskLow(final int n) {
+    final int limbsKept = n >>> 6;
+    final int bitsInTop = n & 63;
+    final long topMask = bitsInTop == 0 ? 0L : (1L << bitsInTop) - 1L;
+    final long m0 = limbsKept > 0 ? u0 : (u0 & topMask);
+    final long m1 = limbsKept > 1 ? u1 : (limbsKept == 1 ? (u1 & topMask) : 0L);
+    final long m2 = limbsKept > 2 ? u2 : (limbsKept == 2 ? (u2 & topMask) : 0L);
+    final long m3 = limbsKept == 3 ? (u3 & topMask) : 0L;
+    return new UInt256(m3, m2, m1, m0);
+  }
+
+  /**
    * Multi-limb right-shift; used by the power-of-two fast path in {@link #div(UInt256)}.
    *
    * @param n number of bits to shift right; caller guarantees {@code 1 <= n < 256}.
@@ -665,9 +683,33 @@ public record UInt256(long u3, long u2, long u1, long u0) {
     if (isZero()) return other.mod(modulus);
     if (other.isZero()) return this.mod(modulus);
     if (modulus.isZeroOrOne()) return ZERO;
-    if (modulus.u3 != 0) return modulus.sum(this, other);
-    if (modulus.u2 != 0) return modulus.asUInt192().sum(this, other);
-    if (modulus.u1 != 0) return modulus.asUInt128().sum(this, other);
+    // Fast path: when the modulus is a power of two, reduction is a bitmask of the low bits.
+    // A non-zero value x is a power of two iff (x & (x - 1)) == 0. Subtracting 1 from a power of
+    // two flips its single set bit to 0 and sets all lower bits to 1 (e.g. 0b1000 - 1 == 0b0111),
+    // so x and x - 1 share no bits and the AND is 0. For any non-power-of-two there are at least
+    // two set bits; the lowest stays set in x - 1, so the AND is non-zero. The highest non-zero
+    // limb must be a power of two and every lower limb must be zero for the whole value to qualify.
+    if (modulus.u3 != 0) {
+      if ((modulus.u3 & (modulus.u3 - 1)) == 0 && (modulus.u2 | modulus.u1 | modulus.u0) == 0) {
+        return add(other).maskLow(192 + Long.numberOfTrailingZeros(modulus.u3));
+      }
+      return modulus.sum(this, other);
+    }
+    if (modulus.u2 != 0) {
+      if ((modulus.u2 & (modulus.u2 - 1)) == 0 && (modulus.u1 | modulus.u0) == 0) {
+        return add(other).maskLow(128 + Long.numberOfTrailingZeros(modulus.u2));
+      }
+      return modulus.asUInt192().sum(this, other);
+    }
+    if (modulus.u1 != 0) {
+      if ((modulus.u1 & (modulus.u1 - 1)) == 0 && modulus.u0 == 0) {
+        return add(other).maskLow(64 + Long.numberOfTrailingZeros(modulus.u1));
+      }
+      return modulus.asUInt128().sum(this, other);
+    }
+    if ((modulus.u0 & (modulus.u0 - 1)) == 0) {
+      return add(other).maskLow(Long.numberOfTrailingZeros(modulus.u0));
+    }
     return modulus.asUInt64().sum(this, other);
   }
 
