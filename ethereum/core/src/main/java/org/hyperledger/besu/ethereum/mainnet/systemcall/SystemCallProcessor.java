@@ -30,6 +30,7 @@ import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
 import org.hyperledger.besu.evm.processor.AbstractMessageProcessor;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
+import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
 
 import java.util.Deque;
 import java.util.Optional;
@@ -100,9 +101,17 @@ public class SystemCallProcessor {
             inputData,
             accessLocationTracker);
 
+    // System calls are untraced by default. A tracer is only passed when it is block-aware,
+    // enabled, and opts into system-call tracing. Otherwise, OperationTracer.NO_TRACING is used.
+    final OperationTracer tracer =
+        context.getOperationTracer() instanceof BlockAwareOperationTracer blockAwareTracer
+                && blockAwareTracer.isEnabled()
+                && blockAwareTracer.isSystemCallTracingEnabled()
+            ? blockAwareTracer
+            : OperationTracer.NO_TRACING;
     Deque<MessageFrame> stack = frame.getMessageFrameStack();
     while (!stack.isEmpty()) {
-      processor.process(stack.peekFirst(), OperationTracer.NO_TRACING);
+      processor.process(stack.peekFirst(), tracer);
     }
 
     accessLocationTracker.ifPresent(
