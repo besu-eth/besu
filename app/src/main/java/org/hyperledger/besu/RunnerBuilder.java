@@ -1297,8 +1297,7 @@ public class RunnerBuilder {
       case UPNP:
         return Optional.of(new UpnpNatManager());
       case DOCKER:
-        return Optional.of(
-            new DockerNatManager(p2pAdvertisedHost, p2pListenPort, jsonRpcConfiguration.getPort()));
+        return Optional.of(new DockerNatManager(p2pAdvertisedHost, jsonRpcConfiguration.getPort()));
       case NONE:
       default:
         return Optional.empty();

@@ -50,6 +50,7 @@ import org.hyperledger.besu.nat.NatService;
 import org.hyperledger.besu.nat.core.NatManager;
 import org.hyperledger.besu.nat.core.domain.NatServiceType;
 import org.hyperledger.besu.nat.core.domain.NetworkProtocol;
+import org.hyperledger.besu.nat.docker.DockerNatManager;
 import org.hyperledger.besu.nat.upnp.UpnpNatManager;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
@@ -267,7 +268,7 @@ public class DefaultP2PNetwork implements P2PNetwork {
       throw e;
     }
 
-    final Consumer<? super NatManager> natAction =
+    final Consumer<? super NatManager> upnpNatAction =
         natManager -> {
           final UpnpNatManager upnpNatManager = (UpnpNatManager) natManager;
           upnpNatManager.requestPortForward(
@@ -276,8 +277,19 @@ public class DefaultP2PNetwork implements P2PNetwork {
               listeningPort, NetworkProtocol.TCP, NatServiceType.RLPX);
         };
 
-    natService.ifNatEnvironment(NatMethod.UPNP, natAction);
-    natService.ifNatEnvironment(NatMethod.UPNPP2PONLY, natAction);
+    natService.ifNatEnvironment(NatMethod.UPNP, upnpNatAction);
+    natService.ifNatEnvironment(NatMethod.UPNPP2PONLY, upnpNatAction);
+
+    // Docker can't introspect its own port mappings, so unlike UPnP's active port-forward
+    // request above, this only records the real post-bind ports for admin_nodeInfo to report -
+    // it requests nothing from the container runtime.
+    natService.ifNatEnvironment(
+        NatMethod.DOCKER,
+        natManager -> {
+          final DockerNatManager dockerNatManager = (DockerNatManager) natManager;
+          dockerNatManager.updatePort(NatServiceType.DISCOVERY, NetworkProtocol.UDP, discoveryPort);
+          dockerNatManager.updatePort(NatServiceType.RLPX, NetworkProtocol.TCP, listeningPort);
+        });
 
     setLocalNode(address, listeningPort, discoveryPort);
 
