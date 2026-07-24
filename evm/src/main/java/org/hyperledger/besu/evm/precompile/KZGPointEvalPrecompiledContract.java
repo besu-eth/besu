@@ -39,8 +39,9 @@ public class KZGPointEvalPrecompiledContract implements PrecompiledContract {
   private static final AtomicBoolean loaded = new AtomicBoolean(false);
 
   private static final String PRECOMPILE_NAME = "KZGPointEval";
-  private static final Cache<Integer, PrecompileInputResultTuple> kzgCache =
+  private static final Cache<Bytes, PrecompileInputResultTuple> kzgCache =
       AbstractPrecompiledContract.resultCacheBuilder().build();
+  private static final int PREFIX_LENGTH = 192;
 
   /** Default result caching to false unless otherwise set. */
   protected static Boolean enableResultCaching = Boolean.FALSE;
@@ -127,16 +128,16 @@ public class KZGPointEvalPrecompiledContract implements PrecompiledContract {
   public PrecompileContractResult computePrecompile(
       final Bytes input, @NotNull final MessageFrame messageFrame) {
 
-    if (input.size() != 192) {
+    if (input.size() != PREFIX_LENGTH) {
       return PrecompileContractResult.halt(
           null, Optional.of(ExceptionalHaltReason.PRECOMPILE_ERROR));
     }
 
     PrecompileInputResultTuple res;
-    Integer cacheKey = null;
+    Bytes cacheKey = null;
 
     if (enableResultCaching) {
-      cacheKey = AbstractPrecompiledContract.getCacheKey(input, 192);
+      cacheKey = AbstractPrecompiledContract.getCacheKey(input, PREFIX_LENGTH);
       res = kzgCache.getIfPresent(cacheKey);
       if (res != null) {
         if (res.cachedInput().equals(input)) {

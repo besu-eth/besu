@@ -204,7 +204,8 @@ public class IbftBesuControllerBuilder extends BesuControllerBuilder {
         new FutureMessageBuffer<>(
             bftConfig.getFutureMessagesMaxDistance(),
             bftConfig.getFutureMessagesLimit(),
-            blockchain.getChainHeadBlockNumber());
+            blockchain.getChainHeadBlockNumber(),
+            (Message message) -> message.getData().getSize());
     final MessageTracker duplicateMessageTracker =
         new MessageTracker(bftConfig.getDuplicateMessageLimit());
 

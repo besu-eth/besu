@@ -116,7 +116,7 @@ public abstract class AbstractBLS12PrecompiledContract implements PrecompiledCon
 
     PrecompileInputResultTuple res = null;
 
-    Integer cacheKey = null;
+    Bytes cacheKey = null;
     final Bytes cachedInput = input.size() > inputLimit ? input.slice(0, inputLimit) : input;
 
     if (enableResultCaching) {
@@ -241,5 +241,5 @@ public abstract class AbstractBLS12PrecompiledContract implements PrecompiledCon
    *
    * @return precompile cache.
    */
-  protected abstract Cache<Integer, PrecompileInputResultTuple> getCache();
+  protected abstract Cache<Bytes, PrecompileInputResultTuple> getCache();
 }

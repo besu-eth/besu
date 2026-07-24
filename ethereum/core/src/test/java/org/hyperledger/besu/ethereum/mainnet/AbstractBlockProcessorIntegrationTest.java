@@ -101,6 +101,11 @@ class AbstractBlockProcessorIntegrationTest {
   private static final String GENESIS_RESOURCE =
       "/org/hyperledger/besu/ethereum/mainnet/genesis-bp-it.json";
 
+  // Deterministic requests hash produced by the Prague system-contract predeploys for the blocks
+  // built in this test (no test transaction enqueues execution requests).
+  private static final Hash BLOCK_REQUESTS_HASH =
+      Hash.fromHexString("0x5f7606bf4b9eb2a8414aaa53f4c84062ec8789d24c604453563dc26e4ae65837");
+
   @BeforeEach
   public void setUp() {
     final ExecutionContextTestFixture contextTestFixture =
@@ -1165,6 +1170,10 @@ class AbstractBlockProcessorIntegrationTest {
             .stateRoot(Hash.fromHexString(stateRoot))
             .gasLimit(30_000_000L)
             .baseFeePerGas(baseFeePerGas)
+            // Prague is active at genesis here, so the mandatory requestsHash field must be
+            // present. The system-contract predeploys deterministically yield this requests hash
+            // for these blocks (none of the test transactions enqueue new requests).
+            .requestsHash(BLOCK_REQUESTS_HASH)
             .buildHeader();
     BlockBody blockBody =
         new BlockBody(Arrays.asList(transactions), Collections.emptyList(), Optional.empty());
