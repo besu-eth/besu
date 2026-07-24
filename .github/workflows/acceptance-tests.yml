@@ -30,10 +30,6 @@ jobs:
         with:
           distribution: temurin
           java-version: 25
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
-        with:
-          cache-disabled: true
       - name: Install required packages
         run:  sudo apt-get install -y xmlstarlet
       - name: setup gradle
@@ -41,7 +37,7 @@ jobs:
         with:
           cache-disabled: true
       - name: List all acceptance tests
-        run: ./gradlew acceptanceTest --test-dry-run -Dorg.gradle.parallel=true -Dorg.gradle.caching=true
+        run: ./gradlew acceptanceTest --test-dry-run -Dorg.gradle.parallel=true
       - name: Extract current test list
         run: mkdir tmp; find . -type f -name TEST-*.xml | xargs -I{} bash -c "xmlstarlet sel -t -v '/testsuite/testcase[1]/@classname' '{}'; echo ' acceptanceTest'" | tee tmp/currentTests.list
       # Downloads the timing baseline produced by update-acceptance-tests-timing-reports.yml on the last merge to main.
@@ -78,8 +74,10 @@ jobs:
         with:
           name: test-args-${{ matrix.runner_index }}.txt
           path: '*.txt'
+      - name: Clean to prove cache usage over incremental builds
+        run: ./gradlew clean
       - name: run acceptance tests
-        run: ./gradlew acceptanceTest `cat gradleArgs.txt` -Dorg.gradle.caching=true
+        run: ./gradlew acceptanceTest `cat gradleArgs.txt`
       - name: Remove downloaded test results
         run: rm -rf tmp/junit-xml-reports-downloaded
       - name: Upload Acceptance Test Results
