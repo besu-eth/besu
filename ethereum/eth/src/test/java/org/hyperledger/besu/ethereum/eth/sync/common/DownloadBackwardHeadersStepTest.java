@@ -477,25 +477,36 @@ public class DownloadBackwardHeadersStepTest {
   }
 
   @Test
-  public void shouldThrowExceptionWhenStartBlockEqualsAnchor() {
+  public void shouldDownloadHeadersInRecoveryModeWhenStartBlockEqualsAnchor()
+      throws ExecutionException, InterruptedException {
+    // When startBlock == anchor, the formula uses startBlock as remainingHeaders (recovery mode).
+    // headersToRequest = min(batchSize=10, remainingHeaders=100) = 10
     final DownloadBackwardHeadersStep step =
         new DownloadBackwardHeadersStep(
             protocolSchedule, ethContext, 10, 100, Duration.ofMinutes(1));
 
-    assertThatThrownBy(() -> step.apply(100L))
-        .isInstanceOf(IllegalStateException.class)
-        .hasMessageContaining("Number of headers to request is less than 1:0");
+    final List<BlockHeader> mockHeaders = createMockHeaders(10, 100);
+    final PeerTaskExecutorResult<List<BlockHeader>> successResult =
+        new PeerTaskExecutorResult<>(
+            Optional.of(mockHeaders), PeerTaskExecutorResponseCode.SUCCESS, emptyList());
+    when(peerTaskExecutor.execute(any(GetHeadersFromPeerTask.class))).thenReturn(successResult);
+
+    final CompletableFuture<List<BlockHeader>> result = step.apply(100L);
+
+    assertThat(result.get()).hasSize(10);
+    verify(peerTaskExecutor, times(1)).execute(any(GetHeadersFromPeerTask.class));
   }
 
   @Test
-  public void shouldThrowExceptionWhenStartBlockLessThanAnchor() {
+  public void shouldThrowExceptionWhenStartBlockIsZero() {
+    // startBlock=0 with any anchor: remainingHeaders = 0 → headersToRequest = 0 → throws.
     final DownloadBackwardHeadersStep step =
         new DownloadBackwardHeadersStep(
             protocolSchedule, ethContext, 10, 100, Duration.ofMinutes(1));
 
-    assertThatThrownBy(() -> step.apply(50L))
+    assertThatThrownBy(() -> step.apply(0L))
         .isInstanceOf(IllegalStateException.class)
-        .hasMessageContaining("Number of headers to request is less than 1:");
+        .hasMessageContaining("Number of headers to request is less than 1");
   }
 
   @Test

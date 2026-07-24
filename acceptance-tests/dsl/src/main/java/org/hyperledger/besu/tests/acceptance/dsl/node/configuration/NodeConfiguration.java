@@ -26,8 +26,6 @@ public interface NodeConfiguration {
 
   List<String> getBootnodes();
 
-  boolean isDiscoveryV5Enabled();
-
   void ensureAdminRpcEnabled();
 
   void useWebSocketsForJsonRpc();

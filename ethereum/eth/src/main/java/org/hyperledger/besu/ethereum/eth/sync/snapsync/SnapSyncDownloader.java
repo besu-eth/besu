@@ -20,11 +20,13 @@ import org.hyperledger.besu.ethereum.eth.manager.exceptions.MaxRetriesReachedExc
 import org.hyperledger.besu.ethereum.eth.manager.exceptions.NoAvailablePeersException;
 import org.hyperledger.besu.ethereum.eth.sync.ChainDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.TrailingPeerRequirements;
+import org.hyperledger.besu.ethereum.eth.sync.common.CheckpointReorgException;
 import org.hyperledger.besu.ethereum.eth.sync.common.NoSyncRequiredException;
 import org.hyperledger.besu.ethereum.eth.sync.common.NoSyncRequiredState;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncActions;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotUpdateListener;
 import org.hyperledger.besu.ethereum.eth.sync.common.SyncException;
+import org.hyperledger.besu.ethereum.eth.sync.common.WrongChainException;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.StalledDownloadException;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldStateDownloader;
 import org.hyperledger.besu.metrics.SyncDurationMetrics;
@@ -92,7 +94,7 @@ public class SnapSyncDownloader implements SnapSyncController {
     return exceptionallyCompose(
         CompletableFuture.completedFuture(fastSyncState)
             .thenCompose(fastSyncActions::selectPivotBlock)
-            .thenCompose(fastSyncActions::downloadPivotBlockHeader)
+            .thenCompose(fastSyncActions::resolvePivotBlockHeader)
             .thenApply(this::updateMaxTrailingPeers)
             .thenApply(this::storeState)
             .thenCompose(onNewPivotBlock),
@@ -104,13 +106,27 @@ public class SnapSyncDownloader implements SnapSyncController {
     Throwable rootCause = ExceptionUtils.rootCause(error);
     if (rootCause instanceof NoSyncRequiredException) {
       return CompletableFuture.completedFuture(new NoSyncRequiredState());
-    } else if (rootCause instanceof SyncException) {
+    } else if (rootCause instanceof CheckpointReorgException) {
+      // The trusted checkpoint is not on the pivot's chain. Re-pivoting cannot fix a bad/reorged
+      // checkpoint, so stop the sync and surface the error.
+      LOG.error("Trusted checkpoint reorg detected, stopping snap sync.", error);
       return CompletableFuture.failedFuture(error);
+    } else if (rootCause instanceof SyncException syncEx) {
+      // Pivot block header mismatch is caused by bad peers — re-pivot to recover.
+      LOG.debug("Sync error ({}), re-pivoting.", syncEx.getError());
+      return start(new SnapSyncProcessState());
+    } else if (rootCause instanceof WrongChainException) {
+      LOG.debug("Downloaded chain does not connect to our genesis, re-pivoting.");
+      return start(new SnapSyncProcessState());
     } else if (rootCause instanceof StalledDownloadException) {
       LOG.debug("Stalled sync re-pivoting to newer block.");
       return start(new SnapSyncProcessState());
     } else if (rootCause instanceof CancellationException) {
-      return CompletableFuture.failedFuture(error);
+      if (!running.get()) {
+        return CompletableFuture.failedFuture(error);
+      }
+      LOG.debug("Sync cancelled internally, re-pivoting.");
+      return start(new SnapSyncProcessState());
     } else if (rootCause instanceof MaxRetriesReachedException) {
       LOG.debug(
           "A download operation reached the max number of retries, re-pivoting to newer block");
@@ -198,6 +214,14 @@ public class SnapSyncDownloader implements SnapSyncController {
         return CompletableFuture.failedFuture(
             new CancellationException("SnapSyncDownloader stopped"));
       }
+
+      // A genesis pivot means there is nothing to snap-sync (we already hold genesis state). Skip
+      // all downloading and hand off to full/backward sync via the NoSyncRequired path.
+      if (currentState.getPivotBlockHeader().map(h -> h.getNumber() == 0L).orElse(false)) {
+        LOG.info("Pivot is genesis; no snap sync required, proceeding to full/backward sync.");
+        return CompletableFuture.failedFuture(new NoSyncRequiredException());
+      }
+
       final ChainDownloader chainDownloader =
           fastSyncActions.createChainDownloader(currentState, syncDurationMetrics);
 

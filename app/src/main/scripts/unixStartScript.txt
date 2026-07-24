@@ -112,11 +112,9 @@ fi
 
 # Add default JVM options here. You can also use JAVA_OPTS and ${optsEnvironmentVar} to pass JVM options to this script.
 if [ "\$JAVA_VERSION" -ge 25 ]; then
-    DEFAULT_JVM_OPTS=@DEFAULT_JVM_OPTS_25@
-elif [ "\$JAVA_VERSION" -ge 21 ]; then
     DEFAULT_JVM_OPTS=${defaultJvmOpts}
 else
-    die "Java version must be at least 21 (detected: \$JAVA_VERSION)"
+    die "Java version must be at least 25 (detected: \$JAVA_VERSION)"
 fi
 
 # Increase the maximum file descriptors if we can.

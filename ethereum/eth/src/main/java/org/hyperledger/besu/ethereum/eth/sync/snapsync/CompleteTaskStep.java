@@ -51,10 +51,12 @@ public class CompleteTaskStep {
     if (isResponseReceived || isExpiredRequest) {
       completedRequestsCounter.inc();
       task.markCompleted();
+      downloadState.requestComplete(true);
       downloadState.checkCompletion(snapSyncState.getPivotBlockHeader().orElseThrow());
     } else {
       retriedRequestsCounter.inc();
       task.markFailed();
+      downloadState.requestComplete(false);
     }
     downloadState.notifyTaskAvailable();
   }

@@ -56,6 +56,8 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.EvmSpecVersion;
 import org.hyperledger.besu.evm.account.AccountState;
+import org.hyperledger.besu.config.StubGenesisConfigOptions;
+import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.internal.EvmConfiguration.WorldUpdaterMode;
 import org.hyperledger.besu.testutil.JsonTestParameters;
 
@@ -141,7 +143,15 @@ public class BlockchainReferenceTestTools {
                         .getWorldState(WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(genesisBlockHeader))
                         .orElseThrow();
 
-        final ProtocolSchedule schedule = PROTOCOL_SCHEDULES.getByName(spec.getNetwork());
+        final ReferenceTestProtocolSchedules protocolSchedules =
+            spec.getBlobScheduleOptions()
+                .map(
+                    bso ->
+                        ReferenceTestProtocolSchedules.create(
+                            new StubGenesisConfigOptions().blobScheduleOptions(bso),
+                            EvmConfiguration.DEFAULT))
+                .orElse(PROTOCOL_SCHEDULES);
+        final ProtocolSchedule schedule = protocolSchedules.getByName(spec.getNetwork());
 
         try (BlockCreationFixture blockCreation =
                      BlockCreationFixture.create(schedule, protocolContext, blockchain)) {
@@ -215,9 +225,10 @@ public class BlockchainReferenceTestTools {
                             final String actualError = processingResult.errorMessage.orElse("");
                             assertThat(BlockExceptionMatcher.matches(expectedExceptionKey, actualError))
                                     .as(
-                                            "Block rejected for wrong reason.\n"
-                                                    + "  Expected exception : %s (%s)\n"
-                                                    + "  Actual error       : %s",
+                                            """
+                                            Block rejected for wrong reason.
+                                              Expected exception : %s (%s)
+                                              Actual error       : %s""",
                                             expectedExceptionKey,
                                             BlockExceptionMatcher.describeExpected(expectedExceptionKey).orElse("unknown key"),
                                             actualError)

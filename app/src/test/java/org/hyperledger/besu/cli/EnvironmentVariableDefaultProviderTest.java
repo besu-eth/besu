@@ -47,12 +47,6 @@ public class EnvironmentVariableDefaultProviderTest {
   }
 
   @Test
-  public void shouldReturnValueWhenEnvironmentVariableIsSetWithLegacyPrefix() {
-    environment.put("PANTHEON_ENV_VAR_SET", "abc");
-    assertThat(provider.defaultValue(OptionSpec.builder("--env-var-set").build())).isEqualTo("abc");
-  }
-
-  @Test
   public void shouldReturnValueWhenEnvironmentVariableIsSetForAlternateName() {
     environment.put("BESU_ENV_VAR_SET", "abc");
     assertThat(provider.defaultValue(OptionSpec.builder("--env-var", "--env-var-set").build()))
@@ -60,25 +54,9 @@ public class EnvironmentVariableDefaultProviderTest {
   }
 
   @Test
-  public void shouldReturnValueWhenEnvironmentVariableIsSetForAlternateNameAndLegacyPrefix() {
-    environment.put("PANTHEON_ENV_VAR_SET", "abc");
-    assertThat(provider.defaultValue(OptionSpec.builder("--env-var", "--env-var-set").build()))
-        .isEqualTo("abc");
-  }
-
-  @Test
   public void shouldNotReturnValueForShortOptions() {
     environment.put("BESU_H", "abc");
-    environment.put("PANTHEON_H", "abc");
     assertThat(provider.defaultValue(OptionSpec.builder("-h").build())).isNull();
-  }
-
-  @Test
-  public void shouldPreferBesuPrefixOverLegacyPrefix() {
-    environment.put("BESU_ENV_VAR_SET", "abc");
-    environment.put("PANTHEON_ENV_VAR_SET", "def");
-    assertThat(provider.defaultValue(OptionSpec.builder("--env-var", "--env-var-set").build()))
-        .isEqualTo("abc");
   }
 
   @Test

@@ -72,6 +72,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.p2p.config.DiscoveryConfiguration;
+import org.hyperledger.besu.ethereum.p2p.config.DiscoveryMode;
 import org.hyperledger.besu.ethereum.p2p.config.ImmutableNetworkingConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.RlpxConfiguration;
@@ -166,6 +167,7 @@ public class RunnerBuilder {
   private final Collection<Bytes> bannedNodeIds = new ArrayList<>();
   private boolean p2pEnabled = true;
   private boolean discoveryEnabled;
+  private DiscoveryMode discoveryMode = DiscoveryMode.BOTH;
   private String p2pAdvertisedHost;
   private String p2pListenInterface = NetworkUtility.INADDR_ANY;
   private int p2pListenPort;
@@ -245,6 +247,17 @@ public class RunnerBuilder {
    */
   public RunnerBuilder discoveryEnabled(final boolean discoveryEnabled) {
     this.discoveryEnabled = discoveryEnabled;
+    return this;
+  }
+
+  /**
+   * Set discovery mode.
+   *
+   * @param discoveryMode the discovery mode
+   * @return the runner builder
+   */
+  public RunnerBuilder discoveryMode(final DiscoveryMode discoveryMode) {
+    this.discoveryMode = discoveryMode;
     return this;
   }
 
@@ -688,8 +701,6 @@ public class RunnerBuilder {
           discoveryConfiguration.getEnodeBootnodes(),
           discoveryConfiguration.getEnrBootnodes());
       discoveryConfiguration.setDnsDiscoveryURL(ethNetworkConfig.dnsDiscoveryUrl());
-      discoveryConfiguration.setDiscoveryV5Enabled(
-          networkingConfiguration.discoveryConfiguration().isDiscoveryV5Enabled());
       discoveryConfiguration.setFilterOnEnrForkId(
           networkingConfiguration.discoveryConfiguration().isFilterOnEnrForkIdEnabled());
       discoveryConfiguration.setDiscV5DiscoveryIntervalSeconds(
@@ -701,6 +712,7 @@ public class RunnerBuilder {
     } else {
       discoveryConfiguration.setEnabled(false);
     }
+    discoveryConfiguration.setDiscoveryMode(discoveryMode);
 
     final NodeKey nodeKey = besuController.getNodeKey();
 
@@ -717,21 +729,12 @@ public class RunnerBuilder {
             .flatMap(protocolManager -> protocolManager.getSupportedCapabilities().stream())
             .collect(Collectors.toSet());
 
-    // IPv6 dual-stack support (a second UDP socket + a second TCP socket) was introduced
-    // alongside DiscV5. Besu does not implement dual-stack for DiscV4, so RLPx should only
-    // bind a second TCP socket when DiscV5 is active. This guard can be dropped once DiscV4
-    // is removed.
-    final boolean rlpxDualStackEnabled =
-        discoveryEnabled && networkingConfiguration.discoveryConfiguration().isDiscoveryV5Enabled();
     final RlpxConfiguration rlpxConfiguration =
         RlpxConfiguration.create()
             .setBindHost(p2pListenInterface)
             .setBindPort(p2pListenPort)
-            .setBindHostIpv6(rlpxDualStackEnabled ? p2pListenInterfaceIpv6 : Optional.empty())
-            .setBindPortIpv6(
-                rlpxDualStackEnabled
-                    ? p2pListenInterfaceIpv6.map(ignored -> p2pListenPortIpv6)
-                    : Optional.empty())
+            .setBindHostIpv6(p2pListenInterfaceIpv6)
+            .setBindPortIpv6(p2pListenInterfaceIpv6.map(ignored -> p2pListenPortIpv6))
             .setSupportedProtocols(subProtocols)
             .setClientId(BesuVersionUtils.nodeName(identityString));
     networkingConfiguration =

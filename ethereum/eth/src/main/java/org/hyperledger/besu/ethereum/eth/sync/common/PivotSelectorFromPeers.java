@@ -97,8 +97,7 @@ public class PivotSelectorFromPeers implements PivotBlockSelector {
           lastReturnedPivotNumber,
           bestPeerHeight,
           pivotBlockWindowValidity);
-      return CompletableFuture.completedFuture(
-          new SnapSyncProcessState(lastReturnedPivotNumber, false));
+      return CompletableFuture.completedFuture(new SnapSyncProcessState(lastReturnedPivotNumber));
     }
 
     final long pivotBlockNumber = bestPeerHeight - syncConfig.getSyncPivotDistance();
@@ -110,7 +109,7 @@ public class PivotSelectorFromPeers implements PivotBlockSelector {
     }
     lastReturnedPivotNumber = pivotBlockNumber;
     LOG.info("Selecting block number {} as fast sync pivot block.", pivotBlockNumber);
-    return CompletableFuture.completedFuture(new SnapSyncProcessState(pivotBlockNumber, false));
+    return CompletableFuture.completedFuture(new SnapSyncProcessState(pivotBlockNumber));
   }
 
   protected Optional<EthPeer> selectBestPeer() {

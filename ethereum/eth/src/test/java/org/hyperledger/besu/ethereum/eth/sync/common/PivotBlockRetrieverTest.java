@@ -93,7 +93,7 @@ public class PivotBlockRetrieverTest {
 
   private PivotBlockRetriever createPivotBlockRetriever(
       final int peersToQuery, final long pivotBlockDelta, final int maxRetries) {
-    return pivotBlockRetriever =
+    pivotBlockRetriever =
         Mockito.spy(
             new PivotBlockRetriever(
                 protocolSchedule,
@@ -102,6 +102,7 @@ public class PivotBlockRetrieverTest {
                 peersToQuery,
                 pivotBlockDelta,
                 maxRetries));
+    return pivotBlockRetriever;
   }
 
   @ParameterizedTest
@@ -154,7 +155,7 @@ public class PivotBlockRetrieverTest {
 
     assertThat(future)
         .isCompletedWithValue(
-            new SnapSyncProcessState(blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER).get(), false));
+            new SnapSyncProcessState(blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER).get()));
   }
 
   @ParameterizedTest
@@ -204,7 +205,7 @@ public class PivotBlockRetrieverTest {
 
     assertThat(future)
         .isCompletedWithValue(
-            new SnapSyncProcessState(blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER).get(), false));
+            new SnapSyncProcessState(blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER).get()));
   }
 
   @ParameterizedTest
@@ -264,7 +265,7 @@ public class PivotBlockRetrieverTest {
 
     assertThat(future)
         .isCompletedWithValue(
-            new SnapSyncProcessState(blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER).get(), false));
+            new SnapSyncProcessState(blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER).get()));
   }
 
   @ParameterizedTest
@@ -324,8 +325,7 @@ public class PivotBlockRetrieverTest {
 
     assertThat(future)
         .isCompletedWithValue(
-            new SnapSyncProcessState(
-                blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER - 1).get(), false));
+            new SnapSyncProcessState(blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER - 1).get()));
   }
 
   @ParameterizedTest

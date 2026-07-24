@@ -55,6 +55,7 @@ import org.hyperledger.besu.ethereum.p2p.peers.Peer;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions.Action;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissionsDenylist;
+import org.hyperledger.besu.ethereum.p2p.rlpx.ConnectSource;
 import org.hyperledger.besu.ethereum.p2p.rlpx.RlpxAgent;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
@@ -587,7 +588,7 @@ public class PeerDiscoveryControllerTest {
     // getting in the way of this test.
     final OutboundMessageHandler outboundMessageHandler = mock(OutboundMessageHandler.class);
     RlpxAgent rlpxAgentMock = mock(RlpxAgent.class);
-    when(rlpxAgentMock.connect(any()))
+    when(rlpxAgentMock.connect(any(), any(ConnectSource.class)))
         .thenReturn(CompletableFuture.failedFuture(new Exception(new TimeoutException())));
     controller =
         getControllerBuilder()
@@ -631,9 +632,73 @@ public class PeerDiscoveryControllerTest {
         .send(eq(peerThatTimesOut), matchPacketOfType(PacketType.PING));
   }
 
+  @Test
+  public void bond_toIpv6Peer_usesConfiguredLocalV6EndpointAsPingFrom() {
+    final Endpoint localV6Endpoint = new Endpoint("2001:db8::1", 30303, Optional.of(30303));
+    final DiscoveryPeerV4 ipv6Peer = createDiscoveryPeer("2001:db8::2");
+    final OutboundMessageHandler outboundMessageHandler = mock(OutboundMessageHandler.class);
+    controller =
+        getControllerBuilder()
+            .outboundMessageHandler(outboundMessageHandler)
+            .localPeerV6Endpoint(Optional.of(localV6Endpoint))
+            .build();
+
+    controller.bond(ipv6Peer);
+
+    final PingPacketData pingData = capturePing(outboundMessageHandler, ipv6Peer);
+    assertThat(pingData.getFrom()).contains(localV6Endpoint);
+  }
+
+  @Test
+  public void bond_toIpv4Peer_usesLocalIpv4EndpointEvenWhenV6Configured() {
+    final Endpoint localV6Endpoint = new Endpoint("2001:db8::1", 30303, Optional.of(30303));
+    final DiscoveryPeerV4 ipv4Peer = helper.createDiscoveryPeer();
+    final OutboundMessageHandler outboundMessageHandler = mock(OutboundMessageHandler.class);
+    controller =
+        getControllerBuilder()
+            .outboundMessageHandler(outboundMessageHandler)
+            .localPeerV6Endpoint(Optional.of(localV6Endpoint))
+            .build();
+
+    controller.bond(ipv4Peer);
+
+    final PingPacketData pingData = capturePing(outboundMessageHandler, ipv4Peer);
+    assertThat(pingData.getFrom()).contains(localPeer.getEndpoint());
+  }
+
+  @Test
+  public void bond_toIpv6Peer_defaultsToLocalIpv4EndpointWhenNoV6Configured() {
+    final DiscoveryPeerV4 ipv6Peer = createDiscoveryPeer("2001:db8::2");
+    final OutboundMessageHandler outboundMessageHandler = mock(OutboundMessageHandler.class);
+    controller = getControllerBuilder().outboundMessageHandler(outboundMessageHandler).build();
+
+    controller.bond(ipv6Peer);
+
+    final PingPacketData pingData = capturePing(outboundMessageHandler, ipv6Peer);
+    assertThat(pingData.getFrom()).contains(localPeer.getEndpoint());
+  }
+
+  private DiscoveryPeerV4 createDiscoveryPeer(final String ipAddress) {
+    final NodeKey nodeKey = PeerDiscoveryTestHelper.generateNodeKeys(1).get(0);
+    final int port = counter.incrementAndGet();
+    return DiscoveryPeerV4.fromEnode(
+        EnodeURLImpl.builder()
+            .nodeId(nodeKey.getPublicKey().getEncodedBytes())
+            .ipAddress(ipAddress)
+            .discoveryAndListeningPorts(port)
+            .build());
+  }
+
+  private PingPacketData capturePing(
+      final OutboundMessageHandler outboundMessageHandler, final DiscoveryPeerV4 recipient) {
+    final ArgumentCaptor<Packet> captor = ArgumentCaptor.forClass(Packet.class);
+    verify(outboundMessageHandler).send(eq(recipient), captor.capture());
+    return captor.getValue().getPacketData(PingPacketData.class).orElseThrow();
+  }
+
   private ControllerBuilder getControllerBuilder() {
     final RlpxAgent rlpxAgent = mock(RlpxAgent.class);
-    when(rlpxAgent.connect(any()))
+    when(rlpxAgent.connect(any(), any(ConnectSource.class)))
         .thenReturn(CompletableFuture.failedFuture(new RuntimeException()));
     return ControllerBuilder.create()
         .nodeKey(localNodeKey)
@@ -2003,6 +2068,7 @@ public class PeerDiscoveryControllerTest {
     private boolean filterOnForkId = false;
     private RlpxAgent rlpxAgent;
     private Executor dispatchExecutor = Runnable::run;
+    private Optional<Endpoint> localPeerV6Endpoint = Optional.empty();
 
     public static ControllerBuilder create() {
       return new ControllerBuilder();
@@ -2035,6 +2101,11 @@ public class PeerDiscoveryControllerTest {
 
     ControllerBuilder nodeKey(final NodeKey nodeKey) {
       this.nodeKey = nodeKey;
+      return this;
+    }
+
+    ControllerBuilder localPeerV6Endpoint(final Optional<Endpoint> localPeerV6Endpoint) {
+      this.localPeerV6Endpoint = localPeerV6Endpoint;
       return this;
     }
 
@@ -2081,6 +2152,7 @@ public class PeerDiscoveryControllerTest {
           PeerDiscoveryController.builder()
               .nodeKey(nodeKey)
               .localPeer(localPeer)
+              .localPeerV6Endpoint(localPeerV6Endpoint)
               .peerTable(peerTable)
               .bootstrapNodes(discoPeers)
               .outboundMessageHandler(outboundMessageHandler)
