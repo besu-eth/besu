@@ -28,7 +28,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.IntFunction;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -104,8 +106,11 @@ public class DockerNatManager extends AbstractNatManager {
     try {
       ipDetector.detectAdvertisedIp().ifPresent(ipFound -> internalAdvertisedHost = ipFound);
       buildForwardedPorts();
-    } catch (Exception e) {
-      throw new NatInitializationException("Unable to retrieve IP from docker");
+    } catch (final InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new NatInitializationException("Interrupted while initializing docker NAT manager", e);
+    } catch (final Exception e) {
+      throw new NatInitializationException("Unable to initialize docker NAT manager", e);
     }
   }
 
@@ -130,23 +135,20 @@ public class DockerNatManager extends AbstractNatManager {
     return externalPortOverrideLookup.apply(internalPort).orElse(internalPort);
   }
 
-  private void buildForwardedPorts() {
-    try {
-      internalHost = queryLocalIPAddress().get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
-      final String advertisedHost =
-          retrieveExternalIPAddress().get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
-      synchronized (forwardedPorts) {
-        forwardedPorts.add(
-            new NatPortMapping(
-                NatServiceType.JSON_RPC,
-                NetworkProtocol.TCP,
-                internalHost,
-                advertisedHost,
-                getExternalPort(internalRpcHttpPort),
-                internalRpcHttpPort));
-      }
-    } catch (Exception e) {
-      LOG.warn("Failed to create forwarded port list", e);
+  private void buildForwardedPorts()
+      throws InterruptedException, ExecutionException, TimeoutException {
+    internalHost = queryLocalIPAddress().get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    final String advertisedHost =
+        retrieveExternalIPAddress().get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    synchronized (forwardedPorts) {
+      forwardedPorts.add(
+          new NatPortMapping(
+              NatServiceType.JSON_RPC,
+              NetworkProtocol.TCP,
+              internalHost,
+              advertisedHost,
+              getExternalPort(internalRpcHttpPort),
+              internalRpcHttpPort));
     }
   }
 
