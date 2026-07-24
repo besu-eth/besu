@@ -27,7 +27,6 @@ import picocli.CommandLine.Model.OptionSpec;
 /** The Environment variable default provider used in PicoCli. */
 public class EnvironmentVariableDefaultProvider implements IDefaultValueProvider {
   private static final String ENV_VAR_PREFIX = "BESU_";
-  private static final String LEGACY_ENV_VAR_PREFIX = "PANTHEON_";
 
   private final Map<String, String> environment;
 
@@ -57,9 +56,7 @@ public class EnvironmentVariableDefaultProvider implements IDefaultValueProvider
     return Arrays.stream(spec.names())
         .filter(name -> name.startsWith("--")) // Only long options are allowed
         .flatMap(
-            name ->
-                Stream.of(ENV_VAR_PREFIX, LEGACY_ENV_VAR_PREFIX)
-                    .map(prefix -> prefix + nameToEnvVarSuffix(name)));
+            name -> Stream.of(ENV_VAR_PREFIX).map(prefix -> prefix + nameToEnvVarSuffix(name)));
   }
 
   private String nameToEnvVarSuffix(final String name) {

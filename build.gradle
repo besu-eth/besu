@@ -471,10 +471,7 @@ configure(allprojects - project(':platform')) {
       '-org.hyperledger.besu.ethereum.rlp,' +
       // trie module
       '-org.hyperledger.besu.ethereum.trie.*,' +
-      '-org.hyperledger.besu.ethereum.trie,' +
-      // verkle trie module
-      '-org.hyperledger.besu.ethereum.verkletrie,' +
-      '-org.hyperledger.besu.ethereum.verkletrie.*',
+      '-org.hyperledger.besu.ethereum.trie,',
       true)
     options.addStringOption('Xmaxerrs','65535')
     options.addStringOption('Xmaxwarns','65535')
@@ -483,13 +480,25 @@ configure(allprojects - project(':platform')) {
   }
 }
 
-// Resolves the "sources" documentation variant of a configuration the same way IDEs
-// (e.g. IntelliJ's Gradle sync) do. Unlike the legacy ArtifactResolutionQuery API, this goes
-// through real dependency resolution, so it is subject to dependency verification - which is
-// exactly why it must be used here: it is the only way to reproduce, from the command line,
-// the checksum failures IDEs hit on refresh.
+// IntelliJ's Gradle sync resolves sources through two different mechanisms depending on how a
+// component is published, and either one can fail dependency verification on refresh - so both
+// have to be reproduced/checked here, or missing checksums for one style silently slip through:
+//
+// 1. The "sources" documentation variant, for components that publish Gradle Module Metadata
+//    declaring it (e.g. jackson, netty's regular jars).
+// 2. The legacy ArtifactResolutionQuery/SourcesArtifact API, for components published only via
+//    a plain Maven POM with a "-sources.jar" classifier convention (e.g. the besu-native
+//    artifacts, netty's native-transport jars, reactor-core).
 ext.forEachProjectSourceArtifact = { Project proj, Closure action ->
-  proj.configurations.matching { it.canBeResolved }.each { cfg ->
+  def resolvableConfigs = proj.configurations.matching { it.canBeResolved }
+  def seen = new HashSet()
+  def guardedAction = { id, artifact ->
+    if (seen.add(id)) {
+      action(id, artifact)
+    }
+  }
+
+  resolvableConfigs.each { cfg ->
     try {
       def view = cfg.incoming.artifactView {
         withVariantReselection()
@@ -499,7 +508,7 @@ ext.forEachProjectSourceArtifact = { Project proj, Closure action ->
         }
         lenient(true)
       }
-      view.artifacts.each { artifact -> action(artifact.id.componentIdentifier, artifact) }
+      view.artifacts.each { artifact -> guardedAction(artifact.id.componentIdentifier, artifact) }
     } catch (Exception e) {
       // A checksum mismatch/missing entry must fail the build - swallowing it here is exactly
       // how this class of bug used to slip past CI while still breaking IDE Gradle syncs.
@@ -508,6 +517,34 @@ ext.forEachProjectSourceArtifact = { Project proj, Closure action ->
       }
       logger.info("Could not resolve sources for ${proj.path} config '${cfg.name}': ${e.message}")
     }
+  }
+
+  def componentIds = new HashSet()
+  resolvableConfigs.each { cfg ->
+    try {
+      cfg.incoming.resolutionResult.allComponents.each { c -> componentIds.add(c.id) }
+    } catch (Exception e) {
+      logger.info("Could not resolve ${proj.path} config '${cfg.name}': ${e.message}")
+    }
+  }
+  def externalIds = componentIds.findAll { it instanceof ModuleComponentIdentifier }
+  try {
+    def result = proj.dependencies.createArtifactResolutionQuery()
+      .forComponents(externalIds)
+      .withArtifacts(JvmLibrary, SourcesArtifact)
+      .execute()
+    result.resolvedComponents.each { component ->
+      component.getArtifacts(SourcesArtifact).each { source ->
+        if (source instanceof ResolvedArtifactResult) {
+          guardedAction(component.id, source)
+        }
+      }
+    }
+  } catch (Exception e) {
+    if (e.message?.contains('Dependency verification failed')) {
+      throw e
+    }
+    logger.info("Could not resolve legacy sources for ${proj.path}: ${e.message}")
   }
 }
 
@@ -915,16 +952,17 @@ run {
   }
 }
 
-def defaultJvmOpts21 = application.applicationDefaultJvmArgs + [
+def defaultJvmOpts25 = application.applicationDefaultJvmArgs + [
   "-XX:MaxHeapFreeRatio=30",
   "-XX:MinHeapFreeRatio=10",
   "-XX:MaxGCPauseMillis=100",
+  "-XX:+UseCompactObjectHeaders",
   "-XX:StartFlightRecording,settings=default.jfc",
-  "-Xlog:jfr*=off"
-]
-
-def defaultJvmOpts25 = defaultJvmOpts21 + [
-  "-XX:+UseCompactObjectHeaders"
+  "-Xlog:jfr*=off",
+  // log4j-layout-template-json opportunistically uses a jctools queue (already on the classpath
+  // via netty-all) to recycle buffers for structured logging formats, which triggers the JEP 471
+  // terminally-deprecated sun.misc.Unsafe warning on first use.
+  "--sun-misc-unsafe-memory-access=allow"
 ]
 
 def untunedJvmOpts = application.applicationDefaultJvmArgs
@@ -933,23 +971,10 @@ def evmToolJvmOpts = [
   "-Dsecp256k1.randomize=false"
 ]
 
-def serializeDefaultJvmOpts(opts) {
-  return "'" + opts.collect{ '"' + it.replaceAll(/"/, '\\"').replaceAll(/\$/, '\\$') + '"' }.join(' ') + "'"
-}
-
-def tweakStartScript(createScriptTask, jvmOptsForJava25) {
+def tweakStartScript(createScriptTask) {
   def shortenWindowsClasspath = { line ->
     line.replaceAll(/^set CLASSPATH=.*$/, "set CLASSPATH=%APP_HOME%/lib/*")
   }
-
-  // Replace Java 25 opts placeholder - must be before BESU_HOME replacement
-  createScriptTask.unixScript.text = createScriptTask.unixScript.text
-    .replace('@DEFAULT_JVM_OPTS_25@', jvmOptsForJava25)
-
-  // For Windows, remove the outer single quotes
-  def windowsJvmOpts = jvmOptsForJava25.replaceAll(/^'|'$/, '')
-  createScriptTask.windowsScript.text = createScriptTask.windowsScript.text
-    .replace('@DEFAULT_JVM_OPTS_25@', windowsJvmOpts)
 
   createScriptTask.unixScript.text = createScriptTask.unixScript.text.replace('BESU_HOME', '\$APP_HOME')
   createScriptTask.windowsScript.text = createScriptTask.windowsScript.text.replace('BESU_HOME', '%~dp0..')
@@ -963,10 +988,10 @@ def tweakStartScript(createScriptTask, jvmOptsForJava25) {
 }
 
 startScripts {
-  defaultJvmOpts = defaultJvmOpts21
+  defaultJvmOpts = defaultJvmOpts25
   unixStartScriptGenerator.template = resources.text.fromFile("${projectDir}/app/src/main/scripts/unixStartScript.txt")
   windowsStartScriptGenerator.template = resources.text.fromFile("${projectDir}/app/src/main/scripts/windowsStartScript.txt")
-  doLast { tweakStartScript(startScripts, serializeDefaultJvmOpts(defaultJvmOpts25)) }
+  doLast { tweakStartScript(startScripts) }
 }
 
 task untunedStartScripts(type: CreateStartScripts) {
@@ -977,7 +1002,7 @@ task untunedStartScripts(type: CreateStartScripts) {
   defaultJvmOpts = untunedJvmOpts
   unixStartScriptGenerator.template = resources.text.fromFile("${projectDir}/app/src/main/scripts/unixStartScript.txt")
   windowsStartScriptGenerator.template = resources.text.fromFile("${projectDir}/app/src/main/scripts/windowsStartScript.txt")
-  doLast { tweakStartScript(untunedStartScripts, serializeDefaultJvmOpts(untunedJvmOpts)) }
+  doLast { tweakStartScript(untunedStartScripts) }
 }
 
 task evmToolStartScripts(type: CreateStartScripts) {
@@ -988,7 +1013,7 @@ task evmToolStartScripts(type: CreateStartScripts) {
   defaultJvmOpts = evmToolJvmOpts
   unixStartScriptGenerator.template = resources.text.fromFile("${projectDir}/app/src/main/scripts/unixStartScript.txt")
   windowsStartScriptGenerator.template = resources.text.fromFile("${projectDir}/app/src/main/scripts/windowsStartScript.txt")
-  doLast { tweakStartScript(evmToolStartScripts, serializeDefaultJvmOpts(evmToolJvmOpts)) }
+  doLast { tweakStartScript(evmToolStartScripts) }
 }
 
 task autocomplete(type: JavaExec) {

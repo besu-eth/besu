@@ -90,15 +90,10 @@ if not defined JAVA_VERSION (
 
 @rem Add default JVM options here. You can also use JAVA_OPTS and ${optsEnvironmentVar} to pass JVM options to this script.
 if %JAVA_VERSION% GEQ 25 goto setJvmOpts25
-if %JAVA_VERSION% GEQ 21 goto setJvmOpts21
-echo Java version must be at least 21 (detected: %JAVA_VERSION%)
+echo Java version must be at least 25 (detected: %JAVA_VERSION%)
 goto fail
 
 :setJvmOpts25
-set DEFAULT_JVM_OPTS=@DEFAULT_JVM_OPTS_25@
-goto execute
-
-:setJvmOpts21
 set DEFAULT_JVM_OPTS=${defaultJvmOpts}
 goto execute
 

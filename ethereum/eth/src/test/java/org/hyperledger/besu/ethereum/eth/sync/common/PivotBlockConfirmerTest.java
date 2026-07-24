@@ -134,7 +134,7 @@ public class PivotBlockConfirmerTest {
     future.join();
     assertThat(future)
         .isCompletedWithValue(
-            new SnapSyncProcessState(blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER).get(), false));
+            new SnapSyncProcessState(blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER).get()));
   }
 
   @ParameterizedTest
@@ -172,7 +172,7 @@ public class PivotBlockConfirmerTest {
 
     assertThat(future)
         .isCompletedWithValue(
-            new SnapSyncProcessState(blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER).get(), false));
+            new SnapSyncProcessState(blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER).get()));
   }
 
   @ParameterizedTest

@@ -34,6 +34,7 @@ import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.Packet
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.p2p.peers.Peer;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions;
+import org.hyperledger.besu.ethereum.p2p.rlpx.ConnectSource;
 import org.hyperledger.besu.ethereum.p2p.rlpx.RlpxAgent;
 import org.hyperledger.besu.nat.NatService;
 
@@ -331,7 +332,7 @@ public class PeerDiscoveryTestHelper {
       when(mockForkIdManager.getForkIdForChainHead()).thenReturn(forkId);
       when(mockForkIdManager.peerCheck(forkId)).thenReturn(true);
       final RlpxAgent rlpxAgent = mock(RlpxAgent.class);
-      when(rlpxAgent.connect(any()))
+      when(rlpxAgent.connect(any(), any(ConnectSource.class)))
           .thenReturn(CompletableFuture.failedFuture(new RuntimeException()));
       advertisedHostIpv6.ifPresent(
           host -> when(rlpxAgent.getIpv6ListeningPort()).thenReturn(Optional.of(IPV6_TCP_PORT)));

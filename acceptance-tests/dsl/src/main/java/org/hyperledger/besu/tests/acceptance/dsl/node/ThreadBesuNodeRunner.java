@@ -282,6 +282,11 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
     throw new RuntimeException("Console contents can only be captured in process execution");
   }
 
+  @Override
+  public String peekConsoleContents() {
+    throw new RuntimeException("Console contents can only be captured in process execution");
+  }
+
   @Module
   @SuppressWarnings("CloseableProvides")
   static class BesuNodeProviderModule {

@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -12,21 +12,18 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.verkletrie.bandersnatch;
+package org.hyperledger.besu.ethereum.p2p.discovery.transport;
 
-import org.hyperledger.besu.ethereum.verkletrie.bandersnatch.fp.Element;
+import java.util.Locale;
 
-public class PointAffine {
+/** Identifies the outcome of the shared-socket demultiplexer for metrics labelling. */
+enum DemuxProtocol {
+  V4,
+  V5,
+  DROPPED;
 
-  final Element x;
-  final Element y;
-
-  public PointAffine(final Element x, final Element y) {
-    this.x = x;
-    this.y = y;
-  }
-
-  public static PointAffine fromProj(final Point point) {
-    return new PointAffine(point.x.divide(point.z), point.y.divide(point.z));
+  /** Returns the lowercase Prometheus label value for this protocol outcome. */
+  public String label() {
+    return name().toLowerCase(Locale.ROOT);
   }
 }
