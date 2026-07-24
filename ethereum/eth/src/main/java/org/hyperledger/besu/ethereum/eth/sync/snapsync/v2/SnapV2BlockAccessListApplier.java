@@ -190,6 +190,73 @@ public class SnapV2BlockAccessListApplier {
     return pendingAffected;
   }
 
+  /**
+   * Rewrites stale storage roots in the flat db and account trie leaves using verified roots
+   * fetched at the new pivot. Needed because storage range downloads never update account state,
+   * leaving roots computed over partial storage stale. Accounts absent at the new pivot are
+   * deleted.
+   *
+   * @return the number of corrected and deleted accounts
+   */
+  public PatchResult patchStorageRoots(
+      final Map<Hash, Bytes32> correctRoots, final Set<Hash> absentAccounts) {
+    if (correctRoots.isEmpty() && absentAccounts.isEmpty()) {
+      return new PatchResult(0, 0);
+    }
+
+    final WorldStateKeyValueStorage.Updater updater = worldStateStorageCoordinator.updater();
+    final MerkleTrie<Bytes, Bytes> accountTrie = openAccountTrie();
+
+    int patched = 0;
+    for (final Map.Entry<Hash, Bytes32> entry : correctRoots.entrySet()) {
+      final Hash accountHash = entry.getKey();
+      final Hash correctRoot = Hash.wrap(entry.getValue());
+      final PmtStateTrieAccountValue existingAccount = readExistingAccount(accountHash);
+      if (existingAccount == null) {
+        LOG.warn(
+            "snap/2 skipping storage root patch for account {}: not found locally", accountHash);
+        continue;
+      }
+      if (existingAccount.getStorageRoot().equals(correctRoot)) {
+        continue;
+      }
+      final PmtStateTrieAccountValue correctedAccount =
+          new PmtStateTrieAccountValue(
+              existingAccount.getNonce(),
+              existingAccount.getBalance(),
+              correctRoot,
+              existingAccount.getCodeHash());
+      final Bytes encodedAccount = RLP.encode(correctedAccount::writeTo);
+      applyForStrategy(
+          updater,
+          onBonsai -> onBonsai.putAccountInfoState(accountHash, encodedAccount),
+          onForest -> {});
+      accountTrie.put(accountHash.getBytes(), encodedAccount);
+      patched++;
+    }
+
+    int deleted = 0;
+    for (final Hash accountHash : absentAccounts) {
+      applyForStrategy(
+          updater, onBonsai -> onBonsai.removeAccountInfoState(accountHash), onForest -> {});
+      accountTrie.remove(accountHash.getBytes());
+      deleted++;
+    }
+
+    if (patched > 0 || deleted > 0) {
+      stageAccountTrieChanges(accountTrie, updater);
+      if (accountTrie.getRootHash().equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
+        // Trie emptied by deletions: the empty root is never persisted, remove the stale one.
+        applyForStrategy(
+            updater, onBonsai -> onBonsai.removeAccountStateTrieNode(Bytes.EMPTY), onForest -> {});
+      }
+      updater.commit();
+    }
+    return new PatchResult(patched, deleted);
+  }
+
+  public record PatchResult(int patched, int deleted) {}
+
   private MerkleTrie<Bytes, Bytes> openAccountTrie() {
     final Function<Bytes, Bytes> identity = Function.identity();
     final NodeLoader accountNodeLoader =
@@ -231,16 +298,12 @@ public class SnapV2BlockAccessListApplier {
       final Hash newCodeHash = maybeStoreCode(perAccount, existingAccount, accountHash, updater);
 
       final Hash oldStorageRoot = storageRootOf(existingAccount);
-      final boolean isAccountCompleted =
-          accountRangeTracker.isAccountHashDownloaded(asBytes32(accountHash));
+      final boolean applyAllSlots =
+          existingAccount == null
+              || accountRangeTracker.isAccountHashDownloaded(asBytes32(accountHash));
       final StorageRootResult storageResult =
           maybeUpdateStorageRoot(
-              accountHash,
-              perAccount,
-              oldStorageRoot,
-              updater,
-              storageRangeTracker,
-              isAccountCompleted);
+              accountHash, perAccount, oldStorageRoot, updater, storageRangeTracker, applyAllSlots);
 
       final PmtStateTrieAccountValue updatedAccount =
           new PmtStateTrieAccountValue(newNonce, newBalance, storageResult.root, newCodeHash);
@@ -330,7 +393,7 @@ public class SnapV2BlockAccessListApplier {
       final Hash oldStorageRoot,
       final WorldStateKeyValueStorage.Updater updater,
       final DownloadedStorageRangeTracker storageRangeTracker,
-      final boolean isAccountCompleted) {
+      final boolean applyAllSlots) {
 
     if (perAccount.storageChanges.isEmpty()) {
       return new StorageRootResult(oldStorageRoot, 0);
@@ -358,7 +421,7 @@ public class SnapV2BlockAccessListApplier {
 
     int downloadedSlots = 0;
     for (final PerAccountChanges.StorageSlotUpdate update : perAccount.storageChanges.values()) {
-      if (!isAccountCompleted
+      if (!applyAllSlots
           && !storageRangeTracker.isSlotHashDownloaded(
               accountHashBytes, asBytes32(update.slotHash))) {
         continue;

@@ -589,11 +589,20 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
             currentPivotBlockHeader.getNumber(),
             newPivotBlockHeader.getNumber(),
             pendingAffected.size());
-        final CompletableFuture<Map<Hash, Bytes32>> rootsFuture =
+        final CompletableFuture<StorageRootFetchResult> rootsFuture =
             fetchAccountStorageRoots(pendingAffected, newPivotBlockHeader);
         applyBlockAccessLists(currentPivotBlockHeader, newPivotBlockHeader);
-        final Map<Hash, Bytes32> correctRoots = rootsFuture.join();
-        retargetQueuedRequests(newPivotBlockHeader, correctRoots);
+        final StorageRootFetchResult fetchResult = rootsFuture.join();
+        final SnapV2BlockAccessListApplier.PatchResult patchResult =
+            blockAccessListApplier.patchStorageRoots(
+                fetchResult.roots(), fetchResult.absentAccounts());
+        LOG.debug(
+            "snap/2 pivot catch-up ({} -> {}): {} storage roots patched, {} absent accounts deleted",
+            currentPivotBlockHeader.getNumber(),
+            newPivotBlockHeader.getNumber(),
+            patchResult.patched(),
+            patchResult.deleted());
+        retargetQueuedRequests(newPivotBlockHeader, fetchResult.roots());
         snapSyncState.setCurrentHeader(newPivotBlockHeader);
       } catch (final Throwable e) {
         LOG.error(
@@ -720,13 +729,14 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
                         + " after BAL application during pivot catch-up"));
   }
 
-  private CompletableFuture<Map<Hash, Bytes32>> fetchAccountStorageRoots(
+  private CompletableFuture<StorageRootFetchResult> fetchAccountStorageRoots(
       final Set<Hash> accountHashes, final BlockHeader pivotHeader) {
     if (accountHashes.isEmpty()) {
-      return CompletableFuture.completedFuture(Map.of());
+      return CompletableFuture.completedFuture(new StorageRootFetchResult(Map.of(), Set.of()));
     }
 
     final ConcurrentHashMap<Hash, Bytes32> results = new ConcurrentHashMap<>();
+    final Set<Hash> absentAccounts = ConcurrentHashMap.newKeySet();
     final List<CompletableFuture<Void>> futures = new ArrayList<>();
     final WorldStateProofProvider proofProvider =
         new WorldStateProofProvider(worldStateStorageCoordinator);
@@ -759,9 +769,9 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
                     }
                     final Bytes accountData = response.accounts().get(startKey);
                     if (accountData == null) {
-                      throw storageRootFetchError(
-                          "Account data missing for account %s at pivot %s",
-                          accountHash, pivotHeader.getNumber(), null);
+                      // Proven absent at the new pivot: delete locally instead of patching.
+                      absentAccounts.add(accountHash);
+                      return null;
                     }
                     final PmtStateTrieAccountValue accountValue =
                         PmtStateTrieAccountValue.readFrom(RLP.input(accountData));
@@ -772,8 +782,10 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
     }
 
     return CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
-        .thenApply(v -> Map.copyOf(results));
+        .thenApply(v -> new StorageRootFetchResult(results, absentAccounts));
   }
+
+  record StorageRootFetchResult(Map<Hash, Bytes32> roots, Set<Hash> absentAccounts) {}
 
   private WorldStateDownloaderException storageRootFetchError(
       final String fmt, final Hash accountHash, final long pivotNumber, final Throwable cause) {
