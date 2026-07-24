@@ -150,6 +150,11 @@ public class BonsaiWorldState extends PathBasedWorldState {
                     codeCache));
   }
 
+  @Override
+  public void applyBlockAccessListOverlay(final BlockAccessListOverlay blockAccessListOverlay) {
+    setAccumulator(createUpdater(Optional.of(blockAccessListOverlay)));
+  }
+
   public EvmConfiguration getEvmConfiguration() {
     return evmConfiguration;
   }

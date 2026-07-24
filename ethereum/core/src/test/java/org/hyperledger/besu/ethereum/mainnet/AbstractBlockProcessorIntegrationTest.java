@@ -38,6 +38,7 @@ import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor.TransactionReceiptFactory;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAddressView;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.MainnetParallelBlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelTransactionPreprocessing;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.BalStateRootCommitter;
@@ -1336,11 +1337,29 @@ class AbstractBlockProcessorIntegrationTest {
     final BlockAccessList blockAccessList =
         result.getYield().orElseThrow().getBlockAccessList().orElseThrow();
 
-    final Hash computedRoot =
-        BalStateRootCalculator.computeAsync(protocolContext, block.getHeader(), blockAccessList)
-            .join()
-            .root();
+    final BalStateRootCommitter committer =
+        new BalStateRootCommitter(
+            protocolContext,
+            block.getHeader(),
+            BlockAccessListAddressView.of(blockAccessList),
+            false);
 
-    assertThat(computedRoot).isEqualTo(expectedRoot);
+    final BlockHeader parentHeader =
+        protocolContext
+            .getBlockchain()
+            .getBlockHeader(block.getHeader().getParentHash())
+            .orElseThrow();
+
+    try (BonsaiWorldState worldState =
+        (BonsaiWorldState)
+            protocolContext
+                .getWorldStateArchive()
+                .getWorldState(
+                    WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(parentHeader))
+                .orElseThrow()) {
+      final StateRootComputation computation =
+          committer.compute(worldState, block.getHeader(), worldState.updater());
+      assertThat(computation.root()).isEqualTo(expectedRoot);
+    }
   }
 }
