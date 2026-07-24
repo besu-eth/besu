@@ -71,7 +71,7 @@ public final class BalStateRootCommitter implements StateRootCommitter {
                     Executors.newSingleThreadScheduledExecutor());
   }
 
-  /** Cancels the background computation; {@link #compute} will throw if called afterwards. */
+  /** Cancels the background computation. {@link #compute} will throw if called afterwards. */
   @Override
   public void cancel() {
     backgroundComputation.cancel(true);
