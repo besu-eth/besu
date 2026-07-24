@@ -15,6 +15,18 @@
 
 apply plugin: 'java-library'
 
+tasks.register('runBenchmarkRunner', JavaExec) {
+  dependsOn 'jmhClasses', 'jmhRunBytecodeGenerator'
+  classpath = sourceSets.jmh.runtimeClasspath +
+    files("$buildDir/jmh-generated-classes") +
+    files("$buildDir/jmh-generated-resources")
+  mainClass = 'org.hyperledger.besu.ethereum.vm.operations.BenchmarkRunner'
+  args = [
+    project.findProperty('include') ?: 'CallDataCopyOperationBenchmark',
+    project.findProperty('output')  ?: 'benchmark-results.json'
+  ]
+}
+
 jar {
   archiveBaseName = calculateArtifactId(project)
   manifest {
