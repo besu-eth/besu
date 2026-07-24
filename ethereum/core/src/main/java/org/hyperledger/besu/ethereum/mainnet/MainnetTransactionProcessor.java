@@ -35,6 +35,7 @@ import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
@@ -416,6 +417,21 @@ public class MainnetTransactionProcessor {
                 .code(code)
                 .eip2930AccessListWarmAddresses(eip2930WarmAddressList)
                 .build();
+
+        // EIP-2780: charge NEW_ACCOUNT state gas on the depth-0 frame for a positive value transfer
+        // to a non-alive recipient (mirrors AbstractCallOperation's call-site charge and EELS
+        // process_message_call). Contract creations charge their creation state gas separately, so
+        // this only applies to message calls. On insufficient gas the frame halts before execution.
+        if (stateGasCalc.isActive() && !transaction.getValue().isZero()) {
+          final Account recipient = worldState.get(to);
+          if (recipient == null || recipient.isEmpty()) {
+            if (!initialFrame.consumeStateGas(stateGasCalc.newAccountStateGas())) {
+              initialFrame.setExceptionalHaltReason(
+                  Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
+              initialFrame.setState(MessageFrame.State.EXCEPTIONAL_HALT);
+            }
+          }
+        }
       }
       Deque<MessageFrame> messageFrameStack = initialFrame.getMessageFrameStack();
       while (!messageFrameStack.isEmpty()) {
@@ -534,10 +550,12 @@ public class MainnetTransactionProcessor {
         coinbase.incrementBalance(coinbaseWeiDelta);
       }
 
-      // EIP-7708: Emit closure logs for accounts with remaining balance before deletion
-      // Noop before Amsterdam
-      transferLogEmitter.emitClosureLogs(
-          worldState, initialFrame.getSelfDestructs(), initialFrame::addLog);
+      // EIP-7708: Emit closure (burn) logs for self-destructed accounts whose balance is burned.
+      // EIP-8246 preserves the balance instead of burning it, so no closure log is emitted then.
+      if (!gasCalculator.isSelfDestructBalancePreserved()) {
+        transferLogEmitter.emitClosureLogs(
+            worldState, initialFrame.getSelfDestructs(), initialFrame::addLog);
+      }
 
       operationTracer.traceEndTransaction(
           worldState.updater(),
@@ -549,7 +567,7 @@ public class MainnetTransactionProcessor {
           initialFrame.getSelfDestructs(),
           0L);
 
-      initialFrame.getSelfDestructs().forEach(worldState::deleteAccount);
+      settleSelfDestructs(worldState, initialFrame.getSelfDestructs());
 
       if (clearEmptyAccounts) {
         worldState.clearAccountsThatAreEmpty();
@@ -657,6 +675,32 @@ public class MainnetTransactionProcessor {
 
   public GasCalculator getGasCalculator() {
     return gasCalculator;
+  }
+
+  /**
+   * Settles accounts marked for self-destruction at transaction finalization. Under EIP-8246 each
+   * account is cleared (nonce reset, code and storage removed) but keeps its balance — EIP-161
+   * state clearing (via {@code clearAccountsThatAreEmpty}) then removes any account left with a
+   * zero balance. Pre-EIP-8246 the accounts are deleted outright.
+   *
+   * @param worldState the world state updater
+   * @param selfDestructs the addresses marked for self-destruction
+   */
+  private void settleSelfDestructs(
+      final WorldUpdater worldState, final Set<Address> selfDestructs) {
+    if (gasCalculator.isSelfDestructBalancePreserved()) {
+      selfDestructs.forEach(
+          address -> {
+            final MutableAccount account = worldState.getAccount(address);
+            if (account != null) {
+              account.setNonce(0L);
+              account.setCode(Bytes.EMPTY);
+              account.clearStorage();
+            }
+          });
+    } else {
+      selfDestructs.forEach(worldState::deleteAccount);
+    }
   }
 
   /**
