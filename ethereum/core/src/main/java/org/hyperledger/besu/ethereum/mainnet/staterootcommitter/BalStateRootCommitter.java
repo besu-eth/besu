@@ -152,8 +152,11 @@ public final class BalStateRootCommitter implements StateRootCommitter {
             .withShouldWorldStateUpdateHead(false)
             .withBalOverlay(blockAccessListAddressView, Long.MAX_VALUE)
             .build();
-    return (BonsaiWorldState)
-        protocolContext.getWorldStateArchive().getWorldState(queryParams).orElseThrow();
+    final BonsaiWorldState worldState =
+        (BonsaiWorldState)
+            protocolContext.getWorldStateArchive().getWorldState(queryParams).orElseThrow();
+    worldState.disableCacheMerkleTrieLoader();
+    return worldState;
   }
 
   /**
@@ -323,13 +326,7 @@ public final class BalStateRootCommitter implements StateRootCommitter {
     private Hash updateStorageTrie(
         final Address address, final Hash accountHash, final BlockAccessListAddressView changes) {
 
-      // Read the storage trie root node directly (one raw KV lookup, no account RLP parsing).
-      final Hash priorStorageRoot =
-          worldState
-              .getWorldStateStorage()
-              .getTrieNodeUnsafe(accountHash.getBytes())
-              .map(Hash::hash)
-              .orElse(Hash.EMPTY_TRIE_HASH);
+      final Hash priorStorageRoot = priorStorageRoot(address);
 
       final MerkleTrie<Bytes, Bytes> storageTrie =
           worldState.createStorageTrie(accountHash, priorStorageRoot);
@@ -337,7 +334,8 @@ public final class BalStateRootCommitter implements StateRootCommitter {
       for (final Map.Entry<StorageSlotKey, BlockAccessList.SlotChanges> sc :
           changes.getStorageEntries(address).entrySet()) {
         final Hash slotHash = sc.getKey().getSlotHash();
-        final UInt256 value = sc.getValue().changes().getLast().newValue();
+        final UInt256 rawValue = sc.getValue().changes().getLast().newValue();
+        final UInt256 value = rawValue == null ? UInt256.ZERO : rawValue;
         if (value.equals(UInt256.ZERO)) {
           if (!storageFrozen) {
             writes.add(updater -> updater.removeStorageValueBySlotHash(accountHash, slotHash));
@@ -358,6 +356,14 @@ public final class BalStateRootCommitter implements StateRootCommitter {
                     u -> u.putAccountStorageTrieNode(accountHash, location, nodeHash, value)));
       }
       return Hash.wrap(storageTrie.getRootHash());
+    }
+
+    private Hash priorStorageRoot(final Address address) {
+      return worldState
+          .getWorldStateStorage()
+          .getAccount(address.addressHash())
+          .map(rlp -> PmtStateTrieAccountValue.readFrom(RLP.input(rlp)).getStorageRoot())
+          .orElse(Hash.EMPTY_TRIE_HASH);
     }
 
     private boolean isAccountEmpty(final PmtStateTrieAccountValue account) {

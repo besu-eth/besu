@@ -133,8 +133,8 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
 
   /**
    * Imports writes from a {@link PartialBlockAccessView} produced by parallel BAL execution.
-   * Account and storage changes are inserted directly as {@link PathBasedValue} entries so
-   * {@link #commit()} does not need to re-read prior values from the database.
+   * Account and storage changes are inserted directly as {@link PathBasedValue} entries so {@link
+   * #commit()} does not need to re-read prior values from the database.
    *
    * @param partialView partial access list for a single transaction
    */
@@ -156,9 +156,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
 
       accountChanges.getPostBalance().ifPresent(accountValue::setBalance);
       accountChanges.getNonceChange().ifPresent(accountValue::setNonce);
-      accountChanges
-          .getNewCode()
-          .ifPresent(accountValue::setCode);
+      accountChanges.getNewCode().ifPresent(accountValue::setCode);
 
       for (final PartialBlockAccessView.SlotChange slotChange :
           accountChanges.getStorageChanges()) {
@@ -172,8 +170,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
             .computeIfAbsent(
                 address,
                 k ->
-                    new StorageConsumingMap<>(
-                        address, new ConcurrentHashMap<>(), storagePreloader))
+                    new StorageConsumingMap<>(address, new ConcurrentHashMap<>(), storagePreloader))
             .put(slotKey, new PathBasedValue<>(prior, updated));
       }
     }

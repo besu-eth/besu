@@ -265,9 +265,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
   }
 
   private MerkleTrie<Bytes, Bytes> createTrie(
-      final NodeLoader nodeLoader,
-      final Bytes32 rootHash,
-      final ForkJoinPool forkJoinPool) {
+      final NodeLoader nodeLoader, final Bytes32 rootHash, final ForkJoinPool forkJoinPool) {
     if (worldStateConfig.isTrieDisabled()) {
       return new NoOpMerkleTrie<>();
     }
