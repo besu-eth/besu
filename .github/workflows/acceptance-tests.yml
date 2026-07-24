@@ -84,6 +84,7 @@ jobs:
         run: rm -rf tmp/junit-xml-reports-downloaded
       - name: Upload Acceptance Test Results
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        if: success() || failure()
         with:
           name: acceptance-node-${{matrix.runner_index}}-test-results
           path: 'acceptance-tests/tests/build/test-results/**/TEST-*.xml'
