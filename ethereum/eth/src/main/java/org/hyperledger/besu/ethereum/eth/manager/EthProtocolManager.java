@@ -244,7 +244,8 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
     final MessageData messageData = message.getData();
     final int code = messageData.getCode();
     EthProtocolLogger.logProcessMessage(capability, code);
-    final EthPeer ethPeer = ethPeers.peer(message.getConnection());
+    final PeerConnection connection = message.getConnection();
+    final EthPeer ethPeer = ethPeers.peer(connection);
     if (ethPeer == null) {
       LOG.atDebug()
           .setMessage("Ignoring message received from unknown peer connection: {}")
@@ -257,7 +258,7 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
     if (code == EthProtocolMessages.STATUS) {
       handleStatusMessage(ethPeer, message);
       return;
-    } else if (!ethPeer.statusHasBeenReceived()) {
+    } else if (!ethPeer.statusHasBeenReceived(connection)) {
       // Peers are required to send status messages before any other message type
       LOG.atDebug()
           .setMessage(
@@ -267,18 +268,18 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
           .addArgument(code)
           .addArgument(ethPeer::toString)
           .log();
-      ethPeer.disconnect(DisconnectReason.BREACH_OF_PROTOCOL_RECEIVED_OTHER_MESSAGE_BEFORE_STATUS);
+      connection.disconnect(
+          DisconnectReason.BREACH_OF_PROTOCOL_RECEIVED_OTHER_MESSAGE_BEFORE_STATUS);
       return;
     }
 
     if (this.mergePeerFilter.isPresent()) {
-      if (this.mergePeerFilter.get().disconnectIfGossipingBlocks(message, ethPeer)) {
+      if (this.mergePeerFilter.get().disconnectIfGossipingBlocks(message, connection)) {
         LOG.atDebug()
             .setMessage("Post-merge disconnect: peer still gossiping blocks {}")
             .addArgument(ethPeer::toString)
             .log();
-        handleDisconnect(
-            ethPeer.getConnection(), DisconnectReason.SUBPROTOCOL_TRIGGERED_POW_BLOCKS, false);
+        handleDisconnect(connection, DisconnectReason.SUBPROTOCOL_TRIGGERED_POW_BLOCKS, false);
         return;
       }
     }
@@ -290,7 +291,7 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
           "Unsolicited message received {} (BREACH_OF_PROTOCOL), disconnecting from EthPeer: {}",
           ethMessage.getData().getCode(),
           ethPeer);
-      ethPeer.disconnect(DisconnectReason.BREACH_OF_PROTOCOL_UNSOLICITED_MESSAGE_RECEIVED);
+      connection.disconnect(DisconnectReason.BREACH_OF_PROTOCOL_UNSOLICITED_MESSAGE_RECEIVED);
       return;
     }
 
@@ -318,7 +319,7 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
           .setCause(e)
           .log();
 
-      ethPeer.disconnect(
+      connection.disconnect(
           DisconnectMessage.DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
     } catch (final RLPException e) {
       LOG.atDebug()
@@ -330,7 +331,7 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
           .setCause(e)
           .log();
 
-      ethPeer.disconnect(
+      connection.disconnect(
           DisconnectMessage.DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
     } catch (final ProtocolViolationException e) {
       LOG.atDebug()
@@ -341,12 +342,12 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
           .addArgument(e::toString)
           .log();
 
-      ethPeer.disconnect(e.getReason());
+      connection.disconnect(e.getReason());
     }
     maybeResponseData.ifPresent(
         responseData -> {
           try {
-            ethPeer.send(responseData, getSupportedProtocol());
+            ethPeer.send(responseData, getSupportedProtocol(), connection);
           } catch (final PeerNotConnected __) {
             // Peer disconnected before we could respond - nothing to do
           }
@@ -410,9 +411,10 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
   }
 
   private void handleStatusMessage(final EthPeer peer, final Message message) {
+    final PeerConnection connection = message.getConnection();
     final StatusMessage status = StatusMessage.readFrom(message.getData());
     final ForkId forkId = status.forkId();
-    peer.getConnection().getPeer().setForkId(forkId);
+    connection.getPeer().setForkId(forkId);
     try {
       if (!status.networkId().equals(networkId)) {
         LOG.atDebug()
@@ -420,7 +422,7 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
             .addArgument(status::networkId)
             .addArgument(() -> getPeerOrPeerId(peer))
             .log();
-        peer.disconnect(DisconnectReason.SUBPROTOCOL_TRIGGERED_MISMATCHED_NETWORK);
+        connection.disconnect(DisconnectReason.SUBPROTOCOL_TRIGGERED_MISMATCHED_NETWORK);
       } else if (!forkIdManager.peerCheck(forkId)) {
         LOG.atDebug()
             .setMessage("{} has matching network id ({}), but non-matching fork id: {}")
@@ -428,7 +430,7 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
             .addArgument(networkId::toString)
             .addArgument(forkId)
             .log();
-        peer.disconnect(DisconnectReason.SUBPROTOCOL_TRIGGERED_MISMATCHED_FORKID);
+        connection.disconnect(DisconnectReason.SUBPROTOCOL_TRIGGERED_MISMATCHED_FORKID);
       } else if (forkIdManager.peerCheck(status.genesisHash())) {
         LOG.atDebug()
             .setMessage("{} has matching network id ({}), but non-matching genesis hash: {}")
@@ -436,23 +438,22 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
             .addArgument(networkId::toString)
             .addArgument(status::genesisHash)
             .log();
-        peer.disconnect(DisconnectReason.SUBPROTOCOL_TRIGGERED_MISMATCHED_GENESIS_HASH);
+        connection.disconnect(DisconnectReason.SUBPROTOCOL_TRIGGERED_MISMATCHED_GENESIS_HASH);
       } else if (mergePeerFilter.isPresent()
-          && mergePeerFilter.get().disconnectIfPoW(status, peer)) {
+          && mergePeerFilter.get().disconnectIfPoW(status, connection)) {
         LOG.atDebug()
             .setMessage("Post-merge disconnect: peer still PoW {}")
             .addArgument(() -> getPeerOrPeerId(peer))
             .log();
-        handleDisconnect(
-            peer.getConnection(), DisconnectReason.SUBPROTOCOL_TRIGGERED_POW_DIFFICULTY, false);
-      } else if (EthProtocol.isEth69Compatible(peer.getConnection().capability(EthProtocol.NAME))
+        handleDisconnect(connection, DisconnectReason.SUBPROTOCOL_TRIGGERED_POW_DIFFICULTY, false);
+      } else if (EthProtocol.isEth69Compatible(connection.capability(EthProtocol.NAME))
           && !status.isEth69Compatible()) {
         LOG.atDebug()
             .setMessage("{} sent invalid status message {}")
             .addArgument(peer::toString)
             .addArgument(status::toString)
             .log();
-        peer.disconnect(DisconnectReason.SUBPROTOCOL_TRIGGERED_INVALID_STATUS_MESSAGE);
+        connection.disconnect(DisconnectReason.SUBPROTOCOL_TRIGGERED_INVALID_STATUS_MESSAGE);
       } else {
         LOG.atDebug()
             .setMessage("Received status message from {}: {} with connection {}")
@@ -460,7 +461,7 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
             .addArgument(status::toString)
             .addArgument(message::getConnection)
             .log();
-        peer.registerStatusReceived(status, peer.getConnection());
+        peer.registerStatusReceived(status, connection);
       }
     } catch (final RLPException e) {
       LOG.atDebug()
@@ -470,7 +471,7 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
           .log();
       // Parsing errors can happen when clients broadcast network ids outside the int range,
       // So just disconnect with "subprotocol" error rather than "breach of protocol".
-      peer.disconnect(DisconnectReason.SUBPROTOCOL_TRIGGERED_UNPARSABLE_STATUS);
+      connection.disconnect(DisconnectReason.SUBPROTOCOL_TRIGGERED_UNPARSABLE_STATUS);
     }
   }
 

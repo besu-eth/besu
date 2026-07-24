@@ -50,7 +50,6 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -66,7 +65,8 @@ public class EthPeer implements Comparable<EthPeer> {
 
   private static final int MAX_OUTSTANDING_REQUESTS = 5;
 
-  private PeerConnection connection;
+  private volatile PeerConnection connection;
+  private volatile long connectionGeneration;
 
   private final int maxTrackedSeenBlocks = 300;
 
@@ -86,7 +86,7 @@ public class EthPeer implements Comparable<EthPeer> {
   private final List<NodeMessagePermissioningProvider> permissioningProviders;
   private final ChainState chainHeadState = new ChainState();
   private final AtomicBoolean readyForRequests = new AtomicBoolean(false);
-  private final AtomicBoolean statusHasBeenReceivedFromPeer = new AtomicBoolean(false);
+  private final Set<PeerConnection> connectionsWithStatusReceived = ConcurrentHashMap.newKeySet();
   private final AtomicBoolean fullyValidated = new AtomicBoolean(false);
   private final AtomicInteger lastProtocolVersion = new AtomicInteger(0);
 
@@ -94,7 +94,7 @@ public class EthPeer implements Comparable<EthPeer> {
 
   private final Map<String, Map<Integer, RequestManager>> requestManagers;
 
-  private final AtomicReference<Consumer<EthPeer>> onStatusesExchanged = new AtomicReference<>();
+  private final Consumer<EthPeer> onStatusesExchanged;
   private final PeerReputation reputation = new PeerReputation();
   private final Map<PeerValidator, Boolean> validationStatus = new ConcurrentHashMap<>();
   private final Bytes id;
@@ -132,7 +132,7 @@ public class EthPeer implements Comparable<EthPeer> {
     this.maxMessageSize = maxMessageSize;
     this.clock = clock;
     this.permissioningProviders = permissioningProviders;
-    this.onStatusesExchanged.set(onStatusesExchanged);
+    this.onStatusesExchanged = onStatusesExchanged;
     peerValidators.forEach(peerValidator -> validationStatus.put(peerValidator, false));
     fullyValidated.set(peerValidators.isEmpty());
 
@@ -240,8 +240,7 @@ public class EthPeer implements Comparable<EthPeer> {
   }
 
   /**
-   * This method is only used for sending the status message, as it is possible that we have
-   * multiple connections to the same peer at that time.
+   * Sends a message through a particular connection when a peer has multiple connections.
    *
    * @param messageData the data to send
    * @param protocolName the protocol to use for sending
@@ -494,6 +493,21 @@ public class EthPeer implements Comparable<EthPeer> {
         (protocolName, map) -> map.forEach((code, requestManager) -> requestManager.close()));
   }
 
+  boolean replaceConnection(
+      final PeerConnection disconnectedConnection, final PeerConnection replacementConnection) {
+    synchronized (this) {
+      if (!connection.equals(disconnectedConnection)
+          || replacementConnection.isDisconnected()
+          || !replacementConnection.getStatusExchanged()) {
+        return false;
+      }
+      LOG.trace("Changed connection from {} to {}", connection, replacementConnection);
+      connection = replacementConnection;
+      connectionGeneration++;
+      return true;
+    }
+  }
+
   public void registerKnownBlock(final Hash hash) {
     knownBlocks.add(hash);
   }
@@ -509,9 +523,9 @@ public class EthPeer implements Comparable<EthPeer> {
       final StatusMessage statusMessage, final PeerConnection connection) {
     chainHeadState.statusReceived(statusMessage);
     lastProtocolVersion.set(statusMessage.protocolVersion());
-    statusHasBeenReceivedFromPeer.set(true);
     synchronized (this) {
       connection.setStatusReceived();
+      connectionsWithStatusReceived.add(connection);
       maybeExecuteStatusesExchangedCallback(connection);
     }
   }
@@ -519,6 +533,7 @@ public class EthPeer implements Comparable<EthPeer> {
   private void maybeExecuteStatusesExchangedCallback(final PeerConnection newConnection) {
     synchronized (this) {
       if (newConnection.getStatusExchanged()) {
+        boolean connectionChanged = false;
         if (!this.connection.equals(newConnection)) {
           if (readyForRequests.get()) {
             // We have two connections that are ready for requests, figure out which connection to
@@ -526,18 +541,20 @@ public class EthPeer implements Comparable<EthPeer> {
             if (compareDuplicateConnections(this.connection, newConnection) > 0) {
               LOG.trace("Changed connection from {} to {}", this.connection, newConnection);
               this.connection = newConnection;
+              connectionGeneration++;
+              connectionChanged = true;
             }
           } else {
             // use the new connection for now, as it is ready for requests, which the "old" one is
             // not
             this.connection = newConnection;
+            connectionGeneration++;
+            connectionChanged = true;
           }
         }
-        readyForRequests.set(true);
-        final Consumer<EthPeer> peerConsumer = onStatusesExchanged.getAndSet(null);
-        if (peerConsumer != null) {
+        if (!readyForRequests.getAndSet(true) || connectionChanged) {
           LOG.trace("Status message exchange successful. {}", this);
-          peerConsumer.accept(this);
+          onStatusesExchanged.accept(this);
         }
       }
     }
@@ -552,13 +569,12 @@ public class EthPeer implements Comparable<EthPeer> {
     return readyForRequests.get();
   }
 
-  /**
-   * True if the peer has sent its initial status message to us.
-   *
-   * @return true if the peer has sent its initial status message to us.
-   */
-  boolean statusHasBeenReceived() {
-    return statusHasBeenReceivedFromPeer.get();
+  public boolean statusHasBeenReceived(final PeerConnection connection) {
+    return connectionsWithStatusReceived.contains(connection);
+  }
+
+  void unregisterConnection(final PeerConnection connection) {
+    connectionsWithStatusReceived.remove(connection);
   }
 
   public boolean hasSeenBlock(final Hash hash) {
@@ -617,6 +633,10 @@ public class EthPeer implements Comparable<EthPeer> {
 
   public PeerConnection getConnection() {
     return connection;
+  }
+
+  long getConnectionGeneration() {
+    return connectionGeneration;
   }
 
   public Bytes nodeId() {
