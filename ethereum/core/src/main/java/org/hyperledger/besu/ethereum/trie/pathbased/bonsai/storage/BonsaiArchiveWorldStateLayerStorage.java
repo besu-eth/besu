@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage;
 
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
+
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
@@ -99,11 +101,13 @@ public class BonsaiArchiveWorldStateLayerStorage extends BonsaiWorldStateLayerSt
     if (nodeHash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
       return Optional.of(MerkleTrie.EMPTY_TRIE_NODE);
     }
-    // First the in-memory layer's plain TRIE_BRANCH_STORAGE (rolled-back nodes that the proof
-    // persist just wrote at the target block), then the archive CF (historical checkpoint /
-    // unchanged nodes). The Hash.hash filter in each lookup discards stale HEAD nodes that the
-    // layer's parent storage may still hold at the same location.
-    return super.getAccountStateTrieNode(location, nodeHash)
+    // First this layer's OWN in-memory overlay only (rolled-back/rolled-forward nodes that the
+    // proof persist just wrote at the target block) -- never the underlying disk, since the
+    // archive strategy below already covers that as its own last-resort fallback. Then the
+    // archive strategy: archive CF (historical checkpoint / unchanged nodes), falling back to the
+    // live head TRIE_BRANCH_STORAGE only when the archive CF has no entry for the location at all.
+    return getLayersOnlyTrieNode(location)
+        .filter(b -> Hash.hash(b).getBytes().equals(nodeHash))
         .or(
             () ->
                 archiveTrieNodeStrategy
@@ -117,13 +121,26 @@ public class BonsaiArchiveWorldStateLayerStorage extends BonsaiWorldStateLayerSt
     if (nodeHash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
       return Optional.of(MerkleTrie.EMPTY_TRIE_NODE);
     }
-    return super.getAccountStorageTrieNode(accountHash, location, nodeHash)
+    return getLayersOnlyTrieNode(Bytes.concatenate(accountHash.getBytes(), location))
+        .filter(b -> Hash.hash(b).getBytes().equals(nodeHash))
         .or(
             () ->
                 archiveTrieNodeStrategy
                     .getFlatStorageTrieNode(
                         accountHash, location, nodeHash, getComposedWorldStateStorage())
                     .filter(b -> Hash.hash(b).getBytes().equals(nodeHash)));
+  }
+
+  /**
+   * Reads the plain TRIE_BRANCH_STORAGE key from this layer's stack of in-memory overlays only,
+   * never falling through to the underlying disk-backed parent. The archive strategy's own fallback
+   * already covers the disk case, so probing it here too would read the same live head column
+   * family twice on every archive-CF miss (once here, once inside the archive strategy).
+   */
+  private Optional<Bytes> getLayersOnlyTrieNode(final Bytes key) {
+    return getComposedWorldStateStorage()
+        .getFromLayersOnly(TRIE_BRANCH_STORAGE, key.toArrayUnsafe())
+        .map(Bytes::wrap);
   }
 
   @Override

@@ -406,6 +406,39 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
     }
   }
 
+  /**
+   * Reads a key from the stack of in-memory layers only (this layer and any layered parents),
+   * without falling through to the underlying persistent (disk) storage. Used by callers that
+   * intend the persistent store to be probed by a separate, specialized strategy rather than the
+   * default point lookup (e.g. archive proof reads, which fall back to a suffix-based nearest
+   * lookup instead of a plain get on the live segment).
+   *
+   * @param segmentId the segment identifier
+   * @param key the key to look up
+   * @return the value if present in this layer or a layered parent, empty otherwise
+   */
+  public Optional<byte[]> getFromLayersOnly(final SegmentIdentifier segmentId, final byte[] key) {
+    throwIfClosed();
+    final Lock lock = rwLock.readLock();
+    lock.lock();
+    try {
+      // The map stores Optional.empty() for a tombstoned key and null for a key this layer never
+      // touched, so a raw map.get() (rather than getFromLayerOnly, which conflates the two) is
+      // needed to tell "stop, this layer deleted it" apart from "keep looking at the parent layer".
+      final Optional<byte[]> ownValue =
+          hashValueStore.computeIfAbsent(segmentId, __ -> newSegmentMap()).get(Bytes.wrap(key));
+      if (ownValue != null) {
+        return ownValue;
+      }
+      if (parent instanceof LayeredKeyValueStorage) {
+        return ((LayeredKeyValueStorage) parent).getFromLayersOnly(segmentId, key);
+      }
+      return Optional.empty();
+    } finally {
+      lock.unlock();
+    }
+  }
+
   @Override
   public boolean isClosed() {
     if (closedCache) {
