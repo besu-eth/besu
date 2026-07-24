@@ -44,7 +44,7 @@ The [Besu GitHub repository](https://github.com/besu-eth/besu) tracks recent rel
 
 Version announcements are posted in the Discord announcements channel. Occasionally, the team also posts emergency alerts and support information on Discord and [X](https://x.com/Besu_eth).
 
-## Issues 
+## Issues
 
 Besu issues are tracked [in the github issues tab][Besu Issues].
 See our [contributing guidelines][Contributing Guidelines] for more details on searching and creating issues.
@@ -54,7 +54,7 @@ If you have any questions, queries or comments, [Besu channel on Discord] is the
 
 ## Besu Users
 
-To install the Besu binary, follow [these instructions](https://docs.besu-eth.org/public-networks/get-started/install/binary-distribution).    
+To install the Besu binary, follow [these instructions](https://docs.besu-eth.org/public-networks/get-started/install/binary-distribution).
 
 ## Besu Developers
 
@@ -67,7 +67,7 @@ To install the Besu binary, follow [these instructions](https://docs.besu-eth.or
 ### Development
 
 Instructions for how to get started with developing on the Besu codebase. Please also read the
-[contributing guidelines][Contributing Guidelines] for more details on how to submit a pull request (PR).  
+[contributing guidelines][Contributing Guidelines] for more details on how to submit a pull request (PR).
 
 * [Checking Out and Building](https://github.com/besu-eth/besu/wiki/Developing-and-Conventions-Building-from-Source)
 * [Logging](https://github.com/besu-eth/besu/wiki/Developing-and-Conventions-Logging) or the [Documentation's Logging section](https://docs.besu-eth.org/public-networks/how-to/monitor/logging)
@@ -84,10 +84,10 @@ The `resolveSourceArtifacts` task ensures source JARs are included in the metada
 
 ### Profiling Besu
 
-Besu supports performance profiling using [Async Profiler](https://github.com/async-profiler/async-profiler), a low-overhead sampling profiler.  
+Besu supports performance profiling using [Async Profiler](https://github.com/async-profiler/async-profiler), a low-overhead sampling profiler.
 You can find setup and usage instructions in the [Profiling Guide](docs/PROFILING.md).
 
-Profiling can help identify performance bottlenecks in block processing, transaction validation, and EVM execution.  
+Profiling can help identify performance bottlenecks in block processing, transaction validation, and EVM execution.
 Please ensure the profiler is run as the same user that started the Besu process.
 
 ## Release Notes

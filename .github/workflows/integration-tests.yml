@@ -32,24 +32,6 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
         with:
-          cache-disabled: true
-      - name: Run integration tests and compile JMH benchmarks
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+      - name: run integration tests
         run: ./gradlew integrationTest compileJmh
-
-  integrationTestsPassed:
-    name: integrationTestsPassed
-    runs-on: ubuntu-latest
-    needs: [integrationTests]
-    permissions:
-      checks: write
-      statuses: write
-    if: always()
-    steps:
-      - name: Fail on workflow error
-        run: exit 1
-        if: >-
-          ${{
-            contains(needs.*.result, 'failure')
-            || contains(needs.*.result, 'cancelled')
-            || contains(needs.*.result, 'skipped')
-          }}

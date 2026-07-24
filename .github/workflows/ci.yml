@@ -74,7 +74,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
         with:
-          cache-disabled: true
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
       - name: run spotless
         run: ./gradlew spotlessCheck
 
@@ -94,7 +94,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
         with:
-          cache-disabled: true
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
       - name: run checkLicense
         run: ./gradlew --no-parallel checkLicense # no-parallel due to https://github.com/jk1/Gradle-License-Report/issues/337
       - name: upload license report
@@ -120,7 +120,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
         with:
-          cache-disabled: true
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
       - name: Gradle Build
         run: ./gradlew build -x test -x spotlessCheck
       - name: Upload plugin API compatibility report
@@ -173,7 +173,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
         with:
-          cache-disabled: true
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
       - name: Verify source artifacts recorded in verification-metadata.xml
         run: ./gradlew verifySourceArtifacts
 
@@ -196,7 +196,7 @@ jobs:
       actions: read
       contents: read
       checks: write
-      statuses: write      
+      statuses: write
     uses: ./.github/workflows/integration-tests.yml
 
   referenceTests:
@@ -259,4 +259,4 @@ jobs:
             contains(needs.*.result, 'failure')
             || contains(needs.*.result, 'cancelled')
             || contains(needs.*.result, 'skipped')
-          }}    
+          }}
