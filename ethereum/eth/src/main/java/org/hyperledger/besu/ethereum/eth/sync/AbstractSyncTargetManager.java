@@ -27,7 +27,6 @@ import org.hyperledger.besu.plugin.services.MetricsSystem;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.slf4j.Logger;
@@ -123,7 +122,6 @@ public abstract class AbstractSyncTargetManager {
                 ethContext
                     .getEthPeers()
                     .waitForPeer((peer) -> true)
-                    .orTimeout(5, TimeUnit.SECONDS)
                     .handle((ignored, ignored2) -> null)
                     .thenCompose((r) -> findSyncTarget()),
             Duration.ofSeconds(5));
