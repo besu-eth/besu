@@ -39,6 +39,7 @@ public class WebSocketConfiguration {
   public static final int DEFAULT_WEBSOCKET_ENGINE_PORT = 8551;
   public static final int DEFAULT_WEBSOCKET_MAX_FRAME_SIZE = 1024 * 1024;
   public static final int DEFAULT_MAX_ACTIVE_CONNECTIONS = 80;
+  public static final int DEFAULT_MAX_ACTIVE_SUBSCRIPTIONS = 100_000;
 
   private boolean enabled;
   private int port;
@@ -52,6 +53,7 @@ public class WebSocketConfiguration {
   private JwtAlgorithm authenticationAlgorithm = JwtAlgorithm.RS256;
   private long timeoutSec;
   private int maxActiveConnections;
+  private int maxActiveSubscriptions = DEFAULT_MAX_ACTIVE_SUBSCRIPTIONS;
   private int maxFrameSize;
 
   private boolean isSslEnabled = false;
@@ -79,6 +81,7 @@ public class WebSocketConfiguration {
     config.setRpcApis(DEFAULT_RPC_APIS);
     config.setTimeoutSec(TimeoutOptions.defaultOptions().getTimeoutSeconds());
     config.setMaxActiveConnections(DEFAULT_MAX_ACTIVE_CONNECTIONS);
+    config.setMaxActiveSubscriptions(DEFAULT_MAX_ACTIVE_SUBSCRIPTIONS);
     config.setMaxFrameSize(DEFAULT_WEBSOCKET_MAX_FRAME_SIZE);
     return config;
   }
@@ -340,6 +343,7 @@ public class WebSocketConfiguration {
         && Objects.equals(authenticationCredentialsFile, that.authenticationCredentialsFile)
         && Objects.equals(hostsAllowlist, that.hostsAllowlist)
         && Objects.equals(authenticationPublicKeyFile, that.authenticationPublicKeyFile)
+        && maxActiveSubscriptions == that.maxActiveSubscriptions
         && timeoutSec == that.timeoutSec;
   }
 
@@ -354,6 +358,7 @@ public class WebSocketConfiguration {
         authenticationCredentialsFile,
         hostsAllowlist,
         authenticationPublicKeyFile,
+        maxActiveSubscriptions,
         timeoutSec);
   }
 
@@ -369,6 +374,9 @@ public class WebSocketConfiguration {
         .add("hostsAllowlist", hostsAllowlist)
         .add("authenticationPublicKeyFile", authenticationPublicKeyFile)
         .add("timeoutSec", timeoutSec)
+        .add("maxActiveConnections", maxActiveConnections)
+        .add("maxActiveSubscriptions", maxActiveSubscriptions)
+        .add("maxFrameSize", maxFrameSize)
         .toString();
   }
 
@@ -378,6 +386,14 @@ public class WebSocketConfiguration {
 
   public void setMaxActiveConnections(final int maxActiveConnections) {
     this.maxActiveConnections = maxActiveConnections;
+  }
+
+  public int getMaxActiveSubscriptions() {
+    return maxActiveSubscriptions;
+  }
+
+  public void setMaxActiveSubscriptions(final int maxActiveSubscriptions) {
+    this.maxActiveSubscriptions = maxActiveSubscriptions;
   }
 
   public void setMaxFrameSize(final int maxFrameSize) {
