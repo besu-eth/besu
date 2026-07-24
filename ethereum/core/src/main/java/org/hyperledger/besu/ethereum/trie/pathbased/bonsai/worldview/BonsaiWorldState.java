@@ -512,7 +512,11 @@ public class BonsaiWorldState extends PathBasedWorldState {
     }
     if (worldStateConfig.isParallelStateRootComputationEnabled()) {
       return new ParallelStoredMerklePatriciaTrie<>(
-          nodeLoader, rootHash, Function.identity(), Function.identity());
+          nodeLoader,
+          rootHash,
+          Function.identity(),
+          Function.identity(),
+          getWorldStateStorage().getComposedWorldStateStorage()::openNearestSeekScope);
     }
     return new StoredMerklePatriciaTrie<>(
         nodeLoader, rootHash, Function.identity(), Function.identity());

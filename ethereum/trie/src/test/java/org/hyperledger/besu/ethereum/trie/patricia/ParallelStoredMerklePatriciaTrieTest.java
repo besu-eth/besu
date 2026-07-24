@@ -21,6 +21,7 @@ import org.hyperledger.besu.ethereum.trie.MerkleStorage;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -481,6 +482,43 @@ class ParallelStoredMerklePatriciaTrieTest {
     sequentialTrie.commit(sequentialStorage::put);
 
     assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
+  }
+
+  @Test
+  void scopeSupplierIsOpenedAndClosedForForkedTasksWithoutChangingRootHash() {
+    final int numEntries = 100;
+    for (int i = 0; i < numEntries; i++) {
+      parallelTrie.put(createKey(i), createValue(i));
+    }
+    parallelTrie.commit(parallelStorage::put);
+
+    final AtomicInteger openCount = new AtomicInteger();
+    final AtomicInteger closeCount = new AtomicInteger();
+    final MerkleStorage scopedStorage = new KeyValueMerkleStorage(new InMemoryKeyValueStorage());
+    final ParallelStoredMerklePatriciaTrie<Bytes, Bytes> scopedTrie =
+        new ParallelStoredMerklePatriciaTrie<>(
+            scopedStorage::get,
+            StoredMerklePatriciaTrie.EMPTY_TRIE_NODE_HASH,
+            Function.identity(),
+            Function.identity(),
+            () -> {
+              openCount.incrementAndGet();
+              return closeCount::incrementAndGet;
+            });
+    for (int i = 0; i < numEntries; i++) {
+      scopedTrie.put(createKey(i), createValue(i));
+    }
+    scopedTrie.commit(scopedStorage::put);
+
+    assertThat(openCount.get())
+        .as("scope supplier should be invoked for forked tasks")
+        .isPositive();
+    assertThat(openCount.get())
+        .as("every opened scope must be closed exactly once")
+        .isEqualTo(closeCount.get());
+    assertThat(scopedTrie.getRootHash())
+        .as("supplying a scope must not change the resulting trie")
+        .isEqualTo(parallelTrie.getRootHash());
   }
 
   // Helper methods to create 4-byte keys
