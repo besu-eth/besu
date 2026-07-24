@@ -50,7 +50,9 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.ForkchoiceUpda
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
+import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
 import java.util.Optional;
@@ -110,6 +112,8 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
             .vertx(vertx)
             .engineCallListener(engineCallListener)
             .mergeCoordinator(mergeCoordinator)
+            .ethPeers(mock(EthPeers.class))
+            .metricsSystem(new NoOpMetricsSystem())
             .build(),
         null,
         SHANGHAI);
