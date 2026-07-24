@@ -1806,6 +1806,7 @@ public class LayersTest extends BaseTransactionPoolTest {
             case BLOB -> createBlobPendingTransaction(sender, nonce);
             case DELEGATE_CODE ->
                 createEIP7702PendingTransaction(sender, nonce, authorityAndNonces);
+            case FRAME -> throw new UnsupportedOperationException("FRAME not yet supported");
           };
       liveTxsBySender.get(sender).put(nonce, newPendingTx);
       return newPendingTx;

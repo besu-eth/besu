@@ -1323,6 +1323,24 @@ public abstract class MainnetProtocolSpecs {
             balConfiguration,
             metricsSystem)
         .precompileContractRegistryBuilder(MainnetPrecompiledContractRegistries::futureEips)
+        // EIP-8141: Add FRAME transaction type
+        .transactionValidatorFactoryBuilder(
+            (evm, gasLimitCalculator, feeMarket) ->
+                new TransactionValidatorFactory(
+                    evm.getGasCalculator(),
+                    gasLimitCalculator,
+                    feeMarket,
+                    true,
+                    chainId,
+                    Set.of(
+                        TransactionType.FRONTIER,
+                        TransactionType.ACCESS_LIST,
+                        TransactionType.EIP1559,
+                        TransactionType.BLOB,
+                        TransactionType.DELEGATE_CODE,
+                        TransactionType.FRAME),
+                    Set.of(BlobType.KZG_CELL_PROOFS),
+                    evm.getMaxInitcodeSize()))
         .hardforkId(FUTURE_EIPS);
   }
 

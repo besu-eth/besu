@@ -700,6 +700,26 @@ public interface GasCalculator {
     return 0L;
   }
 
+  /** EIP-8141 frame transaction intrinsic cost (base). */
+  long FRAME_TX_INTRINSIC_COST = 15_000L;
+
+  /** EIP-8141 per-frame overhead cost. */
+  long FRAME_TX_PER_FRAME_COST = 475L;
+
+  /**
+   * Calculates the intrinsic gas cost for an EIP-8141 frame transaction.
+   *
+   * @param frameCount the number of frames
+   * @param signatureVerificationCost the total signature verification gas cost
+   * @return the intrinsic gas cost
+   */
+  default long frameTransactionIntrinsicGasCost(
+      final int frameCount, final long signatureVerificationCost) {
+    return FRAME_TX_INTRINSIC_COST
+        + (long) frameCount * FRAME_TX_PER_FRAME_COST
+        + signatureVerificationCost;
+  }
+
   /**
    * Calculate the gas refund for a transaction.
    *

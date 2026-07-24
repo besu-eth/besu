@@ -28,6 +28,8 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BlobType;
 import org.hyperledger.besu.datatypes.BytesHolder;
 import org.hyperledger.besu.datatypes.CodeDelegation;
+import org.hyperledger.besu.datatypes.FrameTransactionFrame;
+import org.hyperledger.besu.datatypes.FrameTransactionSignature;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.VersionedHash;
@@ -127,6 +129,9 @@ public class Transaction
   private final Optional<BlobsWithCommitments> blobsWithCommitments;
   private final Optional<List<CodeDelegation>> maybeCodeDelegationList;
 
+  private final Optional<List<FrameTransactionFrame>> maybeFrames;
+  private final Optional<List<FrameTransactionSignature>> maybeFrameSignatures;
+
   private final Optional<Bytes> rawRlp;
 
   public static Builder builder() {
@@ -205,6 +210,8 @@ public class Transaction
       final Optional<List<VersionedHash>> versionedHashes,
       final Optional<BlobsWithCommitments> blobsWithCommitments,
       final Optional<List<CodeDelegation>> maybeCodeDelegationList,
+      final Optional<List<FrameTransactionFrame>> maybeFrames,
+      final Optional<List<FrameTransactionSignature>> maybeFrameSignatures,
       final Optional<Bytes> rawRlp,
       final Optional<Hash> hash,
       final Optional<Integer> sizeForAnnouncement,
@@ -231,7 +238,7 @@ public class Transaction
 
       if (versionedHashes.isPresent() || maxFeePerBlobGas.isPresent()) {
         checkArgument(
-            transactionType.supportsBlob(),
+            transactionType.supportsBlob() || transactionType.supportsFrame(),
             "Must not specify blob versioned hashes or max fee per blob gas for transaction not supporting it");
       }
 
@@ -249,6 +256,14 @@ public class Transaction
         checkArgument(
             maybeCodeDelegationList.isPresent(),
             "Must specify code delegation authorizations for code delegation transaction");
+      }
+
+      if (transactionType.supportsFrame()) {
+        checkArgument(
+            maybeFrames.isPresent() && !maybeFrames.get().isEmpty(),
+            "Must specify at least one frame for frame transaction");
+        checkArgument(
+            maybeFrameSignatures.isPresent(), "Must specify signatures for frame transaction");
       }
     }
 
@@ -269,6 +284,8 @@ public class Transaction
     this.versionedHashes = versionedHashes;
     this.blobsWithCommitments = blobsWithCommitments;
     this.maybeCodeDelegationList = maybeCodeDelegationList;
+    this.maybeFrames = maybeFrames;
+    this.maybeFrameSignatures = maybeFrameSignatures;
     this.rawRlp = rawRlp;
     hash.ifPresent(h -> this.hash = h);
     sizeForAnnouncement.ifPresent(i -> this.sizeForAnnouncement = i);
@@ -762,6 +779,16 @@ public class Transaction
     return maybeCodeDelegationList.map(List::size).orElse(0);
   }
 
+  @Override
+  public Optional<List<FrameTransactionFrame>> getFrames() {
+    return maybeFrames;
+  }
+
+  @Override
+  public Optional<List<FrameTransactionSignature>> getFrameSignatures() {
+    return maybeFrameSignatures;
+  }
+
   /**
    * Return the list of transaction hashes extracted from the collection of Transaction passed as
    * argument
@@ -899,6 +926,10 @@ public class Transaction
                       () ->
                           new IllegalStateException(
                               "Developer error: the transaction should be guaranteed to have a code delegations here")));
+          case FRAME ->
+              // Frame transactions use a different signature mechanism;
+              // the preimage is computed via the sig_hash in the frame tx spec
+              Bytes.concatenate(Bytes.of(TransactionType.FRAME.getSerializedType()), Bytes.EMPTY);
         };
     return preimage;
   }
@@ -1260,6 +1291,8 @@ public class Transaction
             detachedVersionedHashes,
             detachedBlobsWithCommitments,
             detachedCodeDelegationList,
+            maybeFrames,
+            maybeFrameSignatures,
             Optional.empty(),
             Optional.ofNullable(hash),
             Optional.of(sizeForAnnouncement),
@@ -1342,6 +1375,8 @@ public class Transaction
     protected List<VersionedHash> versionedHashes = null;
     private BlobsWithCommitments blobsWithCommitments;
     protected Optional<List<CodeDelegation>> codeDelegationAuthorizations = Optional.empty();
+    protected Optional<List<FrameTransactionFrame>> frames = Optional.empty();
+    protected Optional<List<FrameTransactionSignature>> frameSignatures = Optional.empty();
     protected Bytes rawRlp = null;
     private Optional<Hash> hash = Optional.empty();
     private Optional<Integer> sizeForAnnouncement = Optional.empty();
@@ -1365,6 +1400,8 @@ public class Transaction
       this.versionedHashes = toCopy.versionedHashes.orElse(null);
       this.blobsWithCommitments = toCopy.blobsWithCommitments.orElse(null);
       this.codeDelegationAuthorizations = toCopy.maybeCodeDelegationList;
+      this.frames = toCopy.maybeFrames;
+      this.frameSignatures = toCopy.maybeFrameSignatures;
       return this;
     }
 
@@ -1472,7 +1509,9 @@ public class Transaction
     }
 
     public Builder guessType() {
-      if (codeDelegationAuthorizations.isPresent()) {
+      if (frames.isPresent()) {
+        transactionType = TransactionType.FRAME;
+      } else if (codeDelegationAuthorizations.isPresent()) {
         transactionType = TransactionType.DELEGATE_CODE;
       } else if (versionedHashes != null && !versionedHashes.isEmpty()) {
         transactionType = TransactionType.BLOB;
@@ -1511,6 +1550,8 @@ public class Transaction
           Optional.ofNullable(versionedHashes),
           Optional.ofNullable(blobsWithCommitments),
           codeDelegationAuthorizations,
+          frames,
+          frameSignatures,
           Optional.ofNullable(rawRlp),
           hash,
           sizeForAnnouncement,
@@ -1565,6 +1606,16 @@ public class Transaction
 
     public Builder codeDelegations(final List<CodeDelegation> codeDelegations) {
       this.codeDelegationAuthorizations = Optional.ofNullable(codeDelegations);
+      return this;
+    }
+
+    public Builder frames(final List<FrameTransactionFrame> frames) {
+      this.frames = Optional.ofNullable(frames);
+      return this;
+    }
+
+    public Builder frameSignatures(final List<FrameTransactionSignature> frameSignatures) {
+      this.frameSignatures = Optional.ofNullable(frameSignatures);
       return this;
     }
   }
