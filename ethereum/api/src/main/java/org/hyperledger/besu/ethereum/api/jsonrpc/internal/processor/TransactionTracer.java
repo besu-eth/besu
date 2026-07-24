@@ -78,7 +78,11 @@ public class TransactionTracer {
               processTransaction(
                   header,
                   blockchain,
-                  mutableWorldState.updater(),
+                  // The transaction processor stacks two more updater layers internally, and
+                  // prestate/state-diff tracers read the transaction updater's parent as the
+                  // pre-transaction state. Pass a two-level updater stack here so a single
+                  // transaction trace matches the other trace paths and that parent exists.
+                  mutableWorldState.updater().updater(),
                   transaction,
                   transactionProcessor,
                   tracer,
