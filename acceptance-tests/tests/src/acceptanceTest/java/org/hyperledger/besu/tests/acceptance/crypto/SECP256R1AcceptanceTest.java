@@ -75,7 +75,7 @@ public class SECP256R1AcceptanceTest extends AcceptanceTestBase {
     otherNode.verify(net.awaitPeerCount(1, 120));
 
     final var minerChainHead = minerNode.execute(ethTransactions.block());
-    otherNode.verify(blockchain.minimumHeight(minerChainHead.getNumber().longValue()));
+    otherNode.verify(blockchain.minimumHeight(minerChainHead.getNumber().longValue(), 180));
   }
 
   @Test
