@@ -42,6 +42,8 @@ public enum RpcMethod {
   DEBUG_TRACE_CALL("debug_traceCall"),
   DEBUG_BATCH_RAW_TRANSACTION("debug_batchSendRawTransaction"),
   DEBUG_GET_BAD_BLOCKS("debug_getBadBlocks"),
+  DEBUG_GET_MODIFIED_ACCOUNTS_BY_HASH("debug_getModifiedAccountsByHash"),
+  DEBUG_GET_MODIFIED_ACCOUNTS_BY_NUMBER("debug_getModifiedAccountsByNumber"),
   DEBUG_GET_RAW_HEADER("debug_getRawHeader"),
   DEBUG_GET_RAW_BLOCK("debug_getRawBlock"),
   DEBUG_GET_RAW_RECEIPTS("debug_getRawReceipts"),
