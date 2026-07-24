@@ -132,6 +132,14 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
       description = "Port on which to listen for P2P communication (default: ${DEFAULT-VALUE})")
   public Integer p2pPort = EnodeURLImpl.DEFAULT_LISTENING_PORT;
 
+  /** The UDP port used for devp2p peer discovery. Defaults to --p2p-port when not set. */
+  @CommandLine.Option(
+      names = {"--p2p-discovery-port"},
+      paramLabel = DefaultCommandValues.MANDATORY_PORT_FORMAT_HELP,
+      description =
+          "UDP port for devp2p peer discovery. Defaults to --p2p-port when not set. Use 0 for ephemeral port allocation.")
+  public Integer p2pDiscoveryPort = null;
+
   // ===================== IPv6 Network Options =====================
 
   /** The IPv6 address the node advertises to peers for P2P communication. */
@@ -157,6 +165,14 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
       description =
           "Port on which to listen for IPv6 P2P communication (default: ${DEFAULT-VALUE})")
   public Integer p2pPortIpv6 = EnodeURLImpl.DEFAULT_LISTENING_PORT_IPV6;
+
+  /** The IPv6 UDP port used for devp2p peer discovery. Defaults to --p2p-port-ipv6 when not set. */
+  @CommandLine.Option(
+      names = {"--p2p-discovery-port-ipv6"},
+      paramLabel = DefaultCommandValues.MANDATORY_PORT_FORMAT_HELP,
+      description =
+          "IPv6 UDP port for devp2p peer discovery. Defaults to --p2p-port-ipv6 when not set. Use 0 for ephemeral port allocation.")
+  public Integer p2pDiscoveryPortIpv6 = null;
 
   // ===================== IP Version Preference =====================
 
@@ -285,9 +301,11 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
         p2pHost,
         p2pInterface,
         p2pPort,
+        p2pDiscoveryPort != null ? p2pDiscoveryPort : p2pPort,
         Optional.ofNullable(p2pHostIpv6),
         Optional.ofNullable(p2pInterfaceIpv6),
         p2pPortIpv6,
+        p2pDiscoveryPortIpv6 != null ? p2pDiscoveryPortIpv6 : p2pPortIpv6,
         maxPeers,
         isLimitRemoteWireConnectionsEnabled,
         maxRemoteConnectionsPercentage,

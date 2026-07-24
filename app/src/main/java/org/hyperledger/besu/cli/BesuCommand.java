@@ -2428,9 +2428,11 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .p2pAdvertisedHost(p2pAdvertisedHost)
             .p2pListenInterface(p2pListenInterface)
             .p2pListenPort(p2pListenPort)
+            .p2pDiscoveryListenPort(p2PDiscoveryConfig.p2pDiscoveryPort())
             .p2pAdvertisedHostIpv6(p2PDiscoveryConfig.p2pHostIpv6())
             .p2pListenInterfaceIpv6(p2PDiscoveryConfig.p2pInterfaceIpv6())
             .p2pListenPortIpv6(p2PDiscoveryConfig.p2pPortIpv6())
+            .p2pDiscoveryListenPortIpv6(p2PDiscoveryConfig.p2pDiscoveryPortIpv6())
             .networkingConfiguration(unstableNetworkingOptions.toDomainObject())
             .graphQLConfiguration(graphQLConfiguration)
             .jsonRpcConfiguration(jsonRpcConfiguration)
@@ -2764,20 +2766,24 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
    * @throws InvalidConfigurationException if ports are not available.
    */
   protected void checkIfRequiredPortsAreAvailable() {
-    final List<Integer> unavailablePorts = new ArrayList<>();
+    final List<String> unavailablePorts = new ArrayList<>();
     getEffectivePorts().stream()
         .filter(Objects::nonNull)
         .filter(port -> port > 0)
         .forEach(
             port -> {
               if (port.equals(p2PDiscoveryConfig.p2pPort())
-                  && (NetworkUtility.isPortUnavailableForTcp(port)
-                      || NetworkUtility.isPortUnavailableForUdp(port))) {
-                unavailablePorts.add(port);
+                  && NetworkUtility.isPortUnavailableForTcp(port)) {
+                unavailablePorts.add(port + "/TCP");
+              }
+              if (port.equals(p2PDiscoveryConfig.p2pDiscoveryPort())
+                  && NetworkUtility.isPortUnavailableForUdp(port)) {
+                unavailablePorts.add(port + "/UDP");
               }
               if (!port.equals(p2PDiscoveryConfig.p2pPort())
+                  && !port.equals(p2PDiscoveryConfig.p2pDiscoveryPort())
                   && NetworkUtility.isPortUnavailableForTcp(port)) {
-                unavailablePorts.add(port);
+                unavailablePorts.add(port + "/TCP");
               }
             });
     if (!unavailablePorts.isEmpty()) {
@@ -2796,6 +2802,11 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   private List<Integer> getEffectivePorts() {
     final List<Integer> effectivePorts = new ArrayList<>();
     addPortIfEnabled(effectivePorts, p2PDiscoveryOptions.p2pPort, p2PDiscoveryOptions.p2pEnabled);
+    if (p2PDiscoveryOptions.p2pDiscoveryPort != null
+        && !p2PDiscoveryOptions.p2pDiscoveryPort.equals(p2PDiscoveryOptions.p2pPort)) {
+      addPortIfEnabled(
+          effectivePorts, p2PDiscoveryOptions.p2pDiscoveryPort, p2PDiscoveryOptions.p2pEnabled);
+    }
     addPortIfEnabled(
         effectivePorts, graphQlOptions.getGraphQLHttpPort(), graphQlOptions.isGraphQLHttpEnabled());
     addPortIfEnabled(
