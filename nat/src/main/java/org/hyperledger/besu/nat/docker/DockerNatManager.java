@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.nat.docker;
 
+import static com.google.common.base.Preconditions.checkState;
+
 import org.hyperledger.besu.nat.NatMethod;
 import org.hyperledger.besu.nat.core.AbstractNatManager;
 import org.hyperledger.besu.nat.core.IpDetector;
@@ -27,7 +29,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.function.IntFunction;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -38,25 +42,29 @@ import org.slf4j.LoggerFactory;
 public class DockerNatManager extends AbstractNatManager {
   private static final Logger LOG = LoggerFactory.getLogger(DockerNatManager.class);
 
+  /**
+   * A container's RLPx/discovery ports are only known once the real socket bind completes (see
+   * {@link #updatePort}), so setting {@code HOST_PORT_<port>} for those has to name the actual
+   * bound port, not necessarily the value passed on the CLI.
+   */
   private static final String PORT_MAPPING_TAG = "HOST_PORT_";
 
   private final IpDetector ipDetector;
-
-  private final int internalP2pPort;
   private final int internalRpcHttpPort;
+  private final IntFunction<Optional<Integer>> externalPortOverrideLookup;
 
   private String internalAdvertisedHost;
+  private String internalHost = "";
   private final List<NatPortMapping> forwardedPorts = new ArrayList<>();
 
   /**
    * Instantiates a new Docker nat manager.
    *
    * @param advertisedHost the advertised host
-   * @param p2pPort the p 2 p port
    * @param rpcHttpPort the rpc http port
    */
-  public DockerNatManager(final String advertisedHost, final int p2pPort, final int rpcHttpPort) {
-    this(new HostBasedIpDetector(), advertisedHost, p2pPort, rpcHttpPort);
+  public DockerNatManager(final String advertisedHost, final int rpcHttpPort) {
+    this(new HostBasedIpDetector(), advertisedHost, rpcHttpPort);
   }
 
   /**
@@ -64,19 +72,30 @@ public class DockerNatManager extends AbstractNatManager {
    *
    * @param ipDetector the ip detector
    * @param advertisedHost the advertised host
-   * @param p2pPort the p 2 p port
    * @param rpcHttpPort the rpc http port
    */
   public DockerNatManager(
+      final IpDetector ipDetector, final String advertisedHost, final int rpcHttpPort) {
+    this(
+        ipDetector,
+        advertisedHost,
+        rpcHttpPort,
+        internalPort ->
+            Optional.ofNullable(System.getenv(PORT_MAPPING_TAG + internalPort))
+                .map(Integer::valueOf));
+  }
+
+  @VisibleForTesting
+  DockerNatManager(
       final IpDetector ipDetector,
       final String advertisedHost,
-      final int p2pPort,
-      final int rpcHttpPort) {
+      final int rpcHttpPort,
+      final IntFunction<Optional<Integer>> externalPortOverrideLookup) {
     super(NatMethod.DOCKER);
     this.ipDetector = ipDetector;
     this.internalAdvertisedHost = advertisedHost;
-    this.internalP2pPort = p2pPort;
     this.internalRpcHttpPort = rpcHttpPort;
+    this.externalPortOverrideLookup = externalPortOverrideLookup;
   }
 
   @Override
@@ -102,46 +121,64 @@ public class DockerNatManager extends AbstractNatManager {
 
   @Override
   public CompletableFuture<List<NatPortMapping>> getPortMappings() {
-    return CompletableFuture.completedFuture(forwardedPorts);
+    synchronized (forwardedPorts) {
+      return CompletableFuture.completedFuture(List.copyOf(forwardedPorts));
+    }
   }
 
-  private int getExternalPort(final int defaultValue) {
-    return Optional.ofNullable(System.getenv(PORT_MAPPING_TAG + defaultValue))
-        .map(Integer::valueOf)
-        .orElse(defaultValue);
+  private int getExternalPort(final int internalPort) {
+    return externalPortOverrideLookup.apply(internalPort).orElse(internalPort);
   }
 
   private void buildForwardedPorts() {
     try {
-      final String internalHost = queryLocalIPAddress().get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+      internalHost = queryLocalIPAddress().get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
       final String advertisedHost =
           retrieveExternalIPAddress().get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
-      forwardedPorts.add(
-          new NatPortMapping(
-              NatServiceType.DISCOVERY,
-              NetworkProtocol.UDP,
-              internalHost,
-              advertisedHost,
-              internalP2pPort,
-              getExternalPort(internalP2pPort)));
-      forwardedPorts.add(
-          new NatPortMapping(
-              NatServiceType.RLPX,
-              NetworkProtocol.TCP,
-              internalHost,
-              advertisedHost,
-              internalP2pPort,
-              getExternalPort(internalP2pPort)));
-      forwardedPorts.add(
-          new NatPortMapping(
-              NatServiceType.JSON_RPC,
-              NetworkProtocol.TCP,
-              internalHost,
-              advertisedHost,
-              internalRpcHttpPort,
-              getExternalPort(internalRpcHttpPort)));
+      synchronized (forwardedPorts) {
+        forwardedPorts.add(
+            new NatPortMapping(
+                NatServiceType.JSON_RPC,
+                NetworkProtocol.TCP,
+                internalHost,
+                advertisedHost,
+                getExternalPort(internalRpcHttpPort),
+                internalRpcHttpPort));
+      }
     } catch (Exception e) {
       LOG.warn("Failed to create forwarded port list", e);
+    }
+  }
+
+  /**
+   * Records the real, post-bind port Besu resolved for the RLPx or discovery service - not the
+   * pre-bind configured value, which may have been {@code 0} (ephemeral port allocation) or may
+   * simply differ from the other service's port when discovery is configured on its own port.
+   * Unlike the RPC port (known statically at startup), RLPx/discovery ports are only known once the
+   * real socket bind completes, so this manager starts without a mapping for them at all - callers
+   * must call this once the real port is known, mirroring how {@code UpnpNatManager}'s port
+   * mappings are only added once its own {@code requestPortForward} calls succeed.
+   *
+   * @param serviceType the NAT service type - {@link NatServiceType#RLPX} or {@link
+   *     NatServiceType#DISCOVERY}
+   * @param protocol the network protocol
+   * @param actualPort the real, resolved internal port
+   */
+  public void updatePort(
+      final NatServiceType serviceType, final NetworkProtocol protocol, final int actualPort) {
+    checkState(isStarted(), "Cannot call updatePort() when in stopped state");
+    synchronized (forwardedPorts) {
+      forwardedPorts.removeIf(
+          mapping ->
+              mapping.getNatServiceType() == serviceType && mapping.getProtocol() == protocol);
+      forwardedPorts.add(
+          new NatPortMapping(
+              serviceType,
+              protocol,
+              internalHost,
+              internalAdvertisedHost,
+              getExternalPort(actualPort),
+              actualPort));
     }
   }
 }
