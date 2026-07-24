@@ -43,6 +43,9 @@ import org.hyperledger.besu.ethereum.referencetests.ReferenceTestBlockchain;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestWorldState;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
+import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.services.BlockImportTracerProvider;
+import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.List;
@@ -124,6 +127,45 @@ abstract class AbstractBlockProcessorTest {
     blockProcessor.processBlock(
         protocolContext, blockchain, worldState, testBlockBuilder(withdrawals));
     verify(withdrawalsProcessor, never()).processWithdrawals(any(), any(), any(), any());
+  }
+
+  @Test
+  void whenExplicitTracerProvided_itIsUsedForBlockProcessing() {
+    // An explicit tracer passed to processBlock must be the one driving execution, in preference
+    // to the plugin-based import tracer.
+    final BlockAwareOperationTracer explicitTracer = mock(BlockAwareOperationTracer.class);
+
+    blockProcessor.processBlock(
+        protocolContext,
+        blockchain,
+        worldState,
+        testBlockBuilder(emptyList()),
+        Optional.empty(),
+        Optional.of(explicitTracer));
+
+    verify(explicitTracer).traceStartBlock(any(), any(BlockHeader.class), any(Address.class));
+  }
+
+  @Test
+  void whenNoTracerProvided_pluginImportTracerIsResolvedAndUsed() {
+    // With no explicit tracer, the plugin-based BlockImportTracerProvider must be consulted and its
+    // tracer used to drive execution.
+    final BlockAwareOperationTracer defaultTracer = mock(BlockAwareOperationTracer.class);
+    final ServiceManager serviceManager = mock(ServiceManager.class);
+    final BlockImportTracerProvider provider = header -> defaultTracer;
+    when(protocolContext.getPluginServiceManager()).thenReturn(serviceManager);
+    when(serviceManager.getService(BlockImportTracerProvider.class))
+        .thenReturn(Optional.of(provider));
+
+    blockProcessor.processBlock(
+        protocolContext,
+        blockchain,
+        worldState,
+        testBlockBuilder(emptyList()),
+        Optional.empty(),
+        Optional.empty());
+
+    verify(defaultTracer).traceStartBlock(any(), any(BlockHeader.class), any(Address.class));
   }
 
   @Test
