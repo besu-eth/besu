@@ -4,7 +4,7 @@
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
  * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
@@ -21,20 +21,23 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonR
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameterOrBlockHash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockAccessListResult;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
-public class EthGetBlockAccessList extends AbstractBlockParameterOrBlockHashMethod {
+import org.apache.tuweni.bytes.Bytes;
 
-  public EthGetBlockAccessList(final BlockchainQueries blockchainQueries) {
-    super(blockchainQueries);
+public class DebugGetRawBlockAccessList extends AbstractBlockParameterOrBlockHashMethod {
+
+  public DebugGetRawBlockAccessList(final BlockchainQueries blockchain) {
+    super(blockchain);
   }
 
   @Override
   public String getName() {
-    return RpcMethod.ETH_GET_BLOCK_ACCESS_LIST.getMethodName();
+    return RpcMethod.DEBUG_GET_RAW_BLOCK_ACCESS_LIST.getMethodName();
   }
 
   @Override
@@ -54,15 +57,17 @@ public class EthGetBlockAccessList extends AbstractBlockParameterOrBlockHashMeth
   }
 
   @Override
-  protected Object resultByBlockHash(final JsonRpcRequestContext request, final Hash blockHash) {
-    return getBlockAccessListResult(request, blockHash);
+  protected JsonRpcResponse blockNotFoundResponse(final JsonRpcRequestContext requestContext) {
+    return new JsonRpcErrorResponse(
+        requestContext.getRequest().getId(), RpcErrorType.RESOURCE_NOT_FOUND);
   }
 
-  private Object getBlockAccessListResult(
-      final JsonRpcRequestContext request, final Hash blockHash) {
+  @Override
+  protected Object resultByBlockHash(final JsonRpcRequestContext request, final Hash blockHash) {
     final var maybeHeader = getBlockchainQueries().getBlockHeaderByHash(blockHash);
     if (maybeHeader.isEmpty()) {
-      return null;
+      return new JsonRpcErrorResponse(
+          request.getRequest().getId(), RpcErrorType.RESOURCE_NOT_FOUND);
     }
 
     final BlockHeader header = maybeHeader.get();
@@ -71,14 +76,20 @@ public class EthGetBlockAccessList extends AbstractBlockParameterOrBlockHashMeth
           request.getRequest().getId(), RpcErrorType.RESOURCE_NOT_FOUND);
     }
 
-    final var maybeAccessList =
-        getBlockchainQueries().getBlockchain().getBlockAccessList(header.getHash());
+    return getBlockchainQueries()
+        .getBlockchain()
+        .getBlockAccessList(header.getHash())
+        .<Object>map(this::encodeBlockAccessList)
+        .orElseGet(
+            () ->
+                new JsonRpcErrorResponse(
+                    request.getRequest().getId(), RpcErrorType.PRUNED_HISTORY_UNAVAILABLE));
+  }
 
-    if (maybeAccessList.isEmpty()) {
-      return new JsonRpcErrorResponse(
-          request.getRequest().getId(), RpcErrorType.PRUNED_HISTORY_UNAVAILABLE);
-    }
-
-    return BlockAccessListResult.fromBlockAccessList(maybeAccessList.get());
+  private String encodeBlockAccessList(final BlockAccessList blockAccessList) {
+    return blockAccessList
+        .rawRlp()
+        .map(Bytes::toHexString)
+        .orElseGet(() -> blockAccessList.encode().toHexString());
   }
 }
