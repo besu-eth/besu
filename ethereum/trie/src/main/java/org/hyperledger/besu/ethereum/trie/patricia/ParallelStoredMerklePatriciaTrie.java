@@ -25,7 +25,6 @@ import org.hyperledger.besu.ethereum.trie.NodeUpdater;
 import org.hyperledger.besu.ethereum.trie.NullNode;
 import org.hyperledger.besu.ethereum.trie.PathNodeVisitor;
 import org.hyperledger.besu.ethereum.trie.StoredNode;
-import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage.NearestSeekScope;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -37,7 +36,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinTask;
 import java.util.function.Function;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -69,14 +67,6 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
   private final Map<K, Optional<V>> pendingUpdates = new ConcurrentHashMap<>();
 
   /**
-   * Opened around each forked task's execution so that repeated near-seek reads (e.g. archive
-   * trie-node lookups) made by that task can reuse a single backing cursor per segment instead of
-   * paying RocksDB iterator create/destroy cost on every call. Defaults to a no-op so existing
-   * callers that don't have (or don't need) cursor reuse are unaffected.
-   */
-  private final Supplier<NearestSeekScope> nearestSeekScopeSupplier;
-
-  /**
    * Creates a new parallel trie with an empty root.
    *
    * @param nodeLoader the node loader for retrieving stored nodes
@@ -88,7 +78,6 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
       final Function<V, Bytes> valueSerializer,
       final Function<Bytes, V> valueDeserializer) {
     super(nodeLoader, valueSerializer, valueDeserializer);
-    this.nearestSeekScopeSupplier = () -> NearestSeekScope.NO_OP;
   }
 
   /**
@@ -107,7 +96,6 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
       final Function<V, Bytes> valueSerializer,
       final Function<Bytes, V> valueDeserializer) {
     super(nodeLoader, rootHash, rootLocation, valueSerializer, valueDeserializer);
-    this.nearestSeekScopeSupplier = () -> NearestSeekScope.NO_OP;
   }
 
   /**
@@ -124,33 +112,6 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
       final Function<V, Bytes> valueSerializer,
       final Function<Bytes, V> valueDeserializer) {
     super(nodeLoader, rootHash, valueSerializer, valueDeserializer);
-    this.nearestSeekScopeSupplier = () -> NearestSeekScope.NO_OP;
-  }
-
-  /**
-   * Creates a new parallel trie with a specific root hash and a near-seek scope supplier.
-   *
-   * <p>The supplier is invoked once per forked branch-processing task (not once per node read), so
-   * every trie-node read that task makes can reuse the same backing cursor per segment. It must be
-   * safe to call from multiple concurrent threads and to invoke repeatedly; passing a supplier of
-   * {@link NearestSeekScope#NO_OP} (the default used by the other constructors) preserves the
-   * original behaviour.
-   *
-   * @param nodeLoader the node loader for retrieving stored nodes
-   * @param rootHash the hash of the root node
-   * @param valueSerializer function to serialize values to bytes
-   * @param valueDeserializer function to deserialize bytes to values
-   * @param nearestSeekScopeSupplier opens a near-seek cursor-reuse scope for a forked task's
-   *     duration; the returned scope is closed when that task's work completes
-   */
-  public ParallelStoredMerklePatriciaTrie(
-      final NodeLoader nodeLoader,
-      final Bytes32 rootHash,
-      final Function<V, Bytes> valueSerializer,
-      final Function<Bytes, V> valueDeserializer,
-      final Supplier<NearestSeekScope> nearestSeekScopeSupplier) {
-    super(nodeLoader, rootHash, valueSerializer, valueDeserializer);
-    this.nearestSeekScopeSupplier = nearestSeekScopeSupplier;
   }
 
   /**
@@ -162,7 +123,6 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
   public ParallelStoredMerklePatriciaTrie(
       final StoredNodeFactory<V> nodeFactory, final Bytes32 rootHash) {
     super(nodeFactory, rootHash);
-    this.nearestSeekScopeSupplier = () -> NearestSeekScope.NO_OP;
   }
 
   /**
@@ -343,13 +303,11 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
         ForkJoinTask<Void> task =
             ForkJoinTask.adapt(
                 () -> {
-                  try (NearestSeekScope ignored = nearestSeekScopeSupplier.get()) {
-                    final Node<V> currentChild = branchWrapper.getPendingChildren().get(nibble);
-                    final Node<V> updatedChild =
-                        processNode(
-                            currentChild, childLocation, depth, childUpdates, maybeCommitCache);
-                    branchWrapper.setChild(nibble, updatedChild);
-                  }
+                  final Node<V> currentChild = branchWrapper.getPendingChildren().get(nibble);
+                  final Node<V> updatedChild =
+                      processNode(
+                          currentChild, childLocation, depth, childUpdates, maybeCommitCache);
+                  branchWrapper.setChild(nibble, updatedChild);
                   return null;
                 });
 
