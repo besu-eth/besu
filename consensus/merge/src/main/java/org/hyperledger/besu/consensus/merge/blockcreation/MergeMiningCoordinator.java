@@ -103,17 +103,6 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
   BlockProcessingResult validateBlock(final Block block);
 
   /**
-   * Update fork choice.
-   *
-   * @param newHead the new head
-   * @param finalizedBlockHash the finalized block hash
-   * @param safeBlockHash the safe block hash
-   * @return the forkchoice result
-   */
-  ForkchoiceResult updateForkChoice(
-      final BlockHeader newHead, final Hash finalizedBlockHash, final Hash safeBlockHash);
-
-  /**
    * Update fork choice without applying the legacy "ignore update to old head" optimization that
    * skips when the new head is an ancestor of the canonical chain head. Used by the post
    * execution-apis #786 forkchoiceUpdated flow, where the narrowed skip (ancestor of finalized) is
@@ -124,19 +113,19 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
    * @param safeBlockHash the safe block hash
    * @return the forkchoice result
    */
-  ForkchoiceResult updateForkChoiceWithoutLegacySkip(
+  ForkchoiceResult updateForkChoice(
       final BlockHeader newHead, final Hash finalizedBlockHash, final Hash safeBlockHash);
 
   /**
-   * Returns true if the given block hash is a strict ancestor of the currently finalized block
+   * Returns true if the given block header is a strict ancestor of the currently finalized block
    * (i.e. an older block on the same chain, not finalized itself). Returns false when no finalized
    * block is known, when the candidate hash cannot be located, or when the candidate IS the
    * finalized block
    *
-   * @param candidateHeadHash the candidate head hash
+   * @param candidateHeadBlockHeader the candidate block header
    * @return whether the candidate is a strict ancestor of the latest known finalized block
    */
-  boolean isAncestorOfFinalized(Hash candidateHeadHash);
+  boolean isAncestorOfFinalized(BlockHeader candidateHeadBlockHeader);
 
   /**
    * Computes the reorg depth that would result from switching the canonical head to {@code

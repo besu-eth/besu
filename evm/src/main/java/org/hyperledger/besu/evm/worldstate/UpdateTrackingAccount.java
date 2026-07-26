@@ -101,7 +101,7 @@ public class UpdateTrackingAccount<A extends Account> implements MutableAccount 
     this.addressHash =
         (account instanceof UpdateTrackingAccount)
             ? ((UpdateTrackingAccount<?>) account).addressHash
-            : this.address.addressHash();
+            : account.getAddressHash();
     this.account = account;
 
     this.nonce = account.getNonce();

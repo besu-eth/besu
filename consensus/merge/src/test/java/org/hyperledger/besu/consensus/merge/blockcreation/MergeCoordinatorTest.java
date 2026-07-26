@@ -1057,33 +1057,6 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     assertThat(res).isNotPresent();
   }
 
-  @Test
-  public void forkchoiceUpdateShouldIgnoreAncestorOfChainHead() {
-    BlockHeader terminalHeader = terminalPowBlock();
-    sendNewPayloadAndForkchoiceUpdate(
-        new Block(terminalHeader, BlockBody.empty()), Optional.empty(), Hash.ZERO);
-
-    BlockHeader parentHeader = nextBlockHeader(terminalHeader);
-    Block parent = new Block(parentHeader, BlockBody.empty());
-    sendNewPayloadAndForkchoiceUpdate(parent, Optional.empty(), terminalHeader.getHash());
-
-    BlockHeader childHeader = nextBlockHeader(parentHeader);
-    Block child = new Block(childHeader, BlockBody.empty());
-    sendNewPayloadAndForkchoiceUpdate(child, Optional.empty(), parent.getHash());
-
-    ForkchoiceResult res =
-        coordinator.updateForkChoice(parentHeader, Hash.ZERO, terminalHeader.getHash());
-
-    assertThat(res.getStatus()).isEqualTo(ForkchoiceResult.Status.IGNORE_UPDATE_TO_OLD_HEAD);
-    assertThat(res.shouldNotProceedToPayloadBuildProcess()).isTrue();
-    assertThat(res.getNewHead().isEmpty()).isTrue();
-    assertThat(res.getLatestValid().isPresent()).isTrue();
-    assertThat(res.getLatestValid().get()).isEqualTo(parentHeader.getHash());
-    assertThat(res.getErrorMessage().isEmpty()).isTrue();
-
-    verify(blockchain, never()).rewindToBlock(any());
-  }
-
   @ParameterizedTest(name = "{index}: {0}")
   @MethodSource("getGasLimits")
   public void shouldSetCorrectTargetGasLimit(final ArgumentsAccessor argumentsAccessor) {

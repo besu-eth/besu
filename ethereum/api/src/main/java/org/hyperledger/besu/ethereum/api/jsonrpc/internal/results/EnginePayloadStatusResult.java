@@ -24,6 +24,7 @@ import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 
+// TODO: duplicate of PayloadStatusV1 — remove once EngineNewPayloadV* methods are refactored
 @JsonPropertyOrder({"status", "latestValidHash", "validationError"})
 public class EnginePayloadStatusResult {
   EngineStatus status;
@@ -34,7 +35,7 @@ public class EnginePayloadStatusResult {
   public EnginePayloadStatusResult(
       @JsonProperty("status") final EngineStatus status,
       @JsonProperty("latestValidHash") final Hash latestValidHash,
-      @JsonProperty("errorMessage") final Optional<String> validationError) {
+      @JsonProperty("validationError") final Optional<String> validationError) {
     this.status = status;
     this.latestValidHash = Optional.ofNullable(latestValidHash);
     this.validationError = validationError;

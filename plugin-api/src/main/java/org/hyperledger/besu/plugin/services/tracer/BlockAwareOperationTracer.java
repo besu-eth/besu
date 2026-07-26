@@ -74,6 +74,19 @@ public interface BlockAwareOperationTracer extends OperationTracer {
       final ProcessableBlockHeader processableBlockHeader,
       final Address miningBeneficiary) {}
 
+  /**
+   * Whether this tracer wants to observe system-call execution (e.g. EIP-2935, EIP-7002).
+   *
+   * <p>System calls run outside of normal transaction processing. By default, they are not traced.
+   * Tracers that need to inspect system-call code (for example an execution-witness builder) should
+   * override this to return {@code true}.
+   *
+   * @return {@code true} if the tracer wants system calls to be traced; {@code false} by default
+   */
+  default boolean isSystemCallTracingEnabled() {
+    return false;
+  }
+
   @Override
   default boolean isExtendedTracing() {
     return true;

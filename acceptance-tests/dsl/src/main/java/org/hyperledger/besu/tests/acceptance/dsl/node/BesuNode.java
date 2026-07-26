@@ -761,11 +761,6 @@ public class BesuNode implements NodeConfiguration, RunnableNode, AutoCloseable 
   }
 
   @Override
-  public boolean isDiscoveryV5Enabled() {
-    return networkingConfiguration.discoveryConfiguration().isDiscoveryV5Enabled();
-  }
-
-  @Override
   public void ensureAdminRpcEnabled() {
     if (!jsonRpcConfiguration.isEnabled()) {
       jsonRpcConfiguration.setEnabled(true);
