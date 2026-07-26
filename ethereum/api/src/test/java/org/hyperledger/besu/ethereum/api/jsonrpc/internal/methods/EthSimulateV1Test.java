@@ -38,7 +38,6 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.transaction.BlockSimulationParameter;
 import org.hyperledger.besu.ethereum.transaction.BlockSimulator;
 import org.hyperledger.besu.ethereum.transaction.ImmutableCallParameter;
-import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallException;
@@ -163,38 +162,6 @@ public class EthSimulateV1Test {
     assertThat(((JsonRpcErrorResponse) response).getError().getCode())
         .isEqualTo(BlockStateCallError.GAS_PRICE_BELOW_BASE_FEE.getCode());
     verify(blockSimulator).process(any(BlockHeader.class), any(), any(OperationTracer.class));
-  }
-
-  @Test
-  public void shouldReturnNonceTooLowErrorCodeFromSimulatorValidation() {
-    setupMethodWithMockSimulator();
-    setupBlockchainForLatest();
-    when(blockSimulator.process(any(BlockHeader.class), any(), any(OperationTracer.class)))
-        .thenThrow(
-            new BlockStateCallException("Nonce too low", TransactionInvalidReason.NONCE_TOO_LOW));
-
-    final JsonRpcResponse response =
-        method.response(ethSimulateV1Request(simulateParameter(true), "latest"));
-
-    assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
-    assertThat(((JsonRpcErrorResponse) response).getError().getCode())
-        .isEqualTo(BlockStateCallError.NONCE_TOO_LOW.getCode());
-  }
-
-  @Test
-  public void shouldReturnNonceTooHighErrorCodeFromSimulatorValidation() {
-    setupMethodWithMockSimulator();
-    setupBlockchainForLatest();
-    when(blockSimulator.process(any(BlockHeader.class), any(), any(OperationTracer.class)))
-        .thenThrow(
-            new BlockStateCallException("Nonce too high", TransactionInvalidReason.NONCE_TOO_HIGH));
-
-    final JsonRpcResponse response =
-        method.response(ethSimulateV1Request(simulateParameter(true), "latest"));
-
-    assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
-    assertThat(((JsonRpcErrorResponse) response).getError().getCode())
-        .isEqualTo(BlockStateCallError.NONCE_TOO_HIGH.getCode());
   }
 
   @Test

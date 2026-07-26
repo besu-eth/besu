@@ -34,8 +34,6 @@ public enum BlockStateCallError {
   NONCE_TOO_LOW(-38010, "Nonce too low"),
   /** Transaction nonce is too high. */
   NONCE_TOO_HIGH(-38011, "Nonce too high"),
-  /** The nonce is invalid. */
-  INVALID_NONCES(-32602, "Invalid nonces"),
   /** Block gas limit exceeded by the block's transactions. */
   BLOCK_GAS_LIMIT_EXCEEDED(-38015, "Transaction gas exceeds block gas limit"),
   /** Upfront cost exceeds balance. */
