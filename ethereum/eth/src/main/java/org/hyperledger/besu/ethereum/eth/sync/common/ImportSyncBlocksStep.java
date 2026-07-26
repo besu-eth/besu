@@ -22,8 +22,6 @@ import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 
 import java.util.List;
-import java.util.OptionalLong;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
@@ -39,10 +37,8 @@ public class ImportSyncBlocksStep implements Consumer<List<SyncBlockWithReceipts
   private final EthContext ethContext;
   private final SyncState syncState;
   private final long startBlock;
-  private long accumulatedTime = 0L;
-  private OptionalLong logStartBlock = OptionalLong.empty();
   private final boolean transactionIndexingEnabled;
-  private final AtomicBoolean shouldLog = new AtomicBoolean(true);
+  private final AtomicBoolean isTimeToUpdate = new AtomicBoolean(true);
   private final long pivotHeaderNumber;
 
   public ImportSyncBlocksStep(
@@ -62,41 +58,26 @@ public class ImportSyncBlocksStep implements Consumer<List<SyncBlockWithReceipts
 
   @Override
   public void accept(final List<SyncBlockWithReceipts> blocksWithReceipts) {
-    final long startTime = System.nanoTime();
     protocolContext
         .getBlockchain()
         .unsafeImportSyncBodiesAndReceipts(blocksWithReceipts, transactionIndexingEnabled);
-    if (logStartBlock.isEmpty()) {
-      logStartBlock = OptionalLong.of(blocksWithReceipts.getFirst().getNumber());
-    }
     final long lastBlock = blocksWithReceipts.getLast().getNumber();
-    int peerCount = -1; // ethContext is not available in tests
-    if (ethContext != null && ethContext.getEthPeers().peerCount() >= 0) {
-      peerCount = ethContext.getEthPeers().peerCount();
-    }
-    final long endTime = System.nanoTime();
-    accumulatedTime += TimeUnit.MILLISECONDS.convert(endTime - startTime, TimeUnit.NANOSECONDS);
 
     syncState.setSyncProgress(startBlock, lastBlock, pivotHeaderNumber);
 
-    if (shouldLog.get()) {
+    if (isTimeToUpdate.get()) {
+      int peerCount = -1; // ethContext is not available in tests
+      if (ethContext != null && ethContext.getEthPeers().peerCount() >= 0) {
+        peerCount = ethContext.getEthPeers().peerCount();
+      }
       final long blocksPercent = getBlocksPercent(lastBlock, pivotHeaderNumber);
       throttledLog(
           LOG::info,
           String.format(
               "Block import progress: %s of %s (%s%%), Peer count: %s",
               lastBlock, pivotHeaderNumber, blocksPercent, peerCount),
-          shouldLog,
+          isTimeToUpdate,
           PRINT_DELAY_SECONDS);
-      LOG.debug(
-          "Completed importing chain segment {} to {} ({} blocks in {}ms), Peer count: {}",
-          logStartBlock.getAsLong(),
-          lastBlock,
-          lastBlock - logStartBlock.getAsLong() + 1,
-          accumulatedTime,
-          peerCount);
-      accumulatedTime = 0L;
-      logStartBlock = OptionalLong.empty();
     }
   }
 

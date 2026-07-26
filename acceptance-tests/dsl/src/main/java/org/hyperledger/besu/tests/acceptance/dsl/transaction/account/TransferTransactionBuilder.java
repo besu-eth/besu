@@ -33,6 +33,7 @@ public class TransferTransactionBuilder {
   private Amount gasPrice;
   private BigInteger nonce;
   private Optional<BigInteger> chainId = Optional.empty();
+  private Optional<BigInteger> gasLimit = Optional.empty();
   private SignatureAlgorithm signatureAlgorithm = new SECP256K1();
 
   private TransactionType transactionType;
@@ -81,6 +82,11 @@ public class TransferTransactionBuilder {
     return chainId(BigInteger.valueOf(chainId));
   }
 
+  public TransferTransactionBuilder gasLimit(final long gasLimit) {
+    this.gasLimit = Optional.of(BigInteger.valueOf(gasLimit));
+    return this;
+  }
+
   public TransferTransactionBuilder transactionType(final TransactionType transactionType) {
     this.transactionType = transactionType;
     return this;
@@ -98,7 +104,8 @@ public class TransferTransactionBuilder {
         nonce,
         chainId,
         signatureAlgorithm,
-        transactionType);
+        transactionType,
+        gasLimit);
   }
 
   private void validateSender() {

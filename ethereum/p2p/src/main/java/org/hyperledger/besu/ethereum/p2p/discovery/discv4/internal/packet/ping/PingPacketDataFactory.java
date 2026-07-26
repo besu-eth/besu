@@ -48,13 +48,27 @@ public class PingPacketDataFactory {
       final UInt64 enrSeq) {
     endpointValidator.validate(to, "destination endpoint cannot be null");
     expiryValidator.validate(expiration);
-    return new PingPacketData(maybeFrom, to, expiration, enrSeq);
+    return new PingPacketData(maybeFrom, Optional.of(to), expiration, enrSeq);
   }
 
   public PingPacketData create(
       final Optional<Endpoint> maybeFrom, final Endpoint to, final UInt64 enrSeq) {
     endpointValidator.validate(to, "destination endpoint cannot be null");
-    return new PingPacketData(maybeFrom, to, getDefaultExpirationTime(), enrSeq);
+    return new PingPacketData(maybeFrom, Optional.of(to), getDefaultExpirationTime(), enrSeq);
+  }
+
+  /**
+   * Builds a {@link PingPacketData} from a decoded wire packet. Per EIP-8, a malformed {@code to}
+   * (or {@code from}) field must not prevent packet processing, so unlike {@link #create(Optional,
+   * Endpoint, long, UInt64)} the endpoints are not validated here.
+   */
+  public PingPacketData createFromWire(
+      final Optional<Endpoint> maybeFrom,
+      final Optional<Endpoint> maybeTo,
+      final long expiration,
+      final UInt64 enrSeq) {
+    expiryValidator.validate(expiration);
+    return new PingPacketData(maybeFrom, maybeTo, expiration, enrSeq);
   }
 
   private long getDefaultExpirationTime() {

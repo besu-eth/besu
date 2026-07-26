@@ -53,6 +53,18 @@ public class MockConnectionInitializer implements ConnectionInitializer {
     incompleteConnections.clear();
   }
 
+  /**
+   * Completes the pending future returned by {@link #connect(Peer)} for the given peer
+   * exceptionally, so callers can assert how the original connect-attempt future's completion (as
+   * opposed to a derived {@code whenComplete} stage) is classified downstream.
+   */
+  public void completeExceptionally(final Peer peer, final Throwable throwable) {
+    final CompletableFuture<PeerConnection> future = incompleteConnections.remove(peer);
+    if (future != null) {
+      future.completeExceptionally(throwable);
+    }
+  }
+
   public void simulateIncomingConnection(final PeerConnection incomingConnection) {
     connectCallbacks.forEach(c -> c.onConnect(incomingConnection));
   }

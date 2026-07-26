@@ -161,6 +161,20 @@ public class JsonRpcRequest {
     return parameterAccessor.optional(params, index, paramClass, configuration);
   }
 
+  public <T> List<T> getRequiredList(final int index, final Class<T> paramClass)
+      throws JsonRpcParameterException {
+    return parameterAccessor.requiredList(
+        params, index, paramClass, JsonRpcParameter.Configuration.DEFAULT);
+  }
+
+  public <T> List<T> getRequiredList(
+      final int index,
+      final Class<T> paramClass,
+      final JsonRpcParameter.Configuration configuration)
+      throws JsonRpcParameterException {
+    return parameterAccessor.requiredList(params, index, paramClass, configuration);
+  }
+
   public <T> Optional<List<T>> getOptionalList(final int index, final Class<T> paramClass)
       throws JsonRpcParameterException {
     return parameterAccessor.optionalList(

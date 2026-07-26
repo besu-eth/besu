@@ -19,17 +19,19 @@ import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.GWei;
-import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 
 import java.util.List;
-import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt64;
 import org.junit.jupiter.api.Test;
 
 public class PayloadIdentifierTest {
+
+  private static final BlockHeader PARENT = new BlockHeaderTestFixture().buildHeader();
 
   @Test
   public void serializesToEvenHexRepresentation() {
@@ -48,14 +50,12 @@ public class PayloadIdentifierTest {
   public void conversionCoverage() {
     var idTest =
         PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            1337L,
-            Bytes32.random(),
-            Address.fromHexString("0x42"),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(PARENT)
+                .timestamp(1337L)
+                .prevRandao(Bytes32.random())
+                .feeRecipient(Address.fromHexString("0x42"))
+                .build());
     assertThat(new PayloadIdentifier(idTest.getAsBigInteger().longValue())).isEqualTo(idTest);
   }
 
@@ -88,24 +88,22 @@ public class PayloadIdentifierTest {
     final Bytes32 prevRandao = Bytes32.random();
     var idForWithdrawals1 =
         PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            1337L,
-            prevRandao,
-            Address.fromHexString("0x42"),
-            Optional.of(withdrawals1),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(PARENT)
+                .timestamp(1337L)
+                .prevRandao(prevRandao)
+                .feeRecipient(Address.fromHexString("0x42"))
+                .withdrawals(withdrawals1)
+                .build());
     var idForWithdrawals2 =
         PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            1337L,
-            prevRandao,
-            Address.fromHexString("0x42"),
-            Optional.of(withdrawals2),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(PARENT)
+                .timestamp(1337L)
+                .prevRandao(prevRandao)
+                .feeRecipient(Address.fromHexString("0x42"))
+                .withdrawals(withdrawals2)
+                .build());
     assertThat(idForWithdrawals1).isNotEqualTo(idForWithdrawals2);
   }
 
@@ -138,24 +136,22 @@ public class PayloadIdentifierTest {
     final Bytes32 prevRandao = Bytes32.random();
     var idForWithdrawals1 =
         PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            1337L,
-            prevRandao,
-            Address.fromHexString("0x42"),
-            Optional.of(withdrawals1),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(PARENT)
+                .timestamp(1337L)
+                .prevRandao(prevRandao)
+                .feeRecipient(Address.fromHexString("0x42"))
+                .withdrawals(withdrawals1)
+                .build());
     var idForWithdrawals2 =
         PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            1337L,
-            prevRandao,
-            Address.fromHexString("0x42"),
-            Optional.of(withdrawals2),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(PARENT)
+                .timestamp(1337L)
+                .prevRandao(prevRandao)
+                .feeRecipient(Address.fromHexString("0x42"))
+                .withdrawals(withdrawals2)
+                .build());
     assertThat(idForWithdrawals1).isEqualTo(idForWithdrawals2);
   }
 
@@ -164,24 +160,21 @@ public class PayloadIdentifierTest {
     final Bytes32 prevRandao = Bytes32.random();
     var idForWithdrawals1 =
         PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            1337L,
-            prevRandao,
-            Address.fromHexString("0x42"),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(PARENT)
+                .timestamp(1337L)
+                .prevRandao(prevRandao)
+                .feeRecipient(Address.fromHexString("0x42"))
+                .build());
     var idForWithdrawals2 =
         PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            1337L,
-            prevRandao,
-            Address.fromHexString("0x42"),
-            Optional.of(emptyList()),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(PARENT)
+                .timestamp(1337L)
+                .prevRandao(prevRandao)
+                .feeRecipient(Address.fromHexString("0x42"))
+                .withdrawals(emptyList())
+                .build());
     assertThat(idForWithdrawals1).isNotEqualTo(idForWithdrawals2);
   }
 
@@ -190,24 +183,21 @@ public class PayloadIdentifierTest {
     final Bytes32 prevRandao = Bytes32.random();
     var idForWithdrawals1 =
         PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            1337L,
-            prevRandao,
-            Address.fromHexString("0x42"),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(PARENT)
+                .timestamp(1337L)
+                .prevRandao(prevRandao)
+                .feeRecipient(Address.fromHexString("0x42"))
+                .build());
     var idForWithdrawals2 =
         PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            1337L,
-            prevRandao,
-            Address.fromHexString("0x42"),
-            Optional.empty(),
-            Optional.of(Bytes32.ZERO),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(PARENT)
+                .timestamp(1337L)
+                .prevRandao(prevRandao)
+                .feeRecipient(Address.fromHexString("0x42"))
+                .parentBeaconBlockRoot(Bytes32.ZERO)
+                .build());
     assertThat(idForWithdrawals1).isNotEqualTo(idForWithdrawals2);
   }
 
@@ -216,24 +206,22 @@ public class PayloadIdentifierTest {
     final Bytes32 prevRandao = Bytes32.random();
     var idForWithdrawals1 =
         PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            1337L,
-            prevRandao,
-            Address.fromHexString("0x42"),
-            Optional.empty(),
-            Optional.of(Bytes32.fromHexStringLenient("0x1")),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(PARENT)
+                .timestamp(1337L)
+                .prevRandao(prevRandao)
+                .feeRecipient(Address.fromHexString("0x42"))
+                .parentBeaconBlockRoot(Bytes32.fromHexStringLenient("0x1"))
+                .build());
     var idForWithdrawals2 =
         PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            1337L,
-            prevRandao,
-            Address.fromHexString("0x42"),
-            Optional.empty(),
-            Optional.of(Bytes32.ZERO),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(PARENT)
+                .timestamp(1337L)
+                .prevRandao(prevRandao)
+                .feeRecipient(Address.fromHexString("0x42"))
+                .parentBeaconBlockRoot(Bytes32.ZERO)
+                .build());
     assertThat(idForWithdrawals1).isNotEqualTo(idForWithdrawals2);
   }
 
@@ -242,76 +230,24 @@ public class PayloadIdentifierTest {
     final Bytes32 prevRandao = Bytes32.random();
     var idForWithdrawals1 =
         PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            1337L,
-            prevRandao,
-            Address.fromHexString("0x42"),
-            Optional.empty(),
-            Optional.of(Bytes32.fromHexStringLenient("0x1")),
-            Optional.of(100L),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(PARENT)
+                .timestamp(1337L)
+                .prevRandao(prevRandao)
+                .feeRecipient(Address.fromHexString("0x42"))
+                .parentBeaconBlockRoot(Bytes32.fromHexStringLenient("0x1"))
+                .slotNumber(100L)
+                .build());
     var idForWithdrawals2 =
         PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            1337L,
-            prevRandao,
-            Address.fromHexString("0x42"),
-            Optional.empty(),
-            Optional.of(Bytes32.fromHexStringLenient("0x1")),
-            Optional.of(101L),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(PARENT)
+                .timestamp(1337L)
+                .prevRandao(prevRandao)
+                .feeRecipient(Address.fromHexString("0x42"))
+                .parentBeaconBlockRoot(Bytes32.fromHexStringLenient("0x1"))
+                .slotNumber(101L)
+                .build());
     assertThat(idForWithdrawals1).isNotEqualTo(idForWithdrawals2);
-  }
-
-  @Test
-  public void differentTargetGasLimitYieldDifferentHash() {
-    final Bytes32 prevRandao = Bytes32.random();
-    var id1 =
-        PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            1337L,
-            prevRandao,
-            Address.fromHexString("0x42"),
-            Optional.empty(),
-            Optional.of(Bytes32.fromHexStringLenient("0x1")),
-            Optional.of(100L),
-            Optional.of(30_000_000L));
-    var id2 =
-        PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            1337L,
-            prevRandao,
-            Address.fromHexString("0x42"),
-            Optional.empty(),
-            Optional.of(Bytes32.fromHexStringLenient("0x1")),
-            Optional.of(100L),
-            Optional.of(60_000_000L));
-    assertThat(id1).isNotEqualTo(id2);
-  }
-
-  @Test
-  public void emptyOptionalAndNonEmptyTargetGasLimitYieldDifferentHash() {
-    final Bytes32 prevRandao = Bytes32.random();
-    var idAbsent =
-        PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            1337L,
-            prevRandao,
-            Address.fromHexString("0x42"),
-            Optional.empty(),
-            Optional.of(Bytes32.fromHexStringLenient("0x1")),
-            Optional.of(100L),
-            Optional.empty());
-    var idPresent =
-        PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            1337L,
-            prevRandao,
-            Address.fromHexString("0x42"),
-            Optional.empty(),
-            Optional.of(Bytes32.fromHexStringLenient("0x1")),
-            Optional.of(100L),
-            Optional.of(30_000_000L));
-    assertThat(idAbsent).isNotEqualTo(idPresent);
   }
 }

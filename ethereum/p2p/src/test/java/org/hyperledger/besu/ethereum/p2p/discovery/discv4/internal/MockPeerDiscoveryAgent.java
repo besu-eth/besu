@@ -14,19 +14,16 @@
  */
 package org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal;
 
-import static org.apache.tuweni.bytes.Bytes.wrapBuffer;
-
 import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
 import org.hyperledger.besu.ethereum.p2p.config.DiscoveryConfiguration;
 import org.hyperledger.besu.ethereum.p2p.discovery.NodeRecordManager;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.PeerDiscoveryAgentV4;
+import org.hyperledger.besu.ethereum.p2p.discovery.discv4.Transport;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.DaggerPacketPackage;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.Packet;
-import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.PacketDeserializer;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.PacketPackage;
-import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.PacketSerializer;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions;
 import org.hyperledger.besu.ethereum.p2p.rlpx.RlpxAgent;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
@@ -39,6 +36,7 @@ import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.slf4j.Logger;
@@ -47,12 +45,7 @@ import org.slf4j.LoggerFactory;
 public class MockPeerDiscoveryAgent extends PeerDiscoveryAgentV4 {
   private static final Logger LOG = LoggerFactory.getLogger(MockPeerDiscoveryAgent.class);
 
-  // The set of known agents operating on the network
-  private final Map<Bytes, MockPeerDiscoveryAgent> agentNetwork;
   private final Deque<IncomingPacket> incomingPackets = new ArrayDeque<>();
-  private final PacketSerializer packetSerializer;
-  private final PacketDeserializer packetDeserializer;
-  private boolean isRunning = false;
 
   public MockPeerDiscoveryAgent(
       final NodeKey nodeKey,
@@ -62,6 +55,26 @@ public class MockPeerDiscoveryAgent extends PeerDiscoveryAgentV4 {
       final NatService natService,
       final ForkIdManager forkIdManager,
       final RlpxAgent rlpxAgent) {
+    this(
+        nodeKey,
+        config,
+        peerPermissions,
+        agentNetwork,
+        natService,
+        forkIdManager,
+        rlpxAgent,
+        DaggerPacketPackage.create());
+  }
+
+  private MockPeerDiscoveryAgent(
+      final NodeKey nodeKey,
+      final DiscoveryConfiguration config,
+      final PeerPermissions peerPermissions,
+      final Map<Bytes, MockPeerDiscoveryAgent> agentNetwork,
+      final NatService natService,
+      final ForkIdManager forkIdManager,
+      final RlpxAgent rlpxAgent,
+      final PacketPackage packetPackage) {
     super(
         nodeKey,
         config,
@@ -71,16 +84,18 @@ public class MockPeerDiscoveryAgent extends PeerDiscoveryAgentV4 {
         new NodeRecordManager(
             new InMemoryKeyValueStorageProvider(), nodeKey, forkIdManager, natService),
         rlpxAgent,
-        new PeerTable(nodeKey.getPublicKey().getEncodedBytes()));
-    this.agentNetwork = agentNetwork;
-    PacketPackage packetPackage = DaggerPacketPackage.create();
-    this.packetSerializer = packetPackage.packetSerializer();
-    this.packetDeserializer = packetPackage.packetDeserializer();
+        new PeerTable(nodeKey.getPublicKey().getEncodedBytes()),
+        new MockTransport(agentNetwork, config),
+        packetPackage.packetSerializer(),
+        packetPackage.packetDeserializer());
+    // Post-construction attach, mirroring Transport.setInboundHandler(...) /
+    // PeerDiscoveryAgentV4.prepareHandlers() — 'this' isn't available until after super()
+    // returns, so MockTransport can't be handed the owning agent at construction time.
+    ((MockTransport) transport).setOwner(this);
   }
 
   public void processIncomingPacket(final MockPeerDiscoveryAgent fromAgent, final Packet packet) {
-    // Cycle packet through encode / decode to make clone of any data
-    // This ensures that any data passed between agents is not shared
+    // Cycle packet through encode / decode to clone any data, ensuring data is not shared
     final Packet packetClone = packetDeserializer.decode(packetSerializer.encode(packet));
     incomingPackets.add(new IncomingPacket(fromAgent, packetClone));
     handleIncomingPacket(fromAgent.getAdvertisedPeer().get().getEndpoint(), packetClone);
@@ -99,51 +114,6 @@ public class MockPeerDiscoveryAgent extends PeerDiscoveryAgentV4 {
   }
 
   @Override
-  protected CompletableFuture<InetSocketAddress> listenForConnections() {
-    isRunning = true;
-    // Skip network setup for tests
-    final InetSocketAddress address =
-        new InetSocketAddress(config.getBindHost(), config.getBindPort());
-    return CompletableFuture.completedFuture(address);
-  }
-
-  @Override
-  protected CompletableFuture<Void> sendOutgoingPacket(
-      final DiscoveryPeerV4 toPeer, final Packet packet) {
-    final CompletableFuture<Void> result = new CompletableFuture<>();
-    if (!this.isRunning) {
-      result.completeExceptionally(new Exception("Attempt to send message from an inactive agent"));
-    }
-
-    final MockPeerDiscoveryAgent toAgent = agentNetwork.get(toPeer.getId());
-    if (toAgent == null) {
-      result.completeExceptionally(
-          new Exception(
-              "Attempt to send to unknown peer.  Agents must be constructed through PeerDiscoveryTestHelper."));
-      return result;
-    }
-
-    final DiscoveryPeerV4 agentPeer = toAgent.getAdvertisedPeer().get();
-    if (!toPeer.getEndpoint().getHost().equals(agentPeer.getEndpoint().getHost())) {
-      LOG.warn(
-          "Attempt to send packet to discovery peer using the wrong host address.  Sending to {}, but discovery peer is listening on {}",
-          toPeer.getEndpoint().getHost(),
-          agentPeer.getEndpoint().getHost());
-    } else if (toPeer.getEndpoint().getUdpPort() != agentPeer.getEndpoint().getUdpPort()) {
-      LOG.warn(
-          "Attempt to send packet to discovery peer using the wrong udp port.  Sending to {}, but discovery peer is listening on {}",
-          toPeer.getEndpoint().getUdpPort(),
-          agentPeer.getEndpoint().getUdpPort());
-    } else if (!toAgent.isRunning) {
-      LOG.warn("Attempt to send packet to an inactive peer.");
-    } else {
-      toAgent.processIncomingPacket(this, packet);
-    }
-    result.complete(null);
-    return result;
-  }
-
-  @Override
   protected TimerUtil createTimer() {
     return new MockTimerUtil();
   }
@@ -154,9 +124,32 @@ public class MockPeerDiscoveryAgent extends PeerDiscoveryAgentV4 {
   }
 
   @Override
+  protected PeerDiscoveryController.AsyncExecutor createDecodeExecutor() {
+    return new BlockingAsyncExecutor();
+  }
+
+  @Override
+  protected Executor createDispatchExecutor() {
+    // Run dispatched callbacks synchronously on the calling thread so tests using
+    // BlockingAsyncExecutor see a deterministic single-threaded execution model.
+    return Runnable::run;
+  }
+
+  @Override
   public CompletableFuture<?> stop() {
-    isRunning = false;
-    return CompletableFuture.completedFuture(null);
+    if (!stopGate.compareAndSet(false, true)) {
+      return CompletableFuture.completedFuture(null);
+    }
+    // Mirror NettyPeerDiscoveryAgent.stop(): controller + isStopped flag must be updated even
+    // if transport stop fails, so isStopped() reflects reality and tests that recreate agents
+    // don't see lingering controller interactions.
+    return transport
+        .stop()
+        .whenComplete(
+            (v, ex) -> {
+              controller.ifPresent(PeerDiscoveryController::stop);
+              isStopped = true;
+            });
   }
 
   @Override
@@ -165,7 +158,7 @@ public class MockPeerDiscoveryAgent extends PeerDiscoveryAgentV4 {
     LOG.warn(
         "Sending to peer {} failed, packet: {}, stacktrace: {}",
         peer,
-        wrapBuffer(packetSerializer.encode(packet)),
+        packetSerializer.encode(packet),
         err);
   }
 
@@ -180,6 +173,85 @@ public class MockPeerDiscoveryAgent extends PeerDiscoveryAgentV4 {
     public IncomingPacket(final MockPeerDiscoveryAgent fromAgent, final Packet packet) {
       this.fromAgent = fromAgent;
       this.packet = packet;
+    }
+  }
+
+  /** Test-only Transport that routes outbound packets directly to the target mock agent. */
+  private static class MockTransport implements Transport {
+    private final Map<Bytes, MockPeerDiscoveryAgent> agentNetwork;
+    private final InetSocketAddress listenAddress;
+    private MockPeerDiscoveryAgent owner;
+    private boolean isRunning = false;
+
+    MockTransport(
+        final Map<Bytes, MockPeerDiscoveryAgent> agentNetwork,
+        final DiscoveryConfiguration config) {
+      this.agentNetwork = agentNetwork;
+      this.listenAddress = new InetSocketAddress(config.getBindHost(), config.getBindPort());
+    }
+
+    void setOwner(final MockPeerDiscoveryAgent owner) {
+      this.owner = owner;
+    }
+
+    @Override
+    public CompletableFuture<InetSocketAddress> start() {
+      isRunning = true;
+      return CompletableFuture.completedFuture(listenAddress);
+    }
+
+    @Override
+    public CompletableFuture<Void> stop() {
+      isRunning = false;
+      return CompletableFuture.completedFuture(null);
+    }
+
+    @Override
+    public CompletableFuture<Void> send(final InetSocketAddress recipient, final Bytes data) {
+      final CompletableFuture<Void> result = new CompletableFuture<>();
+      final MockPeerDiscoveryAgent fromAgent = owner;
+
+      if (!isRunning) {
+        result.completeExceptionally(
+            new Exception("Attempt to send message from an inactive agent"));
+        return result;
+      }
+
+      // Locate the target agent by matching its advertised endpoint address. Stopped agents are
+      // excluded so a replaced/restarted agent's stale map entry can't be matched instead of the
+      // live agent listening at the same address.
+      final MockPeerDiscoveryAgent toAgent =
+          agentNetwork.values().stream()
+              .filter(a -> !a.isStopped())
+              .filter(a -> a.getAdvertisedPeer().isPresent())
+              .filter(
+                  a -> {
+                    final DiscoveryPeerV4 p = a.getAdvertisedPeer().get();
+                    return p.getEndpoint().getHost().equals(recipient.getHostString())
+                        && p.getEndpoint().getUdpPort() == recipient.getPort();
+                  })
+              .findFirst()
+              .orElse(null);
+
+      if (toAgent == null) {
+        result.completeExceptionally(
+            new Exception(
+                "Attempt to send to unknown peer. Agents must be constructed through PeerDiscoveryTestHelper."));
+        return result;
+      }
+
+      // Decode serialized bytes back to a Packet and forward; processIncomingPacket will
+      // re-encode+decode to ensure data isolation between agents.
+      final Packet packet = fromAgent.packetDeserializer.decode(data);
+      toAgent.processIncomingPacket(fromAgent, packet);
+
+      result.complete(null);
+      return result;
+    }
+
+    @Override
+    public void setInboundHandler(final InboundV4Handler handler) {
+      // Mock bypasses the raw-bytes inbound path: delivery goes through processIncomingPacket
     }
   }
 }

@@ -40,7 +40,7 @@ public class PingPacketDataRlpWriterTest {
     long expiration = 123;
     UInt64 enrSeq = UInt64.valueOf(123456789);
     final PingPacketData pingPacketData =
-        new PingPacketData(Optional.of(from), to, expiration, enrSeq);
+        new PingPacketData(Optional.of(from), Optional.of(to), expiration, enrSeq);
     final BytesValueRLPOutput out = new BytesValueRLPOutput();
 
     writer.writeTo(pingPacketData, out);

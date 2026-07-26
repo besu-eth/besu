@@ -38,7 +38,7 @@ import org.slf4j.LoggerFactory;
 public class ChainSyncStateStorage {
   private static final Logger LOG = LoggerFactory.getLogger(ChainSyncStateStorage.class);
   private static final String STATE_FILE_NAME = "chain-sync-state.rlp";
-  private static final byte FORMAT_VERSION = 4;
+  private static final byte FORMAT_VERSION = 5;
 
   private final File stateFile;
   private final File tempFile;
@@ -87,38 +87,20 @@ public class ChainSyncStateStorage {
         // Read header complete flag
         final boolean headersDownloadComplete = input.readByte() == 1;
 
-        // Read optional header download anchor
-        BlockHeader headerDownloadAnchor = null;
-        if (input.nextIsNull()) {
-          input.skipNext();
-        } else {
-          headerDownloadAnchor = headerReader.apply(input);
-        }
-
-        // Read optional header download progress
-        BlockHeader headerDownloadProgress = null;
-        if (input.nextIsNull()) {
-          input.skipNext();
-        } else {
-          headerDownloadProgress = headerReader.apply(input);
-        }
+        // Read header download anchor
+        final BlockHeader headerDownloadAnchor = headerReader.apply(input);
 
         input.leaveList();
 
         LOG.debug(
-            "Loaded chain sync state: pivot={}, checkpoint={}, headers anchor={}, header download progress={}, header download complete={}",
+            "Loaded chain sync state: pivot={}, bodyCheckpoint={}, headerAnchor={}, headersComplete={}",
             pivotBlockHeader.getNumber(),
             checkpointBlockHeader.getNumber(),
-            headerDownloadAnchor != null ? headerDownloadAnchor.getNumber() : "null",
-            headerDownloadProgress != null ? headerDownloadProgress.getNumber() : "null",
+            headerDownloadAnchor.getNumber(),
             headersDownloadComplete);
 
         return new ChainSyncState(
-            pivotBlockHeader,
-            checkpointBlockHeader,
-            headerDownloadAnchor,
-            headersDownloadComplete,
-            headerDownloadProgress);
+            pivotBlockHeader, checkpointBlockHeader, headerDownloadAnchor, headersDownloadComplete);
 
       } catch (final IOException e) {
         throw new IllegalStateException(
@@ -150,25 +132,14 @@ public class ChainSyncStateStorage {
         // Write pivot block header
         state.pivotBlockHeader().writeTo(output);
 
-        // Write the checkpoint block header
-        state.blockDownloadAnchor().writeTo(output);
+        // Write the body checkpoint block header
+        state.bodyCheckpoint().writeTo(output);
 
         // Write header complete flag
         output.writeByte((byte) (state.headersDownloadComplete() ? 1 : 0));
 
-        // Write optional header download anchor
-        if (state.headerDownloadAnchor() != null) {
-          state.headerDownloadAnchor().writeTo(output);
-        } else {
-          output.writeNull();
-        }
-
-        // Write optional header download progress
-        if (state.headerDownloadProgress() != null) {
-          state.headerDownloadProgress().writeTo(output);
-        } else {
-          output.writeNull();
-        }
+        // Write header download anchor
+        state.headerDownloadAnchor().writeTo(output);
 
         output.endList();
 
@@ -183,9 +154,10 @@ public class ChainSyncStateStorage {
             StandardCopyOption.REPLACE_EXISTING);
 
         LOG.debug(
-            "Stored chain sync state: pivot={}, checkpoint block={}, headers complete={}",
+            "Stored chain sync state: pivot={}, bodyCheckpoint={}, headerAnchor={}, headersComplete={}",
             state.pivotBlockHeader().getNumber(),
-            state.blockDownloadAnchor().getNumber(),
+            state.bodyCheckpoint().getNumber(),
+            state.headerDownloadAnchor().getNumber(),
             state.headersDownloadComplete());
 
       } catch (final IOException e) {

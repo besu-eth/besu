@@ -68,6 +68,7 @@ public class PingPacketDataRlpReader implements PacketDataDeserializer<PingPacke
       }
     }
     in.leaveListLenient();
-    return pingPacketDataFactory.create(from, to.get(), expiration, enrSeq);
+    // The to field is unused when constructing our PONG; we always respond to the actual sender.
+    return pingPacketDataFactory.createFromWire(from, to, expiration, enrSeq);
   }
 }
