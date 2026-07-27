@@ -19,6 +19,7 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
+- Fix a deadlock where `FullSyncTargetManager`'s (and checkpoint sync's) retry loop could hang forever waiting for a new peer to connect, even though the already-connected peer just needed its outstanding-request budget to free back up. The same fix was applied to snap/fast sync's pivot block selection. [#10864](https://github.com/besu-eth/besu/issues/10864)
 - Peers disconnected for permanent incompatibilities (mismatched network ID, mismatched genesis hash, null/unexpected node ID, or self-connection) are now added to the denylist and will not be reconnected. Previously only `BREACH_OF_PROTOCOL` and `INCOMPATIBLE_P2P_PROTOCOL_VERSION` triggered denylisting. [#10827](https://github.com/besu-eth/besu/pull/10827)
 - Fix `engine_newPayload` responding with a `-32600 Invalid Request` JSON-RPC error instead of an `INVALID` payload status when the payload contains a legacy transaction with an invalid `v` value. `eth_sendRawTransaction` and `debug_batchSendRawTransaction` now report the standard `Invalid RLP in raw transaction hex` invalid-params error for such transactions instead of an unhandled internal error. [#10784](https://github.com/besu-eth/besu/pull/10784)
 - Fix potential `ArithmeticException: integer overflow` when prioritizing peer connections whose initiation timestamps are more than ~24.8 days apart. `EthPeers.compareConnectionInitiationTimes` now uses `Long.compare` instead of narrowing the timestamp difference to an `int`. [#10787](https://github.com/besu-eth/besu/issues/10787)
@@ -28,6 +29,7 @@
 - Skip DNS discovery records that fail enode conversion (e.g. out-of-range port) instead of dropping the rest of the batch [#10752](https://github.com/besu-eth/besu/pull/10752)
 - Raise the default DiscV5 discovery round timeout (`--Xv5-discovery-timeout-seconds`) from 30 to 60 seconds to avoid spurious round failures on networks with many unreachable candidates [#10800](https://github.com/besu-eth/besu/pull/10800)
 - Fix QBFT/IBFT mining continuing to seal blocks after the merge terminal total difficulty (TTD) is reached [#10733](https://github.com/besu-eth/besu/pull/10733)
+- Fix `admin_nodeInfo` reporting wrong RLPx/discovery ephemeral ports under `--nat-method=DOCKER`, due to a swapped NAT port mapping and a stale pre-bind snapshot. [#10860](https://github.com/besu-eth/besu/pull/10860)
 
 ### Additions and Improvements
 - Add `--logging-format` CLI option to select structured JSON console logging (`ECS`, `GCP`, `LOGSTASH`, `GELF`) in addition to the default `PLAIN` pattern output, without requiring a custom `LOG4J_CONFIGURATION_FILE`. Each format is a bundled Log4j2 configuration file selected at startup. [#9626](https://github.com/besu-eth/besu/issues/9626)
