@@ -131,14 +131,18 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     importFrom(source, ImportMode.INSERT);
   }
 
+  public void importStateChangesFromPartialView(final PartialBlockAccessView partialView) {
+    importStateChangesFromPartialView(partialView, false);
+  }
+
   /**
    * Imports writes from a {@link PartialBlockAccessView} produced by parallel BAL execution.
-   * Account and storage changes are inserted directly as {@link PathBasedValue} entries so
-   * {@link #commit()} does not need to re-read prior values from the database.
    *
    * @param partialView partial access list for a single transaction
+   * @param clearEmptyAccounts when true, delete accounts that become empty after applying writes
    */
-  public void importStateChangesFromPartialView(final PartialBlockAccessView partialView) {
+  public void importStateChangesFromPartialView(
+      final PartialBlockAccessView partialView, final boolean clearEmptyAccounts) {
     for (final PartialBlockAccessView.AccountChanges accountChanges :
         partialView.accountChanges()) {
       final Address address = accountChanges.getAddress();
@@ -152,13 +156,33 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
         continue;
       }
 
-      final MutableAccount accountValue = getOrCreate(address);
+      MutableAccount accountValue = null;
+      boolean shouldCheckForEmptyAccount = false;
 
-      accountChanges.getPostBalance().ifPresent(accountValue::setBalance);
-      accountChanges.getNonceChange().ifPresent(accountValue::setNonce);
-      accountChanges
-          .getNewCode()
-          .ifPresent(accountValue::setCode);
+      if (accountChanges.getPostBalance().isPresent()) {
+        accountValue = getOrCreate(address);
+        final Wei balance = accountChanges.getPostBalance().get();
+        accountValue.setBalance(balance);
+        shouldCheckForEmptyAccount = clearEmptyAccounts && balance.isZero();
+      }
+
+      if (accountChanges.getNonceChange().isPresent()) {
+        if (accountValue == null) {
+          accountValue = getOrCreate(address);
+        }
+        final long nonce = accountChanges.getNonceChange().get();
+        accountValue.setNonce(nonce);
+        shouldCheckForEmptyAccount |= clearEmptyAccounts && nonce == 0L;
+      }
+
+      if (accountChanges.getNewCode().isPresent()) {
+        if (accountValue == null) {
+          accountValue = getOrCreate(address);
+        }
+        final Bytes code = accountChanges.getNewCode().get();
+        accountValue.setCode(code);
+        shouldCheckForEmptyAccount |= clearEmptyAccounts && code.isEmpty();
+      }
 
       for (final PartialBlockAccessView.SlotChange slotChange :
           accountChanges.getStorageChanges()) {
@@ -175,6 +199,10 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
                     new StorageConsumingMap<>(
                         address, new ConcurrentHashMap<>(), storagePreloader))
             .put(slotKey, new PathBasedValue<>(prior, updated));
+      }
+
+      if (shouldCheckForEmptyAccount && accountValue != null && accountValue.isEmpty()) {
+        deleteAccount(address);
       }
     }
     this.isAccumulatorStateChanged = true;

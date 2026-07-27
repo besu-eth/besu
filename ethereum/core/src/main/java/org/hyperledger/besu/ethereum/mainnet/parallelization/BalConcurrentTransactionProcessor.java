@@ -220,7 +220,8 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
           return Optional.empty();
         }
 
-        blockAccumulator.importStateChangesFromPartialView(maybePartialBlockAccessView.get());
+        blockAccumulator.importStateChangesFromPartialView(
+            maybePartialBlockAccessView.get(), transactionProcessor.getClearEmptyAccounts());
 
         confirmedParallelizedTransactionCounter.ifPresent(Counter::inc);
         result.setIsProcessedInParallel(Optional.of(Boolean.TRUE));
