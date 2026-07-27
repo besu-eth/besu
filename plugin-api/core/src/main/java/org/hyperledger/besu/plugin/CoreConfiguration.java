@@ -18,9 +18,17 @@ import org.hyperledger.besu.plugin.services.BesuService;
 
 import java.nio.file.Path;
 
-/** Core configuration of the Besu node. */
+/**
+ * Core configuration of the Besu node.
+ *
+ * <p>Provides the feature-neutral part of the node configuration to every plugin. It exists so that
+ * a plugin depending only on the core module can read the node's data path without pulling the rest
+ * of the API onto its classpath. The full configuration surface, including feature-specific
+ * settings, remains available through {@code
+ * org.hyperledger.besu.plugin.services.BesuConfiguration}.
+ */
 @Unstable
-public interface BesuConfiguration extends BesuService {
+public interface CoreConfiguration extends BesuService {
 
   /**
    * Location of the data directory in the file system running the client.
