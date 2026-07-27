@@ -15,9 +15,11 @@
 - BFT option `xemptyblockperiodseconds` has been taken out of experimental and been renamed `emptyblockperiodseconds`. The old config option is deprecated and will be removed in a future release.
 - `--Xbft-legacy-protocol-encoding` will be removed once Besu 25.x is no longer supported. [#10499](https://github.com/besu-eth/besu/pull/10499)
 - `--Xsnapsync-synchronizer-pivot-block-distance-before-caching` is deprecated and will be removed in a future release; the flag is now a silent no-op.
+- `--snapsync-synchronizer-pre-checkpoint-headers-only-enabled` is deprecated and will be removed in a future release; the flag is now a silent no-op.
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
+- Bonsai world state rolling failures are now logged at `WARN` instead of `INFO`, and a missing block header or trie log during a roll reports which block hash or trie log was missing. [#10859](https://github.com/besu-eth/besu/issues/10859)
 - Log malformed peer messages at DEBUG instead of ERROR in `ApiHandler`, since they indicate peer misbehavior rather than a Besu fault. [#10858](https://github.com/besu-eth/besu/issues/10858)
 - Fix a deadlock where `FullSyncTargetManager`'s (and checkpoint sync's) retry loop could hang forever waiting for a new peer to connect, even though the already-connected peer just needed its outstanding-request budget to free back up. The same fix was applied to snap/fast sync's pivot block selection. [#10864](https://github.com/besu-eth/besu/issues/10864)
 - Peers disconnected for permanent incompatibilities (mismatched network ID, mismatched genesis hash, null/unexpected node ID, or self-connection) are now added to the denylist and will not be reconnected. Previously only `BREACH_OF_PROTOCOL` and `INCOMPATIBLE_P2P_PROTOCOL_VERSION` triggered denylisting. [#10827](https://github.com/besu-eth/besu/pull/10827)
