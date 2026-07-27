@@ -156,29 +156,23 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
         continue;
       }
 
-      MutableAccount accountValue = null;
+      MutableAccount accountValue = getOrCreate(address);
+
       boolean shouldCheckForEmptyAccount = false;
 
       if (accountChanges.getPostBalance().isPresent()) {
-        accountValue = getOrCreate(address);
         final Wei balance = accountChanges.getPostBalance().get();
         accountValue.setBalance(balance);
         shouldCheckForEmptyAccount = clearEmptyAccounts && balance.isZero();
       }
 
       if (accountChanges.getNonceChange().isPresent()) {
-        if (accountValue == null) {
-          accountValue = getOrCreate(address);
-        }
         final long nonce = accountChanges.getNonceChange().get();
         accountValue.setNonce(nonce);
         shouldCheckForEmptyAccount |= clearEmptyAccounts && nonce == 0L;
       }
 
       if (accountChanges.getNewCode().isPresent()) {
-        if (accountValue == null) {
-          accountValue = getOrCreate(address);
-        }
         final Bytes code = accountChanges.getNewCode().get();
         accountValue.setCode(code);
         shouldCheckForEmptyAccount |= clearEmptyAccounts && code.isEmpty();
@@ -200,7 +194,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
             .put(slotKey, new PathBasedValue<>(prior, updated));
       }
 
-      if (shouldCheckForEmptyAccount && accountValue != null && accountValue.isEmpty()) {
+      if (shouldCheckForEmptyAccount && accountValue.isEmpty()) {
         deleteAccount(address);
       }
     }
