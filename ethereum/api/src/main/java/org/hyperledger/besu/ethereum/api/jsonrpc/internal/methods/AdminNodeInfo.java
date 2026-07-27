@@ -114,7 +114,16 @@ public class AdminNodeInfo implements JsonRpcMethod {
           ipv6Info
               .listeningPort()
               .ifPresent(
-                  tcpV6 -> response.put("listenAddrV6", formatHostPort(ipv6Info.address(), tcpV6)));
+                  tcpV6 -> {
+                    response.put("listenAddrV6", formatHostPort(ipv6Info.address(), tcpV6));
+                    ipv6Info
+                        .discoveryPort()
+                        .ifPresent(
+                            udpV6 ->
+                                response.put(
+                                    "enodeV6",
+                                    getNodeAsString(enode, ipv6Info.address(), tcpV6, udpV6)));
+                  });
         });
 
     if (enode.isRunningDiscovery()) {

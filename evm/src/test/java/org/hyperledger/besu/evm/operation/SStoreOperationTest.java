@@ -222,8 +222,10 @@ class SStoreOperationTest {
 
     // EIP-8037: state gas refund is credited directly to
     // state_gas_reservoir (not refund_counter, bypassing the 20% cap) and stateGasUsed is
-    // decremented. Regular SSTORE refund for 0→X→0 (2,800) still goes via refund_counter.
-    assertThat(frame.getGasRefund()).isEqualTo(2_800L);
+    // decremented. EIP-8038: the regular refund for 0→X→0 is the flat STORAGE_WRITE (10,000)
+    // charged on the first change, refunded when the slot is restored to its original (zero) value;
+    // it still goes via refund_counter.
+    assertThat(frame.getGasRefund()).isEqualTo(10_000L);
     assertThat(frame.getStateGasUsed()).isZero();
     assertThat(frame.getStateGasReservoir()).isEqualTo(100_000L);
   }
@@ -269,8 +271,9 @@ class SStoreOperationTest {
 
     // No state gas for clearing when original was nonzero
     assertThat(frame.getStateGasUsed()).isEqualTo(0L);
-    // Only the regular SSTORE_CLEARS_SCHEDULE refund (4,800)
-    assertThat(frame.getGasRefund()).isEqualTo(4_800L);
+    // EIP-8038: storage-clear refund = (STORAGE_WRITE 10,000 + COLD_STORAGE_ACCESS 3,000) * 4800 /
+    // 5000 = 12,480 (replaces the London SSTORE_CLEARS_SCHEDULE of 4,800).
+    assertThat(frame.getGasRefund()).isEqualTo(12_480L);
   }
 
   @Test
@@ -294,7 +297,11 @@ class SStoreOperationTest {
             .address(address)
             .worldUpdater(txUpdater)
             .blockValues(new FakeBlockValues(1337))
-            .initialGas(100_000L)
+            // EIP-8038: the regular SSTORE cost for a cold 0->nonzero set is now 13,000
+            // (2,900 cold access + 100 warm base + 10,000 STORAGE_WRITE), up from 5,000. The frame
+            // must retain enough gas after that deduction to absorb the state-gas spill
+            // (97,920 - 10,000 = 87,920), so initialGas is raised accordingly.
+            .initialGas(200_000L)
             .build();
 
     // Set reservoir to less than what the SSTORE will need

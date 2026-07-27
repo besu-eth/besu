@@ -396,6 +396,10 @@ public class AdminNodeInfoTest {
 
     assertThat(result).containsEntry("ipv6", "2001:db8::1");
     assertThat(result).containsEntry("listenAddrV6", "[2001:db8::1]:30304");
+    assertThat(result)
+        .containsEntry(
+            "enodeV6",
+            "enode://0f1b319e32017c3fcb221841f0f978701b4e9513fe6a567a2db43d43381a9c7e3dfe7cae13cbc2f56943400bacaf9082576ab087cd51983b17d729ae796f6807@[2001:db8::1]:30304?discport=30305");
 
     final Map<String, Integer> ports = (Map<String, Integer>) result.get("ports");
     assertThat(ports).containsEntry("discoveryV6", 30305);
@@ -462,6 +466,9 @@ public class AdminNodeInfoTest {
 
     assertThat(result).containsEntry("ipv6", "2001:db8::1");
     assertThat(result).containsEntry("listenAddrV6", "[2001:db8::1]:30304");
+    // enodeV6 needs both the TCP and UDP IPv6 ports - a partial config (listener only) must
+    // not produce a malformed/misleading enode string.
+    assertThat(result).doesNotContainKey("enodeV6");
 
     final Map<String, Integer> ports = (Map<String, Integer>) result.get("ports");
     assertThat(ports).containsEntry("listenerV6", 30304);

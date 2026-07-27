@@ -22,6 +22,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.config.BftConfigOptions;
+import org.hyperledger.besu.config.JsonBftConfigOptions;
 import org.hyperledger.besu.config.JsonGenesisConfigOptions;
 import org.hyperledger.besu.config.JsonQbftConfigOptions;
 import org.hyperledger.besu.config.JsonUtil;
@@ -49,6 +50,7 @@ import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.math.BigInteger;
 import java.util.List;
+import java.util.OptionalLong;
 import javax.inject.Singleton;
 
 import dagger.Component;
@@ -96,6 +98,24 @@ public class IbftProtocolScheduleTest {
     assertThat(validateHeader(schedule, parentHeader, blockHeader, 2)).isTrue();
   }
 
+  @Test
+  public void enforcesConfiguredTransactionGasLimit() {
+    final MutableBftConfigOptions genesisOptions =
+        new MutableBftConfigOptions(JsonBftConfigOptions.DEFAULT);
+    genesisOptions.setTransactionGasLimit(OptionalLong.of(8_000_000L));
+
+    final BftProtocolSchedule schedule =
+        createProtocolSchedule(component.bftExtraDataCodec(), genesisOptions);
+
+    // arbitraryTransition is the fork at block 1; look up via that block
+    assertThat(
+            schedule
+                .getByBlockNumberOrTimestamp(1, 0)
+                .getGasLimitCalculator()
+                .transactionGasLimitCap())
+        .isEqualTo(8_000_000L);
+  }
+
   private boolean validateHeader(
       final BftProtocolSchedule schedule,
       final BlockHeader parentHeader,
@@ -130,7 +150,8 @@ public class IbftProtocolScheduleTest {
         new BadBlockManager(),
         false,
         BalConfiguration.DEFAULT,
-        new NoOpMetricsSystem());
+        new NoOpMetricsSystem(),
+        8_000_000L);
   }
 
   @Module

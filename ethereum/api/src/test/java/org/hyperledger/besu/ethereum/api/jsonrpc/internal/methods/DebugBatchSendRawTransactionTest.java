@@ -120,7 +120,6 @@ public class DebugBatchSendRawTransactionTest {
     assertThat(result)
         .isNotNull()
         .hasSize(1)
-        .containsExactly(
-            new ExecutionStatus(0, false, "An unsupported encoded `v` value of 31 was found"));
+        .containsExactly(new ExecutionStatus(0, false, "Invalid RLP in raw transaction hex"));
   }
 }

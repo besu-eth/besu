@@ -73,6 +73,9 @@ public class TransactionDecoder {
       final RLPInput rlpInput, final EncodingContext context) {
     // Read the typed transaction bytes from the RLP input
     final Bytes typedTransactionBytes = rlpInput.readBytes();
+    if (typedTransactionBytes.isEmpty()) {
+      throw new IllegalArgumentException("Invalid RLP encoding: empty transaction bytes");
+    }
 
     // Determine the transaction type from the typed transaction bytes
     TransactionType transactionType =
