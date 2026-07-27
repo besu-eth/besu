@@ -67,6 +67,7 @@ import org.hyperledger.besu.metrics.MetricsSystemModule;
 import org.hyperledger.besu.metrics.ObservableMetricsSystem;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
+import org.hyperledger.besu.plugin.CoreConfiguration;
 import org.hyperledger.besu.plugin.services.BesuConfiguration;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.PicoCLIOptions;
@@ -584,6 +585,8 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
       final CommandLine commandLine = new CommandLine(CommandSpec.create());
       besuPluginContext.addService(PicoCLIOptions.class, new PicoCLIOptionsImpl(commandLine));
       besuPluginContext.addService(BesuConfiguration.class, commonPluginConfiguration);
+      besuPluginContext.addService(
+          CoreConfiguration.class, (CoreConfiguration) commonPluginConfiguration);
       metricCategoryRegistry.setMetricsConfiguration(metricsConfiguration);
       BesuPluginServiceRegistrar.registerEarlyServices(
           besuPluginContext,
