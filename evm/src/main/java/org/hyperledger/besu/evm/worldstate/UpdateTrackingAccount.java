@@ -52,25 +52,25 @@ public class UpdateTrackingAccount<A extends Account> implements MutableAccount 
   // Same ordering as Bytes.compareTo but monomorphic (UInt256 is final), using the
   // Long.compareUnsigned and Integer.numberOfLeadingZeros JVM intrinsics.
   static final Comparator<UInt256> STORAGE_KEY_COMPARATOR =
-          (final UInt256 a, final UInt256 b) -> {
-            // Fast path: small storage slots
-            if (a.fitsLong() && b.fitsLong()) {
-              return Long.compareUnsigned(a.toLong(), b.toLong());
-            }
-            final int lza = a.numberOfLeadingZeros();
-            final int lzb = b.numberOfLeadingZeros();
-            if (lza != lzb) {
-              // More leading zeros means smaller value
-              return lza > lzb ? -1 : 1;
-            }
-            for (int i = lza >> 3; i < 32; i++) {
-              final int cmp = (a.get(i) & 0xFF) - (b.get(i) & 0xFF);
-              if (cmp != 0) {
-                return cmp;
-              }
-            }
-            return 0;
-          };
+      (final UInt256 a, final UInt256 b) -> {
+        // Fast path: small storage slots
+        if (a.fitsLong() && b.fitsLong()) {
+          return Long.compareUnsigned(a.toLong(), b.toLong());
+        }
+        final int lza = a.numberOfLeadingZeros();
+        final int lzb = b.numberOfLeadingZeros();
+        if (lza != lzb) {
+          // More leading zeros means smaller value
+          return lza > lzb ? -1 : 1;
+        }
+        for (int i = lza >> 3; i < 32; i++) {
+          final int cmp = (a.get(i) & 0xFF) - (b.get(i) & 0xFF);
+          if (cmp != 0) {
+            return cmp;
+          }
+        }
+        return 0;
+      };
 
   private final Address address;
   private final Hash addressHash;
@@ -124,9 +124,9 @@ public class UpdateTrackingAccount<A extends Account> implements MutableAccount 
 
     this.address = account.getAddress();
     this.addressHash =
-            (account instanceof UpdateTrackingAccount)
-                    ? ((UpdateTrackingAccount<?>) account).addressHash
-                    : account.getAddressHash();
+        (account instanceof UpdateTrackingAccount)
+            ? ((UpdateTrackingAccount<?>) account).addressHash
+            : account.getAddressHash();
     this.account = account;
 
     this.nonce = account.getNonce();
@@ -319,7 +319,7 @@ public class UpdateTrackingAccount<A extends Account> implements MutableAccount 
 
   @Override
   public NavigableMap<Bytes32, AccountStorageEntry> storageEntriesFrom(
-          final Bytes32 startKeyHash, final int limit) {
+      final Bytes32 startKeyHash, final int limit) {
     final NavigableMap<Bytes32, AccountStorageEntry> entries;
     if (account != null) {
       entries = account.storageEntriesFrom(startKeyHash, limit);
@@ -327,9 +327,9 @@ public class UpdateTrackingAccount<A extends Account> implements MutableAccount 
       entries = new TreeMap<>();
     }
     updatedStorage.entrySet().stream()
-            .map(entry -> AccountStorageEntry.forKeyAndValue(entry.getKey(), entry.getValue()))
-            .filter(entry -> entry.getKeyHash().compareTo(startKeyHash) >= 0)
-            .forEach(entry -> entries.put(entry.getKeyHash(), entry));
+        .map(entry -> AccountStorageEntry.forKeyAndValue(entry.getKey(), entry.getValue()))
+        .filter(entry -> entry.getKeyHash().compareTo(startKeyHash) >= 0)
+        .forEach(entry -> entries.put(entry.getKeyHash(), entry));
 
     while (entries.size() > limit) {
       entries.remove(entries.lastKey());
@@ -363,7 +363,7 @@ public class UpdateTrackingAccount<A extends Account> implements MutableAccount 
   @Override
   public boolean isStorageEmpty() {
     return updatedStorage.isEmpty()
-            && (storageWasCleared || account == null || account.isStorageEmpty());
+        && (storageWasCleared || account == null || account.isStorageEmpty());
   }
 
   @Override
@@ -396,7 +396,7 @@ public class UpdateTrackingAccount<A extends Account> implements MutableAccount 
       storage = "[cleared]";
     }
     return String.format(
-            "%s -> {nonce: %s, balance:%s, code:%s, storage:%s }",
-            address, nonce, balance, updatedCode == null ? "[not updated]" : updatedCode, storage);
+        "%s -> {nonce: %s, balance:%s, code:%s, storage:%s }",
+        address, nonce, balance, updatedCode == null ? "[not updated]" : updatedCode, storage);
   }
 }

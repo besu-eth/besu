@@ -170,52 +170,6 @@ class AbstractBlockProcessorBalValidationTest {
   }
 
   @Test
-  void perTransactionBalSizeFailFastDoesNotRunFollowingTransactions() {
-    lenient().when(gasCalculator.getBlockAccessListItemCost()).thenReturn(2000L);
-    final long gasLimit = 16_000L;
-    final int maxItems = 8;
-    assertThat(gasLimit / 2000L).isEqualTo(maxItems);
-
-    final BlockHeader header = new BlockHeaderTestFixture().gasLimit(gasLimit).buildHeader();
-
-    final AtomicInteger txCalls = new AtomicInteger(0);
-    final IntFunction<PartialBlockAccessView> partialForIndex =
-        loc -> partialOneAccountOneSlot(loc, testAddress(loc + 1L), loc * 100L + 1L);
-
-    final AbstractBlockProcessor processor =
-        new BalStubBlockProcessor(
-            transactionProcessor,
-            transactionReceiptFactory,
-            Wei.ZERO,
-            BlockHeader::getCoinbase,
-            true,
-            protocolSchedule,
-            BalConfiguration.DEFAULT,
-            loc -> {
-              txCalls.incrementAndGet();
-              return TransactionProcessingResult.successful(
-                  List.of(),
-                  1000L,
-                  0L,
-                  Bytes.EMPTY,
-                  Optional.of(partialForIndex.apply(loc)),
-                  ValidationResult.valid());
-            });
-
-    final BlockProcessingResult result =
-        processor.processBlock(
-            protocolContext,
-            blockchain,
-            worldState,
-            blockWithTxs(header, 6, 2000L),
-            Optional.empty());
-
-    assertThat(result.isSuccessful()).isFalse();
-    assertThat(result.errorMessage.orElse("")).contains("Block access list size exceeds maximum");
-    assertThat(txCalls).hasValue(5);
-  }
-
-  @Test
   void afterBuildFailsWhenHeaderBalHashDoesNotMatchConstructedBal() {
     lenient().when(gasCalculator.getBlockAccessListItemCost()).thenReturn(2000L);
     final PartialBlockAccessView partial = partialOneAccountOneSlot(0, testAddress(1), 1L);

@@ -196,8 +196,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
             .computeIfAbsent(
                 address,
                 k ->
-                    new StorageConsumingMap<>(
-                        address, new ConcurrentHashMap<>(), storagePreloader))
+                    new StorageConsumingMap<>(address, new ConcurrentHashMap<>(), storagePreloader))
             .put(slotKey, new PathBasedValue<>(prior, updated));
       }
 

@@ -186,9 +186,7 @@ public class AccessLocationTracker implements Eip7928AccessList {
         final boolean isUpdate = originalValue != null && !originalValue.equals(updatedValue);
         if (isSet || isReset || isUpdate) {
           accountBuilder.addStorageChange(
-              slotKeyObj,
-              originalValue != null ? originalValue : UInt256.ZERO,
-              updatedValue);
+              slotKeyObj, originalValue != null ? originalValue : UInt256.ZERO, updatedValue);
         } else {
           accountBuilder.addStorageRead(slotKeyObj);
         }

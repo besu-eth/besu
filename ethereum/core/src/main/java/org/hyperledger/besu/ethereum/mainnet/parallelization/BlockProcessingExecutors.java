@@ -23,9 +23,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Typed thread pools for block processing: one for CPU work (tx execution), one for IO (RocksDB
- * prefetch), one for parallel storage-trie updates, one for BAL state-root.
- * Sizes can be set with system properties {@code besu.block.cpuThreads}, {@code besu.block.ioThreads},
- * {@code besu.block.storageTrieThreads}, {@code besu.block.accountTrieThreads}, {@code
+ * prefetch), one for parallel storage-trie updates, one for BAL state-root. Sizes can be set with
+ * system properties {@code besu.block.cpuThreads}, {@code besu.block.ioThreads}, {@code
+ * besu.block.storageTrieThreads}, {@code besu.block.accountTrieThreads}, {@code
  * besu.block.stateRootThreads}. All threads are daemon.
  */
 public final class BlockProcessingExecutors {
@@ -53,14 +53,12 @@ public final class BlockProcessingExecutors {
   // Parallel per-account storage-trie updates during state-root commit. Work-stealing
   // suits many short independent tasks (same model as parallelStream / common pool).
   private static final ForkJoinPool STORAGE_TRIE_FORK_JOIN_POOL =
-      newWorkStealingPool(
-          STORAGE_TRIE_THREADS, "besu-block-storage-trie", Thread.NORM_PRIORITY);
+      newWorkStealingPool(STORAGE_TRIE_THREADS, "besu-block-storage-trie", Thread.NORM_PRIORITY);
 
   // Parallel account-trie updates during state-root commit. Kept separate from the storage-trie
   // pool so account workers can block on storage futures without starving storage root hashing.
   private static final ForkJoinPool ACCOUNT_TRIE_FORK_JOIN_POOL =
-      newWorkStealingPool(
-          ACCOUNT_TRIE_THREADS, "besu-block-account-trie", Thread.NORM_PRIORITY);
+      newWorkStealingPool(ACCOUNT_TRIE_THREADS, "besu-block-account-trie", Thread.NORM_PRIORITY);
 
   private static final ExecutorService STORAGE_TRIE_EXECUTOR = STORAGE_TRIE_FORK_JOIN_POOL;
 
