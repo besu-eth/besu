@@ -14,13 +14,13 @@
  */
 package org.hyperledger.besu.ethereum.vm.operations;
 
+import static org.hyperledger.besu.ethereum.vm.operations.BenchmarkHelper.pow2;
+
 import org.hyperledger.besu.ethereum.utils.Range;
 
 import java.util.Random;
 
 import org.apache.tuweni.bytes.Bytes;
-import org.openjdk.jmh.annotations.Level;
-import org.openjdk.jmh.annotations.Setup;
 
 public abstract class TernaryArithmeticOperationBenchmark extends TernaryOperationBenchmark {
 
@@ -147,7 +147,6 @@ public abstract class TernaryArithmeticOperationBenchmark extends TernaryOperati
     return "RANDOM".equalsIgnoreCase(s) ? -1 : Integer.parseInt(s) / 8;
   }
 
-  @Setup(Level.Iteration)
   @Override
   @SuppressWarnings("StringCaseLocaleUsage")
   public void setUp() {
@@ -164,12 +163,6 @@ public abstract class TernaryArithmeticOperationBenchmark extends TernaryOperati
     }
 
     index = 0;
-  }
-
-  private static Bytes pow2(final int n) {
-    final byte[] bytes = new byte[32];
-    bytes[31 - (n >>> 3)] = (byte) (1 << (n & 7));
-    return Bytes.wrap(bytes);
   }
 
   /**
