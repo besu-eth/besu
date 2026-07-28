@@ -156,6 +156,7 @@ public enum RpcErrorType implements RpcMethodError {
   TRANSACTION_UPFRONT_COST_EXCEEDS_BALANCE(-32004, "Upfront cost exceeds account balance"),
   EXCEEDS_BLOCK_GAS_LIMIT(-32005, "Transaction gas limit exceeds block gas limit"),
   EXCEEDS_TRANSACTION_GAS_LIMIT(-32005, "Transaction gas limit cap exceeded"),
+  EXCEEDS_RPC_MAX_ACTIVE_SUBSCRIPTIONS(-32005, "Maximum number of active subscriptions exceeded"),
   EXCEEDS_RPC_MAX_BLOCK_RANGE(-32005, "Requested range exceeds maximum RPC range limit"),
   EXCEEDS_RPC_MAX_BATCH_SIZE(-32005, "Number of requests exceeds max batch size"),
   NONCE_TOO_HIGH(-32006, "Nonce too high"),
