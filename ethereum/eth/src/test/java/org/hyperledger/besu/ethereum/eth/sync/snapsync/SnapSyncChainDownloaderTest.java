@@ -234,6 +234,45 @@ public class SnapSyncChainDownloaderTest {
   }
 
   @Test
+  public void chainSyncStateShouldNotBeDeletedWhenWorldStateHealFinishes() throws Exception {
+    setupSuccessfulPipelineMocks();
+
+    final SnapSyncChainDownloader downloader =
+        new SnapSyncChainDownloader(
+            pipelineFactory,
+            syncConfig,
+            protocolSchedule,
+            protocolContext,
+            ethContext,
+            syncState,
+            syncDurationMetrics,
+            pivotBlockHeader,
+            chainSyncStateStorage,
+            headerDownloader);
+
+    final CompletableFuture<Void> downloadFuture = downloader.start();
+
+    // Chain sync state is persisted once Stage 1/Stage 2 have run.
+    assertThat(
+            chainSyncStateStorage.loadState(
+                rlp -> BlockHeader.readFrom(rlp, new MainnetBlockHeaderFunctions())))
+        .isNotNull();
+
+    // Simulate trie heal completing while flat database heal is still in progress: no pivot
+    // update is pending, so this resolves the chain-download stage as "fully done".
+    downloader.onWorldStateHealFinished();
+
+    downloadFuture.get(5, TimeUnit.SECONDS);
+
+    // The resume marker must still be present: flat database heal has not completed yet, so a
+    // restart at this point must still be able to resume snap sync.
+    assertThat(
+            chainSyncStateStorage.loadState(
+                rlp -> BlockHeader.readFrom(rlp, new MainnetBlockHeaderFunctions())))
+        .isNotNull();
+  }
+
+  @Test
   public void shouldDeferPipelineStartWhenNoPeersAvailable() {
     when(ethPeers.peerCount()).thenReturn(0);
     when(scheduler.scheduleFutureTask(any(Runnable.class), any(Duration.class)))
