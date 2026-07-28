@@ -55,6 +55,7 @@ import org.hyperledger.besu.ethereum.p2p.peers.Peer;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions.Action;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissionsDenylist;
+import org.hyperledger.besu.ethereum.p2p.rlpx.ConnectSource;
 import org.hyperledger.besu.ethereum.p2p.rlpx.RlpxAgent;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
@@ -587,7 +588,7 @@ public class PeerDiscoveryControllerTest {
     // getting in the way of this test.
     final OutboundMessageHandler outboundMessageHandler = mock(OutboundMessageHandler.class);
     RlpxAgent rlpxAgentMock = mock(RlpxAgent.class);
-    when(rlpxAgentMock.connect(any()))
+    when(rlpxAgentMock.connect(any(), any(ConnectSource.class)))
         .thenReturn(CompletableFuture.failedFuture(new Exception(new TimeoutException())));
     controller =
         getControllerBuilder()
@@ -697,7 +698,7 @@ public class PeerDiscoveryControllerTest {
 
   private ControllerBuilder getControllerBuilder() {
     final RlpxAgent rlpxAgent = mock(RlpxAgent.class);
-    when(rlpxAgent.connect(any()))
+    when(rlpxAgent.connect(any(), any(ConnectSource.class)))
         .thenReturn(CompletableFuture.failedFuture(new RuntimeException()));
     return ControllerBuilder.create()
         .nodeKey(localNodeKey)

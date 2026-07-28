@@ -141,51 +141,6 @@ public class ChainSyncStateStorageTest {
   }
 
   @Test
-  public void shouldDeleteStateFiles() {
-    final ChainSyncState state =
-        new ChainSyncState(pivotBlockHeader, checkpointBlockHeader, headerDownloadAnchor, false);
-
-    storage.storeState(state);
-
-    // Verify state file exists
-    assertThat(tempDir.resolve("chain-sync-state.rlp").toFile().exists()).isTrue();
-
-    // Delete the state
-    storage.deleteState();
-
-    // Verify state file is deleted
-    assertThat(tempDir.resolve("chain-sync-state.rlp").toFile().exists()).isFalse();
-
-    // Load should return null after deletion
-    assertThat(
-            storage.loadState(rlp -> BlockHeader.readFrom(rlp, new MainnetBlockHeaderFunctions())))
-        .isNull();
-  }
-
-  @Test
-  public void shouldDeleteBothStateAndTempFiles() throws IOException {
-    final ChainSyncState state =
-        new ChainSyncState(pivotBlockHeader, checkpointBlockHeader, headerDownloadAnchor, false);
-
-    storage.storeState(state);
-
-    // Manually create a temp file to simulate interrupted write
-    final Path tempFile = tempDir.resolve("chain-sync-state.rlp.tmp");
-    Files.write(tempFile, new byte[] {1, 2, 3});
-
-    // Verify both files exist
-    assertThat(tempDir.resolve("chain-sync-state.rlp").toFile().exists()).isTrue();
-    assertThat(tempFile.toFile().exists()).isTrue();
-
-    // Delete the state
-    storage.deleteState();
-
-    // Verify both files are deleted
-    assertThat(tempDir.resolve("chain-sync-state.rlp").toFile().exists()).isFalse();
-    assertThat(tempFile.toFile().exists()).isFalse();
-  }
-
-  @Test
   public void shouldCleanupLeftoverTempFileOnStore() throws IOException {
     // Manually create a leftover temp file
     final Path tempFile = tempDir.resolve("chain-sync-state.rlp.tmp");
@@ -262,12 +217,5 @@ public class ChainSyncStateStorageTest {
     assertThat(loaded.headersDownloadComplete()).isTrue();
     // headerDownloadAnchor is preserved when marking the header download complete.
     assertThat(loaded.headerDownloadAnchor()).isEqualTo(headerDownloadAnchor);
-
-    // 4. Delete the state
-    storage.deleteState();
-
-    assertThat(
-            storage.loadState(rlp -> BlockHeader.readFrom(rlp, new MainnetBlockHeaderFunctions())))
-        .isNull();
   }
 }

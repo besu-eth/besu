@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import org.hyperledger.besu.consensus.merge.MergeContext;
+import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
@@ -35,6 +36,7 @@ import java.util.function.Supplier;
 
 import com.fasterxml.jackson.databind.JsonMappingException;
 import io.vertx.core.Vertx;
+import org.immutables.value.Value;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,6 +48,17 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
     ACCEPTED,
     INVALID_BLOCK_HASH;
   }
+
+  // Fields used by migrated series (currently only engine_forkchoiceUpdatedV* — see the package
+  // README's migration status table). Not-yet-migrated series keep using the TRANSITIONAL SHIM
+  // constructors below instead of this record.
+  @Value.Builder
+  public record ConstructorArguments(
+      ProtocolSchedule protocolSchedule,
+      ProtocolContext protocolContext,
+      Vertx vertx,
+      EngineCallListener engineCallListener,
+      MergeMiningCoordinator mergeCoordinator) {}
 
   private static final Logger LOG = LoggerFactory.getLogger(ExecutionEngineJsonRpcMethod.class);
   public static final long ENGINE_API_LOGGING_THRESHOLD = 60000L;
@@ -95,6 +108,19 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
       final Vertx vertx,
       final EngineCallListener engineCallListener) {
     this(protocolSchedule, protocolContext, vertx, engineCallListener, null, null);
+  }
+
+  protected ExecutionEngineJsonRpcMethod(
+      final ConstructorArguments constructorArguments,
+      final HardforkId minSupportedFork,
+      final HardforkId firstUnsupportedFork) {
+    this(
+        constructorArguments.protocolSchedule(),
+        constructorArguments.protocolContext(),
+        constructorArguments.vertx(),
+        constructorArguments.engineCallListener(),
+        minSupportedFork,
+        firstUnsupportedFork);
   }
 
   protected ExecutionEngineJsonRpcMethod(

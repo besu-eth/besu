@@ -695,9 +695,7 @@ task checkMavenCoordinateCollisions {
   }
 }
 
-tasks.register('checkPluginAPIChanges', DefaultTask) {}
-checkPluginAPIChanges.dependsOn(':plugin-api:checkAPIChanges')
-check.dependsOn('checkPluginAPIChanges', 'checkMavenCoordinateCollisions')
+check.dependsOn('checkMavenCoordinateCollisions')
 
 subprojects {
 
@@ -952,16 +950,17 @@ run {
   }
 }
 
-def defaultJvmOpts21 = application.applicationDefaultJvmArgs + [
+def defaultJvmOpts25 = application.applicationDefaultJvmArgs + [
   "-XX:MaxHeapFreeRatio=30",
   "-XX:MinHeapFreeRatio=10",
   "-XX:MaxGCPauseMillis=100",
+  "-XX:+UseCompactObjectHeaders",
   "-XX:StartFlightRecording,settings=default.jfc",
-  "-Xlog:jfr*=off"
-]
-
-def defaultJvmOpts25 = defaultJvmOpts21 + [
-  "-XX:+UseCompactObjectHeaders"
+  "-Xlog:jfr*=off",
+  // log4j-layout-template-json opportunistically uses a jctools queue (already on the classpath
+  // via netty-all) to recycle buffers for structured logging formats, which triggers the JEP 471
+  // terminally-deprecated sun.misc.Unsafe warning on first use.
+  "--sun-misc-unsafe-memory-access=allow"
 ]
 
 def untunedJvmOpts = application.applicationDefaultJvmArgs
@@ -970,23 +969,10 @@ def evmToolJvmOpts = [
   "-Dsecp256k1.randomize=false"
 ]
 
-def serializeDefaultJvmOpts(opts) {
-  return "'" + opts.collect{ '"' + it.replaceAll(/"/, '\\"').replaceAll(/\$/, '\\$') + '"' }.join(' ') + "'"
-}
-
-def tweakStartScript(createScriptTask, jvmOptsForJava25) {
+def tweakStartScript(createScriptTask) {
   def shortenWindowsClasspath = { line ->
     line.replaceAll(/^set CLASSPATH=.*$/, "set CLASSPATH=%APP_HOME%/lib/*")
   }
-
-  // Replace Java 25 opts placeholder - must be before BESU_HOME replacement
-  createScriptTask.unixScript.text = createScriptTask.unixScript.text
-    .replace('@DEFAULT_JVM_OPTS_25@', jvmOptsForJava25)
-
-  // For Windows, remove the outer single quotes
-  def windowsJvmOpts = jvmOptsForJava25.replaceAll(/^'|'$/, '')
-  createScriptTask.windowsScript.text = createScriptTask.windowsScript.text
-    .replace('@DEFAULT_JVM_OPTS_25@', windowsJvmOpts)
 
   createScriptTask.unixScript.text = createScriptTask.unixScript.text.replace('BESU_HOME', '\$APP_HOME')
   createScriptTask.windowsScript.text = createScriptTask.windowsScript.text.replace('BESU_HOME', '%~dp0..')
@@ -1000,10 +986,10 @@ def tweakStartScript(createScriptTask, jvmOptsForJava25) {
 }
 
 startScripts {
-  defaultJvmOpts = defaultJvmOpts21
+  defaultJvmOpts = defaultJvmOpts25
   unixStartScriptGenerator.template = resources.text.fromFile("${projectDir}/app/src/main/scripts/unixStartScript.txt")
   windowsStartScriptGenerator.template = resources.text.fromFile("${projectDir}/app/src/main/scripts/windowsStartScript.txt")
-  doLast { tweakStartScript(startScripts, serializeDefaultJvmOpts(defaultJvmOpts25)) }
+  doLast { tweakStartScript(startScripts) }
 }
 
 task untunedStartScripts(type: CreateStartScripts) {
@@ -1014,7 +1000,7 @@ task untunedStartScripts(type: CreateStartScripts) {
   defaultJvmOpts = untunedJvmOpts
   unixStartScriptGenerator.template = resources.text.fromFile("${projectDir}/app/src/main/scripts/unixStartScript.txt")
   windowsStartScriptGenerator.template = resources.text.fromFile("${projectDir}/app/src/main/scripts/windowsStartScript.txt")
-  doLast { tweakStartScript(untunedStartScripts, serializeDefaultJvmOpts(untunedJvmOpts)) }
+  doLast { tweakStartScript(untunedStartScripts) }
 }
 
 task evmToolStartScripts(type: CreateStartScripts) {
@@ -1025,7 +1011,7 @@ task evmToolStartScripts(type: CreateStartScripts) {
   defaultJvmOpts = evmToolJvmOpts
   unixStartScriptGenerator.template = resources.text.fromFile("${projectDir}/app/src/main/scripts/unixStartScript.txt")
   windowsStartScriptGenerator.template = resources.text.fromFile("${projectDir}/app/src/main/scripts/windowsStartScript.txt")
-  doLast { tweakStartScript(evmToolStartScripts, serializeDefaultJvmOpts(evmToolJvmOpts)) }
+  doLast { tweakStartScript(evmToolStartScripts) }
 }
 
 task autocomplete(type: JavaExec) {

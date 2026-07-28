@@ -28,6 +28,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ConstructorArgumentsBuilder;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ForkchoiceStateV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttributesV3;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
@@ -132,11 +133,13 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
 
     method =
         new EngineForkchoiceUpdatedV3<>(
-            protocolSchedule,
-            protocolContext,
-            vertx,
-            mock(EngineCallListener.class),
-            mergeCoordinator,
+            new ConstructorArgumentsBuilder()
+                .protocolSchedule(protocolSchedule)
+                .protocolContext(protocolContext)
+                .vertx(vertx)
+                .engineCallListener(mock(EngineCallListener.class))
+                .mergeCoordinator(mergeCoordinator)
+                .build(),
             CANCUN,
             AMSTERDAM);
   }
