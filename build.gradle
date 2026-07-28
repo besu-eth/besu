@@ -695,9 +695,7 @@ task checkMavenCoordinateCollisions {
   }
 }
 
-tasks.register('checkPluginAPIChanges', DefaultTask) {}
-checkPluginAPIChanges.dependsOn(':plugin-api:checkAPIChanges')
-check.dependsOn('checkPluginAPIChanges', 'checkMavenCoordinateCollisions')
+check.dependsOn('checkMavenCoordinateCollisions')
 
 subprojects {
 

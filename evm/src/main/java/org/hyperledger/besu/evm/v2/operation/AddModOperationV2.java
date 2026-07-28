@@ -17,31 +17,27 @@ package org.hyperledger.besu.evm.v2.operation;
 import org.hyperledger.besu.evm.UInt256;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
-import org.hyperledger.besu.evm.operation.Operation;
 
-/** The Mul mod operation. */
-public class MulModOperationV2 extends AbstractFixedCostOperationV2 {
-
-  private static final OperationResult MUL_MOD_SUCCESS = new OperationResult(8, null);
+/** The Add mod operation. */
+public class AddModOperationV2 extends AbstractFixedCostOperationV2 {
+  private static final OperationResult addModSuccess = new OperationResult(8, null);
 
   /**
-   * Instantiates a new Mul mod operation.
+   * Instantiates a new Add mod operation.
    *
    * @param gasCalculator the gas calculator
    */
-  public MulModOperationV2(final GasCalculator gasCalculator) {
-    super(0x09, "MULMOD", 3, 1, gasCalculator, gasCalculator.getMidTierGasCost());
+  public AddModOperationV2(final GasCalculator gasCalculator) {
+    super(0x08, "ADDMOD", 3, 1, gasCalculator, gasCalculator.getMidTierGasCost());
   }
 
   @Override
-  public Operation.OperationResult executeFixedCostOperation(final MessageFrame frame) {
+  public OperationResult executeFixedCostOperation(final MessageFrame frame) {
     return staticOperation(frame);
   }
 
   /**
-   * Performs MULMOD operation.
-   *
-   * <p>mulmod(a, b, m) = (a * b) mod m
+   * Static operation.
    *
    * @param frame the frame
    * @return the operation result
@@ -61,7 +57,7 @@ public class MulModOperationV2 extends AbstractFixedCostOperationV2 {
     final UInt256 modulus =
         new UInt256(stack[mOffset], stack[mOffset + 1], stack[mOffset + 2], stack[mOffset + 3]);
 
-    final UInt256 r = valueA.mulMod(valueB, modulus);
+    final UInt256 r = valueA.addMod(valueB, modulus);
 
     stack[mOffset] = r.u3();
     stack[mOffset + 1] = r.u2();
@@ -69,6 +65,6 @@ public class MulModOperationV2 extends AbstractFixedCostOperationV2 {
     stack[mOffset + 3] = r.u0();
 
     frame.setTopV2(top - 2);
-    return MUL_MOD_SUCCESS;
+    return addModSuccess;
   }
 }
