@@ -158,6 +158,7 @@ public enum RpcErrorType implements RpcMethodError {
   EXCEEDS_TRANSACTION_GAS_LIMIT(-32005, "Transaction gas limit cap exceeded"),
   EXCEEDS_RPC_MAX_BLOCK_RANGE(-32005, "Requested range exceeds maximum RPC range limit"),
   EXCEEDS_RPC_MAX_BATCH_SIZE(-32005, "Number of requests exceeds max batch size"),
+  EXCEEDS_RPC_MAX_ACTIVE_FILTERS(-32005, "Maximum number of active filters exceeded"),
   NONCE_TOO_HIGH(-32006, "Nonce too high"),
   TX_SENDER_NOT_AUTHORIZED(-32007, "Sender account not authorized to send transactions"),
   CHAIN_HEAD_WORLD_STATE_NOT_AVAILABLE(-32008, "Initial sync is still in progress"),

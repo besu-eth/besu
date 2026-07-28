@@ -859,6 +859,8 @@ public class RunnerBuilder {
         new FilterManagerBuilder()
             .blockchainQueries(blockchainQueries)
             .transactionPool(transactionPool)
+            .maxFilterCount(apiConfiguration.getMaxFilterCount())
+            .filterTimeout(apiConfiguration.getFilterTimeout())
             .build();
     vertx.deployVerticle(filterManager);
 
