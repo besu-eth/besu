@@ -246,7 +246,8 @@ public class Create2OperationTest {
   @Test
   void amsterdamMaxInitCodeSizeCreate() {
     final UInt256 memoryOffset = UInt256.fromHexString("0xFF");
-    final UInt256 memoryLength = UInt256.fromHexString("0x10000");
+    // exactly MAX_INITCODE_SIZE_AMSTERDAM (0x20000)
+    final UInt256 memoryLength = UInt256.fromHexString("0x20000");
     final MessageFrame messageFrame = testMemoryFrame(memoryOffset, memoryLength);
 
     when(account.getNonce()).thenReturn(55L);
@@ -267,7 +268,8 @@ public class Create2OperationTest {
   @Test
   void amsterdamMaxInitCodeSizePlus1Create() {
     final UInt256 memoryOffset = UInt256.fromHexString("0xFF");
-    final UInt256 memoryLength = UInt256.fromHexString("0x10001");
+    // MAX_INITCODE_SIZE_AMSTERDAM (0x20000) + 1
+    final UInt256 memoryLength = UInt256.fromHexString("0x20001");
     final MessageFrame messageFrame = testMemoryFrame(memoryOffset, memoryLength);
 
     when(account.getNonce()).thenReturn(55L);
@@ -364,7 +366,9 @@ public class Create2OperationTest {
             .gasPrice(Wei.ZERO)
             .miningBeneficiary(Address.ZERO)
             .originator(Address.ZERO)
-            .initialGas(100000L)
+            // Enough to cover memory expansion plus CREATE2 keccak hashing of a 128KiB+ initcode so
+            // the MAX_INIT_CODE_SIZE check is reached rather than halting on gas first.
+            .initialGas(1_000_000L)
             .worldUpdater(worldUpdater)
             .build();
     messageFrame.pushStackItem(Bytes.EMPTY);

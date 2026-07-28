@@ -16,26 +16,28 @@ package org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulato
 
 import org.hyperledger.besu.plugin.services.trielogs.TrieLog;
 
+import java.util.function.Supplier;
+
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.apache.commons.lang3.builder.HashCodeBuilder;
 
 public class PathBasedValue<T> implements TrieLog.LogTuple<T> {
-  private T prior;
-  private T updated;
+  private Supplier<T> prior;
+  private Supplier<T> updated;
   private boolean lastStepCleared;
 
   private boolean clearedAtLeastOnce;
 
   public PathBasedValue(final T prior, final T updated) {
-    this.prior = prior;
-    this.updated = updated;
+    this.prior = () -> prior;
+    this.updated = () -> updated;
     this.lastStepCleared = false;
     this.clearedAtLeastOnce = false;
   }
 
   public PathBasedValue(final T prior, final T updated, final boolean lastStepCleared) {
-    this.prior = prior;
-    this.updated = updated;
+    this.prior = () -> prior;
+    this.updated = () -> updated;
     this.lastStepCleared = lastStepCleared;
     this.clearedAtLeastOnce = lastStepCleared;
   }
@@ -45,24 +47,40 @@ public class PathBasedValue<T> implements TrieLog.LogTuple<T> {
       final T updated,
       final boolean lastStepCleared,
       final boolean clearedAtLeastOnce) {
+    this.prior = () -> prior;
+    this.updated = () -> updated;
+    this.lastStepCleared = lastStepCleared;
+    this.clearedAtLeastOnce = clearedAtLeastOnce;
+  }
+
+  private PathBasedValue(
+      final Supplier<T> prior,
+      final Supplier<T> updated,
+      final boolean lastStepCleared,
+      final boolean clearedAtLeastOnce) {
     this.prior = prior;
     this.updated = updated;
     this.lastStepCleared = lastStepCleared;
     this.clearedAtLeastOnce = clearedAtLeastOnce;
   }
 
+  public static <T> PathBasedValue<T> withLazy(
+      final Supplier<T> priorLoader, final Supplier<T> updatedLoader) {
+    return new PathBasedValue<>(priorLoader, updatedLoader, false, false);
+  }
+
   @Override
   public T getPrior() {
-    return prior;
+    return prior.get();
   }
 
   @Override
   public T getUpdated() {
-    return updated;
+    return updated.get();
   }
 
   public PathBasedValue<T> setPrior(final T prior) {
-    this.prior = prior;
+    this.prior = () -> prior;
     return this;
   }
 
@@ -71,7 +89,7 @@ public class PathBasedValue<T> implements TrieLog.LogTuple<T> {
     if (lastStepCleared) {
       this.clearedAtLeastOnce = true;
     }
-    this.updated = updated;
+    this.updated = () -> updated;
     return this;
   }
 
@@ -94,9 +112,9 @@ public class PathBasedValue<T> implements TrieLog.LogTuple<T> {
   public String toString() {
     return "PathBasedValue{"
         + "prior="
-        + prior
+        + getPrior()
         + ", updated="
-        + updated
+        + getUpdated()
         + ", cleared="
         + lastStepCleared
         + '}';
@@ -113,21 +131,23 @@ public class PathBasedValue<T> implements TrieLog.LogTuple<T> {
     PathBasedValue<?> that = (PathBasedValue<?>) o;
     return new EqualsBuilder()
         .append(lastStepCleared, that.lastStepCleared)
-        .append(prior, that.prior)
-        .append(updated, that.updated)
+        .append(clearedAtLeastOnce, that.clearedAtLeastOnce)
+        .append(getPrior(), that.getPrior())
+        .append(getUpdated(), that.getUpdated())
         .isEquals();
   }
 
   @Override
   public int hashCode() {
     return new HashCodeBuilder(17, 37)
-        .append(prior)
-        .append(updated)
+        .append(getPrior())
+        .append(getUpdated())
         .append(lastStepCleared)
+        .append(clearedAtLeastOnce)
         .toHashCode();
   }
 
   public PathBasedValue<T> copy() {
-    return new PathBasedValue<T>(prior, updated, lastStepCleared, clearedAtLeastOnce);
+    return new PathBasedValue<>(prior, updated, lastStepCleared, clearedAtLeastOnce);
   }
 }

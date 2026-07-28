@@ -406,13 +406,6 @@ public interface GenesisConfigOptions {
   TransitionsConfigOptions getTransitions();
 
   /**
-   * The PoW algorithm associated with the genesis file.
-   *
-   * @return the PoW algorithm in use.
-   */
-  PowAlgorithm getPowAlgorithm();
-
-  /**
    * The elliptic curve which should be used in SignatureAlgorithm.
    *
    * @return the name of the elliptic curve.

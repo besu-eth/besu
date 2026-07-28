@@ -19,9 +19,16 @@ import static org.hyperledger.besu.ethereum.core.MiningConfiguration.DEFAULT_PLU
 import static org.hyperledger.besu.ethereum.core.MiningConfiguration.DEFAULT_POA_BLOCK_TXS_SELECTION_MAX_TIME;
 import static org.hyperledger.besu.ethereum.core.MiningConfiguration.DEFAULT_POS_BLOCK_TXS_SELECTION_MAX_TIME;
 import static org.hyperledger.besu.ethereum.core.MiningConfiguration.Unstable.DEFAULT_POS_BLOCK_CREATION_MAX_TIME;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atMost;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration;
 import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration.MutableInitValues;
@@ -33,11 +40,14 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.OptionalLong;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
+import picocli.CommandLine;
 
 @ExtendWith(MockitoExtension.class)
 public class MiningOptionsTest extends AbstractCLIOptionsTest<MiningConfiguration, MiningOptions> {
@@ -397,6 +407,59 @@ public class MiningOptionsTest extends AbstractCLIOptionsTest<MiningConfiguratio
         "--max-blobs-per-transaction must be a non-negative value",
         "--max-blobs-per-transaction",
         "-9");
+  }
+
+  @Test
+  public void warnsWhenTargetGasLimitSetOnBuiltInGenesisWithAmsterdamScheduled() {
+    final MiningConfiguration miningConfiguration = MiningConfiguration.newDefault();
+    miningConfiguration.setTargetGasLimit(36_000_000L);
+    final MiningOptions options = MiningOptions.fromConfig(miningConfiguration);
+
+    final GenesisConfigOptions genesisConfigOptions = mock(GenesisConfigOptions.class);
+    when(genesisConfigOptions.getAmsterdamTime()).thenReturn(OptionalLong.of(1_777_000_000L));
+
+    options.validate(new CommandLine(options), genesisConfigOptions, true, true, mockLogger);
+
+    final ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
+    verify(mockLogger).warn(messageCaptor.capture(), eq(36_000_000L), eq(1_777_000_000L));
+    assertThat(messageCaptor.getValue()).contains("--target-gas-limit");
+    assertThat(messageCaptor.getValue()).contains("Amsterdam");
+  }
+
+  @Test
+  public void doesNotWarnAboutTargetGasLimitOnCustomGenesis() {
+    final MiningConfiguration miningConfiguration = MiningConfiguration.newDefault();
+    miningConfiguration.setTargetGasLimit(36_000_000L);
+    final MiningOptions options = MiningOptions.fromConfig(miningConfiguration);
+
+    options.validate(
+        new CommandLine(options), mock(GenesisConfigOptions.class), true, false, mockLogger);
+
+    verify(mockLogger, never()).warn(anyString(), any(), any());
+  }
+
+  @Test
+  public void doesNotWarnAboutTargetGasLimitWhenAmsterdamUnscheduled() {
+    final MiningConfiguration miningConfiguration = MiningConfiguration.newDefault();
+    miningConfiguration.setTargetGasLimit(36_000_000L);
+    final MiningOptions options = MiningOptions.fromConfig(miningConfiguration);
+
+    final GenesisConfigOptions genesisConfigOptions = mock(GenesisConfigOptions.class);
+    when(genesisConfigOptions.getAmsterdamTime()).thenReturn(OptionalLong.empty());
+
+    options.validate(new CommandLine(options), genesisConfigOptions, true, true, mockLogger);
+
+    verify(mockLogger, never()).warn(anyString(), any(), any());
+  }
+
+  @Test
+  public void doesNotWarnAboutTargetGasLimitWhenNotSet() {
+    final MiningOptions options = MiningOptions.fromConfig(MiningConfiguration.newDefault());
+
+    options.validate(
+        new CommandLine(options), mock(GenesisConfigOptions.class), true, true, mockLogger);
+
+    verify(mockLogger, never()).warn(anyString(), any(), any());
   }
 
   @Override

@@ -474,7 +474,8 @@ public class TestContextBuilder {
             new BadBlockManager(),
             false,
             BalConfiguration.DEFAULT,
-            new NoOpMetricsSystem());
+            new NoOpMetricsSystem(),
+            Long.MAX_VALUE);
 
     final BftValidatorOverrides validatorOverrides = convertBftForks(qbftForks);
     final TransactionSimulator transactionSimulator =

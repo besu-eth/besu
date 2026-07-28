@@ -92,6 +92,17 @@ public class JsonRpcRequestContext {
     return jsonRpcRequest.getOptionalParameter(index, paramClass, configuration);
   }
 
+  public <T> List<T> getRequiredList(final int index, final Class<T> listOf)
+      throws JsonRpcParameterException {
+    return jsonRpcRequest.getRequiredList(index, listOf, JsonRpcParameter.Configuration.DEFAULT);
+  }
+
+  public <T> List<T> getRequiredList(
+      final int index, final Class<T> listOf, final JsonRpcParameter.Configuration configuration)
+      throws JsonRpcParameterException {
+    return jsonRpcRequest.getRequiredList(index, listOf, configuration);
+  }
+
   public <T> Optional<List<T>> getOptionalList(final int index, final Class<T> listOf)
       throws JsonRpcParameterException {
     return jsonRpcRequest.getOptionalList(index, listOf, JsonRpcParameter.Configuration.DEFAULT);

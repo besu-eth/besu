@@ -94,6 +94,7 @@ public class BftBlockCreator extends AbstractBlockCreator {
           Optional.of(Bytes32.wrap(BftHelpers.EXPECTED_MIX_HASH.getBytes())),
           Optional.empty(),
           Optional.empty(),
+          Optional.empty(),
           timestamp,
           true,
           parentHeader);
@@ -128,6 +129,7 @@ public class BftBlockCreator extends AbstractBlockCreator {
         Optional.empty(),
         Optional.of(Collections.emptyList()),
         Optional.of(Bytes32.wrap(BftHelpers.EXPECTED_MIX_HASH.getBytes())),
+        Optional.empty(),
         Optional.empty(),
         Optional.empty(),
         timestamp,

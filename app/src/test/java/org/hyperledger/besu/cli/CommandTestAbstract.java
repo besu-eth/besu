@@ -433,50 +433,50 @@ public abstract class CommandTestAbstract {
   }
 
   private TestBesuCommand getTestBesuCommand(final TestType testType) {
-    switch (testType) {
-      case REQUIRED_OPTION:
-        return new TestBesuCommandWithRequiredOption(
-            () -> rlpBlockImporter,
-            this::jsonBlockImporterFactory,
-            () -> era1BlockImporter,
-            (blockchain) -> rlpBlockExporter,
-            (blockchain, networkName) -> era1BlockExporter,
-            mockRunnerBuilder,
-            mockControllerBuilderFactory,
-            getBesuPluginContext(),
-            environment,
-            storageService,
-            securityModuleService,
-            mockLogger);
-      case PORT_CHECK:
-        return new TestBesuCommand(
-            () -> rlpBlockImporter,
-            this::jsonBlockImporterFactory,
-            () -> era1BlockImporter,
-            (blockchain) -> rlpBlockExporter,
-            (blockchain, networkName) -> era1BlockExporter,
-            mockRunnerBuilder,
-            mockControllerBuilderFactory,
-            getBesuPluginContext(),
-            environment,
-            storageService,
-            securityModuleService,
-            mockLogger);
-      default:
-        return new TestBesuCommandWithoutPortCheck(
-            () -> rlpBlockImporter,
-            this::jsonBlockImporterFactory,
-            () -> era1BlockImporter,
-            (blockchain) -> rlpBlockExporter,
-            (blockchain, networkName) -> era1BlockExporter,
-            mockRunnerBuilder,
-            mockControllerBuilderFactory,
-            getBesuPluginContext(),
-            environment,
-            storageService,
-            securityModuleService,
-            mockLogger);
-    }
+    return switch (testType) {
+      case REQUIRED_OPTION ->
+          new TestBesuCommandWithRequiredOption(
+              () -> rlpBlockImporter,
+              this::jsonBlockImporterFactory,
+              () -> era1BlockImporter,
+              (blockchain) -> rlpBlockExporter,
+              (blockchain, networkName) -> era1BlockExporter,
+              mockRunnerBuilder,
+              mockControllerBuilderFactory,
+              getBesuPluginContext(),
+              environment,
+              storageService,
+              securityModuleService,
+              mockLogger);
+      case PORT_CHECK ->
+          new TestBesuCommand(
+              () -> rlpBlockImporter,
+              this::jsonBlockImporterFactory,
+              () -> era1BlockImporter,
+              (blockchain) -> rlpBlockExporter,
+              (blockchain, networkName) -> era1BlockExporter,
+              mockRunnerBuilder,
+              mockControllerBuilderFactory,
+              getBesuPluginContext(),
+              environment,
+              storageService,
+              securityModuleService,
+              mockLogger);
+      default ->
+          new TestBesuCommandWithoutPortCheck(
+              () -> rlpBlockImporter,
+              this::jsonBlockImporterFactory,
+              () -> era1BlockImporter,
+              (blockchain) -> rlpBlockExporter,
+              (blockchain, networkName) -> era1BlockExporter,
+              mockRunnerBuilder,
+              mockControllerBuilderFactory,
+              getBesuPluginContext(),
+              environment,
+              storageService,
+              securityModuleService,
+              mockLogger);
+    };
   }
 
   protected Path createTempFile(final String filename, final byte[] contents) throws IOException {
@@ -565,6 +565,10 @@ public abstract class CommandTestAbstract {
 
     public NetworkingOptions getNetworkingOptions() {
       return unstableNetworkingOptions;
+    }
+
+    public P2PDiscoveryOptions getP2PDiscoveryOptions() {
+      return p2PDiscoveryOptions;
     }
 
     public SynchronizerOptions getSynchronizerOptions() {

@@ -294,7 +294,6 @@ public class JsonRpcHttpServiceRpcApisTest {
     NodeKey nodeKey = NodeKeyUtils.generate();
     final PeerDiscoveryAgentFactory peerDiscoveryAgentFactory =
         DefaultPeerDiscoveryAgentFactory.builder()
-            .vertx(vertx)
             .nodeKey(nodeKey)
             .config(config)
             .peerPermissions(PeerPermissions.noop())

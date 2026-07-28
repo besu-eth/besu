@@ -15,7 +15,7 @@
 package org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal;
 
 public interface TimerUtil {
-  long setPeriodic(long delayInMs, TimerHandler handler);
+  long setPeriodic(long delayInMs, String name, TimerHandler handler);
 
   long setTimer(long delayInMs, TimerHandler handler);
 

@@ -64,7 +64,7 @@ import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
-import org.hyperledger.besu.metrics.ObservableMetricsSystem;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
 import org.hyperledger.besu.nat.NatMethod;
 import org.hyperledger.besu.plugin.data.EnodeURL;
@@ -77,6 +77,7 @@ import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Collections;
+import java.util.List;
 
 import io.vertx.core.Vertx;
 import org.apache.tuweni.bytes.Bytes;
@@ -100,6 +101,7 @@ public final class RunnerBuilderTest {
   @Mock ProtocolContext protocolContext;
   @Mock WorldStateArchive worldstateArchive;
   @Mock Vertx vertx;
+  @Mock GenesisConfigOptions genesisConfigOptions;
   private NodeKey nodeKey;
 
   @BeforeEach
@@ -135,7 +137,6 @@ public final class RunnerBuilderTest {
     when(besuController.getMiningCoordinator()).thenReturn(new NoopMiningCoordinator());
     when(besuController.getMiningCoordinator()).thenReturn(mock(MergeMiningCoordinator.class));
     when(besuController.getEthPeers()).thenReturn(mock(EthPeers.class));
-    final GenesisConfigOptions genesisConfigOptions = mock(GenesisConfigOptions.class);
     when(genesisConfigOptions.getForkBlockNumbers()).thenReturn(Collections.emptyList());
     when(genesisConfigOptions.getForkBlockTimestamps()).thenReturn(Collections.emptyList());
     when(besuController.getGenesisConfigOptions()).thenReturn(genesisConfigOptions);
@@ -157,7 +158,7 @@ public final class RunnerBuilderTest {
             .discoveryEnabled(false)
             .besuController(besuController)
             .ethNetworkConfig(mock(EthNetworkConfig.class))
-            .metricsSystem(mock(ObservableMetricsSystem.class))
+            .metricsSystem(new NoOpMetricsSystem())
             .jsonRpcConfiguration(mock(JsonRpcConfiguration.class))
             .permissioningService(mock(PermissioningServiceImpl.class))
             .graphQLConfiguration(mock(GraphQLConfiguration.class))
@@ -194,6 +195,11 @@ public final class RunnerBuilderTest {
     final MutableBlockchain inMemoryBlockchain =
         createInMemoryBlockchain(genesisBlock, new MainnetBlockHeaderFunctions());
     when(protocolContext.getBlockchain()).thenReturn(inMemoryBlockchain);
+    // Configure forks at blocks 1 and 2 so each appended block actually changes the
+    // forkId returned by ForkIdManager.getForkIdForChainHead(). Without this the
+    // NodeRecordManager equality check (compressed pubkey + wrapped forkId + endpoint)
+    // would correctly reuse the existing ENR and seqno would stay at 1.
+    when(genesisConfigOptions.getForkBlockNumbers()).thenReturn(List.of(1L, 2L));
     final Runner runner =
         new RunnerBuilder()
             .discoveryEnabled(true)
@@ -204,7 +210,7 @@ public final class RunnerBuilderTest {
             .natMethod(NatMethod.NONE)
             .besuController(besuController)
             .ethNetworkConfig(mock(EthNetworkConfig.class))
-            .metricsSystem(mock(ObservableMetricsSystem.class))
+            .metricsSystem(new NoOpMetricsSystem())
             .permissioningService(mock(PermissioningServiceImpl.class))
             .jsonRpcConfiguration(mock(JsonRpcConfiguration.class))
             .graphQLConfiguration(mock(GraphQLConfiguration.class))
@@ -264,7 +270,7 @@ public final class RunnerBuilderTest {
             .natMethod(NatMethod.NONE)
             .besuController(besuController)
             .ethNetworkConfig(mockMainnet)
-            .metricsSystem(mock(ObservableMetricsSystem.class))
+            .metricsSystem(new NoOpMetricsSystem())
             .permissioningService(mock(PermissioningServiceImpl.class))
             .jsonRpcConfiguration(jrpc)
             .engineJsonRpcConfiguration(engine)
@@ -309,7 +315,7 @@ public final class RunnerBuilderTest {
             .natMethod(NatMethod.NONE)
             .besuController(besuController)
             .ethNetworkConfig(mockMainnet)
-            .metricsSystem(mock(ObservableMetricsSystem.class))
+            .metricsSystem(new NoOpMetricsSystem())
             .permissioningService(mock(PermissioningServiceImpl.class))
             .jsonRpcConfiguration(JsonRpcConfiguration.createDefault())
             .engineJsonRpcConfiguration(engineConf)
@@ -353,7 +359,7 @@ public final class RunnerBuilderTest {
             .natMethod(NatMethod.NONE)
             .besuController(besuController)
             .ethNetworkConfig(mockMainnet)
-            .metricsSystem(mock(ObservableMetricsSystem.class))
+            .metricsSystem(new NoOpMetricsSystem())
             .permissioningService(mock(PermissioningServiceImpl.class))
             .jsonRpcConfiguration(JsonRpcConfiguration.createDefault())
             .engineJsonRpcConfiguration(engineConf)
@@ -399,7 +405,7 @@ public final class RunnerBuilderTest {
             .natMethod(NatMethod.NONE)
             .besuController(besuController)
             .ethNetworkConfig(mockMainnet)
-            .metricsSystem(mock(ObservableMetricsSystem.class))
+            .metricsSystem(new NoOpMetricsSystem())
             .permissioningService(mock(PermissioningServiceImpl.class))
             .jsonRpcConfiguration(defaultRpcConfig)
             .graphQLConfiguration(mock(GraphQLConfiguration.class))

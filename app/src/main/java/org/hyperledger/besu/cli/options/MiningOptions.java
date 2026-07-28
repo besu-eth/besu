@@ -199,12 +199,15 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
    * @param commandLine the full commandLine to check all the options specified by the user
    * @param genesisConfigOptions genesis config determines whether we are running PoA or PoS
    * @param isMergeEnabled is the Merge enabled?
+   * @param isBuiltInGenesis true when the active genesis is a Besu built-in network (no
+   *     --genesis-file override)
    * @param logger the logger
    */
   public void validate(
       final CommandLine commandLine,
       final GenesisConfigOptions genesisConfigOptions,
       final boolean isMergeEnabled,
+      final boolean isBuiltInGenesis,
       final Logger logger) {
 
     if (unstableOptions.posBlockCreationMaxTime <= 0
@@ -259,6 +262,17 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
               + "The block limit will be the binding constraint during block building.",
           maxBlobsPerBlock,
           maxBlobsPerTransaction);
+    }
+
+    if (targetGasLimit != null
+        && isBuiltInGenesis
+        && genesisConfigOptions.getAmsterdamTime().isPresent()) {
+      logger.warn(
+          "--target-gas-limit is set to {} but Amsterdam is scheduled (at timestamp {}). "
+              + "From Amsterdam onwards the consensus layer supplies targetGasLimit via "
+              + "engine_forkchoiceUpdatedV4 and will override this CLI value when building payloads.",
+          targetGasLimit,
+          genesisConfigOptions.getAmsterdamTime().getAsLong());
     }
   }
 

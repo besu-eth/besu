@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
@@ -33,6 +34,8 @@ import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -105,6 +108,33 @@ public class EthSendRawTransactionTest {
     final JsonRpcResponse actualResponse = method.response(request);
 
     assertThat(actualResponse).usingRecursiveComparison().isEqualTo(expectedResponse);
+    verifyNoInteractions(transactionPool);
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "0x", // empty hex after prefix - hits IllegalArgumentException("Empty opaque bytes")
+        "0x80", // RLP empty byte string - was returning -32603 Internal Error before fix
+        "0xc0", // RLP empty list - invalid for transaction
+        "0xc1", // RLP single-byte list - invalid for transaction
+        "0xf8ff", // RLP length-prefix mismatch - invalid for transaction
+        "0xf90180", // RLP length-prefix overflow - invalid for transaction
+        "0xZZZZ", // non-hex characters in payload - invalid hex
+        "deadbeef", // unprefixed hex bytes - accepted as hex, but not a valid transaction
+      })
+  public void malformedRawTransactionReturnsInvalidParams(final String rawTransaction) {
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest("2.0", "eth_sendRawTransaction", new String[] {rawTransaction}));
+
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcErrorResponse(request.getRequest().getId(), RpcErrorType.INVALID_PARAMS);
+
+    final JsonRpcResponse actualResponse = method.response(request);
+
+    assertThat(actualResponse).usingRecursiveComparison().isEqualTo(expectedResponse);
+    verifyNoInteractions(transactionPool);
   }
 
   @Test

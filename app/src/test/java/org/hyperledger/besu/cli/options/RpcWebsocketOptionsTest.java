@@ -216,11 +216,13 @@ public class RpcWebsocketOptionsTest extends CommandTestAbstract {
     final Path toml =
         createTempFile(
             "toml",
-            "rpc-ws-api=[\"ETH\", \"NET\"]\n"
-                + "rpc-ws-host=\"0.0.0.0\"\n"
-                + "rpc-ws-port=1234\n"
-                + "rpc-ws-max-active-connections=77\n"
-                + "rpc-ws-max-frame-size=65535\n");
+            """
+            rpc-ws-api=["ETH", "NET"]
+            rpc-ws-host="0.0.0.0"
+            rpc-ws-port=1234
+            rpc-ws-max-active-connections=77
+            rpc-ws-max-frame-size=65535
+            """);
 
     parseCommand("--config-file", toml.toString());
 

@@ -33,12 +33,14 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.services.tasks.Task;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 import kotlin.collections.ArrayDeque;
@@ -47,15 +49,21 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Snap/2 network request step. Fetches account, storage, and code data from peers. */
+/** snap/2 network request step. Fetches account, storage, and code data from peers. */
 public class SnapV2RequestDataStep {
 
   private static final Logger LOG = LoggerFactory.getLogger(SnapV2RequestDataStep.class);
+
+  static final Duration FAILED_REQUEST_BACKOFF = Duration.ofSeconds(1);
+
+  private static final long PEER_ERROR_WARN_INTERVAL_MS = TimeUnit.SECONDS.toMillis(30);
 
   private final EthContext ethContext;
   private final WorldStateProofProvider worldStateProofProvider;
   private final SnapRequestContext downloadState;
   private final MetricsSystem metricsSystem;
+  private final AtomicLong peerErrorCount = new AtomicLong();
+  private final AtomicLong lastPeerErrorWarnMillis = new AtomicLong();
 
   public SnapV2RequestDataStep(
       final EthContext ethContext,
@@ -107,15 +115,16 @@ public class SnapV2RequestDataStep {
                 }
               }
               if (error != null) {
-                LOG.atDebug()
-                    .setMessage("Error handling account download accounts ({} - {}) task: {}")
-                    .addArgument(request.getStartKeyHash())
-                    .addArgument(request.getEndKeyHash())
-                    .addArgument(error)
-                    .log();
+                LOG.debug(
+                    "Error handling snap/2 account download ({} - {}): {}",
+                    request.getStartKeyHash(),
+                    request.getEndKeyHash(),
+                    error);
+                recordPeerError("account range", error);
               }
               return requestTask;
-            });
+            })
+        .thenCompose(this::maybeBackOffFailedRequest);
   }
 
   public CompletableFuture<List<Task<SnapDataRequest>>> requestStorage(
@@ -193,13 +202,12 @@ public class SnapV2RequestDataStep {
                 }
               }
               if (error != null) {
-                LOG.atDebug()
-                    .setMessage("Error handling storage range request task: {}")
-                    .addArgument(error)
-                    .log();
+                LOG.debug("Error handling snap/2 storage range request: {}", error);
+                recordPeerError("storage range", error);
               }
               return requestTasks;
-            });
+            })
+        .thenCompose(this::maybeBackOffFailedRequests);
   }
 
   public CompletableFuture<List<Task<SnapDataRequest>>> requestCode(
@@ -234,12 +242,47 @@ public class SnapV2RequestDataStep {
                 }
               }
               if (error != null) {
-                LOG.atDebug()
-                    .setMessage("Error handling code request task: {}")
-                    .addArgument(error)
-                    .log();
+                LOG.debug("Error handling snap/2 code request: {}", error);
+                recordPeerError("bytecode", error);
               }
               return requestTasks;
-            });
+            })
+        .thenCompose(this::maybeBackOffFailedRequests);
+  }
+
+  private CompletableFuture<Task<SnapDataRequest>> maybeBackOffFailedRequest(
+      final Task<SnapDataRequest> task) {
+    if (task.getData().isResponseReceived()) {
+      return CompletableFuture.completedFuture(task);
+    }
+    return ethContext
+        .getScheduler()
+        .scheduleFutureTask(() -> CompletableFuture.completedFuture(task), FAILED_REQUEST_BACKOFF);
+  }
+
+  private CompletableFuture<List<Task<SnapDataRequest>>> maybeBackOffFailedRequests(
+      final List<Task<SnapDataRequest>> tasks) {
+    if (tasks.stream().anyMatch(task -> task.getData().isResponseReceived())) {
+      return CompletableFuture.completedFuture(tasks);
+    }
+    return ethContext
+        .getScheduler()
+        .scheduleFutureTask(() -> CompletableFuture.completedFuture(tasks), FAILED_REQUEST_BACKOFF);
+  }
+
+  private void recordPeerError(final String context, final Throwable error) {
+    peerErrorCount.incrementAndGet();
+    final long now = System.currentTimeMillis();
+    final long last = lastPeerErrorWarnMillis.get();
+    if (now - last >= PEER_ERROR_WARN_INTERVAL_MS
+        && lastPeerErrorWarnMillis.compareAndSet(last, now)) {
+      final long loggedCount = peerErrorCount.getAndSet(0);
+      LOG.warn(
+          "snap/2 peer request failures: {} error(s) in the last {}s (most recent in '{}': {})",
+          loggedCount,
+          PEER_ERROR_WARN_INTERVAL_MS / 1000,
+          context,
+          error.getMessage() != null ? error.getMessage() : error.getClass().getSimpleName());
+    }
   }
 }

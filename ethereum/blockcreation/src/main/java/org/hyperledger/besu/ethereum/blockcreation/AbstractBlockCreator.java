@@ -156,6 +156,7 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
+        Optional.empty(),
         timestamp,
         true,
         parentHeader);
@@ -180,6 +181,7 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
+        Optional.empty(),
         timestamp,
         true,
         parentHeader);
@@ -192,6 +194,7 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
       final Optional<Bytes32> maybePrevRandao,
       final Optional<Bytes32> maybeParentBeaconBlockRoot,
       final Optional<Long> maybeSlotNumber,
+      final Optional<Long> maybeTargetGasLimit,
       final long timestamp,
       final boolean rewardCoinbase,
       final BlockHeader parentHeader) {
@@ -211,7 +214,8 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
                   timestamp,
                   maybePrevRandao,
                   maybeParentBeaconBlockRoot,
-                  maybeSlotNumber)
+                  maybeSlotNumber,
+                  maybeTargetGasLimit)
               .buildProcessableBlockHeader();
 
       final Address miningBeneficiary =

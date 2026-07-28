@@ -208,15 +208,35 @@ public class BlockHeaderBuilder {
       final Optional<Bytes32> maybePrevRandao,
       final Optional<Bytes32> maybeParentBeaconBlockRoot,
       final Optional<Long> maybeSlotNumber) {
+    return createPending(
+        protocolSpec,
+        parentHeader,
+        miningConfiguration,
+        timestamp,
+        maybePrevRandao,
+        maybeParentBeaconBlockRoot,
+        maybeSlotNumber,
+        Optional.empty());
+  }
+
+  public static BlockHeaderBuilder createPending(
+      final ProtocolSpec protocolSpec,
+      final BlockHeader parentHeader,
+      final MiningConfiguration miningConfiguration,
+      final long timestamp,
+      final Optional<Bytes32> maybePrevRandao,
+      final Optional<Bytes32> maybeParentBeaconBlockRoot,
+      final Optional<Long> maybeSlotNumber,
+      final Optional<Long> maybeTargetGasLimit) {
 
     final long newBlockNumber = parentHeader.getNumber() + 1;
+    final long targetGasLimit =
+        maybeTargetGasLimit.orElseGet(
+            () -> miningConfiguration.getTargetGasLimit().orElse(parentHeader.getGasLimit()));
     final long gasLimit =
         protocolSpec
             .getGasLimitCalculator()
-            .nextGasLimit(
-                parentHeader.getGasLimit(),
-                miningConfiguration.getTargetGasLimit().orElse(parentHeader.getGasLimit()),
-                newBlockNumber);
+            .nextGasLimit(parentHeader.getGasLimit(), targetGasLimit, newBlockNumber);
 
     final DifficultyCalculator difficultyCalculator = protocolSpec.getDifficultyCalculator();
     final var difficulty =

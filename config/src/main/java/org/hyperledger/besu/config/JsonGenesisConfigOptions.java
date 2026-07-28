@@ -409,11 +409,6 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
   }
 
   @Override
-  public PowAlgorithm getPowAlgorithm() {
-    return isEthHash() ? PowAlgorithm.ETHASH : PowAlgorithm.UNSUPPORTED;
-  }
-
-  @Override
   public Optional<String> getEcCurve() {
     return JsonUtil.getString(configRoot, EC_CURVE_CONFIG_KEY);
   }

@@ -15,7 +15,6 @@
 package org.hyperledger.besu.tests.acceptance.dsl.condition.eth;
 
 import org.hyperledger.besu.tests.acceptance.dsl.condition.Condition;
-import org.hyperledger.besu.tests.acceptance.dsl.condition.miner.MiningStatusCondition;
 import org.hyperledger.besu.tests.acceptance.dsl.transaction.eth.EthTransactions;
 
 import java.math.BigInteger;
@@ -63,10 +62,6 @@ public class EthConditions {
   public Condition expectSuccessfulTransactionReceiptWithoutReason(final String transactionHash) {
     return new ExpectSuccessfulEthGetTransactionReceiptWithoutReason(
         transactions.getTransactionReceiptWithRevertReason(transactionHash));
-  }
-
-  public Condition miningStatus(final boolean isMining) {
-    return new MiningStatusCondition(transactions.mining(), isMining);
   }
 
   public Condition syncingStatus(final boolean isSyncing) {

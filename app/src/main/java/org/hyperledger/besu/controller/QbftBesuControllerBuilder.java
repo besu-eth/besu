@@ -372,7 +372,8 @@ public class QbftBesuControllerBuilder extends BesuControllerBuilder {
         badBlockManager,
         isParallelTxProcessingEnabled,
         balConfiguration,
-        metricsSystem);
+        metricsSystem,
+        genesisConfig.getGasLimit());
   }
 
   @Override

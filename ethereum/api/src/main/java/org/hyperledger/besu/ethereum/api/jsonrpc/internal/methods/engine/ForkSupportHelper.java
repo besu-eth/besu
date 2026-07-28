@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PARIS;
+
 import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
@@ -22,23 +24,32 @@ import java.util.Optional;
 
 public class ForkSupportHelper {
 
+  // TRANSITIONAL SHIM (remove in cleanup PR): kept so not-yet-migrated engine methods that still
+  // pass an Optional<Long> milestone keep compiling alongside the new Long-based overload.
   public static ValidationResult<RpcErrorType> validateForkSupported(
       final HardforkId firstSupportedHardforkId,
       final Optional<Long> maybeFirstSupportedForkMilestone,
       final long blockTimestamp) {
-
     if (maybeFirstSupportedForkMilestone.isEmpty()) {
       return ValidationResult.invalid(
           RpcErrorType.UNSUPPORTED_FORK,
           "Configuration error, no schedule for " + firstSupportedHardforkId.name() + " fork set");
     }
+    return validateForkSupported(
+        firstSupportedHardforkId, maybeFirstSupportedForkMilestone.get(), blockTimestamp);
+  }
 
-    if (Long.compareUnsigned(blockTimestamp, maybeFirstSupportedForkMilestone.get()) < 0) {
+  public static ValidationResult<RpcErrorType> validateForkSupported(
+      final HardforkId firstSupportedHardforkId,
+      final Long firstSupportedForkMilestone,
+      final long blockTimestamp) {
+
+    if (Long.compareUnsigned(blockTimestamp, firstSupportedForkMilestone) < 0) {
       return ValidationResult.invalid(
           RpcErrorType.UNSUPPORTED_FORK,
           firstSupportedHardforkId.name()
               + " configured to start at timestamp: "
-              + maybeFirstSupportedForkMilestone.get());
+              + firstSupportedForkMilestone);
     }
 
     return ValidationResult.valid();
@@ -51,12 +62,14 @@ public class ForkSupportHelper {
       final Optional<Long> maybeFirstUnsupportedMilestone,
       final long blockTimestamp) {
 
-    var result =
-        validateForkSupported(
-            firstSupportedHardforkId, maybeFirstSupportedForkMilestone, blockTimestamp);
+    if (maybeFirstSupportedForkMilestone.isPresent()) {
+      var result =
+          validateForkSupported(
+              firstSupportedHardforkId, maybeFirstSupportedForkMilestone.get(), blockTimestamp);
 
-    if (!result.isValid()) {
-      return result;
+      if (!result.isValid()) {
+        return result;
+      }
     }
 
     if (maybeFirstUnsupportedMilestone.isPresent()
@@ -69,6 +82,15 @@ public class ForkSupportHelper {
               + firstUnsupportedHardforkId.name()
               + " at timestamp "
               + maybeFirstUnsupportedMilestone.get());
+    }
+
+    // Special case when the method should be active since the beginning, during the transition to
+    // PoS its milestone is still not configured, but the call is valid.
+    if (maybeFirstSupportedForkMilestone.isEmpty()) {
+      if (firstSupportedHardforkId != null && !firstSupportedHardforkId.equals(PARIS)) {
+        return ValidationResult.invalid(
+            RpcErrorType.UNSUPPORTED_FORK, firstSupportedHardforkId.name() + " not configured");
+      }
     }
 
     return ValidationResult.valid();

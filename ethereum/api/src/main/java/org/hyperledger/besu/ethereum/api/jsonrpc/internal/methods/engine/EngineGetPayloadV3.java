@@ -73,7 +73,7 @@ public class EngineGetPayloadV3 extends AbstractEngineGetPayload {
         CANCUN,
         cancunMilestone,
         PRAGUE,
-        protocolSchedule.flatMap(s -> s.milestoneFor(PRAGUE)),
+        maybeProtocolSchedule.flatMap(s -> s.milestoneFor(PRAGUE)),
         blockTimestamp);
   }
 }

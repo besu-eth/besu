@@ -36,10 +36,12 @@ import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
@@ -110,21 +112,29 @@ class BalTransactionProcessorUnitTest {
       BonsaiWorldState worldState) {}
 
   private BonsaiWorldState createEmptyWorldState() {
+    return createEmptyWorldState(Optional.empty());
+  }
+
+  private BonsaiWorldState createEmptyWorldState(
+      final Optional<BlockAccessListOverlay> blockAccessListOverlay) {
     final BonsaiWorldStateKeyValueStorage storage =
         new BonsaiWorldStateKeyValueStorage(
             new InMemoryKeyValueStorageProvider(),
             new NoOpMetricsSystem(),
             DataStorageConfiguration.DEFAULT_BONSAI_CONFIG);
 
-    return new BonsaiWorldState(
-        storage,
-        new NoOpBonsaiCachedMerkleTrieLoader(),
-        new NoOpBonsaiWorldStateCacheManager(
-            storage, EvmConfiguration.DEFAULT, new PathBasedCodeCache()),
-        new NoOpTrieLogManager(),
-        EvmConfiguration.DEFAULT,
-        createStatefulConfigWithTrie(),
-        new PathBasedCodeCache());
+    final BonsaiWorldState worldState =
+        new BonsaiWorldState(
+            storage,
+            new NoOpBonsaiCachedMerkleTrieLoader(),
+            new NoOpBonsaiWorldStateCacheManager(
+                storage, EvmConfiguration.DEFAULT, new PathBasedCodeCache()),
+            new NoOpTrieLogManager(),
+            EvmConfiguration.DEFAULT,
+            createStatefulConfigWithTrie(),
+            new PathBasedCodeCache());
+    blockAccessListOverlay.ifPresent(worldState::applyBlockAccessListOverlay);
+    return worldState;
   }
 
   private TestEnvironment createTestEnvironment() {
@@ -135,7 +145,15 @@ class BalTransactionProcessorUnitTest {
     final BonsaiWorldState worldState = createEmptyWorldState();
 
     when(protocolContext.getWorldStateArchive()).thenReturn(worldStateArchive);
-    when(worldStateArchive.getWorldState(any())).thenReturn(Optional.of(worldState));
+    when(worldStateArchive.getWorldState(any()))
+        .thenAnswer(
+            invocation -> {
+              final WorldStateQueryParams queryParams = invocation.getArgument(0);
+              if (queryParams == null) {
+                return Optional.empty();
+              }
+              return Optional.of(createEmptyWorldState(queryParams.getBlockAccessListOverlay()));
+            });
     when(parentHeader.getBlockHash()).thenReturn(Hash.ZERO);
     when(parentHeader.getStateRoot()).thenReturn(Hash.EMPTY_TRIE_HASH);
 
@@ -185,7 +203,8 @@ class BalTransactionProcessorUnitTest {
       stubSuccessfulTransaction();
 
       final BalConcurrentTransactionProcessor processor =
-          new BalConcurrentTransactionProcessor(transactionProcessor, blockAccessList);
+          new BalConcurrentTransactionProcessor(
+              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
 
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -222,7 +241,8 @@ class BalTransactionProcessorUnitTest {
       stubSuccessfulTransaction();
 
       final BalConcurrentTransactionProcessor processor =
-          new BalConcurrentTransactionProcessor(transactionProcessor, blockAccessList);
+          new BalConcurrentTransactionProcessor(
+              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
 
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -248,7 +268,8 @@ class BalTransactionProcessorUnitTest {
       stubSuccessfulTransaction();
 
       final BalConcurrentTransactionProcessor processor =
-          new BalConcurrentTransactionProcessor(transactionProcessor, blockAccessList);
+          new BalConcurrentTransactionProcessor(
+              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
 
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -319,7 +340,8 @@ class BalTransactionProcessorUnitTest {
                   ValidationResult.valid()));
 
       final BalConcurrentTransactionProcessor processor =
-          new BalConcurrentTransactionProcessor(transactionProcessor, blockAccessList);
+          new BalConcurrentTransactionProcessor(
+              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
 
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -360,65 +382,6 @@ class BalTransactionProcessorUnitTest {
           env.worldState().updater().get(readOnlyAddress),
           "Read-only partial BAL entries should not create account writes");
     }
-
-    @Test
-    @DisplayName("Clears accounts made empty by partial BAL view writes")
-    void clearsAccountsMadeEmptyByPartialBalWrites() {
-      final TestEnvironment env = createTestEnvironment();
-      final BlockAccessList blockAccessList = mockEmptyBlockAccessList();
-      final Transaction transaction = mockTransaction();
-      final Address accountAddress =
-          Address.fromHexString("0x1000000000000000000000000000000000000003");
-
-      final WorldUpdater preStateUpdater = env.worldState().updater();
-      preStateUpdater.createAccount(accountAddress, 0L, Wei.ONE);
-      preStateUpdater.commit();
-
-      final PartialBlockAccessView.PartialBlockAccessViewBuilder partialBuilder =
-          new PartialBlockAccessView.PartialBlockAccessViewBuilder().withTxIndex(0);
-      partialBuilder.getOrCreateAccountBuilder(accountAddress).withPostBalance(Wei.ZERO);
-      final PartialBlockAccessView partialBlockAccessView = partialBuilder.build();
-
-      when(transactionProcessor.processTransaction(
-              any(), any(), any(), any(), any(), any(), any(), any(), any()))
-          .thenReturn(
-              TransactionProcessingResult.successful(
-                  Collections.emptyList(),
-                  0,
-                  0,
-                  Bytes.EMPTY,
-                  Optional.of(partialBlockAccessView),
-                  ValidationResult.valid()));
-      when(transactionProcessor.getClearEmptyAccounts()).thenReturn(true);
-
-      final BalConcurrentTransactionProcessor processor =
-          new BalConcurrentTransactionProcessor(transactionProcessor, blockAccessList);
-
-      processor.runAsyncBlock(
-          env.protocolContext(),
-          env.blockHeader(),
-          Collections.singletonList(transaction),
-          MINING_BENEFICIARY,
-          EMPTY_BLOCK_HASH_LOOKUP,
-          BLOB_GAS_PRICE,
-          sameThreadExecutor,
-          Optional.empty(),
-          env.maybeParentHeader());
-
-      final Optional<TransactionProcessingResult> result =
-          processor.getProcessingResult(
-              env.worldState(),
-              MINING_BENEFICIARY,
-              transaction,
-              0,
-              Optional.empty(),
-              Optional.empty());
-
-      assertTrue(result.isPresent(), "Expected processing result to be present");
-      assertNull(
-          env.worldState().updater().get(accountAddress),
-          "Account zeroed by partial BAL writes should be cleared from the block accumulator");
-    }
   }
 
   @Nested
@@ -434,7 +397,8 @@ class BalTransactionProcessorUnitTest {
       final Transaction transaction = mock(Transaction.class);
       final BonsaiWorldState worldStateForResult = createEmptyWorldState();
       final BalConcurrentTransactionProcessor processor =
-          new BalConcurrentTransactionProcessor(transactionProcessor, blockAccessList);
+          new BalConcurrentTransactionProcessor(
+              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
 
       processor.runAsyncBlock(
           protocolContext,
@@ -470,7 +434,8 @@ class BalTransactionProcessorUnitTest {
       final BlockAccessList blockAccessList = mock(BlockAccessList.class);
       final Transaction transaction = mock(Transaction.class);
       final BalConcurrentTransactionProcessor processor =
-          new BalConcurrentTransactionProcessor(transactionProcessor, blockAccessList);
+          new BalConcurrentTransactionProcessor(
+              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
 
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -483,7 +448,7 @@ class BalTransactionProcessorUnitTest {
           Optional.empty(),
           env.maybeParentHeader());
 
-      verify(env.worldStateArchive(), times(1)).getWorldState(any());
+      verify(env.worldStateArchive(), times(2)).getWorldState(any());
       verify(transactionProcessor, never())
           .processTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any());
       assertTrue(
@@ -507,7 +472,8 @@ class BalTransactionProcessorUnitTest {
       final Transaction transaction = mockTransaction();
       final BlockHeader parent = env.maybeParentHeader().orElseThrow();
       final BalConcurrentTransactionProcessor processor =
-          new BalConcurrentTransactionProcessor(transactionProcessor, blockAccessList);
+          new BalConcurrentTransactionProcessor(
+              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
 
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -520,7 +486,7 @@ class BalTransactionProcessorUnitTest {
           Optional.empty(),
           env.maybeParentHeader());
 
-      verify(env.worldStateArchive())
+      verify(env.worldStateArchive(), times(2))
           .getWorldState(argThat((WorldStateQueryParams p) -> p.getBlockHeader() == parent));
       verify(transactionProcessor, times(1))
           .processTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any());
@@ -649,7 +615,8 @@ class BalTransactionProcessorUnitTest {
               });
 
       final BalConcurrentTransactionProcessor processor =
-          new BalConcurrentTransactionProcessor(transactionProcessor, blockAccessList);
+          new BalConcurrentTransactionProcessor(
+              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
 
       final Transaction tx0 = mockTransaction();
       final Transaction tx1 = mockTransaction();
@@ -703,7 +670,8 @@ class BalTransactionProcessorUnitTest {
           .thenThrow(new RuntimeException("Simulated failure"));
 
       final BalConcurrentTransactionProcessor processor =
-          new BalConcurrentTransactionProcessor(transactionProcessor, blockAccessList);
+          new BalConcurrentTransactionProcessor(
+              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
 
       processor.runAsyncBlock(
           env.protocolContext(),

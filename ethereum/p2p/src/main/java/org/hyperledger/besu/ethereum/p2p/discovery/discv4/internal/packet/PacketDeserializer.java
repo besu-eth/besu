@@ -30,7 +30,6 @@ import org.hyperledger.besu.ethereum.rlp.RLPException;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 
-import io.vertx.core.buffer.Buffer;
 import org.apache.tuweni.bytes.Bytes;
 
 @Singleton
@@ -61,15 +60,15 @@ public class PacketDeserializer {
     this.packetFactory = packetFactory;
   }
 
-  public Packet decode(final Buffer message) {
+  public Packet decode(final Bytes message) {
     checkGuard(
-        message.length() >= Packet.PACKET_DATA_INDEX,
+        message.size() >= Packet.PACKET_DATA_INDEX,
         PeerDiscoveryPacketDecodingException::new,
         "Packet too short: expected at least %s bytes, got %s",
         Packet.PACKET_DATA_INDEX,
-        message.length());
+        message.size());
 
-    final byte type = message.getByte(Packet.PACKET_TYPE_INDEX);
+    final byte type = message.get(Packet.PACKET_TYPE_INDEX);
 
     final PacketType packetType =
         PacketType.forByte(type)
@@ -88,19 +87,13 @@ public class PacketDeserializer {
         };
     final PacketData packetData;
     try {
-      packetData =
-          deserializer.readFrom(
-              RLP.input(
-                  Bytes.wrapBuffer(
-                      message,
-                      Packet.PACKET_DATA_INDEX,
-                      message.length() - Packet.PACKET_DATA_INDEX)));
+      packetData = deserializer.readFrom(RLP.input(message.slice(Packet.PACKET_DATA_INDEX)));
     } catch (final RLPException e) {
       throw new PeerDiscoveryPacketDecodingException("Malformed packet of type: " + packetType, e);
     } catch (final IllegalArgumentException e) {
       throw new PeerDiscoveryPacketDecodingException(
           "Failed decoding packet of type: " + packetType, e);
     }
-    return packetFactory.create(packetType, packetData, Bytes.wrapBuffer(message));
+    return packetFactory.create(packetType, packetData, message);
   }
 }

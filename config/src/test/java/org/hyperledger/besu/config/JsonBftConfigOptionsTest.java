@@ -271,6 +271,40 @@ public class JsonBftConfigOptionsTest {
         .hasMessageContaining("Mining beneficiary in config is not a valid ethereum address");
   }
 
+  @Test
+  public void getTransactionGasLimitAbsent() {
+    final BftConfigOptions config = fromConfigOptions(emptyMap());
+    assertThat(config.getTransactionGasLimit()).isEmpty();
+  }
+
+  @Test
+  public void getTransactionGasLimitDecimal() {
+    final BftConfigOptions config = fromConfigOptions(singletonMap("pertxgaslimit", 20_000_000));
+    assertThat(config.getTransactionGasLimit()).hasValue(20_000_000L);
+  }
+
+  @Test
+  public void getTransactionGasLimitHex() {
+    final BftConfigOptions config = fromConfigOptions(singletonMap("pertxgaslimit", "0x1312D00"));
+    assertThat(config.getTransactionGasLimit()).hasValue(20_000_000L);
+  }
+
+  @Test
+  public void getTransactionGasLimitHexZero() {
+    final BftConfigOptions config = fromConfigOptions(singletonMap("pertxgaslimit", "0x0"));
+    assertThat(config.getTransactionGasLimit()).hasValue(0L);
+  }
+
+  @Test
+  public void getTransactionGasLimitMalformed() {
+    final BftConfigOptions config =
+        fromConfigOptions(singletonMap("pertxgaslimit", "not-a-number"));
+    assertThatThrownBy(config::getTransactionGasLimit)
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("pertxgaslimit")
+        .hasMessageContaining("not-a-number");
+  }
+
   private BftConfigOptions fromConfigOptions(final Map<String, Object> ibftConfigOptions) {
     final ObjectNode rootNode = JsonUtil.createEmptyObjectNode();
     final ObjectNode configNode = JsonUtil.createEmptyObjectNode();
