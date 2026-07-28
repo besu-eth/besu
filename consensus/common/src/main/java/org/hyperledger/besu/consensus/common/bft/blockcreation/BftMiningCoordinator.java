@@ -33,6 +33,7 @@ import org.hyperledger.besu.plugin.services.BesuEvents;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -71,6 +72,13 @@ public class BftMiningCoordinator implements MiningCoordinator, BlockAddedObserv
 
   private volatile long blockAddedObserverId = NOT_REGISTERED;
   private final AtomicReference<State> state = new AtomicReference<>(State.UNINITIALIZED);
+
+  // Serializes the lifecycle transitions (start/stop/enable/disable) so that both the state
+  // transition and the side effects that follow it run as one atomic unit. The AtomicReference
+  // alone only makes each compareAndSet atomic, not the method body around it, so two threads
+  // could otherwise interleave e.g. a start() and a stop() and run their bodies concurrently or
+  // out of order (see #10877). Reads (isMining) stay lock-free on the AtomicReference.
+  private final ReentrantLock lifecycleLock = new ReentrantLock();
 
   private SyncState syncState;
 
@@ -131,13 +139,18 @@ public class BftMiningCoordinator implements MiningCoordinator, BlockAddedObserv
 
   @Override
   public void start() {
-    if (state.compareAndSet(State.IDLE, State.RUNNING)
-        || state.compareAndSet(State.STOPPED, State.RUNNING)) {
-      bftProcessor.start();
-      bftExecutors.start();
-      blockAddedObserverId = blockchain.observeBlockAdded(this);
-      eventHandler.start();
-      bftExecutors.executeBftProcessor(bftProcessor);
+    lifecycleLock.lock();
+    try {
+      if (state.compareAndSet(State.IDLE, State.RUNNING)
+          || state.compareAndSet(State.STOPPED, State.RUNNING)) {
+        bftProcessor.start();
+        bftExecutors.start();
+        blockAddedObserverId = blockchain.observeBlockAdded(this);
+        eventHandler.start();
+        bftExecutors.executeBftProcessor(bftProcessor);
+      }
+    } finally {
+      lifecycleLock.unlock();
     }
   }
 
@@ -152,25 +165,30 @@ public class BftMiningCoordinator implements MiningCoordinator, BlockAddedObserv
     // still safe in that case: bftProcessor.awaitStop() returns immediately if its event loop
     // never ran, blockchain.removeObserver() is skipped when no observer was ever registered,
     // and eventHandler.stop()/bftExecutors.stop() are self-guarded no-ops when never started.
-    if (state.compareAndSet(State.RUNNING, State.STOPPED)
-        || state.compareAndSet(State.PAUSED, State.STOPPED)
-        || state.compareAndSet(State.IDLE, State.STOPPED)) {
-      if (blockAddedObserverId != NOT_REGISTERED) {
-        blockchain.removeObserver(blockAddedObserverId);
+    lifecycleLock.lock();
+    try {
+      if (state.compareAndSet(State.RUNNING, State.STOPPED)
+          || state.compareAndSet(State.PAUSED, State.STOPPED)
+          || state.compareAndSet(State.IDLE, State.STOPPED)) {
+        if (blockAddedObserverId != NOT_REGISTERED) {
+          blockchain.removeObserver(blockAddedObserverId);
+        }
+        bftProcessor.stop();
+        // The merge transition watcher invokes stop() from the BFT event thread itself
+        // (via the block-added observers fired while QBFT imports the terminal block).
+        // The shutdown flag is already set, so no further events will be dispatched;
+        // the blocking teardown must not run on the event thread or awaitStop() would
+        // wait on the thread's own exit.
+        if (bftProcessor.isEventThread()) {
+          final Thread teardown = new Thread(this::completeStop, "BftMiningCoordinator-stop");
+          teardown.setDaemon(true);
+          teardown.start();
+        } else {
+          completeStop();
+        }
       }
-      bftProcessor.stop();
-      // The merge transition watcher invokes stop() from the BFT event thread itself
-      // (via the block-added observers fired while QBFT imports the terminal block).
-      // The shutdown flag is already set, so no further events will be dispatched;
-      // the blocking teardown must not run on the event thread or awaitStop() would
-      // wait on the thread's own exit.
-      if (bftProcessor.isEventThread()) {
-        final Thread teardown = new Thread(this::completeStop, "BftMiningCoordinator-stop");
-        teardown.setDaemon(true);
-        teardown.start();
-      } else {
-        completeStop();
-      }
+    } finally {
+      lifecycleLock.unlock();
     }
   }
 
@@ -228,22 +246,33 @@ public class BftMiningCoordinator implements MiningCoordinator, BlockAddedObserv
 
   @Override
   public boolean enable() {
-    // Return true if we're already running or idle, or successfully switch to idle. UNINITIALIZED
-    // (the initial state) is treated the same as PAUSED here: neither has ever been started.
-    return state.get() == State.RUNNING
-        || state.get() == State.IDLE
-        || state.compareAndSet(State.PAUSED, State.IDLE)
-        || state.compareAndSet(State.UNINITIALIZED, State.IDLE);
+    lifecycleLock.lock();
+    try {
+      // Return true if we're already running or idle, or successfully switch to idle.
+      // UNINITIALIZED (the initial state) is treated the same as PAUSED here: neither has ever
+      // been started.
+      return state.get() == State.RUNNING
+          || state.get() == State.IDLE
+          || state.compareAndSet(State.PAUSED, State.IDLE)
+          || state.compareAndSet(State.UNINITIALIZED, State.IDLE);
+    } finally {
+      lifecycleLock.unlock();
+    }
   }
 
   @Override
   public boolean disable() {
-    // UNINITIALIZED (the initial state) is already at rest, same as PAUSED: report success
-    // without transitioning, there being nothing to disable.
-    return state.get() == State.PAUSED
-        || state.get() == State.UNINITIALIZED
-        || state.compareAndSet(State.IDLE, State.PAUSED)
-        || state.compareAndSet(State.RUNNING, State.PAUSED);
+    lifecycleLock.lock();
+    try {
+      // UNINITIALIZED (the initial state) is already at rest, same as PAUSED: report success
+      // without transitioning, there being nothing to disable.
+      return state.get() == State.PAUSED
+          || state.get() == State.UNINITIALIZED
+          || state.compareAndSet(State.IDLE, State.PAUSED)
+          || state.compareAndSet(State.RUNNING, State.PAUSED);
+    } finally {
+      lifecycleLock.unlock();
+    }
   }
 
   @Override
