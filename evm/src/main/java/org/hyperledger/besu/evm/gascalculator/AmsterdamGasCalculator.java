@@ -98,7 +98,7 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
 
   // --- EIP-2780: resource-based intrinsic transaction gas ---
 
-  /** EIP-2780: sender cost (ECDSA recovery + sender access + sender write). Replaces 21,000. */
+  /** EIP-2780: sender cost (ECDSA recovery + sender access + sender write). */
   private static final long TX_BASE = 12_000L;
 
   /** EIP-2780: per data token; a calldata token is 1 (zero byte) or 4 (non-zero byte). */

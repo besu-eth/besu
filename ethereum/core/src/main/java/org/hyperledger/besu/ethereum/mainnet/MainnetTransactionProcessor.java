@@ -419,9 +419,6 @@ public class MainnetTransactionProcessor {
                 .build();
 
         // EIP-2780: charge NEW_ACCOUNT state gas on the depth-0 frame for a positive value transfer
-        // to a non-alive recipient (mirrors AbstractCallOperation's call-site charge and EELS
-        // process_message_call). Contract creations charge their creation state gas separately, so
-        // this only applies to message calls. On insufficient gas the frame halts before execution.
         if (stateGasCalc.isActive() && !transaction.getValue().isZero()) {
           final Account recipient = worldState.get(to);
           if (recipient == null || recipient.isEmpty()) {
