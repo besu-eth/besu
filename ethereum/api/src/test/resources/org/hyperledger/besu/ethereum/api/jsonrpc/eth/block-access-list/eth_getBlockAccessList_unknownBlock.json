@@ -1,0 +1,16 @@
+{
+  "request": {
+    "id": 4,
+    "jsonrpc": "2.0",
+    "method": "eth_getBlockAccessList",
+    "params": [
+      "0x999999"
+    ]
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 4,
+    "result": null
+  },
+  "statusCode": 200
+}
