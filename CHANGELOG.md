@@ -23,9 +23,10 @@
 - Bonsai world state rolling failures are now logged at `WARN` instead of `INFO`, and a missing block header or trie log during a roll reports which block hash or trie log was missing. [#10859](https://github.com/besu-eth/besu/issues/10859)
 - Fix a deadlock where `FullSyncTargetManager`'s (and checkpoint sync's) retry loop could hang forever waiting for a new peer to connect, even though the already-connected peer just needed its outstanding-request budget to free back up. The same fix was applied to snap/fast sync's pivot block selection. [#10864](https://github.com/besu-eth/besu/issues/10864)
 - Peers disconnected for permanent incompatibilities (mismatched network ID, mismatched genesis hash, null/unexpected node ID, or self-connection) are now added to the denylist and will not be reconnected. Previously only `BREACH_OF_PROTOCOL` and `INCOMPATIBLE_P2P_PROTOCOL_VERSION` triggered denylisting. [#10827](https://github.com/besu-eth/besu/pull/10827)
-- Fix the IBFT2 mining coordinator restarting alongside QBFT after a node restart on IBFT2->QBFT migration networks, which produced competing blocks and endless `Failed to import block` errors. Sync events no longer start the IBFT2 coordinator directly; lifecycle control stays with the migrating coordinator. [#10680](https://github.com/besu-eth/besu/issues/10680)
 - Raise the default DiscV5 discovery round timeout (`--Xv5-discovery-timeout-seconds`) from 30 to 60 seconds to avoid spurious round failures on networks with many unreachable candidates [#10800](https://github.com/besu-eth/besu/pull/10800)
 - Fix QBFT/IBFT mining continuing to seal blocks after the merge terminal total difficulty (TTD) is reached [#10733](https://github.com/besu-eth/besu/pull/10733)
+- Fix the IBFT2 mining coordinator restarting alongside QBFT after a node restart on IBFT2->QBFT migration networks, which produced competing blocks and endless `Failed to import block` errors. Sync events no longer start the IBFT2 coordinator directly; lifecycle control stays with the migrating coordinator. [#10680](https://github.com/besu-eth/besu/issues/10680)
+- Fix `ibft_*` and `qbft_*` JSON-RPC methods returning `Method not enabled` on IBFT2->QBFT migration networks (genesis containing both `ibft2` and `qbft` sections). [#10679](https://github.com/besu-eth/besu/issues/10679)
 - Fix `admin_nodeInfo` reporting wrong RLPx/discovery ephemeral ports under `--nat-method=DOCKER`, due to a swapped NAT port mapping and a stale pre-bind snapshot. [#10860](https://github.com/besu-eth/besu/pull/10860)
 - Recover from restart during flatDB heal sync step [#10883](https://github.com/besu-eth/besu/pull/10883)
 
@@ -58,7 +59,6 @@
 - Fix potential `ArithmeticException: integer overflow` when prioritizing peer connections whose initiation timestamps are more than ~24.8 days apart. `EthPeers.compareConnectionInitiationTimes` now uses `Long.compare` instead of narrowing the timestamp difference to an `int`. [#10787](https://github.com/besu-eth/besu/issues/10787)
 - Layered txpool: fix the sender balance check rejecting zero upfront cost transactions from zero balance senders, which caused free gas networks to produce only empty blocks [#10751](https://github.com/besu-eth/besu/pull/10751)
 - Fix `eth_sendRawTransaction` returning `-32603 Internal Error` instead of `-32602 Invalid params` for malformed RLP inputs such as `0x80`. [#10735](https://github.com/besu-eth/besu/issues/10735)
-- Fix `ibft_*` and `qbft_*` JSON-RPC methods returning `Method not enabled` on IBFT2->QBFT migration networks (genesis containing both `ibft2` and `qbft` sections). [#10679](https://github.com/besu-eth/besu/issues/10679)
 - Skip DNS discovery records that fail enode conversion (e.g. out-of-range port) instead of dropping the rest of the batch [#10752](https://github.com/besu-eth/besu/pull/10752)
 
 ### Additions and Improvements
