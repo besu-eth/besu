@@ -39,6 +39,7 @@ import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.ping.P
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.p2p.peers.Peer;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions;
+import org.hyperledger.besu.ethereum.p2p.rlpx.ConnectSource;
 import org.hyperledger.besu.ethereum.p2p.rlpx.RlpxAgent;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.nat.NatService;
@@ -58,6 +59,7 @@ import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt64;
+import org.ethereum.beacon.discovery.schema.NodeRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -90,7 +92,9 @@ class NettyPeerDiscoveryAgentTest {
 
     final RlpxAgent rlpxAgent = mock(RlpxAgent.class);
     lenient()
-        .when(rlpxAgent.connect(org.mockito.ArgumentMatchers.any()))
+        .when(
+            rlpxAgent.connect(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
         .thenReturn(CompletableFuture.failedFuture(new RuntimeException()));
 
     final NatService natService = new NatService(Optional.empty());
@@ -216,9 +220,68 @@ class NettyPeerDiscoveryAgentTest {
     verify(agent, never()).handleIncomingPacket(any(), any());
   }
 
+  @Test
+  void start_withEphemeralIpv6BindPort_advertisesTheTransportsResolvedPortNotZero()
+      throws Exception {
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final DiscoveryConfiguration config = new DiscoveryConfiguration();
+    config.setBindHost("127.0.0.1");
+    config.setAdvertisedHost("127.0.0.1");
+    config.setBindPort(0);
+    config.setEnodeBootnodes(Collections.emptyList());
+    config.setAdvertisedHostIpv6(Optional.of("2001:db8::1"));
+    // The bug scenario: an ephemeral (OS-assigned) IPv6 discovery port, requested via 0.
+    config.setBindPortIpv6(0);
+
+    final ForkIdManager forkIdManager = mock(ForkIdManager.class);
+    final ForkId forkId = new ForkId(Bytes.EMPTY, Bytes.EMPTY);
+    lenient().when(forkIdManager.getForkIdForChainHead()).thenReturn(forkId);
+
+    final RlpxAgent rlpxAgent = mock(RlpxAgent.class);
+    lenient()
+        .when(rlpxAgent.connect(any(), any(ConnectSource.class)))
+        .thenReturn(CompletableFuture.failedFuture(new RuntimeException()));
+    lenient().when(rlpxAgent.getIpv6ListeningPort()).thenReturn(Optional.of(30304));
+
+    final NatService natService = new NatService(Optional.empty());
+    final NodeRecordManager nodeRecordManager =
+        new NodeRecordManager(
+            new InMemoryKeyValueStorageProvider(), nodeKey, forkIdManager, natService);
+
+    // The port an OS would actually assign for an ephemeral bind - deliberately different from
+    // the configured 0, so the test fails if the fix regresses to using the configured value.
+    final int resolvedIpv6Port = 54321;
+    final TrackingTransport ipv6Transport = new TrackingTransport();
+    ipv6Transport.ipv6BoundAddress =
+        Optional.of(new InetSocketAddress(InetAddress.getByName("2001:db8::1"), resolvedIpv6Port));
+
+    final NettyPeerDiscoveryAgent ipv6Agent =
+        NettyPeerDiscoveryAgent.createWithTransport(
+            nodeKey,
+            config,
+            PeerPermissions.noop(),
+            new NoOpMetricsSystem(),
+            nodeRecordManager,
+            forkIdManager,
+            rlpxAgent,
+            ipv6Transport);
+
+    try {
+      ipv6Agent.start(30303).join();
+
+      final NodeRecord nodeRecord =
+          nodeRecordManager.getLocalNode().orElseThrow().getNodeRecord().orElseThrow();
+      assertThat(nodeRecord.getUdp6Address()).isPresent();
+      assertThat(nodeRecord.getUdp6Address().get().getPort()).isEqualTo(resolvedIpv6Port);
+    } finally {
+      ipv6Agent.stop().join();
+    }
+  }
+
   private static class TrackingTransport implements Transport {
     final AtomicInteger sendCallCount = new AtomicInteger(0);
     volatile InboundV4Handler inboundHandler;
+    volatile Optional<InetSocketAddress> ipv6BoundAddress = Optional.empty();
 
     @Override
     public CompletableFuture<InetSocketAddress> start() {
@@ -240,6 +303,11 @@ class NettyPeerDiscoveryAgentTest {
     @Override
     public void setInboundHandler(final InboundV4Handler handler) {
       this.inboundHandler = handler;
+    }
+
+    @Override
+    public Optional<InetSocketAddress> getIpv6BoundAddress() {
+      return ipv6BoundAddress;
     }
   }
 }

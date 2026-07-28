@@ -75,7 +75,8 @@ public abstract class AbstractDebugOperationTracer implements OperationTracer {
   @Override
   public void tracePreExecution(final MessageFrame frame) {
     final Operation currentOperation = frame.getCurrentOperation();
-    if (!(traceOpcode = shouldTraceOpcode(currentOperation))) {
+    traceOpcode = shouldTraceOpcode(currentOperation);
+    if (!traceOpcode) {
       return;
     }
     preExecutionStack = captureStack(frame);

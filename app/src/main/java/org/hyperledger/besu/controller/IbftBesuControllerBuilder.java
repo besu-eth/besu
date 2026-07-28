@@ -74,7 +74,6 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.p2p.config.SubProtocolConfiguration;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Message;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
-import org.hyperledger.besu.plugin.services.BesuEvents;
 import org.hyperledger.besu.util.Subscribers;
 
 import java.time.Duration;
@@ -237,6 +236,10 @@ public class IbftBesuControllerBuilder extends BesuControllerBuilder {
     final EventMultiplexer eventMultiplexer = new EventMultiplexer(ibftController);
     final BftProcessor bftProcessor = new BftProcessor(bftEventQueue, eventMultiplexer);
 
+    // The sync state is passed to the mining coordinator so that sync events only drive the
+    // coordinator lifecycle once subscribe() is invoked. On IBFT2->QBFT migration networks
+    // subscribe() is never called on the delegate coordinators, leaving the
+    // MigratingMiningCoordinator in sole control of which consensus mechanism is running.
     final MiningCoordinator ibftMiningCoordinator =
         new BftMiningCoordinator(
             bftExecutors,
@@ -244,7 +247,8 @@ public class IbftBesuControllerBuilder extends BesuControllerBuilder {
             bftProcessor,
             blockCreatorFactory,
             blockchain,
-            bftEventQueue);
+            bftEventQueue,
+            syncState);
 
     // Update the next block period in seconds according to the transition schedule
     protocolContext
@@ -256,35 +260,6 @@ public class IbftBesuControllerBuilder extends BesuControllerBuilder {
                         .getFork(o.getHeader().getNumber() + 1, o.getHeader().getTimestamp())
                         .getValue()
                         .getBlockPeriodSeconds()));
-
-    syncState.subscribeSyncStatus(
-        syncStatus -> {
-          if (syncState.syncTarget().isPresent()) {
-            // We're syncing so stop doing other stuff
-            LOG.info("Stopping IBFT mining coordinator while we are syncing");
-            ibftMiningCoordinator.stop();
-          } else {
-            LOG.info("Starting IBFT mining coordinator following sync");
-            ibftMiningCoordinator.enable();
-            ibftMiningCoordinator.start();
-          }
-        });
-
-    syncState.subscribeCompletionReached(
-        new BesuEvents.InitialSyncCompletionListener() {
-          @Override
-          public void onInitialSyncCompleted() {
-            LOG.info("Starting IBFT mining coordinator following initial sync");
-            ibftMiningCoordinator.enable();
-            ibftMiningCoordinator.start();
-          }
-
-          @Override
-          public void onInitialSyncRestart() {
-            // Nothing to do. The mining coordinator won't be started until
-            // sync has completed.
-          }
-        });
 
     return ibftMiningCoordinator;
   }

@@ -146,4 +146,22 @@ public class EthSchedulerShutdownTest {
     assertThat(computationExecutor.isTerminated()).isTrue();
     assertThat(task2.hasBeenStarted()).isFalse();
   }
+
+  @Test
+  public void shutdown_blockCreationShutsDown() throws InterruptedException {
+    final MockEthTask task1 = new MockEthTask(1);
+    final MockEthTask task2 = new MockEthTask();
+
+    ethScheduler.scheduleBlockCreationTask(1L, task1::executeTask);
+    ethScheduler.scheduleBlockCreationTask(2L, task2::executeTask);
+    ethScheduler.stop();
+
+    assertThat(blockCreationExecutor.isShutdown()).isTrue();
+
+    ethScheduler.awaitStop();
+
+    assertThat(blockCreationExecutor.isShutdown()).isTrue();
+    assertThat(blockCreationExecutor.isTerminated()).isTrue();
+    assertThat(task2.hasBeenStarted()).isFalse();
+  }
 }

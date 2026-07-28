@@ -28,10 +28,12 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EngineForkchoiceUpdatedParameter;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ConstructorArgumentsBuilder;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ForkchoiceStateV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttributesV3;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineUpdateForkchoiceResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.ForkchoiceUpdatedResultV1;
 import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
@@ -40,11 +42,13 @@ import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
+import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncContext;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.util.List;
 import java.util.Optional;
@@ -86,7 +90,7 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
   private BadBlockManager badBlockManager;
   private MutableBlockchain blockchain;
   private MergeCoordinator mergeCoordinator;
-  private EngineForkchoiceUpdatedV3 method;
+  private EngineForkchoiceUpdatedV3<PayloadAttributesV3> method;
 
   @BeforeEach
   public void setUp() {
@@ -130,12 +134,18 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
             backwardSyncContext);
 
     method =
-        new EngineForkchoiceUpdatedV3(
-            vertx,
-            protocolSchedule,
-            protocolContext,
-            mergeCoordinator,
-            mock(EngineCallListener.class));
+        new EngineForkchoiceUpdatedV3<>(
+            new ConstructorArgumentsBuilder()
+                .protocolSchedule(protocolSchedule)
+                .protocolContext(protocolContext)
+                .vertx(vertx)
+                .engineCallListener(mock(EngineCallListener.class))
+                .mergeCoordinator(mergeCoordinator)
+                .ethPeers(mock(EthPeers.class))
+                .metricsSystem(new NoOpMetricsSystem())
+                .build(),
+            CANCUN,
+            AMSTERDAM);
   }
 
   @Test
@@ -172,14 +182,14 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
     // case where the CL reuses a head whose ancestry was poisoned while we were backward-syncing.
     final JsonRpcResponse response =
         invokeForkchoiceUpdated(
-            new EngineForkchoiceUpdatedParameter(
+            new ForkchoiceStateV1(
                 descendantHeader.getHash(), validParent.getHash(), validParent.getHash()));
 
     // Must return INVALID with
     // latestValidHash pointing at the last valid ancestor (B's parent), not SYNCING and not
     // VALID, without ever touching the blockchain state.
-    final EngineUpdateForkchoiceResult forkchoiceResult =
-        (EngineUpdateForkchoiceResult) ((JsonRpcSuccessResponse) response).getResult();
+    final ForkchoiceUpdatedResultV1 forkchoiceResult =
+        (ForkchoiceUpdatedResultV1) ((JsonRpcSuccessResponse) response).getResult();
     assertThat(forkchoiceResult.getPayloadStatus().getStatus()).isEqualTo(INVALID);
     assertThat(forkchoiceResult.getPayloadStatus().getLatestValidHashAsString())
         .isEqualTo(validParent.getHash().toHexString());
@@ -213,11 +223,11 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
 
     final JsonRpcResponse response =
         invokeForkchoiceUpdated(
-            new EngineForkchoiceUpdatedParameter(
+            new ForkchoiceStateV1(
                 descendantHeader.getHash(), unknownParent.getHash(), unknownParent.getHash()));
 
-    final EngineUpdateForkchoiceResult forkchoiceResult =
-        (EngineUpdateForkchoiceResult) ((JsonRpcSuccessResponse) response).getResult();
+    final ForkchoiceUpdatedResultV1 forkchoiceResult =
+        (ForkchoiceUpdatedResultV1) ((JsonRpcSuccessResponse) response).getResult();
     assertThat(forkchoiceResult.getPayloadStatus().getStatus()).isEqualTo(INVALID);
     assertThat(forkchoiceResult.getPayloadStatus().getLatestValidHashAsString())
         .isEqualTo(Hash.ZERO.toHexString());
@@ -227,7 +237,7 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
     assertThat(forkchoiceResult.getPayloadId()).isNull();
   }
 
-  private JsonRpcResponse invokeForkchoiceUpdated(final EngineForkchoiceUpdatedParameter fcu) {
+  private JsonRpcResponse invokeForkchoiceUpdated(final ForkchoiceStateV1 fcu) {
     return method.response(
         new JsonRpcRequestContext(
             new JsonRpcRequest("2.0", "engine_forkchoiceUpdatedV3", new Object[] {fcu})));

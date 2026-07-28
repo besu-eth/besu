@@ -17,15 +17,18 @@ package org.hyperledger.besu.cli.options;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 
 import org.hyperledger.besu.cli.CommandTestAbstract;
+import org.hyperledger.besu.ethereum.p2p.config.DiscoveryMode;
 
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
@@ -96,7 +99,6 @@ public class P2PDiscoveryOptionsTest extends CommandTestAbstract {
 
   @Test
   public void p2pHostMayBeIPv6() {
-
     final String host = "2600:DB8::8545";
     parseCommand("--p2p-host", host);
 
@@ -105,7 +107,6 @@ public class P2PDiscoveryOptionsTest extends CommandTestAbstract {
     verify(mockRunnerBuilder).build();
 
     assertThat(stringArgumentCaptor.getValue()).isEqualTo(host);
-
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
   }
@@ -165,7 +166,6 @@ public class P2PDiscoveryOptionsTest extends CommandTestAbstract {
 
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8))
-        .contains("When --p2p-host-ipv6 is specified for dual-stack configuration")
         .contains("--p2p-host must be an IPv4 address")
         .contains(ipv6Primary);
   }
@@ -219,9 +219,22 @@ public class P2PDiscoveryOptionsTest extends CommandTestAbstract {
 
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8))
-        .contains("When --p2p-interface-ipv6 is specified for dual-stack configuration")
         .contains("--p2p-interface must be an IPv4 address or 0.0.0.0")
         .contains(ipv6Primary);
+  }
+
+  @Test
+  public void ipv6OnlyInterfaceConfigurationIsValid() {
+    final String ipv6Interface = "::";
+    parseCommand("--p2p-interface", ipv6Interface);
+
+    verify(mockRunnerBuilder).p2pListenInterface(stringArgumentCaptor.capture());
+    verify(mockRunnerBuilder).preferIpv6Outbound(anyBoolean());
+    verify(mockRunnerBuilder).build();
+
+    assertThat(stringArgumentCaptor.getValue()).isEqualTo(ipv6Interface);
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
   }
 
   @Test
@@ -296,6 +309,29 @@ public class P2PDiscoveryOptionsTest extends CommandTestAbstract {
     assertThat(stringArgumentCaptor.getValue()).isEqualTo(ipv4Host);
     // No IPv6 options specified, so interface-ipv6 should be empty
     assertThat(optionalStringArgumentCaptor.getValue()).isEmpty();
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void discoveryModeDefaultIsBoth() {
+    parseCommand();
+
+    verify(mockRunnerBuilder).discoveryMode(eq(DiscoveryMode.BOTH));
+    verify(mockRunnerBuilder).build();
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @ParameterizedTest
+  @EnumSource(DiscoveryMode.class)
+  public void discoveryModeCanBeSetExplicitly(final DiscoveryMode mode) {
+    parseCommand("--discovery-mode", mode.name());
+
+    verify(mockRunnerBuilder).discoveryMode(eq(mode));
+    verify(mockRunnerBuilder).build();
 
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();

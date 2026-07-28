@@ -27,6 +27,7 @@ import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ConsensusContext;
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.methods.JsonRpcMethods;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
@@ -215,14 +216,23 @@ public class ConsensusScheduleBesuControllerBuilder extends BesuControllerBuilde
       final ProtocolContext protocolContext,
       final ProtocolSchedule protocolSchedule,
       final MiningConfiguration miningConfiguration) {
-    besuControllerBuilderSchedule
-        .values()
-        .forEach(
-            b ->
-                b.createAdditionalJsonRpcMethodFactory(
-                    protocolContext, protocolSchedule, miningConfiguration));
-    return super.createAdditionalJsonRpcMethodFactory(
-        protocolContext, protocolSchedule, miningConfiguration);
+    // Combine the additional RPC methods of every scheduled consensus mechanism so that, for
+    // example, both ibft_* and qbft_* methods remain available throughout an IBFT2->QBFT
+    // migration. Delegates are processed in block number order so later forks win any collision.
+    final List<JsonRpcMethods> delegateFactories =
+        besuControllerBuilderSchedule.entrySet().stream()
+            .sorted(Map.Entry.comparingByKey())
+            .map(
+                e ->
+                    e.getValue()
+                        .createAdditionalJsonRpcMethodFactory(
+                            protocolContext, protocolSchedule, miningConfiguration))
+            .toList();
+    return apis -> {
+      final Map<String, JsonRpcMethod> combinedMethods = new HashMap<>();
+      delegateFactories.forEach(factory -> combinedMethods.putAll(factory.create(apis)));
+      return combinedMethods;
+    };
   }
 
   @Override

@@ -16,7 +16,28 @@ on:
         value: ${{ jobs.publishDocker.outputs.image_digest }}
 
 jobs:
+  check-creds:
+    runs-on: ubuntu-24.04
+    outputs:
+      has_creds: ${{ steps.check.outputs.has_creds }}
+    steps:
+      - name: Check Docker credentials
+        id: check
+        env:
+          DOCKER_USER_RW: ${{ secrets.DOCKER_USER_RW }}
+          DOCKER_PASSWORD_RW: ${{ secrets.DOCKER_PASSWORD_RW }}
+          DOCKER_ORG: ${{ secrets.DOCKER_ORG }}
+        run: |
+          if [[ -z "$DOCKER_USER_RW" || -z "$DOCKER_PASSWORD_RW" || -z "$DOCKER_ORG" ]]; then
+            echo "::warning::Docker credentials (DOCKER_USER_RW, DOCKER_PASSWORD_RW, DOCKER_ORG) are not configured — skipping docker publish"
+            echo "has_creds=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_creds=true" >> "$GITHUB_OUTPUT"
+          fi
+
   publishDocker:
+    needs: check-creds
+    if: needs.check-creds.outputs.has_creds == 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
