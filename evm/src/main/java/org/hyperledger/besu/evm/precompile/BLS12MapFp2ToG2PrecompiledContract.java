@@ -23,7 +23,7 @@ import org.apache.tuweni.bytes.Bytes;
 public class BLS12MapFp2ToG2PrecompiledContract extends AbstractBLS12PrecompiledContract {
 
   private static final int PARAMETER_LENGTH = 128;
-  private static final Cache<Integer, PrecompileInputResultTuple> mapfp2g2Cache =
+  private static final Cache<Bytes, PrecompileInputResultTuple> mapfp2g2Cache =
       AbstractPrecompiledContract.resultCacheBuilder().build();
 
   /** Instantiates a new BLS12MapFp2ToG2 precompiled contract. */
@@ -40,7 +40,7 @@ public class BLS12MapFp2ToG2PrecompiledContract extends AbstractBLS12Precompiled
   }
 
   @Override
-  protected Cache<Integer, PrecompileInputResultTuple> getCache() {
+  protected Cache<Bytes, PrecompileInputResultTuple> getCache() {
     return mapfp2g2Cache;
   }
 }

@@ -46,7 +46,7 @@ public class AltBN128PairingPrecompiledContract extends AbstractAltBnPrecompiled
   private static final int PARAMETER_LENGTH = 192;
   private static final String PRECOMPILE_NAME = "BN254_PAIRING";
 
-  private static final Cache<Integer, PrecompileInputResultTuple> bnPairingCache =
+  private static final Cache<Bytes, PrecompileInputResultTuple> bnPairingCache =
       AbstractPrecompiledContract.resultCacheBuilder()
           .expireAfterWrite(15, TimeUnit.MINUTES) // Evict 15 minutes after each entry is written
           .build();
@@ -103,7 +103,7 @@ public class AltBN128PairingPrecompiledContract extends AbstractAltBnPrecompiled
           null, Optional.of(ExceptionalHaltReason.PRECOMPILE_ERROR));
     }
     PrecompileInputResultTuple res;
-    Integer cacheKey = null;
+    Bytes cacheKey = null;
     if (enableResultCaching) {
       cacheKey = getCacheKey(input, input.size());
       res = bnPairingCache.getIfPresent(cacheKey);

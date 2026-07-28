@@ -3,7 +3,7 @@ name: Release
 # Job flow:
 #
 #   build               ← validate tag (X.Y.Z or X.Y.Z-RCN, inline), gradle assemble,
-#                         sha256 hashes, upload distribution artifacts (14-day retention)
+#                         sha256 hashes, upload distribution artifacts
 #     │
 #   docker-build-test   ← checkout tag, distDockerCopy, build amd64, goss tests (no push)
 #     │
@@ -76,7 +76,6 @@ jobs:
           name: besu-${{ github.ref_name }}.tar.gz
           path: build/distributions/besu-${{ github.ref_name }}.tar.gz
           compression-level: 0
-          retention-days: 14
 
       - name: Upload zip
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
@@ -84,21 +83,18 @@ jobs:
           name: besu-${{ github.ref_name }}.zip
           path: build/distributions/besu-${{ github.ref_name }}.zip
           compression-level: 0
-          retention-days: 14
 
       - name: Upload tar.gz sha256
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: besu-${{ github.ref_name }}.tar.gz.sha256
           path: build/distributions/besu-${{ github.ref_name }}.tar.gz.sha256
-          retention-days: 14
 
       - name: Upload zip sha256
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: besu-${{ github.ref_name }}.zip.sha256
           path: build/distributions/besu-${{ github.ref_name }}.zip.sha256
-          retention-days: 14
 
   dockerBuildTest:
     needs: build
