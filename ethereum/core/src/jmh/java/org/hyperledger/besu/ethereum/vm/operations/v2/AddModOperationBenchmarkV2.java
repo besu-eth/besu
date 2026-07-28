@@ -12,18 +12,15 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.vm.operations;
+package org.hyperledger.besu.ethereum.vm.operations.v2;
 
 import org.hyperledger.besu.evm.frame.MessageFrame;
-import org.hyperledger.besu.evm.operation.AddModOperationOptimized;
-import org.hyperledger.besu.evm.operation.Operation;
+import org.hyperledger.besu.evm.operation.Operation.OperationResult;
+import org.hyperledger.besu.evm.v2.operation.AddModOperationV2;
 
 import org.openjdk.jmh.annotations.Param;
 
-public class AddModOperationBenchmark extends TernaryArithmeticOperationBenchmark {
-
-  // Cases for (a + b) % c
-  // Format "ADDMOD_a_b_c" - where a, b and c are the size in bits
+public class AddModOperationBenchmarkV2 extends TernaryArithmeticBenchmarkV2 {
   @Param({
     "ADDMOD_32_32_32",
     "ADDMOD_64_32_32",
@@ -70,8 +67,8 @@ public class AddModOperationBenchmark extends TernaryArithmeticOperationBenchmar
   private String caseName;
 
   @Override
-  protected Operation.OperationResult invoke(final MessageFrame frame) {
-    return AddModOperationOptimized.staticOperation(frame);
+  protected OperationResult invoke(final MessageFrame frame) {
+    return AddModOperationV2.staticOperation(frame);
   }
 
   @Override

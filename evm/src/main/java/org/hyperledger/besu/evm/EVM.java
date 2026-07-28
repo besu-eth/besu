@@ -87,6 +87,7 @@ import org.hyperledger.besu.evm.operation.VirtualOperation;
 import org.hyperledger.besu.evm.operation.XorOperation;
 import org.hyperledger.besu.evm.operation.XorOperationOptimized;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.evm.v2.operation.AddModOperationV2;
 import org.hyperledger.besu.evm.v2.operation.AddOperationV2;
 import org.hyperledger.besu.evm.v2.operation.DivOperationV2;
 import org.hyperledger.besu.evm.v2.operation.ModOperationV2;
@@ -499,6 +500,7 @@ public class EVM {
               case 0x05 -> SDivOperationV2.staticOperation(frame);
               case 0x06 -> ModOperationV2.staticOperation(frame);
               case 0x07 -> SModOperationV2.staticOperation(frame);
+              case 0x08 -> AddModOperationV2.staticOperation(frame);
               case 0x09 -> MulModOperationV2.staticOperation(frame);
               case 0x1b ->
                   enableConstantinople
