@@ -15,6 +15,8 @@
 package org.hyperledger.besu.consensus.common.bft.blockcreation;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -34,6 +36,7 @@ import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 
 import java.util.Collections;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -125,6 +128,60 @@ public class BftMiningCoordinatorTest {
 
     // BFT processor should be started once for every time the mining
     // coordinator is restarted
+    verify(bftProcessor, times(2)).start();
+  }
+
+  @Test
+  public void concurrentStartIsSerializedBehindAnInProgressStop() throws Exception {
+    final CountDownLatch awaitStopEntered = new CountDownLatch(1);
+    final CountDownLatch releaseAwaitStop = new CountDownLatch(1);
+    final CountDownLatch secondStartBodyReached = new CountDownLatch(1);
+
+    // stop() runs its teardown inline (not on the event thread) and blocks in awaitStop() while
+    // holding the lifecycle lock.
+    when(bftProcessor.isEventThread()).thenReturn(false);
+    doAnswer(
+            invocation -> {
+              awaitStopEntered.countDown();
+              releaseAwaitStop.await(5, TimeUnit.SECONDS);
+              return null;
+            })
+        .when(bftProcessor)
+        .awaitStop();
+
+    bftMiningCoordinator.enable();
+    bftMiningCoordinator.start();
+    assertThat(bftMiningCoordinator.isMining()).isTrue();
+
+    // executeBftProcessor is the last side effect of start(); use it to detect the start() body
+    // running a second time.
+    doAnswer(
+            invocation -> {
+              secondStartBodyReached.countDown();
+              return null;
+            })
+        .when(bftExecutors)
+        .executeBftProcessor(any());
+
+    final Thread stopper = new Thread(bftMiningCoordinator::stop, "stopper");
+    stopper.start();
+    // stop() has transitioned to STOPPED and is now blocked in completeStop(), holding the lock.
+    assertThat(awaitStopEntered.await(5, TimeUnit.SECONDS)).isTrue();
+
+    final Thread starter = new Thread(bftMiningCoordinator::start, "starter");
+    starter.start();
+
+    // start() must not run its body while stop() holds the lifecycle lock. Without the lock,
+    // start() would win the STOPPED -> RUNNING transition and execute its body concurrently.
+    assertThat(secondStartBodyReached.await(500, TimeUnit.MILLISECONDS)).isFalse();
+
+    // let stop() finish and release the lock; start() may now proceed.
+    releaseAwaitStop.countDown();
+    assertThat(secondStartBodyReached.await(5, TimeUnit.SECONDS)).isTrue();
+
+    stopper.join(TimeUnit.SECONDS.toMillis(5));
+    starter.join(TimeUnit.SECONDS.toMillis(5));
+    assertThat(bftMiningCoordinator.isMining()).isTrue();
     verify(bftProcessor, times(2)).start();
   }
 
