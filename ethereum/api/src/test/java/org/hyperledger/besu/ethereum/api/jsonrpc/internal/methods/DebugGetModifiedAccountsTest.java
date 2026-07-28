@@ -206,10 +206,8 @@ public class DebugGetModifiedAccountsTest {
   public void shouldReturnNoParentErrorWhenSingleNumberParamIsGenesisBlock() {
     final JsonRpcResponse response = getModifiedAccountsByNumber.response(request("0x0"));
 
-    assertThat(((JsonRpcErrorResponse) response).getError().getCode()).isEqualTo(-32000);
-    assertThat(((JsonRpcErrorResponse) response).getError().getMessage())
-        .isEqualTo(
-            "block " + block0.getHash().getBytes().toUnprefixedHexString() + " has no parent");
+    assertThat(((JsonRpcErrorResponse) response).getErrorType())
+        .isEqualTo(RpcErrorType.NO_PARENT_BLOCK);
   }
 
   @Test
@@ -217,10 +215,8 @@ public class DebugGetModifiedAccountsTest {
     final JsonRpcResponse response =
         getModifiedAccountsByHash.response(hashRequest(block0.getBlockHash().toHexString()));
 
-    assertThat(((JsonRpcErrorResponse) response).getError().getCode()).isEqualTo(-32000);
-    assertThat(((JsonRpcErrorResponse) response).getError().getMessage())
-        .isEqualTo(
-            "block " + block0.getHash().getBytes().toUnprefixedHexString() + " has no parent");
+    assertThat(((JsonRpcErrorResponse) response).getErrorType())
+        .isEqualTo(RpcErrorType.NO_PARENT_BLOCK);
   }
 
   @Test

@@ -41,7 +41,6 @@ abstract class AbstractDebugGetModifiedAccounts implements JsonRpcMethod {
 
   private static final String METHOD_ONLY_SUPPORTED_WITH_BONSAI =
       "This method is only supported with Bonsai world state storage";
-  private static final int INTERNAL_ERROR_CODE = -32000;
 
   private final Supplier<BlockchainQueries> blockchainQueries;
 
@@ -141,11 +140,7 @@ abstract class AbstractDebugGetModifiedAccounts implements JsonRpcMethod {
   }
 
   protected JsonRpcError noParentError(final BlockHeader blockHeader) {
-    return new JsonRpcError(
-        INTERNAL_ERROR_CODE,
-        "block %s has no parent"
-            .formatted(blockHeader.getHash().getBytes().toUnprefixedHexString()),
-        null);
+    return new JsonRpcError(RpcErrorType.NO_PARENT_BLOCK);
   }
 
   protected abstract Optional<BlockHeader> startBlock(JsonRpcRequestContext requestContext);
