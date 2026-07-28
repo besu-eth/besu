@@ -23,14 +23,21 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.PeerDiscoveryAgentV4;
+import org.hyperledger.besu.ethereum.p2p.discovery.transport.SharedDiscoveryTransport;
 import org.hyperledger.besu.util.NetworkUtility;
 
 import java.io.IOException;
+import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.StandardProtocolFamily;
+import java.nio.channels.UnsupportedAddressTypeException;
 import java.util.List;
+import java.util.Optional;
+import java.util.Random;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -46,6 +53,7 @@ public class NettyTransportTest {
 
   private NettyTransport transport1;
   private NettyTransport transport2;
+  private SharedDiscoveryTransport sharedTransport;
 
   @AfterEach
   public void tearDown() throws Exception {
@@ -55,6 +63,20 @@ public class NettyTransportTest {
     if (transport2 != null) {
       transport2.stop().get(5, TimeUnit.SECONDS);
     }
+    if (sharedTransport != null) {
+      sharedTransport.stop().get(5, TimeUnit.SECONDS);
+    }
+  }
+
+  private static SharedDiscoveryTransport newSharedTransport() {
+    final byte[] maskingKey = new byte[16];
+    new Random().nextBytes(maskingKey);
+    return SharedDiscoveryTransport.builder()
+        .ipv4BindAddress(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0))
+        .maskingKey(maskingKey)
+        .v4Enabled(true)
+        .v5Enabled(false)
+        .build();
   }
 
   @Test
@@ -207,5 +229,144 @@ public class NettyTransportTest {
 
     assertThat(result).succeedsWithin(5, TimeUnit.SECONDS);
     verify(group).shutdownGracefully(anyLong(), anyLong(), any());
+  }
+
+  @Test
+  public void createShared_start_returnsSharedTransportsBoundAddress() throws Exception {
+    sharedTransport = newSharedTransport();
+    sharedTransport.start().get(5, TimeUnit.SECONDS);
+
+    transport1 = NettyTransport.createShared(sharedTransport);
+    final InetSocketAddress bound = transport1.start().get(5, TimeUnit.SECONDS);
+
+    assertThat(bound).isEqualTo(sharedTransport.getBoundAddress(StandardProtocolFamily.INET));
+  }
+
+  @Test
+  public void createShared_start_failsIfSharedTransportNotYetBound() throws Exception {
+    sharedTransport = newSharedTransport();
+    // Deliberately not started.
+
+    transport1 = NettyTransport.createShared(sharedTransport);
+
+    assertThat(transport1.start()).failsWithin(5, TimeUnit.SECONDS);
+  }
+
+  @Test
+  public void createShared_start_fallsBackToIpv6WhenNoIpv4ChannelBound() throws Exception {
+    // DiscV4 on an IPv6-only shared transport (--p2p-interface=::, no IPv4 bind) is a
+    // legitimate config - start() must not assume IPv4 is always the bound family.
+    assumeTrue(NetworkUtility.isIPv6Available(), "IPv6 not available on this host");
+
+    final byte[] maskingKey = new byte[16];
+    new Random().nextBytes(maskingKey);
+    sharedTransport =
+        SharedDiscoveryTransport.builder()
+            .ipv4BindAddress(Optional.empty())
+            .ipv6BindAddress(Optional.of(new InetSocketAddress(Inet6Address.getByName("::"), 0)))
+            .maskingKey(maskingKey)
+            .v4Enabled(true)
+            .v5Enabled(false)
+            .build();
+    sharedTransport.start().get(5, TimeUnit.SECONDS);
+
+    transport1 = NettyTransport.createShared(sharedTransport);
+    final InetSocketAddress bound = transport1.start().get(5, TimeUnit.SECONDS);
+
+    assertThat(bound).isEqualTo(sharedTransport.getBoundAddress(StandardProtocolFamily.INET6));
+  }
+
+  @Test
+  public void createShared_setInboundHandler_receivesPacketsRoutedThroughSharedTransport()
+      throws Exception {
+    sharedTransport = newSharedTransport();
+    sharedTransport.start().get(5, TimeUnit.SECONDS);
+
+    transport1 = NettyTransport.createShared(sharedTransport);
+    final AtomicReference<Bytes> received = new AtomicReference<>();
+    transport1.setInboundHandler((sender, data) -> received.set(data));
+    transport1.start().get(5, TimeUnit.SECONDS);
+
+    transport2 = NettyTransport.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0));
+    transport2.start().get(5, TimeUnit.SECONDS);
+
+    // SharedDiscoveryDemuxHandler only routes packets of at least 98 bytes as DiscV4.
+    final byte[] payloadBytes = new byte[98];
+    new Random().nextBytes(payloadBytes);
+    final Bytes payload = Bytes.wrap(payloadBytes);
+    transport2
+        .send(sharedTransport.getBoundAddress(StandardProtocolFamily.INET), payload)
+        .get(5, TimeUnit.SECONDS);
+
+    Awaitility.await()
+        .atMost(2, TimeUnit.SECONDS)
+        .untilAsserted(() -> assertThat(received.get()).isEqualTo(payload));
+  }
+
+  @Test
+  public void send_toIpv6Recipient_failsWithUnsupportedAddressType_onIpv4OnlySharedTransport()
+      throws Exception {
+    sharedTransport = newSharedTransport();
+    sharedTransport.start().get(5, TimeUnit.SECONDS);
+
+    transport1 = NettyTransport.createShared(sharedTransport);
+    transport1.start().get(5, TimeUnit.SECONDS);
+
+    final InetSocketAddress ipv6Recipient =
+        new InetSocketAddress(Inet6Address.getByName("::1"), 30303);
+    assertThat(ipv6Recipient.getAddress()).isInstanceOf(Inet6Address.class);
+
+    final CompletableFuture<Void> result =
+        transport1.send(ipv6Recipient, Bytes.fromHexString("0xaabbcc"));
+
+    assertThat(result)
+        .failsWithin(5, TimeUnit.SECONDS)
+        .withThrowableOfType(ExecutionException.class)
+        .withCauseInstanceOf(UnsupportedAddressTypeException.class);
+  }
+
+  @Test
+  public void send_toIpv6Recipient_succeeds_onDualStackSharedTransport() throws Exception {
+    assumeTrue(NetworkUtility.isIPv6Available(), "IPv6 not available on this host");
+
+    final byte[] maskingKey = new byte[16];
+    new Random().nextBytes(maskingKey);
+    sharedTransport =
+        SharedDiscoveryTransport.builder()
+            .ipv4BindAddress(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0))
+            .ipv6BindAddress(Optional.of(new InetSocketAddress(Inet6Address.getByName("::1"), 0)))
+            .maskingKey(maskingKey)
+            .v4Enabled(true)
+            .v5Enabled(false)
+            .build();
+    sharedTransport.start().get(5, TimeUnit.SECONDS);
+
+    transport1 = NettyTransport.createShared(sharedTransport);
+    transport1.start().get(5, TimeUnit.SECONDS);
+
+    final InetSocketAddress ipv6Bound =
+        sharedTransport.getBoundAddress(StandardProtocolFamily.INET6);
+    assertThat(ipv6Bound).isNotNull();
+
+    final CompletableFuture<Void> result =
+        transport1.send(ipv6Bound, Bytes.fromHexString("0xaabbcc"));
+
+    assertThat(result).succeedsWithin(5, TimeUnit.SECONDS);
+  }
+
+  @Test
+  public void createShared_stop_doesNotCloseTheSharedChannel() throws Exception {
+    sharedTransport = newSharedTransport();
+    sharedTransport.start().get(5, TimeUnit.SECONDS);
+
+    transport1 = NettyTransport.createShared(sharedTransport);
+    transport1.start().get(5, TimeUnit.SECONDS);
+    transport1.stop().get(5, TimeUnit.SECONDS);
+    transport1 = null; // tearDown won't try to stop it again
+
+    // The shared channel is owned by SharedDiscoveryTransport, not this NettyTransport -
+    // stopping the latter must not tear down the former.
+    assertThat(sharedTransport.getChannel(StandardProtocolFamily.INET)).isPresent();
+    assertThat(sharedTransport.getChannel(StandardProtocolFamily.INET).get().isActive()).isTrue();
   }
 }

@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PARIS;
+
 import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
@@ -80,6 +82,15 @@ public class ForkSupportHelper {
               + firstUnsupportedHardforkId.name()
               + " at timestamp "
               + maybeFirstUnsupportedMilestone.get());
+    }
+
+    // Special case when the method should be active since the beginning, during the transition to
+    // PoS its milestone is still not configured, but the call is valid.
+    if (maybeFirstSupportedForkMilestone.isEmpty()) {
+      if (firstSupportedHardforkId != null && !firstSupportedHardforkId.equals(PARIS)) {
+        return ValidationResult.invalid(
+            RpcErrorType.UNSUPPORTED_FORK, firstSupportedHardforkId.name() + " not configured");
+      }
     }
 
     return ValidationResult.valid();

@@ -214,8 +214,8 @@ public class ProtocolScheduleBuilder {
         final long thisForkBlock = milestoneDefinition.blockNumberOrTimestamp().getAsLong();
         for (final MilestoneDefinition pendingDefinition : pendingDefinitions) {
           validateForkOrder(
-              milestoneDefinition.hardforkId().name(),
-              milestoneDefinition.blockNumberOrTimestamp(),
+              pendingDefinition.hardforkId().name(),
+              pendingDefinition.blockNumberOrTimestamp(),
               lastForkBlock);
           milestones.add(createMilestone(pendingDefinition, thisForkBlock));
         }

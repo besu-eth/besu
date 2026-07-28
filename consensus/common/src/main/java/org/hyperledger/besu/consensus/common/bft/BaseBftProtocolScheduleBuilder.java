@@ -16,8 +16,10 @@ package org.hyperledger.besu.consensus.common.bft;
 
 import org.hyperledger.besu.config.BftConfigOptions;
 import org.hyperledger.besu.config.GenesisConfigOptions;
+import org.hyperledger.besu.config.JsonBftConfigOptions;
 import org.hyperledger.besu.consensus.common.ForksSchedule;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.GasLimitCalculator;
 import org.hyperledger.besu.ethereum.MainnetBlockValidatorBuilder;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
@@ -39,12 +41,16 @@ import java.math.BigInteger;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.function.Function;
 
 /** Defines the protocol behaviours for a blockchain using a BFT consensus mechanism. */
 public abstract class BaseBftProtocolScheduleBuilder {
 
   private static final BigInteger DEFAULT_CHAIN_ID = BigInteger.ONE;
+
+  /** The genesis block gas limit, used for validating per-transaction gas limit overrides. */
+  protected long blockGasLimit;
 
   /** Default constructor. */
   protected BaseBftProtocolScheduleBuilder() {}
@@ -147,6 +153,37 @@ public abstract class BaseBftProtocolScheduleBuilder {
         .blockReward(Wei.of(configOptions.getBlockRewardWei()))
         .withdrawalsValidator(new WithdrawalsValidator.NotApplicableWithdrawals())
         .miningBeneficiaryCalculator(
-            header -> configOptions.getMiningBeneficiary().orElseGet(header::getCoinbase));
+            header -> configOptions.getMiningBeneficiary().orElseGet(header::getCoinbase))
+        .gasLimitCalculatorBuilder(createCustomGasCalculator(builder, configOptions));
+  }
+
+  private ProtocolSpecBuilder.GasLimitCalculatorBuilder createCustomGasCalculator(
+      final ProtocolSpecBuilder builder, final BftConfigOptions configOptions) {
+    final OptionalLong perTxGasLimit = configOptions.getTransactionGasLimit();
+    if (perTxGasLimit.isEmpty()) {
+      return builder.getGasLimitCalculatorBuilder();
+    }
+
+    final long cap = perTxGasLimit.getAsLong();
+    if (cap < 0 || cap > blockGasLimit) {
+      throw new IllegalArgumentException(
+          "config.bft."
+              + JsonBftConfigOptions.TRANSACTION_GAS_LIMIT
+              + " ("
+              + cap
+              + ") must be >= 0 and <= the genesis block gas limit ("
+              + blockGasLimit
+              + ")");
+    }
+
+    final long effectiveCap = cap == 0 ? Long.MAX_VALUE : cap;
+
+    final ProtocolSpecBuilder.GasLimitCalculatorBuilder delegateBuilder =
+        builder.getGasLimitCalculatorBuilder();
+    return (feeMarket, gasCalculator, blobSchedule) -> {
+      final GasLimitCalculator delegate =
+          delegateBuilder.apply(feeMarket, gasCalculator, blobSchedule);
+      return new TransactionGasLimitOverrideGasLimitCalculator(delegate, effectiveCap);
+    };
   }
 }

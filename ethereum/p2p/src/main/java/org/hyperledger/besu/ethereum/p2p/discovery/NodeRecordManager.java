@@ -78,9 +78,12 @@ public class NodeRecordManager {
 
   private final ReentrantLock lock = new ReentrantLock();
 
-  private Optional<DiscoveryPeerV4> localNode = Optional.empty();
-  private HostEndpoint primaryEndpoint;
-  private Optional<HostEndpoint> ipv6Endpoint = Optional.empty();
+  // Mutated only under lock, but readers like getLocalNode()/isPrimaryEndpointIpv6() (called
+  // from both the DiscV4 and DiscV5 agent threads) intentionally don't take the lock - volatile
+  // supplies the missing JMM visibility guarantee for those reads.
+  private volatile Optional<DiscoveryPeerV4> localNode = Optional.empty();
+  private volatile HostEndpoint primaryEndpoint;
+  private volatile Optional<HostEndpoint> ipv6Endpoint = Optional.empty();
 
   // TCP port to use if/when an IPv6 host is auto-discovered via DiscV5 peer consensus.
   // Holds only the port — never a host — so it cannot leak into a broadcast/signed ENR.
@@ -123,6 +126,36 @@ public class NodeRecordManager {
    */
   public Optional<DiscoveryPeerV4> getLocalNode() {
     return localNode;
+  }
+
+  /**
+   * Returns whether {@link #initializeLocalNode} has already been called.
+   *
+   * <p>When a manager is shared by the DiscV4 and DiscV5 agents, this lets whichever starts second
+   * call {@link #registerIpv6AutoDiscoveryHint} instead of re-initializing and clobbering the first
+   * agent's already-resolved state.
+   *
+   * @return {@code true} if the local node has already been initialized
+   */
+  public boolean isInitialized() {
+    return localNode.isPresent();
+  }
+
+  /**
+   * Registers the locally-bound IPv6 TCP port hint used for peer-consensus IPv6 auto-discovery,
+   * without re-initializing or rewriting the ENR. Used instead of {@link #initializeLocalNode} when
+   * another agent sharing this manager has already initialized it (see {@link #isInitialized}).
+   *
+   * @param ipv6AutoDiscoveryTcpPort optional locally-bound IPv6 TCP port used to construct the
+   *     secondary endpoint if and when peer-consensus auto-discovery succeeds
+   */
+  public void registerIpv6AutoDiscoveryHint(final Optional<Integer> ipv6AutoDiscoveryTcpPort) {
+    lock.lock();
+    try {
+      this.ipv6AutoDiscoveryTcpPort = ipv6AutoDiscoveryTcpPort;
+    } finally {
+      lock.unlock();
+    }
   }
 
   /**

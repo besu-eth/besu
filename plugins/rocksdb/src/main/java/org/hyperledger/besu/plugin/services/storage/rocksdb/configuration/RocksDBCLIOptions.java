@@ -16,8 +16,10 @@ package org.hyperledger.besu.plugin.services.storage.rocksdb.configuration;
 
 import java.lang.management.ManagementFactory;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 import com.google.common.base.MoreObjects;
+import com.google.common.base.Suppliers;
 import com.sun.management.OperatingSystemMXBean;
 import picocli.CommandLine;
 
@@ -27,19 +29,19 @@ public class RocksDBCLIOptions {
   /** The constant DEFAULT_MAX_OPEN_FILES. */
   public static final int DEFAULT_MAX_OPEN_FILES = 1024;
 
-  /** Max open files for machines with at least 4 GiB available memory. */
-  public static final int MAX_OPEN_FILES_4GB = 2048;
+  /** Number of bytes in one gibibyte (GiB), {@code 1024^3}. */
+  public static final long GIB = 1024L * 1024L * 1024L;
 
-  /** Max open files for machines with at least 8 GiB available memory. */
-  public static final int MAX_OPEN_FILES_8GB = 4096;
+  /** Minimum max-open-files value used when deriving from available memory. */
+  private static final int MIN_MAX_OPEN_FILES = 1024;
 
-  /** Max open files for machines with at least 16 GiB available memory. */
-  public static final int MAX_OPEN_FILES_16GB = 8192;
+  /** Maximum max-open-files value used when deriving from available memory. */
+  private static final int MAX_MAX_OPEN_FILES = 16384;
 
-  /** Max open files for machines with at least 32 GiB available memory. */
-  public static final int MAX_OPEN_FILES_32GB = 16384;
-
-  private static final long GIB = 1024L * 1024L * 1024L;
+  /**
+   * Scale factor used to derive max open files from available memory ({@code 512} files per GiB).
+   */
+  private static final int OPEN_FILES_PER_GIB = 512;
 
   /** The constant DEFAULT_CACHE_CAPACITY. */
   public static final long DEFAULT_CACHE_CAPACITY = 134217728;
@@ -160,6 +162,10 @@ public class RocksDBCLIOptions {
       description = "Blob garbage collection force threshold (default: ${DEFAULT-VALUE})")
   Optional<Double> blobGarbageCollectionForceThreshold = Optional.empty();
 
+  private final Supplier<Integer> resolvedMaxOpenFilesSupplier =
+      Suppliers.memoize(
+          () -> maxOpenFiles.orElseGet(RocksDBCLIOptions::deriveMaxOpenFilesFromAvailableMemory));
+
   private RocksDBCLIOptions() {}
 
   /**
@@ -197,7 +203,7 @@ public class RocksDBCLIOptions {
    */
   public RocksDBFactoryConfiguration toDomainObject() {
     return new RocksDBFactoryConfiguration(
-        maxOpenFiles.orElseGet(RocksDBCLIOptions::deriveMaxOpenFilesFromAvailableMemory),
+        resolveMaxOpenFiles(),
         backgroundThreadCount,
         cacheCapacity,
         isHighSpec,
@@ -207,6 +213,10 @@ public class RocksDBCLIOptions {
         blobGarbageCollectionForceThreshold);
   }
 
+  private int resolveMaxOpenFiles() {
+    return resolvedMaxOpenFilesSupplier.get();
+  }
+
   /**
    * Is high spec.
    *
@@ -214,6 +224,25 @@ public class RocksDBCLIOptions {
    */
   public boolean isHighSpec() {
     return isHighSpec;
+  }
+
+  /**
+   * Returns the max open files value that will be used, either explicitly set or derived from
+   * available memory.
+   *
+   * @return the resolved max open files value
+   */
+  public int getResolvedMaxOpenFiles() {
+    return resolveMaxOpenFiles();
+  }
+
+  /**
+   * Returns whether max open files was explicitly set via CLI.
+   *
+   * @return true if max open files was set via CLI, false if derived from available memory
+   */
+  public boolean isMaxOpenFilesExplicitlySet() {
+    return maxOpenFiles.isPresent();
   }
 
   /**
@@ -232,25 +261,15 @@ public class RocksDBCLIOptions {
   }
 
   /**
-   * Calculates max open files for the given available memory.
+   * Calculates max open files for the given available memory using a continuous scale of 512 files
+   * per GiB, clamped between 1024 and 16384.
    *
    * @param availableMemoryBytes the available memory in bytes
-   * @return the max open files value for the matching memory tier
+   * @return the derived max open files value
    */
   public static int calculateMaxOpenFiles(final long availableMemoryBytes) {
-    if (availableMemoryBytes >= 32L * GIB) {
-      return MAX_OPEN_FILES_32GB;
-    }
-    if (availableMemoryBytes >= 16L * GIB) {
-      return MAX_OPEN_FILES_16GB;
-    }
-    if (availableMemoryBytes >= 8L * GIB) {
-      return MAX_OPEN_FILES_8GB;
-    }
-    if (availableMemoryBytes >= 4L * GIB) {
-      return MAX_OPEN_FILES_4GB;
-    }
-    return DEFAULT_MAX_OPEN_FILES;
+    final long computed = (availableMemoryBytes * OPEN_FILES_PER_GIB) / GIB;
+    return (int) Math.min(MAX_MAX_OPEN_FILES, Math.max(MIN_MAX_OPEN_FILES, computed));
   }
 
   /**

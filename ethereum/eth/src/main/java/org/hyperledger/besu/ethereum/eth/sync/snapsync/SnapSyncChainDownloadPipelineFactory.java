@@ -22,12 +22,11 @@ import org.hyperledger.besu.ethereum.core.encoding.receipt.SyncTransactionReceip
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.sync.DownloadSyncBodiesStep;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
-import org.hyperledger.besu.ethereum.eth.sync.common.BackwardBlockNumberSource;
+import org.hyperledger.besu.ethereum.eth.sync.common.BackwardHeaderDriver;
 import org.hyperledger.besu.ethereum.eth.sync.common.BlockHeaderSource;
 import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.common.DownloadBackwardHeadersStep;
 import org.hyperledger.besu.ethereum.eth.sync.common.DownloadSyncReceiptsStep;
-import org.hyperledger.besu.ethereum.eth.sync.common.ImportHeadersStep;
 import org.hyperledger.besu.ethereum.eth.sync.common.ImportSyncBlocksStep;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
@@ -45,8 +44,7 @@ import org.slf4j.LoggerFactory;
 
 public class SnapSyncChainDownloadPipelineFactory {
 
-  record BackwardHeaderPipelineResult(
-      Pipeline<Long> pipeline, ImportHeadersStep importHeadersStep) {}
+  record BackwardHeaderPipelineResult(Pipeline<Long> pipeline, BackwardHeaderDriver driver) {}
 
   private static final Logger LOG =
       LoggerFactory.getLogger(SnapSyncChainDownloadPipelineFactory.class);
@@ -88,16 +86,9 @@ public class SnapSyncChainDownloadPipelineFactory {
     final int headerRequestSize = syncConfig.getDownloaderHeaderRequestSize();
 
     // Lower anchor: the floor block (already in DB, lowest downloaded header must connect to it)
-    final BlockHeader lowerAnchor =
-        chainState.headerDownloadAnchor() != null
-            ? chainState.headerDownloadAnchor()
-            : chainState.blockDownloadAnchor();
+    final BlockHeader lowerAnchor = chainState.headerDownloadAnchor();
 
-    // Upper bound: if we have progress, resume below it; otherwise start from pivot
-    final BlockHeader upperBound =
-        chainState.headerDownloadProgress() != null
-            ? chainState.headerDownloadProgress()
-            : chainState.pivotBlockHeader();
+    final BlockHeader upperBound = chainState.pivotBlockHeader();
 
     LOG.info(
         "Creating backward header download pipeline from upper={} down to lower={}, parallelism={}, batchSize={}, peers={}",
@@ -107,9 +98,13 @@ public class SnapSyncChainDownloadPipelineFactory {
         headerRequestSize,
         ethContext.getEthPeers().peerCount());
 
-    final BackwardBlockNumberSource headerSource =
-        new BackwardBlockNumberSource(
-            headerRequestSize, lowerAnchor.getNumber() + 1L, upperBound.getNumber() - 1L);
+    final BackwardHeaderDriver backwardHeaderDriver =
+        new BackwardHeaderDriver(
+            headerRequestSize,
+            lowerAnchor,
+            upperBound,
+            chainState.bodyCheckpoint(),
+            protocolContext.getBlockchain());
 
     final DownloadBackwardHeadersStep downloadStep =
         new DownloadBackwardHeadersStep(
@@ -119,13 +114,10 @@ public class SnapSyncChainDownloadPipelineFactory {
             lowerAnchor.getNumber(),
             Duration.ofMillis(syncConfig.getBackwardHeadersDownloadStepTimeoutMillis()));
 
-    final ImportHeadersStep importHeadersStep =
-        new ImportHeadersStep(protocolContext.getBlockchain(), lowerAnchor, upperBound);
-
     final Pipeline<Long> pipeline =
         PipelineBuilder.createPipelineFrom(
                 "backwardHeaderSource",
-                headerSource,
+                backwardHeaderDriver,
                 downloaderParallelism,
                 metricsSystem.createLabelledCounter(
                     BesuMetricCategory.SYNCHRONIZER,
@@ -139,9 +131,9 @@ public class SnapSyncChainDownloadPipelineFactory {
                 "downloadBackwardHeaders",
                 downloadStep,
                 downloaderParallelism * headerDownloadParallelismFactor)
-            .andFinishWith("importHeadersStep", importHeadersStep);
+            .andFinishWith("importHeadersStep", backwardHeaderDriver);
 
-    return new BackwardHeaderPipelineResult(pipeline, importHeadersStep);
+    return new BackwardHeaderPipelineResult(pipeline, backwardHeaderDriver);
   }
 
   /**

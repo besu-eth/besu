@@ -11,9 +11,8 @@
  * specific language governing permissions and limitations under the License.
  */
 
-import java.security.MessageDigest
-
 apply plugin: 'java-library'
+apply plugin: 'me.champeau.gradle.japicmp'
 jar {
   archiveBaseName = calculateArtifactId(project)
   manifest {
@@ -40,40 +39,65 @@ dependencies {
 
 configurations { testArtifacts }
 
-class FileStateChecker extends DefaultTask {
+// The released jar to compare against; the transitive configuration lets the baseline
+// type hierarchy resolve, so missing supertypes do not show up as API changes.
+def apiBaselineJar = configurations.detachedConfiguration(
+  dependencies.create("org.hyperledger.besu:besu-plugin-api:${apiBaselineVersion}") { transitive = false })
+def apiBaselineClasspath = configurations.detachedConfiguration(
+  dependencies.create("org.hyperledger.besu:besu-plugin-api:${apiBaselineVersion}"))
 
-  @Input
-  Set<File> files
+tasks.register('checkAPICompatibility', me.champeau.gradle.japicmp.JapicmpTask) {
+  description = "Checks that the Plugin API remains binary and source compatible with the last released version, allowing only additions"
+  group = 'verification'
 
-  @Input
-  String knownHash
+  oldArchives.from(apiBaselineJar)
+  oldClasspath.from(apiBaselineClasspath)
+  // When the Plugin API is split into modules, each new jar is added here so the union is checked
+  newArchives.from(tasks.named('jar'))
+  newClasspath.from(sourceSets.main.runtimeClasspath)
 
-  @TaskAction
-  def CheckState() {
-    def digestor = MessageDigest.getInstance("SHA-256")
+  packageIncludes = [
+    'org.hyperledger.besu.plugin*'
+  ]
+  onlyModified = true
+  failOnModification = true
+  failOnSourceIncompatibility = true
+  // Plugin authors subclass API types, so protected members are API too (default is public only)
+  accessModifier = 'protected'
+  // Track compiler-generated bridge methods, whose removal is a real binary break
+  includeSynthetic = true
+  // Baseline signatures reference types outside the API jar (evm, datatypes, tuweni, ...)
+  ignoreMissingClasses = true
 
-    this.files.toSorted(Comparator.comparing({it.canonicalPath})).each {
-      digestor.update(it.readBytes())
-    }
-    def currentHash = digestor.digest().encodeBase64().toString()
-    if (this.knownHash != currentHash) {
-      throw new GradleException("""For the Plugin APIs the checksum of the project did not match what was expected.
+  // An intentional breaking change is recorded here in the same PR, as the narrowest
+  // exclusion covering it (method/field/class/compatibilityChangeExcludes), e.g.
+  //   methodExcludes = ['org.hyperledger.besu.plugin.services.metrics.Counter#inc(long)']
+  // Exclusions are cleared by the release PR that bumps apiBaselineVersion.
 
-If this is a deliberate change where you have thought through backwards compatibility,
-then update "Expected" for "Calculated" in the appropriate build.gradle as the knownHash for this task.
-Expected   : ${this.knownHash}
-Calculated : ${currentHash}
-""")
+  txtOutputFile = layout.buildDirectory.file('reports/japicmp/plugin-api-compatibility.txt')
+  htmlOutputFile = layout.buildDirectory.file('reports/japicmp/plugin-api-compatibility.html')
+}
+check.dependsOn('checkAPICompatibility')
+
+// Prints the change list into the build log when the compatibility check fails
+tasks.register('printAPICompatibilityReport') {
+  def compatTask = tasks.named('checkAPICompatibility')
+  def txtReport = layout.buildDirectory.file('reports/japicmp/plugin-api-compatibility.txt')
+  doLast {
+    def reportFile = txtReport.get().asFile
+    if (compatTask.get().state.failure != null && reportFile.exists()) {
+      def maxLines = 100
+      def lines = reportFile.readLines()
+      def message = "Plugin API compatibility check failed. Changes against the baseline:\n\n" +
+        lines.take(maxLines).join('\n')
+      if (lines.size() > maxLines) {
+        message += "\n... truncated (${lines.size() - maxLines} more lines), full report: ${reportFile}"
+      }
+      logger.error(message)
     }
   }
 }
-
-tasks.register('checkAPIChanges', FileStateChecker) {
-  description = "Checks that the API for the Plugin-API project does not change without deliberate thought"
-  files = sourceSets.main.allJava.files
-  knownHash = 'nKgL6IVQtUfwVXjf8zg8XtEVZm+ImSiM3BAz9owTLUc='
-}
-check.dependsOn('checkAPIChanges')
+tasks.named('checkAPICompatibility') { finalizedBy('printAPICompatibilityReport') }
 
 publishing {
   publications {

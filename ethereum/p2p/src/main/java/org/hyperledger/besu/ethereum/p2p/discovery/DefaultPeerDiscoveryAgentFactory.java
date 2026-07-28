@@ -18,8 +18,7 @@ import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
-import org.hyperledger.besu.ethereum.p2p.discovery.discv4.PeerDiscoveryAgentFactoryV4;
-import org.hyperledger.besu.ethereum.p2p.discovery.discv5.PeerDiscoveryAgentFactoryV5;
+import org.hyperledger.besu.ethereum.p2p.discovery.discv5.CompositePeerDiscoveryAgentFactory;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions;
 import org.hyperledger.besu.ethereum.p2p.rlpx.RlpxAgent;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
@@ -67,17 +66,7 @@ public class DefaultPeerDiscoveryAgentFactory implements PeerDiscoveryAgentFacto
       final MetricsSystem metricsSystem,
       final StorageProvider storageProvider,
       final ForkIdManager forkIdManager) {
-    if (config.discoveryConfiguration().isDiscoveryV5Enabled()) {
-      return new PeerDiscoveryAgentFactoryV5(
-          nodeKey,
-          config,
-          peerPermissions,
-          natService,
-          metricsSystem,
-          storageProvider,
-          forkIdManager);
-    }
-    return new PeerDiscoveryAgentFactoryV4(
+    return new CompositePeerDiscoveryAgentFactory(
         nodeKey,
         config,
         peerPermissions,

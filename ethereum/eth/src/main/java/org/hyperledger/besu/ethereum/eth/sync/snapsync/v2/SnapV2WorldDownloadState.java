@@ -50,6 +50,7 @@ import org.hyperledger.besu.services.tasks.Task;
 import org.hyperledger.besu.services.tasks.TaskCollection;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -57,6 +58,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
@@ -102,6 +104,12 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
   // Completes once the chain-side BAL fetch for the pivot gap is done.
   // Non-null only while a pivot catch-up is in progress.
   private CompletableFuture<Void> chainCatchupFuture;
+
+  private static final Duration HEARTBEAT_INTERVAL = Duration.ofSeconds(30);
+  private static final long COMPLETION_DEBUG_LOG_INTERVAL_MS = TimeUnit.SECONDS.toMillis(10);
+  private volatile ScheduledFuture<?> heartbeatFuture;
+  private volatile long lastCompletionDebugLogMillis;
+  private volatile long pivotCatchupStartMillis;
 
   public SnapV2WorldDownloadState(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
@@ -206,6 +214,23 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
       internalFuture.complete(null);
       return true;
     }
+    if (!isStateDownloadFinished() && LOG.isDebugEnabled()) {
+      final long now = System.currentTimeMillis();
+      if (now - lastCompletionDebugLogMillis >= COMPLETION_DEBUG_LOG_INTERVAL_MS) {
+        lastCompletionDebugLogMillis = now;
+        LOG.debug(
+            "snap/2 world state not yet complete at pivot {}: ranges completed={}, pending={}, "
+                + "tasks complete=[acc={}, stor={}, bigStor={}, code={}], pivot-catchup={}",
+            header.getNumber(),
+            accountRangeTracker.completedRangeCount(),
+            accountRangeTracker.pendingRangeCount(),
+            pendingAccountRequests.allTasksCompleted(),
+            pendingStorageRequests.allTasksCompleted(),
+            pendingLargeStorageRequests.allTasksCompleted(),
+            pendingCodeRequests.allTasksCompleted(),
+            isPivotCatchupInProgress());
+      }
+    }
     return false;
   }
 
@@ -240,14 +265,14 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
   private boolean verifyWorldStateRoot(final BlockHeader header) {
     final Bytes32 expectedRoot = Bytes32.wrap(header.getStateRoot().getBytes());
     if (expectedRoot.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
-      LOG.info("Snap/2 world state root is empty at pivot block {}", header.getNumber());
+      LOG.info("snap/2 world state root is empty at pivot block {}", header.getNumber());
       return true;
     }
     final Optional<Bytes> rootNode =
         worldStateStorageCoordinator.getAccountStateTrieNode(Bytes.EMPTY, expectedRoot);
     if (rootNode.isEmpty()) {
       LOG.error(
-          "Snap/2 state root verification failed at sync completion for pivot block {}: "
+          "snap/2 state root verification failed at sync completion for pivot block {}: "
               + "no account trie root node found at EMPTY matching state root {}",
           header.getNumber(),
           expectedRoot);
@@ -258,7 +283,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
     final Hash actualRoot = Hash.hash(rootNode.get());
     if (!actualRoot.getBytes().equals(expectedRoot)) {
       LOG.error(
-          "Snap/2 state root verification failed at sync completion for pivot block {}: "
+          "snap/2 state root verification failed at sync completion for pivot block {}: "
               + "root node RLP hashes to {} but expected state root {}",
           header.getNumber(),
           actualRoot,
@@ -268,7 +293,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
       return false;
     }
     LOG.info(
-        "Snap/2 world state root verified at pivot block {}: {}", header.getNumber(), expectedRoot);
+        "snap/2 world state root verified at pivot block {}: {}", header.getNumber(), expectedRoot);
     return true;
   }
 
@@ -281,8 +306,53 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
     }
   }
 
+  public void startHeartbeat() {
+    if (heartbeatFuture != null) {
+      return;
+    }
+    heartbeatFuture =
+        ethContext
+            .getScheduler()
+            .scheduleFutureTaskWithFixedDelay(
+                this::logHeartbeat, HEARTBEAT_INTERVAL, HEARTBEAT_INTERVAL);
+  }
+
+  private void stopHeartbeat() {
+    final ScheduledFuture<?> future = heartbeatFuture;
+    if (future != null) {
+      future.cancel(false);
+      heartbeatFuture = null;
+    }
+  }
+
+  private void logHeartbeat() {
+    if (isStateDownloadFinished()) {
+      stopHeartbeat();
+      return;
+    }
+    final String pivotCatchup =
+        pivotCatchupStartMillis > 0
+            ? "running for " + ((System.currentTimeMillis() - pivotCatchupStartMillis) / 1000) + "s"
+            : "idle";
+    LOG.info(
+        "snap/2 world state download in progress: pivot={}, ranges completed={}, pending={}, "
+            + "queued=[acc={}, stor={}, bigStor={}, code={}], in-flight={}, pivot-catchup={}, "
+            + "peers={}",
+        snapSyncState.getPivotBlockHeader().map(BlockHeader::getNumber).orElse(-1L),
+        accountRangeTracker.completedRangeCount(),
+        accountRangeTracker.pendingRangeCount(),
+        pendingAccountRequests.size(),
+        pendingStorageRequests.size(),
+        pendingLargeStorageRequests.size(),
+        pendingCodeRequests.size(),
+        getOutstandingTaskCount(),
+        pivotCatchup,
+        ethContext.getEthPeers().peerCount());
+  }
+
   @Override
   public synchronized void cleanupQueues() {
+    stopHeartbeat();
     super.cleanupQueues();
     pendingAccountRequests.clear();
     pendingStorageRequests.clear();
@@ -292,6 +362,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
     storageRangeTracker.clear();
     pivotCatchupFuture = null;
     chainCatchupFuture = null;
+    pivotCatchupStartMillis = 0;
   }
 
   @Override
@@ -402,25 +473,36 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
     final BlockHeader currentPivotBlockHeader;
     synchronized (this) {
       if (isStateDownloadFinished()) {
+        logPivotCatchupSkipped(newPivotBlockHeader, "download is already finished");
         return;
       }
       currentPivotBlockHeader = snapSyncState.getPivotBlockHeader().orElseThrow();
       if (newPivotBlockHeader.getNumber() <= currentPivotBlockHeader.getNumber()) {
+        logPivotCatchupSkipped(
+            newPivotBlockHeader,
+            "new pivot is not after current pivot " + currentPivotBlockHeader.getNumber());
         return;
       }
       if (isPivotCatchupInProgress()) {
-        LOG.debug(
-            "Snap/2 pivot catch-up to {} ignored because another catch-up is in progress",
-            newPivotBlockHeader.getNumber());
+        logPivotCatchupSkipped(newPivotBlockHeader, "another catch-up is in progress");
         return;
       }
 
       if (pivotCatchupListener == null) {
         internalFuture.completeExceptionally(
-            new WorldStateDownloaderException("Snap/2 pivot catch-up listener is not available"));
+            new WorldStateDownloaderException("snap/2 pivot catch-up listener is not available"));
         return;
       }
+      LOG.info(
+          "snap/2 pivot catch-up initiated: {} -> {}, in-flight=[acc={}, stor={}, bigStor={}, code={}]",
+          currentPivotBlockHeader.getNumber(),
+          newPivotBlockHeader.getNumber(),
+          pendingAccountRequests.outstandingTaskCount(),
+          pendingStorageRequests.outstandingTaskCount(),
+          pendingLargeStorageRequests.outstandingTaskCount(),
+          pendingCodeRequests.outstandingTaskCount());
       pivotCatchupFuture = new CompletableFuture<>();
+      pivotCatchupStartMillis = System.currentTimeMillis();
       maybeCompleteInFlightTasks(); // handle case of 0 in-flight tasks when catchup starts
     }
 
@@ -433,7 +515,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
     }
     if (chainCatchupFuture == null) {
       failPivotCatchup(
-          new WorldStateDownloaderException("Snap/2 pivot catch-up listener returned null"));
+          new WorldStateDownloaderException("snap/2 pivot catch-up listener returned null"));
       return;
     }
 
@@ -444,26 +526,16 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
                 failPivotCatchup(error);
                 return;
               }
-              if (!blockchain.areBothBlocksOnCanonicalChain(
-                  currentPivotBlockHeader.getHash(), newPivotBlockHeader.getHash())) {
-                failPivotCatchup(
-                    new WorldStateDownloaderException(
-                        "Chain reorg detected during snap/2 pivot catch-up: current pivot "
-                            + currentPivotBlockHeader.getNumber()
-                            + " ("
-                            + currentPivotBlockHeader.getHash()
-                            + ") and new pivot "
-                            + newPivotBlockHeader.getNumber()
-                            + " ("
-                            + newPivotBlockHeader.getHash()
-                            + ") are not both on the canonical chain. Sync restart required."));
-                return;
-              }
               finishPivotCatchup(currentPivotBlockHeader, newPivotBlockHeader);
             });
   }
 
+  private void logPivotCatchupSkipped(final BlockHeader newPivotBlockHeader, final String reason) {
+    LOG.debug("snap/2 pivot catch-up to {} skipped: {}", newPivotBlockHeader.getNumber(), reason);
+  }
+
   private synchronized void failPivotCatchup(final Throwable error) {
+    pivotCatchupStartMillis = 0;
     pivotCatchupFuture = null;
     chainCatchupFuture = null;
     internalFuture.completeExceptionally(error);
@@ -477,6 +549,12 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
         return;
       }
       // Drain in-flight tasks started when dequeue was allowed while the chain catch-up ran.
+      if (!areAllInflightTasksComplete()) {
+        LOG.debug(
+            "snap/2 pivot catch-up: draining in-flight tasks before applying BALs ({} -> {})",
+            currentPivotBlockHeader.getNumber(),
+            newPivotBlockHeader.getNumber());
+      }
       while (!areAllInflightTasksComplete()) {
         try {
           wait();
@@ -486,10 +564,31 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
           return;
         }
       }
+      if (!blockchain.areBothBlocksOnCanonicalChain(
+          currentPivotBlockHeader.getHash(), newPivotBlockHeader.getHash())) {
+        failPivotCatchup(
+            new WorldStateDownloaderException(
+                "Chain reorg detected during snap/2 pivot catch-up after draining in-flight tasks:"
+                    + " current pivot "
+                    + currentPivotBlockHeader.getNumber()
+                    + " ("
+                    + currentPivotBlockHeader.getHash()
+                    + ") and new pivot "
+                    + newPivotBlockHeader.getNumber()
+                    + " ("
+                    + newPivotBlockHeader.getHash()
+                    + ") are not both on the canonical chain. Sync restart required."));
+        return;
+      }
       try {
         final Set<Hash> pendingAffected =
             blockAccessListApplier.collectPendingStorageAffected(
                 currentPivotBlockHeader, newPivotBlockHeader, accountRangeTracker);
+        LOG.debug(
+            "snap/2 pivot catch-up ({} -> {}): {} pending storage-affected accounts to refetch roots for",
+            currentPivotBlockHeader.getNumber(),
+            newPivotBlockHeader.getNumber(),
+            pendingAffected.size());
         final CompletableFuture<Map<Hash, Bytes32>> rootsFuture =
             fetchAccountStorageRoots(pendingAffected, newPivotBlockHeader);
         applyBlockAccessLists(currentPivotBlockHeader, newPivotBlockHeader);
@@ -498,7 +597,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
         snapSyncState.setCurrentHeader(newPivotBlockHeader);
       } catch (final Throwable e) {
         LOG.error(
-            "Snap/2 pivot catch-up failed while applying BALs from pivot {} to {}",
+            "snap/2 pivot catch-up failed while applying BALs from pivot {} to {}",
             currentPivotBlockHeader.getNumber(),
             newPivotBlockHeader.getNumber(),
             e);
@@ -507,6 +606,13 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
       }
       pivotCatchupFuture = null;
       chainCatchupFuture = null;
+      pivotCatchupStartMillis = 0;
+      LOG.info(
+          "snap/2 pivot catch-up complete: {} -> {}, ranges completed={}, pending={}",
+          currentPivotBlockHeader.getNumber(),
+          newPivotBlockHeader.getNumber(),
+          accountRangeTracker.completedRangeCount(),
+          accountRangeTracker.pendingRangeCount());
       notifyAll();
     }
     checkCompletion(newPivotBlockHeader);
@@ -515,7 +621,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
   private void applyBlockAccessLists(
       final BlockHeader currentPivotBlockHeader, final BlockHeader newPivotBlockHeader) {
     LOG.info(
-        "Snap/2 applying BALs: pivot {} -> {} (ranges: completed={}, pending={}) outstanding=[account={}, storage={}, largeStorage={}, code={}]",
+        "snap/2 applying BALs: pivot {} -> {} (ranges: completed={}, pending={}) outstanding=[account={}, storage={}, largeStorage={}, code={}]",
         currentPivotBlockHeader.getNumber(),
         newPivotBlockHeader.getNumber(),
         accountRangeTracker.completedRangeCount(),
@@ -525,11 +631,27 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
         pendingLargeStorageRequests.outstandingTaskCount(),
         pendingCodeRequests.outstandingTaskCount());
     blockAccessListApplier.applyBlockAccessLists(
-        currentPivotBlockHeader, newPivotBlockHeader, accountRangeTracker, storageRangeTracker);
+        currentPivotBlockHeader.getNumber() + 1,
+        newPivotBlockHeader.getNumber(),
+        accountRangeTracker,
+        storageRangeTracker);
   }
 
   private void retargetQueuedRequests(
       final BlockHeader newPivotBlockHeader, final Map<Hash, Bytes32> correctRoots) {
+    if (LOG.isDebugEnabled()) {
+      final long accountCount = pendingAccountRequests.size();
+      final long storageCount = pendingStorageRequests.size();
+      final long largeStorageCount = pendingLargeStorageRequests.size();
+      final long codeCount = pendingCodeRequests.size();
+      LOG.debug(
+          "snap/2 retargeting queued requests to pivot {}: account={}, storage={}, bigStorage={}, code={}",
+          newPivotBlockHeader.getNumber(),
+          accountCount,
+          storageCount,
+          largeStorageCount,
+          codeCount);
+    }
     retargetQueuedAccountRequests(newPivotBlockHeader);
     retargetQueuedStorageRequests(pendingStorageRequests, newPivotBlockHeader, correctRoots);
     retargetQueuedStorageRequests(pendingLargeStorageRequests, newPivotBlockHeader, correctRoots);

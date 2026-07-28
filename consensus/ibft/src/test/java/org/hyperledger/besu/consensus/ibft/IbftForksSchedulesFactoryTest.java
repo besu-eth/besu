@@ -31,6 +31,7 @@ import org.hyperledger.besu.consensus.common.bft.MutableBftConfigOptions;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.OptionalLong;
 import java.util.function.Consumer;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -71,6 +72,47 @@ public class IbftForksSchedulesFactoryTest
     final ForkSpec<BftConfigOptions> expectedFork = new ForkSpec<>(1, expectedForkConfig);
     assertThat(forksSchedule.getFork(1, 0)).usingRecursiveComparison().isEqualTo(expectedFork);
     assertThat(forksSchedule.getFork(2, 0)).usingRecursiveComparison().isEqualTo(expectedFork);
+  }
+
+  @Test
+  public void transitionChangesTransactionGasLimit() {
+    final BftConfigOptions configOptions =
+        createBftOptions(o -> o.setTransactionGasLimit(OptionalLong.of(8_000_000)));
+
+    final ObjectNode fork =
+        JsonUtil.objectNodeFromMap(
+            Map.of(BftFork.FORK_BLOCK_KEY, 10, BftFork.TRANSACTION_GAS_LIMIT_KEY, 16_000_000L));
+
+    final ForksSchedule<BftConfigOptions> forksSchedule =
+        IbftForksSchedulesFactory.create(createGenesisConfig(configOptions, fork));
+
+    assertThat(forksSchedule.getFork(0, 0).getValue().getTransactionGasLimit())
+        .hasValue(8_000_000L);
+    assertThat(forksSchedule.getFork(9, 0).getValue().getTransactionGasLimit())
+        .hasValue(8_000_000L);
+
+    assertThat(forksSchedule.getFork(10, 0).getValue().getTransactionGasLimit())
+        .hasValue(16_000_000L);
+    assertThat(forksSchedule.getFork(11, 0).getValue().getTransactionGasLimit())
+        .hasValue(16_000_000L);
+  }
+
+  @Test
+  public void transitionChangesTransactionGasLimitHex() {
+    final BftConfigOptions configOptions =
+        createBftOptions(o -> o.setTransactionGasLimit(OptionalLong.of(8_000_000)));
+
+    final ObjectNode fork =
+        JsonUtil.objectNodeFromMap(
+            Map.of(BftFork.FORK_BLOCK_KEY, 10, BftFork.TRANSACTION_GAS_LIMIT_KEY, "0x1312D00"));
+
+    final ForksSchedule<BftConfigOptions> forksSchedule =
+        IbftForksSchedulesFactory.create(createGenesisConfig(configOptions, fork));
+
+    assertThat(forksSchedule.getFork(0, 0).getValue().getTransactionGasLimit())
+        .hasValue(8_000_000L);
+    assertThat(forksSchedule.getFork(10, 0).getValue().getTransactionGasLimit())
+        .hasValue(20_000_000L);
   }
 
   @Override

@@ -86,6 +86,7 @@ dependencies {
   implementation 'io.consensys.tuweni:tuweni-units'
   implementation 'org.apache.commons:commons-lang3'
   implementation 'org.apache.logging.log4j:log4j-core'
+  implementation 'org.apache.logging.log4j:log4j-layout-template-json'
   implementation 'org.hibernate.validator:hibernate-validator'
   implementation 'org.rocksdb:rocksdbjni'
   implementation 'org.springframework.security:spring-security-crypto'

@@ -48,4 +48,12 @@ public interface BesuNodeRunner {
    * @return The console output since startConsoleCapture() was called.
    */
   String getConsoleContents();
+
+  /**
+   * Returns the console output captured so far without stopping the capture, so callers can poll
+   * for a log line while the nodes keep running. Requires a prior {@link #startConsoleCapture()}.
+   *
+   * @return The console output captured so far since startConsoleCapture() was called.
+   */
+  String peekConsoleContents();
 }

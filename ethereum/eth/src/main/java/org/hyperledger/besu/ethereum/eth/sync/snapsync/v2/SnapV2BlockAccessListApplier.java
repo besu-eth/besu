@@ -71,8 +71,8 @@ public class SnapV2BlockAccessListApplier {
   }
 
   public void applyBlockAccessLists(
-      final BlockHeader currentPivotBlockHeader,
-      final BlockHeader newPivotBlockHeader,
+      final long fromBlock,
+      final long toBlock,
       final DownloadedAccountRangeTracker accountRangeTracker,
       final DownloadedStorageRangeTracker storageRangeTracker) {
 
@@ -82,9 +82,6 @@ public class SnapV2BlockAccessListApplier {
               + worldStateStorageCoordinator.getDataStorageFormat()
               + "not supported");
     }
-
-    final long fromBlock = currentPivotBlockHeader.getNumber() + 1;
-    final long toBlock = newPivotBlockHeader.getNumber();
 
     LOG.info(
         "Applying snap/2 BALs for blocks [{}, {}] (completed ranges: {}, pending ranges: {})",

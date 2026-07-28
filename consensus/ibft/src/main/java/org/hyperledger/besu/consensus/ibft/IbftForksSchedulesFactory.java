@@ -22,6 +22,8 @@ import org.hyperledger.besu.consensus.common.ForksSchedule;
 import org.hyperledger.besu.consensus.common.ForksScheduleFactory;
 import org.hyperledger.besu.consensus.common.bft.MutableBftConfigOptions;
 
+import java.util.OptionalLong;
+
 /** The Ibft forks schedules factory. */
 public class IbftForksSchedulesFactory {
   /** Default constructor. */
@@ -47,6 +49,8 @@ public class IbftForksSchedulesFactory {
 
     fork.getBlockPeriodSeconds().ifPresent(bftConfigOptions::setBlockPeriodSeconds);
     fork.getBlockRewardWei().ifPresent(bftConfigOptions::setBlockRewardWei);
+    fork.getTransactionGasLimit()
+        .ifPresent(val -> bftConfigOptions.setTransactionGasLimit(OptionalLong.of(val)));
 
     if (fork.isMiningBeneficiaryConfigured()) {
       // Only override if mining beneficiary is explicitly configured

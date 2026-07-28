@@ -148,11 +148,12 @@ public class JsonRpcHttpOptionsTest extends CommandTestAbstract {
     final Path toml =
         createTempFile(
             "toml",
-            "rpc-http-api=[\"ETH\",\"NET\"]\n"
-                + "rpc-http-host=\"0.0.0.0\"\n"
-                + "rpc-http-port=1234\n"
-                + "rpc-http-cors-origins=[\"all\"]\n"
-                + "rpc-http-max-active-connections=88");
+            """
+            rpc-http-api=["ETH","NET"]
+            rpc-http-host="0.0.0.0"
+            rpc-http-port=1234
+            rpc-http-cors-origins=["all"]
+            rpc-http-max-active-connections=88""");
 
     parseCommand("--config-file", toml.toString());
 

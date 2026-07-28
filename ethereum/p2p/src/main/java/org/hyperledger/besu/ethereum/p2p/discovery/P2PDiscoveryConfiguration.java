@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.p2p.discovery;
 
+import org.hyperledger.besu.ethereum.p2p.config.DiscoveryMode;
 import org.hyperledger.besu.util.number.Percentage;
 
 import java.util.Collection;
@@ -26,6 +27,7 @@ import org.apache.tuweni.bytes.Bytes;
 public record P2PDiscoveryConfiguration(
     Boolean p2pEnabled,
     Boolean peerDiscoveryEnabled,
+    DiscoveryMode discoveryMode,
     String p2pHost,
     String p2pInterface,
     Integer p2pPort,
