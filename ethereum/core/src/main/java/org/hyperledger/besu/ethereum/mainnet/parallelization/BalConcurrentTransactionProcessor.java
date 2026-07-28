@@ -211,12 +211,8 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
         final TransactionProcessingResult result = ctx.transactionProcessingResult();
         final Optional<PartialBlockAccessView> maybePartialBlockAccessView =
             result.getPartialBlockAccessView();
-        if (maybePartialBlockAccessView.isEmpty() || !result.isSuccessful()) {
-          LOG.trace(
-              "Skipping import for transaction {} (partialView={}, successful={}).",
-              txIndex,
-              maybePartialBlockAccessView.isPresent(),
-              result.isSuccessful());
+        if (maybePartialBlockAccessView.isEmpty()) {
+          LOG.trace("Partial block access view for transaction {} is empty.", txIndex);
           return Optional.empty();
         }
 

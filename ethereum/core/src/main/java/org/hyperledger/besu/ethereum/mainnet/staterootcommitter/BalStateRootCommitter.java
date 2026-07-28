@@ -44,6 +44,7 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -51,6 +52,7 @@ import org.apache.tuweni.units.bigints.UInt256;
 public final class BalStateRootCommitter implements StateRootCommitter {
 
   private final CompletableFuture<BackgroundResult> backgroundComputation;
+  private final AtomicBoolean cancelled = new AtomicBoolean(false);
 
   public BalStateRootCommitter(
       final ProtocolContext protocolContext,
@@ -71,6 +73,7 @@ public final class BalStateRootCommitter implements StateRootCommitter {
   /** Cancels the background computation; {@link #compute} will throw if called afterwards. */
   @Override
   public void cancel() {
+    cancelled.set(true);
     backgroundComputation.cancel(true);
   }
 
@@ -122,7 +125,11 @@ public final class BalStateRootCommitter implements StateRootCommitter {
   private BackgroundResult awaitBackgroundComputation(
       final CompletableFuture<BackgroundResult> future) {
     try {
-      return future.join();
+      final BackgroundResult result = future.join();
+      if (cancelled.get()) {
+        throw new IllegalStateException("Background BAL state root computation was cancelled");
+      }
+      return result;
     } catch (final CancellationException e) {
       throw new IllegalStateException("Background BAL state root computation was cancelled", e);
     } catch (final CompletionException e) {
