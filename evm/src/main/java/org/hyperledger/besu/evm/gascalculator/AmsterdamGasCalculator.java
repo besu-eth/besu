@@ -208,7 +208,7 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
     final long dataCost = tokens * TX_DATA_TOKEN_STANDARD;
 
     final long recipientRegular;
-    final boolean valueTransfer = transaction.getValue().getAsBigInteger().signum() > 0;
+    final boolean valueTransfer = !transaction.getValue().isZero();
     if (transaction.isContractCreation()) {
       long create = CREATE_ACCESS + initCodeCost(payloadSize);
       if (valueTransfer) {
@@ -230,7 +230,10 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
 
   /** EIP-2780: a self-transfer (sender == recipient) skips the recipient and value charges. */
   private static boolean isSelfTransfer(final Transaction transaction) {
-    return transaction.getTo().map(to -> to.equals(transaction.getSender())).orElse(false);
+    return transaction
+        .getTo()
+        .map(to -> to.getBytes().equals(transaction.getSender().getBytes()))
+        .orElse(false);
   }
 
   /** EIP-3860 init code cost: CODE_INIT_PER_WORD * ceil(len / 32). */
