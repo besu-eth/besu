@@ -69,6 +69,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguratio
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.Checkpoint;
 import org.hyperledger.besu.ethereum.p2p.config.DiscoveryMode;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
@@ -2239,6 +2240,81 @@ public class BesuCommandTest extends CommandTestAbstract {
         .containsEntry(block1, Hash.fromHexStringLenient(hash1));
     assertThat(requiredBlocksArg.getValue())
         .containsEntry(block2, Hash.fromHexStringLenient(hash2));
+  }
+
+  @Test
+  public void checkpointOverrideSetWhenSpecified() {
+    final String hash = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
+    final long blockNumber = 12345678L;
+
+    parseCommand("--checkpoint=" + hash + ":" + blockNumber + ":1000000");
+
+    final ArgumentCaptor<Checkpoint> checkpointArg = ArgumentCaptor.forClass(Checkpoint.class);
+
+    verify(mockControllerBuilder).checkpointOverride(checkpointArg.capture());
+    verify(mockControllerBuilder).build();
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+
+    assertThat(checkpointArg.getValue())
+        .isEqualTo(
+            ImmutableCheckpoint.builder()
+                .blockHash(Hash.fromHexString(hash))
+                .blockNumber(blockNumber)
+                .totalDifficulty(Difficulty.of(1000000L))
+                .build());
+  }
+
+  @Test
+  public void checkpointOverrideEmptyWhenNotSpecified() {
+    parseCommand();
+
+    final ArgumentCaptor<Checkpoint> checkpointArg = ArgumentCaptor.forClass(Checkpoint.class);
+
+    verify(mockControllerBuilder).checkpointOverride(checkpointArg.capture());
+    verify(mockControllerBuilder).build();
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+
+    assertThat(checkpointArg.getValue()).isNull();
+  }
+
+  @Test
+  public void checkpointOverrideRejectsInvalidValue() {
+    parseCommand("--checkpoint=not-a-valid-checkpoint");
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).contains("Invalid checkpoint");
+  }
+
+  @Test
+  public void skipPreCheckpointHeadersFailsWithoutCheckpoint() {
+    // The dev network has no genesis checkpoint, so enabling the flag without --checkpoint fails.
+    parseCommand("--network", "dev", "--snapsync-synchronizer-skip-pre-checkpoint-headers-enabled");
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains(
+            "--snapsync-synchronizer-skip-pre-checkpoint-headers-enabled requires a trusted checkpoint");
+  }
+
+  @Test
+  public void skipPreCheckpointHeadersSucceedsWithCheckpointOverride() {
+    // The dev network has no genesis checkpoint; the --checkpoint override satisfies the flag.
+    final String hash = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
+
+    parseCommand(
+        "--network",
+        "dev",
+        "--snapsync-synchronizer-skip-pre-checkpoint-headers-enabled",
+        "--checkpoint=" + hash + ":12345678:1000000");
+
+    verify(mockControllerBuilder).build();
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
   }
 
   @Test

@@ -91,6 +91,8 @@ public class SnapSyncChainDownloader
   private final BlockHeader initialPivotHeader;
   private final SingleBlockHeaderDownloader headerDownloader;
 
+  private final boolean headersToCheckpointOnly;
+
   private final AtomicBoolean cancelled = new AtomicBoolean(false);
   private final AtomicReference<ChainSyncState> chainSyncState = new AtomicReference<>(null);
   private final AtomicReference<BlockHeader> pendingPivotUpdate = new AtomicReference<>(null);
@@ -168,6 +170,7 @@ public class SnapSyncChainDownloader
     this.initialPivotHeader = initialPivotHeader;
     this.chainSyncStateStorage = chainStateStorage;
     this.headerDownloader = headerDownloader;
+    this.headersToCheckpointOnly = syncConfig.isSnapSyncHeadersToCheckpointOnly();
   }
 
   public static ChainDownloader create(
@@ -298,8 +301,21 @@ public class SnapSyncChainDownloader
         .handle(
             (ignored, throwable) -> {
               if (throwable != null) {
-                if (throwable instanceof CancellationException) {
+                final Throwable cause =
+                    throwable instanceof CompletionException && throwable.getCause() != null
+                        ? throwable.getCause()
+                        : throwable;
+                if (cause instanceof CancellationException) {
                   LOG.info("Two-stage fast sync chain download cancelled");
+                } else if (cause instanceof WrongChainException
+                    || cause instanceof CheckpointReorgException) {
+                  // Expected, recoverable: the pivot is not on the trusted chain. The sync
+                  // re-pivots
+                  // (see SnapSyncDownloader.handleFailure), so log concisely without a stack trace
+                  // rather than as a failure.
+                  LOG.debug(
+                      "Two-stage fast sync chain download stopping to re-pivot: {}",
+                      cause.getMessage());
                 } else {
                   LOG.error("Two-stage fast sync chain download failed", throwable);
                 }
@@ -385,10 +401,13 @@ public class SnapSyncChainDownloader
                   checkpoint.blockHash(),
                   checkpoint.totalDifficulty());
 
-              final BlockHeader genesisBlockHeader = blockchain.getGenesisBlockHeader();
+              final BlockHeader headerDownloadAnchor =
+                  headersToCheckpointOnly
+                      ? checkpointBlockHeader
+                      : blockchain.getGenesisBlockHeader();
               final ChainSyncState newState =
                   ChainSyncState.initialSync(
-                      initialPivotHeader, checkpointBlockHeader, genesisBlockHeader);
+                      initialPivotHeader, checkpointBlockHeader, headerDownloadAnchor);
 
               LOG.info("Created initial chain sync state: {}", newState);
               chainSyncState.set(newState);
@@ -624,8 +643,8 @@ public class SnapSyncChainDownloader
                       + stored.getHash()
                       + ") does not match the trusted checkpoint ("
                       + checkpoint.getHash()
-                      + "). The pivot is not on the checkpoint's chain; stopping snap sync.";
-              LOG.error(message);
+                      + "). The pivot is not on the checkpoint's chain; re-pivoting.";
+              LOG.debug(message);
               throw new CheckpointReorgException(message);
             });
   }

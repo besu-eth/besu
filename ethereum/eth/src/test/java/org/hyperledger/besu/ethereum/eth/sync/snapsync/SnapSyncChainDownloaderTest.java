@@ -944,6 +944,71 @@ public class SnapSyncChainDownloaderTest {
         .hasRootCauseInstanceOf(CheckpointReorgException.class);
   }
 
+  @Test
+  public void stage1AnchorIsCheckpointWhenHeadersToCheckpointOnlyEnabled() throws Exception {
+    // With a configured checkpoint (#500) and the skip-pre-checkpoint-headers option enabled,
+    // Stage 1 must anchor at the checkpoint (#500) rather than walking headers to genesis (#0).
+    final ChainSyncState stage1State =
+        runInitialCheckpointSyncAndCaptureStage1State(/* headersToCheckpointOnly= */ true);
+
+    assertThat(stage1State.headerDownloadAnchor().getNumber())
+        .isEqualTo(checkpointBlockHeader.getNumber());
+    assertThat(stage1State.bodyCheckpoint().getNumber())
+        .isEqualTo(checkpointBlockHeader.getNumber());
+  }
+
+  @Test
+  public void stage1AnchorIsGenesisWhenHeadersToCheckpointOnlyDisabled() throws Exception {
+    // Default behaviour: even with a configured checkpoint, Stage 1 walks headers down to genesis
+    // (#0). The checkpoint still governs the body-download floor (bodyCheckpoint == #500).
+    final ChainSyncState stage1State =
+        runInitialCheckpointSyncAndCaptureStage1State(/* headersToCheckpointOnly= */ false);
+
+    assertThat(stage1State.headerDownloadAnchor().getNumber()).isEqualTo(0L);
+    assertThat(stage1State.bodyCheckpoint().getNumber())
+        .isEqualTo(checkpointBlockHeader.getNumber());
+  }
+
+  private ChainSyncState runInitialCheckpointSyncAndCaptureStage1State(
+      final boolean headersToCheckpointOnly) throws Exception {
+    final Checkpoint checkpoint =
+        ImmutableCheckpoint.builder()
+            .blockNumber(checkpointBlockHeader.getNumber())
+            .blockHash(checkpointBlockHeader.getHash())
+            .totalDifficulty(Difficulty.ONE)
+            .build();
+    when(syncState.getCheckpoint()).thenReturn(Optional.of(checkpoint));
+    when(headerDownloader.downloadBlockHeader(checkpointBlockHeader.getHash()))
+        .thenReturn(CompletableFuture.completedFuture(checkpointBlockHeader));
+
+    setupSuccessfulPipelineMocks();
+
+    final SynchronizerConfiguration config =
+        SynchronizerConfiguration.builder()
+            .snapSyncHeadersToCheckpointOnly(headersToCheckpointOnly)
+            .build();
+
+    final SnapSyncChainDownloader downloader =
+        new SnapSyncChainDownloader(
+            pipelineFactory,
+            config,
+            protocolSchedule,
+            protocolContext,
+            ethContext,
+            syncState,
+            syncDurationMetrics,
+            pivotBlockHeader,
+            chainSyncStateStorage,
+            headerDownloader);
+
+    downloader.onWorldStateHealFinished();
+    downloader.start().get(5, TimeUnit.SECONDS);
+
+    final ArgumentCaptor<ChainSyncState> captor = ArgumentCaptor.forClass(ChainSyncState.class);
+    verify(pipelineFactory).createBackwardHeaderDownloadPipeline(captor.capture());
+    return captor.getValue();
+  }
+
   @SuppressWarnings("unchecked")
   private void setupSuccessfulPipelineMocks() {
     final Pipeline<Long> backwardPipeline = mock(Pipeline.class);
