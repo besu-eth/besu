@@ -28,6 +28,7 @@ jar {
 }
 
 dependencies {
+  api project(':plugin-api:core')
   api project(':datatypes')
   api 'org.apache.commons:commons-lang3'
   api 'io.consensys.tuweni:tuweni-bytes'
@@ -53,7 +54,7 @@ tasks.register('checkAPICompatibility', me.champeau.gradle.japicmp.JapicmpTask) 
   oldArchives.from(apiBaselineJar)
   oldClasspath.from(apiBaselineClasspath)
   // When the Plugin API is split into modules, each new jar is added here so the union is checked
-  newArchives.from(tasks.named('jar'))
+  newArchives.from(tasks.named('jar'), project(':plugin-api:core').tasks.named('jar'))
   newClasspath.from(sourceSets.main.runtimeClasspath)
 
   packageIncludes = [
