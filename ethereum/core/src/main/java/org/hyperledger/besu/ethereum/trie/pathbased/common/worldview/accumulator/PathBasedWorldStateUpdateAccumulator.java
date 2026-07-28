@@ -178,20 +178,28 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
         shouldCheckForEmptyAccount |= clearEmptyAccounts && code.isEmpty();
       }
 
-      for (final PartialBlockAccessView.SlotChange slotChange :
-          accountChanges.getStorageChanges()) {
-        final StorageSlotKey slotKey = slotChange.slot();
-        final UInt256 prior =
-            slotChange.previousValue() != null ? slotChange.previousValue() : UInt256.ZERO;
-        final UInt256 updated =
-            slotChange.newValue() != null ? slotChange.newValue() : UInt256.ZERO;
-
-        storageToUpdate
-            .computeIfAbsent(
+      if (hasStorageChange) {
+        final StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>> pendingStorageUpdates =
+            storageToUpdate.computeIfAbsent(
                 address,
                 k ->
-                    new StorageConsumingMap<>(address, new ConcurrentHashMap<>(), storagePreloader))
-            .put(slotKey, new PathBasedValue<>(prior, updated));
+                    new StorageConsumingMap<>(
+                        address, new ConcurrentHashMap<>(), storagePreloader));
+        for (final PartialBlockAccessView.SlotChange slotChange :
+            accountChanges.getStorageChanges()) {
+          final StorageSlotKey slotKey = slotChange.slot();
+          final UInt256 prior =
+              slotChange.previousValue() != null ? slotChange.previousValue() : UInt256.ZERO;
+          final UInt256 updated =
+              slotChange.newValue() != null ? slotChange.newValue() : UInt256.ZERO;
+
+          final PathBasedValue<UInt256> pendingValue = pendingStorageUpdates.get(slotKey);
+          if (pendingValue == null) {
+            pendingStorageUpdates.put(slotKey, new PathBasedValue<>(prior, updated));
+          } else {
+            pendingValue.setUpdated(updated);
+          }
+        }
       }
 
       if (shouldCheckForEmptyAccount && accountValue.isEmpty()) {
