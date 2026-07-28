@@ -8,17 +8,17 @@ name: Release
 #   docker-build-test   ← checkout tag, distDockerCopy, build amd64, goss tests (no push)
 #     │
 #   draft-release       ← gh release create --draft + release notes template + artifacts
-#     │               
+#     │
 #     │                 ← burn in happens here
-#     │               
+#     │
 #   releaseGate        ← environment: "release-approval" — blocks for maintainer approval
 #     │
 #     │
 #   publish-artifactory ← gradle artifactoryPublish)
-#     │               
-#   verify-artifactory  
-#     │     
-#   publish-docker             
+#     │
+#   verify-artifactory
+#     │
+#   publish-docker
 #   (multi-arch push, cosign sign + attest)
 #     │
 #   finalize-release  ← gh release edit --draft=false
@@ -59,7 +59,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
         with:
-          cache-disabled: true
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
       - name: Assemble release
         run: ./gradlew -Prelease.releaseVersion=${{ github.ref_name }} -Pversion=${{ github.ref_name }} assemble
@@ -185,7 +185,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
         with:
-          cache-disabled: true
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
       - name: Publish to Artifactory
         env:
