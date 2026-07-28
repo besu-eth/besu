@@ -14,9 +14,19 @@
  */
 package org.hyperledger.besu.tests.acceptance.dsl.transaction.debug;
 
+import java.util.List;
+
 public class DebugTransactions {
 
   public DebugGetBadBlocks getBadBlocks() {
     return new DebugGetBadBlocks();
+  }
+
+  public DebugGetModifiedAccounts getModifiedAccountsByNumber(final List<String> params) {
+    return new DebugGetModifiedAccounts("debug_getModifiedAccountsByNumber", params);
+  }
+
+  public DebugGetModifiedAccounts getModifiedAccountsByHash(final List<String> params) {
+    return new DebugGetModifiedAccounts("debug_getModifiedAccountsByHash", params);
   }
 }

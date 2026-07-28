@@ -212,6 +212,7 @@ public enum RpcErrorType implements RpcMethodError {
   // Debug failures
   BLOCK_NOT_FOUND(-32000, "Block not found"),
   PARENT_BLOCK_NOT_FOUND(-32000, "Parent block not found"),
+  NO_PARENT_BLOCK(-32000, "Block has no parent"),
   GENESIS_BLOCK_NOT_TRACEABLE(-32000, "genesis is not traceable"),
 
   // Permissioning/Account allowlist errors
