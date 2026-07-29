@@ -19,6 +19,7 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
+- Reduce lock contention and GC pressure in `EthPeers.reattemptPendingPeerRequests()` under a backlog of pending peer requests by replacing the per-iteration `streamAvailablePeers()` scan (which allocated a peer snapshot per peer on every loop) with an allocation-free capacity check. [#10900](https://github.com/besu-eth/besu/pull/10900)
 - Fix an O(N^2) HashDoS in per-transaction warm-address/warm-storage/transient-storage tracking: these collections were backed by `HashSet`/`HashSet` keyed on `Address`/`Bytes32`, whose `hashCode()` is a grindable base-31 hash with no `Comparable` declaration, so bucket treeification never engaged. An attacker could grind keys sharing a hash bucket and force O(n) bucket walks per insert. Switch to `TreeSet`/`TreeBasedTable` (sorted by natural ordering) so insert cost stays bounded regardless of key distribution.
 - Return `BLOCK_NOT_FOUND` for unknown block hashes and `GENESIS_BLOCK_NOT_TRACEABLE` for genesis blocks from `debug_traceBlockByHash`. [#10701](https://github.com/besu-eth/besu/pull/10701)
 - Bonsai world state rolling failures are now logged at `WARN` instead of `INFO`, and a missing block header or trie log during a roll reports which block hash or trie log was missing. [#10859](https://github.com/besu-eth/besu/issues/10859)
