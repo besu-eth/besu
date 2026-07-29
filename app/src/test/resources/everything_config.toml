@@ -128,6 +128,7 @@ rpc-ws-apis=["DEBUG","ETH"]
 rpc-ws-host="9.10.11.12"
 rpc-ws-port=9101
 rpc-ws-max-active-connections=101
+rpc-ws-max-active-subscriptions=1001
 rpc-ws-max-frame-size=65535
 rpc-ws-authentication-enabled=false
 rpc-ws-authentication-credentials-file="none"
