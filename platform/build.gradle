@@ -64,6 +64,7 @@ dependencies {
     api project(':ethereum:trie')
     api project(':evm')
     api project(':metrics:core')
+    api project(':metrics:plugin-api')
     api project(':plugin-api')
     api project(':plugin-api:core')
     api project(':services:kvstore')
