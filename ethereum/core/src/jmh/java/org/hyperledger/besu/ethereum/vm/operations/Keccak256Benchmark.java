@@ -15,7 +15,10 @@
 package org.hyperledger.besu.ethereum.vm.operations;
 
 import org.hyperledger.besu.crypto.Hash;
+import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.gascalculator.OsakaGasCalculator;
 
+import java.util.OptionalLong;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
@@ -30,6 +33,7 @@ import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.Warmup;
+import org.openjdk.jmh.infra.BenchmarkParams;
 
 @State(Scope.Thread)
 @Warmup(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
@@ -40,6 +44,13 @@ public class Keccak256Benchmark {
 
   @Param({"32", "64", "128", "256", "512"})
   private String inputSize;
+
+  public static OptionalLong gas(final BenchmarkParams params) {
+    final long inputSize = Long.parseLong(params.getParam("inputSize"));
+    final MessageFrame frame = BenchmarkHelper.createMessageCallFrame();
+    frame.expandMemory(0, inputSize);
+    return OptionalLong.of(new OsakaGasCalculator().keccak256OperationGasCost(frame, 0, inputSize));
+  }
 
   public Bytes bytes;
 

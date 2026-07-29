@@ -24,6 +24,7 @@ import java.util.OptionalLong;
 import java.util.stream.Collectors;
 
 import org.openjdk.jmh.infra.BenchmarkParams;
+import org.openjdk.jmh.infra.IterationParams;
 import org.openjdk.jmh.results.BenchmarkResult;
 import org.openjdk.jmh.results.IterationResult;
 import org.openjdk.jmh.results.RunResult;
@@ -31,13 +32,17 @@ import org.openjdk.jmh.runner.Runner;
 import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
 import org.openjdk.jmh.runner.options.VerboseMode;
+import org.openjdk.jmh.util.Statistics;
 
-public final class BenchmarkRunner {
+public final class JmhBenchmarkRunner {
 
-  private BenchmarkRunner() {}
+  private JmhBenchmarkRunner() {}
 
   public static void main(final String[] args) throws Exception {
-    final String include = args.length > 0 ? args[0] : "CallDataCopyOperationBenchmark";
+    final String include =
+        args.length > 0 && !args[0].isEmpty()
+            ? args[0]
+            : CallDataCopyOperationBenchmark.class.getSimpleName();
     final Path output = Path.of(args.length > 1 ? args[1] : "benchmark-results.json");
 
     final Options opts =
@@ -60,7 +65,7 @@ public final class BenchmarkRunner {
     out.append(",\n  \"results\": [\n");
 
     final List<String> rendered =
-        results.stream().map(BenchmarkRunner::renderResult).collect(Collectors.toList());
+        results.stream().map(JmhBenchmarkRunner::renderResult).collect(Collectors.toList());
     for (int i = 0; i < rendered.size(); i++) {
       out.append(rendered.get(i));
       if (i < rendered.size() - 1) out.append(",");
@@ -89,10 +94,13 @@ public final class BenchmarkRunner {
     final Double mgasPerSec =
         gas.isPresent() && score > 0 ? (1e9 / score * gas.getAsLong()) / 1e6 : null;
 
+    final Statistics stats = run.getPrimaryResult().getStatistics();
+
     final StringBuilder out = new StringBuilder();
     out.append("    {\n");
     out.append("      \"benchmark\": \"").append(escape(params.getBenchmark())).append("\",\n");
     out.append("      \"params\": ").append(renderParams(params)).append(",\n");
+    out.append("      \"benchmark_config\": ").append(renderBenchmarkConfig(params)).append(",\n");
     out.append("      \"ns_per_op\": ").append(score).append(",\n");
     out.append("      \"error\": ").append(error).append(",\n");
     out.append("      \"gas\": ")
@@ -101,9 +109,57 @@ public final class BenchmarkRunner {
     out.append("      \"mgas_per_s\": ")
         .append(mgasPerSec == null ? "null" : mgasPerSec)
         .append(",\n");
+    out.append("      \"percentiles\": ").append(renderPercentiles(stats)).append(",\n");
     out.append("      \"raw_data\": ").append(renderRawData(run));
     out.append("\n    }");
     return out.toString();
+  }
+
+  private static String renderBenchmarkConfig(final BenchmarkParams params) {
+    final IterationParams warmup = params.getWarmup();
+    final IterationParams measurement = params.getMeasurement();
+    return "{"
+        + "\"forks\": "
+        + params.getForks()
+        + ", "
+        + "\"threads\": "
+        + params.getThreads()
+        + ", "
+        + "\"warmup_iterations\": "
+        + warmup.getCount()
+        + ", "
+        + "\"warmup_time\": \""
+        + escape(warmup.getTime().toString())
+        + "\", "
+        + "\"measurement_iterations\": "
+        + measurement.getCount()
+        + ", "
+        + "\"measurement_time\": \""
+        + escape(measurement.getTime().toString())
+        + "\", "
+        + "\"mode\": \""
+        + escape(params.getMode().shortLabel())
+        + "\""
+        + "}";
+  }
+
+  private static String renderPercentiles(final Statistics stats) {
+    return "{"
+        + "\"p0\": "
+        + stats.getPercentile(0.0)
+        + ", "
+        + "\"p25\": "
+        + stats.getPercentile(25.0)
+        + ", "
+        + "\"p50\": "
+        + stats.getPercentile(50.0)
+        + ", "
+        + "\"p75\": "
+        + stats.getPercentile(75.0)
+        + ", "
+        + "\"p100\": "
+        + stats.getPercentile(100.0)
+        + "}";
   }
 
   private static String renderParams(final BenchmarkParams params) {

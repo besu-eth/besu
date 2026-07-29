@@ -14,7 +14,11 @@
  */
 package org.hyperledger.besu.ethereum.vm.operations;
 
+import org.hyperledger.besu.evm.gascalculator.OsakaGasCalculator;
+
+import java.util.Map;
 import java.util.OptionalLong;
+import java.util.function.Function;
 
 import org.openjdk.jmh.infra.BenchmarkParams;
 
@@ -22,24 +26,23 @@ public final class GasFormulas {
 
   private GasFormulas() {}
 
+  private static final Map<Class<?>, Function<BenchmarkParams, OptionalLong>> REGISTRY =
+      Map.of(
+          CallDataCopyOperationBenchmark.class, CallDataCopyOperationBenchmark::gas,
+          Keccak256Benchmark.class, Keccak256Benchmark::gas,
+          SHA256Benchmark.class, SHA256Benchmark::gas,
+          AddOperationBenchmark.class,
+              p -> OptionalLong.of(new OsakaGasCalculator().getVeryLowTierGasCost()));
+
   public static OptionalLong compute(final BenchmarkParams params) {
-    final String benchmark = params.getBenchmark();
-
-    if (benchmark.endsWith(".CallDataCopyOperationBenchmark.executeOperation")) {
-      final int dataSize = Integer.parseInt(params.getParam("dataSize"));
-      return OptionalLong.of(3L + 3L * ((dataSize + 31) / 32));
+    final String fqn = params.getBenchmark();
+    final String className = fqn.substring(0, fqn.lastIndexOf('.'));
+    try {
+      final Class<?> clazz = Class.forName(className);
+      final Function<BenchmarkParams, OptionalLong> formula = REGISTRY.get(clazz);
+      return formula != null ? formula.apply(params) : OptionalLong.empty();
+    } catch (ClassNotFoundException e) {
+      return OptionalLong.empty();
     }
-
-    if (benchmark.endsWith(".Keccak256Benchmark.executeOperation")) {
-      final int inputSize = Integer.parseInt(params.getParam("inputSize"));
-      return OptionalLong.of(30L + 6L * ((inputSize + 31) / 32));
-    }
-
-    if (benchmark.endsWith(".SHA256Benchmark.sha256")) {
-      final int inputSize = Integer.parseInt(params.getParam("inputSize"));
-      return OptionalLong.of(60L + 12L * ((inputSize + 31) / 32));
-    }
-
-    return OptionalLong.empty();
   }
 }

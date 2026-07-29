@@ -861,6 +861,20 @@ subprojects {
       zip64 = true
     }
 
+    if (project.path == ':ethereum:core') {
+      tasks.register('runJmhBenchmarkRunner', JavaExec) {
+        dependsOn 'jmhCompileGeneratedClasses'
+        classpath = sourceSets.jmh.runtimeClasspath +
+          files("${buildDir}/jmh-generated-classes") +
+          files("${buildDir}/jmh-generated-resources")
+        mainClass = 'org.hyperledger.besu.ethereum.vm.operations.JmhBenchmarkRunner'
+        args = [
+          project.findProperty('include') ?: '',
+          project.findProperty('output')  ?: 'benchmark-results.json'
+        ]
+      }
+    }
+
     jmh {
       jmhVersion = '1.37'
       fork = 3
