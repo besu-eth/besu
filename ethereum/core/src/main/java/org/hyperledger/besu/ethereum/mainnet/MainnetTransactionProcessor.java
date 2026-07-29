@@ -534,10 +534,15 @@ public class MainnetTransactionProcessor {
         coinbase.incrementBalance(coinbaseWeiDelta);
       }
 
+      // For a failed transaction all selfDestructs must have been rolled back by the frame.
+      // Guard here as defense-in-depth: if any leak path (e.g. regularGasLimitExceeded) leaves
+      // stale markers, we must not permanently delete accounts from the world state.
+      final Set<Address> effectiveSelfDestructs =
+          txSucceeded ? initialFrame.getSelfDestructs() : Set.of();
+
       // EIP-7708: Emit closure logs for accounts with remaining balance before deletion
       // Noop before Amsterdam
-      transferLogEmitter.emitClosureLogs(
-          worldState, initialFrame.getSelfDestructs(), initialFrame::addLog);
+      transferLogEmitter.emitClosureLogs(worldState, effectiveSelfDestructs, initialFrame::addLog);
 
       operationTracer.traceEndTransaction(
           worldState.updater(),
@@ -546,10 +551,10 @@ public class MainnetTransactionProcessor {
           initialFrame.getOutputData(),
           initialFrame.getLogs(),
           gasUsedByTransaction,
-          initialFrame.getSelfDestructs(),
+          effectiveSelfDestructs,
           0L);
 
-      initialFrame.getSelfDestructs().forEach(worldState::deleteAccount);
+      effectiveSelfDestructs.forEach(worldState::deleteAccount);
 
       if (clearEmptyAccounts) {
         worldState.clearAccountsThatAreEmpty();

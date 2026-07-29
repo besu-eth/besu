@@ -32,6 +32,7 @@ import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthMessage;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
+import org.hyperledger.besu.ethereum.eth.manager.PeerReputation;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.InvalidPeerTaskResponseException;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResponseCode;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResult;
@@ -40,7 +41,7 @@ import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetHeadersFromPee
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetHeadersFromPeerTask.Direction;
 import org.hyperledger.besu.ethereum.eth.messages.EthProtocolMessages;
 import org.hyperledger.besu.ethereum.eth.messages.NewBlockHashesMessage;
-import org.hyperledger.besu.ethereum.eth.messages.NewBlockHashesMessage.NewBlockHash;
+import org.hyperledger.besu.ethereum.eth.messages.NewBlockHashesMessage.BlockAnnouncement;
 import org.hyperledger.besu.ethereum.eth.messages.NewBlockMessage;
 import org.hyperledger.besu.ethereum.eth.sync.state.PendingBlocksManager;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
@@ -57,13 +58,14 @@ import org.hyperledger.besu.plugin.services.MetricsSystem;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.SortedMap;
+import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
@@ -73,7 +75,6 @@ import java.util.stream.Collectors;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
-import org.apache.tuweni.bytes.Bytes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -346,7 +347,7 @@ public class BlockPropagationManager implements UnverifiedForkchoiceListener {
         return;
       }
 
-      importOrSavePendingBlock(block, message.getPeer().nodeId());
+      importOrSavePendingBlock(block, message.getPeer());
     } catch (final RLPException e) {
       LOG.debug(
           "Malformed NEW_BLOCK message received from peer (BREACH_OF_PROTOCOL), disconnecting: {}",
@@ -360,33 +361,54 @@ public class BlockPropagationManager implements UnverifiedForkchoiceListener {
     final Blockchain blockchain = protocolContext.getBlockchain();
     final NewBlockHashesMessage newBlockHashesMessage =
         NewBlockHashesMessage.readFrom(message.getData());
+    final EthPeer peer = message.getPeer();
+
     try {
       // Register announced blocks
-      final List<NewBlockHash> announcedBlocks =
+      final List<BlockAnnouncement> announcedBlocks =
           Lists.newArrayList(newBlockHashesMessage.getNewHashes());
       LOG.atTrace()
-          .setMessage("New block hashes from network {} from peer {}. Current status {}")
+          .setMessage("New block announcements from network {} from peer {}. Current status {}")
           .addArgument(() -> toLogString(announcedBlocks))
-          .addArgument(message::getPeer)
+          .addArgument(peer)
           .addArgument(this)
           .log();
 
-      for (final NewBlockHash announcedBlock : announcedBlocks) {
-        message.getPeer().registerKnownBlock(announcedBlock.hash());
-        message.getPeer().registerHeight(announcedBlock.hash(), announcedBlock.number());
+      // keep only the first hash seen for each block number
+      final SortedMap<Long, Hash> hashesByBlockNumber = new TreeMap<>();
+      boolean duplicateAnnouncementFound = false;
+      for (final BlockAnnouncement announcedBlock : announcedBlocks) {
+        if (hashesByBlockNumber.containsKey(announcedBlock.number())) {
+          duplicateAnnouncementFound = true;
+          LOG.trace("Duplicate block announcement received from peer {}: {}", peer, announcedBlock);
+        } else {
+          hashesByBlockNumber.put(announcedBlock.number(), announcedBlock.hash());
+        }
       }
+
+      // penalize peer that sends duplicate block announcements
+      if (duplicateAnnouncementFound) {
+        peer.recordUselessResponse("newBlockHashes");
+      }
+
+      // update peer chain state
+      hashesByBlockNumber.forEach(
+          (number, hash) -> {
+            peer.registerKnownBlock(hash);
+            peer.registerHeight(hash, number);
+          });
 
       // Filter announced blocks for blocks we care to import
       final long localChainHeight = protocolContext.getBlockchain().getChainHeadBlockNumber();
       final long bestChainHeight = syncState.bestChainHeight(localChainHeight);
-      final List<NewBlockHash> relevantAnnouncements =
+      final List<BlockAnnouncement> relevantAnnouncements =
           announcedBlocks.stream()
               .filter(a -> shouldImportBlockAtHeight(a.number(), localChainHeight, bestChainHeight))
-              .collect(Collectors.toList());
+              .toList();
 
       // Filter for blocks we don't yet know about
-      final List<NewBlockHash> newBlocks = new ArrayList<>();
-      for (final NewBlockHash announcedBlock : relevantAnnouncements) {
+      final List<BlockAnnouncement> newBlocks = new ArrayList<>();
+      for (final BlockAnnouncement announcedBlock : relevantAnnouncements) {
         if (pendingBlocksManager.contains(announcedBlock.hash())) {
           LOG.trace("New block hash from network {} is already pending", announcedBlock);
           continue;
@@ -403,7 +425,7 @@ public class BlockPropagationManager implements UnverifiedForkchoiceListener {
           LOG.debug("New block hash from network {} is a known bad block", announcedBlock);
           continue;
         }
-        if (processingBlocksManager.addRequestedBlock(announcedBlock.hash())) {
+        if (processingBlocksManager.addRequestedBlock(announcedBlock, peer)) {
           newBlocks.add(announcedBlock);
         } else {
           LOG.trace("New block hash from network {} was already requested", announcedBlock);
@@ -411,15 +433,15 @@ public class BlockPropagationManager implements UnverifiedForkchoiceListener {
       }
 
       // Process known blocks we care about
-      for (final NewBlockHash newBlock : newBlocks) {
-        processAnnouncedBlock(message.getPeer(), newBlock);
+      for (final BlockAnnouncement newBlock : newBlocks) {
+        processAnnouncedBlock(peer, newBlock);
       }
     } catch (final RLPException e) {
       LOG.debug(
           "Malformed NEW_BLOCK_HASHES message received from peer (BREACH_OF_PROTOCOL), disconnecting: {}",
-          message.getPeer(),
+          peer,
           e);
-      message.getPeer().disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+      peer.disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
     }
   }
 
@@ -429,14 +451,24 @@ public class BlockPropagationManager implements UnverifiedForkchoiceListener {
   }
 
   private CompletableFuture<Block> processAnnouncedBlock(
-      final EthPeer peer, final NewBlockHash blockHash) {
+      final EthPeer peer, final BlockAnnouncement blockHash) {
     LOG.trace("Retrieve announced block by header {} from peers", blockHash);
     return getBlockFromPeers(Optional.of(peer), blockHash.number(), Optional.of(blockHash.hash()));
   }
 
-  private void requestParentBlock(final Block block) {
+  private void requestParentBlock(final Block block, final EthPeer peer) {
     final BlockHeader blockHeader = block.getHeader();
-    if (processingBlocksManager.addRequestedBlock(blockHeader.getParentHash())) {
+    if (blockHeader.getNumber() == 0) {
+      LOG.atDebug()
+          .setMessage("Ignoring parent request for block {} with no parent")
+          .addArgument(blockHeader::toLogString)
+          .log();
+      return;
+    }
+    // Register the block we are about to fetch — the parent — so the entry keys match the
+    // registerReceivedBlock/registerFailedGetBlock removal (which key off the retrieved block).
+    if (processingBlocksManager.addRequestedBlock(
+        new BlockAnnouncement(blockHeader.getParentHash(), blockHeader.getNumber() - 1L), peer)) {
       retrieveParentBlock(blockHeader);
     } else {
       LOG.debug("Parent block with hash {} is already requested", blockHeader.getParentHash());
@@ -558,7 +590,7 @@ public class BlockPropagationManager implements UnverifiedForkchoiceListener {
             blockExecutorResult ->
                 importOrSavePendingBlock(
                     blockExecutorResult.result().get().getFirst(),
-                    blockExecutorResult.ethPeers().getLast().nodeId()))
+                    blockExecutorResult.ethPeers().getLast()))
         .orTimeout(TIMEOUT, TimeUnit.MILLISECONDS);
   }
 
@@ -628,10 +660,7 @@ public class BlockPropagationManager implements UnverifiedForkchoiceListener {
   }
 
   @VisibleForTesting
-  CompletableFuture<Block> importOrSavePendingBlock(final Block block, final Bytes nodeId) {
-    // Synchronize to avoid race condition where block import event fires after the
-    // blockchain.contains() check and before the block is registered, causing onBlockAdded() to be
-    // invoked for the parent of this block before we are able to register it.
+  CompletableFuture<Block> importOrSavePendingBlock(final Block block, final EthPeer peer) {
     LOG.atTrace()
         .setMessage("Import or save pending block {}")
         .addArgument(block::toLogString)
@@ -647,9 +676,9 @@ public class BlockPropagationManager implements UnverifiedForkchoiceListener {
 
     if (!protocolContext.getBlockchain().contains(block.getHeader().getParentHash())) {
       // Block isn't connected to local chain, save it to pending blocks collection
-      if (savePendingBlock(block, nodeId)) {
+      if (savePendingBlock(block, peer)) {
         // if block is saved as pending, try to resolve it
-        maybeProcessPendingBlocks(block);
+        maybeProcessPendingBlocks(block, peer);
       }
       return CompletableFuture.completedFuture(block);
     }
@@ -695,12 +724,12 @@ public class BlockPropagationManager implements UnverifiedForkchoiceListener {
    * Save the given block.
    *
    * @param block the block to track
-   * @param nodeId node that sent the block
+   * @param peer node that sent the block
    * @return true if the block was added (was not previously present)
    */
-  private boolean savePendingBlock(final Block block, final Bytes nodeId) {
+  private boolean savePendingBlock(final Block block, final EthPeer peer) {
     synchronized (pendingBlocksManager) {
-      if (pendingBlocksManager.registerPendingBlock(block, nodeId)) {
+      if (pendingBlocksManager.registerPendingBlock(block, peer)) {
         LOG.info(
             "Saved announced block for future import {} - {} saved block(s)",
             block.toLogString(),
@@ -715,7 +744,7 @@ public class BlockPropagationManager implements UnverifiedForkchoiceListener {
    * Try to request the lowest ancestor for the given pending block or process the descendants if
    * the ancestor is already in the chain
    */
-  private void maybeProcessPendingBlocks(final Block block) {
+  private void maybeProcessPendingBlocks(final Block block, final EthPeer peer) {
     // Try to get the lowest ancestor pending for this block, so we can import it
     final Optional<Block> lowestPending = pendingBlocksManager.pendingAncestorBlockOf(block);
     if (lowestPending.isPresent()) {
@@ -724,7 +753,7 @@ public class BlockPropagationManager implements UnverifiedForkchoiceListener {
       if (!protocolContext
           .getBlockchain()
           .contains(lowestPendingBlock.getHeader().getParentHash())) {
-        requestParentBlock(lowestPendingBlock);
+        requestParentBlock(lowestPendingBlock, peer);
       } else {
         LOG.trace("Parent block is already in the chain");
         // if the parent is already imported, process its children
@@ -784,9 +813,9 @@ public class BlockPropagationManager implements UnverifiedForkchoiceListener {
         && importRange.contains(distanceFromBestPeer);
   }
 
-  private String toLogString(final Collection<NewBlockHash> newBlockHashs) {
-    return newBlockHashs.stream()
-        .map(NewBlockHash::toString)
+  private String toLogString(final Collection<BlockAnnouncement> blockAnnouncements) {
+    return blockAnnouncements.stream()
+        .map(BlockAnnouncement::toString)
         .collect(Collectors.joining(", ", "[", "]"));
   }
 
@@ -820,39 +849,87 @@ public class BlockPropagationManager implements UnverifiedForkchoiceListener {
   }
 
   static class ProcessingBlocksManager {
-    private final Set<Hash> importingBlocks = Collections.newSetFromMap(new ConcurrentHashMap<>());
-    private final Set<Hash> requestedBlocks = Collections.newSetFromMap(new ConcurrentHashMap<>());
-    private final Set<Long> requestedNonAnnouncedBlocks =
-        Collections.newSetFromMap(new ConcurrentHashMap<>());
+    record HashAndPeer(Hash hash, EthPeer peer) {}
 
-    boolean addRequestedBlock(final Hash hash) {
-      return requestedBlocks.add(hash);
+    private final Set<Hash> importingBlocks = new HashSet<>();
+    private final SortedMap<Long, HashAndPeer> requestedBlocksByNumber = new TreeMap<>();
+    private final Set<Long> requestedNonAnnouncedBlocks = new HashSet<>();
+
+    synchronized boolean addRequestedBlock(
+        final BlockAnnouncement announcement, final EthPeer peer) {
+      if (requestedBlocksByNumber.containsKey(announcement.number())) {
+        final HashAndPeer existing = requestedBlocksByNumber.get(announcement.number());
+        if (existing.hash.equals(announcement.hash())) {
+          LOG.debug(
+              "New block announcement {} from peer {} is already being requested from peer {}",
+              announcement,
+              peer,
+              existing.peer);
+          return false;
+        }
+
+        // duplicate block announcement from same peer, ignore
+        if (existing.peer.equals(peer)) {
+          return false;
+        }
+
+        // the block number is the same, but the hash differs, accept the announcement only if the
+        // incoming peer has a better reputation
+        final PeerReputation incomingPeerReputation = peer.getReputation();
+        final PeerReputation existingPeerReputation = existing.peer.getReputation();
+        LOG.debug(
+            "New block announcement {} from peer {} has same number as existing announcement {} but different hash from peer {}",
+            announcement,
+            peer,
+            existing.hash,
+            existing.peer);
+        if (incomingPeerReputation.compareTo(existingPeerReputation) > 0) {
+          LOG.debug(
+              "Incoming peer reputation {} is better than existing peer reputation {} accepting the new announcement",
+              incomingPeerReputation,
+              existingPeerReputation);
+          requestedBlocksByNumber.put(
+              announcement.number(), new HashAndPeer(announcement.hash(), peer));
+          return true;
+        }
+        return false;
+      }
+      requestedBlocksByNumber.put(
+          announcement.number(), new HashAndPeer(announcement.hash(), peer));
+      return true;
     }
 
-    public boolean addNonAnnouncedBlocks(final long blockNumber) {
+    synchronized boolean addNonAnnouncedBlocks(final long blockNumber) {
       return requestedNonAnnouncedBlocks.add(blockNumber);
     }
 
-    public boolean alreadyImporting(final Hash hash) {
+    synchronized boolean alreadyImporting(final Hash hash) {
       return importingBlocks.contains(hash);
     }
 
-    public synchronized void registerReceivedBlock(final Block block) {
-      requestedBlocks.remove(block.getHash());
+    synchronized void registerReceivedBlock(final Block block) {
+      requestedBlocksByNumber.computeIfPresent(
+          block.getHeader().getNumber(),
+          (_, baap) -> block.getHash().equals(baap.hash()) ? null : baap);
       requestedNonAnnouncedBlocks.remove(block.getHeader().getNumber());
     }
 
-    public synchronized void registerFailedGetBlock(
+    synchronized void registerFailedGetBlock(
         final long blockNumber, final Optional<Hash> maybeBlockHash) {
       requestedNonAnnouncedBlocks.remove(blockNumber);
-      maybeBlockHash.ifPresent(requestedBlocks::remove);
+      if (maybeBlockHash.isPresent()) {
+        requestedBlocksByNumber.computeIfPresent(
+            blockNumber, (_, hap) -> maybeBlockHash.get().equals(hap.hash()) ? null : hap);
+      } else {
+        requestedBlocksByNumber.remove(blockNumber);
+      }
     }
 
-    public boolean addImportingBlock(final Hash hash) {
+    synchronized boolean addImportingBlock(final Hash hash) {
       return importingBlocks.add(hash);
     }
 
-    public void registerBlockImportDone(final Hash hash) {
+    synchronized void registerBlockImportDone(final Hash hash) {
       importingBlocks.remove(hash);
     }
 
@@ -861,8 +938,8 @@ public class BlockPropagationManager implements UnverifiedForkchoiceListener {
       return "ProcessingBlocksManager{"
           + "importingBlocks="
           + importingBlocks
-          + ", requestedBlocks="
-          + requestedBlocks
+          + ", requestedBlocksByNumber="
+          + requestedBlocksByNumber
           + ", requestedNonAnnouncedBlocks="
           + requestedNonAnnouncedBlocks
           + '}';

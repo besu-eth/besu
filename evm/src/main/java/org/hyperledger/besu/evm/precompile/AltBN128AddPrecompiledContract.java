@@ -39,7 +39,7 @@ public class AltBN128AddPrecompiledContract extends AbstractAltBnPrecompiledCont
   private static final String PRECOMPILE_NAME = "BN254_ADD";
 
   private final long gasCost;
-  private static final Cache<Integer, PrecompileInputResultTuple> bnAddCache =
+  private static final Cache<Bytes, PrecompileInputResultTuple> bnAddCache =
       AbstractPrecompiledContract.resultCacheBuilder().build();
 
   AltBN128AddPrecompiledContract(final GasCalculator gasCalculator, final long gasCost) {
@@ -63,7 +63,7 @@ public class AltBN128AddPrecompiledContract extends AbstractAltBnPrecompiledCont
       final Bytes input, @NotNull final MessageFrame messageFrame) {
 
     PrecompileInputResultTuple res;
-    Integer cacheKey = null;
+    Bytes cacheKey = null;
     final Bytes cachedInput =
         input.size() > PARAMETER_LENGTH ? input.slice(0, PARAMETER_LENGTH) : input;
 
