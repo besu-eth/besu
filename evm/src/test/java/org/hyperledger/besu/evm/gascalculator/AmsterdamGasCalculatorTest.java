@@ -15,26 +15,40 @@
 package org.hyperledger.besu.evm.gascalculator;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.withSettings;
 
 import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Transaction;
+import org.hyperledger.besu.datatypes.Wei;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.quality.Strictness;
 
 @ExtendWith(MockitoExtension.class)
 class AmsterdamGasCalculatorTest {
+
+  private static final Address SENDER =
+      Address.fromHexString("0x00000000000000000000000000000000000000a1");
+  private static final Address RECIPIENT =
+      Address.fromHexString("0x00000000000000000000000000000000000000b2");
 
   private final AmsterdamGasCalculator amsterdamGasCalculator = new AmsterdamGasCalculator();
 
@@ -104,6 +118,95 @@ class AmsterdamGasCalculatorTest {
     // First change (0 -> nonzero): warm base (100) + flat STORAGE_WRITE (10,000) = 10,100.
     assertThat(amsterdamGasCalculator.slotAccessCost(UInt256.valueOf(42), zero, zero))
         .isEqualTo(10_100L);
+  }
+
+  /**
+   * The "Transaction reference cases" table of EIP-2780, intrinsic (regular) column. Rows that
+   * differ only in their runtime charges collapse to the same intrinsic cost — they are listed
+   * separately anyway so the table can be read against the EIP row by row.
+   */
+  static Stream<Arguments> eip2780ReferenceCases() {
+    return Stream.of(
+        // description, to, value, expected intrinsic regular gas
+        Arguments.of("self-transfer", SENDER, Wei.ONE, 12_000L),
+        Arguments.of("no-transfer to EOA", RECIPIENT, Wei.ZERO, 15_000L),
+        Arguments.of("no-transfer to contract", RECIPIENT, Wei.ZERO, 15_000L),
+        Arguments.of("ETH to existing EOA", RECIPIENT, Wei.ONE, 21_000L),
+        Arguments.of("ETH to contract", RECIPIENT, Wei.ONE, 21_000L),
+        Arguments.of("no-transfer to delegated account", RECIPIENT, Wei.ZERO, 15_000L),
+        Arguments.of("ETH to delegated account", RECIPIENT, Wei.ONE, 21_000L),
+        Arguments.of("self-transfer, sender delegated", SENDER, Wei.ONE, 12_000L),
+        Arguments.of("ETH creating a new account", RECIPIENT, Wei.ONE, 21_000L),
+        // to == null: contract creation. Value-bearing and target-pre-exists rows are identical —
+        // the recipient balance write is already covered by CREATE_ACCESS.
+        Arguments.of("create, value = 0", null, Wei.ZERO, 23_000L),
+        Arguments.of("create, value > 0", null, Wei.ONE, 23_000L),
+        Arguments.of("create, target pre-exists", null, Wei.ZERO, 23_000L));
+  }
+
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("eip2780ReferenceCases")
+  void eip2780IntrinsicGasMatchesReferenceCases(
+      final String description, final Address to, final Wei value, final long expected) {
+    final Transaction tx = transactionWith(to, value, Bytes.EMPTY, 0);
+    assertThat(amsterdamGasCalculator.transactionIntrinsicRegularGas(tx)).isEqualTo(expected);
+  }
+
+  @Test
+  void eip2780IntrinsicGasChargesCalldataTokens() {
+    // data_cost = (zeroBytes * 1 + nonZeroBytes * 4) * 4. Payload of 3 zero + 2 non-zero bytes:
+    // (3 + 8) * 4 = 44, on top of the 15,000 for a zero-value call to another account.
+    final Transaction tx =
+        transactionWith(RECIPIENT, Wei.ZERO, Bytes.fromHexString("0x0000000102"), 0);
+    assertThat(amsterdamGasCalculator.transactionIntrinsicRegularGas(tx)).isEqualTo(15_044L);
+  }
+
+  @Test
+  void eip2780IntrinsicGasChargesInitCodeWords() {
+    // Creation of a 33-byte init code: 23,000 + CODE_INIT_PER_WORD (2) * ceil(33/32) = 23,004.
+    // All non-zero bytes, so data_cost = 33 * 4 * 4 = 528.
+    final Transaction tx = transactionWith(null, Wei.ZERO, Bytes.repeat((byte) 0x1, 33), 0);
+    assertThat(amsterdamGasCalculator.transactionIntrinsicRegularGas(tx)).isEqualTo(23_532L);
+  }
+
+  @Test
+  void eip2780AuthorizationIntrinsicExcludesAccountWrite() {
+    // EIP-2780: only REGULAR_PER_AUTH_BASE_COST (7,816) is intrinsic — the ACCOUNT_WRITE an
+    // authorization may perform is state-dependent and charged at runtime instead.
+    assertThat(amsterdamGasCalculator.delegateCodeGasCost(1)).isEqualTo(7_816L);
+    assertThat(amsterdamGasCalculator.delegateCodeGasCost(3)).isEqualTo(23_448L);
+
+    // A zero-value 7702 transaction with one authorization: 15,000 + 7,816 = 22,816.
+    final Transaction tx = transactionWith(RECIPIENT, Wei.ZERO, Bytes.EMPTY, 1);
+    assertThat(amsterdamGasCalculator.transactionIntrinsicRegularGas(tx)).isEqualTo(22_816L);
+  }
+
+  @Test
+  void eip2780AuthorityWriteIsChargedAtRuntime() {
+    assertThat(amsterdamGasCalculator.delegateCodeAccountWriteGasCost(0)).isZero();
+    assertThat(amsterdamGasCalculator.delegateCodeAccountWriteGasCost(2)).isEqualTo(16_000L);
+    // Nothing is over-reserved up front, so there is no per-authorization refund.
+    assertThat(amsterdamGasCalculator.calculateDelegateCodeGasRefund(2)).isZero();
+  }
+
+  private Transaction transactionWith(
+      final Address to, final Wei value, final Bytes payload, final int codeDelegations) {
+    long zeroBytes = 0L;
+    for (int i = 0; i < payload.size(); i++) {
+      if (payload.get(i) == (byte) 0x0) {
+        zeroBytes++;
+      }
+    }
+    final Transaction tx = mock(Transaction.class, withSettings().strictness(Strictness.LENIENT));
+    when(tx.getSender()).thenReturn(SENDER);
+    doReturn(Optional.ofNullable(to)).when(tx).getTo();
+    when(tx.isContractCreation()).thenReturn(to == null);
+    when(tx.getValue()).thenReturn(value);
+    when(tx.getPayload()).thenReturn(payload);
+    when(tx.getPayloadZeroBytes()).thenReturn(zeroBytes);
+    when(tx.getAccessList()).thenReturn(Optional.empty());
+    when(tx.codeDelegationListSize()).thenReturn(codeDelegations);
+    return tx;
   }
 
   @Test
