@@ -34,6 +34,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorR
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.methods.WebSocketRpcRequest;
+import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.SubscriptionManager;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 
 import java.util.HashMap;
@@ -52,6 +53,7 @@ import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
 import io.vertx.core.VertxOptions;
 import io.vertx.core.buffer.Buffer;
+import io.vertx.core.eventbus.Message;
 import io.vertx.core.http.ServerWebSocket;
 import io.vertx.core.http.WebSocketFrame;
 import io.vertx.core.json.Json;
@@ -365,6 +367,96 @@ public class WebSocketMessageHandlerTest {
     assertThat(responseCompleted.await(5, TimeUnit.SECONDS)).isTrue();
     assertThat(wroteFromWorkerThread).isTrue();
     releaser.join(TimeUnit.SECONDS.toMillis(1));
+  }
+
+  @Test
+  public void republishesSubscriptionRemovalWhenConnectionClosedAfterSingleRequest()
+      throws InterruptedException {
+    final String connectionId = "test-ws-connection";
+    when(websocketMock.textHandlerID()).thenReturn(connectionId);
+
+    final JsonObject requestJson = new JsonObject().put("id", 1).put("method", "eth_x");
+    final JsonRpcRequestContext expectedRequest =
+        new JsonRpcRequestContext(requestJson.mapTo(WebSocketRpcRequest.class));
+    when(jsonRpcMethodMock.response(eq(expectedRequest)))
+        .thenReturn(new JsonRpcSuccessResponse(1, null));
+    when(websocketMock.writeFrame(any(WebSocketFrame.class))).thenReturn(Future.succeededFuture());
+    // connection closed while the request was still being processed on a worker thread
+    when(websocketMock.isClosed()).thenReturn(true);
+
+    final AtomicReference<String> removedConnectionId = new AtomicReference<>();
+    awaitRemovalConsumerRegistered(
+        message -> {
+          removedConnectionId.set(message.body());
+          testContext.completeNow();
+        });
+
+    handler.handle(websocketMock, requestJson.toBuffer(), Optional.empty());
+
+    assertThat(testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        .isTrue();
+    assertThat(removedConnectionId.get()).isEqualTo(connectionId);
+  }
+
+  @Test
+  public void republishesSubscriptionRemovalWhenConnectionClosedAfterBatchRequest()
+      throws InterruptedException {
+    final String connectionId = "test-ws-connection";
+    when(websocketMock.textHandlerID()).thenReturn(connectionId);
+
+    final JsonObject requestJson = new JsonObject().put("id", 1).put("method", "eth_x");
+    final JsonArray arrayJson = new JsonArray(List.of(requestJson, requestJson));
+    final JsonRpcRequestContext expectedRequest =
+        new JsonRpcRequestContext(requestJson.mapTo(WebSocketRpcRequest.class));
+    when(jsonRpcMethodMock.response(eq(expectedRequest)))
+        .thenReturn(new JsonRpcSuccessResponse(1, null));
+    when(websocketMock.writeFrame(any(WebSocketFrame.class))).thenReturn(Future.succeededFuture());
+    when(websocketMock.isClosed()).thenReturn(true);
+
+    final AtomicReference<String> removedConnectionId = new AtomicReference<>();
+    awaitRemovalConsumerRegistered(
+        message -> {
+          removedConnectionId.set(message.body());
+          testContext.completeNow();
+        });
+
+    handler.handle(websocketMock, arrayJson.toBuffer(), Optional.empty());
+
+    assertThat(testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        .isTrue();
+    assertThat(removedConnectionId.get()).isEqualTo(connectionId);
+  }
+
+  @Test
+  public void doesNotRepublishSubscriptionRemovalWhenConnectionRemainsOpen()
+      throws InterruptedException {
+    final JsonObject requestJson = new JsonObject().put("id", 1).put("method", "eth_x");
+    final JsonRpcRequestContext expectedRequest =
+        new JsonRpcRequestContext(requestJson.mapTo(WebSocketRpcRequest.class));
+    when(jsonRpcMethodMock.response(eq(expectedRequest)))
+        .thenReturn(new JsonRpcSuccessResponse(1, null));
+    when(websocketMock.isClosed()).thenReturn(false);
+    when(websocketMock.writeFrame(argThat(this::isFinalFrame)))
+        .then(completeOnLastFrame(testContext));
+
+    final AtomicBoolean removalPublished = new AtomicBoolean(false);
+    awaitRemovalConsumerRegistered(_ -> removalPublished.set(true));
+
+    handler.handle(websocketMock, requestJson.toBuffer(), Optional.empty());
+
+    assertThat(testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        .isTrue();
+    assertThat(removalPublished).isFalse();
+  }
+
+  private void awaitRemovalConsumerRegistered(final Handler<Message<String>> onRemoval)
+      throws InterruptedException {
+    final CountDownLatch registered = new CountDownLatch(1);
+    vertx
+        .eventBus()
+        .<String>consumer(SubscriptionManager.EVENTBUS_REMOVE_SUBSCRIPTIONS_ADDRESS, onRemoval)
+        .completionHandler(_ -> registered.countDown());
+    assertThat(registered.await(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)).isTrue();
   }
 
   private ArgumentMatcher<WebSocketFrame> isFrameWithText(final String text) {

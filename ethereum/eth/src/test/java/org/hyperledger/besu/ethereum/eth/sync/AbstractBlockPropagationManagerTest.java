@@ -51,6 +51,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManager;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManagerTestBuilder;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManagerTestUtil;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
+import org.hyperledger.besu.ethereum.eth.manager.PeerReputation;
 import org.hyperledger.besu.ethereum.eth.manager.RespondingEthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.RespondingEthPeer.Responder;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutor;
@@ -90,7 +91,13 @@ import org.mockito.stubbing.Answer;
 
 public abstract class AbstractBlockPropagationManagerTest {
 
-  private static final Bytes NODE_ID_1 = Bytes.fromHexString("0x00");
+  private static final EthPeer PEER_1 = peerWithNodeId(Bytes.fromHexString("0x00"));
+
+  private static EthPeer peerWithNodeId(final Bytes nodeId) {
+    final EthPeer peer = mock(EthPeer.class);
+    when(peer.nodeId()).thenReturn(nodeId);
+    return peer;
+  }
 
   protected BlockchainSetupUtil blockchainUtil;
   protected ProtocolSchedule protocolSchedule;
@@ -189,12 +196,12 @@ public abstract class AbstractBlockPropagationManagerTest {
     final NewBlockHashesMessage nextAnnouncement =
         NewBlockHashesMessage.create(
             Collections.singletonList(
-                new NewBlockHashesMessage.NewBlockHash(
+                new NewBlockHashesMessage.BlockAnnouncement(
                     nextBlock.getHash(), nextBlock.getHeader().getNumber())));
     final NewBlockHashesMessage nextNextAnnouncement =
         NewBlockHashesMessage.create(
             Collections.singletonList(
-                new NewBlockHashesMessage.NewBlockHash(
+                new NewBlockHashesMessage.BlockAnnouncement(
                     nextNextBlock.getHash(), nextNextBlock.getHeader().getNumber())));
     final Responder responder = RespondingEthPeer.blockchainResponder(getFullBlockchain());
 
@@ -226,12 +233,12 @@ public abstract class AbstractBlockPropagationManagerTest {
     final NewBlockHashesMessage nextAnnouncement =
         NewBlockHashesMessage.create(
             Collections.singletonList(
-                new NewBlockHashesMessage.NewBlockHash(
+                new NewBlockHashesMessage.BlockAnnouncement(
                     nextBlock.getHash(), nextBlock.getHeader().getNumber())));
     final NewBlockHashesMessage nextNextAnnouncement =
         NewBlockHashesMessage.create(
             Collections.singletonList(
-                new NewBlockHashesMessage.NewBlockHash(
+                new NewBlockHashesMessage.BlockAnnouncement(
                     nextNextBlock.getHash(), nextNextBlock.getHeader().getNumber())));
     final Responder responder = RespondingEthPeer.blockchainResponder(getFullBlockchain());
 
@@ -341,7 +348,7 @@ public abstract class AbstractBlockPropagationManagerTest {
     final NewBlockHashesMessage block1Msg =
         NewBlockHashesMessage.create(
             Collections.singletonList(
-                new NewBlockHashesMessage.NewBlockHash(
+                new NewBlockHashesMessage.BlockAnnouncement(
                     block1.getHash(), block1.getHeader().getNumber())));
     final NewBlockMessage block2Msg =
         NewBlockMessage.create(
@@ -351,7 +358,7 @@ public abstract class AbstractBlockPropagationManagerTest {
     final NewBlockHashesMessage block3Msg =
         NewBlockHashesMessage.create(
             Collections.singletonList(
-                new NewBlockHashesMessage.NewBlockHash(
+                new NewBlockHashesMessage.BlockAnnouncement(
                     block3.getHash(), block3.getHeader().getNumber())));
     final NewBlockMessage block4Msg =
         NewBlockMessage.create(
@@ -408,7 +415,7 @@ public abstract class AbstractBlockPropagationManagerTest {
     final NewBlockHashesMessage newBlockHash =
         NewBlockHashesMessage.create(
             Collections.singletonList(
-                new NewBlockHashesMessage.NewBlockHash(
+                new NewBlockHashesMessage.BlockAnnouncement(
                     nextBlock.getHash(), nextBlock.getHeader().getNumber())));
     final NewBlockMessage newBlock =
         NewBlockMessage.create(
@@ -429,6 +436,122 @@ public abstract class AbstractBlockPropagationManagerTest {
 
     assertThat(blockchain.contains(nextBlock.getHash())).isTrue();
     verify(stubBlockImporter, times(1)).importBlock(eq(protocolContext), eq(nextBlock), any());
+  }
+
+  @Test
+  public void dedupesDifferentHashesForTheSameNumberInSingleMessage() {
+    final ProtocolSchedule stubProtocolSchedule = spy(protocolSchedule);
+    final ProtocolSpec stubProtocolSpec = spy(protocolSchedule.getByBlockHeader(blockHeader(2)));
+    final BlockImporter stubBlockImporter = spy(stubProtocolSpec.getBlockImporter());
+    doReturn(stubProtocolSpec).when(stubProtocolSchedule).getByBlockHeader(any());
+    doReturn(stubBlockImporter).when(stubProtocolSpec).getBlockImporter();
+    final BlockPropagationManager blockPropagationManager =
+        new BlockPropagationManager(
+            syncConfig,
+            stubProtocolSchedule,
+            protocolContext,
+            ethProtocolManager.ethContext(),
+            syncState,
+            pendingBlocksManager,
+            metricsSystem,
+            blockBroadcaster);
+
+    blockchainUtil.importFirstBlocks(2);
+    final Block nextBlock = blockchainUtil.getBlock(2);
+    assertThat(blockchain.contains(nextBlock.getHash())).isFalse();
+
+    blockPropagationManager.start();
+
+    final RespondingEthPeer peer = EthProtocolManagerTestUtil.createPeer(ethProtocolManager, 0);
+    // One message announcing the real block plus a bogus, different hash at the SAME number. The
+    // real announcement is first, so only it is requested; the second is deduped by block number.
+    final NewBlockHashesMessage message =
+        NewBlockHashesMessage.create(
+            List.of(
+                new NewBlockHashesMessage.BlockAnnouncement(
+                    nextBlock.getHash(), nextBlock.getHeader().getNumber()),
+                new NewBlockHashesMessage.BlockAnnouncement(
+                    Hash.fromHexString("0x" + "de".repeat(32)),
+                    nextBlock.getHeader().getNumber())));
+    final Responder responder = RespondingEthPeer.blockchainResponder(getFullBlockchain());
+
+    EthProtocolManagerTestUtil.broadcastMessage(ethProtocolManager, peer, message);
+    peer.respondWhile(responder, peer::hasOutstandingRequests);
+
+    assertThat(blockchain.contains(nextBlock.getHash())).isTrue();
+    // imported exactly once — the second (different-hash, same-number) announcement was deduped
+    verify(stubBlockImporter, times(1)).importBlock(eq(protocolContext), eq(nextBlock), any());
+  }
+
+  @Test
+  public void penalizesPeerThatAnnouncesDuplicateBlockNumbersInSingleMessage() {
+    final BlockPropagationManager blockPropagationManager =
+        new BlockPropagationManager(
+            syncConfig,
+            protocolSchedule,
+            protocolContext,
+            ethProtocolManager.ethContext(),
+            syncState,
+            pendingBlocksManager,
+            metricsSystem,
+            blockBroadcaster);
+
+    blockchainUtil.importFirstBlocks(2);
+    final Block nextBlock = blockchainUtil.getBlock(2);
+
+    blockPropagationManager.start();
+
+    final RespondingEthPeer peer = EthProtocolManagerTestUtil.createPeer(ethProtocolManager, 0);
+    // Two announcements for the SAME block number (different hashes) in one message: abusive, since
+    // a well-behaved peer announces one hash per number.
+    final NewBlockHashesMessage message =
+        NewBlockHashesMessage.create(
+            List.of(
+                new NewBlockHashesMessage.BlockAnnouncement(
+                    nextBlock.getHash(), nextBlock.getHeader().getNumber()),
+                new NewBlockHashesMessage.BlockAnnouncement(
+                    Hash.fromHexString("0x" + "de".repeat(32)),
+                    nextBlock.getHeader().getNumber())));
+
+    EthProtocolManagerTestUtil.broadcastMessage(ethProtocolManager, peer, message);
+
+    // The peer is penalized: its reputation drops below a freshly-connected peer's.
+    assertThat(peer.getEthPeer().getReputation().compareTo(new PeerReputation())).isLessThan(0);
+  }
+
+  @Test
+  public void doesNotPenalizePeerForDistinctBlockNumberAnnouncements() {
+    final BlockPropagationManager blockPropagationManager =
+        new BlockPropagationManager(
+            syncConfig,
+            protocolSchedule,
+            protocolContext,
+            ethProtocolManager.ethContext(),
+            syncState,
+            pendingBlocksManager,
+            metricsSystem,
+            blockBroadcaster);
+
+    blockchainUtil.importFirstBlocks(2);
+    final Block block2 = blockchainUtil.getBlock(2);
+    final Block block3 = blockchainUtil.getBlock(3);
+
+    blockPropagationManager.start();
+
+    final RespondingEthPeer peer = EthProtocolManagerTestUtil.createPeer(ethProtocolManager, 0);
+    // One hash per distinct block number: legitimate, must not be penalized.
+    final NewBlockHashesMessage message =
+        NewBlockHashesMessage.create(
+            List.of(
+                new NewBlockHashesMessage.BlockAnnouncement(
+                    block2.getHash(), block2.getHeader().getNumber()),
+                new NewBlockHashesMessage.BlockAnnouncement(
+                    block3.getHash(), block3.getHeader().getNumber())));
+
+    EthProtocolManagerTestUtil.broadcastMessage(ethProtocolManager, peer, message);
+
+    // No duplicate numbers → reputation unchanged from a freshly-connected peer's.
+    assertThat(peer.getEthPeer().getReputation().compareTo(new PeerReputation())).isEqualTo(0);
   }
 
   @Test
@@ -461,7 +584,7 @@ public abstract class AbstractBlockPropagationManagerTest {
     final NewBlockHashesMessage newBlockHash =
         NewBlockHashesMessage.create(
             Collections.singletonList(
-                new NewBlockHashesMessage.NewBlockHash(
+                new NewBlockHashesMessage.BlockAnnouncement(
                     nextBlock.getHash(), nextBlock.getHeader().getNumber())));
     final NewBlockMessage newBlock =
         NewBlockMessage.create(
@@ -496,7 +619,7 @@ public abstract class AbstractBlockPropagationManagerTest {
     final NewBlockHashesMessage futureAnnouncement =
         NewBlockHashesMessage.create(
             Collections.singletonList(
-                new NewBlockHashesMessage.NewBlockHash(
+                new NewBlockHashesMessage.BlockAnnouncement(
                     futureBlock.getHash(), futureBlock.getHeader().getNumber())));
 
     // Broadcast
@@ -551,7 +674,7 @@ public abstract class AbstractBlockPropagationManagerTest {
     final NewBlockHashesMessage oldAnnouncement =
         NewBlockHashesMessage.create(
             Collections.singletonList(
-                new NewBlockHashesMessage.NewBlockHash(
+                new NewBlockHashesMessage.BlockAnnouncement(
                     oldBlock.getHash(), oldBlock.getHeader().getNumber())));
 
     // Broadcast
@@ -559,7 +682,7 @@ public abstract class AbstractBlockPropagationManagerTest {
     final Responder responder = RespondingEthPeer.blockchainResponder(getFullBlockchain());
     peer.respondWhile(responder, peer::hasOutstandingRequests);
 
-    verify(propManager, times(0)).importOrSavePendingBlock(any(), any(Bytes.class));
+    verify(propManager, times(0)).importOrSavePendingBlock(any(), any(EthPeer.class));
     assertThat(blockchain.contains(oldBlock.getHash())).isFalse();
   }
 
@@ -586,7 +709,7 @@ public abstract class AbstractBlockPropagationManagerTest {
     final Responder responder = RespondingEthPeer.blockchainResponder(getFullBlockchain());
     peer.respondWhile(responder, peer::hasOutstandingRequests);
 
-    verify(propManager, times(0)).importOrSavePendingBlock(any(), any(Bytes.class));
+    verify(propManager, times(0)).importOrSavePendingBlock(any(), any(EthPeer.class));
     assertThat(blockchain.contains(oldBlock.getHash())).isFalse();
   }
 
@@ -707,10 +830,62 @@ public abstract class AbstractBlockPropagationManagerTest {
     blockchainUtil.importFirstBlocks(2);
     final Block nextBlock = blockchainUtil.getBlock(2);
 
-    blockPropagationManager.importOrSavePendingBlock(nextBlock, NODE_ID_1);
-    blockPropagationManager.importOrSavePendingBlock(nextBlock, NODE_ID_1);
+    blockPropagationManager.importOrSavePendingBlock(nextBlock, PEER_1);
+    blockPropagationManager.importOrSavePendingBlock(nextBlock, PEER_1);
 
     verify(ethScheduler, times(1)).scheduleSyncWorkerTask(any(Supplier.class));
+  }
+
+  @Test
+  public void shouldNotRequestParentForPendingBlockAtNumberZero() {
+    // A peer can announce a bogus block at number 0 with an unknown parent. Retrieving its
+    // "parent" would request block number -1 and register a bogus requestedBlocksByNumber entry;
+    // the genesis guard in requestParentBlock must skip it, scheduling no fetch at all.
+    final EthScheduler ethScheduler = mock(EthScheduler.class);
+    final EthContext ethContext =
+        new EthContext(
+            new EthPeers(
+                () -> protocolSchedule.getByBlockHeader(blockchain.getChainHeadHeader()),
+                TestClock.fixed(),
+                metricsSystem,
+                EthProtocolConfiguration.DEFAULT_MAX_MESSAGE_SIZE,
+                Collections.emptyList(),
+                Bytes.random(64),
+                25,
+                25,
+                false,
+                SyncMode.SNAP,
+                new ForkIdManager(blockchain, Collections.emptyList(), Collections.emptyList())),
+            new EthMessages(),
+            ethScheduler,
+            null);
+    final BlockPropagationManager blockPropagationManager =
+        new BlockPropagationManager(
+            syncConfig,
+            protocolSchedule,
+            protocolContext,
+            ethContext,
+            syncState,
+            pendingBlocksManager,
+            metricsSystem,
+            blockBroadcaster);
+
+    blockchainUtil.importFirstBlocks(2);
+
+    // Number 0 with a random (unknown) parent hash — not connected to the local chain.
+    final Block blockZeroWithUnknownParent =
+        new BlockDataGenerator()
+            .block(
+                BlockOptions.create()
+                    .setBlockNumber(0)
+                    .setBlockHeaderFunctions(new MainnetBlockHeaderFunctions()));
+
+    blockPropagationManager.importOrSavePendingBlock(blockZeroWithUnknownParent, PEER_1);
+
+    // It is saved as pending (its parent is not in the chain) ...
+    assertThat(pendingBlocksManager.contains(blockZeroWithUnknownParent.getHash())).isTrue();
+    // ... but no parent fetch is scheduled: the genesis block has no parent to retrieve.
+    verifyNoInteractions(ethScheduler);
   }
 
   @Test
@@ -777,7 +952,7 @@ public abstract class AbstractBlockPropagationManagerTest {
   private NewBlockHashesMessage createNewBlockHashMessage(final Block block) {
     return NewBlockHashesMessage.create(
         Collections.singletonList(
-            new NewBlockHashesMessage.NewBlockHash(
+            new NewBlockHashesMessage.BlockAnnouncement(
                 block.getHash(), block.getHeader().getNumber())));
   }
 
@@ -857,7 +1032,7 @@ public abstract class AbstractBlockPropagationManagerTest {
                     .setBlockHeaderFunctions(new MainnetBlockHeaderFunctions()));
 
     assertThat(badBlocksManager.getBadBlocks()).isEmpty();
-    blockPropagationManager.importOrSavePendingBlock(badBlock, NODE_ID_1);
+    blockPropagationManager.importOrSavePendingBlock(badBlock, PEER_1);
     assertThat(badBlocksManager.getBadBlocks().size()).isEqualTo(1);
 
     verify(ethScheduler, times(1)).scheduleSyncWorkerTask(any(Supplier.class));
@@ -892,7 +1067,7 @@ public abstract class AbstractBlockPropagationManagerTest {
     // handleNewBlockFromNetwork must short-circuit before dispatching to importOrSavePendingBlock.
     // Checking addImportingBlock alone would also pass via the defensive second check inside
     // importOrSavePendingBlock, so verify the dispatch itself never happened.
-    verify(propManager, never()).importOrSavePendingBlock(any(), any(Bytes.class));
+    verify(propManager, never()).importOrSavePendingBlock(any(), any(EthPeer.class));
     // BadBlockManager should still contain exactly one entry — we didn't re-add it.
     assertThat(badBlocksManager.getBadBlocks().size()).isEqualTo(1);
   }
@@ -919,13 +1094,18 @@ public abstract class AbstractBlockPropagationManagerTest {
     final NewBlockHashesMessage newBlockHashesMessage =
         NewBlockHashesMessage.create(
             Collections.singletonList(
-                new NewBlockHashesMessage.NewBlockHash(
+                new NewBlockHashesMessage.BlockAnnouncement(
                     badBlock.getHash(), badBlock.getHeader().getNumber())));
 
     EthProtocolManagerTestUtil.broadcastMessage(ethProtocolManager, peer, newBlockHashesMessage);
 
     // The hash announcement should have been filtered out before requesting the body.
-    verify(processingBlocksManager, never()).addRequestedBlock(badBlock.getHash());
+    verify(processingBlocksManager, never())
+        .addRequestedBlock(
+            eq(
+                new NewBlockHashesMessage.BlockAnnouncement(
+                    badBlock.getHash(), badBlock.getHeader().getNumber())),
+            any());
     // No body request should have been issued to the peer.
     assertThat(peer.hasOutstandingRequests()).isFalse();
   }
@@ -988,7 +1168,7 @@ public abstract class AbstractBlockPropagationManagerTest {
     badBlocksManager.addBadBlock(badBlock, BadBlockCause.fromValidationFailure("test"));
     assertThat(badBlocksManager.getBadBlocks().size()).isEqualTo(1);
 
-    blockPropagationManager.importOrSavePendingBlock(badBlock, NODE_ID_1);
+    blockPropagationManager.importOrSavePendingBlock(badBlock, PEER_1);
 
     // The defensive check should have short-circuited before scheduling validation.
     verify(ethScheduler, never()).scheduleSyncWorkerTask(any(Supplier.class));
@@ -1016,7 +1196,7 @@ public abstract class AbstractBlockPropagationManagerTest {
     final NewBlockHashesMessage nextAnnouncement =
         NewBlockHashesMessage.create(
             Collections.singletonList(
-                new NewBlockHashesMessage.NewBlockHash(
+                new NewBlockHashesMessage.BlockAnnouncement(
                     nextBlock.getHash(), nextBlock.getHeader().getNumber())));
 
     // Broadcast first message
@@ -1060,7 +1240,7 @@ public abstract class AbstractBlockPropagationManagerTest {
     final NewBlockHashesMessage nextAnnouncement =
         NewBlockHashesMessage.create(
             Collections.singletonList(
-                new NewBlockHashesMessage.NewBlockHash(
+                new NewBlockHashesMessage.BlockAnnouncement(
                     nextBlock.getHash(), nextBlock.getHeader().getNumber())));
 
     // Broadcast first message
@@ -1107,7 +1287,7 @@ public abstract class AbstractBlockPropagationManagerTest {
     final NewBlockHashesMessage nextAnnouncement =
         NewBlockHashesMessage.create(
             Collections.singletonList(
-                new NewBlockHashesMessage.NewBlockHash(
+                new NewBlockHashesMessage.BlockAnnouncement(
                     nextBlock.getHash(), nextBlock.getHeader().getNumber())));
     final Responder responder = RespondingEthPeer.blockchainResponder(getFullBlockchain());
 
@@ -1182,7 +1362,7 @@ public abstract class AbstractBlockPropagationManagerTest {
     final NewBlockHashesMessage nextAnnouncement =
         NewBlockHashesMessage.create(
             Collections.singletonList(
-                new NewBlockHashesMessage.NewBlockHash(
+                new NewBlockHashesMessage.BlockAnnouncement(
                     nextBlock.getHash(), nextBlock.getHeader().getNumber())));
 
     Mockito.reset(peerTaskExecutor);
@@ -1219,7 +1399,12 @@ public abstract class AbstractBlockPropagationManagerTest {
     Mockito.verify(peerTaskExecutor).execute(Mockito.any(GetBodiesFromPeerTask.class));
     Mockito.verifyNoMoreInteractions(peerTaskExecutor);
 
-    verify(processingBlocksManager).addRequestedBlock(nextBlock.getHash());
+    verify(processingBlocksManager)
+        .addRequestedBlock(
+            eq(
+                new NewBlockHashesMessage.BlockAnnouncement(
+                    nextBlock.getHash(), nextBlock.getHeader().getNumber())),
+            any());
     verify(processingBlocksManager).addImportingBlock(nextBlock.getHash());
     verify(processingBlocksManager).registerReceivedBlock(nextBlock);
     verify(processingBlocksManager).registerBlockImportDone(nextBlock.getHash());

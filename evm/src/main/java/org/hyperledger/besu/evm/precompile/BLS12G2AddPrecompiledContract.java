@@ -23,7 +23,7 @@ import org.apache.tuweni.bytes.Bytes;
 public class BLS12G2AddPrecompiledContract extends AbstractBLS12PrecompiledContract {
 
   private static final int PARAMETER_LENGTH = 512;
-  private static final Cache<Integer, PrecompileInputResultTuple> g2AddCache =
+  private static final Cache<Bytes, PrecompileInputResultTuple> g2AddCache =
       AbstractPrecompiledContract.resultCacheBuilder().build();
 
   /** Instantiates a new BLS12_G2 Add precompiled contract. */
@@ -37,7 +37,7 @@ public class BLS12G2AddPrecompiledContract extends AbstractBLS12PrecompiledContr
   }
 
   @Override
-  protected Cache<Integer, PrecompileInputResultTuple> getCache() {
+  protected Cache<Bytes, PrecompileInputResultTuple> getCache() {
     return g2AddCache;
   }
 }

@@ -45,6 +45,7 @@ public enum RpcMethod {
   DEBUG_GET_RAW_HEADER("debug_getRawHeader"),
   DEBUG_GET_RAW_BLOCK("debug_getRawBlock"),
   DEBUG_GET_RAW_RECEIPTS("debug_getRawReceipts"),
+  DEBUG_GET_RAW_BLOCK_ACCESS_LIST("debug_getRawBlockAccessList"),
   DEBUG_GET_RAW_TRANSACTION("debug_getRawTransaction"),
   ENGINE_GET_BLOBS_V1("engine_getBlobsV1"),
   ENGINE_GET_BLOBS_V2("engine_getBlobsV2"),

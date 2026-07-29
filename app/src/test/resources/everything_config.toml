@@ -108,6 +108,8 @@ tx-sender-nonce-index-enabled=false
 cache-precompiles=true
 rpc-gas-cap = 50000000
 rpc-max-trace-filter-range=100
+rpc-max-active-filters=1000
+rpc-filter-timeout-seconds=60
 
 # GRAPHQL HTTP
 graphql-http-enabled=false
@@ -128,6 +130,7 @@ rpc-ws-apis=["DEBUG","ETH"]
 rpc-ws-host="9.10.11.12"
 rpc-ws-port=9101
 rpc-ws-max-active-connections=101
+rpc-ws-max-active-subscriptions=1001
 rpc-ws-max-frame-size=65535
 rpc-ws-authentication-enabled=false
 rpc-ws-authentication-credentials-file="none"

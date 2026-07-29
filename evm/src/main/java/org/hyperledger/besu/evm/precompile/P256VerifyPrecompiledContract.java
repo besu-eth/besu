@@ -90,7 +90,7 @@ public class P256VerifyPrecompiledContract extends AbstractPrecompiledContract {
   private final GasCalculator gasCalculator;
   private final SignatureAlgorithm signatureAlgorithm;
 
-  private static final Cache<Integer, PrecompileInputResultTuple> p256VerifyCache =
+  private static final Cache<Bytes, PrecompileInputResultTuple> p256VerifyCache =
       AbstractPrecompiledContract.resultCacheBuilder().build();
 
   /**
@@ -131,7 +131,7 @@ public class P256VerifyPrecompiledContract extends AbstractPrecompiledContract {
       return PrecompileContractResult.success(INVALID);
     }
     PrecompileInputResultTuple res = null;
-    Integer cacheKey = null;
+    Bytes cacheKey = null;
     if (enableResultCaching) {
       cacheKey = getCacheKey(input, SECP256R1_INPUT_LENGTH);
       res = p256VerifyCache.getIfPresent(cacheKey);
