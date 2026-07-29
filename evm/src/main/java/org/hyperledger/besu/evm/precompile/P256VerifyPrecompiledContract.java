@@ -168,7 +168,6 @@ public class P256VerifyPrecompiledContract extends AbstractPrecompiledContract {
 
     } catch (Exception e) {
       LOG.warn("P256VERIFY verification failed: {}", e.getMessage());
-      System.err.println("P256VERIFY verification failed: " + e.getMessage());
       return PrecompileContractResult.success(INVALID);
     }
   }
