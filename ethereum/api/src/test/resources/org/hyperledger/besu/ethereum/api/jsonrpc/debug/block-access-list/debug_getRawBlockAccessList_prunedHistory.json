@@ -1,0 +1,19 @@
+{
+  "request": {
+    "id": 10,
+    "jsonrpc": "2.0",
+    "method": "debug_getRawBlockAccessList",
+    "params": [
+      "0x0"
+    ]
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 10,
+    "error": {
+      "code": 4444,
+      "message": "Pruned history unavailable"
+    }
+  },
+  "statusCode": 200
+}

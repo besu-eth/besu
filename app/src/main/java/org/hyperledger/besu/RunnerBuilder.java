@@ -859,6 +859,8 @@ public class RunnerBuilder {
         new FilterManagerBuilder()
             .blockchainQueries(blockchainQueries)
             .transactionPool(transactionPool)
+            .maxFilterCount(apiConfiguration.getMaxFilterCount())
+            .filterTimeout(apiConfiguration.getFilterTimeout())
             .build();
     vertx.deployVerticle(filterManager);
 
@@ -929,7 +931,7 @@ public class RunnerBuilder {
     }
 
     final SubscriptionManager subscriptionManager =
-        createSubscriptionManager(vertx, transactionPool, blockchainQueries);
+        createSubscriptionManager(vertx, transactionPool, webSocketConfiguration);
 
     if (webSocketConfiguration.isEnabled()
         || (jsonRpcIpcConfiguration != null && jsonRpcIpcConfiguration.isEnabled())) {
@@ -1297,8 +1299,7 @@ public class RunnerBuilder {
       case UPNP:
         return Optional.of(new UpnpNatManager());
       case DOCKER:
-        return Optional.of(
-            new DockerNatManager(p2pAdvertisedHost, p2pListenPort, jsonRpcConfiguration.getPort()));
+        return Optional.of(new DockerNatManager(p2pAdvertisedHost, jsonRpcConfiguration.getPort()));
       case NONE:
       default:
         return Optional.empty();
@@ -1404,9 +1405,9 @@ public class RunnerBuilder {
   private SubscriptionManager createSubscriptionManager(
       final Vertx vertx,
       final TransactionPool transactionPool,
-      final BlockchainQueries blockchainQueries) {
+      final WebSocketConfiguration webSocketConfiguration) {
     final SubscriptionManager subscriptionManager =
-        new SubscriptionManager(metricsSystem, blockchainQueries.getBlockchain());
+        new SubscriptionManager(metricsSystem, webSocketConfiguration);
     final PendingTransactionSubscriptionService pendingTransactions =
         new PendingTransactionSubscriptionService(subscriptionManager);
     final PendingTransactionDroppedSubscriptionService pendingTransactionsRemoved =

@@ -17,6 +17,8 @@ package org.hyperledger.besu.ethereum.mainnet;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -185,6 +187,58 @@ class Eip8037GasLimitTest {
                 Wei.ZERO);
 
     assertThat(result.isSuccessful()).isTrue();
+  }
+
+  @Test
+  void exceptionalHaltShouldNotDeleteAccountsViaSelfDestructs() {
+    // Defense-in-depth regression test: when the initial frame ends in EXCEPTIONAL_HALT
+    // (txSucceeded
+    // = false), any selfdestruct markers left on the frame must NOT cause deleteAccount calls on
+    // the
+    // world state. Before the MTP fix, the unconditional
+    // getSelfDestructs().forEach(worldState::deleteAccount) loop fired even for failed
+    // transactions,
+    // permanently deleting pre-existing accounts from world state.
+    //
+    // Note: this originally targeted the regularGasLimitExceeded path (regular gas portion exceeds
+    // TX_MAX_GAS_LIMIT), but that admission check has since moved out of
+    // MainnetTransactionProcessor
+    // into block-level BlockGasAccountingStrategy#hasBlockCapacity, which runs before a transaction
+    // is even selected for execution. EXCEPTIONAL_HALT is exercised instead, as the still-reachable
+    // failure path that leaves txSucceeded false at this layer.
+    setupCommonMocks(20_000_000L);
+
+    final Address childAddress =
+        Address.fromHexString("0xf0e10967a8e01280baa0880522da22e9e4bbb9b3");
+
+    doAnswer(
+            invocation -> {
+              final MessageFrame frame = invocation.getArgument(0);
+              // Simulate a successful CREATE2→SELFDESTRUCT child: add markers to the frame.
+              frame.addCreate(childAddress);
+              frame.addSelfDestruct(childAddress);
+              frame.setExceptionalHaltReason(Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
+              frame.setGasRemaining(0L);
+              frame.getMessageFrameStack().pop();
+              return null;
+            })
+        .when(messageCallProcessor)
+        .process(any(), any());
+
+    final TransactionProcessingResult result =
+        createProcessor()
+            .processTransaction(
+                worldState,
+                blockHeader,
+                transaction,
+                Address.fromHexString("0x4242424242424242424242424242424242424242"),
+                blockHashLookup,
+                ImmutableTransactionValidationParams.builder().build(),
+                Wei.ZERO);
+
+    assertThat(result.isSuccessful()).isFalse();
+    // The pre-existing child account must NOT be deleted even though it was in selfDestructs.
+    verify(worldState, never()).deleteAccount(childAddress);
   }
 
   @Test

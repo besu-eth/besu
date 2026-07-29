@@ -129,8 +129,7 @@ public enum RpcErrorType implements RpcMethodError {
   // eth_getBlockByNumber specific error message
   UNKNOWN_BLOCK(-39001, "Unknown block"),
   PRUNED_HISTORY_UNAVAILABLE(4444, "Pruned history unavailable"),
-  BLOCK_ACCESS_LIST_NOT_AVAILABLE_FOR_PRE_AMSTERDAM_BLOCKS(
-      4445, "Block access list not available for pre-Amsterdam blocks"),
+  RESOURCE_NOT_FOUND(-32001, "Resource not found"),
 
   // eth_sendTransaction specific error message
   ETH_SEND_TX_NOT_AVAILABLE(
@@ -157,8 +156,10 @@ public enum RpcErrorType implements RpcMethodError {
   TRANSACTION_UPFRONT_COST_EXCEEDS_BALANCE(-32004, "Upfront cost exceeds account balance"),
   EXCEEDS_BLOCK_GAS_LIMIT(-32005, "Transaction gas limit exceeds block gas limit"),
   EXCEEDS_TRANSACTION_GAS_LIMIT(-32005, "Transaction gas limit cap exceeded"),
+  EXCEEDS_RPC_MAX_ACTIVE_SUBSCRIPTIONS(-32005, "Maximum number of active subscriptions exceeded"),
   EXCEEDS_RPC_MAX_BLOCK_RANGE(-32005, "Requested range exceeds maximum RPC range limit"),
   EXCEEDS_RPC_MAX_BATCH_SIZE(-32005, "Number of requests exceeds max batch size"),
+  EXCEEDS_RPC_MAX_ACTIVE_FILTERS(-32005, "Maximum number of active filters exceeded"),
   NONCE_TOO_HIGH(-32006, "Nonce too high"),
   TX_SENDER_NOT_AUTHORIZED(-32007, "Sender account not authorized to send transactions"),
   CHAIN_HEAD_WORLD_STATE_NOT_AVAILABLE(-32008, "Initial sync is still in progress"),

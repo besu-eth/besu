@@ -81,6 +81,8 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
 
   private static final String SNAP_PIVOT_BLOCK_WINDOW_VALIDITY_FLAG =
       "--Xsnapsync-synchronizer-pivot-block-window-validity";
+  private static final String SNAP_PIVOT_BLOCK_CHECK_INTERVAL_MILLIS_FLAG =
+      "--Xsnapsync-synchronizer-pivot-block-check-interval-millis";
   private static final String SNAP_PIVOT_BLOCK_DISTANCE_BEFORE_CACHING_FLAG =
       "--Xsnapsync-synchronizer-pivot-block-distance-before-caching";
 
@@ -302,6 +304,15 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
   private int snapsyncPivotBlockWindowValidity =
       SnapSyncConfiguration.DEFAULT_PIVOT_BLOCK_WINDOW_VALIDITY;
 
+  @CommandLine.Option(
+      names = SNAP_PIVOT_BLOCK_CHECK_INTERVAL_MILLIS_FLAG,
+      hidden = true,
+      paramLabel = "<LONG>",
+      description =
+          "How often, in milliseconds, snap sync re-evaluates whether to refresh the pivot block (default: ${DEFAULT-VALUE})")
+  private long snapsyncPivotBlockCheckIntervalMillis =
+      SnapSyncConfiguration.DEFAULT_PIVOT_CHECK_INTERVAL_MILLIS;
+
   /**
    * @deprecated No longer used. Accepted for backwards compatibility. The flag will be removed in a
    *     future release.
@@ -401,12 +412,18 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
   private Boolean snapTransactionIndexingEnabled =
       SnapSyncConfiguration.DEFAULT_SNAP_SYNC_TRANSACTION_INDEXING_ENABLED;
 
+  /**
+   * @deprecated No longer used. Accepted for backwards compatibility. The flag will be removed in a
+   *     future release.
+   */
+  @Deprecated(forRemoval = true)
+  @SuppressWarnings("unused")
   @CommandLine.Option(
       names = {SNAP_SYNC_SAVE_PRE_CHECKPOINT_HEADERS_ONLY_FLAG},
+      hidden = true,
       paramLabel = "<Boolean>",
       arity = "0..1",
-      description =
-          "Enable snap sync downloader to save only headers (not block bodies) for blocks before the checkpoint. (default: ${DEFAULT-VALUE})")
+      description = "Deprecated, no-op.")
   private Boolean snapSyncSavePreCheckpointHeadersOnlyEnabled =
       DEFAULT_SNAP_SYNC_SAVE_PRE_MERGE_HEADERS_ONLY_ENABLED;
 
@@ -485,6 +502,8 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
     options.worldStateTaskCacheSize = config.getWorldStateTaskCacheSize();
     options.snapsyncPivotBlockWindowValidity =
         config.getSnapSyncConfiguration().getPivotBlockWindowValidity();
+    options.snapsyncPivotBlockCheckIntervalMillis =
+        config.getSnapSyncConfiguration().getPivotBlockCheckIntervalMillis();
     options.snapsyncStorageCountPerRequest =
         config.getSnapSyncConfiguration().getStorageCountPerRequest();
     options.snapsyncBytecodeCountPerRequest =
@@ -499,8 +518,6 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
     options.snap2Enabled = config.getSnapSyncConfiguration().isSnap2Enabled();
     options.snapTransactionIndexingEnabled =
         config.getSnapSyncConfiguration().isSnapSyncTransactionIndexingEnabled();
-    options.snapSyncSavePreCheckpointHeadersOnlyEnabled =
-        config.isSnapSyncSavePreCheckpointHeadersOnlyEnabled();
     options.era1ImportPrepipelineEnabled = config.era1ImportPrepipelineEnabled();
     options.era1DataUri = config.era1DataUri();
     options.era1ImportPrepipelineConcurrency = config.era1ImportPrepipelineConcurrency();
@@ -535,6 +552,7 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
     builder.snapSyncConfiguration(
         ImmutableSnapSyncConfiguration.builder()
             .pivotBlockWindowValidity(snapsyncPivotBlockWindowValidity)
+            .pivotBlockCheckIntervalMillis(snapsyncPivotBlockCheckIntervalMillis)
             .storageCountPerRequest(snapsyncStorageCountPerRequest)
             .bytecodeCountPerRequest(snapsyncBytecodeCountPerRequest)
             .trienodeCountPerRequest(snapsyncTrieNodeCountPerRequest)
@@ -544,8 +562,6 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
             .isSnap2Enabled(snap2Enabled)
             .isSnapSyncTransactionIndexingEnabled(snapTransactionIndexingEnabled)
             .build());
-    builder.snapSyncSavePreCheckpointHeadersOnlyEnabled(
-        snapSyncSavePreCheckpointHeadersOnlyEnabled);
     builder.receiptsDownloadStepTimeoutMillis(receiptsDownloadStepTimeoutMillis);
     builder.backwardHeadersDownloadStepTimeoutMillis(backwardHeadersDownloadStepTimeoutMillis);
     builder.bodiesDownloadStepTimeoutMillis(bodiesDownloadStepTimeoutMillis);
@@ -601,6 +617,8 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
             OptionParser.format(bodiesDownloadStepTimeoutMillis),
             SNAP_PIVOT_BLOCK_WINDOW_VALIDITY_FLAG,
             OptionParser.format(snapsyncPivotBlockWindowValidity),
+            SNAP_PIVOT_BLOCK_CHECK_INTERVAL_MILLIS_FLAG,
+            OptionParser.format(snapsyncPivotBlockCheckIntervalMillis),
             SNAP_STORAGE_COUNT_PER_REQUEST_FLAG,
             OptionParser.format(snapsyncStorageCountPerRequest),
             SNAP_BYTECODE_COUNT_PER_REQUEST_FLAG,
@@ -617,8 +635,6 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
             OptionParser.format(snap2Enabled),
             SNAP_TRANSACTION_INDEXING_ENABLED_FLAG,
             OptionParser.format(snapTransactionIndexingEnabled),
-            SNAP_SYNC_SAVE_PRE_CHECKPOINT_HEADERS_ONLY_FLAG,
-            OptionParser.format(snapSyncSavePreCheckpointHeadersOnlyEnabled),
             ERA1_IMPORT_PREPIPELINE_ENABLED_FLAG,
             OptionParser.format(era1ImportPrepipelineEnabled),
             ERA1_DATA_URI_FLAG,
