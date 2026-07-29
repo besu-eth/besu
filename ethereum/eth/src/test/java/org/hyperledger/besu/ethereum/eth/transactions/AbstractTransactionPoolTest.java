@@ -1048,6 +1048,26 @@ public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoo
   }
 
   @Test
+  public void shouldContinueProcessingBatchWhenOneTransactionThrowsRuntimeException() {
+    final Transaction transaction1 = createTransaction(1, Wei.of(7L));
+    final Transaction transaction2 = createTransaction(2, Wei.of(7L));
+    final Transaction transaction3 = createTransaction(3, Wei.of(7L));
+
+    givenTransactionIsValid(transaction1);
+    when(transactionValidatorFactory
+            .get()
+            .validate(eq(transaction2), any(Optional.class), any(Optional.class), any()))
+        .thenThrow(new RuntimeException("simulated unexpected validation error"));
+    givenTransactionIsValid(transaction3);
+
+    transactionPool.addRemoteTransactions(List.of(transaction1, transaction2, transaction3));
+
+    assertTransactionPending(transaction1);
+    assertTransactionNotPending(transaction2);
+    assertTransactionPending(transaction3);
+  }
+
+  @Test
   public void addRemoteTransactionsShouldAllowDuplicates() {
     final Transaction transaction1 = createTransaction(1, Wei.of(7L));
     final Transaction transaction2a = createTransaction(2, Wei.of(7L));

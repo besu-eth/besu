@@ -198,13 +198,23 @@ public class TransactionPool implements BlockAddedObserver {
                     Transaction::getHash,
                     transaction -> {
                       final boolean hasPriority = isPriorityTransaction(transaction, false);
-                      final var result = addTransaction(transaction, false, hasPriority, MAX_SCORE);
-                      if (result.isValid()) {
-                        addedTransactions.add(transaction);
-                      } else {
-                        logInvalid(transaction, result, false, hasPriority);
+                      try {
+                        final var result =
+                            addTransaction(transaction, false, hasPriority, MAX_SCORE);
+                        if (result.isValid()) {
+                          addedTransactions.add(transaction);
+                        } else {
+                          logInvalid(transaction, result, false, hasPriority);
+                        }
+                        return result;
+                      } catch (final RuntimeException e) {
+                        LOG.warn(
+                            "Unexpected error validating transaction {}, treating as invalid",
+                            transaction.getHash(),
+                            e);
+                        return ValidationResult.invalid(
+                            INTERNAL_ERROR, "unexpected error during validation: " + e.getMessage());
                       }
-                      return result;
                     },
                     (transaction1, transaction2) -> transaction1));
 
