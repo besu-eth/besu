@@ -30,7 +30,8 @@ public class TransactionGasAccountingTest {
         .stateGasReservoir(0L)
         .stateGasUsed(0L)
         .refundedGas(0L)
-        .floorCost(0L);
+        .floorCost(0L)
+        .regularGasLimitExceeded(false);
   }
 
   @Test

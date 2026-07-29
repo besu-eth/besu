@@ -206,6 +206,10 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
     final Address contractAddress = generateTargetContractAddress(parent, code);
     final Bytes inputData = getInputData(parent);
 
+    // EIP-8037: an already-alive target adds no leaf, so complete() refunds its NEW_ACCOUNT gas.
+    final var existingTarget = parent.getWorldUpdater().get(contractAddress);
+    parent.setCreateTargetWasAlive(existingTarget != null && !existingTarget.isEmpty());
+
     final long childGasStipend =
         gasCalculator().gasAvailableForChildCreate(parent.getRemainingGas());
     parent.decrementRemainingGas(childGasStipend);
@@ -256,6 +260,13 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
 
     if (childFrame.getState() == MessageFrame.State.COMPLETED_SUCCESS) {
       Address createdAddress = childFrame.getContractAddress();
+      // Absorb the child's spill before the refund below, so the refund unwinds the combined
+      // spill rather than only this frame's share.
+      frame.incrementStateGasSpilled(childFrame.getStateGasSpilled());
+      if (frame.wasCreateTargetAlive()) {
+        frame.refillStateGasReservoir(
+            gasCalculator().stateGasCostCalculator().newContractStateGas());
+      }
       frame.pushStackItem(Words.fromAddress(createdAddress));
       frame.setReturnData(Bytes.EMPTY);
       onSuccess(frame, createdAddress);
