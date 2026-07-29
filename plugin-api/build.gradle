@@ -30,6 +30,7 @@ jar {
 dependencies {
   api project(':plugin-api:core')
   api project(':metrics:plugin-api')
+  api project(':crypto:plugin-api')
   api project(':ethereum:permissioning:plugin-api')
   api project(':datatypes')
   api 'org.apache.commons:commons-lang3'
@@ -60,7 +61,8 @@ tasks.register('checkAPICompatibility', me.champeau.gradle.japicmp.JapicmpTask) 
     tasks.named('jar'),
     project(':plugin-api:core').tasks.named('jar'),
     project(':metrics:plugin-api').tasks.named('jar'),
-    project(':ethereum:permissioning:plugin-api').tasks.named('jar'))
+    project(':ethereum:permissioning:plugin-api').tasks.named('jar'),
+    project(':crypto:plugin-api').tasks.named('jar'))
   newClasspath.from(sourceSets.main.runtimeClasspath)
 
   packageIncludes = [
