@@ -2415,9 +2415,9 @@
             <sha256 value="3e2b02d49fe903eda4fd8caca5cbf0d139c470e97e1de9a85299b1b034f97099" origin="Manual"/>
          </artifact>
       </component>
-      <component group="ethereum" name="execution-specs" version="tests-bal@v7.3.1">
-         <artifact name="execution-specs-tests-bal@v7.3.1-fixtures_bal.tar.gz">
-            <sha256 value="3c9bd8799a506a96f74162863efdf5eaa00226e645db6523346fdb7c5ba0bf62" origin="Manual"/>
+      <component group="ethereum" name="execution-specs" version="tests-glamsterdam-devnet@v6.1.1">
+         <artifact name="execution-specs-tests-glamsterdam-devnet@v6.1.1-fixtures_glamsterdam-devnet.tar.gz">
+            <sha256 value="45c1e1489c31aac055f8ccd38bd0f1466aab87d9d61178e9979e79164e4ee02b" origin="Manual"/>
          </artifact>
       </component>
       <component group="info.picocli" name="picocli" version="4.7.6">

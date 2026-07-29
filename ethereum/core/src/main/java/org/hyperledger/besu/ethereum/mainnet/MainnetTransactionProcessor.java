@@ -311,9 +311,8 @@ public class MainnetTransactionProcessor {
       }
 
       long codeDelegationRefund = 0L;
-      long alreadyExistingDelegators = 0L;
+      long refundableDelegators = 0L;
       long authBaseRefundCount = 0L;
-      long codeDelegationAuthorityWrites = 0L;
       if (transaction.getType().equals(TransactionType.DELEGATE_CODE)) {
         if (maybeCodeDelegationProcessor.isEmpty()) {
           throw new RuntimeException("Code delegation processor is required for 7702 transactions");
@@ -325,11 +324,14 @@ public class MainnetTransactionProcessor {
                 .get()
                 .process(delegationUpdater, transaction, accessLocationTracker);
         eip2930WarmAddressList.addAll(codeDelegationResult.accessedDelegatorAddresses());
-        alreadyExistingDelegators = codeDelegationResult.alreadyExistingDelegators();
-        authBaseRefundCount = codeDelegationResult.authBaseRefundCount();
-        codeDelegationAuthorityWrites = codeDelegationResult.authorityWrites();
-        codeDelegationRefund =
-            gasCalculator.calculateDelegateCodeGasRefund(alreadyExistingDelegators);
+        // EIP-7702: an invalid authorization grows no state, so it refunds its full worst-case
+        // intrinsic charge, like an authority that already existed. Not pre-Amsterdam.
+        final long invalidAuthorizations =
+            stateGasCalc.isActive() ? codeDelegationResult.invalidAuthorizations() : 0L;
+        refundableDelegators =
+            codeDelegationResult.alreadyExistingDelegators() + invalidAuthorizations;
+        authBaseRefundCount = codeDelegationResult.authBaseRefundCount() + invalidAuthorizations;
+        codeDelegationRefund = gasCalculator.calculateDelegateCodeGasRefund(refundableDelegators);
         delegationUpdater.commit();
       }
 
@@ -347,7 +349,7 @@ public class MainnetTransactionProcessor {
       final IntrinsicStateGasCharge intrinsicCharge =
           IntrinsicStateGasCharge.compute(
               transaction,
-              alreadyExistingDelegators,
+              refundableDelegators,
               authBaseRefundCount,
               gasAvailable,
               intrinsicRegularGas,
@@ -427,30 +429,7 @@ public class MainnetTransactionProcessor {
                 .eip2930AccessListWarmAddresses(eip2930WarmAddressList)
                 .build();
 
-        // EIP-2780: the runtime charges below run after the transaction is already valid but before
-        // the first frame executes, in spec order: authorization writes, then recipient creation.
-        // Running out of gas here doesn't invalidate the transaction, it halts it exceptionally.
-        final long authorityWriteGas =
-            gasCalculator.delegateCodeAccountWriteGasCost(codeDelegationAuthorityWrites);
-        if (authorityWriteGas > 0L) {
-          if (initialFrame.getRemainingGas() < authorityWriteGas) {
-            haltForInsufficientGas(initialFrame);
-          } else {
-            initialFrame.decrementRemainingGas(authorityWriteGas);
-          }
-        }
-
-        // EIP-2780: charge NEW_ACCOUNT state gas on the depth-0 frame for a positive value transfer
-        if (initialFrame.getState() != MessageFrame.State.EXCEPTIONAL_HALT
-            && stateGasCalc.isActive()
-            && !transaction.getValue().isZero()) {
-          final Account recipient = worldState.get(to);
-          if (recipient == null || recipient.isEmpty()) {
-            if (!initialFrame.consumeStateGas(stateGasCalc.newAccountStateGas())) {
-              haltForInsufficientGas(initialFrame);
-            }
-          }
-        }
+        chargeTransactionEntry(initialFrame, worldState, to, stateGasCalc);
       }
 
       // Transaction-level state-gas charges persist regardless of the execution outcome, so put
@@ -762,6 +741,41 @@ public class MainnetTransactionProcessor {
   }
 
   /**
+   * Charges the EIP-2780 transaction-entry costs on the depth-0 frame of a non-create transaction,
+   * before any opcode runs, halting the frame if it cannot pay. {@code worldState} is the
+   * transaction-level updater, which already has the recipient cached from code resolution, so
+   * reading its pre-value-transfer state costs no extra lookup.
+   */
+  private void chargeTransactionEntry(
+      final MessageFrame initialFrame,
+      final WorldUpdater worldState,
+      final Address to,
+      final StateGasCostCalculator stateGasCalc) {
+    if (!stateGasCalc.isActive()) {
+      return;
+    }
+    final Account recipient = worldState.get(to);
+    boolean outOfGas = false;
+    // Positive value to a non-alive recipient. Precompiles are deliberately not excluded, since
+    // a zero-balance precompile is not "alive" under EIP-161 either.
+    if (!initialFrame.getValue().isZero() && (recipient == null || recipient.isEmpty())) {
+      outOfGas = !initialFrame.consumeStateGas(stateGasCalc.newAccountStateGas());
+    }
+    // EIP-7702: top-level access to a delegated recipient's target costs cold account access.
+    if (!outOfGas && recipient != null && hasCodeDelegation(recipient.getCode())) {
+      final long delegationAccessCost = gasCalculator.getColdAccountAccessCost();
+      if (initialFrame.getRemainingGas() >= delegationAccessCost) {
+        initialFrame.decrementRemainingGas(delegationAccessCost);
+      } else {
+        outOfGas = true;
+      }
+    }
+    if (outOfGas) {
+      haltForInsufficientGas(initialFrame);
+    }
+  }
+
+  /**
    * Settles accounts marked for self-destruction at transaction finalization. Under EIP-8246 each
    * account is cleared (nonce reset, code and storage removed) but keeps its balance — EIP-161
    * state clearing (via {@code clearAccountsThatAreEmpty}) then removes any account left with a
@@ -800,7 +814,7 @@ public class MainnetTransactionProcessor {
 
     static IntrinsicStateGasCharge compute(
         final Transaction transaction,
-        final long alreadyExistingDelegators,
+        final long refundableDelegators,
         final long authBaseRefundCount,
         final long gasAvailable,
         final long intrinsicRegularGas,
@@ -825,7 +839,7 @@ public class MainnetTransactionProcessor {
         final long perAuthIntrinsic =
             stateGasCalc.authBaseStateGas() + stateGasCalc.emptyAccountDelegationStateGas();
         acc.drain(perAuthIntrinsic * totalDelegations);
-        long refund = stateGasCalc.emptyAccountDelegationStateGas() * alreadyExistingDelegators;
+        long refund = stateGasCalc.emptyAccountDelegationStateGas() * refundableDelegators;
         refund += stateGasCalc.authBaseStateGas() * authBaseRefundCount;
         if (refund > 0L) {
           acc.refund(refund);

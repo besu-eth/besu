@@ -65,6 +65,10 @@ class CodeDelegationProcessorTest {
       Address.fromHexString("0x1111111111111111111111111111111111111111");
   private static final Address TX_TO =
       Address.fromHexString("0x2222222222222222222222222222222222222222");
+  private static final Address AUTHORITY =
+      Address.fromHexString("0x3333333333333333333333333333333333333333");
+  private static final Address OTHER_DELEGATE_ADDRESS =
+      Address.fromHexString("0x4444444444444444444444444444444444444444");
 
   @BeforeEach
   void setUp() {
@@ -371,15 +375,101 @@ class CodeDelegationProcessorTest {
   }
 
   @Test
-  void shouldTreatPresentButEmptyAccountAsNewLeaf() {
+  void shouldRefundAuthBaseOnceWhenSameAuthorityIsDelegatedTwiceInOneTransaction() {
+    // Arrange: two authorizations for one authority. The first writes fresh indicator bytes, the
+    // second overwrites them in place.
+    CodeDelegation first = delegationForAuthority(DELEGATE_ADDRESS);
+    CodeDelegation second = delegationForAuthority(OTHER_DELEGATE_ADDRESS);
+    when(transaction.getCodeDelegationList()).thenReturn(Optional.of(List.of(first, second)));
+    // Absent for the first authorization, then present carrying the designator it wrote.
+    when(worldUpdater.get(any())).thenReturn(null).thenReturn(authority);
+    when(worldUpdater.createAccount(any())).thenReturn(authority);
+    when(worldUpdater.getAccount(any())).thenReturn(authority);
+    when(authority.getNonce()).thenReturn(0L);
+    when(authority.getCode()).thenReturn(delegationCode());
+    when(codeDelegationService.canSetCodeDelegation(any())).thenReturn(true);
+
+    // Act
+    CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
+
+    // Assert: only the second authorization overwrote an existing designator.
+    assertThat(result.authBaseRefundCount()).isEqualTo(1);
+    assertThat(result.alreadyExistingDelegators()).isEqualTo(1);
+    assertThat(result.invalidAuthorizations()).isZero();
+    verify(authority, times(2)).incrementNonce();
+  }
+
+  @Test
+  void shouldRefundAuthBaseTwiceWhenDelegationWrittenInTransactionIsThenCleared() {
+    // Arrange: one authority delegated and then cleared within the same transaction.
+    CodeDelegation set = delegationForAuthority(DELEGATE_ADDRESS);
+    CodeDelegation clear = delegationForAuthority(Address.ZERO);
+    when(transaction.getCodeDelegationList()).thenReturn(Optional.of(List.of(set, clear)));
+    when(worldUpdater.get(any())).thenReturn(null).thenReturn(authority);
+    when(worldUpdater.createAccount(any())).thenReturn(authority);
+    when(worldUpdater.getAccount(any())).thenReturn(authority);
+    when(authority.getNonce()).thenReturn(0L);
+    when(authority.getCode()).thenReturn(delegationCode());
+    when(codeDelegationService.canSetCodeDelegation(any())).thenReturn(true);
+
+    // Act
+    CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
+
+    // Assert: clearing writes no indicator bytes, and the designator it cleared was itself paid
+    // for earlier in this transaction, so both authorizations refund AUTH_BASE.
+    assertThat(result.authBaseRefundCount()).isEqualTo(2);
+    verify(authority, times(2)).incrementNonce();
+  }
+
+  @Test
+  void shouldRefundAuthBaseOnceWhenClearingDelegationThatPredatesTheTransaction() {
+    // Arrange: the designator being cleared was not written by this transaction, so unlike the
+    // case above there is no second AUTH_BASE to give back.
+    CodeDelegation clear = delegationForAuthority(Address.ZERO);
+    when(transaction.getCodeDelegationList()).thenReturn(Optional.of(List.of(clear)));
+    when(worldUpdater.get(any())).thenReturn(authority);
+    when(worldUpdater.getAccount(any())).thenReturn(authority);
+    when(authority.getNonce()).thenReturn(0L);
+    when(authority.getCode()).thenReturn(delegationCode());
+    when(codeDelegationService.canSetCodeDelegation(any())).thenReturn(true);
+
+    // Act
+    CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
+
+    // Assert
+    assertThat(result.authBaseRefundCount()).isEqualTo(1);
+    assertThat(result.alreadyExistingDelegators()).isEqualTo(1);
+    verify(authority).incrementNonce();
+  }
+
+  private static Bytes delegationCode() {
+    return Bytes.concatenate(CodeDelegationHelper.CODE_DELEGATION_PREFIX, Bytes.random(20));
+  }
+
+  /**
+   * A nonce-0 authorization for {@link #AUTHORITY}. Mocked rather than signed, so that the delegate
+   * address can vary while the recovered authority stays the same.
+   */
+  private CodeDelegation delegationForAuthority(final Address delegateAddress) {
+    final CodeDelegation delegation = mock(CodeDelegation.class);
+    when(delegation.chainId()).thenReturn(CHAIN_ID);
+    when(delegation.nonce()).thenReturn(0L);
+    when(delegation.address()).thenReturn(delegateAddress);
+    when(delegation.signature())
+        .thenReturn(new SECPSignature(BigInteger.ONE, BigInteger.ONE, (byte) 0));
+    when(delegation.authorizer()).thenReturn(Optional.of(AUTHORITY));
+    return delegation;
+  }
+
+  @Test
+  void shouldTreatPresentButEmptyAccountAsExistingDelegator() {
     // Arrange: an account that exists in the updater but is empty (nonce 0, balance 0, no code).
-    // Per the spec (account_exists_and_is_non_empty) this must be treated like a brand-new leaf:
-    // no already-existing-delegator refund.
+    // No new leaf is added for it, so it counts as an already-existing delegator and the
+    // worst-case NEW_ACCOUNT / ACCOUNT_WRITE reserved at the intrinsic phase is refunded.
     CodeDelegation codeDelegation = createCodeDelegation(CHAIN_ID, 0L);
     when(transaction.getCodeDelegationList()).thenReturn(Optional.of(List.of(codeDelegation)));
     when(worldUpdater.get(any())).thenReturn(authority);
     when(worldUpdater.getAccount(any())).thenReturn(authority);
-    when(authority.isEmpty()).thenReturn(true);
     when(authority.getNonce()).thenReturn(0L);
     when(authority.getCode()).thenReturn(Bytes.EMPTY);
     when(codeDelegationService.canSetCodeDelegation(any())).thenReturn(true);
@@ -388,14 +478,31 @@ class CodeDelegationProcessorTest {
     CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
 
     // Assert
-    assertThat(result.alreadyExistingDelegators()).isZero();
+    assertThat(result.alreadyExistingDelegators()).isEqualTo(1);
+    // A fresh (non-zero) delegation designator is written, so AUTH_BASE is not refunded.
     assertThat(result.authBaseRefundCount()).isZero();
     verify(worldUpdater, never()).createAccount(any());
     verify(authority).incrementNonce();
   }
 
   @Test
-  void shouldCountAuthorityWriteForAuthorityWrittenFirstByTheAuthorization() {
+  void shouldCountInvalidAuthorizationForRejectedAuthorization() {
+    // Arrange: nonce mismatch against a non-existent authority — the authorization is rejected.
+    CodeDelegation codeDelegation = createCodeDelegation(CHAIN_ID, 1L);
+    when(transaction.getCodeDelegationList()).thenReturn(Optional.of(List.of(codeDelegation)));
+    when(worldUpdater.get(any())).thenReturn(null);
+
+    // Act
+    CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
+
+    // Assert: an invalid authorization grows no state, so its full worst-case intrinsic charge
+    // is refunded.
+    assertThat(result.invalidAuthorizations()).isEqualTo(1);
+    verify(worldUpdater, never()).createAccount(any());
+  }
+
+  @Test
+  void shouldNotCountInvalidAuthorizationForAcceptedAuthorization() {
     // Arrange
     CodeDelegation codeDelegation = createCodeDelegation(CHAIN_ID, 0L);
     when(transaction.getCodeDelegationList()).thenReturn(Optional.of(List.of(codeDelegation)));
@@ -405,79 +512,22 @@ class CodeDelegationProcessorTest {
     // Act
     CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
 
-    // Assert: EIP-2780 charges the runtime ACCOUNT_WRITE for this authority.
-    assertThat(result.authorityWrites()).isEqualTo(1);
-  }
-
-  @Test
-  void shouldNotCountAuthorityWriteWhenAuthorityIsTheSender() {
-    // Arrange: the sender's write is already covered by TX_BASE_COST.
-    CodeDelegation codeDelegation = createCodeDelegation(CHAIN_ID, 0L);
-    when(transaction.getSender()).thenReturn(codeDelegation.authorizer().orElseThrow());
-    when(transaction.getCodeDelegationList()).thenReturn(Optional.of(List.of(codeDelegation)));
-    when(worldUpdater.get(any())).thenReturn(null);
-    when(worldUpdater.createAccount(any())).thenReturn(authority);
-
-    // Act
-    CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
-
     // Assert
-    assertThat(result.authorityWrites()).isZero();
+    assertThat(result.invalidAuthorizations()).isZero();
     verify(authority).incrementNonce();
   }
 
   @Test
-  void shouldNotCountAuthorityWriteWhenAuthorityIsRecipientOfValueBearingTransaction() {
-    // Arrange: the recipient's write is already covered by TX_VALUE_COST.
-    CodeDelegation codeDelegation = createCodeDelegation(CHAIN_ID, 0L);
-    when(transaction.getValue()).thenReturn(Wei.ONE);
-    when(transaction.getTo()).thenReturn(Optional.of(codeDelegation.authorizer().orElseThrow()));
+  void shouldCountInvalidAuthorizationForWrongChainId() {
+    // Arrange
+    CodeDelegation codeDelegation = createCodeDelegation(BigInteger.valueOf(999), 0L);
     when(transaction.getCodeDelegationList()).thenReturn(Optional.of(List.of(codeDelegation)));
-    when(worldUpdater.get(any())).thenReturn(null);
-    when(worldUpdater.createAccount(any())).thenReturn(authority);
 
     // Act
     CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
 
     // Assert
-    assertThat(result.authorityWrites()).isZero();
-  }
-
-  @Test
-  void shouldCountAuthorityWriteAtMostOncePerAuthority() {
-    // Arrange: two valid authorizations for the same authority — only the first one writes it.
-    // Same chain id, delegate address, nonce and signature, so both recover the same authority.
-    CodeDelegation first = createCodeDelegation(CHAIN_ID, 0L);
-    CodeDelegation second = createCodeDelegation(CHAIN_ID, 0L);
-    assertThat(second.authorizer()).isEqualTo(first.authorizer());
-    when(transaction.getCodeDelegationList()).thenReturn(Optional.of(List.of(first, second)));
-    when(worldUpdater.get(any())).thenReturn(null).thenReturn(authority);
-    when(worldUpdater.createAccount(any())).thenReturn(authority);
-    when(worldUpdater.getAccount(any())).thenReturn(authority);
-    when(authority.getNonce()).thenReturn(0L);
-    when(authority.getCode()).thenReturn(Bytes.EMPTY);
-    when(codeDelegationService.canSetCodeDelegation(any())).thenReturn(true);
-
-    // Act
-    CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
-
-    // Assert
-    verify(authority, times(2)).incrementNonce();
-    assertThat(result.authorityWrites()).isEqualTo(1);
-  }
-
-  @Test
-  void shouldNotCountAuthorityWriteForRejectedAuthorization() {
-    // Arrange: an authorization that never writes its authority owes no ACCOUNT_WRITE.
-    CodeDelegation codeDelegation = createCodeDelegation(CHAIN_ID, 1L);
-    when(transaction.getCodeDelegationList()).thenReturn(Optional.of(List.of(codeDelegation)));
-    when(worldUpdater.get(any())).thenReturn(null);
-
-    // Act
-    CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
-
-    // Assert
-    assertThat(result.authorityWrites()).isZero();
+    assertThat(result.invalidAuthorizations()).isEqualTo(1);
     verify(worldUpdater, never()).createAccount(any());
   }
 
