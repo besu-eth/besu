@@ -173,10 +173,7 @@ public class TransactionsMessageProcessorTest {
         .addRemoteTransactions(any());
 
     messageHandler.processTransactionsMessage(
-        peer1,
-        TransactionsMessage.create(asList(transaction1, transaction2)),
-        now(),
-        ofMinutes(1));
+        peer1, TransactionsMessage.create(asList(transaction1, transaction2)), now(), ofMinutes(1));
 
     verify(peer1).disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
   }

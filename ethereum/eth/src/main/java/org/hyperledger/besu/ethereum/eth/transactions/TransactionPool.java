@@ -213,7 +213,8 @@ public class TransactionPool implements BlockAddedObserver {
                             transaction.getHash(),
                             e);
                         return ValidationResult.invalid(
-                            INTERNAL_ERROR, "unexpected error during validation: " + e.getMessage());
+                            INTERNAL_ERROR,
+                            "unexpected error during validation: " + e.getMessage());
                       }
                     },
                     (transaction1, transaction2) -> transaction1));
