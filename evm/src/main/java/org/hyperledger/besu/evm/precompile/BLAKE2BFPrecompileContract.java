@@ -38,7 +38,7 @@ public class BLAKE2BFPrecompileContract extends AbstractPrecompiledContract {
   private static final Logger LOG = LoggerFactory.getLogger(BLAKE2BFPrecompileContract.class);
   private static final String PRECOMPILE_NAME = "BLAKE2F";
 
-  private static final Cache<Integer, PrecompileInputResultTuple> blakeCache =
+  private static final Cache<Bytes, PrecompileInputResultTuple> blakeCache =
       AbstractPrecompiledContract.resultCacheBuilder().build();
 
   /**
@@ -83,7 +83,7 @@ public class BLAKE2BFPrecompileContract extends AbstractPrecompiledContract {
           null, Optional.of(ExceptionalHaltReason.PRECOMPILE_ERROR));
     }
     PrecompileInputResultTuple res = null;
-    Integer cacheKey = null;
+    Bytes cacheKey = null;
     if (enableResultCaching) {
       cacheKey = getCacheKey(input, MESSAGE_LENGTH_BYTES);
       res = blakeCache.getIfPresent(cacheKey);
@@ -92,7 +92,7 @@ public class BLAKE2BFPrecompileContract extends AbstractPrecompiledContract {
           cacheEventConsumer.accept(new CacheEvent(PRECOMPILE_NAME, CacheMetric.HIT));
           return res.cachedResult();
         } else {
-          LOG.info(
+          LOG.debug(
               "false positive blake2bf {}, cache key {}, cached input: {}, input: {}",
               input.getClass().getSimpleName(),
               cacheKey,

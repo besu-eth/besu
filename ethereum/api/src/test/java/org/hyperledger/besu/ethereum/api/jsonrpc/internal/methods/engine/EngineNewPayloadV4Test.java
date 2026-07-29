@@ -26,6 +26,7 @@ import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErr
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -47,6 +48,7 @@ import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.requests.MainnetRequestsValidator;
 import org.hyperledger.besu.evm.gascalculator.PragueGasCalculator;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
 import java.util.List;
 import java.util.Map;
@@ -147,6 +149,49 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
     assertThat(res.getCode()).isEqualTo(INVALID_PARAMS.getCode());
     assertThat(res.getMessage()).isEqualTo("Invalid execution requests params");
     verify(engineCallListener, times(1)).executionEngineCalled();
+  }
+
+  @Test
+  public void shouldRejectMissingRequestsParamAtRpcLayerBeforeBlockProcessing() {
+    // EIP-7685: the RequestsHashPresentValidationRule must not change Engine API error reporting.
+    // An absent executionRequests param (rather than an explicit null) is caught by the sealed
+    // hierarchy's own param-count check before any version-specific parameter parsing runs, so it
+    // surfaces as the generic INVALID_ENGINE_NEW_PAYLOAD_PARAMS error. Either way it must
+    // short-circuit before block processing (where the header rule runs), rather than becoming an
+    // INVALID payload-status success response.
+    final BlockHeader blockHeader = createBlockHeader(getMinSupportedTimestamp());
+
+    var resp =
+        resp(
+            mockEnginePayloadParam(blockHeader, emptyList()),
+            emptyVersionedHashesParam(),
+            zeroParentBeaconBlockRootParam());
+
+    assertThat(resp.getType()).isEqualTo(RpcResponseType.ERROR);
+    assertThat(fromErrorResp(resp).getCode()).isEqualTo(INVALID_PARAMS.getCode());
+    assertThat(fromErrorResp(resp).getMessage())
+        .isEqualTo(INVALID_ENGINE_NEW_PAYLOAD_PARAMS.getMessage());
+    verify(mergeCoordinator, never()).rememberBlock(any(), any());
+  }
+
+  @Test
+  public void shouldReturnValidWhenPraguePayloadHasEmptyExecutionRequests() {
+    // EIP-7685: a Prague block with an empty execution requests list carries the empty requests
+    // hash (not an absent field) and must be accepted. Guards the presence rule against confusing
+    // EMPTY_REQUESTS_HASH with a missing field.
+    final List<Request> emptyRequests = List.of();
+    BlockHeader blockHeader =
+        setupPayloadV4(
+            getMinSupportedTimestamp(),
+            new BlockProcessingResult(
+                Optional.of(
+                    new BlockProcessingOutputs(null, List.of(), Optional.of(emptyRequests)))),
+            emptyRequests);
+
+    var resp =
+        respV4(mockEnginePayloadParam(blockHeader, emptyList()), requestsAsParam(emptyRequests));
+
+    assertValidResponse(blockHeader, resp);
   }
 
   @Test

@@ -968,6 +968,9 @@ public abstract class MainnetProtocolSpecs {
                         .build())
             // EIP-2935 Blockhash processor
             .preExecutionProcessor(getPraguePreExecutionProcessor(genesisConfigOptions))
+            // EIP-7685: requestsHash header field is mandatory from Prague onwards
+            .blockHeaderValidatorBuilder(
+                MainnetBlockHeaderValidator::requestsAwareBlockHeaderValidator)
             .hardforkId(PRAGUE);
     if (isPoAConsensus(genesisConfigOptions) && !hasSystemContractAddresses(genesisConfigOptions)) {
       LOG.warn(
