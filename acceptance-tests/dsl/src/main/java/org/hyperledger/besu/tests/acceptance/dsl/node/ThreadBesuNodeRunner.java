@@ -67,6 +67,7 @@ import org.hyperledger.besu.metrics.MetricsSystemModule;
 import org.hyperledger.besu.metrics.ObservableMetricsSystem;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
+import org.hyperledger.besu.plugin.CoreConfiguration;
 import org.hyperledger.besu.plugin.services.BesuConfiguration;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.PicoCLIOptions;
@@ -282,6 +283,11 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
     throw new RuntimeException("Console contents can only be captured in process execution");
   }
 
+  @Override
+  public String peekConsoleContents() {
+    throw new RuntimeException("Console contents can only be captured in process execution");
+  }
+
   @Module
   @SuppressWarnings("CloseableProvides")
   static class BesuNodeProviderModule {
@@ -485,7 +491,7 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
         final BlockchainServiceImpl blockchainServiceImpl,
         final SecurityModuleServiceImpl securityModuleService,
         final RpcEndpointServiceImpl rpcEndpointServiceImpl,
-        final BesuConfiguration commonPluginConfiguration,
+        final BesuConfigurationImpl commonPluginConfiguration,
         final PermissioningServiceImpl permissioningService,
         final TransactionSelectionServiceImpl transactionSelectionServiceImpl,
         final TransactionPoolValidatorServiceImpl transactionPoolValidatorServiceImpl,
@@ -565,7 +571,7 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
         final SecurityModuleServiceImpl securityModuleService,
         final RpcEndpointServiceImpl rpcEndpointServiceImpl,
         final BlockchainServiceImpl blockchainServiceImpl,
-        final BesuConfiguration commonPluginConfiguration,
+        final BesuConfigurationImpl commonPluginConfiguration,
         final PermissioningServiceImpl permissioningService,
         final TransactionSelectionServiceImpl transactionSelectionServiceImpl,
         final TransactionPoolValidatorServiceImpl transactionPoolValidatorServiceImpl,
@@ -579,6 +585,7 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
       final CommandLine commandLine = new CommandLine(CommandSpec.create());
       besuPluginContext.addService(PicoCLIOptions.class, new PicoCLIOptionsImpl(commandLine));
       besuPluginContext.addService(BesuConfiguration.class, commonPluginConfiguration);
+      besuPluginContext.addService(CoreConfiguration.class, commonPluginConfiguration);
       metricCategoryRegistry.setMetricsConfiguration(metricsConfiguration);
       BesuPluginServiceRegistrar.registerEarlyServices(
           besuPluginContext,
@@ -620,7 +627,7 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
 
     @Provides
     public KeyValueStorageProvider provideKeyValueStorageProvider(
-        final BesuConfiguration commonPluginConfiguration,
+        final BesuConfigurationImpl commonPluginConfiguration,
         final MetricsSystem metricsSystem,
         final KeyValueStorageFactory keyValueStorageFactory) {
 
@@ -652,7 +659,7 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
 
     @Provides
     @Inject
-    BesuConfiguration provideBesuConfiguration(
+    BesuConfigurationImpl provideBesuConfiguration(
         final Path dataDir, final MiningConfiguration miningConfiguration, final BesuNode node) {
       final BesuConfigurationImpl commonPluginConfiguration = new BesuConfigurationImpl();
       commonPluginConfiguration.init(

@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.filter.FilterCountExceededException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.filter.FilterManager;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.FilterParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
@@ -53,9 +54,15 @@ public class EthNewFilter implements JsonRpcMethod {
           requestContext.getRequest().getId(), RpcErrorType.INVALID_FILTER_PARAMS);
     }
 
-    final String logFilterId =
-        filterManager.installLogFilter(
-            filter.getFromBlock(), filter.getToBlock(), filter.getLogsQuery());
+    final String logFilterId;
+    try {
+      logFilterId =
+          filterManager.installLogFilter(
+              filter.getFromBlock(), filter.getToBlock(), filter.getLogsQuery());
+    } catch (final FilterCountExceededException e) {
+      return new JsonRpcErrorResponse(
+          requestContext.getRequest().getId(), RpcErrorType.EXCEEDS_RPC_MAX_ACTIVE_FILTERS);
+    }
 
     return new JsonRpcSuccessResponse(requestContext.getRequest().getId(), logFilterId);
   }

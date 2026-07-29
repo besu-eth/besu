@@ -172,7 +172,12 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
       final SnapSyncMetricsManager snapsyncMetricsManager =
           new SnapSyncMetricsManager(metricsSystem, ethContext);
       final DynamicPivotBlockSelector pivotBlockSelector =
-          new DynamicPivotBlockSelector(ethContext, fastSyncActions, snapSyncState, null);
+          new DynamicPivotBlockSelector(
+              ethContext,
+              fastSyncActions,
+              snapSyncState,
+              null,
+              snapSyncConfiguration.getPivotBlockCheckIntervalMillis());
       final SnapV2WorldDownloadState newDownloadState =
           new SnapV2WorldDownloadState(
               worldStateStorageCoordinator,

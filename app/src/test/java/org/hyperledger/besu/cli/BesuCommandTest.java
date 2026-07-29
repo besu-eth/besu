@@ -53,6 +53,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 import org.hyperledger.besu.cli.config.EthNetworkConfig;
 import org.hyperledger.besu.cli.config.NativeRequirement;
+import org.hyperledger.besu.cli.options.LoggingFormat;
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.config.MergeConfiguration;
 import org.hyperledger.besu.config.NetworkDefinition;
@@ -2252,6 +2253,38 @@ public class BesuCommandTest extends CommandTestAbstract {
     final TestBesuCommand command = parseCommand("--logging", "WARN");
 
     assertThat(command.getLogLevel()).isEqualTo("WARN");
+  }
+
+  @Test
+  public void loggingFormatDefaultsToPlain() {
+    final TestBesuCommand command = parseCommand();
+
+    assertThat(command.getLoggingFormat()).isEqualTo(LoggingFormat.PLAIN);
+  }
+
+  @Test
+  public void loggingFormatAcceptsEachSupportedValue() {
+    Stream.of(LoggingFormat.values())
+        .forEach(
+            format -> {
+              final TestBesuCommand command = parseCommand("--logging-format", format.name());
+              assertThat(command.getLoggingFormat()).isEqualTo(format);
+              assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+            });
+  }
+
+  @Test
+  public void loggingFormatIsCaseInsensitive() {
+    final TestBesuCommand command = parseCommand("--logging-format", "gcp");
+
+    assertThat(command.getLoggingFormat()).isEqualTo(LoggingFormat.GCP);
+  }
+
+  @Test
+  public void loggingFormatRejectsUnknownValue() {
+    parseCommand("--logging-format", "BOGUS");
+
+    assertThat(commandErrorOutput.toString(UTF_8)).contains("--logging-format");
   }
 
   @Test

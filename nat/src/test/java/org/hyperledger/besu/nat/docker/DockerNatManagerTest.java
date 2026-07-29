@@ -15,6 +15,7 @@
 package org.hyperledger.besu.nat.docker;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -42,7 +43,6 @@ public final class DockerNatManagerTest {
   private final String advertisedHost = "99.45.69.12";
   private final String detectedAdvertisedHost = "199.45.69.12";
 
-  private final int p2pPort = 1;
   private final int rpcHttpPort = 2;
 
   @Mock private HostBasedIpDetector hostBasedIpDetector;
@@ -53,7 +53,9 @@ public final class DockerNatManagerTest {
   public void initialize() throws NatInitializationException {
     hostBasedIpDetector = mock(HostBasedIpDetector.class);
     when(hostBasedIpDetector.detectAdvertisedIp()).thenReturn(Optional.of(detectedAdvertisedHost));
-    natManager = new DockerNatManager(hostBasedIpDetector, advertisedHost, p2pPort, rpcHttpPort);
+    natManager =
+        new DockerNatManager(
+            hostBasedIpDetector, advertisedHost, rpcHttpPort, port -> Optional.empty());
     natManager.start();
   }
 
@@ -67,7 +69,8 @@ public final class DockerNatManagerTest {
   public void assertThatExternalIPIsEqualToDefaultHostIfIpDetectorCannotRetrieveIP()
       throws ExecutionException, InterruptedException {
     final NatManager natManager =
-        new DockerNatManager(hostBasedIpDetector, advertisedHost, p2pPort, rpcHttpPort);
+        new DockerNatManager(
+            hostBasedIpDetector, advertisedHost, rpcHttpPort, port -> Optional.empty());
     when(hostBasedIpDetector.detectAdvertisedIp()).thenReturn(Optional.empty());
     try {
       natManager.start();
@@ -82,25 +85,6 @@ public final class DockerNatManagerTest {
       throws ExecutionException, InterruptedException, UnknownHostException {
     final String internalHost = InetAddress.getLocalHost().getHostAddress();
     assertThat(natManager.queryLocalIPAddress().get()).isEqualTo(internalHost);
-  }
-
-  @Test
-  public void assertThatMappingForDiscoveryWorks() throws UnknownHostException {
-    final String internalHost = InetAddress.getLocalHost().getHostAddress();
-
-    final NatPortMapping mapping =
-        natManager.getPortMapping(NatServiceType.DISCOVERY, NetworkProtocol.UDP);
-
-    final NatPortMapping expectedMapping =
-        new NatPortMapping(
-            NatServiceType.DISCOVERY,
-            NetworkProtocol.UDP,
-            internalHost,
-            detectedAdvertisedHost,
-            p2pPort,
-            p2pPort);
-
-    assertThat(mapping).usingRecursiveComparison().isEqualTo(expectedMapping);
   }
 
   @Test
@@ -123,21 +107,126 @@ public final class DockerNatManagerTest {
   }
 
   @Test
-  public void assertThatMappingForRlpxWorks() throws UnknownHostException {
-    final String internalHost = InetAddress.getLocalHost().getHostAddress();
+  public void assertThatJsonRpcMappingReflectsExternalPortOverride()
+      throws NatInitializationException {
+    final DockerNatManager overriddenNatManager =
+        new DockerNatManager(
+            hostBasedIpDetector,
+            advertisedHost,
+            rpcHttpPort,
+            port -> port == rpcHttpPort ? Optional.of(40000) : Optional.empty());
+    overriddenNatManager.start();
 
     final NatPortMapping mapping =
+        overriddenNatManager.getPortMapping(NatServiceType.JSON_RPC, NetworkProtocol.TCP);
+
+    // Regression test for a long-standing bug where the external/internal port constructor
+    // arguments were swapped, silently breaking the HOST_PORT_<port> override mechanism for
+    // admin_nodeInfo: internal port must stay the configured value, external must reflect
+    // the override.
+    assertThat(mapping.getInternalPort()).isEqualTo(rpcHttpPort);
+    assertThat(mapping.getExternalPort()).isEqualTo(40000);
+  }
+
+  @Test
+  public void assertThatRlpxAndDiscoveryMappingsAreAbsentBeforeUpdatePort() {
+    assertThatThrownBy(() -> natManager.getPortMapping(NatServiceType.RLPX, NetworkProtocol.TCP))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(
+            () -> natManager.getPortMapping(NatServiceType.DISCOVERY, NetworkProtocol.UDP))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  public void assertThatUpdatePortRecordsTheActualResolvedPort() throws UnknownHostException {
+    final String internalHost = InetAddress.getLocalHost().getHostAddress();
+    final int actualRlpxPort = 38217;
+    final int actualDiscoveryPort = 45734;
+
+    natManager.updatePort(NatServiceType.RLPX, NetworkProtocol.TCP, actualRlpxPort);
+    natManager.updatePort(NatServiceType.DISCOVERY, NetworkProtocol.UDP, actualDiscoveryPort);
+
+    final NatPortMapping rlpxMapping =
         natManager.getPortMapping(NatServiceType.RLPX, NetworkProtocol.TCP);
+    final NatPortMapping discoveryMapping =
+        natManager.getPortMapping(NatServiceType.DISCOVERY, NetworkProtocol.UDP);
 
-    final NatPortMapping expectedMapping =
-        new NatPortMapping(
-            NatServiceType.RLPX,
-            NetworkProtocol.TCP,
-            internalHost,
-            detectedAdvertisedHost,
-            p2pPort,
-            p2pPort);
+    assertThat(rlpxMapping)
+        .usingRecursiveComparison()
+        .isEqualTo(
+            new NatPortMapping(
+                NatServiceType.RLPX,
+                NetworkProtocol.TCP,
+                internalHost,
+                detectedAdvertisedHost,
+                actualRlpxPort,
+                actualRlpxPort));
+    assertThat(discoveryMapping)
+        .usingRecursiveComparison()
+        .isEqualTo(
+            new NatPortMapping(
+                NatServiceType.DISCOVERY,
+                NetworkProtocol.UDP,
+                internalHost,
+                detectedAdvertisedHost,
+                actualDiscoveryPort,
+                actualDiscoveryPort));
+  }
 
-    assertThat(mapping).usingRecursiveComparison().isEqualTo(expectedMapping);
+  @Test
+  public void assertThatUpdatePortReflectsExternalPortOverride() throws NatInitializationException {
+    final int actualDiscoveryPort = 45734;
+    final int overriddenExternalPort = 55734;
+    final DockerNatManager overriddenNatManager =
+        new DockerNatManager(
+            hostBasedIpDetector,
+            advertisedHost,
+            rpcHttpPort,
+            port ->
+                port == actualDiscoveryPort
+                    ? Optional.of(overriddenExternalPort)
+                    : Optional.empty());
+    overriddenNatManager.start();
+
+    overriddenNatManager.updatePort(
+        NatServiceType.DISCOVERY, NetworkProtocol.UDP, actualDiscoveryPort);
+
+    final NatPortMapping mapping =
+        overriddenNatManager.getPortMapping(NatServiceType.DISCOVERY, NetworkProtocol.UDP);
+    assertThat(mapping.getInternalPort()).isEqualTo(actualDiscoveryPort);
+    assertThat(mapping.getExternalPort()).isEqualTo(overriddenExternalPort);
+  }
+
+  @Test
+  public void assertThatUpdatePortReplacesRatherThanDuplicatesExistingMapping()
+      throws ExecutionException, InterruptedException {
+    natManager.updatePort(NatServiceType.DISCOVERY, NetworkProtocol.UDP, 1111);
+    natManager.updatePort(NatServiceType.DISCOVERY, NetworkProtocol.UDP, 2222);
+
+    final long discoveryMappingCount =
+        natManager.getPortMappings().get().stream()
+            .filter(m -> m.getNatServiceType() == NatServiceType.DISCOVERY)
+            .count();
+    assertThat(discoveryMappingCount).isEqualTo(1);
+    assertThat(
+            natManager
+                .getPortMapping(NatServiceType.DISCOVERY, NetworkProtocol.UDP)
+                .getInternalPort())
+        .isEqualTo(2222);
+  }
+
+  @Test
+  public void assertThatRlpxAndDiscoveryCanResolveToDifferentActualPorts() {
+    natManager.updatePort(NatServiceType.RLPX, NetworkProtocol.TCP, 30303);
+    natManager.updatePort(NatServiceType.DISCOVERY, NetworkProtocol.UDP, 30304);
+
+    assertThat(
+            natManager.getPortMapping(NatServiceType.RLPX, NetworkProtocol.TCP).getInternalPort())
+        .isEqualTo(30303);
+    assertThat(
+            natManager
+                .getPortMapping(NatServiceType.DISCOVERY, NetworkProtocol.UDP)
+                .getInternalPort())
+        .isEqualTo(30304);
   }
 }

@@ -278,6 +278,7 @@ public class QbftBesuControllerBuilder extends BesuControllerBuilder {
             qbftConfig.getFutureMessagesMaxDistance(),
             qbftConfig.getFutureMessagesLimit(),
             blockchain.getChainHeadBlockNumber(),
+            (QbftMessage message) -> message.getData().getSize(),
             new FutureMessageSynchronizerHandler(synchronizerUpdater));
     final MessageTracker duplicateMessageTracker =
         new MessageTracker(qbftConfig.getDuplicateMessageLimit());
