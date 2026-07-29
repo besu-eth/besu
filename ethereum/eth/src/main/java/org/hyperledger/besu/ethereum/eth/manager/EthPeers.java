@@ -323,15 +323,28 @@ public class EthPeers implements PeerSelector {
   void reattemptPendingPeerRequests() {
     synchronized (this) {
       final Iterator<PendingPeerRequest> iterator = pendingRequests.iterator();
-      while (iterator.hasNext()
-          && streamAvailablePeers()
-              .anyMatch(EthPeerImmutableAttributes::hasAvailableRequestCapacity)) {
+      while (iterator.hasNext() && hasPeerWithAvailableRequestCapacity()) {
         final PendingPeerRequest request = iterator.next();
         if (request.attemptExecution()) {
           pendingRequests.remove(request);
         }
       }
     }
+  }
+
+  // Lightweight, allocation-free capacity check used as the loop guard above. The previous
+  // streamAvailablePeers().anyMatch(...) form rebuilt a stream and allocated an
+  // EthPeerImmutableAttributes snapshot per peer on every iteration, which under a backlog of
+  // N pending requests and P peers churned up to O(N*P) short-lived objects while holding the
+  // EthPeers monitor (#10577). This iterates the connections directly and short-circuits on the
+  // first peer with capacity, preserving the original per-iteration semantics.
+  private boolean hasPeerWithAvailableRequestCapacity() {
+    for (final EthPeer peer : activeConnections.values()) {
+      if (!peer.isDisconnected() && peer.hasAvailableRequestCapacity()) {
+        return true;
+      }
+    }
+    return false;
   }
 
   public long subscribeConnect(final ConnectCallback callback) {
