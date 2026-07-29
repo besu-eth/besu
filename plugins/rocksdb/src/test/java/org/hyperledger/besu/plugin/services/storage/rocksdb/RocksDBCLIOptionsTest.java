@@ -20,11 +20,8 @@ import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_CACHE_CAPACITY;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_IS_HIGH_SPEC;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_MAX_OPEN_FILES;
+import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.GIB;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.IS_HIGH_SPEC;
-import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.MAX_OPEN_FILES_16GB;
-import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.MAX_OPEN_FILES_32GB;
-import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.MAX_OPEN_FILES_4GB;
-import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.MAX_OPEN_FILES_8GB;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.MAX_OPEN_FILES_FLAG;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
@@ -42,7 +39,10 @@ import picocli.CommandLine;
 
 public class RocksDBCLIOptionsTest {
 
-  private static final long GIB = 1024L * 1024L * 1024L;
+  private static final int MAX_OPEN_FILES_4GB = 2048;
+  private static final int MAX_OPEN_FILES_8GB = 4096;
+  private static final int MAX_OPEN_FILES_16GB = 8192;
+  private static final int MAX_OPEN_FILES_32GB = 16384;
 
   @Test
   public void defaultValues() {
@@ -142,6 +142,16 @@ public class RocksDBCLIOptionsTest {
     assertMaxOpenFilesDerivedFromAvailableMemory(8L * GIB, MAX_OPEN_FILES_8GB);
     assertMaxOpenFilesDerivedFromAvailableMemory(16L * GIB, MAX_OPEN_FILES_16GB);
     assertMaxOpenFilesDerivedFromAvailableMemory(32L * GIB, MAX_OPEN_FILES_32GB);
+  }
+
+  @Test
+  public void autoMaxOpenFilesAroundSixteenGibBoundary() {
+    // Continuous scale: 512 files per GiB, so values near 16 GiB are not snapped to 8192.
+    final long fifteenPointNineGib = (159L * GIB) / 10;
+    final long sixteenPointOneGib = (161L * GIB) / 10;
+
+    assertMaxOpenFilesDerivedFromAvailableMemory(fifteenPointNineGib, 8140);
+    assertMaxOpenFilesDerivedFromAvailableMemory(sixteenPointOneGib, 8243);
   }
 
   private static RocksDBFactoryConfiguration toDomainObjectWithAvailableMemory(

@@ -65,6 +65,7 @@ dependencies {
     api project(':evm')
     api project(':metrics:core')
     api project(':plugin-api')
+    api project(':plugin-api:core')
     api project(':services:kvstore')
     api project(':services:pipeline')
     api project(':services:tasks')
@@ -155,7 +156,6 @@ dependencies {
     api 'org.hyperledger.besu:arithmetic:2.0.0'
     api 'org.hyperledger.besu:blake2bf:2.0.0'
     api 'org.hyperledger.besu:gnark:2.0.0'
-    api 'org.hyperledger.besu:ipa-multipoint:1.5.0'
     api 'org.hyperledger.besu:secp256k1:2.0.0'
     api 'org.hyperledger.besu:secp256r1:2.0.0'
     api 'org.hyperledger.besu:boringssl:2.0.0'

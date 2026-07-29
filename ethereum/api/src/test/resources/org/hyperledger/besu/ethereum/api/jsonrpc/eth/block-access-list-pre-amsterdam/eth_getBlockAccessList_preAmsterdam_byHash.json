@@ -1,0 +1,19 @@
+{
+  "request": {
+    "id": 18,
+    "jsonrpc": "2.0",
+    "method": "eth_getBlockAccessList",
+    "params": [
+      "0x4859ea10d276f6df988eabd48a02e0696cfd3deb769d2a5e0e416a5f3191028a"
+    ]
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 18,
+    "error": {
+      "code": -32001,
+      "message": "Resource not found"
+    }
+  },
+  "statusCode": 200
+}
