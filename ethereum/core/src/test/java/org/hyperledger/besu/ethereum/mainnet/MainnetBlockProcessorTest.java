@@ -22,6 +22,7 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -29,10 +30,13 @@ import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.FrontierPreExecutionProcessor;
+import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.DefaultStateRootCommitterFactory;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestBlockchain;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestWorldState;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
+
+import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -117,5 +121,75 @@ public class MainnetBlockProcessorTest extends AbstractBlockProcessorTest {
 
     // An empty block with 0 reward should change the world state prior to EIP158
     assertThat(worldState.rootHash()).isNotEqualTo(initialHash);
+  }
+
+  @Test
+  public void rejectsBlockWhenRequestsHashMissingButRequestsProcessed() {
+    // EIP-7685: when a requests processor is configured (Prague+) the header must carry
+    // requestsHash. An absent field must fail rather than silently skip the hash comparison.
+    final Blockchain blockchain = new ReferenceTestBlockchain();
+    when(protocolSpec.getRequestProcessorCoordinator())
+        .thenReturn(Optional.of(RequestProcessorCoordinator.noOp()));
+    final MainnetBlockProcessor blockProcessor =
+        new MainnetBlockProcessor(
+            transactionProcessor,
+            transactionReceiptFactory,
+            Wei.ZERO,
+            BlockHeader::getCoinbase,
+            true,
+            protocolSchedule,
+            BalConfiguration.DEFAULT);
+    final MutableWorldState worldState = ReferenceTestWorldState.create(emptyMap());
+
+    final Block block =
+        new Block(
+            new BlockHeaderTestFixture()
+                .transactionsRoot(Hash.EMPTY_LIST_HASH)
+                .ommersHash(Hash.EMPTY_LIST_HASH)
+                .requestsHash(null)
+                .buildHeader(),
+            BlockBody.empty());
+
+    final BlockProcessingResult result =
+        blockProcessor.processBlock(protocolContext, blockchain, worldState, block);
+
+    assertThat(result.isSuccessful()).isFalse();
+    assertThat(result.errorMessage)
+        .hasValueSatisfying(msg -> assertThat(msg).contains("missing the requestsHash field"));
+  }
+
+  @Test
+  public void rejectsBlockWhenRequestsHashPresentButDoesNotMatch() {
+    // The hash-mismatch path (field present but wrong) must keep its existing error message,
+    // distinct from the missing-field message above.
+    final Blockchain blockchain = new ReferenceTestBlockchain();
+    when(protocolSpec.getRequestProcessorCoordinator())
+        .thenReturn(Optional.of(RequestProcessorCoordinator.noOp()));
+    final MainnetBlockProcessor blockProcessor =
+        new MainnetBlockProcessor(
+            transactionProcessor,
+            transactionReceiptFactory,
+            Wei.ZERO,
+            BlockHeader::getCoinbase,
+            true,
+            protocolSchedule,
+            BalConfiguration.DEFAULT);
+    final MutableWorldState worldState = ReferenceTestWorldState.create(emptyMap());
+
+    final Block block =
+        new Block(
+            new BlockHeaderTestFixture()
+                .transactionsRoot(Hash.EMPTY_LIST_HASH)
+                .ommersHash(Hash.EMPTY_LIST_HASH)
+                .requestsHash(Hash.fromHexStringLenient("0xdeadbeef"))
+                .buildHeader(),
+            BlockBody.empty());
+
+    final BlockProcessingResult result =
+        blockProcessor.processBlock(protocolContext, blockchain, worldState, block);
+
+    assertThat(result.isSuccessful()).isFalse();
+    assertThat(result.errorMessage)
+        .hasValueSatisfying(msg -> assertThat(msg).startsWith("Requests hash mismatch"));
   }
 }

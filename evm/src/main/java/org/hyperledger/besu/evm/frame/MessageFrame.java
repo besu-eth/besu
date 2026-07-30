@@ -35,11 +35,11 @@ import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.function.Consumer;
 
 import com.google.common.collect.HashMultimap;
@@ -1867,7 +1867,11 @@ public class MessageFrame {
       TxValues newTxValues;
 
       if (parentMessageFrame == null) {
-        HashSet<Address> warmedUpAddresses = new HashSet<>();
+        // A TreeSet (sorted by Address's natural ordering) is used instead of a HashSet:
+        // Address's hashCode() is a grindable base-31 hash with no direct Comparable<Address>
+        // declaration, so HashMap/HashSet bucket treeification never engages, letting an
+        // attacker force O(n) bucket walks per insert.
+        TreeSet<Address> warmedUpAddresses = new TreeSet<>();
         warmedUpAddresses.add(contract);
         newTxValues =
             TxValues.forTransaction(
