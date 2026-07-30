@@ -362,9 +362,9 @@ public class TransactionProcessingResult
   }
 
   /**
-   * Returns the unfloored regular gas dimension for EIP-8037 block accounting. The EIP-7976
-   * calldata floor raises what the sender pays but does not count toward the block, so it is
-   * excluded here. The fallback is equivalent whenever the floor is not binding.
+   * Returns the unfloored regular gas dimension for EIP-8037 block accounting: the EIP-7976
+   * calldata floor raises what the sender pays but does not count toward the block. The fallback is
+   * equivalent while the floor is not binding.
    *
    * @return the unfloored regular gas used for block accounting
    */

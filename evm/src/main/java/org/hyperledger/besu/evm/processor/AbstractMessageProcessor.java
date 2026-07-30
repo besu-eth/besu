@@ -139,9 +139,8 @@ public abstract class AbstractMessageProcessor {
   }
 
   /**
-   * EIP-8037 state-gas accounting on frame failure. The rollback restores the reservoir to its
-   * frame-entry value; the spilled portion goes back to gasRemaining, which a revert propagates to
-   * the parent and a halt subsequently burns.
+   * EIP-8037 state-gas accounting on frame failure. The spill goes back to gasRemaining rather than
+   * the reservoir, because a revert propagates it to the parent and a halt burns it.
    */
   private void handleStateGasOnFrameFailure(final MessageFrame frame) {
     clearAccumulatedStateBesidesGasAndOutput(frame);

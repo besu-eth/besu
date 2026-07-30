@@ -387,13 +387,15 @@ public class MainnetTransactionProcessor {
 
       final MessageFrame initialFrame;
       // A creation onto an already-alive (e.g. pre-funded) target adds no leaf, so its intrinsic
-      // NEW_ACCOUNT state gas is refunded.
+      // NEW_ACCOUNT state gas is refunded. Nothing reads this when state gas is inactive.
       boolean createTargetAlreadyAlive = false;
       if (transaction.isContractCreation()) {
         final Address contractAddress =
             Address.contractAddress(senderAddress, sender.getNonce() - 1L);
-        final Account existingTarget = worldState.get(contractAddress);
-        createTargetAlreadyAlive = existingTarget != null && !existingTarget.isEmpty();
+        if (stateGasCalc.isActive()) {
+          final Account existingTarget = worldState.get(contractAddress);
+          createTargetAlreadyAlive = existingTarget != null && !existingTarget.isEmpty();
+        }
         accessLocationTracker.ifPresent(t -> t.addTouchedAccount(contractAddress));
 
         final Bytes initCodeBytes = transaction.getPayload();
@@ -454,8 +456,8 @@ public class MainnetTransactionProcessor {
       // Transaction-level state-gas charges persist regardless of the execution outcome, so put
       // them out of reach of a rollback.
       initialFrame.advanceUndoMark();
-      // Those charges may have drawn from gasRemaining, which would look like frame spill. Clear
-      // it so the failure handler cannot refund them a second time.
+      // They may have drawn from gasRemaining, so clear the spill to stop the failure handler
+      // refunding them a second time.
       initialFrame.resetStateGasSpilled();
 
       Deque<MessageFrame> messageFrameStack = initialFrame.getMessageFrameStack();
@@ -492,20 +494,19 @@ public class MainnetTransactionProcessor {
           refundTxCreateIntrinsicStateGas(initialFrame, stateGasCalc);
         }
       } else {
+        // A real halt reason is more specific, so it wins when both apply.
         if (initialFrame.getExceptionalHaltReason().isPresent()) {
           validationResult =
               ValidationResult.invalid(
                   TransactionInvalidReason.EXECUTION_HALTED,
                   initialFrame.getExceptionalHaltReason().get().getDescription());
-        }
-        if (regularGasLimitExceeded) {
+        } else if (regularGasLimitExceeded) {
           validationResult =
               ValidationResult.invalid(
                   TransactionInvalidReason.EXECUTION_HALTED,
                   "Regular gas consumption exceeds TX_MAX_GAS_LIMIT");
         }
-        // No account persists on a failed creation tx, so the intrinsic NEW_ACCOUNT charge must
-        // be returned to the sender via the reservoir leftover.
+        // No account persists on a failed creation tx, so the intrinsic charge is returned.
         if (stateGasCalc.isActive() && transaction.isContractCreation()) {
           refundTxCreateIntrinsicStateGas(initialFrame, stateGasCalc);
         }
@@ -744,9 +745,8 @@ public class MainnetTransactionProcessor {
   }
 
   /**
-   * Returns a contract-creation transaction's intrinsic NEW_ACCOUNT state gas when no leaf ends up
-   * being added. It goes straight to the reservoir rather than to gasRemaining, because the
-   * intrinsic spill was cleared before execution began.
+   * Refunds a creation transaction's intrinsic NEW_ACCOUNT state gas when no leaf is added. It goes
+   * straight to the reservoir, since the intrinsic spill was cleared before execution began.
    */
   private static void refundTxCreateIntrinsicStateGas(
       final MessageFrame initialFrame, final StateGasCostCalculator stateGasCalc) {

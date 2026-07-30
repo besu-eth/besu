@@ -223,8 +223,8 @@ public class MessageFrame {
   // is refunded on success.
   private boolean createTargetWasAlive = false;
 
-  // EIP-8037: state gas this frame drew from its own gasRemaining once the reservoir ran dry.
-  // Frame-local like gasRemaining, so refunds and failures can unwind it separately.
+  // EIP-8037: state gas drawn from gasRemaining once the reservoir ran dry. Frame-local, so
+  // refunds and failures can unwind it separately.
   private long stateGasSpilled = 0L;
 
   // Transaction state fields.
@@ -949,7 +949,7 @@ public class MessageFrame {
   // ---- stateGasSpilled ----
 
   /**
-   * Returns the net state gas this frame has spilled into its own gasRemaining.
+   * Returns the net state gas this frame has spilled into gasRemaining.
    *
    * @return the spilled state gas
    */
@@ -958,7 +958,7 @@ public class MessageFrame {
   }
 
   /**
-   * Adds to this frame's spilled state gas, when absorbing a successful child's spill.
+   * Adds to this frame's spilled state gas, so a parent can absorb a successful child's spill.
    *
    * @param amount the amount to add
    */
@@ -966,7 +966,7 @@ public class MessageFrame {
     this.stateGasSpilled += amount;
   }
 
-  /** Resets this frame's spilled state gas to zero, once its charges are fully unwound. */
+  /** Clears the spill once its charges are unwound, so they cannot be refunded twice. */
   public void resetStateGasSpilled() {
     this.stateGasSpilled = 0L;
   }
@@ -1027,9 +1027,8 @@ public class MessageFrame {
   }
 
   /**
-   * Credits state gas back in LIFO order: gasRemaining up to the frame's spill, then the reservoir.
-   * The routing is observable — gas returned to gasRemaining is invisible to a sub-call, which can
-   * only draw state gas from the reservoir.
+   * Credits state gas back in LIFO order: the frame's spill first, then the reservoir. The order is
+   * observable, since a sub-call can only draw state gas from the reservoir.
    *
    * @param amount the refill amount
    */
@@ -1268,8 +1267,8 @@ public class MessageFrame {
   }
 
   /**
-   * Records whether the CREATE/CREATE2 being spawned from this frame targets an address that was
-   * already alive (existed and non-empty).
+   * Records whether the CREATE/CREATE2 spawned from this frame targets an already-alive (existing,
+   * non-empty) address.
    *
    * @param wasAlive true if the create target was already alive
    */
@@ -1278,8 +1277,8 @@ public class MessageFrame {
   }
 
   /**
-   * Whether the most recent CREATE/CREATE2 from this frame targeted an already-alive address, in
-   * which case no leaf is added and its NEW_ACCOUNT state gas is refunded.
+   * Whether the most recent CREATE/CREATE2 targeted an already-alive address, in which case no leaf
+   * is added and its NEW_ACCOUNT state gas is refunded.
    *
    * @return true if the create target was already alive
    */
@@ -1511,8 +1510,8 @@ public class MessageFrame {
   }
 
   /**
-   * Advances the undo mark so later rollbacks do not undo changes made before this point. Used to
-   * protect the transaction's intrinsic state-gas charges from the initial frame reverting.
+   * Advances the undo mark, so that a rollback of the initial frame cannot undo the transaction's
+   * intrinsic state-gas charges.
    */
   public void advanceUndoMark() {
     this.undoMark = txValues.transientStorage().mark();

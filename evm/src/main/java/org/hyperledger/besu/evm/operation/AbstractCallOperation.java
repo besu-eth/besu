@@ -368,9 +368,10 @@ public abstract class AbstractCallOperation extends AbstractOperation {
   }
 
   /** Whether the CALL transfers value to a non-existent or empty recipient, creating a leaf. */
-  private static boolean callCreatesNewAccount(
+  private boolean callCreatesNewAccount(
       final MessageFrame frame, final Address recipientAddress, final Wei transferValue) {
-    if (transferValue.isZero()) {
+    // Only state-gas metering charges for this, so nothing needs the lookup otherwise.
+    if (transferValue.isZero() || !gasCalculator().stateGasCostCalculator().isActive()) {
       return false;
     }
     final Account recipient = frame.getWorldUpdater().get(recipientAddress);

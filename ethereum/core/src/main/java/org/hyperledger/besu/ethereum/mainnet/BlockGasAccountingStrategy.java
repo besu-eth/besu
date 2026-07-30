@@ -101,8 +101,8 @@ public interface BlockGasAccountingStrategy {
         @Override
         public long calculateTransactionRegularGas(
             final Transaction transaction, final TransactionProcessingResult result) {
-          // EIP-7976/EIP-8037: the calldata floor raises what the sender pays but does not
-          // count toward the block's regular gas dimension, so use the unfloored value.
+          // EIP-7976: the calldata floor raises what the sender pays but does not count toward
+          // the block's regular gas dimension.
           return result.getRegularGasUsedForBlock();
         }
 

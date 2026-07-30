@@ -82,11 +82,11 @@ public class SystemCallProcessor {
     WorldUpdater blockUpdater = context.getWorldState().updater();
     WorldUpdater systemCallUpdater = blockUpdater.updater();
     // EIP-7928: the account is read before we can know whether there is code to run, so an absent
-    // system contract still belongs in the access list. Flush here too, since the flush at the end
-    // of a successful call is skipped when we throw below.
+    // system contract still belongs in the access list.
     accessLocationTracker.ifPresent(tracker -> tracker.addTouchedAccount(callAddress));
     final Account maybeContract = systemCallUpdater.get(callAddress);
     if (maybeContract == null || maybeContract.getCode().isEmpty()) {
+      // Throwing skips the flush at the end of a successful call, so flush here instead.
       applyAccessLocationTracker(accessLocationTracker, context, systemCallUpdater);
       throw new SystemCallNoCodeAtAddressException(
           maybeContract == null
