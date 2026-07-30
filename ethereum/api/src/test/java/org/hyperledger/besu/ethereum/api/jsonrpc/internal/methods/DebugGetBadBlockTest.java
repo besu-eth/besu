@@ -249,7 +249,7 @@ public class DebugGetBadBlockTest {
     final BadBlockResult badBlockResult = result.iterator().next();
     assertThat(badBlockResult.getGeneratedBlockAccessList()).isPresent();
     assertThat(
-            badBlockResult.getGeneratedBlockAccessList().orElseThrow().getAccountChanges().stream()
+            badBlockResult.getGeneratedBlockAccessList().orElseThrow().stream()
                 .map(accountChangesResult -> Address.fromHexString(accountChangesResult.address)))
         .containsExactly(Address.fromHexString("0x0000000000000000000000000000000000000003"));
   }

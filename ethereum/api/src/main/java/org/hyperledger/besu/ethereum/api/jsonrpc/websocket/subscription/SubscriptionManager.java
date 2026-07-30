@@ -16,11 +16,11 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription;
 
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcObjectMapperFactory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.JsonRpcResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.request.SubscribeRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.request.SubscriptionType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.request.UnsubscribeRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.response.SubscriptionResponse;
-import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
@@ -29,12 +29,14 @@ import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.annotations.VisibleForTesting;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.eventbus.Message;
 import org.slf4j.Logger;
@@ -54,17 +56,20 @@ public class SubscriptionManager extends AbstractVerticle {
       "SubscriptionManager::removeSubscriptions";
 
   private final AtomicLong subscriptionCounter = new AtomicLong(0);
+  private final AtomicInteger activeSubscriptionCount = new AtomicInteger(0);
   private final Map<Long, Subscription> subscriptions = new ConcurrentHashMap<>();
   private final SubscriptionBuilder subscriptionBuilder = new SubscriptionBuilder();
   private final LabelledMetric<Counter> subscribeCounter;
   private final LabelledMetric<Counter> unsubscribeCounter;
+  private final int maxActiveSubscriptions;
 
-  public SubscriptionManager(
-      final MetricsSystem metricsSystem, final Blockchain blockchainQueries) {
-    this(metricsSystem);
+  @VisibleForTesting
+  public SubscriptionManager(final MetricsSystem metricsSystem) {
+    this(metricsSystem, WebSocketConfiguration.createDefault());
   }
 
-  public SubscriptionManager(final MetricsSystem metricsSystem) {
+  public SubscriptionManager(
+      final MetricsSystem metricsSystem, final WebSocketConfiguration config) {
     subscribeCounter =
         metricsSystem.createLabelledCounter(
             BesuMetricCategory.RPC,
@@ -77,6 +82,7 @@ public class SubscriptionManager extends AbstractVerticle {
             "subscription_unsubscribe_total",
             "Total number of unsubscriptions",
             "type");
+    maxActiveSubscriptions = config.getMaxActiveSubscriptions();
   }
 
   @Override
@@ -86,14 +92,38 @@ public class SubscriptionManager extends AbstractVerticle {
 
   public Long subscribe(final SubscribeRequest request) {
     LOG.debug("Subscribe request {}", request);
-    subscribeCounter.labels(request.getSubscriptionType().getCode()).inc();
 
+    reserveActiveSubscriptionSlot();
+
+    subscribeCounter.labels(request.getSubscriptionType().getCode()).inc();
     final long subscriptionId = subscriptionCounter.incrementAndGet();
     final Subscription subscription =
         subscriptionBuilder.build(subscriptionId, request.getConnectionId(), request);
     subscriptions.put(subscription.getSubscriptionId(), subscription);
 
     return subscription.getSubscriptionId();
+  }
+
+  /**
+   * Atomically reserves a slot against {@code maxActiveSubscriptions}. Increment-then-check avoids
+   * the TOCTOU window a separate "check subscriptions.size() then put" would have under concurrent
+   * subscribe calls: each thread gets a distinct reserved count, so only as many threads as there
+   * are free slots can pass, and any others roll their reservation back before throwing.
+   */
+  private void reserveActiveSubscriptionSlot() {
+    if (maxActiveSubscriptions <= 0) {
+      return;
+    }
+    final int reservedCount = activeSubscriptionCount.incrementAndGet();
+    if (reservedCount > maxActiveSubscriptions) {
+      activeSubscriptionCount.decrementAndGet();
+      LOG.atWarn()
+          .setMessage("Maximum number of active subscriptions reached {} / {}")
+          .addArgument(reservedCount - 1)
+          .addArgument(maxActiveSubscriptions)
+          .log();
+      throw new MaxSubscriptionsExceededException(maxActiveSubscriptions);
+    }
   }
 
   public boolean unsubscribe(final UnsubscribeRequest request) {
@@ -116,6 +146,9 @@ public class SubscriptionManager extends AbstractVerticle {
     final Subscription removed = subscriptions.remove(subscriptionId);
     if (removed != null) {
       unsubscribeCounter.labels(removed.getSubscriptionType().getCode()).inc();
+      if (maxActiveSubscriptions > 0) {
+        activeSubscriptionCount.decrementAndGet();
+      }
     }
   }
 

@@ -98,6 +98,32 @@ public class RpcWebsocketOptionsTest extends CommandTestAbstract {
   }
 
   @Test
+  public void rpcWsMaxActiveSubscriptionsAcceptsZero() {
+    parseCommand("--rpc-ws-max-active-subscriptions", "0");
+
+    verify(mockRunnerBuilder).webSocketConfiguration(wsRpcConfigArgumentCaptor.capture());
+    assertThat(wsRpcConfigArgumentCaptor.getValue().getMaxActiveSubscriptions()).isEqualTo(0);
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void rpcWsMaxActiveSubscriptionsAcceptsNonNegativeValue() {
+    parseCommand("--rpc-ws-max-active-subscriptions", "1");
+
+    verify(mockRunnerBuilder).webSocketConfiguration(wsRpcConfigArgumentCaptor.capture());
+    assertThat(wsRpcConfigArgumentCaptor.getValue().getMaxActiveSubscriptions()).isEqualTo(1);
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void rpcWsMaxActiveSubscriptionsNegativeValueMustFail() {
+    parseCommand("--rpc-ws-max-active-subscriptions", "-1");
+
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains("--rpc-ws-max-active-subscriptions must be >= 0 (0 specifies no limit)");
+  }
+
+  @Test
   public void rpcWsRpcEnabledPropertyMustBeUsed() {
     parseCommand("--rpc-ws-enabled");
 

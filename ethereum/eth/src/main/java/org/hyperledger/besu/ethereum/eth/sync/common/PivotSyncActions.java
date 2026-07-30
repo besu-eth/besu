@@ -41,6 +41,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
@@ -149,6 +150,7 @@ public class PivotSyncActions {
     return ethContext
         .getEthPeers()
         .waitForPeer((peer) -> true)
+        .orTimeout(5, TimeUnit.SECONDS)
         .thenCompose(
             unused ->
                 currentState

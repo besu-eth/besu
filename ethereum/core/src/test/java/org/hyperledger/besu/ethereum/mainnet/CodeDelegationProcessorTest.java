@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.mainnet;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -25,6 +26,7 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.crypto.SECPSignature;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.CodeDelegation;
+import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
@@ -59,11 +61,18 @@ class CodeDelegationProcessorTest {
   private static final BigInteger HALF_CURVE_ORDER = BigInteger.valueOf(1000);
   private static final Address DELEGATE_ADDRESS =
       Address.fromHexString("0x9876543210987654321098765432109876543210");
+  private static final Address TX_SENDER =
+      Address.fromHexString("0x1111111111111111111111111111111111111111");
+  private static final Address TX_TO =
+      Address.fromHexString("0x2222222222222222222222222222222222222222");
 
   @BeforeEach
   void setUp() {
     processor =
         new CodeDelegationProcessor(Optional.of(CHAIN_ID), HALF_CURVE_ORDER, codeDelegationService);
+    lenient().when(transaction.getSender()).thenReturn(TX_SENDER);
+    lenient().when(transaction.getValue()).thenReturn(Wei.ZERO);
+    lenient().when(transaction.getTo()).thenReturn(Optional.of(TX_TO));
   }
 
   @Test
@@ -383,6 +392,93 @@ class CodeDelegationProcessorTest {
     assertThat(result.authBaseRefundCount()).isZero();
     verify(worldUpdater, never()).createAccount(any());
     verify(authority).incrementNonce();
+  }
+
+  @Test
+  void shouldCountAuthorityWriteForAuthorityWrittenFirstByTheAuthorization() {
+    // Arrange
+    CodeDelegation codeDelegation = createCodeDelegation(CHAIN_ID, 0L);
+    when(transaction.getCodeDelegationList()).thenReturn(Optional.of(List.of(codeDelegation)));
+    when(worldUpdater.get(any())).thenReturn(null);
+    when(worldUpdater.createAccount(any())).thenReturn(authority);
+
+    // Act
+    CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
+
+    // Assert: EIP-2780 charges the runtime ACCOUNT_WRITE for this authority.
+    assertThat(result.authorityWrites()).isEqualTo(1);
+  }
+
+  @Test
+  void shouldNotCountAuthorityWriteWhenAuthorityIsTheSender() {
+    // Arrange: the sender's write is already covered by TX_BASE_COST.
+    CodeDelegation codeDelegation = createCodeDelegation(CHAIN_ID, 0L);
+    when(transaction.getSender()).thenReturn(codeDelegation.authorizer().orElseThrow());
+    when(transaction.getCodeDelegationList()).thenReturn(Optional.of(List.of(codeDelegation)));
+    when(worldUpdater.get(any())).thenReturn(null);
+    when(worldUpdater.createAccount(any())).thenReturn(authority);
+
+    // Act
+    CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
+
+    // Assert
+    assertThat(result.authorityWrites()).isZero();
+    verify(authority).incrementNonce();
+  }
+
+  @Test
+  void shouldNotCountAuthorityWriteWhenAuthorityIsRecipientOfValueBearingTransaction() {
+    // Arrange: the recipient's write is already covered by TX_VALUE_COST.
+    CodeDelegation codeDelegation = createCodeDelegation(CHAIN_ID, 0L);
+    when(transaction.getValue()).thenReturn(Wei.ONE);
+    when(transaction.getTo()).thenReturn(Optional.of(codeDelegation.authorizer().orElseThrow()));
+    when(transaction.getCodeDelegationList()).thenReturn(Optional.of(List.of(codeDelegation)));
+    when(worldUpdater.get(any())).thenReturn(null);
+    when(worldUpdater.createAccount(any())).thenReturn(authority);
+
+    // Act
+    CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
+
+    // Assert
+    assertThat(result.authorityWrites()).isZero();
+  }
+
+  @Test
+  void shouldCountAuthorityWriteAtMostOncePerAuthority() {
+    // Arrange: two valid authorizations for the same authority — only the first one writes it.
+    // Same chain id, delegate address, nonce and signature, so both recover the same authority.
+    CodeDelegation first = createCodeDelegation(CHAIN_ID, 0L);
+    CodeDelegation second = createCodeDelegation(CHAIN_ID, 0L);
+    assertThat(second.authorizer()).isEqualTo(first.authorizer());
+    when(transaction.getCodeDelegationList()).thenReturn(Optional.of(List.of(first, second)));
+    when(worldUpdater.get(any())).thenReturn(null).thenReturn(authority);
+    when(worldUpdater.createAccount(any())).thenReturn(authority);
+    when(worldUpdater.getAccount(any())).thenReturn(authority);
+    when(authority.getNonce()).thenReturn(0L);
+    when(authority.getCode()).thenReturn(Bytes.EMPTY);
+    when(codeDelegationService.canSetCodeDelegation(any())).thenReturn(true);
+
+    // Act
+    CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
+
+    // Assert
+    verify(authority, times(2)).incrementNonce();
+    assertThat(result.authorityWrites()).isEqualTo(1);
+  }
+
+  @Test
+  void shouldNotCountAuthorityWriteForRejectedAuthorization() {
+    // Arrange: an authorization that never writes its authority owes no ACCOUNT_WRITE.
+    CodeDelegation codeDelegation = createCodeDelegation(CHAIN_ID, 1L);
+    when(transaction.getCodeDelegationList()).thenReturn(Optional.of(List.of(codeDelegation)));
+    when(worldUpdater.get(any())).thenReturn(null);
+
+    // Act
+    CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
+
+    // Assert
+    assertThat(result.authorityWrites()).isZero();
+    verify(worldUpdater, never()).createAccount(any());
   }
 
   private CodeDelegation createCodeDelegation(final BigInteger chainId, final long nonce) {

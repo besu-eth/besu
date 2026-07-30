@@ -106,7 +106,7 @@ public interface Transaction {
    *
    * @return value equal to the number of Wei to be transferred
    */
-  Quantity getValue();
+  Wei getValue();
 
   /**
    * Value corresponding to the 'yParity' component of non-legacy signatures.

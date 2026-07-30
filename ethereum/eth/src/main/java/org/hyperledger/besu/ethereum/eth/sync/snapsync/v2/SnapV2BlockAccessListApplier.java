@@ -70,7 +70,7 @@ public class SnapV2BlockAccessListApplier {
     this.protocolSchedule = protocolSchedule;
   }
 
-  public void applyBlockAccessLists(
+  public BatchState applyBlockAccessLists(
       final long fromBlock,
       final long toBlock,
       final DownloadedAccountRangeTracker accountRangeTracker,
@@ -91,28 +91,28 @@ public class SnapV2BlockAccessListApplier {
         accountRangeTracker.pendingRangeCount());
 
     final WorldStateKeyValueStorage.Updater updater = worldStateStorageCoordinator.updater();
+    final MerkleTrie<Bytes, Bytes> accountTrie = openAccountTrie();
 
     final Map<Hash, PerAccountChanges> changes =
         collectAccountChanges(fromBlock, toBlock, accountRangeTracker);
     if (changes.isEmpty()) {
       LOG.info("No persisted accounts affected by BALs in blocks [{}, {}]", fromBlock, toBlock);
-      return;
+      return new BatchState(accountTrie, updater);
     }
-
-    final MerkleTrie<Bytes, Bytes> accountTrie = openAccountTrie();
 
     final BalApplicationStats stats =
         stageAccountChanges(
             changes, accountTrie, updater, storageRangeTracker, accountRangeTracker);
 
     stageAccountTrieChanges(accountTrie, updater);
-    updater.commit();
 
     LOG.info(
         "Applied snap/2 BALs: {} accounts, {} storage slots, {} storage roots updated",
         stats.accounts,
         stats.storageSlots,
         stats.storageRoots);
+
+    return new BatchState(accountTrie, updater);
   }
 
   private Map<Hash, PerAccountChanges> collectAccountChanges(
@@ -188,6 +188,55 @@ public class SnapV2BlockAccessListApplier {
     }
 
     return pendingAffected;
+  }
+
+  /**
+   * Rewrites stale storage roots in the flat db and account trie leaves using verified roots
+   * fetched at the new pivot. Needed because storage range downloads never update account state,
+   * leaving roots computed over partial storage stale.
+   *
+   * @return the number of corrected accounts
+   */
+  public int patchStorageRoots(final BatchState batch, final Map<Hash, Bytes32> correctRoots) {
+    if (correctRoots.isEmpty()) {
+      return 0;
+    }
+
+    final WorldStateKeyValueStorage.Updater updater = batch.updater();
+    final MerkleTrie<Bytes, Bytes> accountTrie = batch.accountTrie();
+
+    int patched = 0;
+    for (final Map.Entry<Hash, Bytes32> entry : correctRoots.entrySet()) {
+      final Hash accountHash = entry.getKey();
+      final Hash correctRoot = Hash.wrap(entry.getValue());
+      final PmtStateTrieAccountValue existingAccount = readExistingAccount(accountHash);
+      if (existingAccount == null) {
+        LOG.warn(
+            "snap/2 skipping storage root patch for account {}: not found locally", accountHash);
+        continue;
+      }
+      if (existingAccount.getStorageRoot().equals(correctRoot)) {
+        continue;
+      }
+      final PmtStateTrieAccountValue correctedAccount =
+          new PmtStateTrieAccountValue(
+              existingAccount.getNonce(),
+              existingAccount.getBalance(),
+              correctRoot,
+              existingAccount.getCodeHash());
+      final Bytes encodedAccount = RLP.encode(correctedAccount::writeTo);
+      applyForStrategy(
+          updater,
+          onBonsai -> onBonsai.putAccountInfoState(accountHash, encodedAccount),
+          onForest -> {});
+      accountTrie.put(accountHash.getBytes(), encodedAccount);
+      patched++;
+    }
+
+    if (patched > 0) {
+      stageAccountTrieChanges(accountTrie, updater);
+    }
+    return patched;
   }
 
   private MerkleTrie<Bytes, Bytes> openAccountTrie() {
@@ -458,6 +507,13 @@ public class SnapV2BlockAccessListApplier {
   }
 
   private record BalApplicationStats(int accounts, int storageSlots, int storageRoots) {}
+
+  record BatchState(
+      MerkleTrie<Bytes, Bytes> accountTrie, WorldStateKeyValueStorage.Updater updater) {
+    void commit() {
+      updater.commit();
+    }
+  }
 
   private record StorageRootResult(Hash root, int downloadedSlots) {}
 
