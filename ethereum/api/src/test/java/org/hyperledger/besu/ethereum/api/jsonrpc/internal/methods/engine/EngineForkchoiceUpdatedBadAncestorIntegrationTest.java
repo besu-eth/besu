@@ -33,7 +33,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ForkchoiceS
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttributesV3;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.ForkchoiceUpdatedResultV1;
 import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
@@ -144,7 +143,6 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
                 .mergeCoordinator(mergeCoordinator)
                 .ethPeers(mock(EthPeers.class))
                 .metricsSystem(new NoOpMetricsSystem())
-                .blockResultFactory(mock(BlockResultFactory.class))
                 .build(),
             CANCUN,
             AMSTERDAM);

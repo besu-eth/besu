@@ -24,7 +24,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.ForkSup
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
@@ -52,7 +51,8 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
     INVALID_BLOCK_HASH;
   }
 
-  // Fields used by migrated series (currently engine_forkchoiceUpdatedV* and engine_newPayloadV*
+  // Fields used by migrated series (currently engine_forkchoiceUpdatedV*, engine_newPayloadV* and
+  // engine_getPayloadV*
   // — see the package README's migration status table). Not-yet-migrated series keep using the
   // TRANSITIONAL SHIM constructors below instead of this record.
   @Value.Builder
@@ -63,8 +63,7 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
       EngineCallListener engineCallListener,
       MergeMiningCoordinator mergeCoordinator,
       EthPeers ethPeers,
-      MetricsSystem metricsSystem,
-      BlockResultFactory blockResultFactory) {}
+      MetricsSystem metricsSystem) {}
 
   private static final Logger LOG = LoggerFactory.getLogger(ExecutionEngineJsonRpcMethod.class);
   public static final long ENGINE_API_LOGGING_THRESHOLD = 60000L;

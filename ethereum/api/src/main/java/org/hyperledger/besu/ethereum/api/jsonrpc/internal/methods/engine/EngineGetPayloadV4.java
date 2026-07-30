@@ -20,7 +20,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineGetPayloadResultV4;
 import org.hyperledger.besu.ethereum.core.Request;
 
-import java.util.Comparator;
 import java.util.List;
 
 import org.slf4j.Logger;
@@ -57,14 +56,6 @@ public sealed class EngineGetPayloadV4 extends EngineGetPayloadV3 permits Engine
   }
 
   protected List<Request> prepareRequests(final PayloadWrapper payload) {
-    return payload
-        .requests()
-        .map(
-            rqs ->
-                rqs.stream()
-                    .sorted(Comparator.comparing(Request::getType))
-                    .filter(r -> !r.getData().isEmpty())
-                    .toList())
-        .orElse(null);
+    return payload.requests().map(Request::asCanonicalList).orElse(null);
   }
 }

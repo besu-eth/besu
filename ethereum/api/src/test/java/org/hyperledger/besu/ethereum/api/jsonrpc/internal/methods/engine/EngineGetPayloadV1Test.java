@@ -30,9 +30,6 @@ import org.hyperledger.besu.consensus.merge.PayloadWrapper;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.consensus.merge.blockcreation.PayloadIdentifier;
 import org.hyperledger.besu.consensus.merge.blockcreation.PreparePayloadArgsBuilder;
-import org.hyperledger.besu.crypto.KeyPair;
-import org.hyperledger.besu.crypto.SignatureAlgorithm;
-import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcObjectMapperFactory;
@@ -45,7 +42,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineGetPayloadResultV1;
 import org.hyperledger.besu.ethereum.blockcreation.BlockCreationTiming;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -81,15 +77,11 @@ import org.mockito.quality.Strictness;
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 public class EngineGetPayloadV1Test extends AbstractScheduledApiTest {
-  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
-      SignatureAlgorithmFactory.getInstance();
-  protected static final KeyPair senderKeys = SIGNATURE_ALGORITHM.generateKeyPair();
   private static final ObjectMapper OBJECT_MAPPER = JsonRpcObjectMapperFactory.getResponseMapper();
 
   protected EngineGetPayloadV1 method;
 
   protected static final Vertx vertx = Vertx.vertx();
-  protected static final BlockResultFactory factory = new BlockResultFactory();
   protected static final PayloadIdentifier mockPid = new PayloadIdentifier(1337L);
   protected BlockHeader mockHeader =
       new BlockHeaderTestFixture().prevRandao(Bytes32.random()).buildHeader();
@@ -127,7 +119,6 @@ public class EngineGetPayloadV1Test extends AbstractScheduledApiTest {
             .vertx(vertx)
             .engineCallListener(engineCallListener)
             .mergeCoordinator(mergeMiningCoordinator)
-            .blockResultFactory(factory)
             .ethPeers(ethPeers)
             .metricsSystem(metricsSystem)
             .build(),

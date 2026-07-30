@@ -28,7 +28,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorR
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineGetPayloadResultV1;
 import org.hyperledger.besu.ethereum.blockcreation.BlockCreationTiming;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -51,7 +50,6 @@ public sealed class EngineGetPayloadV1 extends ExecutionEngineJsonRpcMethod
   }
 
   private final MergeMiningCoordinator mergeMiningCoordinator;
-  protected final BlockResultFactory blockResultFactory;
 
   public EngineGetPayloadV1(
       final ConstructorArguments constructorArguments,
@@ -59,7 +57,6 @@ public sealed class EngineGetPayloadV1 extends ExecutionEngineJsonRpcMethod
       final HardforkId firstUnsupportedFork) {
     super(constructorArguments, minSupportedFork, firstUnsupportedFork);
     this.mergeMiningCoordinator = constructorArguments.mergeCoordinator();
-    this.blockResultFactory = constructorArguments.blockResultFactory();
   }
 
   @Override

@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
 import org.hyperledger.besu.datatypes.Wei;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV3;
 
 import com.fasterxml.jackson.annotation.JsonGetter;
@@ -28,7 +27,7 @@ public sealed class EngineGetPayloadResultV3 extends EngineGetPayloadResultV2
   private final boolean shouldOverrideBuilder;
 
   public EngineGetPayloadResultV3(
-      final ExecutionPayloadV1 executionPayload,
+      final ExecutionPayloadV3 executionPayload,
       final Wei blockValue,
       final BlobsBundleV1 blobsBundle) {
     super(executionPayload, blockValue);

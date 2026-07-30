@@ -127,8 +127,7 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
               engineQosTimer,
               mergeCoordinator.get(),
               ethPeers,
-              metricsSystem,
-              blockResultFactory);
+              metricsSystem);
 
       List<JsonRpcMethod> executionEngineApisSupported = new ArrayList<>();
       executionEngineApisSupported.addAll(

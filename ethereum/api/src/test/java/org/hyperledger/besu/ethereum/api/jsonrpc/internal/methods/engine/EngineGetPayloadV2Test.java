@@ -54,7 +54,6 @@ public class EngineGetPayloadV2Test extends EngineGetPayloadV1Test {
             .vertx(vertx)
             .engineCallListener(engineCallListener)
             .mergeCoordinator(mergeMiningCoordinator)
-            .blockResultFactory(factory)
             .ethPeers(ethPeers)
             .metricsSystem(metricsSystem)
             .build(),
