@@ -1488,12 +1488,12 @@ tasks.register('generateArtifactsCatalog') {
         def projectName = (id.group + "." + id.name).replace('besu.', '').replace('.', ':')
         def currPrj = project(projectName)
         groupId = 'org.hyperledger.besu.internal'
-        currPrj.publishing.publications.forEach { // some project have a different groupId
+        artifactId = (id.group + "." + id.name).replace('.', '-')
+        currPrj.publishing.publications.forEach { // some projects publish under different coordinates
           pub ->
           groupId = pub.getGroupId()
+          artifactId = pub.getArtifactId()
         }
-
-        artifactId = (id.group + "." + id.name).replace('.', '-')
       }
 
       def properties = [

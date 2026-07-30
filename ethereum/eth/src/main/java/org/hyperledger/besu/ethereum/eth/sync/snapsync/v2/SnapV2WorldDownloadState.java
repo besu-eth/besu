@@ -591,8 +591,15 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
             pendingAffected.size());
         final CompletableFuture<Map<Hash, Bytes32>> rootsFuture =
             fetchAccountStorageRoots(pendingAffected, newPivotBlockHeader);
-        applyBlockAccessLists(currentPivotBlockHeader, newPivotBlockHeader);
+        final var batch = applyBlockAccessLists(currentPivotBlockHeader, newPivotBlockHeader);
         final Map<Hash, Bytes32> correctRoots = rootsFuture.join();
+        final int patched = blockAccessListApplier.patchStorageRoots(batch, correctRoots);
+        batch.commit();
+        LOG.debug(
+            "snap/2 pivot catch-up ({} -> {}): {} storage roots patched",
+            currentPivotBlockHeader.getNumber(),
+            newPivotBlockHeader.getNumber(),
+            patched);
         retargetQueuedRequests(newPivotBlockHeader, correctRoots);
         snapSyncState.setCurrentHeader(newPivotBlockHeader);
       } catch (final Throwable e) {
@@ -618,7 +625,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
     checkCompletion(newPivotBlockHeader);
   }
 
-  private void applyBlockAccessLists(
+  private SnapV2BlockAccessListApplier.BatchState applyBlockAccessLists(
       final BlockHeader currentPivotBlockHeader, final BlockHeader newPivotBlockHeader) {
     LOG.info(
         "snap/2 applying BALs: pivot {} -> {} (ranges: completed={}, pending={}) outstanding=[account={}, storage={}, largeStorage={}, code={}]",
@@ -630,7 +637,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
         pendingStorageRequests.outstandingTaskCount(),
         pendingLargeStorageRequests.outstandingTaskCount(),
         pendingCodeRequests.outstandingTaskCount());
-    blockAccessListApplier.applyBlockAccessLists(
+    return blockAccessListApplier.applyBlockAccessLists(
         currentPivotBlockHeader.getNumber() + 1,
         newPivotBlockHeader.getNumber(),
         accountRangeTracker,

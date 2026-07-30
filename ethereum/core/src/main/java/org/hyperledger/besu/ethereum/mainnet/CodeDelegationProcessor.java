@@ -27,7 +27,9 @@ import org.hyperledger.besu.evm.worldstate.CodeDelegationService;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.math.BigInteger;
+import java.util.HashSet;
 import java.util.Optional;
+import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -75,12 +77,23 @@ public class CodeDelegationProcessor {
       final Optional<AccessLocationTracker> eip7928AccessList) {
     final CodeDelegationResult result = new CodeDelegationResult();
 
+    // EIP-2780: the runtime ACCOUNT_WRITE is charged on the first write to an authority within the
+    // transaction. Seed the set with the accounts the transaction has already paid to write: the
+    // sender (covered by TX_BASE_COST) and, on a value-bearing transaction, the recipient (covered
+    // by TX_VALUE_COST).
+    final Set<Address> writtenAccounts = new HashSet<>();
+    writtenAccounts.add(transaction.getSender());
+    if (!transaction.getValue().isZero()) {
+      transaction.getTo().ifPresent(writtenAccounts::add);
+    }
+
     transaction
         .getCodeDelegationList()
         .get()
         .forEach(
             codeDelegation ->
-                processCodeDelegation(worldUpdater, codeDelegation, result, eip7928AccessList));
+                processCodeDelegation(
+                    worldUpdater, codeDelegation, result, writtenAccounts, eip7928AccessList));
 
     return result;
   }
@@ -89,6 +102,7 @@ public class CodeDelegationProcessor {
       final WorldUpdater worldUpdater,
       final CodeDelegation codeDelegation,
       final CodeDelegationResult result,
+      final Set<Address> writtenAccounts,
       final Optional<AccessLocationTracker> eip7928AccessList) {
     LOG.trace("Processing code delegation: {}", codeDelegation);
 
@@ -131,6 +145,12 @@ public class CodeDelegationProcessor {
 
     if (authorityAlreadyExists) {
       result.incrementAlreadyExistingDelegators();
+    }
+
+    // EIP-2780: charge ACCOUNT_WRITE at most once per authority, and only when this authorization
+    // is the first thing in the transaction to write it.
+    if (writtenAccounts.add(authorizer)) {
+      result.incrementAuthorityWrites();
     }
 
     // AUTH_BASE state gas is refunded when no new delegation-indicator bytes are written: either

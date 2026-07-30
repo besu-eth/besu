@@ -122,7 +122,8 @@ class SnapV2BlockAccessListApplierReorgTest {
             block1.getHeader().getNumber() + 1,
             block2c.getHeader().getNumber(),
             accountTracker,
-            storageTracker);
+            storageTracker)
+        .commit();
 
     // Alice: touched on both forks. Canonical BAL overwrites with the correct value (80).
     assertThat(readBalance(ALICE)).isEqualTo(Wei.of(80));
@@ -168,7 +169,8 @@ class SnapV2BlockAccessListApplierReorgTest {
             block1.getHeader().getNumber() + 1,
             block2c.getHeader().getNumber(),
             fullAccountRange(),
-            new DownloadedStorageRangeTracker());
+            new DownloadedStorageRangeTracker())
+        .commit();
 
     assertThat(readBalance(ALICE)).isEqualTo(Wei.of(80));
     final PmtStateTrieAccountValue grace = readAccount(GRACE);
@@ -211,7 +213,8 @@ class SnapV2BlockAccessListApplierReorgTest {
             block1.getHeader().getNumber() + 1,
             block3c.getHeader().getNumber(),
             fullAccountRange(),
-            new DownloadedStorageRangeTracker());
+            new DownloadedStorageRangeTracker())
+        .commit();
 
     // Alice was written by both canonical blocks: the latest value wins.
     assertThat(readBalance(ALICE)).isEqualTo(Wei.of(90));
@@ -243,7 +246,8 @@ class SnapV2BlockAccessListApplierReorgTest {
             2L,
             block2.getHeader().getNumber(),
             fullAccountRange(),
-            new DownloadedStorageRangeTracker());
+            new DownloadedStorageRangeTracker())
+        .commit();
 
     assertThat(readBalance(ALICE)).isEqualTo(Wei.of(70));
   }
@@ -291,7 +295,8 @@ class SnapV2BlockAccessListApplierReorgTest {
             block1.getHeader().getNumber() + 1,
             block2c.getHeader().getNumber(),
             fullAccountRange(),
-            new DownloadedStorageRangeTracker());
+            new DownloadedStorageRangeTracker())
+        .commit();
 
     // s1: canonical write applied, and the account's storage root moved off the empty trie.
     assertThat(readStorageSlot(FRANK, slot1)).hasValue(UInt256.valueOf(111));
@@ -331,7 +336,8 @@ class SnapV2BlockAccessListApplierReorgTest {
             block1.getHeader().getNumber() + 1,
             block2c.getHeader().getNumber(),
             fullAccountRange(),
-            new DownloadedStorageRangeTracker());
+            new DownloadedStorageRangeTracker())
+        .commit();
 
     assertThat(readStorageSlot(FRANK, slot1)).isEmpty();
   }
@@ -372,7 +378,8 @@ class SnapV2BlockAccessListApplierReorgTest {
             block1.getHeader().getNumber() + 1,
             block2c.getHeader().getNumber(),
             accountTracker,
-            new DownloadedStorageRangeTracker());
+            new DownloadedStorageRangeTracker())
+        .commit();
 
     assertThat(readBalance(ALICE)).isEqualTo(Wei.of(80));
     assertThat(accountExists(DAVE)).isFalse();
@@ -413,7 +420,8 @@ class SnapV2BlockAccessListApplierReorgTest {
             block1.getHeader().getNumber() + 1,
             block2c.getHeader().getNumber(),
             fullAccountRange(),
-            new DownloadedStorageRangeTracker());
+            new DownloadedStorageRangeTracker())
+        .commit();
 
     // Alice: nonce applied, balance (untouched by the canonical BAL) preserved.
     final PmtStateTrieAccountValue alice = readAccount(ALICE);
