@@ -27,9 +27,9 @@ import org.hyperledger.besu.evm.worldstate.CodeDelegationService;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.math.BigInteger;
-import java.util.HashSet;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -77,15 +77,10 @@ public class CodeDelegationProcessor {
       final Optional<AccessLocationTracker> eip7928AccessList) {
     final CodeDelegationResult result = new CodeDelegationResult();
 
-    // EIP-2780: the runtime ACCOUNT_WRITE is charged on the first write to an authority within the
-    // transaction. Seed the set with the accounts the transaction has already paid to write: the
-    // sender (covered by TX_BASE_COST) and, on a value-bearing transaction, the recipient (covered
-    // by TX_VALUE_COST).
-    final Set<Address> writtenAccounts = new HashSet<>();
-    writtenAccounts.add(transaction.getSender());
-    if (!transaction.getValue().isZero()) {
-      transaction.getTo().ifPresent(writtenAccounts::add);
-    }
+    // Per authority, whether it held a delegation in the pre-transaction state. Captured on the
+    // first authorization for that authority, before a prior one in this transaction could have
+    // changed its code.
+    final Map<Address, Boolean> delegatedBeforeTx = new HashMap<>();
 
     transaction
         .getCodeDelegationList()
@@ -93,7 +88,7 @@ public class CodeDelegationProcessor {
         .forEach(
             codeDelegation ->
                 processCodeDelegation(
-                    worldUpdater, codeDelegation, result, writtenAccounts, eip7928AccessList));
+                    worldUpdater, codeDelegation, result, delegatedBeforeTx, eip7928AccessList));
 
     return result;
   }
@@ -102,17 +97,19 @@ public class CodeDelegationProcessor {
       final WorldUpdater worldUpdater,
       final CodeDelegation codeDelegation,
       final CodeDelegationResult result,
-      final Set<Address> writtenAccounts,
+      final Map<Address, Boolean> delegatedBeforeTx,
       final Optional<AccessLocationTracker> eip7928AccessList) {
     LOG.trace("Processing code delegation: {}", codeDelegation);
 
     if (!isCodeDelegationValid(codeDelegation)) {
+      result.incrementInvalidAuthorization();
       return;
     }
 
     final Optional<Address> maybeAuthorizer = codeDelegation.authorizer();
     if (maybeAuthorizer.isEmpty()) {
       LOG.trace("Invalid signature for code delegation");
+      result.incrementInvalidAuthorization();
       return;
     }
 
@@ -128,41 +125,41 @@ public class CodeDelegationProcessor {
     result.addAccessedDelegatorAddress(authorizer);
 
     if (!canSetCodeDelegation(codeDelegation, maybeExistingAccount)) {
+      result.incrementInvalidAuthorization();
       return;
     }
 
-    // the worst-case STATE_BYTES_PER_NEW_ACCOUNT and ACCOUNT_WRITE charged at intrinsic time
-    // are only refilled/refunded if the authority already exists AND is non-empty
-    // (non-zero nonce, non-zero balance, or non-empty code). A present-but-empty account is
-    // treated like a brand-new leaf for gas purposes.
-    final boolean authorityAlreadyExists =
-        maybeExistingAccount.isPresent() && !maybeExistingAccount.get().isEmpty();
+    final boolean authorityAlreadyExists = maybeExistingAccount.isPresent();
+    final boolean delegatedNow =
+        authorityAlreadyExists && hasCodeDelegation(maybeExistingAccount.get().getCode());
 
     final MutableAccount authority =
-        maybeExistingAccount.isEmpty()
-            ? worldUpdater.createAccount(authorizer)
-            : worldUpdater.getAccount(authorizer);
+        authorityAlreadyExists
+            ? worldUpdater.getAccount(authorizer)
+            : worldUpdater.createAccount(authorizer);
+    eip7928AccessList.ifPresent(t -> t.addTouchedAccount(authority.getAddress()));
 
     if (authorityAlreadyExists) {
       result.incrementAlreadyExistingDelegators();
     }
 
-    // EIP-2780: charge ACCOUNT_WRITE at most once per authority, and only when this authorization
-    // is the first thing in the transaction to write it.
-    if (writtenAccounts.add(authorizer)) {
-      result.incrementAuthorityWrites();
-    }
-
-    // AUTH_BASE state gas is refunded when no new delegation-indicator bytes are written: either
-    // the authority already carries a delegation designator (overwritten in place) or the
-    // authorization clears the delegation (auth.address == 0).
-    final boolean hasExistingDelegation =
-        maybeExistingAccount.isPresent() && hasCodeDelegation(maybeExistingAccount.get().getCode());
-    if (hasExistingDelegation || codeDelegation.address().equals(Address.ZERO)) {
+    // AUTH_BASE is refilled only when no new indicator bytes are written. The two flags differ
+    // because delegatedNow may reflect an indicator written earlier in this same transaction,
+    // which still had to be paid for; delegatedBefore never does.
+    final boolean delegatedBefore =
+        delegatedBeforeTx.computeIfAbsent(authorizer, a -> delegatedNow);
+    if (codeDelegation.address().equals(Address.ZERO)) {
+      // Clearing writes no indicator bytes, so AUTH_BASE refills once — twice if the delegation
+      // being cleared was itself created earlier in this transaction.
+      result.incrementAuthBaseRefundCount();
+      if (delegatedNow && !delegatedBefore) {
+        result.incrementAuthBaseRefundCount();
+      }
+    } else if (delegatedNow || delegatedBefore) {
+      // Overwriting an existing designator in place writes no new indicator bytes.
       result.incrementAuthBaseRefundCount();
     }
 
-    eip7928AccessList.ifPresent(t -> t.addTouchedAccount(authority.getAddress()));
     codeDelegationService.processCodeDelegation(authority, codeDelegation.address());
     authority.incrementNonce();
   }

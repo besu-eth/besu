@@ -55,6 +55,7 @@ engine-rpc-enabled=true
 engine-jwt-disabled=true
 engine-jwt-secret="/tmp/jwt.hex"
 required-blocks=["8675309=123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"]
+checkpoint="0x0000000000000000000000000000000000000000000000000000000000000001:100:1000"
 discovery-dns-url="enrtree://AM5FCQLWIZX2QFPNJAP7VUERCCRNGRHWZG3YYHIUV7BVDQ5FDPRT2@nodes.example.org"
 net-restrict=["none"]
 

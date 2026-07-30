@@ -23,14 +23,10 @@ public class CodeDelegationResult {
   private final Set<Address> accessedDelegatorAddresses = new HashSet<>(Address.SIZE);
   private long alreadyExistingDelegators = 0L;
   private long authBaseRefundCount = 0L;
-  private long authorityWrites = 0L;
+  private long invalidAuthorizations = 0L;
 
   public void addAccessedDelegatorAddress(final Address address) {
     accessedDelegatorAddresses.add(address);
-  }
-
-  public void incrementAuthorityWrites() {
-    authorityWrites += 1;
   }
 
   public void incrementAlreadyExistingDelegators() {
@@ -58,13 +54,15 @@ public class CodeDelegationResult {
     return authBaseRefundCount;
   }
 
+  public void incrementInvalidAuthorization() {
+    invalidAuthorizations += 1;
+  }
+
   /**
-   * EIP-2780: the number of authorizations that performed the first write to their authority within
-   * the transaction, and therefore owe the runtime ACCOUNT_WRITE charge. Authorizations whose
-   * authority was already written — the sender, the recipient of a value-bearing transaction, or an
-   * authority written by a preceding valid authorization — are not counted.
+   * Invalid authorizations grow no state, so each refunds its full worst-case intrinsic charge:
+   * NEW_ACCOUNT + AUTH_BASE state gas plus the regular ACCOUNT_WRITE.
    */
-  public long authorityWrites() {
-    return authorityWrites;
+  public long invalidAuthorizations() {
+    return invalidAuthorizations;
   }
 }

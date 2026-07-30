@@ -62,9 +62,6 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
   private static final long ACCESS_LIST_STORAGE_KEY_FLOOR_COST =
       ACCESS_LIST_STORAGE_KEY_BYTES * TOTAL_COST_FLOOR_PER_BYTE;
 
-  // EIP-8037: New regular gas constants for Amsterdam
-  private static final long TX_CREATE_COST = 9_000L;
-
   // --- EIP-8038: state-access gas repricing (see the EIP for the authoritative values) ---
 
   /** Cold account access cost. */
@@ -94,6 +91,9 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
    */
   private static final long CREATE_ACCESS = ACCOUNT_WRITE + COLD_ACCOUNT_ACCESS;
 
+  /** EIP-2780: top-level contract-creation cost, equal to the CREATE recipient access. */
+  private static final long TX_CREATE_COST = CREATE_ACCESS;
+
   /** Per-word copy cost used for EXTCODECOPY memory-copy accounting. */
   private static final long COPY_WORD_GAS_COST = 3L;
 
@@ -108,16 +108,21 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
   /**
    * EIP-2780: cost of a value-bearing transaction's recipient charges, covering the recipient
    * balance write (4,244) and the EIP-7708 transfer log (1,756). Charged in intrinsic gas for a
-   * value-bearing call; a contract creation covers the balance write through {@link #CREATE_ACCESS}
-   * and a self-transfer writes only the sender, so neither charges it.
+   * value-bearing call; a self-transfer writes only the sender, so it charges neither.
    */
   private static final long TX_VALUE_COST = 6_000L;
 
   /**
-   * EIP-2780: the intrinsic (state-independent) regular gas per EIP-7702 authorization:
+   * EIP-7708: the transfer-log half of {@link #TX_VALUE_COST}, needed on its own because a
+   * value-bearing contract creation covers the balance write through {@link #CREATE_ACCESS} but
+   * still emits the log.
+   */
+  private static final long TRANSFER_LOG_COST = 1_756L;
+
+  /**
+   * EIP-2780: regular gas per EIP-7702 authorization, in addition to {@link #ACCOUNT_WRITE}:
    * AUTH_TUPLE_BYTES(101) * TX_DATA_TOKEN_FLOOR(16) + ECRECOVER(3000) + COLD_ACCOUNT_ACCESS(3000) +
-   * 2 * WARM_ACCESS(100) = 7,816. The {@link #ACCOUNT_WRITE} an authorization may additionally
-   * perform is state-dependent and charged at runtime, not reserved here.
+   * 2 * WARM_ACCESS(100) = 7,816.
    */
   private static final long REGULAR_PER_AUTH_BASE_COST =
       101L * 16L + 3_000L + COLD_ACCOUNT_ACCESS + 2L * 100L;
@@ -212,18 +217,25 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
     final long dataCost = tokens * TX_DATA_TOKEN_STANDARD;
 
     final long recipientRegular;
+    final boolean valueTransfer = !transaction.getValue().isZero();
     if (transaction.isContractCreation()) {
-      // A value-bearing creation adds nothing: the recipient balance write is already covered by
-      // CREATE_ACCESS, so create intrinsic is the same with and without value.
-      recipientRegular = CREATE_ACCESS + initCodeCost(payloadSize);
+      // CREATE_ACCESS already covers the recipient balance write; a value-bearing creation still
+      // emits the EIP-7708 transfer log.
+      long create = CREATE_ACCESS + initCodeCost(payloadSize);
+      if (valueTransfer) {
+        create += TRANSFER_LOG_COST;
+      }
+      recipientRegular = create;
     } else if (isSelfTransfer(transaction)) {
-      // A self-transfer touches and writes only the sender, both covered by TX_BASE.
+      // A self-transfer touches and writes only the sender, both covered by TX_BASE. Value makes no
+      // difference either, since EIP-7708 emits no transfer log when sender and recipient match.
       recipientRegular = 0L;
     } else {
-      recipientRegular =
-          transaction.getValue().isZero()
-              ? COLD_ACCOUNT_ACCESS
-              : COLD_ACCOUNT_ACCESS + TX_VALUE_COST;
+      long call = COLD_ACCOUNT_ACCESS;
+      if (valueTransfer) {
+        call += TX_VALUE_COST;
+      }
+      recipientRegular = call;
     }
 
     return clampedAdd(clampedAdd(TX_BASE, dataCost), clampedAdd(recipientRegular, baselineGas));
@@ -296,10 +308,8 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
 
   @Override
   public long txCreateCost() {
-    // EIP-8038: CREATE/CREATE2 opcodes are charged CREATE_ACCESS in regular gas (plus the
-    // new-account state-creation cost as state gas). The transaction-intrinsic create cost is
-    // repriced separately by EIP-2780; txCreateExtraGasCost() below keeps the EIP-8037 value.
-    return CREATE_ACCESS;
+    // EIP-8038: regular gas only; the new-account creation cost is charged as state gas.
+    return TX_CREATE_COST;
   }
 
   @Override
@@ -367,23 +377,16 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
 
   @Override
   public long delegateCodeGasCost(final int delegateCodeListLength) {
-    // EIP-2780: only the state-independent REGULAR_PER_AUTH_BASE_COST (7,816) is intrinsic and
-    // therefore part of the validity check. The per-authority ACCOUNT_WRITE is state-dependent
-    // and charged at runtime by delegateCodeAccountWriteGasCost.
-    return REGULAR_PER_AUTH_BASE_COST * delegateCodeListLength;
-  }
-
-  @Override
-  public long delegateCodeAccountWriteGasCost(final long authorityWrites) {
-    // EIP-2780: ACCOUNT_WRITE per authorization performing the first write to its authority.
-    return ACCOUNT_WRITE * authorityWrites;
+    // EIP-2780: the per-authority ACCOUNT_WRITE is reserved worst-case here instead of charged at
+    // runtime, so it is part of the validity check and refunded afterwards where nothing grew.
+    return (ACCOUNT_WRITE + REGULAR_PER_AUTH_BASE_COST) * delegateCodeListLength;
   }
 
   @Override
   public long calculateDelegateCodeGasRefund(final long alreadyExistingAccounts) {
-    // EIP-2780: nothing to refund — no regular gas is over-reserved at the intrinsic phase, and
-    // state gas uses its own refund path.
-    return 0L;
+    // EIP-7702: refund the worst-case ACCOUNT_WRITE for authorizations that grew no account —
+    // authority already existed, or the authorization was invalid.
+    return ACCOUNT_WRITE * alreadyExistingAccounts;
   }
 
   @Override

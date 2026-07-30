@@ -703,19 +703,6 @@ public interface GasCalculator {
   }
 
   /**
-   * EIP-2780: the runtime regular gas charged for the account writes performed while processing the
-   * EIP-7702 authorization list. Zero before Amsterdam, where the whole per-authorization cost is
-   * reserved at the intrinsic phase instead.
-   *
-   * @param authorityWrites the number of authorizations that performed the first write to their
-   *     authority within the transaction
-   * @return the gas cost
-   */
-  default long delegateCodeAccountWriteGasCost(final long authorityWrites) {
-    return 0L;
-  }
-
-  /**
    * Calculates the refund for processing the 7702 code delegation list if a delegator account
    * already exists in the trie.
    *
