@@ -206,6 +206,13 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
     final Address contractAddress = generateTargetContractAddress(parent, code);
     final Bytes inputData = getInputData(parent);
 
+    // EIP-8037: an already-alive target adds no leaf, so complete() refunds its NEW_ACCOUNT gas.
+    // Nothing reads the flag when state gas is inactive.
+    if (gasCalculator().stateGasCostCalculator().isActive()) {
+      final var existingTarget = parent.getWorldUpdater().get(contractAddress);
+      parent.setCreateTargetWasAlive(existingTarget != null && !existingTarget.isEmpty());
+    }
+
     final long childGasStipend =
         gasCalculator().gasAvailableForChildCreate(parent.getRemainingGas());
     parent.decrementRemainingGas(childGasStipend);
@@ -256,15 +263,19 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
 
     if (childFrame.getState() == MessageFrame.State.COMPLETED_SUCCESS) {
       Address createdAddress = childFrame.getContractAddress();
+      // Absorb the child's spill before the refund below, so the refund unwinds the combined
+      // spill rather than only this frame's share.
+      frame.incrementStateGasSpilled(childFrame.getStateGasSpilled());
+      if (frame.wasCreateTargetAlive()) {
+        frame.refillStateGasReservoir(
+            gasCalculator().stateGasCostCalculator().newContractStateGas());
+      }
       frame.pushStackItem(Words.fromAddress(createdAddress));
       frame.setReturnData(Bytes.EMPTY);
       onSuccess(frame, createdAddress);
     } else {
-      // EIP-8037: on child frame revert or exceptional
-      // halt, the account-creation state gas (112 × cpsb) charged at this CREATE/CREATE2 opcode
-      // is refunded to the reservoir — no account was created so no state gas should be paid.
-      // The child's own state gas charges (e.g. inner SSTOREs, code deposits) are already
-      // refunded into the reservoir by handleStateGasRevertSpill / handleStateGasHalt in
+      // EIP-8037: the child reverted or halted, so no account was created and this opcode's
+      // account-creation state gas is refunded. The child's own charges were already unwound by
       // AbstractMessageProcessor.
       frame.refillStateGasReservoir(gasCalculator().stateGasCostCalculator().newContractStateGas());
       frame.setReturnData(childFrame.getOutputData());

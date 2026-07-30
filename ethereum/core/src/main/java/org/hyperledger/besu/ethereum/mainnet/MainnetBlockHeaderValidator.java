@@ -30,6 +30,7 @@ import org.hyperledger.besu.ethereum.mainnet.headervalidationrules.IncrementalTi
 import org.hyperledger.besu.ethereum.mainnet.headervalidationrules.NoBlobRule;
 import org.hyperledger.besu.ethereum.mainnet.headervalidationrules.NoDifficultyRule;
 import org.hyperledger.besu.ethereum.mainnet.headervalidationrules.NoNonceRule;
+import org.hyperledger.besu.ethereum.mainnet.headervalidationrules.RequestsHashPresentValidationRule;
 import org.hyperledger.besu.ethereum.mainnet.headervalidationrules.TimestampBoundedByFutureParameter;
 import org.hyperledger.besu.ethereum.mainnet.headervalidationrules.TimestampMoreRecentThanParent;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
@@ -138,5 +139,13 @@ public final class MainnetBlockHeaderValidator {
       final GasLimitCalculator gasLimitCalculator) {
     return mergeBlockHeaderValidator(feeMarket, gasCalculator, gasLimitCalculator)
         .addRule(new BlobGasValidationRule(gasCalculator, gasLimitCalculator));
+  }
+
+  public static BlockHeaderValidator.Builder requestsAwareBlockHeaderValidator(
+      final FeeMarket feeMarket,
+      final GasCalculator gasCalculator,
+      final GasLimitCalculator gasLimitCalculator) {
+    return blobAwareBlockHeaderValidator(feeMarket, gasCalculator, gasLimitCalculator)
+        .addRule(new RequestsHashPresentValidationRule());
   }
 }

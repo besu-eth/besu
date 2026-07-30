@@ -21,6 +21,8 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.ImmutableApiConfiguration;
 
+import java.time.Duration;
+
 import org.slf4j.Logger;
 import picocli.CommandLine;
 
@@ -96,6 +98,21 @@ public class ApiConfigurationOptions {
           "Specifies the maximum number of blocks for the trace_filter method. Must be >=0. 0 specifies no limit  (default: ${DEFAULT-VALUE})")
   private final Long maxTraceFilterRange = 1000L;
 
+  @CommandLine.Option(
+      names = {"--rpc-max-active-filters"},
+      description =
+          "Specifies the maximum number of concurrently-active RPC filters (eth_newFilter, "
+              + "eth_newBlockFilter, eth_newPendingTransactionFilter). Must be >=0. 0 specifies no "
+              + "limit  (default: ${DEFAULT-VALUE})")
+  private final Integer rpcMaxActiveFilters = ApiConfiguration.DEFAULT_MAX_FILTER_COUNT;
+
+  @CommandLine.Option(
+      names = {"--rpc-filter-timeout-seconds"},
+      description =
+          "Specifies the duration in seconds that an RPC filter remains active without being polled "
+              + "before it is removed. Must be >0  (default: ${DEFAULT-VALUE})")
+  private final Long rpcFilterTimeoutSeconds = ApiConfiguration.DEFAULT_FILTER_TIMEOUT.toSeconds();
+
   /**
    * Validates the API options.
    *
@@ -109,6 +126,14 @@ public class ApiConfigurationOptions {
             commandLine,
             "--api-gas-and-priority-fee-lower-bound-coefficient cannot be greater than the value of --api-gas-and-priority-fee-upper-bound-coefficient");
       }
+    }
+    if (rpcMaxActiveFilters < 0) {
+      throw new CommandLine.ParameterException(
+          commandLine, "--rpc-max-active-filters must be >= 0 (0 specifies no limit)");
+    }
+    if (rpcFilterTimeoutSeconds <= 0) {
+      throw new CommandLine.ParameterException(
+          commandLine, "--rpc-filter-timeout-seconds must be > 0");
     }
     checkApiOptionsDependencies(commandLine, logger);
   }
@@ -139,7 +164,9 @@ public class ApiConfigurationOptions {
             .maxLogsRange(rpcMaxLogsRange)
             .gasCap(rpcGasCap)
             .isGasAndPriorityFeeLimitingEnabled(apiGasAndPriorityFeeLimitingEnabled)
-            .maxTraceFilterRange(maxTraceFilterRange);
+            .maxTraceFilterRange(maxTraceFilterRange)
+            .maxFilterCount(rpcMaxActiveFilters)
+            .filterTimeout(Duration.ofSeconds(rpcFilterTimeoutSeconds));
     if (apiGasAndPriorityFeeLimitingEnabled) {
       builder
           .lowerBoundGasAndPriorityFeeCoefficient(apiGasAndPriorityFeeLowerBoundCoefficient)

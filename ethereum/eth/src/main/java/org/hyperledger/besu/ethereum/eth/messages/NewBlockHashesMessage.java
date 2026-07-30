@@ -21,7 +21,6 @@ import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 
 import java.util.Iterator;
-import java.util.Objects;
 
 import com.google.common.collect.Iterators;
 import org.apache.tuweni.bytes.Bytes;
@@ -40,11 +39,10 @@ public final class NewBlockHashesMessage extends AbstractMessageData {
     return new NewBlockHashesMessage(message.getData());
   }
 
-  public static NewBlockHashesMessage create(
-      final Iterable<NewBlockHashesMessage.NewBlockHash> hashes) {
+  public static NewBlockHashesMessage create(final Iterable<BlockAnnouncement> hashes) {
     final BytesValueRLPOutput tmp = new BytesValueRLPOutput();
     tmp.startList();
-    for (final NewBlockHashesMessage.NewBlockHash hash : hashes) {
+    for (final BlockAnnouncement hash : hashes) {
       tmp.startList();
       tmp.writeBytes(hash.hash().getBytes());
       tmp.writeLongScalar(hash.number());
@@ -63,13 +61,13 @@ public final class NewBlockHashesMessage extends AbstractMessageData {
     return EthProtocolMessages.NEW_BLOCK_HASHES;
   }
 
-  public Iterator<NewBlockHashesMessage.NewBlockHash> getNewHashes() {
+  public Iterator<BlockAnnouncement> getNewHashes() {
     return new BytesValueRLPInput(data, false)
         .readList(
             rlpInput -> {
               rlpInput.enterList();
-              final NewBlockHashesMessage.NewBlockHash res =
-                  new NewBlockHashesMessage.NewBlockHash(
+              final BlockAnnouncement res =
+                  new BlockAnnouncement(
                       Hash.wrap(rlpInput.readBytes32()), rlpInput.readLongScalar());
               rlpInput.leaveList();
               return res;
@@ -82,44 +80,11 @@ public final class NewBlockHashesMessage extends AbstractMessageData {
     return Iterators.toString(getNewHashes());
   }
 
-  public static final class NewBlockHash {
-
-    private final Hash hash;
-
-    private final long number;
-
-    public NewBlockHash(final Hash hash, final long number) {
-      this.hash = hash;
-      this.number = number;
-    }
-
-    public long number() {
-      return number;
-    }
-
-    public Hash hash() {
-      return hash;
-    }
+  public record BlockAnnouncement(Hash hash, long number) {
 
     @Override
     public String toString() {
       return number() + " (" + hash() + ")";
-    }
-
-    @Override
-    public boolean equals(final Object that) {
-      if (this == that) {
-        return true;
-      }
-      if (!(that instanceof NewBlockHashesMessage.NewBlockHash other)) {
-        return false;
-      }
-      return other.hash.equals(hash) && other.number == number;
-    }
-
-    @Override
-    public int hashCode() {
-      return Objects.hash(hash, number);
     }
   }
 }
