@@ -18,7 +18,6 @@ import org.hyperledger.besu.ethereum.blockcreation.txselection.BlockSelectionCon
 import org.hyperledger.besu.ethereum.blockcreation.txselection.TransactionEvaluationContext;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.BlockGasAccountingStrategy;
-import org.hyperledger.besu.ethereum.mainnet.TransactionIntrinsicGas;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
@@ -129,11 +128,8 @@ public class BlockSizeTransactionSelector extends AbstractStatefulTransactionSel
    * @return True if the transaction is too large for the block, false otherwise.
    */
   private boolean transactionTooLargeForBlock(final Transaction transaction, final GasState state) {
-    final var intrinsic = TransactionIntrinsicGas.of(transaction, gasCalculator);
     return !gasAccountingStrategy.hasBlockCapacity(
         transaction.getGasLimit(),
-        intrinsic.regularGas(),
-        intrinsic.stateGas(),
         stateGasCostCalculator.transactionRegularGasLimit(),
         state.regularGas(),
         state.stateGas(),

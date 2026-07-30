@@ -20,16 +20,15 @@ import static org.hyperledger.besu.evm.worldstate.CodeDelegationHelper.hasCodeDe
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.CodeDelegation;
 import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.worldstate.CodeDelegationService;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.math.BigInteger;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.HashSet;
 import java.util.Optional;
+import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -72,15 +71,22 @@ public class CodeDelegationProcessor {
    * @return The result of the code delegation processing.
    */
   public CodeDelegationResult process(
-      final WorldUpdater worldUpdater,
-      final Transaction transaction,
-      final Optional<AccessLocationTracker> eip7928AccessList) {
+      final WorldUpdater worldUpdater, final Transaction transaction) {
     final CodeDelegationResult result = new CodeDelegationResult();
 
-    // Per authority, whether it held a delegation in the pre-transaction state. Captured on the
-    // first authorization for that authority, before a prior one in this transaction could have
-    // changed its code.
-    final Map<Address, Boolean> delegatedBeforeTx = new HashMap<>();
+    // Accounts already written by this transaction. The sender's leaf was written at inclusion
+    // (nonce bump + fee deduction, priced into TX_BASE), so a self-sponsored authority pays no
+    // ACCOUNT_WRITE; repeated authorizations on one authority pay it once. When the transaction
+    // carries value, the recipient's leaf is also written by the value transfer, so an authority
+    // equal to the recipient is likewise exempt.
+    final Set<Address> writtenAccounts = new HashSet<>();
+    writtenAccounts.add(transaction.getSender());
+    if (!transaction.getValue().isZero()) {
+      transaction.getTo().ifPresent(writtenAccounts::add);
+    }
+    // Authorities that owe no (further) AUTH_BASE: either they already held a delegation when this
+    // transaction first saw them, or they have been charged for one since. See the charge below.
+    final Set<Address> authBaseSettled = new HashSet<>();
 
     transaction
         .getCodeDelegationList()
@@ -88,7 +94,7 @@ public class CodeDelegationProcessor {
         .forEach(
             codeDelegation ->
                 processCodeDelegation(
-                    worldUpdater, codeDelegation, result, delegatedBeforeTx, eip7928AccessList));
+                    worldUpdater, codeDelegation, result, writtenAccounts, authBaseSettled));
 
     return result;
   }
@@ -97,19 +103,17 @@ public class CodeDelegationProcessor {
       final WorldUpdater worldUpdater,
       final CodeDelegation codeDelegation,
       final CodeDelegationResult result,
-      final Map<Address, Boolean> delegatedBeforeTx,
-      final Optional<AccessLocationTracker> eip7928AccessList) {
+      final Set<Address> writtenAccounts,
+      final Set<Address> authBaseSettled) {
     LOG.trace("Processing code delegation: {}", codeDelegation);
 
     if (!isCodeDelegationValid(codeDelegation)) {
-      result.incrementInvalidAuthorization();
       return;
     }
 
     final Optional<Address> maybeAuthorizer = codeDelegation.authorizer();
     if (maybeAuthorizer.isEmpty()) {
       LOG.trace("Invalid signature for code delegation");
-      result.incrementInvalidAuthorization();
       return;
     }
 
@@ -121,11 +125,14 @@ public class CodeDelegationProcessor {
     // deleted by clearAccountsThatAreEmpty() even when authorization is invalid/skipped.
     final Optional<Account> maybeExistingAccount =
         Optional.ofNullable(worldUpdater.get(authorizer));
-    eip7928AccessList.ifPresent(t -> t.addTouchedAccount(authorizer));
-    result.addAccessedDelegatorAddress(authorizer);
-
+    // Signature recovery succeeded, so from here on every path records an AuthorityAccess:
+    // authorization validation adds the authority to the accessed set at this point, before the
+    // nonce/code checks and the per-authority charge. The block-access-list touch is deferred to
+    // the Amsterdam runtime charge, which replays these accesses in order and stops at the first
+    // out-of-gas; recording the access now (even for the touch-only case below) keeps the touched
+    // set to exactly the authorities reached before an out-of-gas.
     if (!canSetCodeDelegation(codeDelegation, maybeExistingAccount)) {
-      result.incrementInvalidAuthorization();
+      result.addAuthorityAccess(CodeDelegationResult.AuthorityAccess.touchOnly(authorizer));
       return;
     }
 
@@ -137,28 +144,33 @@ public class CodeDelegationProcessor {
         authorityAlreadyExists
             ? worldUpdater.getAccount(authorizer)
             : worldUpdater.createAccount(authorizer);
-    eip7928AccessList.ifPresent(t -> t.addTouchedAccount(authority.getAddress()));
 
     if (authorityAlreadyExists) {
+      // Pre-Amsterdam (Prague/Osaka) refund model uses this count.
       result.incrementAlreadyExistingDelegators();
     }
 
-    // AUTH_BASE is refilled only when no new indicator bytes are written. The two flags differ
-    // because delegatedNow may reflect an indicator written earlier in this same transaction,
-    // which still had to be paid for; delegatedBefore never does.
-    final boolean delegatedBefore =
-        delegatedBeforeTx.computeIfAbsent(authorizer, a -> delegatedNow);
-    if (codeDelegation.address().equals(Address.ZERO)) {
-      // Clearing writes no indicator bytes, so AUTH_BASE refills once — twice if the delegation
-      // being cleared was itself created earlier in this transaction.
-      result.incrementAuthBaseRefundCount();
-      if (delegatedNow && !delegatedBefore) {
-        result.incrementAuthBaseRefundCount();
-      }
-    } else if (delegatedNow || delegatedBefore) {
-      // Overwriting an existing designator in place writes no new indicator bytes.
-      result.incrementAuthBaseRefundCount();
+    // EIP-2780: ACCOUNT_WRITE (regular) on the transaction's first write to this authority's leaf.
+    // The sender's leaf was pre-seeded into writtenAccounts, so a self-sponsored authority and
+    // repeated authorizations on one authority pay ACCOUNT_WRITE at most once.
+    final boolean accountWrite = writtenAccounts.add(authorizer);
+
+    // EIP-2780 AUTH_BASE (state): charged only for a net-new
+    // delegation indicator, i.e. the authority was not delegated in the pre-transaction state and
+    // has not already been charged for one earlier in this transaction. Recording an
+    // already-delegated authority as settled on sight is what distinguishes a pre-existing
+    // delegation from one an earlier authorization in this transaction wrote — the marker survives
+    // a later clear, so a delegation set then cleared then re-set is charged exactly once and never
+    // credited back.
+    if (delegatedNow) {
+      authBaseSettled.add(authorizer);
     }
+    final boolean authBase =
+        !codeDelegation.address().equals(Address.ZERO) && authBaseSettled.add(authorizer);
+
+    result.addAuthorityAccess(
+        new CodeDelegationResult.AuthorityAccess(
+            authorizer, !authorityAlreadyExists, accountWrite, authBase));
 
     codeDelegationService.processCodeDelegation(authority, codeDelegation.address());
     authority.incrementNonce();

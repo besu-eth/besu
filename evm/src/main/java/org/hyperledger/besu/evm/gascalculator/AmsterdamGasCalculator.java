@@ -120,9 +120,10 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
   private static final long TRANSFER_LOG_COST = 1_756L;
 
   /**
-   * EIP-2780: regular gas per EIP-7702 authorization, in addition to {@link #ACCOUNT_WRITE}:
+   * EIP-2780: state-independent regular gas per EIP-7702 authorization, charged in intrinsic gas:
    * AUTH_TUPLE_BYTES(101) * TX_DATA_TOKEN_FLOOR(16) + ECRECOVER(3000) + COLD_ACCOUNT_ACCESS(3000) +
-   * 2 * WARM_ACCESS(100) = 7,816.
+   * 2 * WARM_ACCESS(100) = 7,816. The state-dependent {@link #ACCOUNT_WRITE} is charged at the top
+   * frame instead (devnet-7 rework).
    */
   private static final long REGULAR_PER_AUTH_BASE_COST =
       101L * 16L + 3_000L + COLD_ACCOUNT_ACCESS + 2L * 100L;
@@ -181,8 +182,13 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
     final long calldataBytes = transaction.getPayload().size();
     final long accessListBytes =
         transaction.getAccessList().map(AmsterdamGasCalculator::accessListBytes).orElse(0L);
+    // EIP-3120: anchor the floor on the decomposed EIP-2780 regular base (TX_BASE + recipient
+    // access + value) rather than TX_BASE alone, matching the EIP so the floor never undercuts
+    // the transaction's own intrinsic base.
+    final long baseRegularGas =
+        clampedAdd(getMinimumTransactionCost(), baseRecipientRegularGas(transaction));
     return clampedAdd(
-        getMinimumTransactionCost(),
+        baseRegularGas,
         clampedMultiply(clampedAdd(calldataBytes, accessListBytes), TOTAL_COST_FLOOR_PER_BYTE));
   }
 
@@ -216,29 +222,36 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
     final long tokens = clampedAdd(zeroBytes, nonZeroBytes * 4L);
     final long dataCost = tokens * TX_DATA_TOKEN_STANDARD;
 
-    final long recipientRegular;
+    // EIP-2780: the recipient regular gas is the decomposed base (access + value) plus, for a
+    // contract creation, the EIP-3860 init code cost. The init code is not part of the floor
+    // anchor (EIP-3120), so it is kept separate from baseRecipientRegularGas().
+    final long recipientRegular =
+        baseRecipientRegularGas(transaction)
+            + (transaction.isContractCreation() ? initCodeCost(payloadSize) : 0L);
+
+    return clampedAdd(clampedAdd(TX_BASE, dataCost), clampedAdd(recipientRegular, baselineGas));
+  }
+
+  /**
+   * EIP-2780/EIP-3120: the decomposed regular-gas intrinsic base contributed by the recipient —
+   * recipient access and value primitives — excluding calldata, init code, access list, and
+   * authorizations. Used both for the intrinsic recipient charge and to anchor the EIP-7623
+   * calldata floor so the floor never undercuts the transaction's own intrinsic base.
+   */
+  private static long baseRecipientRegularGas(final Transaction transaction) {
     final boolean valueTransfer = !transaction.getValue().isZero();
     if (transaction.isContractCreation()) {
       // CREATE_ACCESS already covers the recipient balance write; a value-bearing creation still
       // emits the EIP-7708 transfer log.
-      long create = CREATE_ACCESS + initCodeCost(payloadSize);
-      if (valueTransfer) {
-        create += TRANSFER_LOG_COST;
-      }
-      recipientRegular = create;
-    } else if (isSelfTransfer(transaction)) {
+      return valueTransfer ? CREATE_ACCESS + TRANSFER_LOG_COST : CREATE_ACCESS;
+    }
+    if (isSelfTransfer(transaction)) {
       // A self-transfer touches and writes only the sender, both covered by TX_BASE. Value makes no
       // difference either, since EIP-7708 emits no transfer log when sender and recipient match.
-      recipientRegular = 0L;
-    } else {
-      long call = COLD_ACCOUNT_ACCESS;
-      if (valueTransfer) {
-        call += TX_VALUE_COST;
-      }
-      recipientRegular = call;
+      return 0L;
     }
-
-    return clampedAdd(clampedAdd(TX_BASE, dataCost), clampedAdd(recipientRegular, baselineGas));
+    // TX_VALUE_COST already bundles the recipient balance write and the EIP-7708 transfer log.
+    return valueTransfer ? COLD_ACCOUNT_ACCESS + TX_VALUE_COST : COLD_ACCOUNT_ACCESS;
   }
 
   /** EIP-2780: a self-transfer (sender == recipient) skips the recipient and value charges. */
@@ -377,16 +390,19 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
 
   @Override
   public long delegateCodeGasCost(final int delegateCodeListLength) {
-    // EIP-2780: the per-authority ACCOUNT_WRITE is reserved worst-case here instead of charged at
-    // runtime, so it is part of the validity check and refunded afterwards where nothing grew.
-    return (ACCOUNT_WRITE + REGULAR_PER_AUTH_BASE_COST) * delegateCodeListLength;
+    // EIP-2780 (devnet-7 rework): the intrinsic authorization cost is now only the
+    // state-independent REGULAR_PER_AUTH_BASE_COST (7,816) per tuple. The state-dependent
+    // ACCOUNT_WRITE (first write to the authority) and the NEW_ACCOUNT/AUTH_BASE state gas are
+    // charged at the top frame by the delegation runtime charge, keyed on the authority's
+    // pre-transaction state. Nothing worst-case is reserved, so unlike Prague/Osaka there is no
+    // refund — hence no calculateDelegateCodeGasRefund override; the transaction processor only
+    // consults it when state-gas metering is off.
+    return REGULAR_PER_AUTH_BASE_COST * delegateCodeListLength;
   }
 
   @Override
-  public long calculateDelegateCodeGasRefund(final long alreadyExistingAccounts) {
-    // EIP-7702: refund the worst-case ACCOUNT_WRITE for authorizations that grew no account —
-    // authority already existed, or the authorization was invalid.
-    return ACCOUNT_WRITE * alreadyExistingAccounts;
+  public long getAccountWriteGasCost() {
+    return ACCOUNT_WRITE;
   }
 
   @Override

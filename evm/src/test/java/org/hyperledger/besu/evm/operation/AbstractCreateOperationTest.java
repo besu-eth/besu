@@ -261,6 +261,9 @@ class AbstractCreateOperationTest {
     when(worldUpdater.getOrCreate(any())).thenReturn(newAccount);
     when(newAccount.getCode()).thenReturn(Bytes.EMPTY);
     when(newAccount.isStorageEmpty()).thenReturn(true);
+    // EIP-8037: NEW_ACCOUNT state gas is charged only when the target is not alive, so the
+    // deployment target must read as empty for the spill-below-cost scenario to trigger the charge.
+    when(account.isEmpty()).thenReturn(true);
     when(worldUpdater.updater()).thenReturn(worldUpdater);
 
     // Compute the operation cost so we can set initialGas to trigger the underflow scenario

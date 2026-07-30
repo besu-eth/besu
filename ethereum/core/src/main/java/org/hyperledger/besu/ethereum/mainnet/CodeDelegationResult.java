@@ -16,53 +16,79 @@ package org.hyperledger.besu.ethereum.mainnet;
 
 import org.hyperledger.besu.datatypes.Address;
 
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
+/**
+ * What a transaction's EIP-7702 authorizations accessed and owe. Under the EIP-2780 devnet-7 rework
+ * each authorization is charged at the top frame, keyed on the authority's pre-transaction state,
+ * with no refund — see {@link AuthorityAccess} for the per-authorization charges.
+ */
 public class CodeDelegationResult {
-  private final Set<Address> accessedDelegatorAddresses = new HashSet<>(Address.SIZE);
-  private long alreadyExistingDelegators = 0L;
-  private long authBaseRefundCount = 0L;
-  private long invalidAuthorizations = 0L;
 
-  public void addAccessedDelegatorAddress(final Address address) {
-    accessedDelegatorAddresses.add(address);
+  /**
+   * One authorization's top-frame access, in transaction order. Recorded for every authorization
+   * that passes signature recovery — the point at which authorization validation adds the authority
+   * to the accessed set — so the authority is touched (for the EIP-7928 block access list) whether
+   * or not it goes on to be charged. The three flags are the per-authority charges, applied in this
+   * order: {@code newAccount} (NEW_ACCOUNT state gas), {@code accountWrite} (ACCOUNT_WRITE regular
+   * gas), {@code authBase} (AUTH_BASE state gas). An authorization that failed the nonce/code check
+   * carries all-false flags (touched, not charged).
+   *
+   * @param authority the recovered authority address
+   * @param newAccount whether the authority's account leaf had to be created
+   * @param accountWrite whether this is the transaction's first write to the authority's leaf
+   * @param authBase whether a net-new delegation indicator is written for the authority
+   */
+  public record AuthorityAccess(
+      Address authority, boolean newAccount, boolean accountWrite, boolean authBase) {
+
+    /** An authorization that was touched during validation but failed it, so is never charged. */
+    public static AuthorityAccess touchOnly(final Address authority) {
+      return new AuthorityAccess(authority, false, false, false);
+    }
+  }
+
+  private final List<AuthorityAccess> authorityAccesses = new ArrayList<>();
+  // Pre-Amsterdam (Prague/Osaka) refund model: authorities whose account leaf already existed, used
+  // for the EIP-7702 PER_EMPTY_ACCOUNT - PER_AUTH_BASE regular refund. Not used by the Amsterdam
+  // (devnet-7) per-authority runtime-charge model.
+  private long alreadyExistingDelegators = 0L;
+
+  /** Records one authorization's ordered top-frame access (touch, then per-authority charges). */
+  public void addAuthorityAccess(final AuthorityAccess access) {
+    authorityAccesses.add(access);
+  }
+
+  /**
+   * Authorization accesses in transaction order. The Amsterdam runtime charge iterates these,
+   * touching each authority before charging it and stopping at the first out-of-gas, so a partial
+   * out-of-gas records only the authorities reached (up to and including the one being charged).
+   */
+  public List<AuthorityAccess> authorityAccesses() {
+    return authorityAccesses;
   }
 
   public void incrementAlreadyExistingDelegators() {
     alreadyExistingDelegators += 1;
   }
 
-  public void incrementAuthBaseRefundCount() {
-    authBaseRefundCount += 1;
-  }
-
-  public Set<Address> accessedDelegatorAddresses() {
-    return accessedDelegatorAddresses;
-  }
-
+  /** Pre-Amsterdam refund model: count of authorities whose account leaf already existed. */
   public long alreadyExistingDelegators() {
     return alreadyExistingDelegators;
   }
 
   /**
-   * Returns the count of authorizations that don't write new delegation-indicator bytes — either
-   * the authority already had a delegation designator (overwritten in place) or {@code
-   * auth.address} is zero (no indicator written). The AUTH_BASE state gas is refunded for these.
+   * The authorities EIP-2929 warms, i.e. every authority whose signature recovered — the point at
+   * which authorization validation adds it to the accessed set, whether or not the authorization
+   * goes on to be applied.
    */
-  public long authBaseRefundCount() {
-    return authBaseRefundCount;
-  }
-
-  public void incrementInvalidAuthorization() {
-    invalidAuthorizations += 1;
-  }
-
-  /**
-   * Invalid authorizations grow no state, so each refunds its full worst-case intrinsic charge:
-   * NEW_ACCOUNT + AUTH_BASE state gas plus the regular ACCOUNT_WRITE.
-   */
-  public long invalidAuthorizations() {
-    return invalidAuthorizations;
+  public Set<Address> accessedDelegatorAddresses() {
+    return authorityAccesses.stream()
+        .map(AuthorityAccess::authority)
+        .collect(Collectors.toCollection(() -> new HashSet<>(Address.SIZE)));
   }
 }
