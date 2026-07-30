@@ -19,13 +19,14 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
+import org.hyperledger.besu.plugin.CoreConfiguration;
 import org.hyperledger.besu.plugin.services.BesuConfiguration;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
 import java.nio.file.Path;
 
 /** A concrete implementation of BesuConfiguration which is used in Besu plugin framework. */
-public class BesuConfigurationImpl implements BesuConfiguration {
+public class BesuConfigurationImpl implements BesuConfiguration, CoreConfiguration {
   private Path storagePath;
   private Path dataPath;
   private DataStorageConfiguration dataStorageConfiguration;

@@ -17,6 +17,8 @@ package org.hyperledger.besu.ethereum.api;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthEstimateGas;
 
+import java.time.Duration;
+
 import org.immutables.value.Value;
 
 /**
@@ -41,6 +43,12 @@ public abstract class ApiConfiguration {
 
   /** The default gas cap used for transaction simulation */
   public static final long DEFAULT_GAS_CAP = 100_000_000L;
+
+  /** The default maximum number of concurrently active JSON-RPC filters. */
+  public static final int DEFAULT_MAX_FILTER_COUNT = 1000;
+
+  /** The default duration a JSON-RPC filter stays active without being polled. */
+  public static final Duration DEFAULT_FILTER_TIMEOUT = Duration.ofMinutes(2);
 
   /** Constructs a new ApiConfiguration with default values. */
   protected ApiConfiguration() {}
@@ -156,5 +164,28 @@ public abstract class ApiConfiguration {
   @Value.Default
   public Long getMaxTraceFilterRange() {
     return 1000L;
+  }
+
+  /**
+   * Returns the maximum number of concurrently active JSON-RPC filters (created via eth_newFilter,
+   * eth_newBlockFilter and eth_newPendingTransactionFilter). Creation past this limit is rejected.
+   *
+   * @return the maximum number of concurrently active filters
+   */
+  @Value.Default
+  public Integer getMaxFilterCount() {
+    return DEFAULT_MAX_FILTER_COUNT;
+  }
+
+  /**
+   * Returns the duration a JSON-RPC filter (eth_newFilter, eth_newBlockFilter,
+   * eth_newPendingTransactionFilter) stays active without being polled before the expiry monitor
+   * sweeps it.
+   *
+   * @return the filter expiry duration
+   */
+  @Value.Default
+  public Duration getFilterTimeout() {
+    return DEFAULT_FILTER_TIMEOUT;
   }
 }

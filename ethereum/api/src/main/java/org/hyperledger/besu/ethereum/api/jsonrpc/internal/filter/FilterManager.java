@@ -26,6 +26,7 @@ import org.hyperledger.besu.ethereum.core.LogWithMetadata;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -42,14 +43,17 @@ public class FilterManager extends AbstractVerticle {
   private final FilterIdGenerator filterIdGenerator;
   private final FilterRepository filterRepository;
   private final BlockchainQueries blockchainQueries;
+  private final Duration filterTimeout;
 
   FilterManager(
       final BlockchainQueries blockchainQueries,
       final TransactionPool transactionPool,
       final FilterIdGenerator filterIdGenerator,
-      final FilterRepository filterRepository) {
+      final FilterRepository filterRepository,
+      final Duration filterTimeout) {
     this.filterIdGenerator = filterIdGenerator;
     this.filterRepository = filterRepository;
+    this.filterTimeout = filterTimeout;
     checkNotNull(blockchainQueries.getBlockchain());
     blockchainQueries.getBlockchain().observeBlockAdded(this::recordBlockEvent);
     transactionPool.subscribePendingTransactions(this::recordPendingTransactionEvent);
@@ -81,7 +85,7 @@ public class FilterManager extends AbstractVerticle {
    */
   public String installBlockFilter() {
     final String filterId = filterIdGenerator.nextId();
-    filterRepository.save(new BlockFilter(filterId));
+    filterRepository.save(new BlockFilter(filterId, filterTimeout));
     return filterId;
   }
 
@@ -92,7 +96,7 @@ public class FilterManager extends AbstractVerticle {
    */
   public String installPendingTransactionFilter() {
     final String filterId = filterIdGenerator.nextId();
-    filterRepository.save(new PendingTransactionFilter(filterId));
+    filterRepository.save(new PendingTransactionFilter(filterId, filterTimeout));
     return filterId;
   }
 
@@ -107,7 +111,7 @@ public class FilterManager extends AbstractVerticle {
   public String installLogFilter(
       final BlockParameter fromBlock, final BlockParameter toBlock, final LogsQuery logsQuery) {
     final String filterId = filterIdGenerator.nextId();
-    filterRepository.save(new LogFilter(filterId, fromBlock, toBlock, logsQuery));
+    filterRepository.save(new LogFilter(filterId, fromBlock, toBlock, logsQuery, filterTimeout));
     return filterId;
   }
 

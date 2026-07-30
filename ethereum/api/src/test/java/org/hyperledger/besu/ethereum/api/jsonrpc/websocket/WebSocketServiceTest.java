@@ -67,7 +67,7 @@ public class WebSocketServiceTest {
   private Map<String, JsonRpcMethod> websocketMethods;
   private WebSocketService websocketService;
   private HttpClient httpClient;
-  private final int maxConnections = 3;
+  private final int maxConnections = 5;
   private final int maxFrameSize = 1024 * 1024;
 
   @BeforeEach
@@ -81,9 +81,23 @@ public class WebSocketServiceTest {
     websocketConfiguration.setMaxActiveConnections(maxConnections);
     websocketConfiguration.setMaxFrameSize(maxFrameSize);
 
+    startWebSocketService();
+
+    websocketConfiguration.setPort(websocketService.socketAddress().getPort());
+
+    final HttpClientOptions httpClientOptions =
+        new HttpClientOptions()
+            .setDefaultHost(websocketConfiguration.getHost())
+            .setDefaultPort(websocketConfiguration.getPort());
+
+    httpClient = vertx.createHttpClient(httpClientOptions);
+  }
+
+  private void startWebSocketService() {
     websocketMethods =
         new WebSocketMethodsFactory(
-                new SubscriptionManager(new NoOpMetricsSystem()), new HashMap<>())
+                new SubscriptionManager(new NoOpMetricsSystem(), websocketConfiguration),
+                new HashMap<>())
             .methods();
     webSocketMessageHandlerSpy =
         spy(
@@ -97,15 +111,6 @@ public class WebSocketServiceTest {
         new WebSocketService(
             vertx, websocketConfiguration, webSocketMessageHandlerSpy, new NoOpMetricsSystem());
     websocketService.start().join();
-
-    websocketConfiguration.setPort(websocketService.socketAddress().getPort());
-
-    final HttpClientOptions httpClientOptions =
-        new HttpClientOptions()
-            .setDefaultHost(websocketConfiguration.getHost())
-            .setDefaultPort(websocketConfiguration.getPort());
-
-    httpClient = vertx.createHttpClient(httpClientOptions);
   }
 
   @AfterEach
@@ -150,6 +155,56 @@ public class WebSocketServiceTest {
     // wait for successful responses AND rejected connections
     successLatch.await(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
     rejectionLatch.await(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    assertThat(successLatch.getCount()).isEqualTo(0);
+    assertThat(rejectionLatch.getCount()).isEqualTo(0);
+  }
+
+  @Test
+  public void limitSubscriptions() throws InterruptedException {
+    // reset the service to start with a maxActiveSubscriptions of 3
+    websocketService.stop().join();
+    int maxActiveSubscriptions = 3;
+    websocketConfiguration.setMaxActiveSubscriptions(maxActiveSubscriptions);
+    startWebSocketService();
+
+    // expecting maxActiveSubscriptions successful responses
+    final CountDownLatch successLatch = new CountDownLatch(maxActiveSubscriptions);
+    // and a number of rejections
+    final int countRejections = 2;
+    final CountDownLatch rejectionLatch = new CountDownLatch(countRejections);
+
+    final String request = "{\"id\": 1, \"method\": \"eth_subscribe\", \"params\": [\"syncing\"]}";
+    // the number in the response is the subscription ID, so in successive responses this increments
+    final String expectedResponse1 = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":\"0x1\"}";
+
+    // attempt to exceed max subscriptions - but only maxActiveSubscriptions should succeed
+    for (int i = 0; i < maxActiveSubscriptions + countRejections; i++) {
+      httpClient.webSocket(
+          "/",
+          future -> {
+            if (future.succeeded()) {
+              WebSocket ws = future.result();
+              ws.handler(
+                  buffer -> {
+                    assertNotNull(buffer.toString());
+                    // assert a successful response
+                    if (buffer.toString().startsWith(expectedResponse1.substring(0, 36))) {
+                      successLatch.countDown();
+                    } else {
+                      rejectionLatch.countDown();
+                    }
+                  });
+              ws.writeTextMessage(request);
+            } else {
+              throw new AssertionError("test should not reach here!");
+            }
+          });
+    }
+    // wait for successful responses AND rejected connections
+    successLatch.await(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    rejectionLatch.await(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    assertThat(successLatch.getCount()).isEqualTo(0);
+    assertThat(rejectionLatch.getCount()).isEqualTo(0);
   }
 
   @Test

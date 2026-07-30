@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorR
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.methods.WebSocketRpcRequest;
+import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.SubscriptionManager;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
@@ -140,7 +141,11 @@ public class WebSocketMessageHandler {
                     promise.fail(e);
                   }
                 })
-            .onSuccess(jsonRpcResponse -> replyToClient(websocket, jsonRpcResponse))
+            .onSuccess(
+                jsonRpcResponse -> {
+                  replyToClient(websocket, jsonRpcResponse);
+                  cleanupSubscriptionsIfConnectionClosed(websocket);
+                })
             .onFailure(
                 throwable -> {
                   try {
@@ -190,6 +195,7 @@ public class WebSocketMessageHandler {
                                     jsonRpcResponse.getType() != RpcResponseType.NONE)
                             .toArray(JsonRpcResponse[]::new);
                     replyToClient(websocket, completed);
+                    cleanupSubscriptionsIfConnectionClosed(websocket);
                   })
               .onFailure(
                   throwable ->
@@ -198,6 +204,24 @@ public class WebSocketMessageHandler {
           replyToClient(websocket, errorResponse(null, RpcErrorType.INTERNAL_ERROR));
         }
       }
+    }
+  }
+
+  /**
+   * Guards against a race between subscription registration and connection close. A subscribe
+   * request is processed on a worker thread, so the connection can close (triggering the
+   * close-handler's subscription removal) before the subscription is registered, orphaning it. Now
+   * that processing has completed and any subscription is registered, re-trigger removal if the
+   * connection has since closed.
+   *
+   * @param websocket the connection the request was received on
+   */
+  private void cleanupSubscriptionsIfConnectionClosed(final ServerWebSocket websocket) {
+    if (websocket.isClosed()) {
+      vertx
+          .eventBus()
+          .publish(
+              SubscriptionManager.EVENTBUS_REMOVE_SUBSCRIPTIONS_ADDRESS, websocket.textHandlerID());
     }
   }
 
@@ -224,10 +248,15 @@ public class WebSocketMessageHandler {
   }
 
   private void traceResponse(final Object response) {
+    LOG.atTrace().log(() -> serializeForTrace(response));
+  }
+
+  private String serializeForTrace(final Object response) {
     try {
-      LOG.trace(jsonObjectMapper.writeValueAsString(response));
+      return jsonObjectMapper.writeValueAsString(response);
     } catch (JsonProcessingException e) {
       LOG.error("Error tracing JSON-RPC response", e);
+      return null;
     }
   }
 }

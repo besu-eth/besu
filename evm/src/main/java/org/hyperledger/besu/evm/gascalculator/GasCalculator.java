@@ -422,6 +422,19 @@ public interface GasCalculator {
   }
 
   /**
+   * EIP-8246: whether SELFDESTRUCT preserves the originator's balance instead of burning it. When
+   * true, a same-tx-created account is cleared (nonce/code/storage) at transaction finalization
+   * with its balance preserved (EIP-161 state clearing then removes a zero-balance result) and no
+   * Burn log is emitted while the balance is preserved.
+   *
+   * @return true if the originator's balance is preserved on self destruct, false (pre-Amsterdam)
+   *     otherwise
+   */
+  default boolean isSelfDestructBalancePreserved() {
+    return false;
+  }
+
+  /**
    * Returns the cost for executing a {@link Keccak256Operation}.
    *
    * @param frame The current frame
@@ -686,6 +699,19 @@ public interface GasCalculator {
    * @return the gas cost
    */
   default long delegateCodeGasCost(final int delegateCodeListLength) {
+    return 0L;
+  }
+
+  /**
+   * EIP-2780: the runtime regular gas charged for the account writes performed while processing the
+   * EIP-7702 authorization list. Zero before Amsterdam, where the whole per-authorization cost is
+   * reserved at the intrinsic phase instead.
+   *
+   * @param authorityWrites the number of authorizations that performed the first write to their
+   *     authority within the transaction
+   * @return the gas cost
+   */
+  default long delegateCodeAccountWriteGasCost(final long authorityWrites) {
     return 0L;
   }
 

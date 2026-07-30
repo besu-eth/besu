@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorR
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
+import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.MaxSubscriptionsExceededException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.SubscriptionManager;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.request.InvalidSubscriptionRequestException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.request.SubscribeRequest;
@@ -98,6 +99,23 @@ public class EthSubscribeTest {
     final JsonRpcErrorResponse expectedResponse =
         new JsonRpcErrorResponse(
             jsonRpcrequestContext.getRequest().getId(), RpcErrorType.INTERNAL_ERROR);
+
+    assertThat(ethSubscribe.response(jsonRpcrequestContext)).isEqualTo(expectedResponse);
+  }
+
+  @Test
+  public void maxSubscriptionsExceededShouldRespondWithExceedsMaxActiveSubscriptionsError() {
+    final WebSocketRpcRequest webSocketRequest = createWebSocketRpcRequest();
+    final JsonRpcRequestContext jsonRpcrequestContext = new JsonRpcRequestContext(webSocketRequest);
+
+    when(mapperMock.mapSubscribeRequest(any())).thenReturn(mock(SubscribeRequest.class));
+    when(subscriptionManagerMock.subscribe(any()))
+        .thenThrow(new MaxSubscriptionsExceededException(1));
+
+    final JsonRpcErrorResponse expectedResponse =
+        new JsonRpcErrorResponse(
+            jsonRpcrequestContext.getRequest().getId(),
+            RpcErrorType.EXCEEDS_RPC_MAX_ACTIVE_SUBSCRIPTIONS);
 
     assertThat(ethSubscribe.response(jsonRpcrequestContext)).isEqualTo(expectedResponse);
   }
