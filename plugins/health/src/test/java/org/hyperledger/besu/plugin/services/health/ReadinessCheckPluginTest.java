@@ -158,7 +158,13 @@ public class ReadinessCheckPluginTest {
     when(p2pService.isP2pEnabled()).thenReturn(true);
     when(p2pService.getPeerCount()).thenReturn(1);
 
-    org.assertj.core.api.Assertions.assertThat(provider.check(params).isHealthy()).isTrue();
+    final var result = provider.check(params);
+    org.assertj.core.api.Assertions.assertThat(result.isHealthy()).isTrue();
+    org.assertj.core.api.Assertions.assertThat(result.getDetails()).containsKey("sync");
+    final var sync = (java.util.Map<?, ?>) result.getDetails().get("sync");
+    org.assertj.core.api.Assertions.assertThat(sync.get("status")).isEqualTo(true);
+    org.assertj.core.api.Assertions.assertThat(sync.get("blocksBehind")).isEqualTo(1L);
+    org.assertj.core.api.Assertions.assertThat(sync.get("maxBlocksBehind")).isEqualTo(2L);
   }
 
   @Test
@@ -184,7 +190,13 @@ public class ReadinessCheckPluginTest {
     when(p2pService.isP2pEnabled()).thenReturn(true);
     when(p2pService.getPeerCount()).thenReturn(1);
 
-    org.assertj.core.api.Assertions.assertThat(provider.check(params).isHealthy()).isFalse();
+    final var result = provider.check(params);
+    org.assertj.core.api.Assertions.assertThat(result.isHealthy()).isFalse();
+    org.assertj.core.api.Assertions.assertThat(result.getDetails()).containsKey("sync");
+    final var sync = (java.util.Map<?, ?>) result.getDetails().get("sync");
+    org.assertj.core.api.Assertions.assertThat(sync.get("status")).isEqualTo(false);
+    org.assertj.core.api.Assertions.assertThat(sync.get("blocksBehind")).isEqualTo(100L);
+    org.assertj.core.api.Assertions.assertThat(sync.get("maxBlocksBehind")).isEqualTo(2L);
   }
 
   @Test
@@ -326,7 +338,13 @@ public class ReadinessCheckPluginTest {
     when(p2pService.isP2pEnabled()).thenReturn(true);
     when(p2pService.getPeerCount()).thenReturn(1);
 
-    org.assertj.core.api.Assertions.assertThat(provider.check(params).isHealthy()).isFalse();
+    final var result = provider.check(params);
+    org.assertj.core.api.Assertions.assertThat(result.isHealthy()).isFalse();
+    org.assertj.core.api.Assertions.assertThat(result.getDetails()).containsKey("sync");
+    final var sync = (java.util.Map<?, ?>) result.getDetails().get("sync");
+    org.assertj.core.api.Assertions.assertThat(sync.get("status")).isEqualTo(false);
+    org.assertj.core.api.Assertions.assertThat(sync.get("blocksBehind")).isEqualTo(3L);
+    org.assertj.core.api.Assertions.assertThat(sync.get("maxBlocksBehind")).isEqualTo(2L);
   }
 
   @Test

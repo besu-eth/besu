@@ -18,6 +18,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.plugin.services.HealthCheckService;
 
+import java.util.HashMap;
+import java.util.Map;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -97,5 +100,55 @@ public class HealthCheckServiceImplTest {
   @Test
   void shouldReturnEmptyForReadinessWhenNotRegistered() {
     assertThat(healthCheckService.getReadinessCheck()).isEmpty();
+  }
+
+  @Test
+  void healthCheckResultOfTrueIsHealthyWithEmptyDetails() {
+    final HealthCheckService.HealthCheckResult result =
+        HealthCheckService.HealthCheckResult.of(true);
+
+    assertThat(result.isHealthy()).isTrue();
+    assertThat(result.getDetails()).isEmpty();
+  }
+
+  @Test
+  void healthCheckResultOfFalseIsUnhealthyWithEmptyDetails() {
+    final HealthCheckService.HealthCheckResult result =
+        HealthCheckService.HealthCheckResult.of(false);
+
+    assertThat(result.isHealthy()).isFalse();
+    assertThat(result.getDetails()).isEmpty();
+  }
+
+  @Test
+  void healthCheckResultTwoArgConstructorStoresDetails() {
+    final Map<String, Object> details = Map.of("peers", Map.of("status", false));
+    final HealthCheckService.HealthCheckResult result =
+        new HealthCheckService.HealthCheckResult(false, details);
+
+    assertThat(result.isHealthy()).isFalse();
+    assertThat(result.getDetails()).isEqualTo(details);
+  }
+
+  @Test
+  void healthCheckResultNullDetailsBecomesEmptyMap() {
+    final HealthCheckService.HealthCheckResult result =
+        new HealthCheckService.HealthCheckResult(true, null);
+
+    assertThat(result.isHealthy()).isTrue();
+    assertThat(result.getDetails()).isEmpty();
+  }
+
+  @Test
+  void healthCheckResultCopiesDetailsDefensively() {
+    final Map<String, Object> details = new HashMap<>();
+    details.put("peers", Map.of("status", true));
+    final HealthCheckService.HealthCheckResult result =
+        new HealthCheckService.HealthCheckResult(true, details);
+
+    details.put("sync", Map.of("status", false));
+
+    assertThat(result.getDetails()).containsOnlyKeys("peers");
+    assertThat(result.getDetails()).doesNotContainKey("sync");
   }
 }

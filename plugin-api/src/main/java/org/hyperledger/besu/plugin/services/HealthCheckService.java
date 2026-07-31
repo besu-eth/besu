@@ -82,9 +82,7 @@ public interface HealthCheckService extends BesuService {
     public HealthCheckResult(final boolean healthy, final Map<String, Object> details) {
       this.healthy = healthy;
       this.details =
-          details == null || details.isEmpty()
-              ? Collections.emptyMap()
-              : Collections.unmodifiableMap(details);
+          details == null || details.isEmpty() ? Collections.emptyMap() : Map.copyOf(details);
     }
 
     /**
