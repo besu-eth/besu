@@ -513,6 +513,7 @@ public class SnapSyncChainDownloaderTest {
     chainSyncStateStorage.storeState(loadedState);
 
     when(blockchain.blockIsOnCanonicalChain(newPivot.getHash())).thenReturn(false);
+    lenient().when(blockchain.blockIsOnCanonicalChain(chainHeadAtCrash.getHash())).thenReturn(true);
     // Stage 2 resumes from the chain head when the chain head already has a body stored
     // and is still canonical.
     lenient()
@@ -763,6 +764,7 @@ public class SnapSyncChainDownloaderTest {
     chainSyncStateStorage.storeState(loadedState);
 
     when(blockchain.blockIsOnCanonicalChain(newPivot.getHash())).thenReturn(false);
+    lenient().when(blockchain.blockIsOnCanonicalChain(chainHeadAtCrash.getHash())).thenReturn(true);
     // Stage 2 resumes from the chain head when the chain head already has a body stored
     // and is still canonical.
     lenient()

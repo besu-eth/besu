@@ -564,12 +564,8 @@ public class SnapSyncChainDownloader
 
   private long forwardDownloadAnchor(final ChainSyncState state) {
     final BlockHeader chainHead = blockchain.getChainHeadHeader();
-    final boolean chainHeadIsCanonical =
-        blockchain
-            .getBlockHeader(chainHead.getNumber())
-            .map(canonical -> canonical.getHash().equals(chainHead.getHash()))
-            .orElse(false);
-    if (chainHeadIsCanonical && blockchain.getBlockBody(chainHead.getHash()).isPresent()) {
+    if (headerIsOnCanonicalChain(chainHead)
+        && blockchain.getBlockBody(chainHead.getHash()).isPresent()) {
       return chainHead.getNumber();
     }
     return highestCanonicalBody(state.bodyCheckpoint(), chainHead.getNumber()).getNumber();
