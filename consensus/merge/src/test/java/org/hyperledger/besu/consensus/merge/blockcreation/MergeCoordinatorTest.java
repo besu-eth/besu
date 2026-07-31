@@ -200,7 +200,6 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     when(mergeContext.as(MergeContext.class)).thenReturn(mergeContext);
     when(mergeContext.getTerminalTotalDifficulty())
         .thenReturn(genesisState.getBlock().getHeader().getDifficulty().plus(1L));
-
     protocolContext =
         new ProtocolContext.Builder()
             .withBlockchain(blockchain)
@@ -1040,7 +1039,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     BlockHeader mockHeader =
         headerGenerator.parentHash(Hash.fromHexStringLenient("0xdead")).buildHeader();
     when(blockchain.getBlockHeader(mockHeader.getHash())).thenReturn(Optional.of(mockHeader));
-    var res = coordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO);
+    var res = coordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO, true);
 
     assertThat(res).isPresent();
   }
@@ -1052,7 +1051,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     when(backwardSyncContext.syncBackwardsUntil(mockHeader.getBlockHash()))
         .thenReturn(CompletableFuture.completedFuture(null));
 
-    var res = coordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO);
+    var res = coordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO, true);
 
     assertThat(res).isNotPresent();
   }

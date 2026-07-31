@@ -145,11 +145,13 @@ public sealed class EngineForkchoiceUpdatedV1<PA extends PayloadAttributesV1>
             forkChoice.getFinalizedBlockHash());
 
     // 1. Client software MAY initiate a sync process if forkchoiceState.headBlockHash references an
-    // unknown payload or a payload that can't be validated because data that are requisite for the
+    // unknown payload or a payload that can't be validated because data that is requisite for the
     // validation is missing. The sync process is specified in the Sync section.
     final Optional<BlockHeader> maybeNewHead =
         mergeCoordinator.getOrSyncHeadByHash(
-            forkChoice.getHeadBlockHash(), forkChoice.getFinalizedBlockHash());
+            forkChoice.getHeadBlockHash(),
+            forkChoice.getFinalizedBlockHash(),
+            mergeContext.get().isInitialSyncDone());
 
     if (maybeNewHead.isEmpty()) {
       return syncingResponse(requestId, forkChoice);

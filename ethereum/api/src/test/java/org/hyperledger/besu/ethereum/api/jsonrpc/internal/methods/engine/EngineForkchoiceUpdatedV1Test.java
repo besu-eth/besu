@@ -74,7 +74,7 @@ import org.mockito.quality.Strictness;
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
-  protected static final Consumer<BlockHeaderTestFixture> NO_OP = bhb -> {};
+  protected static final Consumer<BlockHeaderTestFixture> NO_OP = _ -> {};
   protected EngineForkchoiceUpdatedV1<?> method;
 
   protected static final Vertx vertx = Vertx.vertx();
@@ -99,6 +99,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
   public void before() {
     super.before();
     when(worldStateArchive.isWorldStateAvailable(any(), any())).thenReturn(true);
+    when(mergeContext.isInitialSyncDone()).thenReturn(true);
     when(protocolContext.safeConsensusContext(any())).thenReturn(Optional.of(mergeContext));
     when(protocolContext.getBlockchain()).thenReturn(blockchain);
     when(protocolContext.getWorldStateArchive()).thenReturn(worldStateArchive);
@@ -188,7 +189,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
   public void shouldProceedWithForkChoiceWhenHeadKnownEvenIfSyncing() {
     // isSyncing() is not checked in FCU; if the head block is found, we proceed.
     final BlockHeader mockHeader = blockHeaderBuilder.buildHeader();
-    when(mergeCoordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO))
+    when(mergeCoordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO, true))
         .thenReturn(Optional.of(mockHeader));
     when(mergeContext.isSyncing()).thenReturn(true);
 
@@ -209,7 +210,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
   public void shouldReturnSyncingOnHeadWorldStateNotFound() {
     // block for head hash exists, but world state does not
     final BlockHeader mockHeader = blockHeaderBuilder.buildHeader();
-    when(mergeCoordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO))
+    when(mergeCoordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO, true))
         .thenReturn(Optional.of(mockHeader));
     when(worldStateArchive.isWorldStateAvailable(
             eq(mockHeader.getStateRoot()), eq(mockHeader.getHash())))
@@ -251,7 +252,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
   @Test
   public void shouldReturnValidWithoutFinalizedOrPayload() {
     final BlockHeader mockHeader = blockHeaderBuilder.buildHeader();
-    when(mergeCoordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO))
+    when(mergeCoordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO, true))
         .thenReturn(Optional.of(mockHeader));
 
     assertSuccessWithPayloadForForkchoiceResult(
@@ -281,7 +282,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
 
     when(blockchain.getBlockHeader(finalizedBlockHash)).thenReturn(Optional.empty());
     when(mergeContext.isSyncing()).thenReturn(false);
-    when(mergeCoordinator.getOrSyncHeadByHash(newHead.getHash(), finalizedBlockHash))
+    when(mergeCoordinator.getOrSyncHeadByHash(newHead.getHash(), finalizedBlockHash, true))
         .thenReturn(Optional.of(newHead));
 
     final JsonRpcResponse resp =
@@ -300,7 +301,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
 
     when(blockchain.getBlockHeader(finalized.getHash())).thenReturn(Optional.of(finalized));
     when(mergeContext.isSyncing()).thenReturn(false);
-    when(mergeCoordinator.getOrSyncHeadByHash(newHead.getHash(), finalized.getBlockHash()))
+    when(mergeCoordinator.getOrSyncHeadByHash(newHead.getHash(), finalized.getBlockHash(), true))
         .thenReturn(Optional.of(newHead));
     when(mergeCoordinator.isDescendantOf(finalized, newHead)).thenReturn(false);
 
@@ -325,7 +326,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
 
     when(blockchain.getBlockHeader(parent.getHash())).thenReturn(Optional.of(parent));
     when(mergeContext.isSyncing()).thenReturn(false);
-    when(mergeCoordinator.getOrSyncHeadByHash(newHead.getHash(), parent.getBlockHash()))
+    when(mergeCoordinator.getOrSyncHeadByHash(newHead.getHash(), parent.getBlockHash(), true))
         .thenReturn(Optional.of(newHead));
 
     final JsonRpcResponse resp =
@@ -350,7 +351,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
     when(blockchain.getBlockHeader(finalized.getHash())).thenReturn(Optional.of(finalized));
     when(blockchain.getBlockHeader(safeBlockBlockHash)).thenReturn(Optional.empty());
     when(mergeContext.isSyncing()).thenReturn(false);
-    when(mergeCoordinator.getOrSyncHeadByHash(newHead.getHash(), finalized.getBlockHash()))
+    when(mergeCoordinator.getOrSyncHeadByHash(newHead.getHash(), finalized.getBlockHash(), true))
         .thenReturn(Optional.of(newHead));
     when(mergeCoordinator.isDescendantOf(finalized, newHead)).thenReturn(true);
 
@@ -374,7 +375,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
     when(blockchain.getBlockHeader(finalized.getHash())).thenReturn(Optional.of(finalized));
     when(blockchain.getBlockHeader(safeBlock.getHash())).thenReturn(Optional.of(safeBlock));
     when(mergeContext.isSyncing()).thenReturn(false);
-    when(mergeCoordinator.getOrSyncHeadByHash(newHead.getHash(), finalized.getBlockHash()))
+    when(mergeCoordinator.getOrSyncHeadByHash(newHead.getHash(), finalized.getBlockHash(), true))
         .thenReturn(Optional.of(newHead));
     when(mergeCoordinator.isDescendantOf(finalized, newHead)).thenReturn(true);
     when(mergeCoordinator.isDescendantOf(finalized, safeBlock)).thenReturn(false);
@@ -399,7 +400,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
     when(blockchain.getBlockHeader(finalized.getHash())).thenReturn(Optional.of(finalized));
     when(blockchain.getBlockHeader(safeBlock.getHash())).thenReturn(Optional.of(safeBlock));
     when(mergeContext.isSyncing()).thenReturn(false);
-    when(mergeCoordinator.getOrSyncHeadByHash(newHead.getHash(), finalized.getBlockHash()))
+    when(mergeCoordinator.getOrSyncHeadByHash(newHead.getHash(), finalized.getBlockHash(), true))
         .thenReturn(Optional.of(newHead));
     when(mergeCoordinator.isDescendantOf(finalized, newHead)).thenReturn(true);
     when(mergeCoordinator.isDescendantOf(finalized, safeBlock)).thenReturn(true);
@@ -447,7 +448,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
   public void shouldReturnValidWithoutFinalizedWithPayload() {
     final BlockHeader mockHeader =
         blockHeaderBuilder.timestamp(getMinSupportedTimestamp()).buildHeader();
-    when(mergeCoordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO))
+    when(mergeCoordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO, true))
         .thenReturn(Optional.of(mockHeader));
 
     final var res =
@@ -545,7 +546,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
   public void shouldNotSkipUpdateWhenFinalizedHashIsZero() {
     final BlockHeader head = blockHeaderBuilder.number(50L).buildHeader();
 
-    when(mergeCoordinator.getOrSyncHeadByHash(head.getHash(), Hash.ZERO))
+    when(mergeCoordinator.getOrSyncHeadByHash(head.getHash(), Hash.ZERO, true))
         .thenReturn(Optional.of(head));
     when(mergeCoordinator.computeReorgDepth(head)).thenReturn(OptionalLong.empty());
     when(mergeCoordinator.isAncestorOfFinalized(head)).thenReturn(false);
@@ -562,7 +563,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
   @Test
   public void shouldRejectWithTooDeepReorgWhenDepthExceedsLimit() {
     final BlockHeader head = blockHeaderBuilder.number(20_000L).buildHeader();
-    when(mergeCoordinator.getOrSyncHeadByHash(head.getHash(), Hash.ZERO))
+    when(mergeCoordinator.getOrSyncHeadByHash(head.getHash(), Hash.ZERO, true))
         .thenReturn(Optional.of(head));
     when(mergeCoordinator.computeReorgDepth(head))
         .thenReturn(OptionalLong.of(MergeMiningCoordinator.MAX_REORG_DEPTH + 1));
@@ -580,7 +581,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
   @Test
   public void shouldAcceptWhenReorgDepthEqualsLimit() {
     final BlockHeader head = blockHeaderBuilder.number(20_000L).buildHeader();
-    when(mergeCoordinator.getOrSyncHeadByHash(head.getHash(), Hash.ZERO))
+    when(mergeCoordinator.getOrSyncHeadByHash(head.getHash(), Hash.ZERO, true))
         .thenReturn(Optional.of(head));
     when(mergeCoordinator.computeReorgDepth(head))
         .thenReturn(OptionalLong.of(MergeMiningCoordinator.MAX_REORG_DEPTH));
@@ -597,7 +598,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
   @Test
   public void shouldAcceptWhenReorgDepthIsEmpty() {
     final BlockHeader head = blockHeaderBuilder.number(50L).buildHeader();
-    when(mergeCoordinator.getOrSyncHeadByHash(head.getHash(), Hash.ZERO))
+    when(mergeCoordinator.getOrSyncHeadByHash(head.getHash(), Hash.ZERO, true))
         .thenReturn(Optional.of(head));
     when(mergeCoordinator.computeReorgDepth(head)).thenReturn(OptionalLong.empty());
     when(mergeCoordinator.updateForkChoice(head, Hash.ZERO, Hash.ZERO))
@@ -622,8 +623,10 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
     blockHeaderCustomizer.accept(blockHeaderBuilder);
     final BlockHeader mockHeader = blockHeaderBuilder.buildHeader();
     when(blockchain.getBlockHeader(any())).thenReturn(Optional.of(mockHeader));
-    when(mergeCoordinator.getOrSyncHeadByHash(eq(mockHeader.getHash()), any()))
+    when(mergeCoordinator.getOrSyncHeadByHash(eq(mockHeader.getHash()), any(), eq(true)))
         .thenReturn(Optional.of(mockHeader));
+    when(mergeCoordinator.getOrSyncHeadByHash(eq(mockHeader.getHash()), any(), eq(false)))
+        .thenReturn(Optional.empty());
     when(mergeCoordinator.isDescendantOf(any(), any())).thenReturn(true);
     when(mergeCoordinator.computeReorgDepth(mockHeader)).thenReturn(OptionalLong.empty());
     when(mergeCoordinator.updateForkChoice(any(), any(), any()))
@@ -642,7 +645,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
 
   protected void setupValidForkchoiceState(final BlockHeader head, final BlockHeader finalized) {
     when(blockchain.getBlockHeader(finalized.getHash())).thenReturn(Optional.of(finalized));
-    when(mergeCoordinator.getOrSyncHeadByHash(head.getHash(), finalized.getHash()))
+    when(mergeCoordinator.getOrSyncHeadByHash(head.getHash(), finalized.getHash(), true))
         .thenReturn(Optional.of(head));
     when(mergeCoordinator.isDescendantOf(any(), any())).thenReturn(true);
     when(mergeCoordinator.computeReorgDepth(head)).thenReturn(OptionalLong.empty());
