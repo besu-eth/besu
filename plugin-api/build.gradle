@@ -108,17 +108,7 @@ tasks.register('printAPICompatibilityReport') {
     }
   }
 }
-<<<<<<< HEAD
 tasks.named('checkAPICompatibility') { finalizedBy('printAPICompatibilityReport') }
-=======
-
-tasks.register('checkAPIChanges', FileStateChecker) {
-  description = "Checks that the API for the Plugin-API project does not change without deliberate thought"
-  files = sourceSets.main.allJava.files
-  knownHash = 'JYhk0z4SSaabQPB4wkMWYe3Dls9/396kKsHuoQ+HcTY='
-}
-check.dependsOn('checkAPIChanges')
->>>>>>> 30dd0d6049 (Restore structured health-check details in plugin readiness responses)
 
 publishing {
   publications {
