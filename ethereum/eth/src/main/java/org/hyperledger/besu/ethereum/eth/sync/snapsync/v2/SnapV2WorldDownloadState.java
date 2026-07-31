@@ -108,9 +108,24 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
 
   private static final Duration HEARTBEAT_INTERVAL = Duration.ofSeconds(30);
   private static final long COMPLETION_DEBUG_LOG_INTERVAL_MS = TimeUnit.SECONDS.toMillis(10);
+
+  /**
+   * Account-range backpressure watermarks, in queued requests per child queue. Account downloads
+   * pause when any child queue reaches the high watermark and resume only once every child queue
+   * drains below the low watermark; the gap between them absorbs per-response bursts without
+   * flapping. Keep {@link #CHILD_QUEUE_LOW_WATERMARK} above the storage pipeline's in-flight
+   * capacity ({@code SnapSyncConfiguration#getStorageCountPerRequest} x {@code
+   * SynchronizerConfiguration#getWorldStateRequestParallelism}, ~3840) so child downloads don't
+   * starve when accounts resume.
+   */
+  static final long CHILD_QUEUE_HIGH_WATERMARK = 10_000;
+
+  static final long CHILD_QUEUE_LOW_WATERMARK = 5_000;
+
   private volatile ScheduledFuture<?> heartbeatFuture;
   private volatile long lastCompletionDebugLogMillis;
   private volatile long pivotCatchupStartMillis;
+  private boolean accountRequestsPaused;
 
   public SnapV2WorldDownloadState(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
@@ -363,6 +378,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
     pendingCodeRequests.clear();
     accountRangeTracker.clear();
     storageRangeTracker.clear();
+    accountRequestsPaused = false;
     pivotCatchupFuture = null;
     chainCatchupFuture = null;
     pivotCatchupStartMillis = 0;
@@ -855,15 +871,29 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
   }
 
   private boolean shouldPauseAccountRequests() {
-    // TODO: Replace this drain-to-zero gate with bounded backpressure. Account ranges should pause
-    // only while child queues are above a high-watermark, then resume below a low-watermark.
-    return hasIncompleteTasks(pendingStorageRequests)
-        || hasIncompleteTasks(pendingLargeStorageRequests)
-        || hasIncompleteTasks(pendingCodeRequests);
+    accountRequestsPaused =
+        evaluateAccountBackpressure(
+            accountRequestsPaused,
+            pendingStorageRequests,
+            pendingLargeStorageRequests,
+            pendingCodeRequests);
+    return accountRequestsPaused;
   }
 
-  private boolean hasIncompleteTasks(final TaskCollection<SnapDataRequest> queue) {
-    return !queue.allTasksCompleted();
+  /**
+   * Bounded backpressure with hysteresis: account ranges pause once any child queue backs up to the
+   * high watermark and keep flowing again only after every child queue has drained below the low
+   * watermark.
+   */
+  static boolean evaluateAccountBackpressure(
+      final boolean currentlyPaused,
+      final InMemoryTaskQueue<SnapDataRequest> pendingStorageRequests,
+      final InMemoryTaskQueue<SnapDataRequest> pendingLargeStorageRequests,
+      final InMemoryTaskQueue<SnapDataRequest> pendingCodeRequests) {
+    final long watermark = currentlyPaused ? CHILD_QUEUE_LOW_WATERMARK : CHILD_QUEUE_HIGH_WATERMARK;
+    return pendingStorageRequests.size() >= watermark
+        || pendingLargeStorageRequests.size() >= watermark
+        || pendingCodeRequests.size() >= watermark;
   }
 
   @Override
