@@ -28,7 +28,9 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,8 +38,8 @@ import org.slf4j.LoggerFactory;
 public class InMemoryStoragePlugin implements BesuPlugin {
 
   private static final Logger LOG = LoggerFactory.getLogger(InMemoryStoragePlugin.class);
-  private ServiceManager context;
-  private InMemoryKeyValueStorageFactory factory;
+  private @Nullable ServiceManager context;
+  private @Nullable InMemoryKeyValueStorageFactory factory;
 
   /** Default constructor */
   public InMemoryStoragePlugin() {}
@@ -78,7 +80,7 @@ public class InMemoryStoragePlugin implements BesuPlugin {
   }
 
   private void createFactoriesAndRegisterWithStorageService() {
-    context
+    Objects.requireNonNull(context)
         .getService(StorageService.class)
         .ifPresentOrElse(
             this::createAndRegister,
