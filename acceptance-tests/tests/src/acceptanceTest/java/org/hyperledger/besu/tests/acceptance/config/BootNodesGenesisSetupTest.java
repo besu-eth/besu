@@ -104,13 +104,6 @@ public class BootNodesGenesisSetupTest extends AcceptanceTestBase {
 
   @Test
   public void shouldConnectNodesViaV5EnrBootnodesInGenesis() throws Exception {
-    int nodeAPort, nodeBPort;
-    try (ServerSocket nodeASocket = new ServerSocket(0);
-        ServerSocket nodeBSocket = new ServerSocket(0)) {
-      nodeAPort = nodeASocket.getLocalPort();
-      nodeBPort = nodeBSocket.getLocalPort();
-    }
-
     final KeyPair nodeAKeyPair =
         createKeyPair(
             Bytes32.fromHexString(
@@ -122,7 +115,7 @@ public class BootNodesGenesisSetupTest extends AcceptanceTestBase {
 
     // Start nodeA first with no genesis bootnodes — it just listens for incoming connections
     final Node nodeA =
-        besu.createNode("nodeA", b -> addDiscoveryBootnodes(b, nodeAPort, nodeAKeyPair, null));
+        besu.createNode("nodeA", b -> addDiscoveryBootnodes(b, 0, nodeAKeyPair, null));
     noDiscoveryCluster.addNode(nodeA);
 
     // Get nodeA's actual ENR from the running node so we use the exact ENR Besu generated
@@ -132,7 +125,7 @@ public class BootNodesGenesisSetupTest extends AcceptanceTestBase {
 
     // Start nodeB with nodeA's real ENR as the genesis V5 bootnode
     final Node nodeB =
-        besu.createNode("nodeB", b -> addDiscoveryBootnodes(b, nodeBPort, nodeBKeyPair, nodeAEnr));
+        besu.createNode("nodeB", b -> addDiscoveryBootnodes(b, 0, nodeBKeyPair, nodeAEnr));
     noDiscoveryCluster.addNode(nodeB);
 
     nodeA.verify(net.awaitPeerCount(1));
