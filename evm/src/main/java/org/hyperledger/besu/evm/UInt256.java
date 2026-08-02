@@ -720,7 +720,7 @@ public record UInt256(long u3, long u2, long u1, long u0) {
     if (other.isOne()) return this.mod(modulus);
 
     // Fast path: when the modulus is a power of two:
-    // (a * b) mod 2^N == (a * b mod 2^256) & (2^N - 1), valid since N <= 255
+    // (a * b) mod 2^N == (a * b) & (2^N - 1)
     if (modulus.u3 != 0) {
       if ((modulus.u3 & (modulus.u3 - 1)) == 0 && (modulus.u2 | modulus.u1 | modulus.u0) == 0) {
         return mul(other).maskLow(192 + Long.numberOfTrailingZeros(modulus.u3));
