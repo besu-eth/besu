@@ -246,14 +246,13 @@ class BlockSizeTransactionSelectorTest {
     final long txGasLimit = 50_000L;
     final var tx = createPendingTransaction(txGasLimit);
 
-    // Simulate SSTORE refund scenario:
-    // - Pre-refund gas used: 40,000 (estimateGasUsedByTransaction)
-    // EIP-7778 uses only estimateGasUsedByTransaction, not gasRemaining
+    // An SSTORE refund makes gasRemaining larger than the gas actually consumed; EIP-7778 must
+    // account for the block on the unfloored regular gas instead.
     final long preRefundGasUsed = 40_000L;
 
     final var txProcessingResult = mock(TransactionProcessingResult.class);
-    when(txProcessingResult.getEstimateGasUsedByTransaction()).thenReturn(preRefundGasUsed);
     when(txProcessingResult.getStateGasUsed()).thenReturn(0L);
+    when(txProcessingResult.getRegularGasUsedForBlock()).thenReturn(preRefundGasUsed);
     final var txEvaluationContext =
         new TransactionEvaluationContext(
             blockSelectionContext.pendingBlockHeader(), tx, null, null, null, NEVER_CANCELLED);
@@ -315,9 +314,8 @@ class BlockSizeTransactionSelectorTest {
     // First tx: uses 25M regular, 5M state
     final var tx1 = createPendingTransaction(30_000_000L);
     final var result1 = mock(TransactionProcessingResult.class);
-    when(result1.getEstimateGasUsedByTransaction()).thenReturn(30_000_000L);
     when(result1.getStateGasUsed()).thenReturn(5_000_000L);
-    // calculateTransactionRegularGas returns 30M - 5M = 25M regular
+    when(result1.getRegularGasUsedForBlock()).thenReturn(25_000_000L);
 
     final var ctx1 =
         new TransactionEvaluationContext(
@@ -360,8 +358,8 @@ class BlockSizeTransactionSelectorTest {
     // First tx: gasLimit=30M, uses 20M regular + 10M state = 30M total
     final var tx1 = createPendingTransaction(30_000_000L);
     final var result1 = mock(TransactionProcessingResult.class);
-    when(result1.getEstimateGasUsedByTransaction()).thenReturn(30_000_000L);
     when(result1.getStateGasUsed()).thenReturn(10_000_000L);
+    when(result1.getRegularGasUsedForBlock()).thenReturn(20_000_000L);
 
     final var ctx1 =
         new TransactionEvaluationContext(
@@ -406,9 +404,8 @@ class BlockSizeTransactionSelectorTest {
     // Fill block with regular dimension nearly full: gasLimit=1M, uses 990K regular + 10K state
     final var tx1 = createPendingTransaction(1_000_000L);
     final var result1 = mock(TransactionProcessingResult.class);
-    when(result1.getEstimateGasUsedByTransaction()).thenReturn(1_000_000L);
     when(result1.getStateGasUsed()).thenReturn(10_000L);
-    // regular gas = 1_000_000 - 10_000 = 990_000
+    when(result1.getRegularGasUsedForBlock()).thenReturn(990_000L);
 
     final var ctx1 =
         new TransactionEvaluationContext(
