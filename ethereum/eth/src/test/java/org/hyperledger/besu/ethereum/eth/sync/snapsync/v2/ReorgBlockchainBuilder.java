@@ -103,8 +103,21 @@ class ReorgBlockchainBuilder {
       final BlockAccessList bal,
       final Difficulty difficulty,
       final long blockNumber) {
+    return blockWithBal(parentHeader, bal, difficulty, blockNumber, Optional.empty());
+  }
+
+  /**
+   * Same as {@link #blockWithBal(BlockHeader, BlockAccessList, Difficulty, long)} but pins the
+   * header's state root, so tests can make the pivot header commit to a world state they built.
+   */
+  public BlockWithBal blockWithBal(
+      final BlockHeader parentHeader,
+      final BlockAccessList bal,
+      final Difficulty difficulty,
+      final long blockNumber,
+      final Optional<Hash> stateRoot) {
     final Hash balHash = BodyValidation.balHash(bal);
-    final BlockHeader header =
+    final BlockHeaderBuilder headerBuilder =
         BlockHeaderBuilder.createDefault()
             .parentHash(parentHeader.getHash())
             .number(blockNumber)
@@ -113,9 +126,9 @@ class ReorgBlockchainBuilder {
             .withdrawalsRoot(Hash.EMPTY_TRIE_HASH)
             .parentBeaconBlockRoot(Bytes32.ZERO)
             .requestsHash(Hash.EMPTY)
-            .balHash(balHash)
-            .buildBlockHeader();
-    final Block block = new Block(header, BlockBody.empty());
+            .balHash(balHash);
+    stateRoot.ifPresent(headerBuilder::stateRoot);
+    final Block block = new Block(headerBuilder.buildBlockHeader(), BlockBody.empty());
     return new BlockWithBal(block, Optional.of(bal));
   }
 
@@ -149,6 +162,18 @@ class ReorgBlockchainBuilder {
   public Block appendCanonical(
       final BlockHeader parentHeader, final BlockAccessList bal, final long blockNumber) {
     return appendBlockWithBal(parentHeader, bal, HIGH, blockNumber);
+  }
+
+  /** Appends a canonical block whose header pins the given state root. */
+  public Block appendCanonical(
+      final BlockHeader parentHeader,
+      final BlockAccessList bal,
+      final long blockNumber,
+      final Hash stateRoot) {
+    final Block block =
+        blockWithBal(parentHeader, bal, HIGH, blockNumber, Optional.of(stateRoot)).block();
+    append(block, Optional.of(bal));
+    return block;
   }
 
   /**
@@ -225,6 +250,24 @@ class ReorgBlockchainBuilder {
       prev = appendBlockWithBal(prev, emptyBal(), difficulty, n).getHeader();
     }
     return prev;
+  }
+
+  /**
+   * A fetcher whose network seams fail the test if ever invoked, for tests that exercise planning
+   * and BAL application only.
+   */
+  static SnapV2ReorgStateFetcher neverCalledFetcher() {
+    return new SnapV2ReorgStateFetcher(
+        (start, end, pivot) -> {
+          throw new AssertionError("account fetch must not be called in this test");
+        },
+        (accounts, start, end, pivot) -> {
+          throw new AssertionError("storage fetch must not be called in this test");
+        },
+        (codeHashes, pivot) -> {
+          throw new AssertionError("code fetch must not be called in this test");
+        },
+        null);
   }
 
   /** Returns a schedule that reports BAL as enabled for every block. */

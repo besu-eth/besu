@@ -53,6 +53,7 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
   private static final String TX_POOL_PRICE_BUMP = "--tx-pool-price-bump";
   private static final String TX_POOL_BLOB_PRICE_BUMP = "--tx-pool-blob-price-bump";
   private static final String RPC_TX_FEECAP = "--rpc-tx-feecap";
+  private static final String P2P_TX_FEECAP = "--p2p-tx-feecap";
   private static final String STRICT_TX_REPLAY_PROTECTION_ENABLED_FLAG =
       "--strict-tx-replay-protection-enabled";
   private static final String TX_POOL_PRIORITY_SENDERS = "--tx-pool-priority-senders";
@@ -113,6 +114,12 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
       description =
           "Maximum transaction fees (in Wei) accepted for transaction submitted through RPC (default: ${DEFAULT-VALUE})")
   private Wei txFeeCap = TransactionPoolConfiguration.DEFAULT_RPC_TX_FEE_CAP;
+
+  @CommandLine.Option(
+      names = {P2P_TX_FEECAP},
+      description =
+          "Maximum transaction fees (in Wei) accepted for transactions received from peers over P2P. A value of 0 caps fees to 0, rejecting any transaction with a positive gas price (default: ${DEFAULT-VALUE})")
+  private Wei p2pTxFeeCap = TransactionPoolConfiguration.DEFAULT_P2P_TX_FEE_CAP;
 
   @CommandLine.Option(
       names = {STRICT_TX_REPLAY_PROTECTION_ENABLED_FLAG},
@@ -354,6 +361,7 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
     options.priceBump = config.getPriceBump();
     options.blobPriceBump = config.getBlobPriceBump();
     options.txFeeCap = config.getTxFeeCap();
+    options.p2pTxFeeCap = config.getP2pTxFeeCap();
     options.saveFile = config.getSaveFile();
     options.strictTxReplayProtectionEnabled = config.getStrictTransactionReplayProtectionEnabled();
     options.prioritySenders = config.getPrioritySenders();
@@ -421,6 +429,7 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
         .priceBump(priceBump)
         .blobPriceBump(blobPriceBump)
         .txFeeCap(txFeeCap)
+        .p2pTxFeeCap(p2pTxFeeCap)
         .saveFile(saveFile)
         .strictTransactionReplayProtectionEnabled(strictTxReplayProtectionEnabled)
         .prioritySenders(prioritySenders)

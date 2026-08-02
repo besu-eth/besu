@@ -34,10 +34,12 @@ import org.hyperledger.besu.datatypes.Transaction;
 @FunctionalInterface
 public interface TransactionPermissioningProvider {
   /**
-   * Can be used to filter transactions according to an arbitrary criteria
+   * Can be used to filter transactions according to an arbitrary criteria. Registered providers are
+   * consulted as part of transaction validation, so rejecting a transaction keeps it out of the
+   * transaction pool and causes it to fail block-level transaction validation.
    *
-   * @param transaction current transaction to be added in the mempool
-   * @return if we can add transaction to the mempool
+   * @param transaction the transaction to check
+   * @return whether the transaction is permitted
    */
   boolean isPermitted(final Transaction transaction);
 }

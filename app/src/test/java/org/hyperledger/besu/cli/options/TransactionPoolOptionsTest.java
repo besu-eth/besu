@@ -216,6 +216,29 @@ public class TransactionPoolOptionsTest
   }
 
   @Test
+  public void p2pTxFeeCap() {
+    final Wei p2pTxFeeCap = Wei.fromEth(2);
+    internalTestSuccess(
+        config -> assertThat(config.getP2pTxFeeCap()).isEqualTo(p2pTxFeeCap),
+        "--p2p-tx-feecap",
+        OptionParser.format(p2pTxFeeCap));
+  }
+
+  @Test
+  public void p2pTxFeeCapDefaultsToMaxWei() {
+    internalTestSuccess(config -> assertThat(config.getP2pTxFeeCap()).isEqualTo(Wei.MAX_WEI));
+  }
+
+  @Test
+  public void invalidP2pTxFeeCapShouldFail() {
+    internalTestFailure(
+        "Invalid value for option '--p2p-tx-feecap'",
+        "cannot convert 'abcd' to Wei",
+        "--p2p-tx-feecap",
+        "abcd");
+  }
+
+  @Test
   public void selectLayeredImplementationByDefault() {
     internalTestSuccess(config -> assertThat(config.getTxPoolImplementation()).isEqualTo(LAYERED));
   }
