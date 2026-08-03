@@ -39,7 +39,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.quality.Strictness;
 
@@ -53,27 +52,30 @@ class AmsterdamGasCalculatorTest {
 
   private final AmsterdamGasCalculator amsterdamGasCalculator = new AmsterdamGasCalculator();
 
-  @Mock private Transaction transaction;
-
   @Test
   void transactionFloorCostShouldBeAtLeastTransactionBaseCost() {
-    // EIP-2780: TX_BASE (12000) replaces the flat 21000 minimum.
-    // floor cost = 12000 (base cost) + 0
-    when(transaction.getPayload()).thenReturn(Bytes.EMPTY);
-    when(transaction.getAccessList()).thenReturn(Optional.empty());
-    assertThat(amsterdamGasCalculator.transactionFloorCost(transaction)).isEqualTo(12000L);
+    // EIP-3120: the floor is anchored on the decomposed EIP-2780 regular base, which for a
+    // zero-value simple call is TX_BASE (12000) + COLD_ACCOUNT_ACCESS (3000) = 15000.
+    assertThat(amsterdamGasCalculator.transactionFloorCost(callWith(Bytes.EMPTY, List.of())))
+        .isEqualTo(15000L);
 
-    // EIP-7976: floor cost = 12000 + 256 * 64 (uniform per-byte floor) = 28384
-    when(transaction.getPayload()).thenReturn(Bytes.repeat((byte) 0x0, 256));
-    assertThat(amsterdamGasCalculator.transactionFloorCost(transaction)).isEqualTo(28384L);
+    // EIP-7976: floor cost = 15000 + 256 * 64 (uniform per-byte floor) = 31384
+    assertThat(
+            amsterdamGasCalculator.transactionFloorCost(
+                callWith(Bytes.repeat((byte) 0x0, 256), List.of())))
+        .isEqualTo(31384L);
 
     // EIP-7976: non-zero bytes priced identically to zero bytes for the floor
-    when(transaction.getPayload()).thenReturn(Bytes.repeat((byte) 0x1, 256));
-    assertThat(amsterdamGasCalculator.transactionFloorCost(transaction)).isEqualTo(28384L);
+    assertThat(
+            amsterdamGasCalculator.transactionFloorCost(
+                callWith(Bytes.repeat((byte) 0x1, 256), List.of())))
+        .isEqualTo(31384L);
 
-    // 11-byte mixed payload: 12000 + 11 * 64 = 12704
-    when(transaction.getPayload()).thenReturn(Bytes.fromHexString("0x0001000100010001000101"));
-    assertThat(amsterdamGasCalculator.transactionFloorCost(transaction)).isEqualTo(12704L);
+    // 11-byte mixed payload: 15000 + 11 * 64 = 15704
+    assertThat(
+            amsterdamGasCalculator.transactionFloorCost(
+                callWith(Bytes.fromHexString("0x0001000100010001000101"), List.of())))
+        .isEqualTo(15704L);
   }
 
   @Test
@@ -192,6 +194,20 @@ class AmsterdamGasCalculatorTest {
 
   private Transaction transactionWith(
       final Address to, final Wei value, final Bytes payload, final int codeDelegations) {
+    return transactionWith(to, value, payload, codeDelegations, List.of());
+  }
+
+  /** A zero-value call to {@link #RECIPIENT} carrying {@code payload} and an access list. */
+  private Transaction callWith(final Bytes payload, final List<AccessListEntry> accessList) {
+    return transactionWith(RECIPIENT, Wei.ZERO, payload, 0, accessList);
+  }
+
+  private Transaction transactionWith(
+      final Address to,
+      final Wei value,
+      final Bytes payload,
+      final int codeDelegations,
+      final List<AccessListEntry> accessList) {
     long zeroBytes = 0L;
     for (int i = 0; i < payload.size(); i++) {
       if (payload.get(i) == (byte) 0x0) {
@@ -205,32 +221,25 @@ class AmsterdamGasCalculatorTest {
     when(tx.getValue()).thenReturn(value);
     when(tx.getPayload()).thenReturn(payload);
     when(tx.getPayloadZeroBytes()).thenReturn(zeroBytes);
-    when(tx.getAccessList()).thenReturn(Optional.empty());
+    when(tx.getAccessList())
+        .thenReturn(accessList.isEmpty() ? Optional.empty() : Optional.of(accessList));
     when(tx.codeDelegationListSize()).thenReturn(codeDelegations);
     return tx;
   }
 
   @Test
-  void transactionFloorCostWithoutAccessListMatchesCalldataOnlyFloor() {
-    when(transaction.getPayload()).thenReturn(Bytes.repeat((byte) 0x1, 256));
-    when(transaction.getAccessList()).thenReturn(Optional.empty());
-
-    // EIP-2780: 12000 + 256 * 64 = 28384
-    assertThat(amsterdamGasCalculator.transactionFloorCost(transaction)).isEqualTo(28384L);
-  }
-
-  @Test
   void transactionFloorCostIncludesAccessListBytes() {
     // 10 calldata bytes + 1 address (20 bytes) + 2 keys (2*32 = 64 bytes) = 94 bytes
-    // EIP-2780: 12000 + 94 * 64 = 12000 + 6016 = 18016
+    // EIP-3120: anchor = 12000 + 3000 = 15000; 15000 + 94 * 64 = 15000 + 6016 = 21016
     final AccessListEntry entry =
         new AccessListEntry(
             Address.fromHexString("0x00000000000000000000000000000000000000aa"),
             List.of(Bytes32.ZERO, Bytes32.ZERO));
-    when(transaction.getPayload()).thenReturn(Bytes.repeat((byte) 0x1, 10));
-    when(transaction.getAccessList()).thenReturn(Optional.of(List.of(entry)));
 
-    assertThat(amsterdamGasCalculator.transactionFloorCost(transaction)).isEqualTo(18016L);
+    assertThat(
+            amsterdamGasCalculator.transactionFloorCost(
+                callWith(Bytes.repeat((byte) 0x1, 10), List.of(entry))))
+        .isEqualTo(21016L);
   }
 
   @Test
@@ -240,7 +249,7 @@ class AmsterdamGasCalculatorTest {
     // entry B: 20 address bytes + 1 key  (1*32 = 32)    = 52 bytes
     // entry C: 20 address bytes + 3 keys (3*32 = 96)    = 116 bytes
     // total bytes = 4 + 20 + 52 + 116 = 192
-    // EIP-2780: floor = 12000 + 192 * 64 = 12000 + 12288 = 24288
+    // EIP-3120: floor = (12000 + 3000) + 192 * 64 = 15000 + 12288 = 27288
     final AccessListEntry entryA =
         new AccessListEntry(
             Address.fromHexString("0x00000000000000000000000000000000000000aa"), List.of());
@@ -252,10 +261,10 @@ class AmsterdamGasCalculatorTest {
         new AccessListEntry(
             Address.fromHexString("0x00000000000000000000000000000000000000cc"),
             List.of(Bytes32.ZERO, Bytes32.ZERO, Bytes32.ZERO));
-    when(transaction.getPayload()).thenReturn(Bytes.repeat((byte) 0x1, 4));
-    when(transaction.getAccessList()).thenReturn(Optional.of(List.of(entryA, entryB, entryC)));
-
-    assertThat(amsterdamGasCalculator.transactionFloorCost(transaction)).isEqualTo(24288L);
+    assertThat(
+            amsterdamGasCalculator.transactionFloorCost(
+                callWith(Bytes.repeat((byte) 0x1, 4), List.of(entryA, entryB, entryC))))
+        .isEqualTo(27288L);
   }
 
   @Test

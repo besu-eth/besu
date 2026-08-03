@@ -181,8 +181,12 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
     final long calldataBytes = transaction.getPayload().size();
     final long accessListBytes =
         transaction.getAccessList().map(AmsterdamGasCalculator::accessListBytes).orElse(0L);
+    // EIP-3120: anchoring on the decomposed EIP-2780 base rather than TX_BASE alone keeps the
+    // floor from undercutting the transaction's own intrinsic base.
+    final long baseRegularGas =
+        clampedAdd(getMinimumTransactionCost(), baseRecipientRegularGas(transaction));
     return clampedAdd(
-        getMinimumTransactionCost(),
+        baseRegularGas,
         clampedMultiply(clampedAdd(calldataBytes, accessListBytes), TOTAL_COST_FLOOR_PER_BYTE));
   }
 
@@ -216,29 +220,34 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
     final long tokens = clampedAdd(zeroBytes, nonZeroBytes * 4L);
     final long dataCost = tokens * TX_DATA_TOKEN_STANDARD;
 
-    final long recipientRegular;
+    // EIP-3860 init code is added here rather than inside baseRecipientRegularGas() because it is
+    // not part of the EIP-3120 floor anchor.
+    final long recipientRegular =
+        baseRecipientRegularGas(transaction)
+            + (transaction.isContractCreation() ? initCodeCost(payloadSize) : 0L);
+
+    return clampedAdd(clampedAdd(TX_BASE, dataCost), clampedAdd(recipientRegular, baselineGas));
+  }
+
+  /**
+   * EIP-2780/EIP-3120: the recipient's share of the regular-gas intrinsic base — its access and
+   * value primitives, nothing else. Shared with the calldata floor, which anchors on it so it
+   * cannot undercut the transaction's own intrinsic base.
+   */
+  private static long baseRecipientRegularGas(final Transaction transaction) {
     final boolean valueTransfer = !transaction.getValue().isZero();
     if (transaction.isContractCreation()) {
       // CREATE_ACCESS already covers the recipient balance write; a value-bearing creation still
       // emits the EIP-7708 transfer log.
-      long create = CREATE_ACCESS + initCodeCost(payloadSize);
-      if (valueTransfer) {
-        create += TRANSFER_LOG_COST;
-      }
-      recipientRegular = create;
-    } else if (isSelfTransfer(transaction)) {
+      return valueTransfer ? CREATE_ACCESS + TRANSFER_LOG_COST : CREATE_ACCESS;
+    }
+    if (isSelfTransfer(transaction)) {
       // A self-transfer touches and writes only the sender, both covered by TX_BASE. Value makes no
       // difference either, since EIP-7708 emits no transfer log when sender and recipient match.
-      recipientRegular = 0L;
-    } else {
-      long call = COLD_ACCOUNT_ACCESS;
-      if (valueTransfer) {
-        call += TX_VALUE_COST;
-      }
-      recipientRegular = call;
+      return 0L;
     }
-
-    return clampedAdd(clampedAdd(TX_BASE, dataCost), clampedAdd(recipientRegular, baselineGas));
+    // TX_VALUE_COST already bundles the recipient balance write and the EIP-7708 transfer log.
+    return valueTransfer ? COLD_ACCOUNT_ACCESS + TX_VALUE_COST : COLD_ACCOUNT_ACCESS;
   }
 
   /** EIP-2780: a self-transfer (sender == recipient) skips the recipient and value charges. */
