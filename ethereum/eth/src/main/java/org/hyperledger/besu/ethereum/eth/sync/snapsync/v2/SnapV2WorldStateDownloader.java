@@ -74,6 +74,7 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
   private volatile WorldStateHealFinishedListener worldStateHealFinishedListener;
   private volatile SnapV2PivotCatchupListener pivotCatchupListener;
   private final SnapV2BlockAccessListApplier blockAccessListApplier;
+  private final SnapV2ReorgHealer reorgHealer;
   private long lastNoPeerLogMillis;
 
   public SnapV2WorldStateDownloader(
@@ -105,6 +106,13 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
     this.blockAccessListApplier =
         new SnapV2BlockAccessListApplier(
             worldStateStorageCoordinator, blockchain, protocolSchedule);
+    this.reorgHealer =
+        new SnapV2ReorgHealer(
+            blockchain,
+            worldStateStorageCoordinator,
+            protocolSchedule,
+            SnapV2ReorgStateFetcher.fromEthContext(
+                ethContext, metricsSystem, worldStateStorageCoordinator));
 
     metricsSystem.createIntegerGauge(
         BesuMetricCategory.SYNCHRONIZER,
@@ -192,6 +200,7 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
               worldStateHealFinishedListener,
               pivotCatchupListener,
               blockAccessListApplier,
+              reorgHealer,
               blockchain,
               ethContext);
 

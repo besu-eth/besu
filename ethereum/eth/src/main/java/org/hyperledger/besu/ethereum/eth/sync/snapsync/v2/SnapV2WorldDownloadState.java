@@ -95,6 +95,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
       new DownloadedStorageRangeTracker();
   private final SnapV2PivotCatchupListener pivotCatchupListener;
   private final SnapV2BlockAccessListApplier blockAccessListApplier;
+  private final SnapV2ReorgHealer reorgHealer;
   private final Blockchain blockchain;
   private final EthContext ethContext;
 
@@ -124,6 +125,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
       final WorldStateHealFinishedListener worldStateHealFinishedListener,
       final SnapV2PivotCatchupListener pivotCatchupListener,
       final SnapV2BlockAccessListApplier blockAccessListApplier,
+      final SnapV2ReorgHealer reorgHealer,
       final Blockchain blockchain,
       final EthContext ethContext) {
     super(
@@ -139,6 +141,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
     this.worldStateHealFinishedListener = worldStateHealFinishedListener;
     this.pivotCatchupListener = pivotCatchupListener;
     this.blockAccessListApplier = blockAccessListApplier;
+    this.reorgHealer = reorgHealer;
     this.blockchain = blockchain;
     this.ethContext = ethContext;
 
@@ -564,42 +567,59 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
           return;
         }
       }
-      if (!blockchain.areBothBlocksOnCanonicalChain(
-          currentPivotBlockHeader.getHash(), newPivotBlockHeader.getHash())) {
-        failPivotCatchup(
-            new WorldStateDownloaderException(
-                "Chain reorg detected during snap/2 pivot catch-up after draining in-flight tasks:"
-                    + " current pivot "
-                    + currentPivotBlockHeader.getNumber()
-                    + " ("
-                    + currentPivotBlockHeader.getHash()
-                    + ") and new pivot "
-                    + newPivotBlockHeader.getNumber()
-                    + " ("
-                    + newPivotBlockHeader.getHash()
-                    + ") are not both on the canonical chain. Sync restart required."));
-        return;
-      }
+      final boolean sameCanonicalChain =
+          blockchain.areBothBlocksOnCanonicalChain(
+              currentPivotBlockHeader.getHash(), newPivotBlockHeader.getHash());
       try {
-        final Set<Hash> pendingAffected =
-            blockAccessListApplier.collectPendingStorageAffected(
-                currentPivotBlockHeader, newPivotBlockHeader, accountRangeTracker);
-        LOG.debug(
-            "snap/2 pivot catch-up ({} -> {}): {} pending storage-affected accounts to refetch roots for",
-            currentPivotBlockHeader.getNumber(),
-            newPivotBlockHeader.getNumber(),
-            pendingAffected.size());
-        final CompletableFuture<Map<Hash, Bytes32>> rootsFuture =
-            fetchAccountStorageRoots(pendingAffected, newPivotBlockHeader);
-        final var batch = applyBlockAccessLists(currentPivotBlockHeader, newPivotBlockHeader);
-        final Map<Hash, Bytes32> correctRoots = rootsFuture.join();
-        final int patched = blockAccessListApplier.patchStorageRoots(batch, correctRoots);
-        batch.commit();
-        LOG.debug(
-            "snap/2 pivot catch-up ({} -> {}): {} storage roots patched",
-            currentPivotBlockHeader.getNumber(),
-            newPivotBlockHeader.getNumber(),
-            patched);
+        final Map<Hash, Bytes32> correctRoots;
+        if (sameCanonicalChain) {
+          final Set<Hash> pendingAffected =
+              blockAccessListApplier.collectPendingStorageAffected(
+                  currentPivotBlockHeader, newPivotBlockHeader, accountRangeTracker);
+          LOG.debug(
+              "snap/2 pivot catch-up ({} -> {}): {} pending storage-affected accounts to refetch roots for",
+              currentPivotBlockHeader.getNumber(),
+              newPivotBlockHeader.getNumber(),
+              pendingAffected.size());
+          final CompletableFuture<Map<Hash, Bytes32>> rootsFuture =
+              fetchAccountStorageRoots(pendingAffected, newPivotBlockHeader);
+          final var batch = applyBlockAccessLists(currentPivotBlockHeader, newPivotBlockHeader);
+          correctRoots = rootsFuture.join();
+          final int patched = blockAccessListApplier.patchStorageRoots(batch, correctRoots);
+          batch.commit();
+          LOG.debug(
+              "snap/2 pivot catch-up ({} -> {}): {} storage roots patched",
+              currentPivotBlockHeader.getNumber(),
+              newPivotBlockHeader.getNumber(),
+              patched);
+        } else {
+          LOG.info(
+              "snap/2 chain reorg detected at pivot catch-up: current pivot {} ({}) is no longer on the canonical chain; recovering towards new pivot {} ({})",
+              currentPivotBlockHeader.getNumber(),
+              currentPivotBlockHeader.getHash(),
+              newPivotBlockHeader.getNumber(),
+              newPivotBlockHeader.getHash());
+          final ReorgRecoveryResult recovery =
+              reorgHealer.recoverFromReorg(
+                  currentPivotBlockHeader,
+                  newPivotBlockHeader,
+                  accountRangeTracker,
+                  storageRangeTracker);
+          final int purged =
+              purgeChildRequestsForAccounts(
+                  pendingStorageRequests,
+                  pendingLargeStorageRequests,
+                  pendingCodeRequests,
+                  accountRangeTracker,
+                  recovery.deletedAccounts());
+          LOG.info(
+              "snap/2 reorg recovery applied at pivot catch-up ({} -> {}): {} accounts deleted ({} queued child requests purged)",
+              currentPivotBlockHeader.getNumber(),
+              newPivotBlockHeader.getNumber(),
+              recovery.deletedAccounts().size(),
+              purged);
+          correctRoots = recovery.correctedStorageRoots();
+        }
         retargetQueuedRequests(newPivotBlockHeader, correctRoots);
         snapSyncState.setCurrentHeader(newPivotBlockHeader);
       } catch (final Throwable e) {
@@ -709,6 +729,51 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
             "Unexpected snap/2 storage queue request: " + request.getClass().getSimpleName());
       }
     }
+  }
+
+  /**
+   * Drops queued storage and code requests belonging to accounts deleted during reorg recovery,
+   * settling their child-request counts so the affected account ranges can still complete. Without
+   * this, retargeting would fail looking up the storage root of a deleted account, and orphaned
+   * code requests would needlessly fetch and store code for accounts that no longer exist.
+   *
+   * @return the number of dropped requests
+   */
+  static int purgeChildRequestsForAccounts(
+      final InMemoryTaskQueue<SnapDataRequest> pendingStorageRequests,
+      final InMemoryTaskQueue<SnapDataRequest> pendingLargeStorageRequests,
+      final InMemoryTaskQueue<SnapDataRequest> pendingCodeRequests,
+      final DownloadedAccountRangeTracker accountRangeTracker,
+      final Set<Hash> deletedAccounts) {
+    if (deletedAccounts.isEmpty()) {
+      return 0;
+    }
+    return purgeQueueForAccounts(pendingStorageRequests, accountRangeTracker, deletedAccounts)
+        + purgeQueueForAccounts(pendingLargeStorageRequests, accountRangeTracker, deletedAccounts)
+        + purgeQueueForAccounts(pendingCodeRequests, accountRangeTracker, deletedAccounts);
+  }
+
+  private static int purgeQueueForAccounts(
+      final InMemoryTaskQueue<SnapDataRequest> queue,
+      final DownloadedAccountRangeTracker accountRangeTracker,
+      final Set<Hash> deletedAccounts) {
+    int purged = 0;
+    final List<SnapDataRequest> queuedRequests = queue.asList();
+    queue.clearInternalQueue();
+    for (final SnapDataRequest request : queuedRequests) {
+      if (request instanceof SnapV2StorageRangeRequest storageRequest
+          && deletedAccounts.contains(storageRequest.getAccountHash())) {
+        accountRangeTracker.onChildCompleted(storageRequest.getRangeStart());
+        purged++;
+      } else if (request instanceof SnapV2BytecodeRequest codeRequest
+          && deletedAccounts.contains(Hash.wrap(codeRequest.getAccountHash()))) {
+        accountRangeTracker.onChildCompleted(codeRequest.getRangeStart());
+        purged++;
+      } else {
+        queue.add(request);
+      }
+    }
+    return purged;
   }
 
   private Bytes32 readStorageRoot(final Hash accountHash) {

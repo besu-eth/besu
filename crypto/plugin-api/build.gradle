@@ -1,5 +1,5 @@
 /*
- * Copyright Hyperledger Besu Contributors
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -15,8 +15,11 @@
 
 apply plugin: 'java-library'
 
+// override the path-derived name (besu-crypto-plugin-api) with the plugin API family naming
+def securityApiArtifactId = 'besu-plugin-api-security'
+
 jar {
-  archiveBaseName = calculateArtifactId(project)
+  archiveBaseName = securityApiArtifactId
   manifest {
     attributes(
       'Specification-Title': archiveBaseName,
@@ -24,19 +27,27 @@ jar {
       'Implementation-Title': archiveBaseName,
       'Implementation-Version': calculateVersion(),
       'Commit-Hash': getGitCommitDetails(40).hash,
-      'Automatic-Module-Name': 'org.hyperledger.besu.internal.crypto'
+      'Automatic-Module-Name': 'org.hyperledger.besu.plugin.api.security'
       )
   }
 }
 
 dependencies {
-  api project(':crypto:algorithms')
-  api project(':plugin-api')
-
-  implementation 'javax.inject:javax.inject'
-
-  testImplementation 'org.assertj:assertj-core'
-  testImplementation 'org.junit.jupiter:junit-jupiter'
+  api project(':plugin-api:core')
+  // Bytes/Bytes32 appear in SecurityModule's own signatures, so the dependency is declared
+  // here even though plugin-api:core also re-exports it
+  api 'io.consensys.tuweni:tuweni-bytes'
 }
 
-artifacts { testSupportArtifacts testSupportJar }
+publishing {
+  publications {
+    mavenJava(MavenPublication) {
+      groupId = 'org.hyperledger.besu'
+      artifactId = securityApiArtifactId
+      pom {
+        name = 'Besu Plugin API Security'
+        description = 'Security module contracts of the Besu plugin API, covering the security module service, the signer SPI and its public key and signature data interfaces'
+      }
+    }
+  }
+}

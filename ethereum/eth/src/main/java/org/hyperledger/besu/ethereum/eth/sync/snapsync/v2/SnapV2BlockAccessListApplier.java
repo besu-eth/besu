@@ -36,11 +36,14 @@ import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.NavigableMap;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.function.Function;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -75,13 +78,6 @@ public class SnapV2BlockAccessListApplier {
       final long toBlock,
       final DownloadedAccountRangeTracker accountRangeTracker,
       final DownloadedStorageRangeTracker storageRangeTracker) {
-
-    if (!worldStateStorageCoordinator.getDataStorageFormat().isBonsaiFormat()) {
-      throw new IllegalStateException(
-          "Cannot apply snap/2 BALs: data storage format "
-              + worldStateStorageCoordinator.getDataStorageFormat()
-              + "not supported");
-    }
 
     LOG.info(
         "Applying snap/2 BALs for blocks [{}, {}] (completed ranges: {}, pending ranges: {})",
@@ -237,6 +233,239 @@ public class SnapV2BlockAccessListApplier {
       stageAccountTrieChanges(accountTrie, updater);
     }
     return patched;
+  }
+
+  /**
+   * Applies the peer-fetched canonical state ({@link FetchedReorgState}) for the entries {@link
+   * ReorgPlan} lists for re-fetch. Must run after the canonical BALs have been applied, since it
+   * overwrites whatever those entries currently hold.
+   *
+   * <p>Accounts absent at the new pivot are deleted: the flat account, account-trie leaf, and all
+   * locally persisted storage slots are removed (via flat db prefix-scan, which works for partial
+   * storage tries unlike a trie walk). Storage trie nodes and code are left as unreachable
+   * content-addressed data.
+   *
+   * <p>Accounts and slots that do exist at the new pivot are rewritten from the fetched canonical
+   * data. For accounts in completed ranges the locally recomputed storage root after slot fixes
+   * must equal the fetched canonical root; a mismatch means the fetched data and the local state
+   * disagree, so the recovery aborts with {@link WorldStateDownloaderException}.
+   *
+   * @return the deleted accounts and the canonical storage roots of all rewritten accounts
+   */
+  public ReorgRecoveryResult applyReorgCorrections(
+      final ReorgPlan plan,
+      final FetchedReorgState fetched,
+      final DownloadedAccountRangeTracker accountRangeTracker,
+      final DownloadedStorageRangeTracker storageRangeTracker) {
+
+    final Set<Hash> refetchedAccounts = new HashSet<>(plan.accountsToRefetch());
+    refetchedAccounts.addAll(plan.slotsToRefetch().keySet());
+    if (refetchedAccounts.isEmpty()) {
+      return new ReorgRecoveryResult(Set.of(), Map.of());
+    }
+
+    final WorldStateKeyValueStorage.Updater updater = worldStateStorageCoordinator.updater();
+    final MerkleTrie<Bytes, Bytes> accountTrie = openAccountTrie();
+
+    final Set<Hash> deletedAccounts = new HashSet<>();
+    final Map<Hash, Bytes32> correctedRoots = new HashMap<>();
+
+    // Delete the accounts that do not exist at the new pivot.
+    for (final Hash accountHash : refetchedAccounts) {
+      final Optional<PmtStateTrieAccountValue> fetchedAccount = fetched.accounts().get(accountHash);
+      if (fetchedAccount == null) {
+        throw new WorldStateDownloaderException(
+            "snap/2 reorg state fetch did not cover account " + accountHash);
+      }
+      if (fetchedAccount.isEmpty()) {
+        deleteAccount(accountHash, accountTrie, updater, storageRangeTracker);
+        deletedAccounts.add(accountHash);
+      }
+    }
+
+    // Fix diverged slots on surviving accounts. Each storage trie is opened at its current local
+    // root, before any flat account is rewritten below.
+    for (final Map.Entry<Hash, Set<Hash>> entry : plan.slotsToRefetch().entrySet()) {
+      final Hash accountHash = entry.getKey();
+      if (deletedAccounts.contains(accountHash)) {
+        continue;
+      }
+      final PmtStateTrieAccountValue canonicalAccount = fetchedAccountOrThrow(fetched, accountHash);
+      final Map<Hash, Optional<UInt256>> fetchedSlots =
+          fetched.slotsByAccount().getOrDefault(accountHash, Map.of());
+      fixDivergedSlots(
+          accountHash,
+          entry.getValue(),
+          fetchedSlots,
+          canonicalAccount,
+          accountRangeTracker,
+          updater);
+    }
+
+    // Rewrite the flat accounts of all surviving re-fetched accounts from the canonical data:
+    // this repairs orphaned-fork-only scalar changes and installs the canonical storage root.
+    for (final Hash accountHash : refetchedAccounts) {
+      if (deletedAccounts.contains(accountHash)) {
+        continue;
+      }
+      final PmtStateTrieAccountValue canonicalAccount = fetchedAccountOrThrow(fetched, accountHash);
+      final Bytes encodedAccount = RLP.encode(canonicalAccount::writeTo);
+      applyForStrategy(
+          updater,
+          onBonsai -> onBonsai.putAccountInfoState(accountHash, encodedAccount),
+          onForest -> {});
+      accountTrie.put(accountHash.getBytes(), encodedAccount);
+      storeFetchedCodeIfMissing(accountHash, canonicalAccount, fetched, updater);
+      correctedRoots.put(accountHash, Bytes32.wrap(canonicalAccount.getStorageRoot().getBytes()));
+    }
+
+    stageAccountTrieChanges(accountTrie, updater);
+    updater.commit();
+
+    LOG.info(
+        "Applied snap/2 reorg corrections: {} accounts restored, {} accounts deleted",
+        correctedRoots.size(),
+        deletedAccounts.size());
+    return new ReorgRecoveryResult(deletedAccounts, correctedRoots);
+  }
+
+  private void deleteAccount(
+      final Hash accountHash,
+      final MerkleTrie<Bytes, Bytes> accountTrie,
+      final WorldStateKeyValueStorage.Updater updater,
+      final DownloadedStorageRangeTracker storageRangeTracker) {
+    final NavigableMap<Bytes32, Bytes> persistedSlots =
+        worldStateStorageCoordinator.applyForStrategy(
+            bonsai -> bonsai.streamFlatStorages(accountHash, Bytes32.ZERO, slotEntry -> true),
+            forest -> new TreeMap<>());
+    for (final Bytes32 slotHash : persistedSlots.keySet()) {
+      applyForStrategy(
+          updater,
+          onBonsai -> onBonsai.removeStorageValueBySlotHash(accountHash, Hash.wrap(slotHash)),
+          onForest -> {});
+    }
+    applyForStrategy(
+        updater, onBonsai -> onBonsai.removeAccountInfoState(accountHash), onForest -> {});
+    accountTrie.remove(accountHash.getBytes());
+    storageRangeTracker.removeAccount(asBytes32(accountHash));
+  }
+
+  private void fixDivergedSlots(
+      final Hash accountHash,
+      final Set<Hash> divergedSlots,
+      final Map<Hash, Optional<UInt256>> fetchedSlots,
+      final PmtStateTrieAccountValue canonicalAccount,
+      final DownloadedAccountRangeTracker accountRangeTracker,
+      final WorldStateKeyValueStorage.Updater updater) {
+
+    final PmtStateTrieAccountValue localAccount = readExistingAccount(accountHash);
+    if (localAccount == null) {
+      throw new WorldStateDownloaderException(
+          "snap/2 reorg correction: account " + accountHash + " not found locally");
+    }
+
+    final MerkleTrie<Bytes, Bytes> storageTrie = openStorageTrie(accountHash, localAccount);
+    final NodeUpdater storageNodeUpdater =
+        (location, hash, value) ->
+            applyForStrategy(
+                updater,
+                onBonsai -> onBonsai.putAccountStorageTrieNode(accountHash, location, hash, value),
+                onForest -> {});
+
+    for (final Hash slotHash : divergedSlots) {
+      final Optional<UInt256> fetchedValue = fetchedSlots.get(slotHash);
+      if (fetchedValue == null) {
+        throw new WorldStateDownloaderException(
+            "snap/2 reorg state fetch did not cover slot "
+                + slotHash
+                + " of account "
+                + accountHash);
+      }
+      final Bytes slotPath = slotHash.getBytes();
+      if (fetchedValue.isEmpty() || fetchedValue.get().equals(UInt256.ZERO)) {
+        storageTrie.remove(slotPath);
+        applyForStrategy(
+            updater,
+            onBonsai -> onBonsai.removeStorageValueBySlotHash(accountHash, slotHash),
+            onForest -> {});
+      } else {
+        storageTrie.put(slotPath, encodeTrieValue(fetchedValue.get()));
+        applyForStrategy(
+            updater,
+            onBonsai ->
+                onBonsai.putStorageValueBySlotHash(
+                    accountHash, slotHash, fetchedValue.get().toBytes()),
+            onForest -> {});
+      }
+    }
+
+    storageTrie.commit(storageNodeUpdater);
+
+    // Accounts in completed ranges have their full storage locally, so the recomputed root must
+    // match the canonical one. Pending accounts keep a partial trie and take the fetched root.
+    final Hash recomputedRoot = Hash.wrap(storageTrie.getRootHash());
+    if (accountRangeTracker.isAccountHashDownloaded(asBytes32(accountHash))
+        && !recomputedRoot.equals(canonicalAccount.getStorageRoot())) {
+      throw new WorldStateDownloaderException(
+          String.format(
+              "snap/2 reorg correction: storage root mismatch for account %s: recomputed %s after"
+                  + " slot fixes but canonical root is %s",
+              accountHash, recomputedRoot, canonicalAccount.getStorageRoot()));
+    }
+  }
+
+  private void storeFetchedCodeIfMissing(
+      final Hash accountHash,
+      final PmtStateTrieAccountValue canonicalAccount,
+      final FetchedReorgState fetched,
+      final WorldStateKeyValueStorage.Updater updater) {
+    final Hash codeHash = canonicalAccount.getCodeHash();
+    if (Hash.EMPTY.equals(codeHash) || hasCodeLocally(codeHash, accountHash)) {
+      return;
+    }
+    final Bytes code = fetched.codeByHash().get(codeHash);
+    if (code == null) {
+      throw new WorldStateDownloaderException(
+          "snap/2 reorg correction: canonical code "
+              + codeHash
+              + " for account "
+              + accountHash
+              + " was not fetched");
+    }
+    applyForStrategy(
+        updater, onBonsai -> onBonsai.putCode(accountHash, codeHash, code), onForest -> {});
+  }
+
+  private boolean hasCodeLocally(final Hash codeHash, final Hash accountHash) {
+    return worldStateStorageCoordinator
+        .getCode(codeHash, accountHash)
+        .map(code -> !code.isEmpty())
+        .orElse(false);
+  }
+
+  private PmtStateTrieAccountValue fetchedAccountOrThrow(
+      final FetchedReorgState fetched, final Hash accountHash) {
+    return fetched
+        .accounts()
+        .getOrDefault(accountHash, Optional.empty())
+        .orElseThrow(
+            () ->
+                new WorldStateDownloaderException(
+                    "snap/2 reorg correction: account "
+                        + accountHash
+                        + " unexpectedly absent at the new pivot"));
+  }
+
+  private MerkleTrie<Bytes, Bytes> openStorageTrie(
+      final Hash accountHash, final PmtStateTrieAccountValue account) {
+    final NodeLoader storageNodeLoader =
+        (location, hash) ->
+            worldStateStorageCoordinator.getAccountStorageTrieNode(accountHash, location, hash);
+    return new StoredMerklePatriciaTrie<>(
+        storageNodeLoader,
+        Bytes32.wrap(account.getStorageRoot().getBytes()),
+        Function.identity(),
+        Function.identity());
   }
 
   private MerkleTrie<Bytes, Bytes> openAccountTrie() {
