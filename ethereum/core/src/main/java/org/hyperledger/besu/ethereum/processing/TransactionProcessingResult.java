@@ -362,11 +362,11 @@ public class TransactionProcessingResult
   }
 
   /**
-   * Returns the unfloored regular gas dimension for EIP-8037 block accounting: the EIP-7976
-   * calldata floor raises what the sender pays but does not count toward the block. The fallback is
-   * equivalent while the floor is not binding.
+   * Returns the regular gas dimension for EIP-8037 block accounting: {@code max(execution - state,
+   * calldata floor)}. State gas is out of the regular figure before the max is taken, so state
+   * spending cannot discount the floor. The fallback is equivalent while the floor is not binding.
    *
-   * @return the unfloored regular gas used for block accounting
+   * @return the regular gas used for block accounting
    */
   public long getRegularGasUsedForBlock() {
     return regularGasUsedForBlock == Long.MIN_VALUE

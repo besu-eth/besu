@@ -42,14 +42,10 @@ public interface BlockGasAccountingStrategy {
    * Check whether the block has capacity for a transaction. The default (1D, pre-EIP-8037)
    * implementation checks the regular gas dimension only: the tx gas limit must fit within the
    * block's remaining regular-gas budget (capped at zero defensively). EIP-8037 strategies override
-   * this to enforce per-dimension worst-case consumption — the worst-case regular consumption is
-   * {@code min(txMaxGasLimit, tx.gas - intrinsic_state_gas)} (regular gas is runtime-capped at
-   * {@code TX_MAX_GAS_LIMIT}) and the worst-case state consumption is {@code tx.gas -
-   * intrinsic_regular_gas}, each fitting its own remaining budget.
+   * this to bound both dimensions by the transaction's gas limit, since either one could consume
+   * the whole limit (regular gas additionally runtime-capped at {@code TX_MAX_GAS_LIMIT}).
    *
    * @param txGasLimit the gas limit of the candidate transaction
-   * @param intrinsicRegularGas intrinsic regular gas for the transaction
-   * @param intrinsicStateGas intrinsic state gas for the transaction (0 for pre-EIP-8037)
    * @param txMaxGasLimit runtime cap on regular gas per tx (EIP-7825 TX_MAX_GAS_LIMIT)
    * @param cumulativeRegularGas cumulative regular gas used in the block so far
    * @param cumulativeStateGas cumulative state gas used in the block so far
@@ -58,8 +54,6 @@ public interface BlockGasAccountingStrategy {
    */
   default boolean hasBlockCapacity(
       final long txGasLimit,
-      final long intrinsicRegularGas,
-      final long intrinsicStateGas,
       final long txMaxGasLimit,
       final long cumulativeRegularGas,
       final long cumulativeStateGas,
@@ -101,16 +95,14 @@ public interface BlockGasAccountingStrategy {
         @Override
         public long calculateTransactionRegularGas(
             final Transaction transaction, final TransactionProcessingResult result) {
-          // EIP-7976: the calldata floor raises what the sender pays but does not count toward
-          // the block's regular gas dimension.
+          // EIP-8037: the calldata floor binds this dimension, so the sender cannot buy block
+          // regular-gas space below the floor by spending on state.
           return result.getRegularGasUsedForBlock();
         }
 
         @Override
         public boolean hasBlockCapacity(
             final long txGasLimit,
-            final long intrinsicRegularGas,
-            final long intrinsicStateGas,
             final long txMaxGasLimit,
             final long cumulativeRegularGas,
             final long cumulativeStateGas,

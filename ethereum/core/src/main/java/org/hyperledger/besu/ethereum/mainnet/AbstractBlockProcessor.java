@@ -603,24 +603,18 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       final ProtocolSpec protocolSpec) {
     final BlockGasAccountingStrategy strategy = protocolSpec.getBlockGasAccountingStrategy();
     final var gasCalculator = protocolSpec.getGasCalculator();
-    final var intrinsic = TransactionIntrinsicGas.of(transaction, gasCalculator);
     if (!strategy.hasBlockCapacity(
         transaction.getGasLimit(),
-        intrinsic.regularGas(),
-        intrinsic.stateGas(),
         gasCalculator.stateGasCostCalculator().transactionRegularGasLimit(),
         cumulativeRegularGasUsed,
         cumulativeStateGasUsed,
         blockHeader.getGasLimit())) {
       LOG.info(
           "Block processing error: transaction gas limit {} exceeds available block budget"
-              + " (regular={}, state={}, intrinsicRegular={}, intrinsicState={}, limit={})."
-              + " Block {} Transaction {}",
+              + " (regular={}, state={}, limit={}). Block {} Transaction {}",
           transaction.getGasLimit(),
           cumulativeRegularGasUsed,
           cumulativeStateGasUsed,
-          intrinsic.regularGas(),
-          intrinsic.stateGas(),
           blockHeader.getGasLimit(),
           blockHeader.getHash().getBytes().toHexString(),
           transaction.getHash().getBytes().toHexString());
