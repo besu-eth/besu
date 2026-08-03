@@ -19,11 +19,14 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
+- Queue backward-sync targets received before peer readiness and retry when a peer connects. [#10843](https://github.com/besu-eth/besu/pull/10843)
 - Return `BLOCK_NOT_FOUND` for unknown block hashes and `GENESIS_BLOCK_NOT_TRACEABLE` for genesis blocks from `debug_traceBlockByHash`. [#10701](https://github.com/besu-eth/besu/pull/10701)
 - Added a configurable range cap (`--graphql-max-blocks-range`, default 5000) for GraphQL queries.
 - Bonsai world state rolling failures are now logged at `WARN` instead of `INFO`, and a missing block header or trie log during a roll reports which block hash or trie log was missing. [#10859](https://github.com/besu-eth/besu/issues/10859)
+- Log malformed peer messages at DEBUG instead of ERROR in `ApiHandler`, since they indicate peer misbehavior rather than a Besu fault. [#10858](https://github.com/besu-eth/besu/issues/10858)
 - Fix a deadlock where `FullSyncTargetManager`'s (and checkpoint sync's) retry loop could hang forever waiting for a new peer to connect, even though the already-connected peer just needed its outstanding-request budget to free back up. The same fix was applied to snap/fast sync's pivot block selection. [#10864](https://github.com/besu-eth/besu/issues/10864)
 - Peers disconnected for permanent incompatibilities (mismatched network ID, mismatched genesis hash, null/unexpected node ID, or self-connection) are now added to the denylist and will not be reconnected. Previously only `BREACH_OF_PROTOCOL` and `INCOMPATIBLE_P2P_PROTOCOL_VERSION` triggered denylisting. [#10827](https://github.com/besu-eth/besu/pull/10827)
+- Fix `prestateTracer` (including `diffMode`) failing with an internal error on `debug_traceTransaction`, caused by the pre-transaction parent world state updater being unavailable on the single-transaction trace path. [#10798](https://github.com/besu-eth/besu/pull/10798)
 - Raise the default DiscV5 discovery round timeout (`--Xv5-discovery-timeout-seconds`) from 30 to 60 seconds to avoid spurious round failures on networks with many unreachable candidates [#10800](https://github.com/besu-eth/besu/pull/10800)
 - Fix QBFT/IBFT mining continuing to seal blocks after the merge terminal total difficulty (TTD) is reached [#10733](https://github.com/besu-eth/besu/pull/10733)
 - Fix the IBFT2 mining coordinator restarting alongside QBFT after a node restart on IBFT2->QBFT migration networks, which produced competing blocks and endless `Failed to import block` errors. Sync events no longer start the IBFT2 coordinator directly; lifecycle control stays with the migrating coordinator. [#10680](https://github.com/besu-eth/besu/issues/10680)
@@ -32,7 +35,11 @@
 - Recover from restart during flatDB heal sync step [#10883](https://github.com/besu-eth/besu/pull/10883)
 
 ### Additions and Improvements
+- Add `--checkpoint=<hash>:<number>:<totalDifficulty>` CLI option to anchor sync to a trusted checkpoint, overriding any checkpoint configured in the genesis file. The option is only used by snap sync and is ignored (with a warning) in FULL sync-mode.
 - Extract the Plugin API core module: the plugin lifecycle, service lookup and shared block/transaction data views now live in a new `besu-plugin-api-core` artifact, re-exported by `besu-plugin-api` so existing consumers are unaffected. Also adds a minimal `org.hyperledger.besu.plugin.CoreConfiguration` service exposing the node data path. [#10875](https://github.com/besu-eth/besu/pull/10875)
+- Extract the Plugin API metrics module. The metrics contracts (`MetricsSystem`, metric categories and instruments) now live in a new `besu-plugin-api-metrics` artifact, re-exported by `besu-plugin-api` so existing consumers are unaffected. [#10903](https://github.com/besu-eth/besu/pull/10903)
+- Extract the Plugin API permissioning module. The permissioning contracts (`PermissioningService` and the node connection, node message and transaction permissioning providers) now live in a new `besu-plugin-api-permissioning` artifact, re-exported by `besu-plugin-api` so existing consumers are unaffected. [#10919](https://github.com/besu-eth/besu/pull/10919)
+- Extract the Plugin API security module. The security module contracts (`SecurityModuleService`, the `SecurityModule` signer SPI, its `PublicKey` and `Signature` data interfaces and `SecurityModuleException`) now live in a new `besu-plugin-api-security` artifact, re-exported by `besu-plugin-api` so existing consumers are unaffected. [#10941](https://github.com/besu-eth/besu/pull/10941)
 - Add `--logging-format` CLI option to select structured JSON console logging (`ECS`, `GCP`, `LOGSTASH`, `GELF`) in addition to the default `PLAIN` pattern output, without requiring a custom `LOG4J_CONFIGURATION_FILE`. Each format is a bundled Log4j2 configuration file selected at startup. [#9626](https://github.com/besu-eth/besu/issues/9626)
 - Add a japicmp compatibility check (`:plugin-api:checkAPICompatibility`) that fails the build if the Plugin API changes in any way that is not a pure addition against the last released version [#10823](https://github.com/besu-eth/besu/pull/10823)
 - Remove the Plugin API source-hash check (`:plugin-api:checkAPIChanges`), which fired on any source edit without saying anything about actual compatibility. The japicmp check is now the compatibility gate for the Plugin API [#10879](https://github.com/besu-eth/besu/pull/10879)
@@ -41,6 +48,7 @@
 - DiscV4 now supports IPv6 dual-stack RLPx: a node running `--discovery-mode=V4` with `--p2p-interface-ipv6`/`--p2p-host-ipv6` set now binds a second IPv6 RLPx TCP socket and advertises IPv6 ENR/enode fields, instead of those options being ignored with a warning. [#10800](https://github.com/besu-eth/besu/pull/10800)
 - Dual-stack discovery and RLPx now support binding the same port number for both `--p2p-port` and `--p2p-port-ipv6`, using a single dual-stack socket instead of two independent per-family sockets - simplifying firewall rules for operators. Previously this configuration could fail to start with a port-conflict error. [#10800](https://github.com/besu-eth/besu/pull/10800)
 - Add discovery/RLPx observability metrics for the shared DiscV4/DiscV5 transport and outbound RLPx connections - see the PR description for the full list of new metrics. [#10837](https://github.com/besu-eth/besu/pull/10837)
+- Add `--p2p-tx-feecap` CLI option, the P2P equivalent of `--rpc-tx-feecap`, capping the maximum transaction fees (in Wei) accepted for transactions received from peers. The default is no cap, leaving existing behaviour unchanged. [#10819](https://github.com/besu-eth/besu/pull/10819)
 
 ## 26.7.1
 ### Breaking Changes

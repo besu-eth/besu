@@ -29,6 +29,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManager;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
+import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.Checkpoint;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
@@ -43,6 +44,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import org.apache.tuweni.units.bigints.UInt256;
 import org.slf4j.Logger;
@@ -317,8 +319,22 @@ public class BesuController implements java.io.Closeable {
 
   /** The type Builder. */
   public static class Builder {
+
+    private Optional<Checkpoint> checkpoint = Optional.empty();
+
     /** Instantiates a new Builder. */
     public Builder() {}
+
+    /**
+     * Sets the effective checkpoint .
+     *
+     * @param checkpoint the checkpoint, or empty for no checkpoint
+     * @return this builder
+     */
+    public Builder checkpoint(final Optional<Checkpoint> checkpoint) {
+      this.checkpoint = checkpoint;
+      return this;
+    }
 
     /**
      * From eth network config besu controller builder.
@@ -342,8 +358,14 @@ public class BesuController implements java.io.Closeable {
      */
     public BesuControllerBuilder fromGenesisFile(
         final GenesisConfig genesisConfig, final SyncMode syncMode) {
-      final var configOptions = genesisConfig.getConfigOptions();
+      final GenesisConfigOptions configOptions = genesisConfig.getConfigOptions();
+      return createControllerBuilder(genesisConfig, configOptions, syncMode).checkpoint(checkpoint);
+    }
 
+    private BesuControllerBuilder createControllerBuilder(
+        final GenesisConfig genesisConfig,
+        final GenesisConfigOptions configOptions,
+        final SyncMode syncMode) {
       if (configOptions.isConsensusMigration()) {
         return createConsensusScheduleBesuControllerBuilder(genesisConfig);
       }
@@ -436,10 +458,9 @@ public class BesuController implements java.io.Closeable {
 
     private boolean isCheckpointPoSBlock(final GenesisConfigOptions configOptions) {
       final UInt256 terminalTotalDifficulty = configOptions.getTerminalTotalDifficulty().get();
-
-      return configOptions.getCheckpointOptions().isValid()
-          && (UInt256.fromHexString(configOptions.getCheckpointOptions().getTotalDifficulty().get())
-              .greaterThan(terminalTotalDifficulty));
+      return this.checkpoint
+          .map(c -> c.totalDifficulty().toUInt256().greaterThan(terminalTotalDifficulty))
+          .orElse(false);
     }
   }
 }

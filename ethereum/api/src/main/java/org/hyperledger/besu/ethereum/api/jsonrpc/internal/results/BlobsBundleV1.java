@@ -19,20 +19,21 @@ import org.hyperledger.besu.ethereum.core.kzg.Blob;
 import org.hyperledger.besu.ethereum.core.kzg.BlobsWithCommitments;
 import org.hyperledger.besu.ethereum.core.kzg.KZGCommitment;
 import org.hyperledger.besu.ethereum.core.kzg.KZGProof;
+import org.hyperledger.besu.util.HexUtils;
 
 import java.security.InvalidParameterException;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
-import org.apache.tuweni.bytes.Bytes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 @JsonPropertyOrder({"commitments", "proofs", "blobs"})
-public class BlobsBundleV1 {
+public sealed class BlobsBundleV1 permits BlobsBundleV2 {
 
   private static final Logger LOG = LoggerFactory.getLogger(BlobsBundleV1.class);
   private final List<String> commitments;
@@ -42,36 +43,44 @@ public class BlobsBundleV1 {
   private final List<String> blobs;
 
   public BlobsBundleV1(final List<Transaction> transactions) {
+    this(transactions, UnaryOperator.identity());
+  }
+
+  protected BlobsBundleV1(
+      final List<Transaction> transactions,
+      final UnaryOperator<BlobsWithCommitments> blobsWithCommitmentsProcessor) {
     final List<BlobsWithCommitments> blobsWithCommitments =
         transactions.stream()
             .map(Transaction::getBlobsWithCommitments)
             .filter(Optional::isPresent)
             .map(Optional::get)
+            .map(blobsWithCommitmentsProcessor)
             .toList();
 
     this.commitments =
-        blobsWithCommitments.stream()
+        blobsWithCommitments.parallelStream()
             .flatMap(b -> b.getKzgCommitments().stream())
             .map(KZGCommitment::getData)
-            .map(Bytes::toString)
+            .map(b -> HexUtils.toFastHex(b, true))
             .collect(Collectors.toList());
 
     this.proofs =
-        blobsWithCommitments.stream()
+        blobsWithCommitments.parallelStream()
             .flatMap(b -> b.getKzgProofs().stream())
             .map(KZGProof::getData)
-            .map(Bytes::toString)
+            .map(b -> HexUtils.toFastHex(b, true))
             .collect(Collectors.toList());
 
     this.blobs =
-        blobsWithCommitments.stream()
+        blobsWithCommitments.parallelStream()
             .flatMap(b -> b.getBlobs().stream())
             .map(Blob::getData)
-            .map(Bytes::toString)
+            .map(b -> HexUtils.toFastHex(b, true))
             .collect(Collectors.toList());
 
     LOG.debug(
-        "BlobsBundleV1: totalTxs: {}, blobTxs: {}, commitments: {}, proofs: {}, blobs: {}",
+        "{}: totalTxs: {}, blobTxs: {}, commitments: {}, proofs: {}, blobs: {}",
+        getClass().getSimpleName(),
         transactions.size(),
         blobsWithCommitments.size(),
         commitments.size(),

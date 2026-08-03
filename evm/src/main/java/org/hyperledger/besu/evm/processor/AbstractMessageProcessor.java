@@ -139,21 +139,16 @@ public abstract class AbstractMessageProcessor {
   }
 
   /**
-   * EIP-8037 state-gas accounting on frame failure (REVERT or exceptional HALT). Rolls back the
-   * frame's UndoScalar state-gas mutations, then credits any gas-left spill back to the reservoir
-   * so the parent (or sender, on top-level failure) recovers it. Halt and revert share this path
-   * because both propagate the full state_gas_used back via incorporate_child_on_error.
+   * EIP-8037 state-gas accounting on frame failure. The spill goes back to gasRemaining rather than
+   * the reservoir, because a revert propagates it to the parent and a halt burns it.
    */
   private void handleStateGasOnFrameFailure(final MessageFrame frame) {
-    final long stateGasUsedBefore = frame.getStateGasUsed();
-    final long reservoirBefore = frame.getStateGasReservoir();
     clearAccumulatedStateBesidesGasAndOutput(frame);
-    final long stateGasRestored = stateGasUsedBefore - frame.getStateGasUsed();
-    final long reservoirRestored = frame.getStateGasReservoir() - reservoirBefore;
-    final long spill = stateGasRestored - reservoirRestored;
-    if (spill > 0) {
-      frame.incrementStateGasReservoir(spill);
+    final long spilled = frame.getStateGasSpilled();
+    if (spilled > 0) {
+      frame.incrementRemainingGas(spilled);
     }
+    frame.resetStateGasSpilled();
   }
 
   private void exceptionalHalt(final MessageFrame frame) {
