@@ -157,6 +157,13 @@ public sealed class EngineForkchoiceUpdatedV1<PA extends PayloadAttributesV1>
 
     final BlockHeader newHead = maybeNewHead.get();
 
+    // verify world state is available for the newHead otherwise return syncing
+    if (!protocolContext
+        .getWorldStateArchive()
+        .isWorldStateAvailable(newHead.getStateRoot(), newHead.getHash())) {
+      return syncingResponse(requestId, forkChoice);
+    }
+
     // 5. Client software MUST return -38002: Invalid forkchoice state error if the payload
     // referenced by forkchoiceState.headBlockHash is VALID and a payload referenced by either
     // forkchoiceState.finalizedBlockHash or forkchoiceState.safeBlockHash does not belong to the
