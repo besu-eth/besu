@@ -65,7 +65,11 @@ public class MulModOperationBenchmark extends TernaryArithmeticOperationBenchmar
     "MULMOD_64_64_128",
     "MULMOD_192_192_256",
     "MULMOD_128_256_0",
-    "MULMOD_RANDOM_RANDOM_RANDOM"
+    "MULMOD_RANDOM_RANDOM_RANDOM",
+    "MULMOD_256_256_POW2_1_63",
+    "MULMOD_256_256_POW2_1_255",
+    "MULMOD_256_256_POW2_100_200",
+    "MULMOD_256_256_POW2_100_255"
   })
   private String caseName;
 
