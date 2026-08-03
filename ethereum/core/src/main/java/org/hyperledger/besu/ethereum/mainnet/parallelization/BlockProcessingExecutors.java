@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
+import org.hyperledger.besu.ethereum.mainnet.slowblock.SlowBlockDiskReadCounters;
+
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
@@ -39,8 +41,11 @@ public final class BlockProcessingExecutors {
   private static final int STATE_ROOT_THREADS = intProperty("besu.block.stateRootThreads", 1);
 
   // CPU work: parallel tx execution (EVM, keccak, RLP). Bounded to cores.
+  // Marked as slow-block execution readers: storage reads from these threads are this block's
+  // cache misses. The IO and state-root pools stay unmarked, so prefetch and background hashing
+  // never inflate the miss counts.
   private static final ExecutorService CPU_EXECUTOR =
-      Executors.newFixedThreadPool(CPU_THREADS, namedDaemonThreadFactory("besu-block-cpu"));
+      Executors.newFixedThreadPool(CPU_THREADS, executionReaderThreadFactory("besu-block-cpu"));
 
   // IO work: best-effort RocksDB prefetch/reads. Sized to device, not cores.
   private static final ExecutorService IO_EXECUTOR =
@@ -102,5 +107,15 @@ public final class BlockProcessingExecutors {
       thread.setDaemon(true);
       return thread;
     };
+  }
+
+  private static ThreadFactory executionReaderThreadFactory(final String prefix) {
+    final ThreadFactory delegate = namedDaemonThreadFactory(prefix);
+    return runnable ->
+        delegate.newThread(
+            () -> {
+              SlowBlockDiskReadCounters.markExecutionReader();
+              runnable.run();
+            });
   }
 }

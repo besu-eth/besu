@@ -38,12 +38,18 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAcces
 import org.hyperledger.besu.ethereum.mainnet.parallelization.PreprocessingContext;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessingContext;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
+import org.hyperledger.besu.ethereum.mainnet.slowblock.SlowBlockBalDerivation;
+import org.hyperledger.besu.ethereum.mainnet.slowblock.SlowBlockCompositeTracer;
+import org.hyperledger.besu.ethereum.mainnet.slowblock.SlowBlockDiskReadCounters;
+import org.hyperledger.besu.ethereum.mainnet.slowblock.SlowBlockMetrics;
+import org.hyperledger.besu.ethereum.mainnet.slowblock.SlowBlockTracer;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.StackedUpdater;
@@ -231,8 +237,34 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
     final BlockHashLookup blockHashLookup =
         protocolSpec.getPreExecutionProcessor().createBlockHashLookup(blockchain, blockHeader);
 
+    final Optional<BlockAccessListBuilder> blockAccessListBuilder =
+        protocolSpec
+            .getBlockAccessListFactory()
+            .map(BlockAccessListFactory::newBlockAccessListBuilder);
+
     final BlockAwareOperationTracer blockTracer =
         getBlockImportTracer(protocolContext, blockHeader);
+
+    // Slow-block tracing is per block and BAL-only: it activates by itself at the fork that
+    // introduces block access lists, and is null for every other block.
+    final SlowBlockTracer slowBlockTracer =
+        balConfiguration.isSlowBlockTracingEnabled() && blockAccessListBuilder.isPresent()
+            ? new SlowBlockTracer(balConfiguration.getSlowBlockThresholdMs())
+            : null;
+    final SlowBlockMetrics slowBlockMetrics =
+        slowBlockTracer == null ? null : slowBlockTracer.metrics();
+
+    // Translate BlockAwareOperationTracer.NO_TRACING to OperationTracer.NO_TRACING so the EVM sees
+    // one shape. Slow-block tracing alone stays a single object; with a plugin tracer the two are
+    // folded into one composite, so the operation-level call site is bimorphic at worst.
+    final OperationTracer effectiveTracer;
+    if (slowBlockTracer == null) {
+      effectiveTracer = !blockTracer.isEnabled() ? OperationTracer.NO_TRACING : blockTracer;
+    } else if (blockTracer.isEnabled()) {
+      effectiveTracer = new SlowBlockCompositeTracer(slowBlockTracer, blockTracer);
+    } else {
+      effectiveTracer = slowBlockTracer;
+    }
 
     final Address miningBeneficiary = miningBeneficiaryCalculator.calculateBeneficiary(blockHeader);
 
@@ -242,13 +274,18 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
     final StateRootCommitter stateRootCommitter =
         protocolSpec
             .getStateRootCommitterFactory()
-            .forBlock(protocolContext, blockHeader, blockAccessList)
+            .forBlock(protocolContext, blockHeader, blockAccessList, slowBlockMetrics)
             .timed(blockProcessingMetrics.stateRootCalculationTimer());
 
-    final Optional<BlockAccessListBuilder> blockAccessListBuilder =
-        protocolSpec
-            .getBlockAccessListFactory()
-            .map(BlockAccessListFactory::newBlockAccessListBuilder);
+    // Last thing before the try, so the finally below always undoes it.
+    if (slowBlockTracer != null) {
+      SlowBlockDiskReadCounters.markExecutionReader();
+      slowBlockTracer.startBlock(blockHeader, transactions.size());
+      if (worldState instanceof PathBasedWorldState pathBasedWorldState) {
+        pathBasedWorldState.getAccumulator().setReadObserver(slowBlockTracer.blockReadObserver());
+      }
+      preprocessingBlockFunction.installSlowBlockMetrics(slowBlockMetrics);
+    }
 
     try {
       final Optional<AccessLocationTracker> preExecutionAccessLocationTracker =
@@ -260,7 +297,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
               worldState,
               protocolSpec,
               blockHashLookup,
-              !blockTracer.isEnabled() ? OperationTracer.NO_TRACING : blockTracer,
+              effectiveTracer,
               blockAccessListBuilder);
       protocolSpec
           .getPreExecutionProcessor()
@@ -521,6 +558,9 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
           }
           maybeBlockAccessList = Optional.of(bal);
           blockProcessingMetrics.recordBlockAccessListMetrics(bal);
+          if (slowBlockMetrics != null) {
+            SlowBlockBalDerivation.apply(bal, slowBlockMetrics);
+          }
         } else {
           maybeBlockAccessList = Optional.empty();
         }
@@ -536,7 +576,11 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       blockTracer.traceEndBlock(blockHeader, blockBody);
 
       try {
-        worldState.persist(blockHeader, stateRootCommitter);
+        if (slowBlockMetrics != null && worldState instanceof PathBasedWorldState pathBasedState) {
+          pathBasedState.persist(blockHeader, stateRootCommitter, slowBlockMetrics);
+        } else {
+          worldState.persist(blockHeader, stateRootCommitter);
+        }
       } catch (MerkleTrieException e) {
         LOG.trace("Merkle trie exception during Transaction processing ", e);
         if (worldState instanceof BonsaiWorldState) {
@@ -555,6 +599,12 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       } catch (Exception e) {
         LOG.error("failed persisting block", e);
         return new BlockProcessingResult(Optional.empty(), e);
+      } finally {
+        // After persist, not at traceEndBlock, so the state root wait and the commit are inside
+        // the measured window.
+        if (slowBlockTracer != null) {
+          slowBlockTracer.endBlockPersist();
+        }
       }
 
       // EIP-8037: gas_metered = max(cumulative_regular, cumulative_state)
@@ -567,6 +617,13 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
           parallelizedTxFound ? Optional.of(nbParallelTx) : Optional.empty());
     } finally {
       stateRootCommitter.cancel();
+      if (slowBlockTracer != null) {
+        SlowBlockDiskReadCounters.unmarkExecutionReader();
+        // The head world state is reused across blocks, so the observer must not outlive this one.
+        if (worldState instanceof PathBasedWorldState pathBasedWorldState) {
+          pathBasedWorldState.getAccumulator().setReadObserver(null);
+        }
+      }
     }
   }
 
@@ -675,6 +732,17 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         final Optional<BlockAccessListBuilder> blockAccessListBuilder,
         final Optional<BlockAccessList> maybeBlockBal,
         final Optional<BlockHeader> maybeParentHeader);
+
+    /**
+     * Hands the per-block slow-block aggregate to the preprocessor before {@link #run} so that
+     * transactions executed in the background can record into it. Called only while tracing is
+     * enabled.
+     *
+     * @param slowBlockMetrics the per-block aggregate
+     */
+    default void installSlowBlockMetrics(final SlowBlockMetrics slowBlockMetrics) {
+      // preprocessors that run nothing in the background have nothing to record
+    }
 
     class NoPreprocessing implements PreprocessingFunction {
 

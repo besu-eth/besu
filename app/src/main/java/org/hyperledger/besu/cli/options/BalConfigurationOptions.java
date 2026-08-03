@@ -45,6 +45,15 @@ public class BalConfigurationOptions {
       description = "Log the constructed and block's BAL when they differ.")
   boolean balLogBalsOnMismatch = false;
 
+  @CommandLine.Option(
+      names = {"--slow-block-threshold"},
+      paramLabel = "<MILLISECONDS>",
+      description =
+          "Threshold in milliseconds for slow-block execution-metrics logging: -1 disables "
+              + "(default), 0 logs every block, a positive value logs only blocks whose total "
+              + "processing time meets or exceeds it (default: ${DEFAULT-VALUE})")
+  Long slowBlockThresholdMs = -1L;
+
   /**
    * Builds the immutable {@link BalConfiguration} corresponding to the parsed CLI options.
    *
@@ -55,6 +64,7 @@ public class BalConfigurationOptions {
         .isPerfectParallelizationEnabled(balPerfectParallelizationEnabled)
         .shouldLogBalsOnMismatch(balLogBalsOnMismatch)
         .isBalStateRootEnabled(balStateRootEnabled)
+        .slowBlockThresholdMs(slowBlockThresholdMs)
         .build();
   }
 }

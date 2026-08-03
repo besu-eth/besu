@@ -14,4 +14,13 @@
  */
 package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
-public record PreprocessingContext(ParallelBlockTransactionProcessor processor) {}
+import org.hyperledger.besu.ethereum.mainnet.slowblock.SlowBlockMetrics;
+
+/**
+ * What block preprocessing produced for the transaction loop to consume.
+ *
+ * @param processor the parallel transaction processor running this block's transactions
+ * @param slowBlockMetrics the per-block slow-block aggregate, or null when tracing is disabled
+ */
+public record PreprocessingContext(
+    ParallelBlockTransactionProcessor processor, SlowBlockMetrics slowBlockMetrics) {}

@@ -19,6 +19,7 @@ import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.BlockProcessingExecutors;
+import org.hyperledger.besu.ethereum.mainnet.slowblock.SlowBlockMetrics;
 import org.hyperledger.besu.ethereum.trie.forest.ForestWorldStateArchive;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.bal.BlockAccessListStateRootCalculator;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.PathBasedWorldStateProvider;
@@ -59,6 +60,15 @@ public final class BalStateRootCommitterFactory implements StateRootCommitterFac
       final ProtocolContext protocolContext,
       final BlockHeader blockHeader,
       final Optional<BlockAccessList> maybeBal) {
+    return forBlock(protocolContext, blockHeader, maybeBal, null);
+  }
+
+  @Override
+  public StateRootCommitter forBlock(
+      final ProtocolContext protocolContext,
+      final BlockHeader blockHeader,
+      final Optional<BlockAccessList> maybeBal,
+      final SlowBlockMetrics slowBlockMetrics) {
 
     if (maybeBal.isEmpty()
         || !balConfiguration.isBalStateRootEnabled()
@@ -69,7 +79,7 @@ public final class BalStateRootCommitterFactory implements StateRootCommitterFac
 
     final CompletableFuture<BalRootComputation> balFuture =
         BlockAccessListStateRootCalculator.computeAsync(
-            protocolContext, blockHeader, maybeBal.get(), balAsyncExecutor);
+            protocolContext, blockHeader, maybeBal.get(), balAsyncExecutor, slowBlockMetrics);
     return new BalCommitter(balFuture);
   }
 

@@ -78,6 +78,9 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
   private final Map<UInt256, Hash> storageKeyHashLookup = new ConcurrentHashMap<>();
   protected boolean isAccumulatorStateChanged;
 
+  /** Null unless slow-block tracing is active, so reads cost one null check when it is not. */
+  private AccumulatorReadObserver readObserver;
+
   public PathBasedWorldStateUpdateAccumulator(
       final PathBasedWorldView world,
       final Consumer<PathBasedValue<ACCOUNT>> accountPreloader,
@@ -215,6 +218,16 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     this.isAccumulatorStateChanged = true;
   }
 
+  /**
+   * Installs an observer that counts every logical state read made through this accumulator. Used
+   * by slow-block tracing; pass null to remove it.
+   *
+   * @param readObserver the observer, or null
+   */
+  public void setReadObserver(final AccumulatorReadObserver readObserver) {
+    this.readObserver = readObserver;
+  }
+
   protected Consumer<PathBasedValue<ACCOUNT>> getAccountPreloader() {
     return accountPreloader;
   }
@@ -319,6 +332,9 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
 
   public ACCOUNT loadAccount(
       final Address address, final Function<PathBasedValue<ACCOUNT>, ACCOUNT> accountFunction) {
+    if (readObserver != null) {
+      readObserver.onAccountRead();
+    }
     try {
       final PathBasedValue<ACCOUNT> pathBasedValue = accountsToUpdate.get(address);
       if (pathBasedValue == null) {
@@ -327,7 +343,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
         if (fromParent.isPresent()) {
           return fromParent.get();
         }
-        final Account account = wrappedWorldView().get(address);
+        final Account account = loadAccountFromWorldView(address);
         if (account instanceof PathBasedAccount pathBasedAccount) {
           final ACCOUNT updatedAccount = copyAccount((ACCOUNT) pathBasedAccount, this, true);
           final PathBasedValue<ACCOUNT> accountValue =
@@ -351,6 +367,17 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
       throw new MerkleTrieException(
           e.getMessage(), Optional.of(address), e.getHash(), e.getLocation());
     }
+  }
+
+  private Account loadAccountFromWorldView(final Address address) {
+    final AccumulatorReadObserver observer = readObserver;
+    if (observer == null) {
+      return wrappedWorldView().get(address);
+    }
+    final long startNanos = System.nanoTime();
+    final Account account = wrappedWorldView().get(address);
+    observer.addFallThroughReadNanos(System.nanoTime() - startNanos);
+    return account;
   }
 
   @Override
@@ -529,16 +556,32 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
   @Override
   public Optional<Bytes> getCode(final Address address, final Hash codeHash) {
     final PathBasedValue<Bytes> localCode = codeToUpdate.get(address);
+    final Bytes code;
     if (localCode == null) {
       final Supplier<Bytes> loader =
-          Suppliers.memoize(() -> wrappedWorldView().getCode(address, codeHash).orElse(null));
+          Suppliers.memoize(() -> loadCodeFromWorldView(address, codeHash));
       final PathBasedValue<Bytes> codeValue = PathBasedValue.withLazy(loader, loader);
       onCodeValueLoaded(address, codeValue);
       codeToUpdate.put(address, codeValue);
-      return Optional.ofNullable(codeValue.getUpdated());
+      code = codeValue.getUpdated();
     } else {
-      return Optional.ofNullable(localCode.getUpdated());
+      code = localCode.getUpdated();
     }
+    if (readObserver != null) {
+      readObserver.onCodeRead(code == null ? 0 : code.size());
+    }
+    return Optional.ofNullable(code);
+  }
+
+  private Bytes loadCodeFromWorldView(final Address address, final Hash codeHash) {
+    final AccumulatorReadObserver observer = readObserver;
+    if (observer == null) {
+      return wrappedWorldView().getCode(address, codeHash).orElse(null);
+    }
+    final long startNanos = System.nanoTime();
+    final Bytes code = wrappedWorldView().getCode(address, codeHash).orElse(null);
+    observer.addFallThroughReadNanos(System.nanoTime() - startNanos);
+    return code;
   }
 
   @Override
@@ -551,6 +594,9 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
   @Override
   public Optional<UInt256> getStorageValueByStorageSlotKey(
       final Address address, final StorageSlotKey storageSlotKey) {
+    if (readObserver != null) {
+      readObserver.onStorageRead();
+    }
     final Map<StorageSlotKey, PathBasedValue<UInt256>> localAccountStorage =
         storageToUpdate.get(address);
     if (localAccountStorage != null) {
@@ -561,15 +607,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     }
     try {
       final Supplier<UInt256> loader =
-          Suppliers.memoize(
-              () ->
-                  (wrappedWorldView() instanceof PathBasedWorldState worldState)
-                      ? worldState
-                          .getStorageValueByStorageSlotKey(address, storageSlotKey)
-                          .orElse(null)
-                      : wrappedWorldView()
-                          .getStorageValueByStorageSlotKey(address, storageSlotKey)
-                          .orElse(null));
+          Suppliers.memoize(() -> loadStorageFromWorldView(address, storageSlotKey));
       final PathBasedValue<UInt256> storageValue = PathBasedValue.withLazy(loader, loader);
       onStorageValueLoaded(address, storageSlotKey, storageValue);
 
@@ -586,6 +624,22 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
       throw new MerkleTrieException(
           e.getMessage(), Optional.of(address), e.getHash(), e.getLocation());
     }
+  }
+
+  private UInt256 loadStorageFromWorldView(
+      final Address address, final StorageSlotKey storageSlotKey) {
+    final AccumulatorReadObserver observer = readObserver;
+    final long startNanos = observer == null ? 0L : System.nanoTime();
+    final UInt256 value =
+        (wrappedWorldView() instanceof PathBasedWorldState worldState)
+            ? worldState.getStorageValueByStorageSlotKey(address, storageSlotKey).orElse(null)
+            : wrappedWorldView()
+                .getStorageValueByStorageSlotKey(address, storageSlotKey)
+                .orElse(null);
+    if (observer != null) {
+      observer.addFallThroughReadNanos(System.nanoTime() - startNanos);
+    }
+    return value;
   }
 
   @Override

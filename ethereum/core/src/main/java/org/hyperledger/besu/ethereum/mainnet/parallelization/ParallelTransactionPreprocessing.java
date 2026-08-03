@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
+import org.hyperledger.besu.ethereum.mainnet.slowblock.SlowBlockMetrics;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.PathBasedWorldStateProvider;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 
@@ -37,6 +38,9 @@ public class ParallelTransactionPreprocessing implements PreprocessingFunction {
   private final Executor executor;
   private final BalConfiguration balConfiguration;
 
+  /** Null unless slow-block tracing is active for the block about to be preprocessed. */
+  private SlowBlockMetrics slowBlockMetrics;
+
   public ParallelTransactionPreprocessing(
       final MainnetTransactionProcessor transactionProcessor,
       final Executor executor,
@@ -44,6 +48,11 @@ public class ParallelTransactionPreprocessing implements PreprocessingFunction {
     this.transactionProcessor = transactionProcessor;
     this.executor = executor;
     this.balConfiguration = balConfiguration;
+  }
+
+  @Override
+  public void installSlowBlockMetrics(final SlowBlockMetrics slowBlockMetrics) {
+    this.slowBlockMetrics = slowBlockMetrics;
   }
 
   @Override
@@ -66,7 +75,7 @@ public class ParallelTransactionPreprocessing implements PreprocessingFunction {
     if (balConfiguration.isPerfectParallelizationEnabled() && maybeBlockBal.isPresent()) {
       parallelProcessor =
           new BalConcurrentTransactionProcessor(
-              transactionProcessor, maybeBlockBal.get(), balConfiguration);
+              transactionProcessor, maybeBlockBal.get(), balConfiguration, slowBlockMetrics);
     } else {
       parallelProcessor = new OptimisticConcurrentTransactionProcessor(transactionProcessor);
     }
@@ -82,6 +91,6 @@ public class ParallelTransactionPreprocessing implements PreprocessingFunction {
         blockAccessListBuilder,
         maybeParentHeader);
 
-    return Optional.of(new PreprocessingContext(parallelProcessor));
+    return Optional.of(new PreprocessingContext(parallelProcessor, slowBlockMetrics));
   }
 }

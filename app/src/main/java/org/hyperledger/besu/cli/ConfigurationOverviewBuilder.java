@@ -71,6 +71,7 @@ public class ConfigurationOverviewBuilder {
   private BesuPluginContextImpl besuPluginContext;
   private boolean isHistoryExpiryPruneEnabled = false;
   private boolean isParallelTxProcessingEnabled = false;
+  private Long slowBlockThresholdMs;
   private ChainPruningStrategy chainPruningStrategy = ChainPruningStrategy.NONE;
   private Long chainPruningBlocksRetained;
   private Long chainPruningBalsRetained;
@@ -406,6 +407,18 @@ public class ConfigurationOverviewBuilder {
   }
 
   /**
+   * Sets the slow-block logging threshold.
+   *
+   * @param slowBlockThresholdMs threshold in milliseconds; negative values disable slow-block
+   *     logging
+   * @return the builder
+   */
+  public ConfigurationOverviewBuilder setSlowBlockThresholdMs(final Long slowBlockThresholdMs) {
+    this.slowBlockThresholdMs = slowBlockThresholdMs;
+    return this;
+  }
+
+  /**
    * Sets the target gas limit.
    *
    * @param targetGasLimit the target gas limit
@@ -578,6 +591,10 @@ public class ConfigurationOverviewBuilder {
       lines.add("Parallel transaction processing enabled");
     } else {
       lines.add("Parallel transaction processing disabled");
+    }
+
+    if (slowBlockThresholdMs != null && slowBlockThresholdMs >= 0) {
+      lines.add("Slow block logging enabled (threshold: " + slowBlockThresholdMs + "ms)");
     }
 
     if (isLimitTrieLogsEnabled) {

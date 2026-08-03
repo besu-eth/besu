@@ -521,6 +521,15 @@ public class BesuNodeFactory {
 
   public BesuNode createExecutionEngineGenesisNode(
       final String name, final String genesisPath, final boolean p2pEnabled) throws IOException {
+    return createExecutionEngineGenesisNode(name, genesisPath, p2pEnabled, List.of());
+  }
+
+  public BesuNode createExecutionEngineGenesisNode(
+      final String name,
+      final String genesisPath,
+      final boolean p2pEnabled,
+      final List<String> extraCLIOptions)
+      throws IOException {
     final String genesisFile = GenesisConfigurationFactory.readGenesisFile(genesisPath);
 
     return create(
@@ -541,6 +550,7 @@ public class BesuNodeFactory {
             .engineRpcEnabled(true)
             .jsonRpcDebug()
             .dataStorageConfiguration(DataStorageConfiguration.DEFAULT_BONSAI_CONFIG)
+            .extraCLIOptions(extraCLIOptions)
             .build());
   }
 

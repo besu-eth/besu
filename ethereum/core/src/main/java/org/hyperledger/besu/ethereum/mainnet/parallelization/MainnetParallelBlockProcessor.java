@@ -30,6 +30,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpecBuilder;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.slowblock.SlowBlockMetrics;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
@@ -112,17 +113,23 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
                         confirmedParallelizedTransactionCounter,
                         conflictingButCachedTransactionCounter))
         .orElseGet(
-            () ->
-                super.getTransactionProcessingResult(
-                    preProcessingContext,
-                    blockProcessingContext,
-                    transactionUpdater,
-                    blobGasPrice,
-                    miningBeneficiary,
-                    transaction,
-                    location,
-                    blockHashLookup,
-                    accessLocationTracker));
+            () -> {
+              // The background result was unusable, so this transaction is re-executed here. It
+              // runs under the block-level tracer, which is where its counters get recorded.
+              preProcessingContext
+                  .map(PreprocessingContext::slowBlockMetrics)
+                  .ifPresent(SlowBlockMetrics::incrementReplayedTxs);
+              return super.getTransactionProcessingResult(
+                  preProcessingContext,
+                  blockProcessingContext,
+                  transactionUpdater,
+                  blobGasPrice,
+                  miningBeneficiary,
+                  transaction,
+                  location,
+                  blockHashLookup,
+                  accessLocationTracker);
+            });
   }
 
   @Override
