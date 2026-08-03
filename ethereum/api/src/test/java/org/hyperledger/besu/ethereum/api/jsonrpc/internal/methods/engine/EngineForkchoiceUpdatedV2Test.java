@@ -20,6 +20,7 @@ import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PARIS;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.VALID;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.ForkchoiceResult;
@@ -35,7 +36,9 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.ForkchoiceUpdatedResultV1;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
+import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.mainnet.WithdrawalsValidator;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -60,6 +63,8 @@ public class EngineForkchoiceUpdatedV2Test extends EngineForkchoiceUpdatedV1Test
             .vertx(vertx)
             .engineCallListener(engineCallListener)
             .mergeCoordinator(mergeCoordinator)
+            .ethPeers(mock(EthPeers.class))
+            .metricsSystem(new NoOpMetricsSystem())
             .build(),
         PARIS,
         CANCUN);

@@ -11,8 +11,6 @@
  * specific language governing permissions and limitations under the License.
  */
 
-import java.security.MessageDigest
-
 apply plugin: 'java-library'
 apply plugin: 'me.champeau.gradle.japicmp'
 jar {
@@ -30,6 +28,10 @@ jar {
 }
 
 dependencies {
+  api project(':plugin-api:core')
+  api project(':metrics:plugin-api')
+  api project(':crypto:plugin-api')
+  api project(':ethereum:permissioning:plugin-api')
   api project(':datatypes')
   api 'org.apache.commons:commons-lang3'
   api 'io.consensys.tuweni:tuweni-bytes'
@@ -40,41 +42,6 @@ dependencies {
 }
 
 configurations { testArtifacts }
-
-class FileStateChecker extends DefaultTask {
-
-  @Input
-  Set<File> files
-
-  @Input
-  String knownHash
-
-  @TaskAction
-  def CheckState() {
-    def digestor = MessageDigest.getInstance("SHA-256")
-
-    this.files.toSorted(Comparator.comparing({it.canonicalPath})).each {
-      digestor.update(it.readBytes())
-    }
-    def currentHash = digestor.digest().encodeBase64().toString()
-    if (this.knownHash != currentHash) {
-      throw new GradleException("""For the Plugin APIs the checksum of the project did not match what was expected.
-
-If this is a deliberate change where you have thought through backwards compatibility,
-then update "Expected" for "Calculated" in the appropriate build.gradle as the knownHash for this task.
-Expected   : ${this.knownHash}
-Calculated : ${currentHash}
-""")
-    }
-  }
-}
-
-tasks.register('checkAPIChanges', FileStateChecker) {
-  description = "Checks that the API for the Plugin-API project does not change without deliberate thought"
-  files = sourceSets.main.allJava.files
-  knownHash = 'wU4MSsEw/Y35zYOTHciA+COCAQw63bjdsFkQt5DJT/k='
-}
-check.dependsOn('checkAPIChanges')
 
 // The released jar to compare against; the transitive configuration lets the baseline
 // type hierarchy resolve, so missing supertypes do not show up as API changes.
@@ -90,7 +57,12 @@ tasks.register('checkAPICompatibility', me.champeau.gradle.japicmp.JapicmpTask) 
   oldArchives.from(apiBaselineJar)
   oldClasspath.from(apiBaselineClasspath)
   // When the Plugin API is split into modules, each new jar is added here so the union is checked
-  newArchives.from(tasks.named('jar'))
+  newArchives.from(
+    tasks.named('jar'),
+    project(':plugin-api:core').tasks.named('jar'),
+    project(':metrics:plugin-api').tasks.named('jar'),
+    project(':ethereum:permissioning:plugin-api').tasks.named('jar'),
+    project(':crypto:plugin-api').tasks.named('jar'))
   newClasspath.from(sourceSets.main.runtimeClasspath)
 
   packageIncludes = [

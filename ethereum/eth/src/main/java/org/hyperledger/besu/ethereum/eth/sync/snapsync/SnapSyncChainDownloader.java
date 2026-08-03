@@ -329,7 +329,6 @@ public class SnapSyncChainDownloader
                     totalDuration.toSeconds());
                 // Stop metrics on success
                 syncDurationMetrics.stopTimer(SyncDurationMetrics.Labels.CHAIN_DOWNLOAD_DURATION);
-                chainSyncStateStorage.deleteState();
                 return CompletableFuture.<Void>completedFuture(null);
               }
             })
