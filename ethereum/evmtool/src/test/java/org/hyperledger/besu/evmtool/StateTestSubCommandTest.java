@@ -175,4 +175,28 @@ class StateTestSubCommandTest {
             "\"stateRoot\":\"0x4f0dafcdc942cf538ffe1f870ab031c2761857b3066f595e56c74bcb222eb0bb\"");
     assertThat(output).contains("\"pass\":true");
   }
+
+  @Test
+  void eip6780FailedCreateShouldNotDeletePreexistingAccount() {
+    // Regression test for consensus bug: a depth-0 CREATE whose initcode does a successful
+    // CREATE2→SELFDESTRUCT child and then returns oversized code (MAX_CODE_SIZE+1) must NOT
+    // delete the pre-existing child account. Besu previously produced a divergent post-state root
+    // (0x850df194…) instead of the reference root (0x252171e5…) agreed upon by all other clients.
+    final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    EvmToolCommand parentCommand =
+        new EvmToolCommand(System.in, new PrintWriter(baos, true, UTF_8));
+    final StateTestSubCommand stateTestSubCommand = new StateTestSubCommand(parentCommand);
+    final CommandLine cmd = new CommandLine(stateTestSubCommand);
+    cmd.parseArgs(
+        StateTestSubCommandTest.class.getResource("eip6780-failed-create.json").getPath());
+    stateTestSubCommand.run();
+
+    final String output = baos.toString(UTF_8);
+    assertThat(output)
+        .as("post-state root must match the reference value from geth/erigon/revm/eels")
+        .contains(
+            "\"stateRoot\":\"0x252171e59678d6fd87e7fcec3992f266da5566b63c1d5c1595b79ccb53c76145\"");
+    assertThat(output).contains("\"pass\":true");
+    assertThat(output).doesNotContain("\"pass\":false");
+  }
 }

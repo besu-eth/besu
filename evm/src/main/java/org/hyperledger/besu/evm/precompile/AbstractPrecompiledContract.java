@@ -16,7 +16,6 @@ package org.hyperledger.besu.evm.precompile;
 
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
-import java.util.Arrays;
 import java.util.function.Consumer;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -102,15 +101,16 @@ public abstract class AbstractPrecompiledContract implements PrecompiledContract
 
   /**
    * Calculate a cache key over the leading {@code prefixLen} bytes of {@code input}. Bytes beyond
-   * the semantic prefix are ignored.
+   * the semantic prefix are ignored. The key is the semantic prefix itself (compared by content),
+   * not a 32-bit digest of it, so distinct inputs can never collide into the same cache bucket.
    *
    * @param input bytes
    * @param prefixLen number of leading bytes to include in the key
-   * @return integer cache key
+   * @return cache key
    */
-  public static Integer getCacheKey(final Bytes input, final int prefixLen) {
+  public static Bytes getCacheKey(final Bytes input, final int prefixLen) {
     final int len = Math.min(prefixLen, input.size());
-    return Arrays.hashCode(input.slice(0, len).toArray());
+    return input.slice(0, len).copy();
   }
 
   /** Per-cache byte-weight cap. */
@@ -118,17 +118,17 @@ public abstract class AbstractPrecompiledContract implements PrecompiledContract
 
   /**
    * Shared Caffeine builder for precompile result caches. Caps total weight at {@value
-   * #CACHE_MAX_WEIGHT_BYTES} bytes and weighs each entry by {@code Integer.BYTES + cachedInput
-   * size}, so even zero-byte inputs carry weight and entry count is bounded.
+   * #CACHE_MAX_WEIGHT_BYTES} bytes and weighs each entry by {@code key size + cachedInput size}, so
+   * even zero-byte inputs carry weight and entry count is bounded.
    *
    * @return a configured Caffeine builder; callers chain {@code .build()} (and may add {@code
    *     .expireAfterWrite(...)}).
    */
-  public static Caffeine<Integer, PrecompileInputResultTuple> resultCacheBuilder() {
+  public static Caffeine<Bytes, PrecompileInputResultTuple> resultCacheBuilder() {
     return Caffeine.newBuilder()
         .maximumWeight(CACHE_MAX_WEIGHT_BYTES)
         .weigher(
-            (final Integer k, final PrecompileInputResultTuple v) ->
-                Integer.BYTES + v.cachedInput().size());
+            (final Bytes k, final PrecompileInputResultTuple v) ->
+                k.size() + v.cachedInput().size());
   }
 }

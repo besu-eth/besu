@@ -14,8 +14,9 @@
  */
 package org.hyperledger.besu.ethereum.vm.operations;
 
+import static org.hyperledger.besu.ethereum.vm.operations.BenchmarkHelper.pow2;
+
 import org.hyperledger.besu.ethereum.utils.Range;
-import org.hyperledger.besu.evm.UInt256;
 
 import java.math.BigInteger;
 import java.util.Random;
@@ -125,18 +126,9 @@ public abstract class BinaryArithmeticOperationBenchmark extends BinaryOperation
         byte[] a = new byte[aSize];
         random.nextBytes(a);
 
-        UInt256 bValue = pow2(random.nextInt(pow2BitRange.minimum, pow2BitRange.maximum + 1));
-
         poolA[i] = Bytes.wrap(a);
-        poolB[i] = Bytes.wrap(bValue.toBytesBE());
+        poolB[i] = pow2(random.nextInt(pow2BitRange.minimum, pow2BitRange.maximum + 1));
       }
-    }
-
-    private static UInt256 pow2(final int n) {
-      if (n < 64) return new UInt256(0, 0, 0, 1L << n);
-      if (n < 128) return new UInt256(0, 0, 1L << (n - 64), 0);
-      if (n < 192) return new UInt256(0, 1L << (n - 128), 0, 0);
-      return new UInt256(1L << (n - 192), 0, 0, 0);
     }
   }
 

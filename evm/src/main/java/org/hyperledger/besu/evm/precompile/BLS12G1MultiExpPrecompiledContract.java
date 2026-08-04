@@ -25,7 +25,7 @@ import org.apache.tuweni.bytes.Bytes;
 public class BLS12G1MultiExpPrecompiledContract extends AbstractBLS12PrecompiledContract {
 
   private static final int PARAMETER_LENGTH = 160;
-  private static final Cache<Integer, PrecompileInputResultTuple> g1MSMCache =
+  private static final Cache<Bytes, PrecompileInputResultTuple> g1MSMCache =
       AbstractPrecompiledContract.resultCacheBuilder()
           .expireAfterWrite(15, TimeUnit.MINUTES) // Evict 15 minutes after each entry is written
           .build();
@@ -45,7 +45,7 @@ public class BLS12G1MultiExpPrecompiledContract extends AbstractBLS12Precompiled
   }
 
   @Override
-  protected Cache<Integer, PrecompileInputResultTuple> getCache() {
+  protected Cache<Bytes, PrecompileInputResultTuple> getCache() {
     return g1MSMCache;
   }
 }

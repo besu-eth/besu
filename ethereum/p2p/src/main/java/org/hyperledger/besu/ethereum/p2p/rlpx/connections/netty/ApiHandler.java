@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.p2p.rlpx.connections.netty;
 
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnectionEventDispatcher;
+import org.hyperledger.besu.ethereum.p2p.rlpx.framing.FramingException;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.CapabilityMultiplexer;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage;
@@ -116,7 +117,11 @@ final class ApiHandler extends SimpleChannelInboundHandler<MessageData> {
 
   @Override
   public void exceptionCaught(final ChannelHandlerContext ctx, final Throwable throwable) {
-    LOG.error("Error:", throwable);
+    if (throwable instanceof FramingException || throwable instanceof RLPException) {
+      LOG.debug("Invalid incoming message from peer: {}", connection.getPeerInfo(), throwable);
+    } else {
+      LOG.error("Error:", throwable);
+    }
     connectionEventDispatcher.dispatchDisconnect(
         connection, DisconnectMessage.DisconnectReason.TCP_SUBSYSTEM_ERROR, false);
     ctx.close();

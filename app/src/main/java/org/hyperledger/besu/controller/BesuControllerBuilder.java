@@ -42,7 +42,6 @@ import org.hyperledger.besu.ethereum.chain.GenesisState;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.chain.VariablesStorage;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
@@ -68,7 +67,6 @@ import org.hyperledger.besu.ethereum.eth.sync.common.PivotSelectorFromPeers;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSelectorFromSafeBlock;
 import org.hyperledger.besu.ethereum.eth.sync.common.SingleBlockHeaderDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.Checkpoint;
-import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.ImmutableCheckpoint;
 import org.hyperledger.besu.ethereum.eth.sync.fullsync.SyncTerminationCondition;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
@@ -238,6 +236,9 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
 
   /** The global code cache */
   protected PathBasedCodeCache codeCache;
+
+  /** The effective checkpoint to sync to (CLI override or genesis). */
+  protected Optional<Checkpoint> checkpoint = Optional.empty();
 
   /** Instantiates a new Besu controller builder. */
   protected BesuControllerBuilder() {}
@@ -421,6 +422,17 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
    */
   public BesuControllerBuilder requiredBlocks(final Map<Long, Hash> requiredBlocks) {
     this.requiredBlocks = requiredBlocks;
+    return this;
+  }
+
+  /**
+   * Sets the effective checkpoint to sync to.
+   *
+   * @param checkpoint the resolved checkpoint, or empty if none applies
+   * @return the besu controller builder
+   */
+  public BesuControllerBuilder checkpoint(final Optional<Checkpoint> checkpoint) {
+    this.checkpoint = checkpoint;
     return this;
   }
 
@@ -757,21 +769,6 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
 
     final EthMessages ethMessages = new EthMessages();
     final EthMessages snapMessages = new EthMessages();
-
-    Optional<Checkpoint> checkpoint = Optional.empty();
-    if (genesisConfigOptions.getCheckpointOptions().isValid()) {
-      checkpoint =
-          Optional.of(
-              ImmutableCheckpoint.builder()
-                  .blockHash(
-                      Hash.fromHexString(
-                          genesisConfigOptions.getCheckpointOptions().getHash().get()))
-                  .blockNumber(genesisConfigOptions.getCheckpointOptions().getNumber().getAsLong())
-                  .totalDifficulty(
-                      Difficulty.fromHexString(
-                          genesisConfigOptions.getCheckpointOptions().getTotalDifficulty().get()))
-                  .build());
-    }
 
     final PeerTaskExecutor peerTaskExecutor =
         new PeerTaskExecutor(

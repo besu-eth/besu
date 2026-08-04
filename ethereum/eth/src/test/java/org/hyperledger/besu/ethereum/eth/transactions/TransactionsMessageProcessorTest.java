@@ -20,6 +20,8 @@ import static java.time.Instant.now;
 import static java.util.Arrays.asList;
 import static java.util.Collections.singletonList;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -160,6 +162,20 @@ public class TransactionsMessageProcessorTest {
     verify(peer1).disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
     verifyNoInteractions(transactionPool);
     verifyNoInteractions(transactionTracker);
+  }
+
+  @Test
+  public void shouldDisconnectPeerWhenAddRemoteTransactionsThrowsRuntimeException() {
+    when(transactionTracker.receivedTransactions(peer1, asList(transaction1, transaction2)))
+        .thenReturn(asList(transaction1, transaction2));
+    doThrow(new RuntimeException("simulated unexpected error"))
+        .when(transactionPool)
+        .addRemoteTransactions(any());
+
+    messageHandler.processTransactionsMessage(
+        peer1, TransactionsMessage.create(asList(transaction1, transaction2)), now(), ofMinutes(1));
+
+    verify(peer1).disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
   }
 
   @Test
