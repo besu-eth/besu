@@ -51,6 +51,7 @@ dependencies {
     api project(':consensus:qbft')
     api project(':consensus:qbft-core')
     api project(':crypto:algorithms')
+    api project(':crypto:plugin-api')
     api project(':crypto:services')
     api project(':datatypes')
     api project(':ethereum:api')

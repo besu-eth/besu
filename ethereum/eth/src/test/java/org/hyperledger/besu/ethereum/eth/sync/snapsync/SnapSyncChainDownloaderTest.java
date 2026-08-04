@@ -513,7 +513,12 @@ public class SnapSyncChainDownloaderTest {
     chainSyncStateStorage.storeState(loadedState);
 
     when(blockchain.blockIsOnCanonicalChain(newPivot.getHash())).thenReturn(false);
-    // Stage 2 resumes from the chain head when the chain head already has a body stored.
+    lenient().when(blockchain.blockIsOnCanonicalChain(chainHeadAtCrash.getHash())).thenReturn(true);
+    // Stage 2 resumes from the chain head when the chain head already has a body stored
+    // and is still canonical.
+    lenient()
+        .when(blockchain.getBlockHeader(chainHeadAtCrash.getNumber()))
+        .thenReturn(Optional.of(chainHeadAtCrash));
     when(blockchain.getBlockBody(chainHeadAtCrash.getHash()))
         .thenReturn(Optional.of(mock(BlockBody.class)));
     when(blockchain.getChainHeadHeader()).thenReturn(chainHeadAtCrash);
@@ -759,7 +764,12 @@ public class SnapSyncChainDownloaderTest {
     chainSyncStateStorage.storeState(loadedState);
 
     when(blockchain.blockIsOnCanonicalChain(newPivot.getHash())).thenReturn(false);
-    // Stage 2 resumes from the chain head when the chain head already has a body stored.
+    lenient().when(blockchain.blockIsOnCanonicalChain(chainHeadAtCrash.getHash())).thenReturn(true);
+    // Stage 2 resumes from the chain head when the chain head already has a body stored
+    // and is still canonical.
+    lenient()
+        .when(blockchain.getBlockHeader(chainHeadAtCrash.getNumber()))
+        .thenReturn(Optional.of(chainHeadAtCrash));
     when(blockchain.getBlockBody(chainHeadAtCrash.getHash()))
         .thenReturn(Optional.of(mock(BlockBody.class)));
     when(blockchain.getChainHeadHeader()).thenReturn(chainHeadAtCrash);
@@ -927,6 +937,78 @@ public class SnapSyncChainDownloaderTest {
 
     // No bodies found above anchor: Stage 2 falls back to the stored anchor (500).
     verify(pipelineFactory).createForwardBodiesAndReceiptsDownloadPipeline(eq(500L), any(), any());
+  }
+
+  /**
+   * The highest imported block may reside on the orphaned fork after a reorg has already moved the
+   * canonical headers to the new fork. {@code forwardDownloadAnchor} must detect the mismatch and
+   * fall back to {@code highestCanonicalBody} (which walks the current canonical chain), otherwise
+   * the forward download starts from the orphaned chain head, missing the new fork's BALs and
+   * bodies in the {@code [common ancestor, chain head]} number range.
+   *
+   * <pre>
+   *   Previous canonical (fork A)            New canonical (fork B)
+   *
+   *     10 ─ ...                             10' ─ ... ─ 15'
+   *     │  (imported)  ← chainHead            │           ↑
+   *     │                                     │       new pivot
+   *     │                                     │
+   *     1 ──────────────────────────────────── 1
+   *     (imported)                             (imported)
+   *
+   *   Without the canonical check, anchor = 10 would skip fork-B blocks 2..10.
+   *   With the check, anchor falls back to 1, covering the full reorg window.
+   * </pre>
+   */
+  @Test
+  public void stage2RecoveryFallsBackToCanonicalBodyWhenChainHeadOrphanedByReorg()
+      throws Exception {
+    final BlockHeader oldPivot = new BlockHeaderTestFixture().number(10).buildHeader();
+    final BlockHeader newPivot = new BlockHeaderTestFixture().number(15).buildHeader();
+    final BlockHeader storedBodyAnchor = new BlockHeaderTestFixture().number(1).buildHeader();
+
+    // Fork-A block 10 was imported (has a body), but after the reorg it is no longer
+    // canonical at that height — the canonical header at 10 belongs to fork B instead.
+    final BlockHeader forkABlock10 =
+        new BlockHeaderTestFixture().number(10).timestamp(1L).buildHeader();
+    final BlockHeader forkBBlock10 =
+        new BlockHeaderTestFixture().number(10).timestamp(2L).buildHeader();
+
+    final ChainSyncState loadedState =
+        new ChainSyncState(oldPivot, storedBodyAnchor, crashedStateAnchor, true);
+    chainSyncStateStorage.storeState(loadedState);
+
+    when(blockchain.blockIsOnCanonicalChain(newPivot.getHash())).thenReturn(false);
+    when(blockchain.getChainHeadHeader()).thenReturn(forkABlock10);
+    // forkABlock10 is no longer canonical: getBlockHeader(10) resolves to fork B.
+    lenient()
+        .when(blockchain.getBlockHeader(forkABlock10.getNumber()))
+        .thenReturn(Optional.of(forkBBlock10));
+    // Lenient: aborted early by the canonical check in the fixed code path.
+    lenient()
+        .when(blockchain.getBlockBody(forkABlock10.getHash()))
+        .thenReturn(Optional.of(mock(BlockBody.class)));
+
+    setupSuccessfulPipelineMocks();
+
+    final SnapSyncChainDownloader downloader =
+        new SnapSyncChainDownloader(
+            pipelineFactory,
+            syncConfig,
+            protocolSchedule,
+            protocolContext,
+            ethContext,
+            syncState,
+            syncDurationMetrics,
+            newPivot,
+            chainSyncStateStorage,
+            headerDownloader);
+
+    downloader.onWorldStateHealFinished();
+    downloader.start().get(5, TimeUnit.SECONDS);
+
+    // Anchor falls back to the stored body anchor (1), not the orphaned chain head (10).
+    verify(pipelineFactory).createForwardBodiesAndReceiptsDownloadPipeline(eq(1L), any(), any());
   }
 
   // ── Checkpoint validation after the initial header download to genesis ───────────────────

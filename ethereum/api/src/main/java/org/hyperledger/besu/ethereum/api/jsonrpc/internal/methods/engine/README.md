@@ -14,7 +14,8 @@ series, each in its own PR, to keep changes reviewable:
 |---|---|---|
 | `engine_forkchoiceUpdatedV*` | Yes | Yes |
 | `engine_newPayloadV*` | Yes | Yes |
-| `engine_getPayloadV*`, `engine_getBlobsV*`, `engine_getPayloadBodiesBy*`, `engine_exchangeCapabilities`, `engine_preparePayloadDebug`, `engine_getClientVersionV1`, `engine_exchangeTransitionConfigurationV1` | Not yet | Not yet |
+| `engine_getPayloadV*` | Yes | Yes |
+| `engine_getBlobsV*`, `engine_getPayloadBodiesBy*`, `engine_exchangeCapabilities`, `engine_preparePayloadDebug`, `engine_getClientVersionV1`, `engine_exchangeTransitionConfigurationV1` | Not yet | Not yet |
 
 The not-yet-migrated series still take their old flat constructor argument list (some via
 `ExecutionEngineJsonRpcMethod`'s TRANSITIONAL SHIM constructors, kept until every series has moved
@@ -24,13 +25,14 @@ follow the pattern below and update this table.
 
 ## Architecture (migrated series)
 
-Each method series (`engine_forkchoiceUpdatedV*`, `engine_newPayloadV*` — see the migration status
-table above) is a **sealed class hierarchy mirroring the specification**: version N extends version
-N−1 and overrides only what its spec version adds or changes.
+Each method series (`engine_forkchoiceUpdatedV*`, `engine_newPayloadV*`, `engine_getPayloadV*` — see
+the migration status table above) is a **sealed class hierarchy mirroring the specification**:
+version N extends version N−1 and overrides only what its spec version adds or changes.
 
 - `EngineForkchoiceUpdatedV1 permits EngineForkchoiceUpdatedV2`, `... V3 permits
   EngineForkchoiceUpdatedV4`; `EngineNewPayloadV1 permits EngineNewPayloadV2`, `... V4 permits
-  EngineNewPayloadV5`; and the latest version of each is `final`. Future migrated series follow the
+  EngineNewPayloadV5`; `EngineGetPayloadV1 permits EngineGetPayloadV2`, `... V5 permits
+  EngineGetPayloadV6`; and the latest version of each is `final`. Future migrated series follow the
   same shape.
 - All versions extend `ExecutionEngineJsonRpcMethod`, which owns the fork-window validation
   (`minSupportedFork` / `firstUnsupportedFork` constructor arguments, `validateForkSupported`,
@@ -45,7 +47,10 @@ N−1 and overrides only what its spec version adds or changes.
 - The JSON data structures relevant to migrated series are sealed hierarchies too, mirroring the
   spec versions: request parameters in `..internal.parameters` (`ExecutionPayloadV1..V4`,
   `NewPayloadRequestParametersV1..V3`, `ForkchoiceStateV1`, `PayloadAttributesV1..V4`), results in
-  `..internal.results` (`PayloadStatusV1`, `ForkchoiceUpdatedResultV1`).
+  `..internal.results` (`PayloadStatusV1`, `ForkchoiceUpdatedResultV1`,
+  `EngineGetPayloadResultV1..V6`). Result classes reuse the request-side payload hierarchy rather
+  than re-declaring header fields: `EngineGetPayloadResultV1` wraps an `ExecutionPayloadV1` via
+  `@JsonValue`.
 - A version class overrides narrow, protected hooks of its parent (e.g. `createResponse`,
   `createExecutionPayload`, `validateParameters`, `validatePayloadAttributes`) — it never
   re-implements the request flow.
