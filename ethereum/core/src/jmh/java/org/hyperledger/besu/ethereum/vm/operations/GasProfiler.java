@@ -70,7 +70,8 @@ public class GasProfiler implements ExternalProfiler {
     try {
       gasCalculator = gasCalculatorForFork(fork);
     } catch (IllegalArgumentException e) {
-      throw new ProfilerException("Unknown fork: " + fork + ". Must be a valid EvmSpecVersion name.");
+      throw new ProfilerException(
+          "Unknown fork: " + fork + ". Must be a valid EvmSpecVersion name.");
     }
   }
 
@@ -117,8 +118,7 @@ public class GasProfiler implements ExternalProfiler {
     if (gas.isEmpty()) {
       return Collections.emptyList();
     }
-    return List.of(
-        new ScalarResult("gas", (double) gas.getAsLong(), "gas", AggregationPolicy.AVG));
+    return List.of(new ScalarResult("gas", (double) gas.getAsLong(), "gas", AggregationPolicy.AVG));
   }
 
   @Override

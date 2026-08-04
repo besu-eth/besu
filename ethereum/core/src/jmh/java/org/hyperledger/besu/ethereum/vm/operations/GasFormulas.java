@@ -14,14 +14,12 @@
  */
 package org.hyperledger.besu.ethereum.vm.operations;
 
-import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
 import java.util.Map;
 import java.util.OptionalLong;
 import java.util.function.BiFunction;
 
-import org.apache.tuweni.bytes.Bytes;
 import org.openjdk.jmh.infra.BenchmarkParams;
 
 public final class GasFormulas {
@@ -31,11 +29,10 @@ public final class GasFormulas {
   private static final Map<Class<?>, BiFunction<BenchmarkParams, GasCalculator, OptionalLong>>
       REGISTRY =
           Map.of(
-              CallDataCopyOperationBenchmark.class, GasFormulas::callDataCopyGas,
-              Keccak256Benchmark.class, GasFormulas::keccak256Gas,
-              SHA256Benchmark.class, GasFormulas::sha256Gas,
-              AddOperationBenchmark.class,
-                  (p, calc) -> OptionalLong.of(calc.getVeryLowTierGasCost()));
+              CallDataCopyOperationBenchmark.class, CallDataCopyOperationBenchmark::getGasCost,
+              Keccak256Benchmark.class, Keccak256Benchmark::getGasCost,
+              SHA256Benchmark.class, SHA256Benchmark::getGasCost,
+              AddOperationBenchmark.class, AddOperationBenchmark::getGasCost);
 
   public static OptionalLong compute(final BenchmarkParams params, final GasCalculator calc) {
     final String fqn = params.getBenchmark();
@@ -50,26 +47,5 @@ public final class GasFormulas {
     } catch (ClassNotFoundException e) {
       return OptionalLong.empty();
     }
-  }
-
-  private static OptionalLong callDataCopyGas(
-      final BenchmarkParams params, final GasCalculator calc) {
-    final long dataSize = Long.parseLong(params.getParam("dataSize"));
-    final MessageFrame frame = BenchmarkHelper.createMessageCallFrame();
-    frame.expandMemory(0, dataSize);
-    return OptionalLong.of(calc.dataCopyOperationGasCost(frame, 0, dataSize));
-  }
-
-  private static OptionalLong keccak256Gas(
-      final BenchmarkParams params, final GasCalculator calc) {
-    final long inputSize = Long.parseLong(params.getParam("inputSize"));
-    final MessageFrame frame = BenchmarkHelper.createMessageCallFrame();
-    frame.expandMemory(0, inputSize);
-    return OptionalLong.of(calc.keccak256OperationGasCost(frame, 0, inputSize));
-  }
-
-  private static OptionalLong sha256Gas(final BenchmarkParams params, final GasCalculator calc) {
-    final int inputSize = Integer.parseInt(params.getParam("inputSize"));
-    return OptionalLong.of(calc.sha256PrecompiledContractGasCost(Bytes.wrap(new byte[inputSize])));
   }
 }
