@@ -29,6 +29,7 @@ import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
+import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.plugin.services.BesuEvents;
 
 import java.nio.charset.StandardCharsets;
@@ -165,6 +166,30 @@ public class BackwardSyncAlgSpecTest {
     voidCompletableFuture.get(200, TimeUnit.MILLISECONDS);
     assertThat(voidCompletableFuture).isCompleted();
 
+    verify(context.getSyncState()).unsubscribeTTDReached(88L);
+    verify(context.getSyncState()).unsubscribeInitialConditionReached(99L);
+  }
+
+  @Test
+  public void shouldAwokeWhenPeerConnectsAfterTTDReached() throws Exception {
+    doReturn(false).when(context).isReady();
+    when(context.getSyncState().subscribeTTDReached(any())).thenReturn(88L);
+    when(context.getSyncState().subscribeCompletionReached(any())).thenReturn(99L);
+    final CompletableFuture<EthPeer> peerConnection = new CompletableFuture<>();
+    when(context.getEthContext().getEthPeers().waitForPeer(any())).thenReturn(peerConnection);
+
+    final CompletableFuture<Void> voidCompletableFuture = algorithm.waitForReady();
+
+    verify(context.getSyncState()).subscribeTTDReached(ttdCaptor.capture());
+    ttdCaptor.getValue().onTTDReached(true);
+    assertThat(voidCompletableFuture).isNotCompleted();
+
+    doReturn(true).when(context).isReady();
+    peerConnection.complete(Mockito.mock(EthPeer.class));
+
+    voidCompletableFuture.get(1, TimeUnit.SECONDS);
+
+    assertThat(voidCompletableFuture).isCompleted();
     verify(context.getSyncState()).unsubscribeTTDReached(88L);
     verify(context.getSyncState()).unsubscribeInitialConditionReached(99L);
   }

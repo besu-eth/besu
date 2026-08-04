@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.filter;
 
 import org.hyperledger.besu.datatypes.Hash;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -24,8 +25,8 @@ class PendingTransactionFilter extends Filter {
 
   private final List<Hash> transactionHashes = new ArrayList<>();
 
-  PendingTransactionFilter(final String id) {
-    super(id);
+  PendingTransactionFilter(final String id, final Duration expireDuration) {
+    super(id, expireDuration);
   }
 
   void addTransactionHash(final Hash hash) {

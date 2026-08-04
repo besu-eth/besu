@@ -24,11 +24,11 @@ import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.TreeSet;
 
-import com.google.common.collect.HashBasedTable;
+import com.google.common.collect.TreeBasedTable;
 import org.apache.tuweni.bytes.Bytes32;
 
 /**
@@ -126,11 +126,15 @@ public class TxValues {
       final Optional<List<VersionedHash>> versionedHashes,
       final long initialStateGasUsed,
       final long initialStateGasReservoir) {
+    // TreeBasedTable/TreeSet (sorted by each key's natural ordering) are used instead of
+    // HashBasedTable/HashSet: Address and Bytes32 hash with a grindable base-31 hash and never
+    // declare Comparable<Self> directly, so HashMap/HashBasedTable bucket treeification never
+    // engages, letting an attacker force O(n) bucket walks per insert.
     return new TxValues(
         blockHashLookup,
         maxStackSize,
         warmedUpAddresses,
-        UndoTable.of(HashBasedTable.create()),
+        UndoTable.of(TreeBasedTable.create()),
         originator,
         gasPrice,
         blobGasPrice,
@@ -138,9 +142,9 @@ public class TxValues {
         new ArrayDeque<>(),
         miningBeneficiary,
         versionedHashes,
-        UndoTable.of(HashBasedTable.create()),
-        UndoSet.of(new HashSet<>()),
-        UndoSet.of(new HashSet<>()),
+        UndoTable.of(TreeBasedTable.create()),
+        UndoSet.of(new TreeSet<>()),
+        UndoSet.of(new TreeSet<>()),
         new UndoScalar<>(0L),
         new UndoScalar<>(initialStateGasUsed),
         new UndoScalar<>(initialStateGasReservoir));
