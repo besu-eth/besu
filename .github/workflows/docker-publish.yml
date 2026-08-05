@@ -62,19 +62,24 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
       - name: Stage Docker build context
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
-          if [[ "${{ inputs.version }}" =~ ^[0-9] ]]; then
-            ./gradlew --no-daemon -Prelease.releaseVersion=${{ inputs.version }} -Pversion=${{ inputs.version }} distDockerCopy
+          if [[ "$VERSION" =~ ^[0-9] ]]; then
+            ./gradlew --no-daemon -Prelease.releaseVersion="$VERSION" -Pversion="$VERSION" distDockerCopy
           else
             ./gradlew --no-daemon distDockerCopy
           fi
       - name: Compute Docker tags
         id: dockertags
+        env:
+          VERSION: ${{ inputs.version }}
+          DOCKER_ORG: ${{ secrets.DOCKER_ORG }}
         run: |
-          TAGS="${{ secrets.DOCKER_ORG }}/besu:${{ inputs.version }}"
-          if [[ "${{ inputs.version }}" =~ ^[0-9] ]] && \
+          TAGS="${DOCKER_ORG}/besu:${VERSION}"
+          if [[ "$VERSION" =~ ^[0-9] ]] && \
              [[ "${TAGS^^}" != *"-RC"* ]]; then
-            TAGS="$TAGS,${{ secrets.DOCKER_ORG }}/besu:latest"
+            TAGS="$TAGS,${DOCKER_ORG}/besu:latest"
           fi
           echo "tags=$TAGS" >> $GITHUB_OUTPUT
       - name: Login to Docker Hub

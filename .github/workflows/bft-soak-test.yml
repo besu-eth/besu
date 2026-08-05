@@ -56,7 +56,10 @@ jobs:
         with:
           cache-disabled: true
       - name: run BFT soak test
-        run: ./gradlew :acceptance-tests:tests:acceptanceTestBftSoak -Dacctests.soakTimeMins=${{ inputs['soak-time-mins'] }} -Dacctests.consensusType=${{ inputs.consensus-type }}
+        env:
+          SOAK_TIME_MINS: ${{ inputs['soak-time-mins'] }}
+          CONSENSUS_TYPE: ${{ inputs.consensus-type }}
+        run: ./gradlew :acceptance-tests:tests:acceptanceTestBftSoak -Dacctests.soakTimeMins="$SOAK_TIME_MINS" -Dacctests.consensusType="$CONSENSUS_TYPE"
       - name: Upload BFT Soak Test HTML Reports
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         if: always()
