@@ -22,7 +22,7 @@
     "result":{
       "gas":21164,
       "failed":false,
-      "returnValue":"",
+      "returnValue":"0x",
       "structLogs":[
         {
           "pc":0,

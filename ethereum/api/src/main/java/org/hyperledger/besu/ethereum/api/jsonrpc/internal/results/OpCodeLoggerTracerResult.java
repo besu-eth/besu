@@ -36,9 +36,10 @@ public class OpCodeLoggerTracerResult {
   public OpCodeLoggerTracerResult(final TransactionTrace transactionTrace) {
     gas = transactionTrace.getGas();
     final Bytes output = transactionTrace.getResult().getOutput();
-    returnValue = output.isEmpty() ? "" : output.toHexString();
+    returnValue = output.toHexString();
     structLogs = new ArrayList<>(transactionTrace.getTraceFrames().size());
     transactionTrace.getTraceFrames().parallelStream()
+        .filter(frame -> !isSyntheticEndOfCodeStop(frame))
         .map(OpCodeLoggerTracerResult::createStructLog)
         .forEachOrdered(structLogs::add);
     failed = !transactionTrace.getResult().isSuccessful();
@@ -54,6 +55,12 @@ public class OpCodeLoggerTracerResult {
         .getExceptionalHaltReason()
         .map(__ -> (StructLog) new StructLogWithError(frame))
         .orElse(new StructLog(frame));
+  }
+
+  private static boolean isSyntheticEndOfCodeStop(final TraceFrame frame) {
+    return frame.isVirtualOperation()
+        && "STOP".equals(frame.getOpcode())
+        && frame.getMaybeCode().map(code -> code.getSize() == 0).orElse(false);
   }
 
   @JsonGetter(value = "structLogs")
