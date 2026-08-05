@@ -56,6 +56,12 @@ public interface TransactionValidationParams {
   TransactionValidationParams blockSimulatorStrictParams =
       ImmutableTransactionValidationParams.of(false, false, false, false, false, true, true, true);
 
+  // Block-building simulation strict: same economic rules as blockSimulatorStrictParams, but
+  // also enforces consensus-level transaction caps (EIP-7825, EIP-8037) because this path
+  // is used to simulate real block production where those caps must apply.
+  TransactionValidationParams blockSimulatorConsensusStrictParams =
+      ImmutableTransactionValidationParams.of(false, false, false, false, false, true, false, true);
+
   // eth_simulateV1 non-strict: allows exceeding balance and future nonces, and preserves
   // caller-provided gas pricing so that gas fees are actually charged during simulation.
   TransactionValidationParams blockSimulatorNonStrictParams =
@@ -129,6 +135,10 @@ public interface TransactionValidationParams {
 
   static TransactionValidationParams blockSimulatorStrict() {
     return blockSimulatorStrictParams;
+  }
+
+  static TransactionValidationParams blockSimulatorConsensusStrict() {
+    return blockSimulatorConsensusStrictParams;
   }
 
   static TransactionValidationParams blockSimulatorNonStrict() {

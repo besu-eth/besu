@@ -98,6 +98,9 @@ public class BlockSimulator {
   private static final TransactionValidationParams STRICT_VALIDATION_PARAMS =
       TransactionValidationParams.blockSimulatorStrict();
 
+  private static final TransactionValidationParams CONSENSUS_STRICT_VALIDATION_PARAMS =
+      TransactionValidationParams.blockSimulatorConsensusStrict();
+
   private static final TransactionValidationParams SIMULATION_PARAMS =
       TransactionValidationParams.blockSimulatorNonStrict();
 
@@ -202,6 +205,7 @@ public class BlockSimulator {
               stateCall,
               worldState,
               simulationParameter.isValidation(),
+              simulationParameter.isEnforceConsensusGasLimitCaps(),
               simulationParameter.isTraceTransfers(),
               simulationParameter.isReturnTrieLog(),
               simulationParameter::getFakeSignature,
@@ -231,6 +235,7 @@ public class BlockSimulator {
       final BlockStateCall blockStateCall,
       final MutableWorldState ws,
       final boolean shouldValidate,
+      final boolean enforceConsensusGasLimitCaps,
       final boolean isTraceTransfers,
       final boolean returnTrieLog,
       final Supplier<SECPSignature> signatureSupplier,
@@ -311,6 +316,7 @@ public class BlockSimulator {
             ws,
             protocolSpec,
             shouldValidate,
+            enforceConsensusGasLimitCaps,
             isTraceTransfers,
             transactionProcessor,
             blockHashLookup,
@@ -377,6 +383,7 @@ public class BlockSimulator {
       final MutableWorldState ws,
       final ProtocolSpec protocolSpec,
       final boolean shouldValidate,
+      final boolean enforceConsensusGasLimitCaps,
       final boolean isTraceTransfers,
       final MainnetTransactionProcessor transactionProcessor,
       final BlockHashLookup blockHashLookup,
@@ -386,7 +393,11 @@ public class BlockSimulator {
       final OperationTracer operationTracer) {
 
     TransactionValidationParams transactionValidationParams =
-        shouldValidate ? STRICT_VALIDATION_PARAMS : SIMULATION_PARAMS;
+        shouldValidate
+            ? (enforceConsensusGasLimitCaps
+                ? CONSENSUS_STRICT_VALIDATION_PARAMS
+                : STRICT_VALIDATION_PARAMS)
+            : SIMULATION_PARAMS;
 
     BlockStateCallSimulationResult blockStateCallSimulationResult =
         new BlockStateCallSimulationResult(
