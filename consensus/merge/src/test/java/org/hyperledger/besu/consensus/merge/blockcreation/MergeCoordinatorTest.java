@@ -1039,7 +1039,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     BlockHeader mockHeader =
         headerGenerator.parentHash(Hash.fromHexStringLenient("0xdead")).buildHeader();
     when(blockchain.getBlockHeader(mockHeader.getHash())).thenReturn(Optional.of(mockHeader));
-    var res = coordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO, true);
+    var res = coordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO);
 
     assertThat(res).isPresent();
   }
@@ -1048,12 +1048,26 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
   public void assertGetOrSyncForBlockNotPresent() {
     BlockHeader mockHeader =
         headerGenerator.parentHash(Hash.fromHexStringLenient("0xbeef")).buildHeader();
+    when(mergeContext.isInitialSyncDone()).thenReturn(true);
     when(backwardSyncContext.syncBackwardsUntil(mockHeader.getBlockHash()))
         .thenReturn(CompletableFuture.completedFuture(null));
 
-    var res = coordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO, true);
+    var res = coordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO);
 
     assertThat(res).isNotPresent();
+  }
+
+  @Test
+  public void assertGetOrSyncForBlockNotPresentDoesNotStartBackwardSyncWhenInitialSyncNotDone() {
+    BlockHeader mockHeader =
+        headerGenerator.parentHash(Hash.fromHexStringLenient("0xbeef")).buildHeader();
+    when(mergeContext.isInitialSyncDone()).thenReturn(false);
+
+    var res = coordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO);
+
+    assertThat(res).isNotPresent();
+    verify(backwardSyncContext, never()).maybeUpdateTargetHeight(any());
+    verify(backwardSyncContext, never()).syncBackwardsUntil(any(Hash.class));
   }
 
   @ParameterizedTest(name = "{index}: {0}")

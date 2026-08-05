@@ -149,9 +149,7 @@ public sealed class EngineForkchoiceUpdatedV1<PA extends PayloadAttributesV1>
     // validation is missing. The sync process is specified in the Sync section.
     final Optional<BlockHeader> maybeNewHead =
         mergeCoordinator.getOrSyncHeadByHash(
-            forkChoice.getHeadBlockHash(),
-            forkChoice.getFinalizedBlockHash(),
-            mergeContext.get().isInitialSyncDone());
+            forkChoice.getHeadBlockHash(), forkChoice.getFinalizedBlockHash());
 
     if (maybeNewHead.isEmpty()) {
       return syncingResponse(requestId, forkChoice);

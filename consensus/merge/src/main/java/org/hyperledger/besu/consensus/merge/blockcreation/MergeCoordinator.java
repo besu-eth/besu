@@ -578,8 +578,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   }
 
   @Override
-  public Optional<BlockHeader> getOrSyncHeadByHash(
-      final Hash headHash, final Hash finalizedHash, final boolean isInitialSyncDone) {
+  public Optional<BlockHeader> getOrSyncHeadByHash(final Hash headHash, final Hash finalizedHash) {
     final var chain = protocolContext.getBlockchain();
     final var maybeHeadHeader = chain.getBlockHeader(headHash);
 
@@ -588,7 +587,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
           .setMessage("BlockHeader {} is already present in blockchain")
           .addArgument(maybeHeadHeader.get()::toLogString)
           .log();
-    } else if (isInitialSyncDone) {
+    } else if (mergeContext.isInitialSyncDone()) {
       backwardSyncContext.maybeUpdateTargetHeight(headHash);
       backwardSyncContext
           .syncBackwardsUntil(headHash)
