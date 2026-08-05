@@ -30,6 +30,8 @@ import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.mainnet.blockhash.PreExecutionProcessor;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.nio.file.Path;
@@ -49,6 +51,8 @@ public class DebugStandardTraceBlockToFileTest {
   private final Blockchain blockchain = mock(Blockchain.class);
   private final BlockchainQueries blockchainQueries = mock(BlockchainQueries.class);
   private final TransactionTracer transactionTracer = mock(TransactionTracer.class);
+  private final ProtocolSpec protocolSpec = mock(ProtocolSpec.class);
+  private final PreExecutionProcessor preExecutionProcessor = mock(PreExecutionProcessor.class);
   private final DebugStandardTraceBlockToFile debugStandardTraceBlockToFile =
       new DebugStandardTraceBlockToFile(() -> transactionTracer, blockchainQueries, folder);
 
@@ -77,6 +81,8 @@ public class DebugStandardTraceBlockToFileTest {
     when(blockchain.getBlockByHash(block.getHash())).thenReturn(Optional.of(block));
     when(blockchain.getBlockHeader(genesis.getHash())).thenReturn(Optional.of(genesis.getHeader()));
     when(blockchainQueries.getBlockchain()).thenReturn(blockchain);
+    when(blockchainQueries.getProtocolSpec(block.getHeader())).thenReturn(protocolSpec);
+    when(protocolSpec.getPreExecutionProcessor()).thenReturn(preExecutionProcessor);
 
     when(blockchainQueries.getAndMapWorldState(any(), any()))
         .thenAnswer(
