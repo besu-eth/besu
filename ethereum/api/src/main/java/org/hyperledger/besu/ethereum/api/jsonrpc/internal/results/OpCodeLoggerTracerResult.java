@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTrace;
+import org.hyperledger.besu.ethereum.vm.AbstractDebugOperationTracer;
 import org.hyperledger.besu.evm.tracing.TraceFrame;
 
 import java.util.ArrayList;
@@ -58,9 +59,10 @@ public class OpCodeLoggerTracerResult {
   }
 
   private static boolean isSyntheticEndOfCodeStop(final TraceFrame frame) {
-    return frame.isVirtualOperation()
-        && "STOP".equals(frame.getOpcode())
-        && frame.getMaybeCode().map(code -> code.getSize() == 0).orElse(false);
+    return AbstractDebugOperationTracer.isSyntheticEmptyCodeStop(
+        frame.isVirtualOperation(),
+        frame.getOpcode(),
+        frame.getMaybeCode().map(code -> code.getSize()).orElse(-1));
   }
 
   @JsonGetter(value = "structLogs")
