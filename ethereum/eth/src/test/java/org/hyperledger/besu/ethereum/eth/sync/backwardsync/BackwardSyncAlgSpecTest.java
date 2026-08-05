@@ -21,6 +21,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -190,8 +191,8 @@ public class BackwardSyncAlgSpecTest {
     voidCompletableFuture.get(1, TimeUnit.SECONDS);
 
     assertThat(voidCompletableFuture).isCompleted();
-    verify(context.getSyncState()).unsubscribeTTDReached(88L);
-    verify(context.getSyncState()).unsubscribeInitialConditionReached(99L);
+    verify(context.getSyncState(), timeout(1000)).unsubscribeTTDReached(88L);
+    verify(context.getSyncState(), timeout(1000)).unsubscribeInitialConditionReached(99L);
   }
 
   @Test
