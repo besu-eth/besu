@@ -44,8 +44,11 @@ jobs:
           distribution: temurin
           java-version: 25
       - name: Stage Docker build context
+        env:
+          ASSEMBLE_RUN_ID: ${{ inputs.assemble_run_id }}
+          VERSION: ${{ inputs.version }}
         run: |
-          if [[ -n "${{ inputs.assemble_run_id }}" ]]; then
+          if [[ -n "$ASSEMBLE_RUN_ID" ]]; then
             # Artifacts are pre-built and downloaded from a prior assemble workflow run,
             # so only bash is needed here — just unpack the tar and arrange the files into the layout the Dockerfile expects. No Java compilation required.
             TAR_FILE=$(find build/distributions -name "besu-*.tar.gz" | head -1)
@@ -54,9 +57,9 @@ jobs:
             rm -rf build/docker-besu/besu
             mv build/docker-besu/besu-* build/docker-besu/besu
             cp docker/Dockerfile docker/pyroscope.properties build/docker-besu/
-          elif [[ -n "${{ inputs.version }}" ]]; then
+          elif [[ -n "$VERSION" ]]; then
             # No pre-built artifact: compile and stage via Gradle with an explicit release version so the distribution carries the correct version string in its metadata.
-            ./gradlew --no-daemon -Prelease.releaseVersion=${{ inputs.version }} -Pversion=${{ inputs.version }} distDockerCopy
+            ./gradlew --no-daemon -Prelease.releaseVersion="$VERSION" -Pversion="$VERSION" distDockerCopy
           else
             # No pre-built artifact and no version override: compile and stage via Gradle for an unversioned development build (e.g. a local or PR test run).
             ./gradlew --no-daemon distDockerCopy
