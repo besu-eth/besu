@@ -16,10 +16,13 @@ package org.hyperledger.besu.ethereum.p2p.discovery.dns;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.nio.charset.StandardCharsets;
 import java.security.Security;
 import java.util.Optional;
 
+import com.google.common.io.Resources;
 import io.vertx.core.Vertx;
+import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
@@ -112,5 +115,56 @@ class DNSRecordEncodingTest {
     assertThat(entry.get().toString()).isEqualTo(DNSResolver.readDNSEntry(rootRecord).toString());
     assertThat(((DNSEntry.ENRTreeRoot) entry.get()).enrRoot())
         .isEqualTo("SNIGOIP7I67HGIGFKVFYHSSDYM");
+  }
+
+  @Test
+  @DisplayName("Every fixture entry is served at the subdomain matching its content hash")
+  void fixtureEntriesAreBoundToTheirHashes() throws Exception {
+    final JsonObject fixture =
+        new JsonObject(
+            Resources.toString(
+                Resources.getResource("discovery/dns/dns-records.json"), StandardCharsets.UTF_8));
+
+    int checked = 0;
+    for (final String name : fixture.fieldNames()) {
+      if (name.equals(DOMAIN)) {
+        continue;
+      }
+      final String label = name.substring(0, name.indexOf('.'));
+      final String content = fixture.getString(name);
+      assertThat(DNSResolver.contentMatchesHash(label, content))
+          .withFailMessage("%s is not the hash of its content %s", label, content)
+          .isTrue();
+      assertThat(DNSResolver.contentMatchesHash(label, content + "tampered"))
+          .withFailMessage("%s accepted tampered content", label)
+          .isFalse();
+      checked++;
+    }
+    assertThat(checked).isGreaterThan(100);
+  }
+
+  @Test
+  @DisplayName("A malformed subdomain label is rejected rather than throwing")
+  void malformedLabelIsRejected() {
+    assertThat(DNSResolver.contentMatchesHash("not-base32!", "enrtree-branch:")).isFalse();
+    assertThat(DNSResolver.contentMatchesHash("", "enrtree-branch:")).isFalse();
+  }
+
+  /**
+   * go-ethereum's isValidHash accepts an abbreviated label of 12 bytes up to a full digest, so the
+   * check must not demand the canonical 16, but a shorter prefix than 12 bytes is cheap to collide
+   * and must not be honoured.
+   */
+  @Test
+  @DisplayName("An abbreviated label is honoured only down to 12 decoded bytes")
+  void labelLengthBoundsMatchGoEthereum() {
+    final String content = "enrtree-branch:";
+    final String canonical = "FDXN3SN67NA5DKA4J2GOK7BVQI";
+
+    assertThat(DNSResolver.contentMatchesHash(canonical, content)).isTrue();
+    // 20 base32 characters decode to 12 bytes, the shortest go-ethereum permits.
+    assertThat(DNSResolver.contentMatchesHash(canonical.substring(0, 20), content)).isTrue();
+    // 16 characters decode to 10 bytes, below the floor.
+    assertThat(DNSResolver.contentMatchesHash(canonical.substring(0, 16), content)).isFalse();
   }
 }
