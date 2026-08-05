@@ -70,6 +70,7 @@ dependencies {
     api project(':plugin-api')
     api project(':plugin-api:core')
     api project(':services:kvstore')
+    api project(':services:kvstore:plugin-api')
     api project(':services:pipeline')
     api project(':services:tasks')
     api project(':testutil')
