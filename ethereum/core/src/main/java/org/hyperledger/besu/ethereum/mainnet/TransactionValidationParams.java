@@ -49,10 +49,10 @@ public interface TransactionValidationParams {
   TransactionValidationParams transactionSimulatorAllowExceedingBalanceAndFutureNonceParams =
       ImmutableTransactionValidationParams.of(true, true, false, false, false, true, true, false);
 
-  // eth_simulateV1 strict: preserves caller-provided gas pricing (defaulting to 0 if not specified)
-  // so that base fee validation is enforced against the caller's literal values. Gas limit caps
-  // (EIP-7825, EIP-8037) are not enforced because eth_simulateV1 is a simulation tool and geth
-  // does not apply these consensus-level caps to simulated transactions.
+  // eth_simulateV1 strict: enforces economic rules (balance, nonce, base fee) against the
+  // caller's literal values, but does NOT enforce consensus-level transaction caps
+  // (EIP-7825, EIP-8037). Those caps govern mempool/block-building for real transactions
+  // and are not applicable to simulation.
   TransactionValidationParams blockSimulatorStrictParams =
       ImmutableTransactionValidationParams.of(false, false, false, false, false, true, true, true);
 
