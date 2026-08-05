@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.mainnet.staterootcommitter;
 
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.slowblock.SlowBlockMetrics;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
 
@@ -24,4 +25,22 @@ import java.util.Optional;
 public interface StateRootCommitterFactory {
   StateRootCommitter forBlock(
       ProtocolContext protocolContext, BlockHeader blockHeader, Optional<BlockAccessList> maybeBal);
+
+  /**
+   * Creates the committer for a block, letting a BAL-backed implementation report how long its
+   * background state-root computation took.
+   *
+   * @param protocolContext the protocol context
+   * @param blockHeader the header of the block being processed
+   * @param maybeBal the block's access list, when it has one
+   * @param slowBlockMetrics the per-block slow-block aggregate, or null when tracing is disabled
+   * @return the state root committer for this block
+   */
+  default StateRootCommitter forBlock(
+      final ProtocolContext protocolContext,
+      final BlockHeader blockHeader,
+      final Optional<BlockAccessList> maybeBal,
+      final SlowBlockMetrics slowBlockMetrics) {
+    return forBlock(protocolContext, blockHeader, maybeBal);
+  }
 }

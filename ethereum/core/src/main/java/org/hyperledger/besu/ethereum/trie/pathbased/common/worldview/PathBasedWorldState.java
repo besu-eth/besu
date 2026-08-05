@@ -23,6 +23,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
+import org.hyperledger.besu.ethereum.mainnet.slowblock.SlowBlockPersistTimings;
 import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedLayeredWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedSnapshotWorldStateKeyValueStorage;
@@ -173,6 +174,23 @@ public abstract class PathBasedWorldState
 
   @Override
   public void persist(final BlockHeader blockHeader, final StateRootCommitter committer) {
+    persist(blockHeader, committer, null);
+  }
+
+  /**
+   * Persists accumulated changes to the underlying storage, optionally reporting how long the state
+   * root wait and the commit took.
+   *
+   * @param blockHeader the block this world state represents, or null when this is not a forward
+   *     transition from one block to the next
+   * @param committer recomputes the state root and commits the state changes to storage
+   * @param timings receives the persist phase durations, or null when slow-block tracing is
+   *     disabled. Nullable rather than Optional to keep the untraced path allocation free.
+   */
+  public void persist(
+      final BlockHeader blockHeader,
+      final StateRootCommitter committer,
+      final SlowBlockPersistTimings timings) {
     LOG.atDebug()
         .setMessage("Persist world state for block {}")
         .addArgument(() -> Optional.ofNullable(blockHeader))
@@ -186,9 +204,13 @@ public abstract class PathBasedWorldState
     Runnable cacheWorldState = () -> {};
 
     try {
+      final long stateHashStartNanos = timings != null ? System.nanoTime() : 0L;
       final Hash calculatedRootHash =
           committer.computeRoot(
               buildStateRootSupplier(stateUpdater, blockHeader), this, stateUpdater, blockHeader);
+      if (timings != null) {
+        timings.setStateHashWaitNanos(System.nanoTime() - stateHashStartNanos);
+      }
 
       if (blockHeader != null) {
         verifyWorldStateRoot(calculatedRootHash, blockHeader);
@@ -228,6 +250,7 @@ public abstract class PathBasedWorldState
       success = true;
     } finally {
       if (success) {
+        final long commitStartNanos = timings != null ? System.nanoTime() : 0L;
         // commit the trielog transaction ahead of the state, in case of an abnormal shutdown:
         saveTrieLog.run();
         // commit only the composed worldstate, as trielog transaction is already complete:
@@ -235,6 +258,9 @@ public abstract class PathBasedWorldState
         if (!isStorageFrozen) {
           // optionally save the committed worldstate state in the cache
           cacheWorldState.run();
+        }
+        if (timings != null) {
+          timings.setCommitNanos(System.nanoTime() - commitStartNanos);
         }
         accumulator.reset();
       } else {

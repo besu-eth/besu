@@ -20,6 +20,7 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.slowblock.SlowBlockMetrics;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
@@ -51,6 +52,9 @@ public class BalPrefetcher {
   private final boolean isSortingEnabled;
   private final int batchSize;
 
+  /** Null unless slow-block tracing is active for this block. */
+  private final SlowBlockMetrics slowBlockMetrics;
+
   /**
    * Creates a new prefetch mechanism.
    *
@@ -59,8 +63,24 @@ public class BalPrefetcher {
    *     at once)
    */
   public BalPrefetcher(final boolean isSortingEnabled, final int batchSize) {
+    this(isSortingEnabled, batchSize, null);
+  }
+
+  /**
+   * Creates a new prefetch mechanism that also reports what it fetched to slow-block metrics.
+   *
+   * @param isSortingEnabled whether to sort keys before prefetching (may improve DB locality)
+   * @param batchSize the batch size for prefetch operations (0 or negative = no batching, fetch all
+   *     at once)
+   * @param slowBlockMetrics the per-block slow-block aggregate, or null when tracing is disabled
+   */
+  public BalPrefetcher(
+      final boolean isSortingEnabled,
+      final int batchSize,
+      final SlowBlockMetrics slowBlockMetrics) {
     this.isSortingEnabled = isSortingEnabled;
     this.batchSize = batchSize;
+    this.slowBlockMetrics = slowBlockMetrics;
   }
 
   /**
@@ -77,6 +97,8 @@ public class BalPrefetcher {
       final BlockAccessList blockAccessList,
       final Executor orchestrationExecutor,
       final Executor fetchExecutor) {
+
+    final long startNanos = slowBlockMetrics != null ? System.nanoTime() : 0L;
 
     return CompletableFuture.supplyAsync(
             () -> {
@@ -105,14 +127,19 @@ public class BalPrefetcher {
             keys ->
                 fetchKeysAsync(worldState, keys, fetchExecutor)
                     .thenRun(
-                        () ->
-                            LOG.info(
-                                "Prefetch completed: {} accounts + {} storage slots{}",
+                        () -> {
+                          if (slowBlockMetrics != null) {
+                            slowBlockMetrics.setPrefetch(
+                                System.nanoTime() - startNanos,
                                 keys.accountKeys.size(),
-                                keys.storageKeys.size(),
-                                shouldBatch()
-                                    ? " in batches of " + batchSize
-                                    : " in single batch")))
+                                keys.storageKeys.size());
+                          }
+                          LOG.info(
+                              "Prefetch completed: {} accounts + {} storage slots{}",
+                              keys.accountKeys.size(),
+                              keys.storageKeys.size(),
+                              shouldBatch() ? " in batches of " + batchSize : " in single batch");
+                        }))
         .whenComplete(
             (result, ex) -> {
               if (ex != null) {

@@ -129,6 +129,7 @@ import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.Checkpoint;
 import org.hyperledger.besu.ethereum.eth.transactions.ImmutableTransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.p2p.config.DiscoveryConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.DiscoveryMode;
 import org.hyperledger.besu.ethereum.p2p.config.DiscoveryModeResolver;
@@ -1076,6 +1077,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     }
 
     besuController = buildController();
+    warnIfSlowBlockTracingWillNeverActivate(besuController.getProtocolSchedule());
 
     besuPluginContext.beforeExternalServices();
 
@@ -1089,6 +1091,22 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     runner.startEthereumMainLoop();
 
     besuPluginContext.afterExternalServicesMainLoop();
+  }
+
+  /**
+   * Slow-block tracing only collects metrics for blocks that carry a Block Access List, so warn
+   * loudly if the configured network never schedules a BAL-enabled fork. The node still runs.
+   */
+  private void warnIfSlowBlockTracingWillNeverActivate(final ProtocolSchedule protocolSchedule) {
+    if (!balConfigurationOptions.toDomainObject().isSlowBlockTracingEnabled()) {
+      return;
+    }
+    if (!protocolSchedule.anyMatch(
+        scheduled -> scheduled.spec().getBlockAccessListFactory().isPresent())) {
+      logger.warn(
+          "--slow-block-threshold is set but this network never activates a Block Access List fork;"
+              + " no slow block metrics will be produced.");
+    }
   }
 
   private void configurePrecompileCaching() {
@@ -2275,6 +2293,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
                                   "No KeyValueStorageFactory found for key: " + name)))
               .withCommonConfiguration(pluginCommonConfiguration)
               .withMetricsSystem(getMetricsSystem())
+              .withSlowBlockTracingEnabled(
+                  balConfigurationOptions.toDomainObject().isSlowBlockTracingEnabled())
               .build();
     }
     return this.keyValueStorageProvider;
@@ -3060,6 +3080,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         .setPluginContext(this.besuPluginContext)
         .setHistoryExpiryPruneEnabled(getDataStorageConfiguration().getHistoryExpiryPruneEnabled())
         .setBlobDBSettings(rocksDBPlugin.getBlobDBSettings())
+        .setSlowBlockThresholdMs(balConfigurationOptions.toDomainObject().getSlowBlockThresholdMs())
         .setRocksDbMaxOpenFiles(
             rocksDBPlugin.getResolvedMaxOpenFiles(), rocksDBPlugin.isMaxOpenFilesExplicitlySet());
 

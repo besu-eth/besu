@@ -67,4 +67,20 @@ public interface BalConfiguration {
   default int getBalPreFetchBatchSize() {
     return 8;
   }
+
+  /**
+   * Returns the threshold, in milliseconds, for slow-block execution-metrics logging. A negative
+   * value disables the feature, 0 logs every block, and a positive value logs only blocks whose
+   * total processing time meets or exceeds it.
+   */
+  @Value.Default
+  default long getSlowBlockThresholdMs() {
+    return -1L;
+  }
+
+  /** Returns whether slow-block execution-metrics logging is enabled. */
+  @Value.Derived
+  default boolean isSlowBlockTracingEnabled() {
+    return getSlowBlockThresholdMs() >= 0L;
+  }
 }

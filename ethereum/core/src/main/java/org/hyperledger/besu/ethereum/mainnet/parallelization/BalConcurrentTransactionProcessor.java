@@ -30,6 +30,9 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAc
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.prefetch.BalPrefetcher;
+import org.hyperledger.besu.ethereum.mainnet.slowblock.SlowBlockMetrics;
+import org.hyperledger.besu.ethereum.mainnet.slowblock.SlowBlockReadCounts;
+import org.hyperledger.besu.ethereum.mainnet.slowblock.SlowBlockTxRecorder;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
@@ -63,19 +66,32 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
   private final BlockAccessListAccountLookup blockAccessListAccountLookup;
   private final Optional<BalPrefetcher> maybePrefetcher;
 
+  /** Null unless slow-block tracing is active for this block. */
+  private final SlowBlockMetrics slowBlockMetrics;
+
   public BalConcurrentTransactionProcessor(
       final MainnetTransactionProcessor transactionProcessor,
       final BlockAccessList blockAccessList,
       final BalConfiguration balConfiguration) {
+    this(transactionProcessor, blockAccessList, balConfiguration, null);
+  }
+
+  public BalConcurrentTransactionProcessor(
+      final MainnetTransactionProcessor transactionProcessor,
+      final BlockAccessList blockAccessList,
+      final BalConfiguration balConfiguration,
+      final SlowBlockMetrics slowBlockMetrics) {
     this.transactionProcessor = transactionProcessor;
     this.blockAccessList = blockAccessList;
     this.blockAccessListAccountLookup = BlockAccessListAccountLookup.of(blockAccessList);
+    this.slowBlockMetrics = slowBlockMetrics;
     this.maybePrefetcher =
         balConfiguration.isBalPreFetchReadingEnabled()
             ? Optional.of(
                 new BalPrefetcher(
                     balConfiguration.isBalPreFetchSortingEnabled(),
-                    balConfiguration.getBalPreFetchBatchSize()))
+                    balConfiguration.getBalPreFetchBatchSize(),
+                    slowBlockMetrics))
             : Optional.empty();
   }
 
@@ -184,18 +200,34 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
                   BlockAccessListBuilder.createTransactionAccessLocationTracker(
                       transactionLocation));
 
+      // Speculative work: this transaction's counters are kept with its context and only folded
+      // into the block aggregate if getProcessingResult ends up using the result.
+      final SlowBlockTxRecorder recorder;
+      if (slowBlockMetrics != null) {
+        recorder = new SlowBlockTxRecorder();
+        final SlowBlockReadCounts reads = new SlowBlockReadCounts();
+        blockUpdater.setReadObserver(reads);
+        ctxBuilder.slowBlockRecorder(recorder).slowBlockReads(reads);
+      } else {
+        recorder = null;
+      }
+      final long startNanos = recorder != null ? System.nanoTime() : 0L;
+
       final TransactionProcessingResult result =
           transactionProcessor.processTransaction(
               txUpdater,
               blockHeader,
               transaction.detachedCopy(),
               miningBeneficiary,
-              OperationTracer.NO_TRACING,
+              recorder != null ? recorder : OperationTracer.NO_TRACING,
               blockHashLookup.forkForParallelWorker(),
               TransactionValidationParams.processingBlock(),
               blobGasPrice,
               txTracker);
 
+      if (recorder != null) {
+        ctxBuilder.slowBlockExecutionNanos(System.nanoTime() - startNanos);
+      }
       ctxBuilder.transactionProcessingResult(result);
 
       return ctxBuilder.build();
@@ -217,7 +249,11 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
     final CompletableFuture<ParallelizedTransactionContext> future = removeFuture(txIndex);
     if (future != null) {
       try {
+        final long waitStartNanos = slowBlockMetrics != null ? System.nanoTime() : 0L;
         final ParallelizedTransactionContext ctx = future.get();
+        if (slowBlockMetrics != null) {
+          slowBlockMetrics.addResultWaitNanos(System.nanoTime() - waitStartNanos);
+        }
 
         if (ctx == null) {
           LOG.trace("Transaction context for transaction {} is empty.", txIndex);
@@ -240,6 +276,12 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
             maybePartialBlockAccessView.get(),
             blockAccumulator,
             transactionProcessor.getClearEmptyAccounts());
+
+        // Only now is the background work known to be used, so it is safe to count it.
+        if (slowBlockMetrics != null) {
+          slowBlockMetrics.mergeExecution(ctx.slowBlockRecorder(), ctx.slowBlockReads());
+          slowBlockMetrics.addBackgroundExecutionNanos(ctx.slowBlockExecutionNanos());
+        }
 
         confirmedParallelizedTransactionCounter.ifPresent(Counter::inc);
         result.setIsProcessedInParallel(Optional.of(Boolean.TRUE));

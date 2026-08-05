@@ -19,6 +19,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListChanges;
+import org.hyperledger.besu.ethereum.mainnet.slowblock.SlowBlockMetrics;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.BalRootComputation;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
@@ -42,7 +43,7 @@ public class BlockAccessListStateRootCalculator {
       final ProtocolContext protocolContext,
       final BlockHeader blockHeader,
       final BlockAccessList bal) {
-    return computeAsync(protocolContext, blockHeader, bal, ForkJoinPool.commonPool());
+    return computeAsync(protocolContext, blockHeader, bal, ForkJoinPool.commonPool(), null);
   }
 
   public static CompletableFuture<BalRootComputation> computeAsync(
@@ -50,11 +51,38 @@ public class BlockAccessListStateRootCalculator {
       final BlockHeader blockHeader,
       final BlockAccessList bal,
       final Executor executor) {
+    return computeAsync(protocolContext, blockHeader, bal, executor, null);
+  }
+
+  /**
+   * Computes the block's state root from its access list, off the import thread.
+   *
+   * @param protocolContext the protocol context
+   * @param blockHeader the header of the block being processed
+   * @param bal the block's access list
+   * @param executor the executor to compute on
+   * @param slowBlockMetrics receives how long the computation actually took, or null when
+   *     slow-block tracing is disabled
+   * @return the pending root computation
+   */
+  public static CompletableFuture<BalRootComputation> computeAsync(
+      final ProtocolContext protocolContext,
+      final BlockHeader blockHeader,
+      final BlockAccessList bal,
+      final Executor executor,
+      final SlowBlockMetrics slowBlockMetrics) {
     return CompletableFuture.supplyAsync(
         () -> {
+          final long startNanos = slowBlockMetrics != null ? System.nanoTime() : 0L;
           try (BonsaiWorldState ws = openParentWorldState(protocolContext, blockHeader)) {
             applyBalChanges(ws.getAccumulator(), bal);
             return computeRoot(ws);
+          } finally {
+            if (slowBlockMetrics != null) {
+              // Last write wins: the parallel-to-serial fallback re-enters block processing and
+              // submits a second computation for the same block.
+              slowBlockMetrics.setStateHashBackgroundNanos(System.nanoTime() - startNanos);
+            }
           }
         },
         executor);

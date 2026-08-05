@@ -16,11 +16,13 @@ package org.hyperledger.besu.ethereum.storage.keyvalue;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import org.hyperledger.besu.ethereum.mainnet.slowblock.ReadMeteredSegmentedKeyValueStorage;
 import org.hyperledger.besu.metrics.ObservableMetricsSystem;
 import org.hyperledger.besu.plugin.services.BesuConfiguration;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorageFactory;
+import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.services.kvstore.LimitedInMemoryKeyValueStorage;
 
 public class KeyValueStorageProviderBuilder {
@@ -30,6 +32,7 @@ public class KeyValueStorageProviderBuilder {
   private KeyValueStorageFactory storageFactory;
   private BesuConfiguration commonConfiguration;
   private MetricsSystem metricsSystem;
+  private boolean slowBlockTracingEnabled = false;
 
   public KeyValueStorageProviderBuilder withStorageFactory(
       final KeyValueStorageFactory storageFactory) {
@@ -48,6 +51,20 @@ public class KeyValueStorageProviderBuilder {
     return this;
   }
 
+  /**
+   * Meters reads that cross the storage boundary, which slow-block metrics report as cache misses.
+   * Storage is a process singleton with no per-block seam, so the decorator is installed once here
+   * and attributes reads by thread; when tracing is off the storage is left undecorated.
+   *
+   * @param slowBlockTracingEnabled whether slow-block tracing is enabled
+   * @return the builder
+   */
+  public KeyValueStorageProviderBuilder withSlowBlockTracingEnabled(
+      final boolean slowBlockTracingEnabled) {
+    this.slowBlockTracingEnabled = slowBlockTracingEnabled;
+    return this;
+  }
+
   public KeyValueStorageProvider build() {
     checkNotNull(storageFactory, "Cannot build a storage provider without a storage factory.");
     checkNotNull(
@@ -59,7 +76,13 @@ public class KeyValueStorageProviderBuilder {
         new LimitedInMemoryKeyValueStorage(DEFAULT_WORLD_STATE_PRE_IMAGE_CACHE_SIZE);
 
     return new KeyValueStorageProvider(
-        segments -> storageFactory.create(segments, commonConfiguration, metricsSystem),
+        segments -> {
+          final SegmentedKeyValueStorage storage =
+              storageFactory.create(segments, commonConfiguration, metricsSystem);
+          return slowBlockTracingEnabled
+              ? new ReadMeteredSegmentedKeyValueStorage(storage)
+              : storage;
+        },
         worldStatePreImageStorage,
         (ObservableMetricsSystem) metricsSystem);
   }
