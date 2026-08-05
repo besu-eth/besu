@@ -247,9 +247,16 @@ public class EthPeers implements PeerSelector {
           .log();
       return false;
     }
+    peer.unregisterConnection(connection);
     if (peer.getConnection().equals(connection)) {
       final Bytes id = peer.getId();
-      if (!peerHasIncompleteConnection(id)) {
+      final boolean connectionReplaced =
+          getIncompleteConnections(id).stream()
+              .filter(candidate -> !candidate.isDisconnected())
+              .anyMatch(candidate -> peer.replaceConnection(connection, candidate));
+      if (connectionReplaced) {
+        ethPeerStatusExchanged(peer);
+      } else if (!peerHasIncompleteConnection(id)) {
         removed = activeConnections.remove(id, peer);
         disconnectCallbacks.forEach(callback -> callback.onDisconnect(peer));
         peer.handleDisconnect();
@@ -586,10 +593,14 @@ public class EthPeers implements PeerSelector {
     // snap sync)
     LOG.debug("Peer {} status exchanged", peer);
     assert tracker != null : "ChainHeadTracker must be set before EthPeers can be used";
+    final long connectionGeneration = peer.getConnectionGeneration();
     CompletableFuture<BlockHeader> future = tracker.getBestHeaderFromPeer(peer);
 
     future.whenComplete(
         (peerHeadBlockHeader, error) -> {
+          if (peer.getConnectionGeneration() != connectionGeneration) {
+            return;
+          }
           if (peerHeadBlockHeader == null) {
             LOG.debug(
                 "Failed to retrieve chain head info. Disconnecting {}... {}",
@@ -639,7 +650,9 @@ public class EthPeers implements PeerSelector {
             }
             isServingSnapFuture.thenRun(
                 () -> {
-                  if (!peer.getConnection().isDisconnected() && addPeerToEthPeers(peer)) {
+                  if (peer.getConnectionGeneration() == connectionGeneration
+                      && !peer.getConnection().isDisconnected()
+                      && addPeerToEthPeers(peer)) {
                     connectedPeersCounter.inc();
                     connectCallbacks.forEach(cb -> cb.onPeerConnected(peer));
                   }
