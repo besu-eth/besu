@@ -211,7 +211,9 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
     final BlockHeader mockHeader = blockHeaderBuilder.buildHeader();
     when(mergeCoordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO))
         .thenReturn(Optional.of(mockHeader));
-    when(worldStateArchive.isWorldStateAvailable(any(), any())).thenReturn(false);
+    when(worldStateArchive.isWorldStateAvailable(
+            eq(mockHeader.getStateRoot()), eq(mockHeader.getHash())))
+        .thenReturn(false);
     assertSuccessWithPayloadForForkchoiceResult(
         new ForkchoiceStateV1(mockHeader.getHash(), Hash.ZERO, Hash.ZERO),
         Optional.empty(),
