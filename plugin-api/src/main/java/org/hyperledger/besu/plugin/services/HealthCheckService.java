@@ -77,8 +77,8 @@ public interface HealthCheckService extends BesuService {
      * Creates a health check result.
      *
      * @param healthy whether the check passed
-     * @param details diagnostic details to include under {@code checks}; may be null or empty.
-     *     Null keys and null values are omitted.
+     * @param details diagnostic details to include under {@code checks}; may be null or empty. Null
+     *     keys and null values are omitted.
      */
     public HealthCheckResult(final boolean healthy, final Map<String, Object> details) {
       this.healthy = healthy;

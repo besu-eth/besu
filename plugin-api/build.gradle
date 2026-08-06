@@ -85,9 +85,9 @@ tasks.register('checkAPICompatibility', me.champeau.gradle.japicmp.JapicmpTask) 
   //   methodExcludes = ['org.hyperledger.besu.plugin.services.metrics.Counter#inc(long)']
   // Exclusions are cleared by the release PR that bumps apiBaselineVersion.
   methodExcludes = [
-  'org.hyperledger.besu.plugin.services.HealthCheckService$HealthCheckProvider#isHealthy(org.hyperledger.besu.plugin.services.HealthCheckService$ParamSource)',
-  'org.hyperledger.besu.plugin.services.HealthCheckService$HealthCheckProvider#check(org.hyperledger.besu.plugin.services.HealthCheckService$ParamSource)'
-]
+    'org.hyperledger.besu.plugin.services.HealthCheckService$HealthCheckProvider#isHealthy(org.hyperledger.besu.plugin.services.HealthCheckService$ParamSource)',
+    'org.hyperledger.besu.plugin.services.HealthCheckService$HealthCheckProvider#check(org.hyperledger.besu.plugin.services.HealthCheckService$ParamSource)'
+  ]
 
   txtOutputFile = layout.buildDirectory.file('reports/japicmp/plugin-api-compatibility.txt')
   htmlOutputFile = layout.buildDirectory.file('reports/japicmp/plugin-api-compatibility.html')
