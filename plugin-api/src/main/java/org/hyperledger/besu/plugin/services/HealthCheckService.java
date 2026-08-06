@@ -78,7 +78,9 @@ public interface HealthCheckService extends BesuService {
      *
      * @param healthy whether the check passed
      * @param details diagnostic details to include under {@code checks}; may be null or empty. Null
-     *     keys and null values are omitted.
+     *     keys and null values are omitted. Values should be JSON-friendly types that Vert.x {@code
+     *     JsonObject} can encode (for example String, Number, Boolean, Map, or List). Custom object
+     *     types are not guaranteed to render correctly in the HTTP response.
      */
     public HealthCheckResult(final boolean healthy, final Map<String, Object> details) {
       this.healthy = healthy;
