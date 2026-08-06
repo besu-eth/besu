@@ -206,6 +206,8 @@ public class MainnetBlockValidator implements BlockValidator {
         return result;
       }
 
+      context.getWorldStateArchive().prepareWorldStateForBlock(block.getHeader(), worldState);
+
       var result = processBlock(context, worldState, block, blockAccessList);
       if (result.isFailed()) {
         handleFailedBlockProcessing(block, blockAccessList, result, shouldRecordBadBlock, context);
