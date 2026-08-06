@@ -2476,6 +2476,45 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
+  public void effectivePortsTagP2pPortWithBothTcpAndUdp() {
+    final TestBesuCommand command = parseCommand("--p2p-port=30301");
+    assertThat(commandErrorOutput.toString(UTF_8)).doesNotContain("specified multiple times");
+
+    final Optional<BesuCommand.EffectivePort> p2pPort =
+        command.getEffectivePorts().stream().filter(p -> p.port() == 30301).findFirst();
+    assertThat(p2pPort).isPresent();
+    assertThat(p2pPort.get().protocols())
+        .containsExactlyInAnyOrder(BesuCommand.PortProtocol.TCP, BesuCommand.PortProtocol.UDP);
+  }
+
+  @Test
+  public void effectivePortsTagTcpOnlyServicesWithTcpOnly() {
+    final TestBesuCommand command =
+        parseCommand(
+            "--metrics-enabled",
+            "--metrics-port=9545",
+            "--rpc-http-enabled",
+            "--rpc-http-port=8555");
+    assertThat(commandErrorOutput.toString(UTF_8)).doesNotContain("specified multiple times");
+
+    final List<BesuCommand.EffectivePort> effectivePorts = command.getEffectivePorts();
+    assertThat(
+            effectivePorts.stream()
+                .filter(p -> p.port() == 9545)
+                .findFirst()
+                .orElseThrow()
+                .protocols())
+        .containsExactly(BesuCommand.PortProtocol.TCP);
+    assertThat(
+            effectivePorts.stream()
+                .filter(p -> p.port() == 8555)
+                .findFirst()
+                .orElseThrow()
+                .protocols())
+        .containsExactly(BesuCommand.PortProtocol.TCP);
+  }
+
+  @Test
   public void staticNodesFileOptionValueAbsentMessage() {
     parseCommand("--static-nodes-file");
     assertThat(commandErrorOutput.toString(UTF_8))
