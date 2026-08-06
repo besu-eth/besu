@@ -68,6 +68,17 @@ public class JsonResponseStreamer extends OutputStream {
     response.write(buf).onFailure(this::handleFailure);
   }
 
+  /**
+   * Writes the entire response body and ends the response in a single Vert.x call, setting
+   * Content-Length instead of chunked transfer encoding. Use this instead of write()+close() when
+   * the full response is already buffered and chunked encoding overhead is undesirable.
+   */
+  public void writeAndClose(final byte[] data) throws IOException {
+    stopOnFailureOrClosed();
+    closed = true;
+    response.end(Buffer.buffer(data)).onFailure(this::handleFailure);
+  }
+
   @Override
   public void close() throws IOException {
     if (!closed) {

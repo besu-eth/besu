@@ -19,14 +19,15 @@ import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.OSAKA;
 import org.hyperledger.besu.datatypes.BlobType;
 import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.JsonResponseStreamer;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.StreamingJsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlobAndProofV2;
 import org.hyperledger.besu.ethereum.core.kzg.BlobProofBundle;
@@ -38,10 +39,16 @@ import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.util.HexUtils;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.vertx.core.Vertx;
 import jakarta.validation.constraints.NotNull;
 import org.jspecify.annotations.Nullable;
@@ -64,9 +71,13 @@ import org.slf4j.LoggerFactory;
  *   <li>Only supports KZG_CELL_PROOFS blob type (rejects KZG_PROOF)
  * </ul>
  */
-public class EngineGetBlobsV3 extends ExecutionEngineJsonRpcMethod {
+public class EngineGetBlobsV3 extends ExecutionEngineJsonRpcMethod
+    implements StreamingJsonRpcMethod {
   private static final Logger LOG = LoggerFactory.getLogger(EngineGetBlobsV3.class);
   public static final int REQUEST_MAX_VERSIONED_HASHES = 128;
+  // accumulate into a single buffer for ≤16 blobs to avoid one drain-wait per blob in the streamer
+  private static final int SINGLE_WRITE_THRESHOLD = 16;
+  private static final byte[] RESPONSE_CLOSE = new byte[] {']', '}'};
 
   private final TransactionPool transactionPool;
   private final Counter requestedCounter;
@@ -115,30 +126,95 @@ public class EngineGetBlobsV3 extends ExecutionEngineJsonRpcMethod {
 
   @Override
   public JsonRpcResponse syncResponse(final JsonRpcRequestContext requestContext) {
+
+    // Streaming-only method: single requests are routed to streamResponse() by the executor.
+    // This path is only reachable if the method is included in a JSON-RPC batch request,
+    // which cannot support streaming — returning INVALID_REQUEST mirrors the default behaviour
+    // of StreamingJsonRpcMethod.response() for non-engine streaming methods.
+    return new JsonRpcErrorResponse(
+        requestContext.getRequest().getId(), RpcErrorType.INVALID_REQUEST);
+  }
+
+  @Override
+  public void streamResponse(
+      final JsonRpcRequestContext requestContext, final OutputStream out, final ObjectMapper mapper)
+      throws IOException {
+    if (mergeContext.get().isSyncing()) {
+      out.write(
+          ("{\"jsonrpc\":\"2.0\",\"id\":"
+                  + mapper.writeValueAsString(requestContext.getRequest().getId())
+                  + ",\"result\":null}")
+              .getBytes(StandardCharsets.UTF_8));
+      return;
+    }
     final VersionedHash[] versionedHashes = extractVersionedHashes(requestContext);
     if (versionedHashes.length > REQUEST_MAX_VERSIONED_HASHES) {
-      return new JsonRpcErrorResponse(
-          requestContext.getRequest().getId(),
-          RpcErrorType.INVALID_ENGINE_GET_BLOBS_TOO_LARGE_REQUEST);
+      mapper.writeValue(
+          out,
+          new JsonRpcErrorResponse(
+              requestContext.getRequest().getId(),
+              RpcErrorType.INVALID_ENGINE_GET_BLOBS_TOO_LARGE_REQUEST));
+      return;
     }
-    if (mergeContext.get().isSyncing()) {
-      return new JsonRpcSuccessResponse(requestContext.getRequest().getId(), null);
-    }
-    long timestamp = protocolContext.getBlockchain().getChainHeadHeader().getTimestamp();
-    ValidationResult<RpcErrorType> forkValidationResult = validateForkSupported(timestamp);
+    final long timestamp = protocolContext.getBlockchain().getChainHeadHeader().getTimestamp();
+    final ValidationResult<RpcErrorType> forkValidationResult = validateForkSupported(timestamp);
     if (!forkValidationResult.isValid()) {
-      return new JsonRpcErrorResponse(requestContext.getRequest().getId(), forkValidationResult);
+      mapper.writeValue(
+          out, new JsonRpcErrorResponse(requestContext.getRequest().getId(), forkValidationResult));
+      return;
     }
 
     requestedCounter.inc(versionedHashes.length);
 
-    final List<BlobAndProofV2> result = getBlobV3Result(versionedHashes);
+    // pre-build all entries; parallelise encoding when multiple blobs offset ForkJoin overhead
+    final List<BlobAndProofV2> results = getBlobV3Result(versionedHashes);
+    final long availableCount = results.stream().filter(Objects::nonNull).count();
 
-    // count available blobs (non-null entries)
-    long availableCount = result.stream().mapToLong(blob -> blob != null ? 1 : 0).sum();
+    final byte[] header =
+        ("{\"jsonrpc\":\"2.0\",\"id\":"
+                + mapper.writeValueAsString(requestContext.getRequest().getId())
+                + ",\"result\":[")
+            .getBytes(StandardCharsets.UTF_8);
+
+    if (results.size() <= SINGLE_WRITE_THRESHOLD) {
+      // Build full response into one buffer and send with Content-Length (not chunked) to avoid
+      // both drain-wait overhead and chunked transfer encoding framing cost.
+      final ByteArrayOutputStream fullBuf =
+          new ByteArrayOutputStream(results.size() * 285_000 + header.length + 2);
+      fullBuf.write(header);
+      for (int i = 0; i < results.size(); i++) {
+        if (i > 0) fullBuf.write(',');
+        final BlobAndProofV2 entry = results.get(i);
+        if (entry == null) {
+          fullBuf.write("null".getBytes(StandardCharsets.UTF_8));
+        } else {
+          mapper.writeValue(fullBuf, entry);
+        }
+      }
+      fullBuf.write(RESPONSE_CLOSE);
+      if (out instanceof JsonResponseStreamer jrs) {
+        jrs.writeAndClose(fullBuf.toByteArray());
+      } else {
+        fullBuf.writeTo(out);
+      }
+    } else {
+      out.write(header);
+      final ByteArrayOutputStream entryBuf = new ByteArrayOutputStream(285_000);
+      for (int i = 0; i < results.size(); i++) {
+        entryBuf.reset();
+        if (i > 0) entryBuf.write(',');
+        final BlobAndProofV2 entry = results.get(i);
+        if (entry == null) {
+          entryBuf.write("null".getBytes(StandardCharsets.UTF_8));
+        } else {
+          mapper.writeValue(entryBuf, entry);
+        }
+        entryBuf.writeTo(out);
+      }
+      out.write(RESPONSE_CLOSE);
+    }
+
     availableCounter.inc(availableCount);
-
-    // track if this was a partial or full response
     if (availableCount == versionedHashes.length) {
       fullResponseCounter.inc();
     } else {
@@ -150,8 +226,6 @@ public class EngineGetBlobsV3 extends ExecutionEngineJsonRpcMethod {
         versionedHashes.length,
         availableCount,
         availableCount < versionedHashes.length);
-
-    return new JsonRpcSuccessResponse(requestContext.getRequest().getId(), result);
   }
 
   private VersionedHash[] extractVersionedHashes(final JsonRpcRequestContext requestContext) {
@@ -166,10 +240,16 @@ public class EngineGetBlobsV3 extends ExecutionEngineJsonRpcMethod {
   }
 
   private @NotNull List<BlobAndProofV2> getBlobV3Result(final VersionedHash[] versionedHashes) {
-    return Arrays.stream(versionedHashes)
-        .map(transactionPool::getBlobProofBundle)
-        .map(this::getBlobAndProofV2)
-        .toList();
+    // Blob pool lookups are sequential (single lock); encoding is parallelised when > 2 blobs
+    // because each 128 KB blob takes ~260 µs to hex-encode and offsets ForkJoin overhead.
+    final BlobProofBundle[] bundles = new BlobProofBundle[versionedHashes.length];
+    for (int i = 0; i < versionedHashes.length; i++) {
+      bundles[i] = transactionPool.getBlobProofBundle(versionedHashes[i]);
+    }
+    if (versionedHashes.length > 2) {
+      return Arrays.stream(bundles).parallel().map(this::getBlobAndProofV2).toList();
+    }
+    return Arrays.stream(bundles).map(this::getBlobAndProofV2).toList();
   }
 
   private @Nullable BlobAndProofV2 getBlobAndProofV2(final BlobProofBundle bundle) {
@@ -188,7 +268,7 @@ public class EngineGetBlobsV3 extends ExecutionEngineJsonRpcMethod {
   private BlobAndProofV2 createBlobAndProofV2(final BlobProofBundle blobProofBundle) {
     return new BlobAndProofV2(
         HexUtils.toFastHex(blobProofBundle.getBlob().getData(), true),
-        blobProofBundle.getKzgProof().parallelStream()
+        blobProofBundle.getKzgProof().stream()
             .map(proof -> HexUtils.toFastHex(proof.getData(), true))
             .toList());
   }
