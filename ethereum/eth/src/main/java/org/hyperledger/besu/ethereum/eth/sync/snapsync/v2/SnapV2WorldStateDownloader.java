@@ -186,6 +186,8 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
               snapSyncState,
               null,
               snapSyncConfiguration.getPivotBlockCheckIntervalMillis());
+      final long storagePipelineInFlightCapacity =
+          (long) snapSyncConfiguration.getStorageCountPerRequest() * maxOutstandingRequests;
       final SnapV2WorldDownloadState newDownloadState =
           new SnapV2WorldDownloadState(
               worldStateStorageCoordinator,
@@ -202,7 +204,8 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
               blockAccessListApplier,
               reorgHealer,
               blockchain,
-              ethContext);
+              ethContext,
+              storagePipelineInFlightCapacity);
 
       final Map<Bytes32, Bytes32> ranges = RangeManager.generateAllRanges(16);
       snapsyncMetricsManager.initRange(ranges);
