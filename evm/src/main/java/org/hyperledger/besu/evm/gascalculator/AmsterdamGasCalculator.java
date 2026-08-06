@@ -68,10 +68,10 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
   protected static final long COLD_ACCOUNT_ACCESS = 3_000L;
 
   /** Cold storage slot access cost. */
-  protected static final long COLD_STORAGE_ACCESS = 3_000L;
+  protected static final long COLD_STORAGE_ACCESS = 2_100L;
 
   /** Account write cost (value-bearing CALL / new account). */
-  protected static final long ACCOUNT_WRITE = 8_000L;
+  protected static final long ACCOUNT_WRITE = 9_000L;
 
   /**
    * Per-address cost of a transaction access list entry: the cold access it prepays, less the warm
