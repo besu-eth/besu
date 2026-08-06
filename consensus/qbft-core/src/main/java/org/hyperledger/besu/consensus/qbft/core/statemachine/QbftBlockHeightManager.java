@@ -288,7 +288,66 @@ public class QbftBlockHeightManager implements BaseQbftBlockHeightManager {
       return;
     }
 
+    // While the chain is idle the round-0 proposer intentionally stays silent until the
+    // emptyBlockPeriodSeconds window elapses (see buildBlockAndMaybePropose). Non-proposers cannot
+    // tell that deliberate silence apart from a failed proposer, so a naive requestTimeout expiry
+    // would trigger a round change on every empty-block height. To avoid that, defer the round-0
+    // expiry until the empty-block window has elapsed (plus the normal requestTimeout grace) so a
+    // genuine proposer failure is still detected.
+    if (qbftRound.getRoundIdentifier().getRoundNumber() == 0 && shouldWaitForEmptyBlockPeriod()) {
+      final long now = clock.millis();
+      final long emptyBlockPeriodExpiryMillis =
+          (parentHeader.getTimestamp() + finalState.getBlockTimer().getEmptyBlockPeriodSeconds())
+              * 1000L;
+      final long graceMillis =
+          finalState.getRoundTimer().getRoundExpiry(qbftRound.getRoundIdentifier());
+      final long deferMillis = (emptyBlockPeriodExpiryMillis - now) + graceMillis;
+      LOG.debug(
+          "Round 0 expired inside the empty-block window; deferring round change by {}ms until the "
+              + "empty-block period elapses. round={}",
+          deferMillis,
+          qbftRound.getRoundIdentifier());
+      finalState.getRoundTimer().startTimer(qbftRound.getRoundIdentifier(), deferMillis);
+      return;
+    }
+
     doRoundChange(qbftRound.getRoundIdentifier().getRoundNumber() + 1);
+  }
+
+  /**
+   * Determines whether the current round-0 timer expiry should be ignored because the proposer is
+   * legitimately waiting out the empty-block period rather than having failed.
+   *
+   * <p>Returns true only when the empty-block period has not yet elapsed AND the block this node
+   * would produce right now would be empty. If transactions are pending a real block is due and a
+   * genuine proposer failure must still be detected on the normal requestTimeout schedule, so this
+   * returns false. It also returns false (allowing the round change to proceed) if the emptiness of
+   * the candidate block cannot be determined, favouring liveness over suppressing a round change.
+   *
+   * @return true if the round change should be deferred, false if it should proceed
+   */
+  private boolean shouldWaitForEmptyBlockPeriod() {
+    if (currentRound.isEmpty()) {
+      return false;
+    }
+    if (finalState.getBlockTimer().getEmptyBlockPeriodSeconds() <= 0) {
+      // The empty-block-period feature is not configured, so behave exactly as before.
+      return false;
+    }
+    final long now = clock.millis();
+    if (finalState.getBlockTimer().checkEmptyBlockExpired(parentHeader::getTimestamp, now)) {
+      // The empty-block period has elapsed - a block is due, so a stalled round is a genuine fault.
+      return false;
+    }
+    try {
+      final long headerTimeStampSeconds = Math.round(now / 1000D);
+      final QbftBlock candidateBlock =
+          currentRound.get().createBlock(headerTimeStampSeconds).block();
+      return candidateBlock.isEmpty();
+    } catch (final RuntimeException e) {
+      LOG.debug("Failed to evaluate empty-block wait condition; allowing round change.", e);
+      return false;
+    }
   }
 
   private synchronized void doRoundChange(final int newRoundNumber) {

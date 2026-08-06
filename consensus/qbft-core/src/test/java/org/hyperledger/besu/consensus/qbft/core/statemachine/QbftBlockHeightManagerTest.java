@@ -492,6 +492,63 @@ public class QbftBlockHeightManagerTest {
   }
 
   @Test
+  public void roundZeroExpiryIsDeferredWhileWaitingOutTheEmptyBlockPeriod() {
+    // emptyBlockPeriodSeconds is configured and has not yet elapsed, and the block that would be
+    // produced now is empty. The round-0 proposer is therefore legitimately silent, so the round
+    // change must be deferred rather than triggered - otherwise every idle height round-changes.
+    when(blockTimer.getEmptyBlockPeriodSeconds()).thenReturn(60L);
+    when(blockTimer.checkEmptyBlockExpired(any(), anyLong())).thenReturn(false);
+    // createdBlock is empty by default (QbftBlockTestFixture)
+
+    final QbftBlockHeightManager manager =
+        new QbftBlockHeightManager(
+            headerTestFixture.buildHeader(),
+            finalState,
+            roundChangeManager,
+            roundFactory,
+            clock,
+            messageValidatorFactory,
+            messageFactory,
+            validatorProvider);
+    manager.handleBlockTimerExpiry(roundIdentifier);
+    verify(roundFactory).createNewRound(any(), eq(0));
+
+    manager.roundExpired(new RoundExpiry(roundIdentifier));
+
+    // No round change: round 1 must not be created...
+    verify(roundFactory, never()).createNewRound(any(), eq(1));
+    // ...instead the round-0 timer is re-armed to fire once the empty-block period has elapsed.
+    verify(roundTimer).startTimer(eq(roundIdentifier), anyLong());
+  }
+
+  @Test
+  public void roundZeroExpiryTriggersRoundChangeWhenTransactionsArePendingDuringEmptyBlockPeriod() {
+    // Even inside the empty-block window, if the pending block would be non-empty a real block is
+    // due, so a stalled round must still be treated as a genuine proposer failure.
+    when(blockTimer.getEmptyBlockPeriodSeconds()).thenReturn(60L);
+    when(blockTimer.checkEmptyBlockExpired(any(), anyLong())).thenReturn(false);
+    final QbftBlock nonEmptyBlock = new QbftBlockTestFixture().isEmpty(false).build();
+    when(blockCreator.createBlock(anyLong(), any()))
+        .thenReturn(new QbftBlockCreator.BlockCreationResult(nonEmptyBlock, Optional.empty()));
+
+    final QbftBlockHeightManager manager =
+        new QbftBlockHeightManager(
+            headerTestFixture.buildHeader(),
+            finalState,
+            roundChangeManager,
+            roundFactory,
+            clock,
+            messageValidatorFactory,
+            messageFactory,
+            validatorProvider);
+    manager.handleBlockTimerExpiry(roundIdentifier);
+
+    manager.roundExpired(new RoundExpiry(roundIdentifier));
+
+    verify(roundFactory).createNewRound(any(), eq(1));
+  }
+
+  @Test
   public void whenSufficientRoundChangesAreReceivedAProposalMessageIsTransmitted() {
     final ConsensusRoundIdentifier futureRoundIdentifier = createFrom(roundIdentifier, 0, +2);
     final RoundChange roundChange =

@@ -91,4 +91,38 @@ public class RoundTimer {
 
     currentTimerTask = Optional.of(newTimerTask);
   }
+
+  /**
+   * Starts a timer for the supplied round that expires after an explicit delay, cancelling any
+   * previously active round timer. This is used to defer the round-0 expiry until the empty-block
+   * period has elapsed, so that validators do not treat a proposer that is legitimately waiting out
+   * the empty-block window as having failed and trigger an unnecessary round change.
+   *
+   * @param round The round identifier which this timer is tracking
+   * @param delayMillis The delay, in milliseconds, before the round expires. Negative values are
+   *     treated as zero (expire immediately).
+   */
+  public synchronized void startTimer(
+      final ConsensusRoundIdentifier round, final long delayMillis) {
+    cancelTimer();
+
+    final long safeDelayMillis = Math.max(0, delayMillis);
+
+    final Runnable newTimerRunnable = () -> queue.add(new RoundExpiry(round));
+
+    final ScheduledFuture<?> newTimerTask =
+        bftExecutors.scheduleTask(newTimerRunnable, safeDelayMillis, TimeUnit.MILLISECONDS);
+
+    currentTimerTask = Optional.of(newTimerTask);
+  }
+
+  /**
+   * Returns the configured expiry period, in milliseconds, for the supplied round.
+   *
+   * @param round the round identifier
+   * @return the round expiry period in milliseconds
+   */
+  public long getRoundExpiry(final ConsensusRoundIdentifier round) {
+    return roundExpiryTimeCalculator.calculateRoundExpiry(round).toMillis();
+  }
 }
