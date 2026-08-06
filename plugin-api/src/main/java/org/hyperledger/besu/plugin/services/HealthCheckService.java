@@ -77,12 +77,22 @@ public interface HealthCheckService extends BesuService {
      * Creates a health check result.
      *
      * @param healthy whether the check passed
-     * @param details diagnostic details to include under {@code checks}; may be null or empty
+     * @param details diagnostic details to include under {@code checks}; may be null or empty.
+     *     Null keys and null values are omitted.
      */
     public HealthCheckResult(final boolean healthy, final Map<String, Object> details) {
       this.healthy = healthy;
-      this.details =
-          details == null || details.isEmpty() ? Collections.emptyMap() : Map.copyOf(details);
+      if (details == null || details.isEmpty()) {
+        this.details = Collections.emptyMap();
+      } else {
+        final Map<String, Object> copy = new java.util.LinkedHashMap<>();
+        for (final Map.Entry<String, Object> entry : details.entrySet()) {
+          if (entry.getKey() != null && entry.getValue() != null) {
+            copy.put(entry.getKey(), entry.getValue());
+          }
+        }
+        this.details = copy.isEmpty() ? Collections.emptyMap() : Map.copyOf(copy);
+      }
     }
 
     /**

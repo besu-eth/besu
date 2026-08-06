@@ -70,6 +70,20 @@ public class HealthCheckServiceImplTest {
   }
 
   @Test
+  void healthCheckResultOmitsNullKeysAndValues() {
+    final Map<String, Object> details = new HashMap<>();
+    details.put("peers", Map.of("status", true));
+    details.put("bad", null);
+    details.put(null, "x");
+
+    final HealthCheckService.HealthCheckResult result =
+        new HealthCheckService.HealthCheckResult(true, details);
+
+    assertThat(result.getDetails()).containsOnlyKeys("peers");
+    assertThat(result.getDetails().get("peers")).isEqualTo(Map.of("status", true));
+  }
+
+  @Test
   void shouldReturnEmptyWhenGettingNonexistentEndpoint() {
     assertThat(healthCheckService.getHealthCheck("/nonexistent")).isEmpty();
   }

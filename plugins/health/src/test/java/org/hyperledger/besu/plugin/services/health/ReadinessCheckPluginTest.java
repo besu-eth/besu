@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.plugin.services.health;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -80,12 +81,12 @@ public class ReadinessCheckPluginTest {
     when(p2pService.getPeerCount()).thenReturn(3);
 
     final var result = provider.check(params);
-    org.assertj.core.api.Assertions.assertThat(result.isHealthy()).isFalse();
-    org.assertj.core.api.Assertions.assertThat(result.getDetails()).containsKey("peers");
+    assertThat(result.isHealthy()).isFalse();
+    assertThat(result.getDetails()).containsKey("peers");
     final var peers = (java.util.Map<?, ?>) result.getDetails().get("peers");
-    org.assertj.core.api.Assertions.assertThat(peers.get("status")).isEqualTo(false);
-    org.assertj.core.api.Assertions.assertThat(peers.get("currentPeers")).isEqualTo(3);
-    org.assertj.core.api.Assertions.assertThat(peers.get("requiredPeers")).isEqualTo(5);
+    assertThat(peers.get("status")).isEqualTo(false);
+    assertThat(peers.get("currentPeers")).isEqualTo(3);
+    assertThat(peers.get("requiredPeers")).isEqualTo(5);
   }
 
   @Test
@@ -107,7 +108,7 @@ public class ReadinessCheckPluginTest {
     when(p2pService.isP2pEnabled()).thenReturn(true);
     when(p2pService.getPeerCount()).thenReturn(5);
 
-    org.assertj.core.api.Assertions.assertThat(provider.check(params).isHealthy()).isTrue();
+    assertThat(provider.check(params).isHealthy()).isTrue();
   }
 
   @Test
@@ -159,12 +160,12 @@ public class ReadinessCheckPluginTest {
     when(p2pService.getPeerCount()).thenReturn(1);
 
     final var result = provider.check(params);
-    org.assertj.core.api.Assertions.assertThat(result.isHealthy()).isTrue();
-    org.assertj.core.api.Assertions.assertThat(result.getDetails()).containsKey("sync");
+    assertThat(result.isHealthy()).isTrue();
+    assertThat(result.getDetails()).containsKey("sync");
     final var sync = (java.util.Map<?, ?>) result.getDetails().get("sync");
-    org.assertj.core.api.Assertions.assertThat(sync.get("status")).isEqualTo(true);
-    org.assertj.core.api.Assertions.assertThat(sync.get("blocksBehind")).isEqualTo(1L);
-    org.assertj.core.api.Assertions.assertThat(sync.get("maxBlocksBehind")).isEqualTo(2L);
+    assertThat(sync.get("status")).isEqualTo(true);
+    assertThat(sync.get("blocksBehind")).isEqualTo(1L);
+    assertThat(sync.get("maxBlocksBehind")).isEqualTo(2L);
   }
 
   @Test
@@ -191,12 +192,12 @@ public class ReadinessCheckPluginTest {
     when(p2pService.getPeerCount()).thenReturn(1);
 
     final var result = provider.check(params);
-    org.assertj.core.api.Assertions.assertThat(result.isHealthy()).isFalse();
-    org.assertj.core.api.Assertions.assertThat(result.getDetails()).containsKey("sync");
+    assertThat(result.isHealthy()).isFalse();
+    assertThat(result.getDetails()).containsKey("sync");
     final var sync = (java.util.Map<?, ?>) result.getDetails().get("sync");
-    org.assertj.core.api.Assertions.assertThat(sync.get("status")).isEqualTo(false);
-    org.assertj.core.api.Assertions.assertThat(sync.get("blocksBehind")).isEqualTo(100L);
-    org.assertj.core.api.Assertions.assertThat(sync.get("maxBlocksBehind")).isEqualTo(2L);
+    assertThat(sync.get("status")).isEqualTo(false);
+    assertThat(sync.get("blocksBehind")).isEqualTo(100L);
+    assertThat(sync.get("maxBlocksBehind")).isEqualTo(2L);
   }
 
   @Test
@@ -222,7 +223,7 @@ public class ReadinessCheckPluginTest {
     when(p2pService.isP2pEnabled()).thenReturn(true);
     when(p2pService.getPeerCount()).thenReturn(1);
 
-    org.assertj.core.api.Assertions.assertThat(provider.check(params).isHealthy()).isTrue();
+    assertThat(provider.check(params).isHealthy()).isTrue();
   }
 
   @Test
@@ -241,7 +242,7 @@ public class ReadinessCheckPluginTest {
     when(params.getParam("minPeers")).thenReturn("not-a-number");
     when(p2pService.getPeerCount()).thenReturn(100);
 
-    org.assertj.core.api.Assertions.assertThat(provider.check(params).isHealthy()).isFalse();
+    assertThat(provider.check(params).isHealthy()).isFalse();
   }
 
   @Test
@@ -267,7 +268,7 @@ public class ReadinessCheckPluginTest {
     when(p2pService.isP2pEnabled()).thenReturn(true);
     when(p2pService.getPeerCount()).thenReturn(100);
 
-    org.assertj.core.api.Assertions.assertThat(provider.check(params).isHealthy()).isFalse();
+    assertThat(provider.check(params).isHealthy()).isFalse();
   }
 
   @Test
@@ -286,7 +287,7 @@ public class ReadinessCheckPluginTest {
     when(params.getParam("minPeers")).thenReturn("-1");
     when(p2pService.getPeerCount()).thenReturn(100);
 
-    org.assertj.core.api.Assertions.assertThat(provider.check(params).isHealthy()).isFalse();
+    assertThat(provider.check(params).isHealthy()).isFalse();
   }
 
   @Test
@@ -312,7 +313,7 @@ public class ReadinessCheckPluginTest {
     when(p2pService.isP2pEnabled()).thenReturn(true);
     when(p2pService.getPeerCount()).thenReturn(100);
 
-    org.assertj.core.api.Assertions.assertThat(provider.check(params).isHealthy()).isFalse();
+    assertThat(provider.check(params).isHealthy()).isFalse();
   }
 
   @Test
@@ -339,12 +340,12 @@ public class ReadinessCheckPluginTest {
     when(p2pService.getPeerCount()).thenReturn(1);
 
     final var result = provider.check(params);
-    org.assertj.core.api.Assertions.assertThat(result.isHealthy()).isFalse();
-    org.assertj.core.api.Assertions.assertThat(result.getDetails()).containsKey("sync");
+    assertThat(result.isHealthy()).isFalse();
+    assertThat(result.getDetails()).containsKey("sync");
     final var sync = (java.util.Map<?, ?>) result.getDetails().get("sync");
-    org.assertj.core.api.Assertions.assertThat(sync.get("status")).isEqualTo(false);
-    org.assertj.core.api.Assertions.assertThat(sync.get("blocksBehind")).isEqualTo(3L);
-    org.assertj.core.api.Assertions.assertThat(sync.get("maxBlocksBehind")).isEqualTo(2L);
+    assertThat(sync.get("status")).isEqualTo(false);
+    assertThat(sync.get("blocksBehind")).isEqualTo(3L);
+    assertThat(sync.get("maxBlocksBehind")).isEqualTo(2L);
   }
 
   @Test
@@ -370,7 +371,7 @@ public class ReadinessCheckPluginTest {
     when(p2pService.isP2pEnabled()).thenReturn(true);
     when(p2pService.getPeerCount()).thenReturn(1);
 
-    org.assertj.core.api.Assertions.assertThat(provider.check(params).isHealthy()).isTrue();
+    assertThat(provider.check(params).isHealthy()).isTrue();
   }
 
   @Test
@@ -393,7 +394,7 @@ public class ReadinessCheckPluginTest {
     when(p2pService.isP2pEnabled()).thenReturn(false);
     when(p2pService.getPeerCount()).thenReturn(0);
 
-    org.assertj.core.api.Assertions.assertThat(provider.check(params).isHealthy()).isTrue();
+    assertThat(provider.check(params).isHealthy()).isTrue();
   }
 
   @SuppressWarnings("unchecked")

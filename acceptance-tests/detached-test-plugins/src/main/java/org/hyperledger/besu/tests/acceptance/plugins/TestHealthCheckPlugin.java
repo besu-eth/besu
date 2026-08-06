@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
+import java.util.Map;
 
 import com.google.auto.service.AutoService;
 import org.slf4j.Logger;
@@ -51,13 +52,15 @@ public class TestHealthCheckPlugin implements BesuPlugin {
                   LIVENESS_ENDPOINT,
                   params -> {
                     markCalled(LIVENESS_CALLED_FILE);
-                    return HealthCheckService.HealthCheckResult.of(true);
+                    return new HealthCheckService.HealthCheckResult(
+                        true, Map.of("testPlugin", "liveness"));
                   });
               healthCheckService.registerHealthCheck(
                   READINESS_ENDPOINT,
                   params -> {
                     markCalled(READINESS_CALLED_FILE);
-                    return HealthCheckService.HealthCheckResult.of(true);
+                    return new HealthCheckService.HealthCheckResult(
+                        true, Map.of("testPlugin", "readiness"));
                   });
             });
   }
