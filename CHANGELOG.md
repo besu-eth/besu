@@ -3,6 +3,7 @@
 ## Unreleased Changes
 
 ### Breaking Changes
+- Plugin API: `HealthCheckProvider` now returns `HealthCheckResult` (status + details map) instead of `boolean` [#10687](https://github.com/besu-eth/besu/issues/10687)
 - The experimental `--Xv5-discovery-enabled` flag is removed; use `--discovery-mode=V5` or `--discovery-mode=BOTH` instead.
 - The genesis file `v5Bootnodes` key is removed; ENR bootnodes must now be listed in the unified `bootnodes` array alongside enode URLs. Besu's bundled network genesis files were migrated automatically - this only affects custom/downstream genesis files that still use the old `v5Bootnodes` key, whose ENR entries will otherwise be silently dropped.
 - Removed the legacy `PANTHEON_` environment variable prefix for configuration options, everyone should already use the `BESU_` prefix at this time.
@@ -19,6 +20,7 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
+- Restore structured `{peers, sync}` detail in plugin-based `/readiness` responses via `HealthCheckProvider` [#10687](https://github.com/besu-eth/besu/issues/10687)
 - EIP-1459 DNS discovery now rejoins TXT records split across multiple `<character-string>`s. Records longer than 255 bytes were truncated, so Besu silently discarded most of every tree, resolving 832 of 3000 nodes from the mainnet tree. [#10985](https://github.com/besu-eth/besu/pull/10985)
 - Queue backward-sync targets received before peer readiness and retry when a peer connects. [#10843](https://github.com/besu-eth/besu/pull/10843)
 - Return `BLOCK_NOT_FOUND` for unknown block hashes and `GENESIS_BLOCK_NOT_TRACEABLE` for genesis blocks from `debug_traceBlockByHash`. [#10701](https://github.com/besu-eth/besu/pull/10701)
