@@ -51,7 +51,8 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
     INVALID_BLOCK_HASH;
   }
 
-  // Fields used by migrated series (currently engine_forkchoiceUpdatedV* and engine_newPayloadV*
+  // Fields used by migrated series (currently engine_forkchoiceUpdatedV*, engine_newPayloadV* and
+  // engine_getPayloadV*
   // — see the package README's migration status table). Not-yet-migrated series keep using the
   // TRANSITIONAL SHIM constructors below instead of this record.
   @Value.Builder

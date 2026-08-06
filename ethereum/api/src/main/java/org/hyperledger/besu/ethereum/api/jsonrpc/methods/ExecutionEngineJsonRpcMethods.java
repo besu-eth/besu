@@ -133,22 +133,10 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
       executionEngineApisSupported.addAll(
           createEngineForkchoiceUpdatedMethods(constructorArguments));
       executionEngineApisSupported.addAll(createEngineNewPayloadMethods(constructorArguments));
+      executionEngineApisSupported.addAll(createEngineGetPayloadMethods(constructorArguments));
 
       executionEngineApisSupported.addAll(
           Arrays.asList(
-              new EngineGetPayloadV1(
-                  consensusEngineServer,
-                  protocolContext,
-                  mergeCoordinator.get(),
-                  blockResultFactory,
-                  engineQosTimer),
-              new EngineGetPayloadV2(
-                  consensusEngineServer,
-                  protocolContext,
-                  mergeCoordinator.get(),
-                  blockResultFactory,
-                  engineQosTimer,
-                  protocolSchedule),
               new EngineExchangeTransitionConfiguration(
                   consensusEngineServer, protocolContext, engineQosTimer),
               new EngineGetPayloadBodiesByHashV1(
@@ -168,37 +156,7 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
                   engineQosTimer,
                   transactionPool)));
 
-      if (protocolSchedule.milestoneFor(CANCUN).isPresent()) {
-        executionEngineApisSupported.add(
-            new EngineGetPayloadV3(
-                consensusEngineServer,
-                protocolContext,
-                mergeCoordinator.get(),
-                blockResultFactory,
-                engineQosTimer,
-                protocolSchedule));
-      }
-
-      if (protocolSchedule.milestoneFor(PRAGUE).isPresent()) {
-        executionEngineApisSupported.add(
-            new EngineGetPayloadV4(
-                consensusEngineServer,
-                protocolContext,
-                mergeCoordinator.get(),
-                blockResultFactory,
-                engineQosTimer,
-                protocolSchedule));
-      }
-
       if (protocolSchedule.milestoneFor(OSAKA).isPresent()) {
-        executionEngineApisSupported.add(
-            new EngineGetPayloadV5(
-                consensusEngineServer,
-                protocolContext,
-                mergeCoordinator.get(),
-                blockResultFactory,
-                engineQosTimer,
-                protocolSchedule));
         executionEngineApisSupported.add(
             new EngineGetBlobsV2(
                 consensusEngineServer,
@@ -218,14 +176,6 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
       }
 
       if (protocolSchedule.milestoneFor(AMSTERDAM).isPresent()) {
-        executionEngineApisSupported.add(
-            new EngineGetPayloadV6(
-                consensusEngineServer,
-                protocolContext,
-                mergeCoordinator.get(),
-                blockResultFactory,
-                engineQosTimer,
-                protocolSchedule));
         executionEngineApisSupported.add(
             new EngineGetPayloadBodiesByHashV2(
                 consensusEngineServer, protocolContext, blockResultFactory, engineQosTimer));
@@ -263,6 +213,21 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
         .thenFrom(CANCUN, EngineNewPayloadV3::new)
         .thenFrom(PRAGUE, EngineNewPayloadV4::new)
         .thenFrom(AMSTERDAM, EngineNewPayloadV5::new)
+        .build(constructorArguments);
+  }
+
+  private Collection<? extends JsonRpcMethod> createEngineGetPayloadMethods(
+      final ConstructorArguments constructorArguments) {
+
+    // special case at the first hardfork (Shanghai), before it was possible to call either V1 or V2
+    // so both versions are scheduled at the beginning, and only V1 must be stopped at Shanghai
+    // timestamp
+    return VersionScheduler.startsFromBeginningUntil(EngineGetPayloadV1::new, SHANGHAI)
+        .thenAlsoFromBeginning(EngineGetPayloadV2::new)
+        .thenFrom(CANCUN, EngineGetPayloadV3::new)
+        .thenFrom(PRAGUE, EngineGetPayloadV4::new)
+        .thenFrom(OSAKA, EngineGetPayloadV5::new)
+        .thenFrom(AMSTERDAM, EngineGetPayloadV6::new)
         .build(constructorArguments);
   }
 
