@@ -65,6 +65,7 @@
 - `--Xbft-legacy-protocol-encoding` will be removed once Besu 25.x is no longer supported. [#10499](https://github.com/besu-eth/besu/pull/10499)
 - `--Xsnapsync-synchronizer-pivot-block-distance-before-caching` is deprecated and will be removed in a future release; the flag is now a silent no-op.
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
+- `dev` network is deprecated and will be removed in a future release. Use `ephemery` or kurtosis to run a local devnet. [#10836](https://github.com/besu-eth/besu/pull/10836)
 
 ### Bug fixes
 - Cap the number of concurrently-active JSON-RPC filters (`eth_newFilter`, `eth_newBlockFilter`, `eth_newPendingTransactionFilter`) via `--rpc-max-active-filters`, and expire filters that go unpolled via `--rpc-filter-timeout-seconds`, closing an unbounded-memory-growth path where a client could create filters indefinitely without ever polling or uninstalling them.

@@ -17,6 +17,7 @@ package org.hyperledger.besu.cli;
 import org.hyperledger.besu.config.NetworkDefinition;
 import org.hyperledger.besu.util.log.FramedLogMessage;
 
+import java.util.Arrays;
 import java.util.List;
 
 /** The Network deprecation message. */
@@ -34,7 +35,11 @@ public class NetworkDeprecationMessage {
       throw new AssertionError("Deprecation date is not set. Cannot print a deprecation message");
     }
 
-    // network is being shutdown
+    if (network.getDeprecationMessage().isPresent()) {
+      return FramedLogMessage.generate(
+          Arrays.asList(network.getDeprecationMessage().get().split("\n")));
+    }
+
     return FramedLogMessage.generateCentered(
         List.of(
             network.normalize()
