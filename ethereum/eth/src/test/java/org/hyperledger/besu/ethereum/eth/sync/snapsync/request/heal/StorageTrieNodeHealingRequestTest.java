@@ -19,14 +19,10 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.TrieGenerator;
 import org.hyperledger.besu.ethereum.rlp.RLP;
-import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.forest.storage.ForestWorldStateKeyValueStorage;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
-import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
-import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
@@ -72,13 +68,9 @@ class StorageTrieNodeHealingRequestTest {
           new WorldStateStorageCoordinator(
               new ForestWorldStateKeyValueStorage(new InMemoryKeyValueStorage()));
     } else {
-      final StorageProvider storageProvider = new InMemoryKeyValueStorageProvider();
       worldStateStorageCoordinator =
           new WorldStateStorageCoordinator(
-              new BonsaiWorldStateKeyValueStorage(
-                  storageProvider,
-                  new NoOpMetricsSystem(),
-                  DataStorageConfiguration.DEFAULT_BONSAI_CONFIG));
+              InMemoryKeyValueStorageProvider.createBonsaiInMemoryWorldStateStorage());
     }
     final MerkleTrie<Bytes, Bytes> trie =
         TrieGenerator.generateTrie(
