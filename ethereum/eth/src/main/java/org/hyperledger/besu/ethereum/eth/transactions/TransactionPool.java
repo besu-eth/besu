@@ -619,6 +619,10 @@ public class TransactionPool implements BlockAddedObserver {
     pendingTransactions.selectTransactions(transactionSelector);
   }
 
+  public TransactionPoolConfiguration getConfiguration() {
+    return configuration;
+  }
+
   public String logStats() {
     return pendingTransactions.logStats();
   }

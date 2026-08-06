@@ -19,7 +19,10 @@ import static org.assertj.core.api.Assertions.entry;
 import static org.hyperledger.besu.ethereum.blockcreation.AbstractBlockTransactionSelectorTest.Sender.SENDER1;
 import static org.hyperledger.besu.ethereum.blockcreation.AbstractBlockTransactionSelectorTest.Sender.SENDER2;
 import static org.hyperledger.besu.ethereum.core.MiningConfiguration.DEFAULT_POS_BLOCK_TXS_SELECTION_MAX_TIME;
+import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.datatypes.Address;
@@ -34,17 +37,26 @@ import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.ImmutableTransactionPoolConfiguration;
+import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionBroadcaster;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolReplacementHandler;
+import org.hyperledger.besu.ethereum.eth.transactions.layered.BaseFeePrioritizedTransactions;
+import org.hyperledger.besu.ethereum.eth.transactions.layered.EndLayer;
+import org.hyperledger.besu.ethereum.eth.transactions.layered.LayeredPendingTransactions;
+import org.hyperledger.besu.ethereum.eth.transactions.layered.ReadyTransactions;
+import org.hyperledger.besu.ethereum.eth.transactions.layered.SenderBalanceChecker;
+import org.hyperledger.besu.ethereum.eth.transactions.layered.SparseTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.sorter.BaseFeePendingTransactionsSorter;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleBuilder;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpecAdapters;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
+import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
@@ -54,6 +66,7 @@ import org.hyperledger.besu.util.number.Fraction;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 
 import org.junit.jupiter.api.Test;
@@ -229,6 +242,196 @@ public class LondonFeeMarketBlockTransactionSelectorTest
     assertThat(results.getSelectedTransactions())
         .containsExactly(txFrontier1, txLondon1, txFrontier2, txLondon2);
     assertThat(results.getNotSelectedTransactions()).isEmpty();
+  }
+
+  @Test
+  public void sequencedPool_upfrontCostExceedsBalance_noLateFundingFalse_txRemainsInPool() {
+    transactionPool = createSequencedPoolWithNoLateFunding(false);
+    final ProcessableBlockHeader blockHeader = createBlock(5_000_000);
+    final BlockTransactionSelector selector =
+        createBlockSelector(
+            defaultTestMiningConfiguration,
+            transactionProcessor,
+            blockHeader,
+            AddressHelpers.ofValue(1),
+            Wei.ZERO,
+            transactionSelectionService);
+
+    final Transaction tx = createTransaction(0, Wei.of(7L), 100_000);
+    transactionPool.addRemoteTransactions(List.of(tx));
+    ensureTransactionIsInvalid(tx, UPFRONT_COST_EXCEEDS_BALANCE);
+
+    final TransactionSelectionResults results = selector.buildTransactionListForBlock();
+
+    assertThat(transactionPool.getTransactionByHash(tx.getHash())).isPresent();
+    assertThat(results.getNotSelectedTransactions())
+        .containsOnly(
+            entry(
+                tx,
+                TransactionSelectionResult.invalidPenalized(UPFRONT_COST_EXCEEDS_BALANCE.name())));
+  }
+
+  @Test
+  public void sequencedPool_upfrontCostExceedsBalance_noLateFundingTrue_txRemovedFromPool() {
+    transactionPool = createSequencedPoolWithNoLateFunding(true);
+    final ProcessableBlockHeader blockHeader = createBlock(5_000_000);
+    final BlockTransactionSelector selector =
+        createBlockSelector(
+            defaultTestMiningConfiguration,
+            transactionProcessor,
+            blockHeader,
+            AddressHelpers.ofValue(1),
+            Wei.ZERO,
+            transactionSelectionService);
+
+    final Transaction tx = createTransaction(0, Wei.of(7L), 100_000);
+    transactionPool.addRemoteTransactions(List.of(tx));
+    ensureTransactionIsInvalid(tx, UPFRONT_COST_EXCEEDS_BALANCE);
+
+    final TransactionSelectionResults results = selector.buildTransactionListForBlock();
+
+    assertThat(transactionPool.getTransactionByHash(tx.getHash())).isNotPresent();
+    assertThat(results.getNotSelectedTransactions())
+        .containsOnly(
+            entry(tx, TransactionSelectionResult.invalid(UPFRONT_COST_EXCEEDS_BALANCE.name())));
+  }
+
+  @Test
+  public void layeredPool_upfrontCostExceedsBalance_noLateFundingFalse_txRemainsInPool() {
+    transactionPool = createLayeredPoolWithNoLateFunding(false);
+    final ProcessableBlockHeader blockHeader = createBlock(5_000_000);
+    final BlockTransactionSelector selector =
+        createBlockSelector(
+            defaultTestMiningConfiguration,
+            transactionProcessor,
+            blockHeader,
+            AddressHelpers.ofValue(1),
+            Wei.ZERO,
+            transactionSelectionService);
+
+    final Transaction tx = createTransaction(0, Wei.of(7L), 100_000);
+    transactionPool.addRemoteTransactions(List.of(tx));
+    ensureTransactionIsInvalid(tx, UPFRONT_COST_EXCEEDS_BALANCE);
+
+    final TransactionSelectionResults results = selector.buildTransactionListForBlock();
+
+    assertThat(transactionPool.getTransactionByHash(tx.getHash())).isPresent();
+    assertThat(results.getNotSelectedTransactions())
+        .containsOnly(
+            entry(
+                tx,
+                TransactionSelectionResult.invalidPenalized(UPFRONT_COST_EXCEEDS_BALANCE.name())));
+  }
+
+  @Test
+  public void layeredPool_upfrontCostExceedsBalance_noLateFundingTrue_txRemovedFromPool() {
+    // The layered pool schedules removal via ethScheduler.scheduleServiceTask(); mock it to run
+    // the removal task inline so the assertion can observe the post-removal pool state.
+    when(ethScheduler.scheduleServiceTask(any(Runnable.class)))
+        .thenAnswer(
+            inv -> {
+              inv.getArgument(0, Runnable.class).run();
+              return null;
+            });
+
+    transactionPool = createLayeredPoolWithNoLateFunding(true);
+    final ProcessableBlockHeader blockHeader = createBlock(5_000_000);
+    final BlockTransactionSelector selector =
+        createBlockSelector(
+            defaultTestMiningConfiguration,
+            transactionProcessor,
+            blockHeader,
+            AddressHelpers.ofValue(1),
+            Wei.ZERO,
+            transactionSelectionService);
+
+    final Transaction tx = createTransaction(0, Wei.of(7L), 100_000);
+    transactionPool.addRemoteTransactions(List.of(tx));
+    ensureTransactionIsInvalid(tx, UPFRONT_COST_EXCEEDS_BALANCE);
+
+    final TransactionSelectionResults results = selector.buildTransactionListForBlock();
+
+    assertThat(transactionPool.getTransactionByHash(tx.getHash())).isNotPresent();
+    assertThat(results.getNotSelectedTransactions())
+        .containsOnly(
+            entry(tx, TransactionSelectionResult.invalid(UPFRONT_COST_EXCEEDS_BALANCE.name())));
+  }
+
+  private TransactionPool createSequencedPoolWithNoLateFunding(final boolean noLateFunding) {
+    final TransactionPoolConfiguration poolConf =
+        ImmutableTransactionPoolConfiguration.builder()
+            .txPoolMaxSize(5)
+            .txPoolLimitByAccountPercentage(Fraction.fromFloat(1f))
+            .minGasPrice(Wei.ONE)
+            .noLateFunding(noLateFunding)
+            .build();
+    final PendingTransactions pending =
+        new BaseFeePendingTransactionsSorter(
+            poolConf,
+            TestClock.system(ZoneId.systemDefault()),
+            metricsSystem,
+            blockchain::getChainHeadHeader);
+    final TransactionPool pool =
+        new TransactionPool(
+            () -> pending,
+            protocolSchedule,
+            protocolContext,
+            mock(TransactionBroadcaster.class),
+            ethContext,
+            new TransactionPoolMetrics(metricsSystem),
+            poolConf,
+            new BlobCache());
+    pool.setEnabled();
+    return pool;
+  }
+
+  private TransactionPool createLayeredPoolWithNoLateFunding(final boolean noLateFunding) {
+    final TransactionPoolConfiguration poolConf =
+        ImmutableTransactionPoolConfiguration.builder()
+            .txPoolMaxSize(5)
+            .txPoolLimitByAccountPercentage(Fraction.fromFloat(1f))
+            .minGasPrice(Wei.ONE)
+            .noLateFunding(noLateFunding)
+            .build();
+    final TransactionPoolMetrics metrics = new TransactionPoolMetrics(metricsSystem);
+    final BiFunction<PendingTransaction, PendingTransaction, Boolean> replacementTester =
+        (t1, t2) ->
+            new TransactionPoolReplacementHandler(
+                    poolConf.getPriceBump(), poolConf.getBlobPriceBump())
+                .shouldReplace(t1, t2, blockchain.getChainHeadHeader());
+    final EndLayer evictCollector = new EndLayer(metrics);
+    final SparseTransactions sparse =
+        new SparseTransactions(
+            poolConf, ethScheduler, evictCollector, metrics, replacementTester, new BlobCache());
+    final ReadyTransactions ready =
+        new ReadyTransactions(
+            poolConf, ethScheduler, sparse, metrics, replacementTester, new BlobCache());
+    final BaseFeePrioritizedTransactions prioritized =
+        new BaseFeePrioritizedTransactions(
+            poolConf,
+            blockchain::getChainHeadHeader,
+            ethScheduler,
+            ready,
+            metrics,
+            replacementTester,
+            FeeMarket.london(0L),
+            new BlobCache(),
+            MiningConfiguration.newDefault().setMinTransactionGasPrice(Wei.ONE),
+            new SenderBalanceChecker.NoOpChecker());
+    final PendingTransactions layered =
+        new LayeredPendingTransactions(poolConf, prioritized, ethScheduler);
+    final TransactionPool pool =
+        new TransactionPool(
+            () -> layered,
+            protocolSchedule,
+            protocolContext,
+            mock(TransactionBroadcaster.class),
+            ethContext,
+            metrics,
+            poolConf,
+            new BlobCache());
+    pool.setEnabled();
+    return pool;
   }
 
   @Test

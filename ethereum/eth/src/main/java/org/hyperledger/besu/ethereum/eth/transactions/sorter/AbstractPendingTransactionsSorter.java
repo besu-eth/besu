@@ -274,6 +274,8 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
   private void logDiscardedTransaction(
       final PendingTransaction pendingTransaction, final TransactionSelectionResult result) {
     LOG.atInfo()
+        .setMessage("Transaction removed during block selection: {}")
+        .addArgument(pendingTransaction::getHash)
         .addMarker(INVALID_TX_REMOVED)
         .addKeyValue("txhash", pendingTransaction::getHash)
         .addKeyValue("txlog", pendingTransaction::toTraceLog)

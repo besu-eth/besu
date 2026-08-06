@@ -221,6 +221,8 @@ public class LayeredPendingTransactions implements PendingTransactions {
   private void logInvalidTransaction(
       final PendingTransaction pendingTransaction, final TransactionSelectionResult result) {
     LOG.atInfo()
+        .setMessage("Transaction removed during block selection: {}")
+        .addArgument(pendingTransaction::getHash)
         .addMarker(INVALID_TX_REMOVED)
         .addKeyValue("txhash", pendingTransaction::getHash)
         .addKeyValue("txlog", pendingTransaction::toTraceLog)

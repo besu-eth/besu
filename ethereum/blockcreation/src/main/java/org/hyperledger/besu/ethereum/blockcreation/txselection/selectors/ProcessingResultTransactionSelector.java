@@ -92,23 +92,36 @@ public class ProcessingResultTransactionSelector extends AbstractTransactionSele
       return TransactionSelectionResult.invalidPenalized(invalidReason.name());
     }
     // If the transaction was invalid for any other reason, delete it, and continue.
-    LOG.atTrace()
-        .setMessage("Delete invalid transaction {}, reason {}")
-        .addArgument(transaction::toTraceLog)
-        .addArgument(invalidReason)
-        .log();
+    if (invalidReason.equals(TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE)
+        && context.transactionPool().getConfiguration().getNoLateFunding()) {
+      LOG.atInfo()
+          .setMessage(
+              "Transaction {} removed from pool: sender had insufficient balance at block-selection"
+                  + " time (tx-pool-no-late-funding=true)")
+          .addArgument(transaction::getHash)
+          .log();
+    } else {
+      LOG.atTrace()
+          .setMessage("Removing invalid transaction {}, reason {}")
+          .addArgument(transaction::toTraceLog)
+          .addArgument(invalidReason)
+          .log();
+    }
     return TransactionSelectionResult.invalid(invalidReason.name());
   }
 
   /**
-   * Checks if the invalid reason is a transient validation error.
+   * Checks if the invalid reason is a transient validation error. Some errors have configurable
+   * behaviour to allow for customization of the pool behaviour.
    *
    * @param invalidReason The invalid reason.
    * @return True if the invalid reason is transient, false otherwise.
    */
   private boolean isTransientValidationError(final TransactionInvalidReason invalidReason) {
-    return invalidReason.equals(TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE)
-        || invalidReason.equals(TransactionInvalidReason.GAS_PRICE_BELOW_CURRENT_BASE_FEE)
+    if (invalidReason.equals(TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE)) {
+      return context.transactionPool().getConfiguration().getNoLateFunding() ? false : true;
+    }
+    return invalidReason.equals(TransactionInvalidReason.GAS_PRICE_BELOW_CURRENT_BASE_FEE)
         || invalidReason.equals(TransactionInvalidReason.NONCE_TOO_HIGH)
         || invalidReason.equals(TransactionInvalidReason.EXECUTION_INTERRUPTED);
   }
