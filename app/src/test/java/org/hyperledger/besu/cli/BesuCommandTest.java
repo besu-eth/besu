@@ -2254,13 +2254,13 @@ public class BesuCommandTest extends CommandTestAbstract {
     parseCommand("--checkpoint=" + hash + ":" + blockNumber + ":1000000");
 
     verify(mockControllerBuilderFactory)
-            .checkpoint(
-                    Optional.of(
-                            ImmutableCheckpoint.builder()
-                                    .blockHash(Hash.fromHexString(hash))
-                                    .blockNumber(blockNumber)
-                                    .totalDifficulty(Difficulty.of(1000000L))
-                                    .build()));
+        .checkpoint(
+            Optional.of(
+                ImmutableCheckpoint.builder()
+                    .blockHash(Hash.fromHexString(hash))
+                    .blockNumber(blockNumber)
+                    .totalDifficulty(Difficulty.of(1000000L))
+                    .build()));
     verify(mockControllerBuilder).build();
 
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
@@ -2294,7 +2294,7 @@ public class BesuCommandTest extends CommandTestAbstract {
     parseCommand("--genesis-file", genesisFile.toString());
 
     assertThat(commandErrorOutput.toString(UTF_8))
-            .contains("The checkpoint block configured in the genesis file is not valid");
+        .contains("The checkpoint block configured in the genesis file is not valid");
   }
 
   @Test
@@ -2303,26 +2303,26 @@ public class BesuCommandTest extends CommandTestAbstract {
     final String hash = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
 
     parseCommand(
-            "--genesis-file", genesisFile.toString(), "--checkpoint=" + hash + ":12345678:1000000");
+        "--genesis-file", genesisFile.toString(), "--checkpoint=" + hash + ":12345678:1000000");
 
     assertThat(commandErrorOutput.toString(UTF_8))
-            .doesNotContain("The checkpoint block configured in the genesis file is not valid");
+        .doesNotContain("The checkpoint block configured in the genesis file is not valid");
   }
 
   private static JsonObject genesisWithMalformedCheckpoint() {
     return new JsonObject()
-            .put(
-                    "config",
+        .put(
+            "config",
+            new JsonObject()
+                .put("chainId", GENESIS_CONFIG_TEST_CHAINID)
+                .put(
+                    "checkpoint",
                     new JsonObject()
-                            .put("chainId", GENESIS_CONFIG_TEST_CHAINID)
-                            .put(
-                                    "checkpoint",
-                                    new JsonObject()
-                                            .put(
-                                                    "hash",
-                                                    "0x0000000000000000000000000000000000000000000000000000000000000001")
-                                            .put("number", 100)
-                                            .put("totalDifficulty", "not-a-number")));
+                        .put(
+                            "hash",
+                            "0x0000000000000000000000000000000000000000000000000000000000000001")
+                        .put("number", 100)
+                        .put("totalDifficulty", "not-a-number")));
   }
 
   @Test
