@@ -45,14 +45,10 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.v2.SnapV2StorageR
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
-import org.hyperledger.besu.ethereum.trie.RangeStorageEntriesCollector;
-import org.hyperledger.besu.ethereum.trie.TrieIterator;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
-import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
-import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 
 import java.util.ArrayList;
@@ -121,7 +117,8 @@ class SnapV2PersistDataStepTest {
 
   @Test
   void persistsAccountRangeAndRegistersTrackers() {
-    final NavigableMap<Bytes32, Bytes> accounts = serveFullAccountRange();
+    final NavigableMap<Bytes32, Bytes> accounts =
+        TrieGenerator.collectAccountEntries(servingCoordinator, stateRoot);
     final SnapV2AccountRangeRequest request = accountRangeRequest(accounts);
 
     persistStep.persist(new StubTask(request));
@@ -159,7 +156,8 @@ class SnapV2PersistDataStepTest {
   @Test
   void tracksRangeOnlyUpToContinuationStart() {
     // a truncated response carries only the first accounts plus boundary proofs
-    final NavigableMap<Bytes32, Bytes> allAccounts = serveFullAccountRange();
+    final NavigableMap<Bytes32, Bytes> allAccounts =
+        TrieGenerator.collectAccountEntries(servingCoordinator, stateRoot);
     final NavigableMap<Bytes32, Bytes> partialAccounts = new TreeMap<>(allAccounts);
     partialAccounts.remove(partialAccounts.lastKey());
     partialAccounts.remove(partialAccounts.lastKey());
@@ -194,7 +192,8 @@ class SnapV2PersistDataStepTest {
         new PmtStateTrieAccountValue(1L, Wei.ONE, Hash.EMPTY_TRIE_HASH, Hash.EMPTY);
     addServingAccount(plainAccount, plainValue);
 
-    final NavigableMap<Bytes32, Bytes> accounts = serveFullAccountRange();
+    final NavigableMap<Bytes32, Bytes> accounts =
+        TrieGenerator.collectAccountEntries(servingCoordinator, stateRoot);
     persistStep.persist(new StubTask(accountRangeRequest(accounts)));
 
     // an account with an empty storage trie needs no storage child: all its slots count as
@@ -207,8 +206,9 @@ class SnapV2PersistDataStepTest {
 
   @Test
   void persistsStorageRangeAndRegistersSlotRange() {
-    final Bytes32 accountHash = serveFullAccountRange().firstKey();
-    final PmtStateTrieAccountValue account = readServingAccount(accountHash);
+    final Bytes32 accountHash =
+        TrieGenerator.collectAccountEntries(servingCoordinator, stateRoot).firstKey();
+    final PmtStateTrieAccountValue account = TrieGenerator.readAccount(servingStorage, accountHash);
     accountTracker.registerPending(MIN_RANGE, MAX_RANGE, 1);
 
     final SnapV2StorageRangeRequest request =
@@ -219,7 +219,11 @@ class SnapV2PersistDataStepTest {
             MIN_RANGE,
             MAX_RANGE,
             MIN_RANGE);
-    final NavigableMap<Bytes32, Bytes> slots = serveFullStorageRange(accountHash, account);
+    final NavigableMap<Bytes32, Bytes> slots =
+        TrieGenerator.collectStorageEntries(
+            servingCoordinator,
+            Hash.wrap(accountHash),
+            Bytes32.wrap(account.getStorageRoot().getBytes()));
     request.addResponse(downloadState, proofProvider, slots, new ArrayDeque<>());
 
     persistStep.persist(new StubTask(request));
@@ -250,8 +254,9 @@ class SnapV2PersistDataStepTest {
 
   @Test
   void persistsBytecodeAndCompletesChild() {
-    final Bytes32 accountHash = serveFullAccountRange().firstKey();
-    final PmtStateTrieAccountValue account = readServingAccount(accountHash);
+    final Bytes32 accountHash =
+        TrieGenerator.collectAccountEntries(servingCoordinator, stateRoot).firstKey();
+    final PmtStateTrieAccountValue account = TrieGenerator.readAccount(servingStorage, accountHash);
     accountTracker.registerPending(MIN_RANGE, MAX_RANGE, 1);
 
     final Bytes code =
@@ -271,7 +276,8 @@ class SnapV2PersistDataStepTest {
   void rejectsExpiredRequest() {
     when(snapSyncState.getPivotBlockHash()).thenReturn(Optional.of(Hash.hash(Bytes.of(9, 9, 9))));
 
-    final SnapV2AccountRangeRequest request = accountRangeRequest(serveFullAccountRange());
+    final SnapV2AccountRangeRequest request =
+        accountRangeRequest(TrieGenerator.collectAccountEntries(servingCoordinator, stateRoot));
 
     assertThatThrownBy(() -> persistStep.persist(new StubTask(request)))
         .isInstanceOf(IllegalStateException.class)
@@ -300,45 +306,6 @@ class SnapV2PersistDataStepTest {
         new SnapV2AccountRangeRequest(pivot, MIN_RANGE, MAX_RANGE);
     request.addResponse(proofProvider, accounts, List.of());
     return request;
-  }
-
-  private NavigableMap<Bytes32, Bytes> serveFullAccountRange() {
-    return collectRange(
-        new StoredMerklePatriciaTrie<>(
-            servingCoordinator::getAccountStateTrieNode,
-            Bytes32.wrap(stateRoot.getBytes()),
-            b -> b,
-            b -> b));
-  }
-
-  private NavigableMap<Bytes32, Bytes> serveFullStorageRange(
-      final Bytes32 accountHash, final PmtStateTrieAccountValue account) {
-    return collectRange(
-        new StoredMerklePatriciaTrie<>(
-            (location, hash) ->
-                servingCoordinator.getAccountStorageTrieNode(
-                    Hash.wrap(accountHash), location, hash),
-            Bytes32.wrap(account.getStorageRoot().getBytes()),
-            b -> b,
-            b -> b));
-  }
-
-  @SuppressWarnings("unchecked")
-  private NavigableMap<Bytes32, Bytes> collectRange(final MerkleTrie<Bytes, Bytes> trie) {
-    final RangeStorageEntriesCollector collector =
-        RangeStorageEntriesCollector.createCollector(
-            Bytes32.ZERO, MAX_RANGE, Integer.MAX_VALUE, Integer.MAX_VALUE);
-    final TrieIterator<Bytes> visitor = RangeStorageEntriesCollector.createVisitor(collector);
-    return (TreeMap<Bytes32, Bytes>)
-        trie.entriesFrom(
-            root ->
-                RangeStorageEntriesCollector.collectEntries(
-                    collector, visitor, root, Bytes32.ZERO));
-  }
-
-  private PmtStateTrieAccountValue readServingAccount(final Bytes32 accountHash) {
-    return PmtStateTrieAccountValue.readFrom(
-        RLP.input(servingStorage.getAccount(Hash.wrap(accountHash)).orElseThrow()));
   }
 
   private void addServingAccount(
@@ -370,9 +337,6 @@ class SnapV2PersistDataStepTest {
   }
 
   private static BonsaiWorldStateKeyValueStorage newBonsaiStorage() {
-    return new BonsaiWorldStateKeyValueStorage(
-        new InMemoryKeyValueStorageProvider(),
-        new NoOpMetricsSystem(),
-        DataStorageConfiguration.DEFAULT_BONSAI_CONFIG);
+    return InMemoryKeyValueStorageProvider.createBonsaiInMemoryWorldStateStorage();
   }
 }

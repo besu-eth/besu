@@ -23,17 +23,12 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapWorldDownloadState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
-import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.trie.CompactEncoding;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
-import org.hyperledger.besu.ethereum.trie.RangeStorageEntriesCollector;
-import org.hyperledger.besu.ethereum.trie.TrieIterator;
 import org.hyperledger.besu.ethereum.trie.forest.storage.ForestWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
-import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
-import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
@@ -41,6 +36,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableMap;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -83,21 +79,9 @@ public class AccountFlatDatabaseHealingRangeRequestTest {
     final MerkleTrie<Bytes, Bytes> accountStateTrie =
         TrieGenerator.generateTrie(worldStateStorageCoordinator, 15);
 
-    // Create a collector to gather account entries within a specific range
-    final RangeStorageEntriesCollector collector =
-        RangeStorageEntriesCollector.createCollector(
-            Bytes32.ZERO, RangeManager.MAX_RANGE, 10, Integer.MAX_VALUE);
-
-    // Create a visitor for the range collector
-    final TrieIterator<Bytes> visitor = RangeStorageEntriesCollector.createVisitor(collector);
-
     // Collect the account entries within the specified range using the trie and range collector
-    final TreeMap<Bytes32, Bytes> accounts =
-        (TreeMap<Bytes32, Bytes>)
-            accountStateTrie.entriesFrom(
-                root ->
-                    RangeStorageEntriesCollector.collectEntries(
-                        collector, visitor, root, Bytes32.ZERO));
+    final NavigableMap<Bytes32, Bytes> accounts =
+        TrieGenerator.collectEntries(accountStateTrie, Bytes32.ZERO, RangeManager.MAX_RANGE, 10);
 
     // Retrieve the proof related nodes for the account trie
     final List<Bytes> proofs =
@@ -155,21 +139,9 @@ public class AccountFlatDatabaseHealingRangeRequestTest {
     final MerkleTrie<Bytes, Bytes> accountStateTrie =
         TrieGenerator.generateTrie(worldStateStorageCoordinator, 15);
 
-    // Create a collector to gather account entries within a specific range
-    final RangeStorageEntriesCollector collector =
-        RangeStorageEntriesCollector.createCollector(
-            Bytes32.ZERO, RangeManager.MAX_RANGE, 15, Integer.MAX_VALUE);
-
-    // Create a visitor for the range collector
-    final TrieIterator<Bytes> visitor = RangeStorageEntriesCollector.createVisitor(collector);
-
     // Collect the account entries within the specified range using the trie and range collector
-    final TreeMap<Bytes32, Bytes> accounts =
-        (TreeMap<Bytes32, Bytes>)
-            accountStateTrie.entriesFrom(
-                root ->
-                    RangeStorageEntriesCollector.collectEntries(
-                        collector, visitor, root, Bytes32.ZERO));
+    final NavigableMap<Bytes32, Bytes> accounts =
+        TrieGenerator.collectEntries(accountStateTrie, Bytes32.ZERO, RangeManager.MAX_RANGE, 15);
 
     // Create a request for healing the flat database with no more accounts
     final AccountFlatDatabaseHealingRangeRequest request =
@@ -188,13 +160,8 @@ public class AccountFlatDatabaseHealingRangeRequestTest {
   @Test
   public void doNotPersistWhenProofIsValid() {
 
-    final StorageProvider storageProvider = new InMemoryKeyValueStorageProvider();
-
     final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage =
-        new BonsaiWorldStateKeyValueStorage(
-            storageProvider,
-            new NoOpMetricsSystem(),
-            DataStorageConfiguration.DEFAULT_BONSAI_CONFIG);
+        InMemoryKeyValueStorageProvider.createBonsaiInMemoryWorldStateStorage();
     final WorldStateStorageCoordinator worldStateStorageCoordinator =
         new WorldStateStorageCoordinator(worldStateKeyValueStorage);
     final WorldStateProofProvider proofProvider =
@@ -202,21 +169,9 @@ public class AccountFlatDatabaseHealingRangeRequestTest {
 
     final MerkleTrie<Bytes, Bytes> accountStateTrie =
         TrieGenerator.generateTrie(worldStateStorageCoordinator, 15);
-    // Create a collector to gather account entries within a specific range
-    final RangeStorageEntriesCollector collector =
-        RangeStorageEntriesCollector.createCollector(
-            Bytes32.ZERO, RangeManager.MAX_RANGE, 10, Integer.MAX_VALUE);
-
-    // Create a visitor for the range collector
-    final TrieIterator<Bytes> visitor = RangeStorageEntriesCollector.createVisitor(collector);
-
     // Collect the account entries within the specified range using the trie and range collector
-    final TreeMap<Bytes32, Bytes> accounts =
-        (TreeMap<Bytes32, Bytes>)
-            accountStateTrie.entriesFrom(
-                root ->
-                    RangeStorageEntriesCollector.collectEntries(
-                        collector, visitor, root, Bytes32.ZERO));
+    final NavigableMap<Bytes32, Bytes> accounts =
+        TrieGenerator.collectEntries(accountStateTrie, Bytes32.ZERO, RangeManager.MAX_RANGE, 10);
 
     // Retrieve the proof related nodes for the account trie
     final List<Bytes> proofs =
@@ -249,13 +204,8 @@ public class AccountFlatDatabaseHealingRangeRequestTest {
   @Test
   public void doHealAndPersistWhenProofIsInvalid() {
 
-    final StorageProvider storageProvider = new InMemoryKeyValueStorageProvider();
-
     final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage =
-        new BonsaiWorldStateKeyValueStorage(
-            storageProvider,
-            new NoOpMetricsSystem(),
-            DataStorageConfiguration.DEFAULT_BONSAI_CONFIG);
+        InMemoryKeyValueStorageProvider.createBonsaiInMemoryWorldStateStorage();
     final WorldStateStorageCoordinator worldStateStorageCoordinator =
         new WorldStateStorageCoordinator(worldStateKeyValueStorage);
     final WorldStateProofProvider proofProvider =
@@ -263,21 +213,9 @@ public class AccountFlatDatabaseHealingRangeRequestTest {
 
     final MerkleTrie<Bytes, Bytes> accountStateTrie =
         TrieGenerator.generateTrie(worldStateStorageCoordinator, 15);
-    // Create a collector to gather account entries within a specific range
-    final RangeStorageEntriesCollector collector =
-        RangeStorageEntriesCollector.createCollector(
-            Bytes32.ZERO, RangeManager.MAX_RANGE, 15, Integer.MAX_VALUE);
-
-    // Create a visitor for the range collector
-    final TrieIterator<Bytes> visitor = RangeStorageEntriesCollector.createVisitor(collector);
-
     // Collect the account entries within the specified range using the trie and range collector
-    final TreeMap<Bytes32, Bytes> accounts =
-        (TreeMap<Bytes32, Bytes>)
-            accountStateTrie.entriesFrom(
-                root ->
-                    RangeStorageEntriesCollector.collectEntries(
-                        collector, visitor, root, Bytes32.ZERO));
+    final NavigableMap<Bytes32, Bytes> accounts =
+        TrieGenerator.collectEntries(accountStateTrie, Bytes32.ZERO, RangeManager.MAX_RANGE, 15);
 
     // Retrieve the proof related nodes for the account trie
     final List<Bytes> proofs =

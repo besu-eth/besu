@@ -130,4 +130,11 @@ public class InMemoryKeyValueStorageProvider extends KeyValueStorageProvider {
   public static VariablesStorage createInMemoryVariablesStorage() {
     return new VariablesKeyValueStorage(new InMemoryKeyValueStorage());
   }
+
+  public static BonsaiWorldStateKeyValueStorage createBonsaiInMemoryWorldStateStorage() {
+    return new BonsaiWorldStateKeyValueStorage(
+        new InMemoryKeyValueStorageProvider(),
+        new NoOpMetricsSystem(),
+        DataStorageConfiguration.DEFAULT_BONSAI_CONFIG);
+  }
 }
