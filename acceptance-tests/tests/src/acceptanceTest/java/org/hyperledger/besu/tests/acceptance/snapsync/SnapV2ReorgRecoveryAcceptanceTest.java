@@ -66,14 +66,19 @@ import org.web3j.utils.Numeric;
  */
 public class SnapV2ReorgRecoveryAcceptanceTest extends AcceptanceTestBase {
 
-  // Fork geometry: pivot = head - 64, so pivotA = 10 and pivotB = 15. Distinct fee recipients
-  // diverge the forks at block 2; all scenario transactions are in blocks 2-3, below both pivots.
+  // Fork geometry: PivotSelectorAtHead anchors the pivot at head - 1, so pivotA = 73 and
+  // pivotB = 84. Distinct fee recipients diverge the forks at block 2; all scenario transactions
+  // are in blocks 2-3, below both pivots.
   private static final int COMMON_HEIGHT = 1;
   private static final int FORK_A_HEIGHT = 74;
-  private static final int FORK_B_HEIGHT = 79;
+  private static final int FORK_B_HEIGHT = 85;
 
-  // 65 > 64, so repeated fork-A FCUs keep pivotA but the fork-B FCU forces a re-pivot to pivotB.
-  private static final int PIVOT_BLOCK_WINDOW_VALIDITY = 65;
+  // The pivot is reused while the head stays within this window of the last pivot, and refreshed
+  // past it. Phase 1 (head=74, pivot=73): lag=1 < 10, pivot reused. Phase 2 (head=85): lag=12 >=
+  // 10, pivot refreshes to fork B's pivot, triggering the continuation round and the reorg
+  // healer. FORK_B_HEIGHT must keep the ancestor walk from pivotB to the shared block 1 under
+  // SnapV2ReorgHealer.MAX_ANCESTOR_WALK (95).
+  private static final int PIVOT_BLOCK_WINDOW_VALIDITY = 10;
 
   // Blocks 2-3 of each fork deploy 1000 contracts each, so the throttled world-state download
   // runs for several seconds: the window in which the pivot is switched to fork B.
@@ -221,10 +226,10 @@ public class SnapV2ReorgRecoveryAcceptanceTest extends AcceptanceTestBase {
     replaceReinsertedOrphanTxs();
     submitTransfer(minerB, POST_SYNC_TRANSFER_NONCE, FORK_A_ONLY_RECIPIENT);
 
-    final BuiltBlock block80 =
+    final BuiltBlock postSyncBlock =
         engineApi.buildBlock(minerB, FEE_RECIPIENT_B, ORPHAN_CONTRACT_COUNT + 1, FORK_B_HEIGHT + 1);
-    engineApi.assertValidPayload(syncNode, block80);
-    engineApi.setHead(syncNode, block80.blockHash());
+    engineApi.assertValidPayload(syncNode, postSyncBlock);
+    engineApi.setHead(syncNode, postSyncBlock.blockHash());
     syncNode.verify(blockchain.currentHeight(FORK_B_HEIGHT + 1));
     assertBalance(FORK_A_ONLY_RECIPIENT, TRANSFER_WEI);
   }
