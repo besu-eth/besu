@@ -70,7 +70,9 @@ import java.math.BigInteger;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -307,11 +309,16 @@ public class EphemeryTest extends CommandTestAbstract {
     Field portsField = BesuCommand.class.getDeclaredField("allocatedPorts");
     portsField.setAccessible(true);
     @SuppressWarnings("unchecked")
-    Set<Integer> allocatedPorts = (Set<Integer>) portsField.get(besuCommand);
+    Map<BesuCommand.PortProtocol, Set<Integer>> allocatedPorts =
+        (Map<BesuCommand.PortProtocol, Set<Integer>>) portsField.get(besuCommand);
 
     // Add some ports
-    allocatedPorts.add(8545);
-    allocatedPorts.add(30303);
+    allocatedPorts
+        .computeIfAbsent(BesuCommand.PortProtocol.TCP, unused -> new HashSet<>())
+        .add(8545);
+    allocatedPorts
+        .computeIfAbsent(BesuCommand.PortProtocol.UDP, unused -> new HashSet<>())
+        .add(30303);
     assertThat(allocatedPorts).hasSizeGreaterThanOrEqualTo(2);
     besuCommand.clearAllocatedPorts();
 

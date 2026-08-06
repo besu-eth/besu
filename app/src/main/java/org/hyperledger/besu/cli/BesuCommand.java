@@ -214,6 +214,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -340,7 +342,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   private final PreSynchronizationTaskRunner preSynchronizationTaskRunner =
       new PreSynchronizationTaskRunner();
 
-  private final Set<Integer> allocatedPorts = new HashSet<>();
+  private final Map<PortProtocol, Set<Integer>> allocatedPorts = new EnumMap<>(PortProtocol.class);
   private Supplier<GenesisConfig> genesisConfigSupplier =
       Suppliers.memoize(this::readGenesisConfig);
 
@@ -2763,20 +2765,45 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     return enodeDnsConfiguration;
   }
 
+  /** The transport-layer protocol a port is bound on. */
+  @VisibleForTesting
+  enum PortProtocol {
+    /** TCP transport. */
+    TCP,
+    /** UDP transport. */
+    UDP
+  }
+
+  /**
+   * A port together with the transport protocol(s) it is bound to. Two port assignments only clash
+   * when they share both the same port number and at least one protocol - e.g. a UDP-only discovery
+   * port and a TCP-only metrics port may safely use the same port number.
+   *
+   * @param port the port number
+   * @param protocols the transport protocol(s) the port is bound on
+   */
+  @VisibleForTesting
+  record EffectivePort(Integer port, EnumSet<PortProtocol> protocols) {}
+
   private void checkPortClash() {
     getEffectivePorts().stream()
-        .filter(Objects::nonNull)
-        .filter(port -> port > 0)
+        .filter(effectivePort -> effectivePort.port() != null && effectivePort.port() > 0)
         .forEach(
-            port -> {
-              if (!allocatedPorts.add(port)) {
-                throw new ParameterException(
-                    commandLine,
-                    "Port number '"
-                        + port
-                        + "' has been specified multiple times. Please review the supplied configuration.");
-              }
-            });
+            effectivePort ->
+                effectivePort
+                    .protocols()
+                    .forEach(
+                        protocol -> {
+                          if (!allocatedPorts
+                              .computeIfAbsent(protocol, unused -> new HashSet<>())
+                              .add(effectivePort.port())) {
+                            throw new ParameterException(
+                                commandLine,
+                                "Port number '"
+                                    + effectivePort.port()
+                                    + "' has been specified multiple times. Please review the supplied configuration.");
+                          }
+                        }));
   }
 
   /**
@@ -2787,18 +2814,16 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   protected void checkIfRequiredPortsAreAvailable() {
     final List<Integer> unavailablePorts = new ArrayList<>();
     getEffectivePorts().stream()
-        .filter(Objects::nonNull)
-        .filter(port -> port > 0)
+        .filter(effectivePort -> effectivePort.port() != null && effectivePort.port() > 0)
         .forEach(
-            port -> {
-              if (port.equals(p2PDiscoveryConfig.p2pPort())
-                  && (NetworkUtility.isPortUnavailableForTcp(port)
-                      || NetworkUtility.isPortUnavailableForUdp(port))) {
-                unavailablePorts.add(port);
-              }
-              if (!port.equals(p2PDiscoveryConfig.p2pPort())
-                  && NetworkUtility.isPortUnavailableForTcp(port)) {
-                unavailablePorts.add(port);
+            effectivePort -> {
+              final boolean unavailable =
+                  (effectivePort.protocols().contains(PortProtocol.TCP)
+                          && NetworkUtility.isPortUnavailableForTcp(effectivePort.port()))
+                      || (effectivePort.protocols().contains(PortProtocol.UDP)
+                          && NetworkUtility.isPortUnavailableForUdp(effectivePort.port()));
+              if (unavailable) {
+                unavailablePorts.add(effectivePort.port());
               }
             });
     if (!unavailablePorts.isEmpty()) {
@@ -2810,22 +2835,45 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   }
 
   /**
-   * * Gets the list of effective ports (ports that are enabled).
+   * * Gets the list of effective ports (ports that are enabled), tagged with the transport
+   * protocol(s) they are bound on.
    *
    * @return The list of effective ports
    */
-  private List<Integer> getEffectivePorts() {
-    final List<Integer> effectivePorts = new ArrayList<>();
-    addPortIfEnabled(effectivePorts, p2PDiscoveryOptions.p2pPort, p2PDiscoveryOptions.p2pEnabled);
+  @VisibleForTesting
+  List<EffectivePort> getEffectivePorts() {
+    final List<EffectivePort> effectivePorts = new ArrayList<>();
+    // The P2P port currently serves both the TCP RLPx listener and the UDP discovery socket.
     addPortIfEnabled(
-        effectivePorts, graphQlOptions.getGraphQLHttpPort(), graphQlOptions.isGraphQLHttpEnabled());
+        effectivePorts,
+        p2PDiscoveryOptions.p2pPort,
+        p2PDiscoveryOptions.p2pEnabled,
+        EnumSet.of(PortProtocol.TCP, PortProtocol.UDP));
     addPortIfEnabled(
-        effectivePorts, jsonRpcHttpOptions.getRpcHttpPort(), jsonRpcHttpOptions.isRpcHttpEnabled());
+        effectivePorts,
+        graphQlOptions.getGraphQLHttpPort(),
+        graphQlOptions.isGraphQLHttpEnabled(),
+        EnumSet.of(PortProtocol.TCP));
     addPortIfEnabled(
-        effectivePorts, rpcWebsocketOptions.getRpcWsPort(), rpcWebsocketOptions.isRpcWsEnabled());
-    addPortIfEnabled(effectivePorts, engineRPCConfig.engineRpcPort(), isEngineApiEnabled());
+        effectivePorts,
+        jsonRpcHttpOptions.getRpcHttpPort(),
+        jsonRpcHttpOptions.isRpcHttpEnabled(),
+        EnumSet.of(PortProtocol.TCP));
     addPortIfEnabled(
-        effectivePorts, metricsOptions.getMetricsPort(), metricsOptions.getMetricsEnabled());
+        effectivePorts,
+        rpcWebsocketOptions.getRpcWsPort(),
+        rpcWebsocketOptions.isRpcWsEnabled(),
+        EnumSet.of(PortProtocol.TCP));
+    addPortIfEnabled(
+        effectivePorts,
+        engineRPCConfig.engineRpcPort(),
+        isEngineApiEnabled(),
+        EnumSet.of(PortProtocol.TCP));
+    addPortIfEnabled(
+        effectivePorts,
+        metricsOptions.getMetricsPort(),
+        metricsOptions.getMetricsEnabled(),
+        EnumSet.of(PortProtocol.TCP));
     return effectivePorts;
   }
 
@@ -2835,11 +2883,15 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
    * @param ports The list of ports
    * @param port The port value
    * @param enabled true if enabled, false otherwise
+   * @param protocols the transport protocol(s) the port is bound on
    */
   private void addPortIfEnabled(
-      final List<Integer> ports, final Integer port, final boolean enabled) {
+      final List<EffectivePort> ports,
+      final Integer port,
+      final boolean enabled,
+      final EnumSet<PortProtocol> protocols) {
     if (enabled) {
-      ports.add(port);
+      ports.add(new EffectivePort(port, protocols));
     }
   }
 
