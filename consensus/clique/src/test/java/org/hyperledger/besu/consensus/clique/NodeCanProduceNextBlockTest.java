@@ -22,6 +22,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.clique.headervalidationrules.SignerRateLimitValidationRule;
+import org.hyperledger.besu.consensus.common.EpochManager;
 import org.hyperledger.besu.consensus.common.validator.ValidatorProvider;
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
@@ -66,6 +67,22 @@ public class NodeCanProduceNextBlockTest {
   public void setup() {
     localAddress = Util.publicKeyToAddress(proposerKeyPair.getPublicKey());
     validatorList.add(localAddress);
+
+    genesisBlock =
+        new Block(
+            new BlockHeaderTestFixture().buildHeader(),
+            new BlockBody(Lists.newArrayList(), Lists.newArrayList()));
+    blockChain = createInMemoryBlockchain(genesisBlock);
+
+    final ValidatorProvider validatorProvider = mock(ValidatorProvider.class);
+    when(validatorProvider.getValidatorsAfterBlock(any())).thenReturn(validatorList);
+    final CliqueContext cliqueContext =
+        new CliqueContext(validatorProvider, new EpochManager(10), blockInterface);
+    cliqueProtocolContext =
+        new ProtocolContext.Builder()
+            .withBlockchain(blockChain)
+            .withConsensusContext(cliqueContext)
+            .build();
   }
 
   @Test
@@ -78,7 +95,8 @@ public class NodeCanProduceNextBlockTest {
 
     final ValidatorProvider validatorProvider = mock(ValidatorProvider.class);
     when(validatorProvider.getValidatorsAfterBlock(any())).thenReturn(validatorList);
-    final CliqueContext cliqueContext = new CliqueContext(validatorProvider, null, blockInterface);
+    final CliqueContext cliqueContext =
+        new CliqueContext(validatorProvider, new EpochManager(10), blockInterface);
     cliqueProtocolContext =
         new ProtocolContext.Builder()
             .withBlockchain(blockChain)
@@ -106,7 +124,8 @@ public class NodeCanProduceNextBlockTest {
 
     final ValidatorProvider validatorProvider = mock(ValidatorProvider.class);
     when(validatorProvider.getValidatorsAfterBlock(any())).thenReturn(validatorList);
-    final CliqueContext cliqueContext = new CliqueContext(validatorProvider, null, blockInterface);
+    final CliqueContext cliqueContext =
+        new CliqueContext(validatorProvider, new EpochManager(10), blockInterface);
     cliqueProtocolContext =
         new ProtocolContext.Builder()
             .withBlockchain(blockChain)
@@ -143,7 +162,8 @@ public class NodeCanProduceNextBlockTest {
 
     final ValidatorProvider validatorProvider = mock(ValidatorProvider.class);
     when(validatorProvider.getValidatorsAfterBlock(any())).thenReturn(validatorList);
-    final CliqueContext cliqueContext = new CliqueContext(validatorProvider, null, blockInterface);
+    final CliqueContext cliqueContext =
+        new CliqueContext(validatorProvider, new EpochManager(10), blockInterface);
     cliqueProtocolContext =
         new ProtocolContext.Builder()
             .withBlockchain(blockChain)
@@ -176,7 +196,8 @@ public class NodeCanProduceNextBlockTest {
 
     final ValidatorProvider validatorProvider = mock(ValidatorProvider.class);
     when(validatorProvider.getValidatorsAfterBlock(any())).thenReturn(validatorList);
-    final CliqueContext cliqueContext = new CliqueContext(validatorProvider, null, blockInterface);
+    final CliqueContext cliqueContext =
+        new CliqueContext(validatorProvider, new EpochManager(10), blockInterface);
     cliqueProtocolContext =
         new ProtocolContext.Builder()
             .withBlockchain(blockChain)
@@ -224,7 +245,8 @@ public class NodeCanProduceNextBlockTest {
 
     final ValidatorProvider validatorProvider = mock(ValidatorProvider.class);
     when(validatorProvider.getValidatorsAfterBlock(any())).thenReturn(validatorList);
-    final CliqueContext cliqueContext = new CliqueContext(validatorProvider, null, blockInterface);
+    final CliqueContext cliqueContext =
+        new CliqueContext(validatorProvider, new EpochManager(10), blockInterface);
     cliqueProtocolContext =
         new ProtocolContext.Builder()
             .withBlockchain(blockChain)
@@ -256,7 +278,8 @@ public class NodeCanProduceNextBlockTest {
 
     final ValidatorProvider validatorProvider = mock(ValidatorProvider.class);
     when(validatorProvider.getValidatorsAfterBlock(any())).thenReturn(validatorList);
-    final CliqueContext cliqueContext = new CliqueContext(validatorProvider, null, blockInterface);
+    final CliqueContext cliqueContext =
+        new CliqueContext(validatorProvider, new EpochManager(10), blockInterface);
     cliqueProtocolContext =
         new ProtocolContext.Builder()
             .withBlockchain(blockChain)
@@ -283,7 +306,8 @@ public class NodeCanProduceNextBlockTest {
 
     final ValidatorProvider validatorProvider = mock(ValidatorProvider.class);
     when(validatorProvider.getValidatorsAfterBlock(any())).thenReturn(validatorList);
-    final CliqueContext cliqueContext = new CliqueContext(validatorProvider, null, blockInterface);
+    final CliqueContext cliqueContext =
+        new CliqueContext(validatorProvider, new EpochManager(10), blockInterface);
     cliqueProtocolContext =
         new ProtocolContext.Builder()
             .withBlockchain(blockChain)
