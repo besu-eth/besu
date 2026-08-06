@@ -51,6 +51,7 @@ import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
@@ -74,7 +75,7 @@ import org.mockito.quality.Strictness;
 @MockitoSettings(strictness = Strictness.LENIENT)
 public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
   protected static final Consumer<BlockHeaderTestFixture> NO_OP = bhb -> {};
-  protected EngineForkchoiceUpdatedV1<?> method;
+  protected EngineForkchoiceUpdatedV1<?, ?> method;
 
   protected static final Vertx vertx = Vertx.vertx();
   protected static final Hash mockHash = Hash.hash(Bytes32.fromHexStringLenient("0x1337deadbeef"));
@@ -91,6 +92,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
   @Mock protected MergeMiningCoordinator mergeCoordinator;
   @Mock protected MutableBlockchain blockchain;
   @Mock protected EngineCallListener engineCallListener;
+  @Mock protected TransactionPool transactionPool;
 
   @Override
   @BeforeEach
@@ -104,7 +106,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
   }
 
   /** Returns the method factory for the version under test. Overridden by each subclass. */
-  protected EngineForkchoiceUpdatedV1<?> createMethodInstance() {
+  protected EngineForkchoiceUpdatedV1<?, ?> createMethodInstance() {
     return new EngineForkchoiceUpdatedV1<>(
         new ConstructorArgumentsBuilder()
             .protocolSchedule(protocolSchedule)
@@ -114,6 +116,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
             .mergeCoordinator(mergeCoordinator)
             .ethPeers(mock(EthPeers.class))
             .metricsSystem(new NoOpMetricsSystem())
+            .transactionPool(transactionPool)
             .build(),
         null,
         SHANGHAI);
