@@ -390,7 +390,7 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
 
   @Override
   public long selfDestructOperationGasCost(final Account recipient, final Wei inheritance) {
-    // EIP-8038: static cost (5,000) plus ACCOUNT_WRITE (8,000) when a positive balance is sent to a
+    // EIP-8038: static cost (5,000) plus ACCOUNT_WRITE (9,000) when a positive balance is sent to a
     // new (non-existent or empty) beneficiary. The cold-access surcharge is added by the operation;
     // the NEW_ACCOUNT state gas is charged at the call site in SelfDestructOperation.
     long cost = selfDestructOperationStaticGasCost();
