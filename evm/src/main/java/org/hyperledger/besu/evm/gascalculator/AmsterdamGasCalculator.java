@@ -68,10 +68,10 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
   protected static final long COLD_ACCOUNT_ACCESS = 3_000L;
 
   /** Cold storage slot access cost. */
-  protected static final long COLD_STORAGE_ACCESS = 3_000L;
+  protected static final long COLD_STORAGE_ACCESS = 2_100L;
 
   /** Account write cost (value-bearing CALL / new account). */
-  protected static final long ACCOUNT_WRITE = 8_000L;
+  protected static final long ACCOUNT_WRITE = 9_000L;
 
   /**
    * Per-address cost of a transaction access list entry: the cold access it prepays, less the warm
@@ -387,7 +387,7 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
 
   @Override
   public long selfDestructOperationGasCost(final Account recipient, final Wei inheritance) {
-    // EIP-8038: static cost (5,000) plus ACCOUNT_WRITE (8,000) when a positive balance is sent to a
+    // EIP-8038: static cost (5,000) plus ACCOUNT_WRITE (9,000) when a positive balance is sent to a
     // new (non-existent or empty) beneficiary. The cold-access surcharge is added by the operation;
     // the NEW_ACCOUNT state gas is charged at the call site in SelfDestructOperation.
     long cost = selfDestructOperationStaticGasCost();
