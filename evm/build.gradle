@@ -58,6 +58,7 @@ dependencies {
   compileOnly 'io.vertx:vertx-core'
 
   testImplementation 'com.fasterxml.jackson.core:jackson-databind'
+  testImplementation 'org.apache.logging.log4j:log4j-core'
   testImplementation 'info.picocli:picocli'
   testImplementation 'net.jqwik:jqwik:1.9.3'
   testImplementation 'org.assertj:assertj-core'
