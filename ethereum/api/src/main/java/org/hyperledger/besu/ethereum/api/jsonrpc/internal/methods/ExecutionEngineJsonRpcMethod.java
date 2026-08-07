@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorR
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
@@ -51,10 +52,10 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
     INVALID_BLOCK_HASH;
   }
 
-  // Fields used by migrated series (currently engine_forkchoiceUpdatedV*, engine_newPayloadV* and
-  // engine_getPayloadV*
-  // — see the package README's migration status table). Not-yet-migrated series keep using the
-  // TRANSITIONAL SHIM constructors below instead of this record.
+  // Only protocolSchedule/protocolContext/vertx/engineCallListener are used by every engine
+  // method (via this base class); the rest are consumed by specific subclass families, so they
+  // are nullable here to keep single-family construction (production and tests) from having to
+  // populate fields it will never read.
   @Value.Builder
   public record ConstructorArguments(
       ProtocolSchedule protocolSchedule,
@@ -62,8 +63,10 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
       Vertx vertx,
       EngineCallListener engineCallListener,
       MergeMiningCoordinator mergeCoordinator,
+      TransactionPool transactionPool,
       EthPeers ethPeers,
-      MetricsSystem metricsSystem) {}
+      MetricsSystem metricsSystem,
+      int maxRequestBlocks) {}
 
   private static final Logger LOG = LoggerFactory.getLogger(ExecutionEngineJsonRpcMethod.class);
   public static final long ENGINE_API_LOGGING_THRESHOLD = 60000L;
@@ -74,11 +77,6 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
   protected final Optional<MergeContext> mergeContextOptional;
   protected final Supplier<MergeContext> mergeContext;
   protected final ProtocolSchedule protocolSchedule;
-
-  // TRANSITIONAL SHIM (remove in cleanup PR): not-yet-migrated engine methods reference the
-  // protocol schedule as an Optional under this name; new methods use the non-optional field above.
-  protected final Optional<ProtocolSchedule> maybeProtocolSchedule;
-
   protected final ProtocolContext protocolContext;
   protected final EngineCallListener engineCallListener;
 
@@ -88,60 +86,16 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
   private final HardforkId minSupportedFork;
   private final HardforkId firstUnsupportedFork;
 
-  // TRANSITIONAL SHIM (remove in cleanup PR): old constructor signature used by not-yet-migrated
-  // engine methods (vertx-first, optional protocol schedule).
-  protected ExecutionEngineJsonRpcMethod(
-      final Vertx vertx,
-      final ProtocolSchedule protocolSchedule,
-      final ProtocolContext protocolContext,
-      final EngineCallListener engineCallListener) {
-    this(protocolSchedule, protocolContext, vertx, engineCallListener, null, null);
-  }
-
-  // TRANSITIONAL SHIM (remove in cleanup PR): old constructor signature for methods that have no
-  // protocol schedule.
-  protected ExecutionEngineJsonRpcMethod(
-      final Vertx vertx,
-      final ProtocolContext protocolContext,
-      final EngineCallListener engineCallListener) {
-    this(null, protocolContext, vertx, engineCallListener, null, null);
-  }
-
-  protected ExecutionEngineJsonRpcMethod(
-      final ProtocolSchedule protocolSchedule,
-      final ProtocolContext protocolContext,
-      final Vertx vertx,
-      final EngineCallListener engineCallListener) {
-    this(protocolSchedule, protocolContext, vertx, engineCallListener, null, null);
-  }
-
   protected ExecutionEngineJsonRpcMethod(
       final ConstructorArguments constructorArguments,
       final HardforkId minSupportedFork,
       final HardforkId firstUnsupportedFork) {
-    this(
-        constructorArguments.protocolSchedule(),
-        constructorArguments.protocolContext(),
-        constructorArguments.vertx(),
-        constructorArguments.engineCallListener(),
-        minSupportedFork,
-        firstUnsupportedFork);
-  }
-
-  protected ExecutionEngineJsonRpcMethod(
-      final ProtocolSchedule protocolSchedule,
-      final ProtocolContext protocolContext,
-      final Vertx vertx,
-      final EngineCallListener engineCallListener,
-      final HardforkId minSupportedFork,
-      final HardforkId firstUnsupportedFork) {
-    this.syncVertx = vertx;
-    this.protocolSchedule = protocolSchedule;
-    this.maybeProtocolSchedule = Optional.ofNullable(protocolSchedule);
-    this.protocolContext = protocolContext;
+    this.syncVertx = constructorArguments.vertx;
+    this.protocolSchedule = constructorArguments.protocolSchedule;
+    this.protocolContext = constructorArguments.protocolContext;
     this.mergeContextOptional = protocolContext.safeConsensusContext(MergeContext.class);
     this.mergeContext = mergeContextOptional::orElseThrow;
-    this.engineCallListener = engineCallListener;
+    this.engineCallListener = constructorArguments.engineCallListener;
     this.minSupportedFork = minSupportedFork;
     this.firstUnsupportedFork = firstUnsupportedFork;
     this.minForkTimestamp =
@@ -236,9 +190,7 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
     return engineCallListener;
   }
 
-  // TRANSITIONAL: not 'final' yet (restored in cleanup PR) so not-yet-migrated engine methods can
-  // still override it; new methods inherit this implementation.
-  protected ValidationResult<RpcErrorType> validateForkSupported(final long blockTimestamp) {
+  protected final ValidationResult<RpcErrorType> validateForkSupported(final long blockTimestamp) {
     return ForkSupportHelper.validateForkSupported(
         minSupportedFork, minForkTimestamp, firstUnsupportedFork, maxForkTimestamp, blockTimestamp);
   }

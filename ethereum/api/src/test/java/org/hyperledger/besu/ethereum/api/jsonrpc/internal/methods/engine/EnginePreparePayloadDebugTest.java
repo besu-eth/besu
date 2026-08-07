@@ -27,10 +27,15 @@ import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator
 import org.hyperledger.besu.consensus.merge.blockcreation.PayloadIdentifier;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ConstructorArgumentsBuilder;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePreparePayloadParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EnginePreparePayloadResult;
+import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.util.Optional;
 
@@ -46,10 +51,13 @@ import org.mockito.junit.jupiter.MockitoExtension;
 public class EnginePreparePayloadDebugTest {
   private static final Vertx vertx = Vertx.vertx();
   EnginePreparePayloadDebug method;
+  @Mock private ProtocolSchedule protocolSchedule;
   @Mock private ProtocolContext protocolContext;
   @Mock private EngineCallListener engineCallListener;
   @Mock private MergeMiningCoordinator mergeCoordinator;
   @Mock private MergeContext mergeContext;
+  @Mock private TransactionPool transactionPool;
+  @Mock private EthPeers ethPeers;
 
   @Mock(answer = Answers.RETURNS_DEEP_STUBS)
   private JsonRpcRequestContext requestContext;
@@ -65,7 +73,17 @@ public class EnginePreparePayloadDebugTest {
     method =
         spy(
             new EnginePreparePayloadDebug(
-                vertx, protocolContext, engineCallListener, mergeCoordinator));
+                new ConstructorArgumentsBuilder()
+                    .protocolSchedule(protocolSchedule)
+                    .protocolContext(protocolContext)
+                    .vertx(vertx)
+                    .engineCallListener(engineCallListener)
+                    .mergeCoordinator(mergeCoordinator)
+                    .transactionPool(transactionPool)
+                    .ethPeers(ethPeers)
+                    .metricsSystem(new NoOpMetricsSystem())
+                    .maxRequestBlocks(0)
+                    .build()));
   }
 
   @Test

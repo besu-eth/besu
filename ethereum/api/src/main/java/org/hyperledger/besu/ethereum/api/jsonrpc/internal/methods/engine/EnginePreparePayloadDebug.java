@@ -21,7 +21,6 @@ import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.Executi
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.consensus.merge.blockcreation.PayloadIdentifier;
 import org.hyperledger.besu.consensus.merge.blockcreation.PreparePayloadArgsBuilder;
-import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
@@ -40,18 +39,13 @@ import java.util.List;
 import java.util.Optional;
 
 import graphql.VisibleForTesting;
-import io.vertx.core.Vertx;
 
 public class EnginePreparePayloadDebug extends ExecutionEngineJsonRpcMethod {
   private final MergeMiningCoordinator mergeCoordinator;
 
-  public EnginePreparePayloadDebug(
-      final Vertx vertx,
-      final ProtocolContext protocolContext,
-      final EngineCallListener engineCallListener,
-      final MergeMiningCoordinator mergeCoordinator) {
-    super(vertx, protocolContext, engineCallListener);
-    this.mergeCoordinator = mergeCoordinator;
+  public EnginePreparePayloadDebug(final ConstructorArguments constructorArguments) {
+    super(constructorArguments, null, null);
+    this.mergeCoordinator = constructorArguments.mergeCoordinator();
   }
 
   @Override
@@ -115,10 +109,8 @@ public class EnginePreparePayloadDebug extends ExecutionEngineJsonRpcMethod {
                         .timestamp(param.getTimestamp().orElse(parentHeader.getTimestamp() + 1L))
                         .prevRandao(param.getPrevRandao())
                         .feeRecipient(param.getFeeRecipient())
-                        .withdrawals(Optional.of(withdrawals))
+                        .withdrawals(withdrawals)
                         .parentBeaconBlockRoot(param.getParentBeaconBlockRoot())
-                        .slotNumber(Optional.empty())
-                        .targetGasLimit(Optional.empty())
                         .build()));
   }
 }
