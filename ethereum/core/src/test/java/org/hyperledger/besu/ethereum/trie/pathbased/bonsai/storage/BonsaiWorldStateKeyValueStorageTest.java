@@ -937,6 +937,45 @@ public class BonsaiWorldStateKeyValueStorageTest {
     assertThat(storage.isWorldStateAvailable(Bytes32.wrap(nodeHashKey), Hash.EMPTY)).isTrue();
   }
 
+  @Test
+  void defaultConstructorUsesBonsaiTrieNodeStrategy() {
+    final BonsaiWorldStateKeyValueStorage storage = setUp(FlatDbMode.FULL);
+    assertThat(storage.getTrieNodeStrategy())
+        .isInstanceOf(
+            org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiTrieNodeStrategy
+                .class);
+  }
+
+  @Test
+  void getAccountStateTrieNodeDelegatesToInjectedTrieNodeStrategy() {
+    final BonsaiWorldStateKeyValueStorage baseStorage = setUp(FlatDbMode.FULL);
+    final org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.TrieNodeStrategy
+        customStrategy =
+            org.mockito.Mockito.mock(
+                org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.TrieNodeStrategy
+                    .class);
+    final Bytes location = Bytes.fromHexString("0x01");
+    final Bytes node = Bytes.fromHexString("0xaa");
+    final Bytes32 nodeHash = Bytes32.wrap(Hash.hash(node).getBytes());
+    org.mockito.Mockito.when(
+            customStrategy.getFlatAccountTrieNode(
+                org.mockito.ArgumentMatchers.eq(location),
+                org.mockito.ArgumentMatchers.eq(nodeHash),
+                org.mockito.ArgumentMatchers.any()))
+        .thenReturn(java.util.Optional.of(node));
+
+    final BonsaiWorldStateKeyValueStorage storage =
+        new BonsaiWorldStateKeyValueStorage(
+            baseStorage.flatDbStrategyProvider,
+            baseStorage.getComposedWorldStateStorage(),
+            baseStorage.getTrieLogStorage(),
+            baseStorage.getCacheManager(),
+            0L,
+            customStrategy);
+
+    assertThat(storage.getAccountStateTrieNode(location, nodeHash)).contains(node);
+  }
+
   private BonsaiWorldStateKeyValueStorage emptyStorage() {
     return new BonsaiWorldStateKeyValueStorage(
         new InMemoryKeyValueStorageProvider(),

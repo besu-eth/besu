@@ -27,6 +27,7 @@ import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFullFlatDbStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.NoOpBonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.worldstate.ImmutableDataStorageConfiguration;
@@ -222,11 +223,13 @@ public class BonsaiArchiveWorldStateProviderTest {
         worldStateStorage,
         blockchain,
         config,
-        null,
+        new NoOpBonsaiCachedMerkleTrieLoader(),
         null,
         EvmConfiguration.DEFAULT,
         () -> null,
         new PathBasedCodeCache(),
-        new NoOpMetricsSystem());
+        new NoOpMetricsSystem(),
+        null,
+        null);
   }
 }

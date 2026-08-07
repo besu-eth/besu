@@ -89,8 +89,13 @@ import org.hyperledger.besu.ethereum.trie.forest.ForestWorldStateArchive;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.BonsaiArchiveFlatDbStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.BonsaiArchiveWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.BonsaiFlatDbToArchiveMigrator;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.TrieNodeHistoryProgress;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.TrieNodeHistoryReader;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.TrieNodeHistoryStore;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveTrieNodeStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.CodeHashCodeStorageStrategy;
@@ -107,6 +112,7 @@ import org.hyperledger.besu.metrics.ObservableMetricsSystem;
 import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.services.permissioning.NodeMessagePermissioningProvider;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
+import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.WorldStatePreimageStorage;
 import org.hyperledger.besu.services.BesuPluginContextImpl;
@@ -239,6 +245,13 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
 
   /** The global code cache */
   protected PathBasedCodeCache codeCache;
+
+  // Trie-node history components — populated in build() when X_BONSAI_ARCHIVE +
+  // archiveStateProofsEnabled; shared with createWorldStateArchive() to avoid duplicate instances.
+  private TrieNodeHistoryStore trieNodeHistoryStore;
+  private TrieNodeHistoryReader trieNodeHistoryReader;
+  private TrieNodeHistoryProgress trieNodeHistoryProgress;
+  private BonsaiArchiveTrieNodeStrategy trieNodeHistoryWriteStrategy;
 
   /** The effective checkpoint to sync to (CLI override or genesis). */
   protected Optional<Checkpoint> checkpoint = Optional.empty();
@@ -932,6 +945,27 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
     closeables.add(protocolContext.getWorldStateArchive());
     closeables.add(storageProvider);
 
+    if (DataStorageFormat.X_BONSAI_ARCHIVE.equals(dataStorageConfiguration.getDataStorageFormat())
+        && dataStorageConfiguration
+            .getPathBasedExtraStorageConfiguration()
+            .getUnstable()
+            .getArchiveStateProofsEnabled()
+        && trieNodeHistoryWriteStrategy != null) {
+      final long maxLayers =
+          ((BonsaiWorldStateProvider) worldStateArchive).getTrieLogManager().getMaxLayersToLoad();
+      trieNodeHistoryWriteStrategy.setHighestSafeBlockSupplier(
+          new LiveCaptureGate(syncState, maxLayers));
+      LOG.info("Live trie-node history capture enabled (trailing head by {} blocks)", maxLayers);
+      if (trieNodeHistoryProgress != null
+          && trieNodeHistoryProgress.lastIndexedBlock() < 0
+          && blockchain.getChainHeadBlockNumber() > 0) {
+        LOG.warn(
+            "Trie-node history capture is enabled but genesis was not written in this session. "
+                + "eth_getProof for genesis-allocated, never-touched accounts will fail. "
+                + "This configuration is unsupported; start from a fresh datadir to capture genesis.");
+      }
+    }
+
     if (DataStorageFormat.X_BONSAI_ARCHIVE.equals(
         dataStorageConfiguration.getDataStorageFormat())) {
       if (worldStateStorageCoordinator.isMatchingFlatMode(FlatDbMode.FULL)
@@ -1419,7 +1453,27 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
       case X_BONSAI_ARCHIVE -> {
         final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage =
             worldStateStorageCoordinator.getStrategy(BonsaiWorldStateKeyValueStorage.class);
-
+        // Initialise trie-node history fields when the flag is on, so the provider and the walker
+        // (set up further down in build()) share the same live TrieNodeHistoryProgress reference.
+        if (dataStorageConfiguration
+            .getPathBasedExtraStorageConfiguration()
+            .getUnstable()
+            .getArchiveStateProofsEnabled()) {
+          final SegmentedKeyValueStorage composedWorldStateStorage =
+              worldStateKeyValueStorage.getComposedWorldStateStorage();
+          trieNodeHistoryStore = new TrieNodeHistoryStore(composedWorldStateStorage);
+          trieNodeHistoryReader = new TrieNodeHistoryReader(trieNodeHistoryStore);
+          trieNodeHistoryProgress = TrieNodeHistoryProgress.load(composedWorldStateStorage);
+          trieNodeHistoryWriteStrategy =
+              new BonsaiArchiveTrieNodeStrategy(
+                  new BonsaiTrieNodeStrategy(),
+                  trieNodeHistoryStore,
+                  trieNodeHistoryProgress,
+                  // Placeholder until build() wires syncState: gate closed for all blocks except
+                  // genesis (N==0), which must be captured while it is written just below.
+                  () -> Long.MIN_VALUE);
+          worldStateKeyValueStorage.setTrieNodeStrategy(trieNodeHistoryWriteStrategy);
+        }
         yield new BonsaiArchiveWorldStateProvider(
             worldStateKeyValueStorage,
             blockchain,
@@ -1429,7 +1483,9 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             evmConfiguration,
             worldStateHealerSupplier,
             codeCache,
-            metricsSystem);
+            metricsSystem,
+            trieNodeHistoryReader,
+            trieNodeHistoryProgress);
       }
       case FOREST -> {
         final WorldStatePreimageStorage preimageStorage =

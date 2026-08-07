@@ -305,6 +305,20 @@ public class SyncState implements NewPayloadListener {
     payloadReceived = true;
   }
 
+  /**
+   * Returns {@code true} when a reliable network head is available. This is the case when the
+   * consensus layer has sent at least one {@code engine_newPayload} (PoS normal operation), or
+   * when at least one peer has a height estimate (QBFT / forward sync).
+   *
+   * <p>Returns {@code false} during PoS backward sync where the CL only sends
+   * {@code forkchoiceUpdated} (not {@code newPayload}) and PoS peers do not share height
+   * estimates. Callers that need a safe block ceiling should treat {@code false} as "no reliable
+   * upper bound" and open their gate fully.
+   */
+  public boolean isNetworkHeadKnown() {
+    return payloadReceived || ethPeers.bestPeerWithHeightEstimate().isPresent();
+  }
+
   public long bestChainHeight() {
     if (payloadReceived) {
       return lastPayloadBlockNumber;

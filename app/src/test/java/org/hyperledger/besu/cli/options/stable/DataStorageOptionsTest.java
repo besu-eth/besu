@@ -139,6 +139,31 @@ public class DataStorageOptionsTest
   }
 
   @Test
+  public void archiveStateProofsEnabledCanBeEnabled() {
+    internalTestSuccess(
+        dataStorageConfiguration ->
+            assertThat(
+                    dataStorageConfiguration
+                        .getPathBasedExtraStorageConfiguration()
+                        .getUnstable()
+                        .getArchiveStateProofsEnabled())
+                .isEqualTo(true),
+        "--Xbonsai-archive-state-proofs-enabled=true");
+  }
+
+  @Test
+  public void archiveStateProofsEnabledDisabledByDefault() {
+    internalTestSuccess(
+        dataStorageConfiguration ->
+            assertThat(
+                    dataStorageConfiguration
+                        .getPathBasedExtraStorageConfiguration()
+                        .getUnstable()
+                        .getArchiveStateProofsEnabled())
+                .isEqualTo(false));
+  }
+
+  @Test
   public void parallelTxProcessingEnabledByDefault() {
     internalTestSuccess(
         dataStorageConfiguration ->
