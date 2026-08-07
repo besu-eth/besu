@@ -101,7 +101,7 @@ public class BlockSimulator {
   private static final TransactionValidationParams CONSENSUS_STRICT_VALIDATION_PARAMS =
       TransactionValidationParams.blockSimulatorConsensusStrict();
 
-  private static final TransactionValidationParams SIMULATION_PARAMS =
+  private static final TransactionValidationParams NON_STRICT_PARAMS =
       TransactionValidationParams.blockSimulatorNonStrict();
 
   private final TransactionSimulator transactionSimulator;
@@ -204,8 +204,7 @@ public class BlockSimulator {
               currentBlockHeader,
               stateCall,
               worldState,
-              simulationParameter.isValidation(),
-              simulationParameter.isEnforceConsensusGasLimitCaps(),
+              resolveValidationParams(simulationParameter),
               simulationParameter.isTraceTransfers(),
               simulationParameter.isReturnTrieLog(),
               simulationParameter::getFakeSignature,
@@ -221,6 +220,16 @@ public class BlockSimulator {
     return results;
   }
 
+  private TransactionValidationParams resolveValidationParams(
+      final BlockSimulationParameter simulationParameter) {
+    if (!simulationParameter.isValidation()) {
+      return NON_STRICT_PARAMS;
+    }
+    return simulationParameter.isEnforceConsensusGasLimitCaps()
+        ? CONSENSUS_STRICT_VALIDATION_PARAMS
+        : STRICT_VALIDATION_PARAMS;
+  }
+
   /**
    * Processes a single BlockStateCall, simulating the block execution.
    *
@@ -234,14 +243,14 @@ public class BlockSimulator {
       final BlockHeader baseBlockHeader,
       final BlockStateCall blockStateCall,
       final MutableWorldState ws,
-      final boolean shouldValidate,
-      final boolean enforceConsensusGasLimitCaps,
+      final TransactionValidationParams validationParams,
       final boolean isTraceTransfers,
       final boolean returnTrieLog,
       final Supplier<SECPSignature> signatureSupplier,
       final Map<Long, Hash> blockHashCache,
       final long simulationCumulativeGasUsed,
       final OperationTracer operationTracer) {
+    final boolean shouldValidate = validationParams != NON_STRICT_PARAMS;
 
     BlockOverrides blockOverrides = blockStateCall.getBlockOverrides();
     // Use the parent's actual difficulty (not Difficulty.ZERO) so that
@@ -315,8 +324,7 @@ public class BlockSimulator {
             blockStateCall,
             ws,
             protocolSpec,
-            shouldValidate,
-            enforceConsensusGasLimitCaps,
+            validationParams,
             isTraceTransfers,
             transactionProcessor,
             blockHashLookup,
@@ -382,8 +390,7 @@ public class BlockSimulator {
       final BlockStateCall blockStateCall,
       final MutableWorldState ws,
       final ProtocolSpec protocolSpec,
-      final boolean shouldValidate,
-      final boolean enforceConsensusGasLimitCaps,
+      final TransactionValidationParams validationParams,
       final boolean isTraceTransfers,
       final MainnetTransactionProcessor transactionProcessor,
       final BlockHashLookup blockHashLookup,
@@ -391,13 +398,6 @@ public class BlockSimulator {
       final long simulationCumulativeGasUsed,
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
       final OperationTracer operationTracer) {
-
-    TransactionValidationParams transactionValidationParams =
-        shouldValidate
-            ? (enforceConsensusGasLimitCaps
-                ? CONSENSUS_STRICT_VALIDATION_PARAMS
-                : STRICT_VALIDATION_PARAMS)
-            : SIMULATION_PARAMS;
 
     BlockStateCallSimulationResult blockStateCallSimulationResult =
         new BlockStateCallSimulationResult(
@@ -445,8 +445,7 @@ public class BlockSimulator {
               blockStateCallSimulationResult.getRemainingGas());
 
       BiFunction<ProtocolSpec, Optional<BlockHeader>, Wei> blobGasPricePerGasSupplier =
-          getBlobGasPricePerGasSupplier(
-              blockStateCall.getBlockOverrides(), transactionValidationParams);
+          getBlobGasPricePerGasSupplier(blockStateCall.getBlockOverrides(), validationParams);
 
       final Optional<AccessLocationTracker> transactionLocationTracker =
           createTransactionAccessLocationTracker(blockAccessListBuilder, transactionLocation);
@@ -454,7 +453,7 @@ public class BlockSimulator {
           transactionSimulator.processWithWorldUpdater(
               callParameter,
               Optional.empty(), // We have already applied state overrides on block level
-              transactionValidationParams,
+              validationParams,
               finalOperationTracer,
               blockHeader,
               transactionUpdater,
@@ -492,7 +491,7 @@ public class BlockSimulator {
       // upfront cost failures, but for eth_simulateV1 results we need the caller-provided values
       // so that gasPrice, maxFeePerGas, maxPriorityFeePerGas, transactionHash, and
       // transactionsRoot are correct in the response.
-      if (transactionValidationParams.isAllowExceedingBalance()) {
+      if (validationParams.isAllowExceedingBalance()) {
         transactionSimulationResult = restoreGasPricing(transactionSimulationResult, callParameter);
       }
 
@@ -709,13 +708,12 @@ public class BlockSimulator {
   }
 
   private BiFunction<ProtocolSpec, Optional<BlockHeader>, Wei> getBlobGasPricePerGasSupplier(
-      final BlockOverrides blockOverrides,
-      final TransactionValidationParams transactionValidationParams) {
+      final BlockOverrides blockOverrides, final TransactionValidationParams validationParams) {
     if (blockOverrides.getBlobBaseFee().isPresent()) {
       return (protocolSchedule, blockHeader) -> blockOverrides.getBlobBaseFee().get();
     }
     return (protocolSpec, maybeParentHeader) -> {
-      if (transactionValidationParams.isAllowExceedingBalance()) {
+      if (validationParams.isAllowExceedingBalance()) {
         return Wei.ZERO;
       }
       return protocolSpec
