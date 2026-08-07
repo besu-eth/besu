@@ -109,6 +109,7 @@ rpc-gas-cap = 50000000
 rpc-max-trace-filter-range=100
 rpc-max-active-filters=1000
 rpc-filter-timeout-seconds=60
+rpc-max-trace-steps=2000
 
 # GRAPHQL HTTP
 graphql-http-enabled=false

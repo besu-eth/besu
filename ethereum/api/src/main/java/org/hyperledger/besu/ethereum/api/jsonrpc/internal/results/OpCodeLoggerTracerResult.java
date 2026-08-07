@@ -22,18 +22,25 @@ import java.util.Collection;
 import java.util.List;
 
 import com.fasterxml.jackson.annotation.JsonGetter;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import org.apache.tuweni.bytes.Bytes;
 
-@JsonPropertyOrder({"gas", "failed", "returnValue", "structLogs"})
+@JsonPropertyOrder({"gas", "failed", "returnValue", "structLogs", "truncated"})
 public class OpCodeLoggerTracerResult {
 
   private final List<StructLog> structLogs;
   private final String returnValue;
   private final long gas;
   private final boolean failed;
+  private final boolean truncated;
 
   public OpCodeLoggerTracerResult(final TransactionTrace transactionTrace) {
+    this(transactionTrace, false);
+  }
+
+  public OpCodeLoggerTracerResult(
+      final TransactionTrace transactionTrace, final boolean truncated) {
     gas = transactionTrace.getGas();
     final Bytes output = transactionTrace.getResult().getOutput();
     returnValue = output.isEmpty() ? "" : output.toHexString();
@@ -42,6 +49,7 @@ public class OpCodeLoggerTracerResult {
         .map(OpCodeLoggerTracerResult::createStructLog)
         .forEachOrdered(structLogs::add);
     failed = !transactionTrace.getResult().isSuccessful();
+    this.truncated = truncated;
   }
 
   public static Collection<DebugTraceTransactionResult> of(
@@ -74,5 +82,11 @@ public class OpCodeLoggerTracerResult {
   @JsonGetter(value = "failed")
   public boolean failed() {
     return failed;
+  }
+
+  @JsonGetter(value = "truncated")
+  @JsonInclude(JsonInclude.Include.NON_DEFAULT)
+  public boolean truncated() {
+    return truncated;
   }
 }
