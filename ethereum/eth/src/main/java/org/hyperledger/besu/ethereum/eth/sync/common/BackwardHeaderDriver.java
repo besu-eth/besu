@@ -67,6 +67,8 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
   private boolean recoveryMode = false;
   private volatile boolean stopped = false;
 
+  private boolean checkpointLinkageToBeVerified;
+
   /**
    * Creates a new BackwardHeaderDriver. Stores the pivot header synchronously as the first imported
    * header.
@@ -106,6 +108,12 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
 
     this.checkpointFloorNumber = checkpointHeader.getNumber();
     this.checkpointFloorHash = checkpointHeader.getHash();
+
+    // Verify the checkpoint linkage during the walk only when the checkpoint sits strictly above
+    // the anchor, i.e. we download all headers rather than stopping at the checkpoint. When the
+    // anchor IS the checkpoint (headers-to-checkpoint-only) or there is no checkpoint (floor ==
+    // genesis == anchor), the anchor-boundary logic already covers it.
+    this.checkpointLinkageToBeVerified = checkpointFloorNumber >= lowestHeaderToImport;
 
     this.currentBlock = new AtomicLong(pivotNumber - 1);
 
@@ -209,7 +217,7 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
         // our genesis.
         stopped = true;
         recoveryDecision.complete(false);
-        LOG.error(
+        LOG.debug(
             "Backward header download reached block number 1 with hash {}, but it's parent hash {} is not matching the genesis hash {}.",
             lowestImportedHeader.getBlockHash(),
             lowestImportedHeader.getParentHash(),
@@ -220,8 +228,10 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
             "Backward header download reached genesis without matching parent hash.");
       }
       if (parentNumber <= checkpointFloorNumber) {
-        // Recovery reached the trusted checkpoint without reconnecting to the canonical chain
-        // above it: the pivot is not on the checkpoint's chain.
+        // Recovery reached the trusted checkpoint without reconnecting to the canonical chain above
+        // it: the pivot is not on the checkpoint's chain. Reported as a CheckpointReorgException,
+        // which — like a genesis-boundary mismatch — re-pivots to a fresh block rather than
+        // stopping snap sync permanently.
         stopped = true;
         recoveryDecision.complete(false);
         final String message =
@@ -229,9 +239,9 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
                 + checkpointFloorNumber
                 + " ("
                 + checkpointFloorHash
-                + ") without reconnecting to the canonical chain above it. The pivot is not on "
-                + "the checkpoint's chain; stopping snap sync.";
-        LOG.error(message);
+                + ") without reconnecting to the canonical chain above it. The pivot does not "
+                + "descend from the checkpoint; re-pivoting.";
+        LOG.debug(message);
         throw new CheckpointReorgException(message);
       }
       blockchainStorage.storeBlockHeaders(blockHeaders);
@@ -240,6 +250,16 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
     }
 
     blockchainStorage.storeBlockHeaders(blockHeaders);
+
+    // Early checkpoint linkage check: when the anchor is below the trusted checkpoint (we download
+    // all headers rather than stopping at the checkpoint), verify the pivot descends from the
+    // checkpoint the moment the descending walk crosses the checkpoint height — instead of only
+    // after reaching genesis. Batches are contiguous descending ranges, so the first batch whose
+    // lowest header is at or below the checkpoint contains the header at the checkpoint height.
+    if (checkpointLinkageToBeVerified && lowestImportedHeaderNumber <= checkpointFloorNumber) {
+      checkpointLinkageToBeVerified = false;
+      verifyCheckpointLinkage(blockHeaders);
+    }
 
     if (lowestImportedHeaderNumber == lowestHeaderToImport) {
       resolveAnchorBoundary();
@@ -270,18 +290,64 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
       LOG.info("Header import progress 100.00%");
       stopped = true;
       recoveryDecision.complete(false);
-    } else {
-      if (lowestHeaderToImport == 1) {
-        stopped = true;
-        recoveryDecision.complete(false);
-        throw new WrongChainException(
-            "Backward header download reached genesis boundary without matching parent hash.");
-      }
-      emitRecoveryStartLog(lowestImportedHeader);
-      recoveryMode = true;
-      currentBlock.set(lowestHeaderToImport - 1);
-      startOrExtendRecovery();
+      return;
     }
+    if (lowestHeaderToImport == 1) {
+      stopped = true;
+      recoveryDecision.complete(false);
+      final String message =
+          "Backward header download reached genesis boundary without matching parent hash.";
+      LOG.debug(message);
+      throw new WrongChainException(message);
+    }
+    if ((lowestHeaderToImport - 1) == checkpointFloorNumber) {
+      // The header download anchor is the trusted checkpoint itself (headers-to-checkpoint-only
+      // mode): there is no room below it to recover a common ancestor. The pivot's chain does not
+      // link to the checkpoint. Reported as a CheckpointReorgException, which — like a
+      // genesis-boundary mismatch — re-pivots to a fresh block rather than stopping permanently.
+      stopped = true;
+      recoveryDecision.complete(false);
+      final String message =
+          "Backward header download reached the trusted checkpoint boundary (#"
+              + checkpointFloorNumber
+              + ") without a matching parent hash; the pivot does not descend from the checkpoint.";
+      LOG.debug(message);
+      throw new CheckpointReorgException(message);
+    }
+    emitRecoveryStartLog(lowestImportedHeader);
+    recoveryMode = true;
+    currentBlock.set(lowestHeaderToImport - 1);
+    startOrExtendRecovery();
+  }
+
+  /**
+   * Verifies that the downloaded header at the trusted checkpoint height matches the checkpoint.
+   * Called once, as the descending walk crosses the checkpoint height, when the anchor sits below
+   * the checkpoint (all headers are downloaded). A mismatch means the pivot does not descend from
+   * the checkpoint; reported as a {@link CheckpointReorgException} so snap sync re-pivots.
+   *
+   * @param batch the batch that spans the checkpoint height
+   */
+  private void verifyCheckpointLinkage(final List<BlockHeader> batch) {
+    batch.stream()
+        .filter(header -> header.getNumber() == checkpointFloorNumber)
+        .findFirst()
+        .filter(header -> !header.getHash().equals(checkpointFloorHash))
+        .ifPresent(
+            mismatched -> {
+              stopped = true;
+              recoveryDecision.complete(false);
+              final String message =
+                  "Backward header download reached the trusted checkpoint height #"
+                      + checkpointFloorNumber
+                      + " with hash "
+                      + mismatched.getHash()
+                      + " which does not match the trusted checkpoint "
+                      + checkpointFloorHash
+                      + "; the pivot does not descend from the checkpoint, re-pivoting.";
+              LOG.debug(message);
+              throw new CheckpointReorgException(message);
+            });
   }
 
   private void startOrExtendRecovery() {

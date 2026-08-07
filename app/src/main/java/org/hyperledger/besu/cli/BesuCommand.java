@@ -1565,6 +1565,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     validateRpcWsOptions();
     validateChainDataPruningParams();
     resolveAndValidateCheckpoint();
+    validateSnapSyncHeadersToCheckpointOnlyRequirements();
     validateTransactionPoolOptions();
     validateDataStorageOptions();
     validateGraphQlOptions();
@@ -2929,6 +2930,29 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     } catch (final IllegalArgumentException e) {
       throw new InvalidConfigurationException(
           "The checkpoint block configured in the genesis file is not valid: " + e.getMessage());
+    }
+  }
+
+  /**
+   * When {@code --snapsync-synchronizer-skip-pre-checkpoint-headers-enabled} is set, snap sync
+   * stops Stage-1 header download at the trusted checkpoint. That only makes sense when a
+   * checkpoint is actually available — either via {@code --checkpoint} or a valid genesis {@code
+   * checkpoint} section. Fail fast with a clear message otherwise, rather than silently downloading
+   * to genesis.
+   */
+  private void validateSnapSyncHeadersToCheckpointOnlyRequirements() {
+    if (!unstableSynchronizerOptions.isSnapSyncHeadersToCheckpointOnly()) {
+      return;
+    }
+    final boolean genesisCheckpointPresent =
+        readGenesisConfigOptions().getCheckpointOptions().isValid();
+    final boolean checkpointOverridePresent = checkpointOverride != null;
+    if (!genesisCheckpointPresent && !checkpointOverridePresent) {
+      throw new ParameterException(
+          this.commandLine,
+          "--snapsync-synchronizer-skip-pre-checkpoint-headers-enabled requires a trusted "
+              + "checkpoint, but none is configured. Provide one with --checkpoint or a checkpoint "
+              + "section in the genesis file.");
     }
   }
 

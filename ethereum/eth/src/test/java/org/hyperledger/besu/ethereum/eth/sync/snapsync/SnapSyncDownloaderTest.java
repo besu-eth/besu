@@ -194,19 +194,33 @@ public class SnapSyncDownloaderTest {
   }
 
   @Test
-  public void shouldStopWithoutRePivotOnCheckpointReorg() {
+  public void shouldRePivotOnCheckpointReorg() {
     setup();
-    // A reorged trusted checkpoint is fatal: re-pivoting cannot fix it, so the sync stops and the
-    // error is surfaced rather than looping on a fresh pivot.
+    final SnapSyncProcessState selectPivotBlockState = new SnapSyncProcessState(50);
+    final BlockHeader pivotBlockHeader = new BlockHeaderTestFixture().number(50).buildHeader();
+    final SnapSyncProcessState resolvePivotBlockHeaderState =
+        new SnapSyncProcessState(pivotBlockHeader);
+
+    // A pivot that does not descend from the trusted checkpoint is treated like a genesis-boundary
+    // mismatch: the downloader re-pivots to a fresh block and succeeds on the retry rather than
+    // aborting.
     when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
-        .thenThrow(new CheckpointReorgException("trusted checkpoint reorged"));
+        .thenThrow(new CheckpointReorgException("trusted checkpoint reorged"))
+        .thenReturn(completedFuture(selectPivotBlockState));
+    when(fastSyncActions.resolvePivotBlockHeader(selectPivotBlockState))
+        .thenReturn(completedFuture(resolvePivotBlockHeaderState));
+    when(fastSyncActions.createChainDownloader(
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+        .thenReturn(chainDownloader);
+    when(chainDownloader.start()).thenReturn(completedFuture(null));
+    when(worldStateDownloader.run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader))))
+        .thenReturn(completedFuture(null));
 
     final CompletableFuture<SnapSyncProcessState> result = downloader.start();
 
-    assertThat(result).isCompletedExceptionally();
-    assertThat(catchThrowable(result::get)).hasRootCauseInstanceOf(CheckpointReorgException.class);
-    // No re-pivot: selectPivotBlock was called exactly once.
-    verify(fastSyncActions).selectPivotBlock(new SnapSyncProcessState());
+    // selectPivotBlock was called twice: the failed attempt, then the successful re-pivot.
+    verify(fastSyncActions, times(2)).selectPivotBlock(new SnapSyncProcessState());
+    assertThat(result).isCompletedWithValue(snapSyncState(pivotBlockHeader));
   }
 
   @Test

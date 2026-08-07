@@ -341,10 +341,32 @@ public class BackwardHeaderDriverTest {
   }
 
   @Test
+  public void mismatchWhenAnchorIsTheCheckpointThrowsCheckpointReorgExceptionForRepivot() {
+    // headers-to-checkpoint-only mode: the header download anchor IS the trusted checkpoint (both
+    // at block 50). The pivot sits directly above it (block 51) but does NOT link to the
+    // checkpoint. There is no room below the checkpoint to recover, so the driver reports a
+    // CheckpointReorgException, which re-pivots (rather than entering recovery).
+    final BlockDataGenerator otherGenerator = new BlockDataGenerator(99);
+    final BlockHeader checkpointAt50 = blocks.get(50).getHeader();
+    final BlockHeader wrongPivotAt51 = otherGenerator.blockSequence(52).get(51).getHeader();
+    assertThat(wrongPivotAt51.getParentHash()).isNotEqualTo(checkpointAt50.getHash());
+
+    // anchor == checkpoint == block 50; the boundary is resolved eagerly in the constructor
+    // because pivot == anchor + 1.
+    assertThatThrownBy(
+            () ->
+                new BackwardHeaderDriver(
+                    BATCH_SIZE, checkpointAt50, wrongPivotAt51, checkpointAt50, blockchain))
+        .isInstanceOf(CheckpointReorgException.class)
+        .hasMessageContaining("checkpoint");
+  }
+
+  @Test
   public void recoveryWalkingBelowTheCheckpointStopsWithCheckpointReorgException() {
     // Same scenario, but the trusted checkpoint sits at block 48 — above the only reconnection
-    // point (block 46). Recovery must not reconnect below the checkpoint, so it fails fatally
-    // instead of matching at block 46.
+    // point (block 46). Recovery must not reconnect below the checkpoint. Reaching the checkpoint
+    // without a match means the pivot does not descend from the checkpoint and is reported as a
+    // CheckpointReorgException (which re-pivots).
     final BlockDataGenerator otherGenerator = new BlockDataGenerator(99);
     final BlockHeader reorgedAnchor = otherGenerator.blockSequence(51).get(50).getHeader();
     final BlockHeader checkpointAt48 = blocks.get(48).getHeader();
@@ -362,6 +384,34 @@ public class BackwardHeaderDriverTest {
 
     assertThatThrownBy(() -> driver.accept(getHeadersRange(50, 47)))
         .isInstanceOf(CheckpointReorgException.class);
+    assertThat(driver.getMatchedAncestor()).isEmpty();
+  }
+
+  @Test
+  public void mismatchAtCheckpointHeightDuringFullWalkIsDetectedEarly() {
+    // All-headers mode with a checkpoint: anchor = genesis (block 0), pivot = block 100, and the
+    // trusted checkpoint sits at block 50 but with a hash that differs from the downloaded chain's
+    // block 50. The downloaded chain (canonical `blocks`) is internally consistent, so the walk
+    // proceeds until it crosses the checkpoint height, where the linkage check fires and reports a
+    // CheckpointReorgException — long before the walk would have reached genesis.
+    final BlockDataGenerator otherGenerator = new BlockDataGenerator(99);
+    final BlockHeader mismatchedCheckpointAt50 =
+        otherGenerator.blockSequence(51).get(50).getHeader();
+    assertThat(mismatchedCheckpointAt50.getHash())
+        .isNotEqualTo(blocks.get(50).getHeader().getHash());
+
+    final BackwardHeaderDriver driver =
+        new BackwardHeaderDriver(
+            BATCH_SIZE, anchorHeader, pivotHeader, mismatchedCheckpointAt50, blockchain);
+
+    // First batch [99..51] is entirely above the checkpoint height — no check yet.
+    driver.accept(getHeadersRange(99, 51));
+
+    // The batch [50..47] crosses the checkpoint height (50). The downloaded header there does not
+    // match the trusted checkpoint, so the walk stops early instead of continuing to genesis.
+    assertThatThrownBy(() -> driver.accept(getHeadersRange(50, 47)))
+        .isInstanceOf(CheckpointReorgException.class)
+        .hasMessageContaining("checkpoint");
     assertThat(driver.getMatchedAncestor()).isEmpty();
   }
 

@@ -107,16 +107,21 @@ public class SnapSyncDownloader implements SnapSyncController {
     if (rootCause instanceof NoSyncRequiredException) {
       return CompletableFuture.completedFuture(new NoSyncRequiredState());
     } else if (rootCause instanceof CheckpointReorgException) {
-      // The trusted checkpoint is not on the pivot's chain. Re-pivoting cannot fix a bad/reorged
-      // checkpoint, so stop the sync and surface the error.
-      LOG.error("Trusted checkpoint reorg detected, stopping snap sync.", error);
-      return CompletableFuture.failedFuture(error);
+      // The pivot's chain does not descend from the trusted checkpoint. Like a genesis-boundary
+      // mismatch, this usually means a bad or lagging pivot, so re-pivot to a fresh block rather
+      // than stopping the sync.
+      LOG.warn(
+          "Snap sync pivot does not descend from the trusted checkpoint; re-pivoting to a new "
+              + "block. If this repeats, verify the configured checkpoint (--checkpoint or the "
+              + "genesis checkpoint).");
+      return start(new SnapSyncProcessState());
     } else if (rootCause instanceof SyncException syncEx) {
       // Pivot block header mismatch is caused by bad peers — re-pivot to recover.
       LOG.debug("Sync error ({}), re-pivoting.", syncEx.getError());
       return start(new SnapSyncProcessState());
     } else if (rootCause instanceof WrongChainException) {
-      LOG.debug("Downloaded chain does not connect to our genesis, re-pivoting.");
+      LOG.info(
+          "Snap sync downloaded header chain does not connect to genesis; re-pivoting to a new block.");
       return start(new SnapSyncProcessState());
     } else if (rootCause instanceof StalledDownloadException) {
       LOG.debug("Stalled sync re-pivoting to newer block.");
