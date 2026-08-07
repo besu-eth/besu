@@ -3,6 +3,25 @@
 ## Unreleased Changes
 
 ### Breaking Changes
+
+### Upcoming Breaking Changes
+- `--min-block-occupancy-ratio` is deprecated and will be removed in a future release
+- Plugin API
+  - `PluginTransactionSelectorFactory.create(final SelectorsStateManager selectorsStateManager)` is deprecated for removal
+- `--Xmax-tracked-seen-txs-per-peer` renamed to `--Xmax-tracked-seen-txs` (old name kept as deprecated alias will be removed in a future release)
+- BFT option `xemptyblockperiodseconds` has been taken out of experimental and been renamed `emptyblockperiodseconds`. The old config option is deprecated and will be removed in a future release.
+- `--Xbft-legacy-protocol-encoding` will be removed once Besu 25.x is no longer supported. [#10499](https://github.com/besu-eth/besu/pull/10499)
+- `--Xsnapsync-synchronizer-pivot-block-distance-before-caching` is deprecated and will be removed in a future release; the flag is now a silent no-op.
+- `--snapsync-synchronizer-pre-checkpoint-headers-only-enabled` is deprecated and will be removed in a future release; the flag is now a silent no-op.
+- `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
+
+### Bug fixes
+
+### Additions and Improvements
+
+## 26.8.0
+
+### Breaking Changes
 - The experimental `--Xv5-discovery-enabled` flag is removed; use `--discovery-mode=V5` or `--discovery-mode=BOTH` instead.
 - The genesis file `v5Bootnodes` key is removed; ENR bootnodes must now be listed in the unified `bootnodes` array alongside enode URLs. Besu's bundled network genesis files were migrated automatically - this only affects custom/downstream genesis files that still use the old `v5Bootnodes` key, whose ENR entries will otherwise be silently dropped.
 - Removed the legacy `PANTHEON_` environment variable prefix for configuration options, everyone should already use the `BESU_` prefix at this time.
@@ -37,6 +56,7 @@
 - Recover from restart during flatDB heal sync step [#10883](https://github.com/besu-eth/besu/pull/10883)
 - Cap pre-STATUS RLPx connections and close them on eviction.
 - Fix txpool incorrectly evicting authority pending transactions when EIP-7702 delegation tuples are skipped during block execution
+- Reject RLP-wrapped typed transactions during block-body decoding, so a block built from the wrapped encoding cannot hash identically to one built from the canonical encoding.
 
 ### Additions and Improvements
 - Add `--checkpoint=<hash>:<number>:<totalDifficulty>` CLI option to anchor sync to a trusted checkpoint, overriding any checkpoint configured in the genesis file. The option is only used by snap sync and is ignored (with a warning) in FULL sync-mode.
