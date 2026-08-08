@@ -16,7 +16,6 @@ package org.hyperledger.besu.ethereum.transaction;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError.BLOCK_NUMBERS_NOT_ASCENDING;
-import static org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError.INVALID_NONCES;
 import static org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError.INVALID_PRECOMPILE_ADDRESS;
 import static org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError.TIMESTAMPS_NOT_ASCENDING;
 import static org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError.TOO_MANY_BLOCK_CALLS;
@@ -27,16 +26,12 @@ import org.hyperledger.besu.datatypes.StateOverride;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError;
 
 import java.math.BigInteger;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
 public class BlockSimulationParameter {
   private static final int MAX_BLOCK_CALL_SIZE = 256;
-  private static final Address DEFAULT_FROM =
-      Address.fromHexString("0x0000000000000000000000000000000000000000");
   static final BlockSimulationParameter EMPTY = new BlockSimulationParameterBuilder().build();
 
   final List<? extends BlockStateCall> blockStateCalls;
@@ -124,11 +119,6 @@ public class BlockSimulationParameter {
       return timestampError;
     }
 
-    Optional<BlockStateCallError> nonceError = validateNonces();
-    if (nonceError.isPresent()) {
-      return nonceError;
-    }
-
     return validateStateOverrides(validPrecompileAddresses);
   }
 
@@ -157,27 +147,6 @@ public class BlockSimulationParameter {
           return Optional.of(TIMESTAMPS_NOT_ASCENDING);
         }
         previousTimestamp = blockTimestamp;
-      }
-    }
-    return Optional.empty();
-  }
-
-  private Optional<BlockStateCallError> validateNonces() {
-    Map<Address, Long> previousNonces = new HashMap<>();
-    for (BlockStateCall call : blockStateCalls) {
-      for (CallParameter callParameter : call.getCalls()) {
-        Address fromAddress = callParameter.getSender().orElse(DEFAULT_FROM);
-
-        if (callParameter.getNonce().isPresent()) {
-          long currentNonce = callParameter.getNonce().getAsLong();
-          if (previousNonces.containsKey(fromAddress)) {
-            long previousNonce = previousNonces.get(fromAddress);
-            if (currentNonce <= previousNonce) {
-              return Optional.of(INVALID_NONCES);
-            }
-          }
-          previousNonces.put(fromAddress, currentNonce);
-        }
       }
     }
     return Optional.empty();

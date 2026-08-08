@@ -146,6 +146,25 @@ public class BlockSimulatorTest {
 
   @Test
   public void shouldStopWhenTransactionSimulationIsInvalid() {
+    assertInvalidTransactionMapsToError(
+        TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE,
+        BlockStateCallError.UPFRONT_COST_EXCEEDS_BALANCE);
+  }
+
+  @Test
+  public void shouldSurfaceNonceTooLowFromTransactionSimulation() {
+    assertInvalidTransactionMapsToError(
+        TransactionInvalidReason.NONCE_TOO_LOW, BlockStateCallError.NONCE_TOO_LOW);
+  }
+
+  @Test
+  public void shouldSurfaceNonceTooHighFromTransactionSimulation() {
+    assertInvalidTransactionMapsToError(
+        TransactionInvalidReason.NONCE_TOO_HIGH, BlockStateCallError.NONCE_TOO_HIGH);
+  }
+
+  private void assertInvalidTransactionMapsToError(
+      final TransactionInvalidReason invalidReason, final BlockStateCallError expectedError) {
     when(worldStateArchive.getWorldState(withBlockHeaderAndNoUpdateNodeHead(blockHeader)))
         .thenReturn(Optional.of(mutableWorldState));
     when(mutableWorldState.updater()).thenReturn(updater);
@@ -159,9 +178,7 @@ public class BlockSimulatorTest {
     when(transactionSimulatorResult.getInvalidReason())
         .thenReturn(Optional.of("Invalid Transaction"));
     when(transactionSimulatorResult.getValidationResult())
-        .thenReturn(
-            ValidationResult.invalid(
-                TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE, "Invalid Transaction"));
+        .thenReturn(ValidationResult.invalid(invalidReason, "Invalid Transaction"));
     when(transactionSimulator.processWithWorldUpdater(
             any(), any(), any(), any(), any(), any(), any(), anyLong(), any(), any(), any(), any(),
             any()))
@@ -174,7 +191,7 @@ public class BlockSimulatorTest {
                 blockSimulator.process(
                     blockHeader, createSimulationParameter(blockStateCall), mutableWorldState));
 
-    assertThat(exception.getError()).isEqualTo(BlockStateCallError.UPFRONT_COST_EXCEEDS_BALANCE);
+    assertThat(exception.getError()).isEqualTo(expectedError);
     assertEquals("Invalid Transaction", exception.getMessage());
   }
 
