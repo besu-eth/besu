@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTrace;
+import org.hyperledger.besu.ethereum.vm.AbstractDebugOperationTracer;
 import org.hyperledger.besu.evm.tracing.TraceFrame;
 
 import java.util.ArrayList;
@@ -36,9 +37,10 @@ public class OpCodeLoggerTracerResult {
   public OpCodeLoggerTracerResult(final TransactionTrace transactionTrace) {
     gas = transactionTrace.getGas();
     final Bytes output = transactionTrace.getResult().getOutput();
-    returnValue = output.isEmpty() ? "" : output.toHexString();
+    returnValue = output.toHexString();
     structLogs = new ArrayList<>(transactionTrace.getTraceFrames().size());
     transactionTrace.getTraceFrames().parallelStream()
+        .filter(frame -> !isSyntheticEndOfCodeStop(frame))
         .map(OpCodeLoggerTracerResult::createStructLog)
         .forEachOrdered(structLogs::add);
     failed = !transactionTrace.getResult().isSuccessful();
@@ -54,6 +56,13 @@ public class OpCodeLoggerTracerResult {
         .getExceptionalHaltReason()
         .map(__ -> (StructLog) new StructLogWithError(frame))
         .orElse(new StructLog(frame));
+  }
+
+  private static boolean isSyntheticEndOfCodeStop(final TraceFrame frame) {
+    return AbstractDebugOperationTracer.isSyntheticEmptyCodeStop(
+        frame.isVirtualOperation(),
+        frame.getOpcode(),
+        frame.getMaybeCode().map(code -> code.getSize()).orElse(-1));
   }
 
   @JsonGetter(value = "structLogs")
