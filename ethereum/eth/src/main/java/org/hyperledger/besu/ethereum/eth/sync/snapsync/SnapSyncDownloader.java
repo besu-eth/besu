@@ -20,7 +20,6 @@ import org.hyperledger.besu.ethereum.eth.manager.exceptions.MaxRetriesReachedExc
 import org.hyperledger.besu.ethereum.eth.manager.exceptions.NoAvailablePeersException;
 import org.hyperledger.besu.ethereum.eth.sync.ChainDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.TrailingPeerRequirements;
-import org.hyperledger.besu.ethereum.eth.sync.common.CheckpointReorgException;
 import org.hyperledger.besu.ethereum.eth.sync.common.NoSyncRequiredException;
 import org.hyperledger.besu.ethereum.eth.sync.common.NoSyncRequiredState;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncActions;
@@ -106,22 +105,12 @@ public class SnapSyncDownloader implements SnapSyncController {
     Throwable rootCause = ExceptionUtils.rootCause(error);
     if (rootCause instanceof NoSyncRequiredException) {
       return CompletableFuture.completedFuture(new NoSyncRequiredState());
-    } else if (rootCause instanceof CheckpointReorgException) {
-      // The pivot's chain does not descend from the trusted checkpoint. Like a genesis-boundary
-      // mismatch, this usually means a bad or lagging pivot, so re-pivot to a fresh block rather
-      // than stopping the sync.
-      LOG.warn(
-          "Snap sync pivot does not descend from the trusted checkpoint; re-pivoting to a new "
-              + "block. If this repeats, verify the configured checkpoint (--checkpoint or the "
-              + "genesis checkpoint).");
-      return start(new SnapSyncProcessState());
     } else if (rootCause instanceof SyncException syncEx) {
       // Pivot block header mismatch is caused by bad peers — re-pivot to recover.
       LOG.debug("Sync error ({}), re-pivoting.", syncEx.getError());
       return start(new SnapSyncProcessState());
     } else if (rootCause instanceof WrongChainException) {
-      LOG.info(
-          "Snap sync downloaded header chain does not connect to genesis; re-pivoting to a new block.");
+      LOG.info("Snap sync pivot is not on the canonical chain; re-pivoting to a new block.");
       return start(new SnapSyncProcessState());
     } else if (rootCause instanceof StalledDownloadException) {
       LOG.debug("Stalled sync re-pivoting to newer block.");

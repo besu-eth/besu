@@ -31,11 +31,11 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.eth.sync.ChainDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.TrailingPeerRequirements;
-import org.hyperledger.besu.ethereum.eth.sync.common.CheckpointReorgException;
 import org.hyperledger.besu.ethereum.eth.sync.common.NoSyncRequiredState;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncActions;
 import org.hyperledger.besu.ethereum.eth.sync.common.SyncError;
 import org.hyperledger.besu.ethereum.eth.sync.common.SyncException;
+import org.hyperledger.besu.ethereum.eth.sync.common.WrongChainException;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.StalledDownloadException;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldStateDownloader;
 import org.hyperledger.besu.metrics.SyncDurationMetrics;
@@ -205,7 +205,7 @@ public class SnapSyncDownloaderTest {
     // mismatch: the downloader re-pivots to a fresh block and succeeds on the retry rather than
     // aborting.
     when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
-        .thenThrow(new CheckpointReorgException("trusted checkpoint reorged"))
+        .thenThrow(new WrongChainException("trusted checkpoint reorged"))
         .thenReturn(completedFuture(selectPivotBlockState));
     when(fastSyncActions.resolvePivotBlockHeader(selectPivotBlockState))
         .thenReturn(completedFuture(resolvePivotBlockHeaderState));

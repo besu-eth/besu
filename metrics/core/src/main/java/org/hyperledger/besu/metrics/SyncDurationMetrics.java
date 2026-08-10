@@ -20,11 +20,17 @@ import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 import org.hyperledger.besu.plugin.services.metrics.OperationTimer;
 
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * This class manages the synchronization duration metrics for the Hyperledger Besu project. It
  * provides methods to start and stop timers for various synchronization phases.
+ *
+ * <p>Every phase is measured at most once per process: the first completed measurement of a phase
+ * is recorded and any later attempt to start that phase's timer again is ignored. Sync phases are
+ * restarted whenever sync re-pivots, so without this the metric would report one sample per attempt
+ * instead of one sample for the phase.
  */
 public class SyncDurationMetrics {
 
@@ -35,6 +41,9 @@ public class SyncDurationMetrics {
   private final LabelledMetric<OperationTimer> timer;
 
   private final Map<String, OperationTimer.TimingContext> timers = new ConcurrentHashMap<>();
+
+  /** Phases whose duration has already been observed, and which must not be measured again. */
+  private final Set<String> recordedLabels = ConcurrentHashMap.newKeySet();
 
   /**
    * Creates a new {@link SyncDurationMetrics} instance.
@@ -48,22 +57,29 @@ public class SyncDurationMetrics {
   }
 
   /**
-   * Starts a timer for the given synchronization phase.
+   * Starts a timer for the given synchronization phase. Does nothing if the timer for that phase is
+   * already running, so a running measurement keeps its original start time, or if that phase has
+   * already been recorded.
    *
    * @param label The synchronization phase to start the timer for.
    */
-  public void startTimer(final Labels label) {
+  public synchronized void startTimer(final Labels label) {
+    if (recordedLabels.contains(label.name())) {
+      return;
+    }
     timers.computeIfAbsent(label.name(), k -> timer.labels(label.name()).startTimer());
   }
 
   /**
-   * Stops the timer for the given synchronization phase.
+   * Stops the timer for the given synchronization phase and records its duration. Does nothing if
+   * no timer is running for that phase. Once recorded, the phase cannot be measured again.
    *
    * @param label The synchronization phase to stop the timer for.
    */
-  public void stopTimer(final Labels label) {
+  public synchronized void stopTimer(final Labels label) {
     OperationTimer.TimingContext context = timers.remove(label.name());
     if (context != null) {
+      recordedLabels.add(label.name());
       context.stopTimer();
     }
   }

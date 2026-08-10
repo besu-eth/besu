@@ -26,7 +26,6 @@ import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.common.BackwardHeaderDriver;
 import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncStateStorage;
-import org.hyperledger.besu.ethereum.eth.sync.common.CheckpointReorgException;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotUpdateListener;
 import org.hyperledger.besu.ethereum.eth.sync.common.SingleBlockHeaderDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.common.WorldStateHealFinishedListener;
@@ -307,20 +306,13 @@ public class SnapSyncChainDownloader
                         : throwable;
                 if (cause instanceof CancellationException) {
                   LOG.info("Two-stage fast sync chain download cancelled");
-                } else if (cause instanceof WrongChainException
-                    || cause instanceof CheckpointReorgException) {
-                  // Expected, recoverable: the pivot is not on the trusted chain. The sync
-                  // re-pivots
-                  // (see SnapSyncDownloader.handleFailure), so log concisely without a stack trace
-                  // rather than as a failure.
+                } else if (cause instanceof WrongChainException) {
                   LOG.debug(
                       "Two-stage fast sync chain download stopping to re-pivot: {}",
                       cause.getMessage());
                 } else {
                   LOG.error("Two-stage fast sync chain download failed", throwable);
                 }
-                // Stop metrics on failure
-                syncDurationMetrics.stopTimer(SyncDurationMetrics.Labels.CHAIN_DOWNLOAD_DURATION);
                 return CompletableFuture.<Void>failedFuture(throwable);
               } else {
                 final Duration totalDuration = Duration.between(overallStartTime, Instant.now());
@@ -463,7 +455,7 @@ public class SnapSyncChainDownloader
         .getBlockHeader(newPivotNumber - 1)
         .orElseThrow(
             () ->
-                new CheckpointReorgException(
+                new WrongChainException(
                     "New pivot #" + newPivotNumber + " has no stored header below it"));
   }
 
@@ -485,9 +477,7 @@ public class SnapSyncChainDownloader
    */
   private Optional<Throwable> shouldRetry(final Throwable error) {
     final Throwable cause = error instanceof CompletionException ? error.getCause() : error;
-    if (cause instanceof CancellationException
-        || cause instanceof WrongChainException
-        || cause instanceof CheckpointReorgException) {
+    if (cause instanceof CancellationException || cause instanceof WrongChainException) {
       return Optional.of(cause);
     }
 
@@ -649,7 +639,7 @@ public class SnapSyncChainDownloader
                       + checkpoint.getHash()
                       + "). The pivot is not on the checkpoint's chain; re-pivoting.";
               LOG.debug(message);
-              throw new CheckpointReorgException(message);
+              throw new WrongChainException(message);
             });
   }
 

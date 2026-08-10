@@ -43,7 +43,6 @@ import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.common.BackwardHeaderDriver;
 import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncStateStorage;
-import org.hyperledger.besu.ethereum.eth.sync.common.CheckpointReorgException;
 import org.hyperledger.besu.ethereum.eth.sync.common.SingleBlockHeaderDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.common.WrongChainException;
 import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.Checkpoint;
@@ -63,6 +62,7 @@ import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -191,6 +191,95 @@ public class SnapSyncChainDownloaderTest {
     // Before the fix this blocks until the timeout; after the fix cancel() completes the future.
     assertThatThrownBy(() -> downloadFuture.get(5, TimeUnit.SECONDS))
         .hasRootCauseInstanceOf(CancellationException.class);
+  }
+
+  @Test
+  public void shouldRejectASecondStart() throws Exception {
+    setupSuccessfulPipelineMocks();
+
+    final SnapSyncChainDownloader downloader =
+        new SnapSyncChainDownloader(
+            pipelineFactory,
+            syncConfig,
+            protocolSchedule,
+            protocolContext,
+            ethContext,
+            syncState,
+            syncDurationMetrics,
+            pivotBlockHeader,
+            chainSyncStateStorage,
+            headerDownloader);
+
+    downloader.onWorldStateHealFinished();
+    downloader.start().get(5, TimeUnit.SECONDS);
+
+    // Restarting the same downloader would run a second download over shared mutable state.
+    assertThatThrownBy(() -> downloader.start().get(5, TimeUnit.SECONDS))
+        .hasCauseInstanceOf(IllegalStateException.class);
+  }
+
+  @Test
+  public void cancellationBeforeStartAbortsWithoutStartingAPipeline() {
+    final SnapSyncChainDownloader downloader =
+        new SnapSyncChainDownloader(
+            pipelineFactory,
+            syncConfig,
+            protocolSchedule,
+            protocolContext,
+            ethContext,
+            syncState,
+            syncDurationMetrics,
+            pivotBlockHeader,
+            chainSyncStateStorage,
+            headerDownloader);
+
+    // Sync can be stopped while the world state downloader is still wiring the chain download up.
+    downloader.cancel();
+
+    assertThatThrownBy(() -> downloader.start().get(5, TimeUnit.SECONDS))
+        .hasRootCauseInstanceOf(CancellationException.class);
+    verify(pipelineFactory, never()).createBackwardHeaderDownloadPipeline(any());
+  }
+
+  @Test
+  public void cancellationDuringStage1SkipsStage2() {
+    final AtomicReference<SnapSyncChainDownloader> downloaderRef = new AtomicReference<>();
+
+    @SuppressWarnings("unchecked")
+    final Pipeline<Long> backwardPipeline = mock(Pipeline.class);
+    final BackwardHeaderDriver driver = mock(BackwardHeaderDriver.class);
+    lenient().when(driver.getMatchedAncestor()).thenReturn(Optional.empty());
+    when(pipelineFactory.createBackwardHeaderDownloadPipeline(any()))
+        .thenReturn(
+            new SnapSyncChainDownloadPipelineFactory.BackwardHeaderPipelineResult(
+                backwardPipeline, driver));
+    // Sync is stopped while Stage 1 is running; the cycle must not go on to download bodies.
+    when(scheduler.startPipeline(any()))
+        .thenAnswer(
+            invocation -> {
+              downloaderRef.get().cancel();
+              return CompletableFuture.completedFuture(null);
+            });
+    when(ethPeers.peerCount()).thenReturn(1);
+
+    final SnapSyncChainDownloader downloader =
+        new SnapSyncChainDownloader(
+            pipelineFactory,
+            syncConfig,
+            protocolSchedule,
+            protocolContext,
+            ethContext,
+            syncState,
+            syncDurationMetrics,
+            pivotBlockHeader,
+            chainSyncStateStorage,
+            headerDownloader);
+    downloaderRef.set(downloader);
+
+    assertThatThrownBy(() -> downloader.start().get(5, TimeUnit.SECONDS))
+        .hasRootCauseInstanceOf(CancellationException.class);
+    verify(pipelineFactory, never())
+        .createForwardBodiesAndReceiptsDownloadPipeline(anyLong(), any(), any());
   }
 
   @Test
@@ -1062,7 +1151,7 @@ public class SnapSyncChainDownloaderTest {
     downloader.onWorldStateHealFinished();
 
     assertThatThrownBy(() -> downloader.start().get(5, TimeUnit.SECONDS))
-        .hasRootCauseInstanceOf(CheckpointReorgException.class);
+        .hasRootCauseInstanceOf(WrongChainException.class);
   }
 
   @Test
