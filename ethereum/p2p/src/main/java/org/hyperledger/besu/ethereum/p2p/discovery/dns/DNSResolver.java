@@ -43,6 +43,7 @@ import org.slf4j.LoggerFactory;
 /** Resolves a set of ENR nodes from a host name. */
 public class DNSResolver {
   private static final Logger LOG = LoggerFactory.getLogger(DNSResolver.class);
+  private static final String ENR_TREE_ROOT_PREFIX = "enrtree-root:";
   private final String enrLink;
   private long seq;
   private final DnsClient dnsClient;
@@ -142,7 +143,12 @@ public class DNSResolver {
 
   private boolean internalVisit(
       final String entryName, final String domainName, final DNSVisitor visitor) {
-    final Optional<DNSEntry> optionalDNSEntry = resolveRecord(entryName + "." + domainName);
+    final String name = entryName + "." + domainName;
+    final Optional<String> rawRecord = resolveRawRecord(name);
+    if (rawRecord.isEmpty()) {
+      return true;
+    }
+    final Optional<DNSEntry> optionalDNSEntry = Optional.ofNullable(readDNSEntry(rawRecord.get()));
     if (optionalDNSEntry.isEmpty()) {
       return true;
     }
@@ -167,13 +173,25 @@ public class DNSResolver {
   }
 
   /**
-   * Maps TXT DNS record to DNSEntry.
+   * Maps the tree root TXT record of a domain to a DNSEntry.
+   *
+   * <p>A tree apex is an ordinary domain name that may also serve unrelated TXT records such as SPF
+   * or an ownership token. A root entry is around 173 bytes so it always fits a single
+   * &lt;character-string&gt;, which means the root can be picked out by its prefix instead of
+   * concatenating whatever else is published at that name into it.
    *
    * @param domainName the domain name to query
-   * @return the DNS entry read from the domain. Empty if no record is found.
+   * @return the tree root entry published at the domain. Empty if no root record is found.
    */
   Optional<DNSEntry> resolveRecord(final String domainName) {
-    return resolveRawRecord(domainName).map(DNSResolver::readDNSEntry);
+    return resolveTxtStrings(domainName)
+        .flatMap(
+            records ->
+                records.stream()
+                    .map(DNSResolver::trimQuotes)
+                    .filter(record -> record.startsWith(ENR_TREE_ROOT_PREFIX))
+                    .findFirst())
+        .map(DNSResolver::readDNSEntry);
   }
 
   /**
@@ -218,17 +236,31 @@ public class DNSResolver {
   }
 
   /**
-   * Resolves the first TXT record for a domain name and returns it.
+   * Resolves the TXT record for a domain name and returns it.
+   *
+   * <p>RFC 1035 caps a single &lt;character-string&gt; at 255 bytes, so a record longer than that
+   * is transported as several of them and must be rejoined without a separator. EIP-1459 budgets up
+   * to the 512 byte UDP limit per record, and EIP-778 permits a 300 byte ENR (about 404 characters
+   * once base64url encoded), so multi-string records are normal rather than exceptional. Reading
+   * only the first string silently truncates them.
    *
    * @param domainName the name of the DNS domain to query
-   * @return the first TXT entry of the DNS record. Empty if no record is found.
+   * @return the TXT entry of the DNS record. Empty if no record is found.
    */
   Optional<String> resolveRawRecord(final String domainName) {
+    return resolveTxtStrings(domainName).map(records -> String.join("", records));
+  }
+
+  private Optional<List<String>> resolveTxtStrings(final String domainName) {
     LOG.trace("Resolving TXT records on domain: {}", domainName);
     try {
       // Future.await parks current virtual thread and waits for the result. Any failure is
       // thrown as a Throwable.
-      return Future.await(dnsClient.resolveTXT(domainName)).stream().findFirst();
+      final List<String> records = Future.await(dnsClient.resolveTXT(domainName));
+      if (records == null || records.isEmpty()) {
+        return Optional.empty();
+      }
+      return Optional.of(records);
     } catch (final Throwable e) {
       LOG.trace("Error while resolving TXT records on domain: {}", domainName, e);
       return Optional.empty();

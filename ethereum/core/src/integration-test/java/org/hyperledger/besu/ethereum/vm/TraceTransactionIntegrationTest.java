@@ -21,6 +21,7 @@ import static org.hyperledger.besu.ethereum.trie.pathbased.common.provider.World
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
@@ -29,6 +30,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.ExecutionContextTestFixture;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.Util;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
@@ -254,6 +256,57 @@ public class TraceTransactionIntegrationTest {
         "0000000000000000000000000000000000000000000000000000000000000000",
         "0000000000000000000000000000000000000000000000000000000000000000",
         "0000000000000000000000000000000000000000000000000000000000000080");
+  }
+
+  @Test
+  public void shouldTraceEoaToEoaTransferWithSyntheticStopOnly() {
+    final KeyPair keyPair = SignatureAlgorithmFactory.getInstance().generateKeyPair();
+    final Address sender = Util.publicKeyToAddress(keyPair.getPublicKey());
+
+    final BlockHeader genesisBlockHeader = genesisBlock.getHeader();
+    final MutableWorldState worldState =
+        worldStateArchive
+            .getWorldState(
+                withStateRootAndBlockHashAndUpdateNodeHead(
+                    genesisBlockHeader.getStateRoot(), genesisBlockHeader.getHash()))
+            .get();
+    final WorldUpdater fundingUpdater = worldState.updater();
+    fundingUpdater.createAccount(sender, 0, Wei.of(1_000_000L));
+    fundingUpdater.commit();
+
+    final DebugOperationTracer tracer =
+        new DebugOperationTracer(
+            OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT).build(), false);
+    final Transaction transferTransaction =
+        Transaction.builder()
+            .type(TransactionType.FRONTIER)
+            .gasLimit(300_000)
+            .gasPrice(Wei.ZERO)
+            .nonce(0)
+            .to(Address.fromHexString("0x00000000000000000000000000000000deadbeef"))
+            .value(Wei.of(1_000L))
+            .payload(Bytes.EMPTY)
+            .signAndBuild(keyPair);
+
+    final TransactionProcessingResult result =
+        transactionProcessor.processTransaction(
+            worldState.updater(),
+            genesisBlockHeader,
+            transferTransaction,
+            genesisBlockHeader.getCoinbase(),
+            tracer,
+            blockHashLookup,
+            Wei.ZERO);
+
+    assertThat(result.isSuccessful()).isTrue();
+
+    final List<TraceFrame> traceFrames = tracer.getTraceFrames();
+    assertThat(traceFrames).hasSize(1);
+    final TraceFrame frame = traceFrames.get(0);
+    assertThat(frame.getOpcode()).isEqualTo("STOP");
+    assertThat(frame.isVirtualOperation()).isTrue();
+    assertThat(frame.getMaybeCode()).isPresent();
+    assertThat(frame.getMaybeCode().get().getSize()).isZero();
   }
 
   private void assertStackContainsExactly(
