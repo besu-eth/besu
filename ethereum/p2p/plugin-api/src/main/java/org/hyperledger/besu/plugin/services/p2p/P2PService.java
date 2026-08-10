@@ -28,8 +28,8 @@ import org.apache.tuweni.bytes.Bytes;
 
 /**
  * Service giving plugins access to the peer-to-peer network, letting them query peers and
- * connections, subscribe to connect, disconnect and message events, send messages to specific
- * peers and control the P2P network lifecycle.
+ * connections, subscribe to connect, disconnect and message events, send messages to specific peers
+ * and control the P2P network lifecycle.
  */
 @Unstable
 public interface P2PService extends BesuService {
