@@ -106,6 +106,16 @@ public class ProtocolScheduleBuilder {
     // At this stage, all milestones are flagged with the correct modifier, but ProtocolSpecs must
     // be inserted _AT_ the modifier block entry.
     if (!builders.isEmpty()) {
+      // A modifier's raw value can only be safely reinterpreted as a TIMESTAMP by inheriting its
+      // floor milestone's type if the schedule genuinely mixes BLOCK_NUMBER and TIMESTAMP EVM
+      // milestones - i.e. there's an actual pre/post-Merge boundary to disambiguate against. If
+      // every EVM milestone present is TIMESTAMP-typed (the common case for a modern private
+      // network: only e.g. "shanghaiTime": 0), a raw "block": N modifier value is unambiguous and
+      // must default to BLOCK_NUMBER rather than being silently reinterpreted as a wall-clock
+      // timestamp. See https://github.com/besu-eth/besu/issues/10878.
+      final boolean hasBlockNumberMilestone =
+          builders.values().stream()
+              .anyMatch(entry -> entry.milestoneType == MilestoneType.BLOCK_NUMBER);
       protocolSpecAdapters.stream()
           .forEach(
               entry -> {
@@ -114,11 +124,13 @@ public class ProtocolScheduleBuilder {
                     Optional.ofNullable(builders.floorEntry(modifierBlock))
                         .orElse(builders.firstEntry())
                         .getValue();
+                final MilestoneType milestoneType =
+                    hasBlockNumberMilestone ? parent.milestoneType : MilestoneType.BLOCK_NUMBER;
                 builders.put(
                     modifierBlock,
                     new BuilderMapEntry(
                         parent.hardforkId,
-                        parent.milestoneType,
+                        milestoneType,
                         modifierBlock,
                         parent.builder(),
                         entry.getValue()));
