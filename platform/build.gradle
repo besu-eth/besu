@@ -33,9 +33,10 @@ dependencies {
   api platform('io.prometheus:prometheus-metrics-bom:1.5.0')
   api platform('io.vertx:vertx-stack-depchain:4.5.27')
   api platform('org.apache.logging.log4j:log4j-bom:2.25.5')
+  api platform('io.vertx:vertx-stack-depchain:5.1.6')
   api platform('org.assertj:assertj-bom:3.27.7')
   api platform('org.immutables:bom:2.12.1')
-  api platform('org.junit:junit-bom:5.13.4')
+  api platform('org.junit:junit-bom:5.14.4')
   api platform('org.jetbrains.kotlin:kotlin-bom:2.4.0')
   api platform('org.mockito:mockito-bom:5.21.0')
   api platform('org.slf4j:slf4j-bom:2.0.17')
@@ -93,6 +94,8 @@ dependencies {
     api 'com.google.guava:guava:33.5.0-jre'
 
     api 'org.checkerframework:checker-qual:3.43.0'
+
+    api 'com.google.errorprone:error_prone_annotations:2.41.0'
 
     api 'org.jspecify:jspecify:1.0.0'
 

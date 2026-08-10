@@ -24,7 +24,6 @@ import java.util.List;
 import java.util.concurrent.ConcurrentLinkedDeque;
 
 import io.vertx.core.Vertx;
-import io.vertx.core.http.HttpClientOptions;
 import io.vertx.core.http.WebSocket;
 import io.vertx.core.http.WebSocketConnectOptions;
 import io.vertx.core.json.DecodeException;
@@ -84,9 +83,9 @@ public class WebSocketConnection {
 
   private void connect(final Vertx vertx) {
     vertx
-        .createHttpClient(new HttpClientOptions())
-        .webSocket(
-            options,
+        .createWebSocketClient()
+        .connect(options)
+        .onComplete(
             websocket -> {
               webSocketConnection(websocket.result());
 

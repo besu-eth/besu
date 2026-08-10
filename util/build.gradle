@@ -56,6 +56,7 @@ dependencies {
   errorprone 'com.uber.nullaway:nullaway'
 
   implementation 'com.google.guava:guava'
+  compileOnly 'com.google.errorprone:error_prone_annotations'
   implementation 'com.google.dagger:dagger'
   implementation 'com.github.ben-manes.caffeine:caffeine'
   implementation 'io.consensys.tuweni:tuweni-bytes'

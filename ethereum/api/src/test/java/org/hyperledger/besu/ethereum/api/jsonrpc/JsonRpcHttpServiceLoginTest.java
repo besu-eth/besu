@@ -80,6 +80,8 @@ import io.vertx.core.json.Json;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.auth.User;
+import io.vertx.ext.auth.authentication.TokenCredentials;
+import io.vertx.ext.auth.authorization.PermissionBasedAuthorization;
 import io.vertx.ext.auth.jwt.JWTAuth;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
@@ -272,18 +274,15 @@ public class JsonRpcHttpServiceLoginTest {
       final String token = respBody.getString("token");
       assertThat(token).isNotNull();
 
-      jwtAuth.authenticate(
-          new JsonObject().put("token", token),
-          (r) -> {
-            assertThat(r.succeeded()).isTrue();
-            final User user = r.result();
-            user.isAuthorized(
-                "noauths",
-                (authed) -> {
-                  assertThat(authed.succeeded()).isTrue();
-                  assertThat(authed.result()).isFalse();
-                });
-          });
+      jwtAuth
+          .authenticate(new TokenCredentials(token))
+          .onComplete(
+              (r) -> {
+                assertThat(r.succeeded()).isTrue();
+                final User user = r.result();
+                final boolean authed = PermissionBasedAuthorization.create("noauths").match(user);
+                assertThat(authed).isFalse();
+              });
     }
   }
 
@@ -306,24 +305,18 @@ public class JsonRpcHttpServiceLoginTest {
       final String token = respBody.getString("token");
       assertThat(token).isNotNull();
 
-      jwtAuth.authenticate(
-          new JsonObject().put("token", token),
-          (r) -> {
-            assertThat(r.succeeded()).isTrue();
-            final User user = r.result();
-            user.isAuthorized(
-                "noauths",
-                (authed) -> {
-                  assertThat(authed.succeeded()).isTrue();
-                  assertThat(authed.result()).isFalse();
-                });
-            user.isAuthorized(
-                "fakePermission",
-                (authed) -> {
-                  assertThat(authed.succeeded()).isTrue();
-                  assertThat(authed.result()).isTrue();
-                });
-          });
+      jwtAuth
+          .authenticate(new TokenCredentials(token))
+          .onComplete(
+              (r) -> {
+                assertThat(r.succeeded()).isTrue();
+                final User user = r.result();
+                final boolean noauths = PermissionBasedAuthorization.create("noauths").match(user);
+                assertThat(noauths).isFalse();
+                final boolean fakePermission =
+                    PermissionBasedAuthorization.create("fakePermission").match(user);
+                assertThat(fakePermission).isTrue();
+              });
     }
   }
 
@@ -437,46 +430,49 @@ public class JsonRpcHttpServiceLoginTest {
       final JsonRpcMethod web3Sha3 = new Web3Sha3();
       final JsonRpcMethod web3ClientVersion = new Web3ClientVersion("777");
 
-      jwtAuth.authenticate(
-          new JsonObject().put("token", token),
-          (r) -> {
-            assertThat(r.succeeded()).isTrue();
-            final User user = r.result();
-            // single eth/blockNumber method permitted
-            Assertions.assertThat(
-                    service
-                        .authenticationService
-                        .get()
-                        .isPermitted(Optional.of(user), ethBlockNumber, Collections.emptyList()))
-                .isTrue();
-            // eth/accounts NOT permitted
-            assertThat(
-                    service
-                        .authenticationService
-                        .get()
-                        .isPermitted(Optional.of(user), ethAccounts, Collections.emptyList()))
-                .isFalse();
-            // allowed by web3/*
-            assertThat(
-                    service
-                        .authenticationService
-                        .get()
-                        .isPermitted(Optional.of(user), web3ClientVersion, Collections.emptyList()))
-                .isTrue();
-            assertThat(
-                    service
-                        .authenticationService
-                        .get()
-                        .isPermitted(Optional.of(user), web3Sha3, Collections.emptyList()))
-                .isTrue();
-            // NO net permissions
-            assertThat(
-                    service
-                        .authenticationService
-                        .get()
-                        .isPermitted(Optional.of(user), netVersion, Collections.emptyList()))
-                .isFalse();
-          });
+      jwtAuth
+          .authenticate(new TokenCredentials(token))
+          .onComplete(
+              (r) -> {
+                assertThat(r.succeeded()).isTrue();
+                final User user = r.result();
+                // single eth/blockNumber method permitted
+                Assertions.assertThat(
+                        service
+                            .authenticationService
+                            .get()
+                            .isPermitted(
+                                Optional.of(user), ethBlockNumber, Collections.emptyList()))
+                    .isTrue();
+                // eth/accounts NOT permitted
+                assertThat(
+                        service
+                            .authenticationService
+                            .get()
+                            .isPermitted(Optional.of(user), ethAccounts, Collections.emptyList()))
+                    .isFalse();
+                // allowed by web3/*
+                assertThat(
+                        service
+                            .authenticationService
+                            .get()
+                            .isPermitted(
+                                Optional.of(user), web3ClientVersion, Collections.emptyList()))
+                    .isTrue();
+                assertThat(
+                        service
+                            .authenticationService
+                            .get()
+                            .isPermitted(Optional.of(user), web3Sha3, Collections.emptyList()))
+                    .isTrue();
+                // NO net permissions
+                assertThat(
+                        service
+                            .authenticationService
+                            .get()
+                            .isPermitted(Optional.of(user), netVersion, Collections.emptyList()))
+                    .isFalse();
+              });
     }
   }
 
@@ -507,46 +503,49 @@ public class JsonRpcHttpServiceLoginTest {
       final JsonRpcMethod web3ClientVersion = new Web3ClientVersion("777");
 
       // adminuser has *:* permissions so everything should be allowed
-      jwtAuth.authenticate(
-          new JsonObject().put("token", token),
-          (r) -> {
-            assertThat(r.succeeded()).isTrue();
-            final User user = r.result();
-            // single eth/blockNumber method permitted
-            Assertions.assertThat(
-                    service
-                        .authenticationService
-                        .get()
-                        .isPermitted(Optional.of(user), ethBlockNumber, Collections.emptyList()))
-                .isTrue();
-            // eth/accounts IS permitted
-            assertThat(
-                    service
-                        .authenticationService
-                        .get()
-                        .isPermitted(Optional.of(user), ethAccounts, Collections.emptyList()))
-                .isTrue();
-            // allowed by *:*
-            assertThat(
-                    service
-                        .authenticationService
-                        .get()
-                        .isPermitted(Optional.of(user), web3ClientVersion, Collections.emptyList()))
-                .isTrue();
-            assertThat(
-                    service
-                        .authenticationService
-                        .get()
-                        .isPermitted(Optional.of(user), web3Sha3, Collections.emptyList()))
-                .isTrue();
-            // YES net permissions
-            assertThat(
-                    service
-                        .authenticationService
-                        .get()
-                        .isPermitted(Optional.of(user), netVersion, Collections.emptyList()))
-                .isTrue();
-          });
+      jwtAuth
+          .authenticate(new TokenCredentials(token))
+          .onComplete(
+              (r) -> {
+                assertThat(r.succeeded()).isTrue();
+                final User user = r.result();
+                // single eth/blockNumber method permitted
+                Assertions.assertThat(
+                        service
+                            .authenticationService
+                            .get()
+                            .isPermitted(
+                                Optional.of(user), ethBlockNumber, Collections.emptyList()))
+                    .isTrue();
+                // eth/accounts IS permitted
+                assertThat(
+                        service
+                            .authenticationService
+                            .get()
+                            .isPermitted(Optional.of(user), ethAccounts, Collections.emptyList()))
+                    .isTrue();
+                // allowed by *:*
+                assertThat(
+                        service
+                            .authenticationService
+                            .get()
+                            .isPermitted(
+                                Optional.of(user), web3ClientVersion, Collections.emptyList()))
+                    .isTrue();
+                assertThat(
+                        service
+                            .authenticationService
+                            .get()
+                            .isPermitted(Optional.of(user), web3Sha3, Collections.emptyList()))
+                    .isTrue();
+                // YES net permissions
+                assertThat(
+                        service
+                            .authenticationService
+                            .get()
+                            .isPermitted(Optional.of(user), netVersion, Collections.emptyList()))
+                    .isTrue();
+              });
     }
   }
 

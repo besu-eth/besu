@@ -20,7 +20,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 import com.google.common.base.Splitter;
@@ -161,11 +160,10 @@ public class MockDnsServerVerticle extends AbstractVerticle {
     buffer.appendShort((short) 1); // Class (IN)
 
     for (final String txtRecord : records) {
-      for (String label : queryLabels) {
-        buffer.appendByte((byte) label.length());
-        buffer.appendString(label.toLowerCase(Locale.ROOT));
-      }
-      buffer.appendByte((byte) 0); // End of answer name
+      // Compression pointer back to the question name at offset 0x0C (RFC 1035 4.1.4), rather than
+      // repeating the labels: Vert.x 5's stricter DNS decoder doesn't accept the repeated-labels
+      // form here the way the 4.x decoder did.
+      buffer.appendShort((short) 0xC00C);
 
       buffer.appendShort((short) 16); // TXT record type
       buffer.appendShort((short) 1); // Class (IN)

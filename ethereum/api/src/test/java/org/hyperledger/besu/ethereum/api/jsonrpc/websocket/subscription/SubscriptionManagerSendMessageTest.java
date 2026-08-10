@@ -50,7 +50,7 @@ public class SubscriptionManagerSendMessageTest {
     vertx = Vertx.vertx();
     testContext = new VertxTestContext();
     subscriptionManager = new SubscriptionManager(new NoOpMetricsSystem());
-    vertx.deployVerticle(subscriptionManager, testContext.succeedingThenComplete());
+    vertx.deployVerticle(subscriptionManager).onComplete(testContext.succeedingThenComplete());
   }
 
   @Test
@@ -77,7 +77,8 @@ public class SubscriptionManagerSendMessageTest {
               assertEquals(Json.encode(expectedResponse), msg.body());
               testContext.completeNow();
             })
-        .completionHandler(v -> subscriptionManager.sendMessage(subscriptionId, expectedResult));
+        .completion()
+        .onComplete(v -> subscriptionManager.sendMessage(subscriptionId, expectedResult));
 
     testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
   }
@@ -95,7 +96,8 @@ public class SubscriptionManagerSendMessageTest {
               Assertions.fail("Shouldn't receive message");
               testContext.completeNow();
             })
-        .completionHandler(v -> subscriptionManager.sendMessage(1L, mock(JsonRpcResult.class)));
+        .completion()
+        .onComplete(v -> subscriptionManager.sendMessage(1L, mock(JsonRpcResult.class)));
 
     // if it doesn't receive the message in 5 seconds we assume it won't receive anymore
     vertx.setPeriodic(5000, v -> testContext.completeNow());

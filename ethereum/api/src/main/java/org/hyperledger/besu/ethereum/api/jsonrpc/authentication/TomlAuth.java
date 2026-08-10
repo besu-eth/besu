@@ -19,13 +19,13 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-import io.vertx.core.AsyncResult;
 import io.vertx.core.Future;
-import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
-import io.vertx.core.json.JsonObject;
 import io.vertx.ext.auth.User;
 import io.vertx.ext.auth.authentication.AuthenticationProvider;
+import io.vertx.ext.auth.authentication.CredentialValidationException;
+import io.vertx.ext.auth.authentication.Credentials;
+import io.vertx.ext.auth.authentication.UsernamePasswordCredentials;
 import org.apache.tuweni.toml.Toml;
 import org.apache.tuweni.toml.TomlParseResult;
 import org.apache.tuweni.toml.TomlTable;
@@ -43,61 +43,45 @@ public class TomlAuth implements AuthenticationProvider {
   }
 
   @Override
-  public void authenticate(
-      final JsonObject authInfo, final Handler<AsyncResult<User>> resultHandler) {
-    final String username = authInfo.getString("username");
+  public Future<User> authenticate(final Credentials credentials) {
+    final UsernamePasswordCredentials usernamePasswordCredentials =
+        (UsernamePasswordCredentials) credentials;
+    final String username = usernamePasswordCredentials.getUsername();
     if (username == null) {
-      resultHandler.handle(Future.failedFuture("No username provided"));
-      return;
+      return Future.failedFuture("No username provided");
     }
 
-    final String password = authInfo.getString("password");
+    final String password = usernamePasswordCredentials.getPassword();
     if (password == null) {
-      resultHandler.handle(Future.failedFuture("No password provided"));
-      return;
+      return Future.failedFuture("No password provided");
     }
 
-    vertx.executeBlocking(
-        f -> {
-          TomlParseResult parseResult;
+    return vertx.executeBlocking(
+        () -> {
+          final TomlParseResult parseResult;
           try {
             parseResult = Toml.parse(options.getTomlPath());
-          } catch (IOException e) {
-            f.fail(e);
-            return;
+          } catch (final IOException e) {
+            throw new CredentialValidationException(e.getMessage(), e);
           }
 
           final TomlTable userData = parseResult.getTableOrEmpty("Users." + username);
           if (userData.isEmpty()) {
-            f.fail("User not found");
-            return;
+            throw new CredentialValidationException("User not found");
           }
 
           final TomlUser tomlUser = readTomlUserFromTable(username, userData);
           if (tomlUser.getPassword().isEmpty()) {
-            f.fail("No password set for user");
-            return;
+            throw new CredentialValidationException("No password set for user");
           }
 
-          checkPasswordHash(
-              password,
-              tomlUser.getPassword(),
-              rs -> {
-                if (rs.succeeded()) {
-                  f.complete(tomlUser);
-                } else {
-                  f.fail(rs.cause());
-                }
-              });
-        },
-        false,
-        res -> {
-          if (res.succeeded()) {
-            resultHandler.handle(Future.succeededFuture((User) res.result()));
-          } else {
-            resultHandler.handle(Future.failedFuture(res.cause()));
+          if (!checkPasswordHash(password, tomlUser.getPassword())) {
+            throw new CredentialValidationException("Invalid password");
           }
-        });
+
+          return tomlUser;
+        },
+        false);
   }
 
   private TomlUser readTomlUserFromTable(final String username, final TomlTable userData) {
@@ -121,15 +105,7 @@ public class TomlAuth implements AuthenticationProvider {
         username, saltedAndHashedPassword, groups, permissions, roles, privacyPublicKey);
   }
 
-  private void checkPasswordHash(
-      final String password,
-      final String passwordHash,
-      final Handler<AsyncResult<Void>> resultHandler) {
-    boolean passwordMatches = BCrypt.checkpw(password, passwordHash);
-    if (passwordMatches) {
-      resultHandler.handle(Future.succeededFuture());
-    } else {
-      resultHandler.handle(Future.failedFuture("Invalid password"));
-    }
+  private boolean checkPasswordHash(final String password, final String passwordHash) {
+    return BCrypt.checkpw(password, passwordHash);
   }
 }

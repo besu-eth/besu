@@ -597,7 +597,7 @@ public abstract class CommandTestAbstract {
     public void close() {
       if (vertx != null) {
         final AtomicBoolean closed = new AtomicBoolean(false);
-        vertx.close(event -> closed.set(true));
+        vertx.close().onComplete(event -> closed.set(true));
         Awaitility.waitAtMost(30, TimeUnit.SECONDS).until(closed::get);
       }
     }
