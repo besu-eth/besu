@@ -15,9 +15,9 @@
 package org.hyperledger.besu.controller;
 
 import org.hyperledger.besu.consensus.common.bft.BftBlockInterface;
-import org.hyperledger.besu.consensus.common.bft.queries.BftQueryServiceImpl;
+import org.hyperledger.besu.consensus.common.pluginadapter.BftQueryServiceImpl;
 import org.hyperledger.besu.consensus.common.validator.ValidatorProvider;
-import org.hyperledger.besu.consensus.ibft.queries.IbftQueryServiceImpl;
+import org.hyperledger.besu.consensus.ibft.pluginadapter.IbftQueryServiceImpl;
 import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.plugin.services.query.BftQueryService;

@@ -12,12 +12,11 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.consensus.common.bft.queries;
+package org.hyperledger.besu.consensus.ibft.pluginadapter;
 
-import org.hyperledger.besu.consensus.common.PoaQueryServiceImpl;
 import org.hyperledger.besu.consensus.common.bft.BftBlockInterface;
 import org.hyperledger.besu.consensus.common.bft.BftExtraData;
-import org.hyperledger.besu.consensus.common.validator.ValidatorProvider;
+import org.hyperledger.besu.consensus.common.pluginadapter.PoaQueryServiceImpl;
 import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
@@ -30,38 +29,28 @@ import java.util.Collections;
 
 import org.apache.tuweni.bytes.Bytes32;
 
-/** The Bft query service. */
-public class BftQueryServiceImpl extends PoaQueryServiceImpl implements BftQueryService {
+/** The Ibft query service. */
+public class IbftQueryServiceImpl extends PoaQueryServiceImpl implements BftQueryService {
 
-  private final ValidatorProvider validatorProvider;
-  private final String consensusMechanismName;
-  private final BftBlockInterface bftBlockInterface;
+  private final BftBlockInterface blockInterface;
 
   /**
-   * Instantiates a new Bft query service.
+   * Instantiates a new Ibft query service.
    *
    * @param blockInterface the block interface
    * @param blockchain the blockchain
-   * @param validatorProvider the validator provider
    * @param nodeKey the node key
-   * @param consensusMechanismName the consensus mechanism name
    */
-  public BftQueryServiceImpl(
-      final BftBlockInterface blockInterface,
-      final Blockchain blockchain,
-      final ValidatorProvider validatorProvider,
-      final NodeKey nodeKey,
-      final String consensusMechanismName) {
+  public IbftQueryServiceImpl(
+      final BftBlockInterface blockInterface, final Blockchain blockchain, final NodeKey nodeKey) {
     super(blockInterface, blockchain, nodeKey);
-    this.bftBlockInterface = blockInterface;
-    this.validatorProvider = validatorProvider;
-    this.consensusMechanismName = consensusMechanismName;
+    this.blockInterface = blockInterface;
   }
 
   @Override
   public int getRoundNumberFrom(final org.hyperledger.besu.plugin.data.BlockHeader header) {
     final BlockHeader headerFromChain = getHeaderFromChain(header);
-    final BftExtraData extraData = bftBlockInterface.getExtraData(headerFromChain);
+    final BftExtraData extraData = blockInterface.getExtraData(headerFromChain);
     return extraData.getRound();
   }
 
@@ -69,17 +58,7 @@ public class BftQueryServiceImpl extends PoaQueryServiceImpl implements BftQuery
   public Collection<Address> getSignersFrom(
       final org.hyperledger.besu.plugin.data.BlockHeader header) {
     final BlockHeader headerFromChain = getHeaderFromChain(header);
-    return Collections.unmodifiableList(bftBlockInterface.getCommitters(headerFromChain));
-  }
-
-  @Override
-  public Collection<Address> getValidatorsForLatestBlock() {
-    return Collections.unmodifiableCollection(validatorProvider.getValidatorsAtHead());
-  }
-
-  @Override
-  public String getConsensusMechanismName() {
-    return consensusMechanismName;
+    return Collections.unmodifiableList(blockInterface.getCommitters(headerFromChain));
   }
 
   private BlockHeader getHeaderFromChain(
@@ -90,5 +69,10 @@ public class BftQueryServiceImpl extends PoaQueryServiceImpl implements BftQuery
 
     final Hash blockHash = Hash.wrap(Bytes32.wrap(header.getBlockHash().getBytes().toArray()));
     return getBlockchain().getBlockHeader(blockHash).orElseThrow();
+  }
+
+  @Override
+  public String getConsensusMechanismName() {
+    return "ibft";
   }
 }

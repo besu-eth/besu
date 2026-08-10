@@ -35,12 +35,12 @@ public interface BftQueryService extends PoaQueryService {
    * caller.
    *
    * @param header the block header from which a list of signers is to be extracted
-   * @return The addresses of
+   * @return The addresses of the validators whose commit seals are in the supplied block header.
    */
   Collection<Address> getSignersFrom(final BlockHeader header);
 
   /**
-   * Returns the literal name of the BFT consensus mechanism is use (eg ibft or qbft), which forms
+   * Returns the literal name of the BFT consensus mechanism in use (eg ibft or qbft), which forms
    * the prefix for all BFT metrics.
    *
    * @return The name of the consensus mechanism being used by Besu

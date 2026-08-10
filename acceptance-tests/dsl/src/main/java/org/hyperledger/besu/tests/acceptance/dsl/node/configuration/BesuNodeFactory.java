@@ -453,6 +453,33 @@ public class BesuNodeFactory {
             .build());
   }
 
+  public BesuNode createIbft2PluginsNode(
+      final String name,
+      final List<String> plugins,
+      final PluginConfiguration pluginConfiguration,
+      final List<String> extraCLIOptions,
+      final String... extraRpcApis)
+      throws IOException {
+
+    final List<String> enableRpcApis = new ArrayList<>(Arrays.asList(extraRpcApis));
+    enableRpcApis.addAll(List.of(IBFT.name(), ADMIN.name(), PLUGINS.name()));
+
+    return create(
+        new BesuNodeConfigurationBuilder()
+            .name(name)
+            .jsonRpcConfiguration(
+                node.createJsonRpcWithRpcApiEnabledConfig(enableRpcApis.toArray(String[]::new)))
+            .webSocketConfiguration(node.createWebSocketEnabledConfig())
+            .plugins(plugins)
+            .extraCLIOptions(extraCLIOptions)
+            .devMode(false)
+            .jsonRpcTxPool()
+            .genesisConfigProvider(GenesisConfigurationFactory::createIbft2GenesisConfig)
+            .dataStorageConfiguration(DataStorageConfiguration.DEFAULT_BONSAI_CONFIG)
+            .pluginConfiguration(pluginConfiguration)
+            .build());
+  }
+
   public BesuNode createQbftMigrationNode(
       final String name, final boolean fixedPort, final DataStorageFormat storageFormat)
       throws IOException {

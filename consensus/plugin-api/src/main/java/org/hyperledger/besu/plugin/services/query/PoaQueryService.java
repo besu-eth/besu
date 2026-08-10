@@ -24,9 +24,9 @@ import java.util.Collection;
 public interface PoaQueryService extends BesuService {
 
   /**
-   * Retrieves the validators specified in the latest block from the canonical chain.
+   * Retrieves the validators at the head of the canonical chain.
    *
-   * @return Addresses of all validators in the latest canonical block.
+   * @return Addresses of all validators at the head of the canonical chain.
    */
   Collection<Address> getValidatorsForLatestBlock();
 
