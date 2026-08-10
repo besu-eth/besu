@@ -50,6 +50,7 @@ public class VoteValidationRuleTest {
 
     final BlockHeader header = blockBuilder.buildHeader();
 
-    assertThat(uut.validate(header, header)).isEqualTo(expectedResult);
+    assertThat(uut.validate(header, new BlockHeaderTestFixture().buildHeader()))
+        .isEqualTo(expectedResult);
   }
 }
