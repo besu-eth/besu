@@ -43,7 +43,6 @@ import java.util.concurrent.TimeUnit;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.net.MediaType;
 import graphql.ExecutionInput;
@@ -61,6 +60,7 @@ import io.vertx.core.http.HttpServerRequest;
 import io.vertx.core.http.HttpServerResponse;
 import io.vertx.core.json.DecodeException;
 import io.vertx.core.json.Json;
+import io.vertx.core.json.jackson.DatabindCodec;
 import io.vertx.core.net.HostAndPort;
 import io.vertx.core.net.JksOptions;
 import io.vertx.ext.web.Router;
@@ -91,7 +91,6 @@ public class GraphQLHttpService {
   private static final String EMPTY_RESPONSE = "";
 
   private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
-  private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
   private final Vertx vertx;
   private final GraphQLConfiguration config;
@@ -371,7 +370,7 @@ public class GraphQLHttpService {
           final String variableString = request.getParam("variables");
           if (variableString != null) {
             try {
-              variables = OBJECT_MAPPER.readValue(variableString, MAP_TYPE);
+              variables = DatabindCodec.mapper().readValue(variableString, MAP_TYPE);
             } catch (final JsonProcessingException e) {
               throw new DecodeException(e.getMessage(), e);
             }
