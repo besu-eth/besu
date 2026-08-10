@@ -56,7 +56,7 @@ public class TomlAuthTest {
     tomlAuth
         .authenticate(authInfo)
         .onComplete(
-            testContext.failing(th -> assertEquals("No username provided", th.getMessage())));
+            testContext.failing(th -> assertEquals("username cannot be null", th.getMessage())));
   }
 
   @Test
@@ -66,7 +66,7 @@ public class TomlAuthTest {
     tomlAuth
         .authenticate(authInfo)
         .onComplete(
-            testContext.failing(th -> assertEquals("No password provided", th.getMessage())));
+            testContext.failing(th -> assertEquals("password cannot be null", th.getMessage())));
   }
 
   @Test

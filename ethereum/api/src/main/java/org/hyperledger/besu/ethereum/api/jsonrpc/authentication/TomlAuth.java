@@ -44,44 +44,46 @@ public class TomlAuth implements AuthenticationProvider {
 
   @Override
   public Future<User> authenticate(final Credentials credentials) {
-    final UsernamePasswordCredentials usernamePasswordCredentials =
-        (UsernamePasswordCredentials) credentials;
+    final UsernamePasswordCredentials usernamePasswordCredentials;
+    try {
+      try {
+        usernamePasswordCredentials = (UsernamePasswordCredentials) credentials;
+      } catch (final ClassCastException e) {
+        throw new CredentialValidationException("Invalid credentials type", e);
+      }
+      usernamePasswordCredentials.checkValid(null);
+    } catch (final RuntimeException e) {
+      return Future.failedFuture(e);
+    }
+
     final String username = usernamePasswordCredentials.getUsername();
-    if (username == null) {
-      return Future.failedFuture("No username provided");
-    }
-
     final String password = usernamePasswordCredentials.getPassword();
-    if (password == null) {
-      return Future.failedFuture("No password provided");
+    return vertx.executeBlocking(() -> authenticateBlocking(username, password), false);
+  }
+
+  private TomlUser authenticateBlocking(final String username, final String password) {
+    final TomlParseResult parseResult;
+    try {
+      parseResult = Toml.parse(options.getTomlPath());
+    } catch (final IOException e) {
+      throw new CredentialValidationException(e.getMessage(), e);
     }
 
-    return vertx.executeBlocking(
-        () -> {
-          final TomlParseResult parseResult;
-          try {
-            parseResult = Toml.parse(options.getTomlPath());
-          } catch (final IOException e) {
-            throw new CredentialValidationException(e.getMessage(), e);
-          }
+    final TomlTable userData = parseResult.getTableOrEmpty("Users." + username);
+    if (userData.isEmpty()) {
+      throw new CredentialValidationException("User not found");
+    }
 
-          final TomlTable userData = parseResult.getTableOrEmpty("Users." + username);
-          if (userData.isEmpty()) {
-            throw new CredentialValidationException("User not found");
-          }
+    final TomlUser tomlUser = readTomlUserFromTable(username, userData);
+    if (tomlUser.getPassword().isEmpty()) {
+      throw new CredentialValidationException("No password set for user");
+    }
 
-          final TomlUser tomlUser = readTomlUserFromTable(username, userData);
-          if (tomlUser.getPassword().isEmpty()) {
-            throw new CredentialValidationException("No password set for user");
-          }
+    if (!checkPasswordHash(password, tomlUser.getPassword())) {
+      throw new CredentialValidationException("Invalid password");
+    }
 
-          if (!checkPasswordHash(password, tomlUser.getPassword())) {
-            throw new CredentialValidationException("Invalid password");
-          }
-
-          return tomlUser;
-        },
-        false);
+    return tomlUser;
   }
 
   private TomlUser readTomlUserFromTable(final String username, final TomlTable userData) {
