@@ -12,7 +12,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.services;
+package org.hyperledger.besu.ethereum.eth.transactions.pluginadapter;
 
 import org.hyperledger.besu.datatypes.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
@@ -20,7 +20,7 @@ import org.hyperledger.besu.plugin.services.transactionpool.TransactionPoolServi
 
 import java.util.Collection;
 
-/** Service to enable and disable the transaction pool. */
+/** The Transaction pool service implementation. */
 public class TransactionPoolServiceImpl implements TransactionPoolService {
 
   private final TransactionPool transactionPool;

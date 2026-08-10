@@ -51,7 +51,8 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
     INVALID_BLOCK_HASH;
   }
 
-  // Fields used by migrated series (currently engine_forkchoiceUpdatedV* and engine_newPayloadV*
+  // Fields used by migrated series (currently engine_forkchoiceUpdatedV*, engine_newPayloadV*,
+  // engine_getPayloadV* and engine_getPayloadBodiesBy*
   // — see the package README's migration status table). Not-yet-migrated series keep using the
   // TRANSITIONAL SHIM constructors below instead of this record.
   @Value.Builder
@@ -62,7 +63,8 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
       EngineCallListener engineCallListener,
       MergeMiningCoordinator mergeCoordinator,
       EthPeers ethPeers,
-      MetricsSystem metricsSystem) {}
+      MetricsSystem metricsSystem,
+      int maxRequestBlocks) {}
 
   private static final Logger LOG = LoggerFactory.getLogger(ExecutionEngineJsonRpcMethod.class);
   public static final long ENGINE_API_LOGGING_THRESHOLD = 60000L;
