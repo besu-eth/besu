@@ -21,7 +21,11 @@ public enum RequestType {
   /** WITHDRAWAL */
   WITHDRAWAL(0x01),
   /** CONSOLIDATION */
-  CONSOLIDATION(0x02);
+  CONSOLIDATION(0x02),
+  /** BUILDER DEPOSIT (EIP-8282) */
+  BUILDER_DEPOSIT(0x03),
+  /** BUILDER EXIT (EIP-8282) */
+  BUILDER_EXIT(0x04);
 
   private final int typeValue;
 
@@ -51,6 +55,8 @@ public enum RequestType {
       case 0x00 -> DEPOSIT;
       case 0x01 -> WITHDRAWAL;
       case 0x02 -> CONSOLIDATION;
+      case 0x03 -> BUILDER_DEPOSIT;
+      case 0x04 -> BUILDER_EXIT;
       default ->
           throw new InvalidRequestTypeException(
               String.format("Unsupported request type: 0x%02X", (byte) serializedTypeValue));

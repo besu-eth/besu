@@ -198,12 +198,26 @@ public class TransactionPool implements BlockAddedObserver {
                     Transaction::getHash,
                     transaction -> {
                       final boolean hasPriority = isPriorityTransaction(transaction, false);
-                      final var result = addTransaction(transaction, false, hasPriority, MAX_SCORE);
-                      if (result.isValid()) {
-                        addedTransactions.add(transaction);
-                      } else {
-                        logInvalid(transaction, result, false, hasPriority);
+                      ValidationResult<TransactionInvalidReason> result;
+                      try {
+                        result = addTransaction(transaction, false, hasPriority, MAX_SCORE);
+                        if (result.isValid()) {
+                          addedTransactions.add(transaction);
+                          return result;
+                        }
+                      } catch (final RuntimeException e) {
+                        LOG.warn(
+                            "Unexpected error validating transaction {}, treating as invalid",
+                            transaction.getHash(),
+                            e);
+                        result =
+                            ValidationResult.invalid(
+                                INTERNAL_ERROR,
+                                "unexpected error during validation: " + e.getMessage());
+                        metrics.incrementRejected(
+                            false, hasPriority, result.getInvalidReason(), "txpool");
                       }
+                      logInvalid(transaction, result, false, hasPriority);
                       return result;
                     },
                     (transaction1, transaction2) -> transaction1));
@@ -505,8 +519,14 @@ public class TransactionPool implements BlockAddedObserver {
       final FeeMarket feeMarket) {
 
     if (isLocal) {
+      // Local (RPC) fee cap
       if (!configuration.getTxFeeCap().isZero()
           && getMaxGasPrice(transaction).get().greaterThan(configuration.getTxFeeCap())) {
+        return TransactionInvalidReason.TX_FEECAP_EXCEEDED;
+      }
+    } else {
+      // Remote (P2P) fee cap
+      if (getMaxGasPrice(transaction).get().greaterThan(configuration.getP2pTxFeeCap())) {
         return TransactionInvalidReason.TX_FEECAP_EXCEEDED;
       }
     }

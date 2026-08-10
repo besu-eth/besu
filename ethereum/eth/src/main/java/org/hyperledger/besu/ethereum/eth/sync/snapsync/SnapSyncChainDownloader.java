@@ -562,15 +562,20 @@ public class SnapSyncChainDownloader
             });
   }
 
+  private long forwardDownloadAnchor(final ChainSyncState state) {
+    final BlockHeader chainHead = blockchain.getChainHeadHeader();
+    if (headerIsOnCanonicalChain(chainHead)
+        && blockchain.getBlockBody(chainHead.getHash()).isPresent()) {
+      return chainHead.getNumber();
+    }
+    return highestCanonicalBody(state.bodyCheckpoint(), chainHead.getNumber()).getNumber();
+  }
+
   private CompletableFuture<Void> runBlockAccessListDownload(final ChainSyncState state) {
     final BlockHeader pivotBlockHeader = state.pivotBlockHeader();
     final long pivotBlockNumber = pivotBlockHeader.getNumber();
 
-    final BlockHeader chainHead = blockchain.getChainHeadHeader();
-    final long anchorNumber =
-        blockchain.getBlockBody(chainHead.getHash()).isPresent()
-            ? chainHead.getNumber()
-            : highestCanonicalBody(state.bodyCheckpoint(), chainHead.getNumber()).getNumber();
+    final long anchorNumber = forwardDownloadAnchor(state);
 
     if (anchorNumber >= pivotBlockNumber) {
       LOG.debug(
@@ -631,11 +636,7 @@ public class SnapSyncChainDownloader
 
   private CompletableFuture<Void> runStage2ForwardBodiesAndReceipts(final ChainSyncState state) {
 
-    final BlockHeader chainHead = blockchain.getChainHeadHeader();
-    final long stage2StartBlock =
-        blockchain.getBlockBody(chainHead.getHash()).isPresent()
-            ? chainHead.getNumber()
-            : highestCanonicalBody(state.bodyCheckpoint(), chainHead.getNumber()).getNumber();
+    final long stage2StartBlock = forwardDownloadAnchor(state);
 
     final BlockHeader pivotBlockHeader = state.pivotBlockHeader();
     final long pivotBlockNumber = pivotBlockHeader.getNumber();

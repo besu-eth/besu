@@ -191,21 +191,10 @@ class Eip8037GasLimitTest {
 
   @Test
   void exceptionalHaltShouldNotDeleteAccountsViaSelfDestructs() {
-    // Defense-in-depth regression test: when the initial frame ends in EXCEPTIONAL_HALT
-    // (txSucceeded
-    // = false), any selfdestruct markers left on the frame must NOT cause deleteAccount calls on
-    // the
-    // world state. Before the MTP fix, the unconditional
-    // getSelfDestructs().forEach(worldState::deleteAccount) loop fired even for failed
-    // transactions,
-    // permanently deleting pre-existing accounts from world state.
-    //
-    // Note: this originally targeted the regularGasLimitExceeded path (regular gas portion exceeds
-    // TX_MAX_GAS_LIMIT), but that admission check has since moved out of
-    // MainnetTransactionProcessor
-    // into block-level BlockGasAccountingStrategy#hasBlockCapacity, which runs before a transaction
-    // is even selected for execution. EXCEPTIONAL_HALT is exercised instead, as the still-reachable
-    // failure path that leaves txSucceeded false at this layer.
+    // Regression test: a failed transaction once deleted the accounts its selfdestruct markers
+    // named, wiping pre-existing accounts from world state. EXCEPTIONAL_HALT is the cheapest way
+    // to reach that failure branch — driving regular gas past TX_MAX_GAS_LIMIT reaches the same
+    // one.
     setupCommonMocks(20_000_000L);
 
     final Address childAddress =
