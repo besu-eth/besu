@@ -107,12 +107,20 @@ public interface HealthCheckService extends BesuService {
       return new HealthCheckResult(healthy, Collections.emptyMap());
     }
 
-    /** Returns true if healthy. */
+    /**
+     * Returns whether the check passed.
+     *
+     * @return true if healthy
+     */
     public boolean isHealthy() {
       return healthy;
     }
 
-    /** Returns diagnostic details for the response {@code checks} object. */
+    /**
+     * Returns diagnostic details for the response {@code checks} object.
+     *
+     * @return the details map; never null
+     */
     public Map<String, Object> getDetails() {
       return details;
     }
