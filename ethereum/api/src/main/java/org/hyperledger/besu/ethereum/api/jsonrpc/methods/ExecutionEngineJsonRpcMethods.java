@@ -29,7 +29,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngin
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.ConstructorArguments;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineExchangeCapabilities;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineExchangeTransitionConfiguration;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineExchangeTransitionConfigurationV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineForkchoiceUpdatedV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineForkchoiceUpdatedV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineForkchoiceUpdatedV3;
@@ -116,18 +116,21 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
   @Override
   protected Map<String, JsonRpcMethod> create() {
     final EngineQosTimer engineQosTimer = new EngineQosTimer(consensusEngineServer);
-    if (mergeCoordinator.isPresent()) {
-      final ConstructorArguments constructorArguments =
-          new ConstructorArguments(
-              protocolSchedule,
-              protocolContext,
-              consensusEngineServer,
-              engineQosTimer,
-              mergeCoordinator.get(),
-              ethPeers,
-              metricsSystem,
-              GET_PAYLOAD_BODIES_MAX_REQUEST_SIZE);
+    // mergeCoordinator is nullable here: engine_exchangeTransitionConfigurationV1 is registered
+    // even when no merge-compatible mining coordinator is present (see the else branch below), and
+    // it never reads it.
+    final ConstructorArguments constructorArguments =
+        new ConstructorArguments(
+            protocolSchedule,
+            protocolContext,
+            consensusEngineServer,
+            engineQosTimer,
+            mergeCoordinator.orElse(null),
+            ethPeers,
+            metricsSystem,
+            GET_PAYLOAD_BODIES_MAX_REQUEST_SIZE);
 
+    if (mergeCoordinator.isPresent()) {
       List<JsonRpcMethod> executionEngineApisSupported = new ArrayList<>();
       executionEngineApisSupported.addAll(
           createEngineForkchoiceUpdatedMethods(constructorArguments));
@@ -137,15 +140,13 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
           createGetPayloadBodiesByHashMethods(constructorArguments));
       executionEngineApisSupported.addAll(
           createGetPayloadBodiesByRangeMethods(constructorArguments));
+      executionEngineApisSupported.addAll(
+          createEngineExchangeTransitionConfigurationMethods(constructorArguments));
 
       executionEngineApisSupported.addAll(
           Arrays.asList(
-              new EngineExchangeTransitionConfiguration(
-                  consensusEngineServer, protocolContext, engineQosTimer),
-              new EngineExchangeCapabilities(
-                  consensusEngineServer, protocolContext, engineQosTimer),
-              new EngineGetClientVersionV1(
-                  consensusEngineServer, protocolContext, engineQosTimer, clientVersion, commit),
+              new EngineExchangeCapabilities(constructorArguments),
+              new EngineGetClientVersionV1(constructorArguments, clientVersion, commit),
               new EngineGetBlobsV1(
                   consensusEngineServer,
                   protocolContext,
@@ -175,9 +176,17 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
       return mapOf(executionEngineApisSupported);
     } else {
       return mapOf(
-          new EngineExchangeTransitionConfiguration(
-              consensusEngineServer, protocolContext, engineQosTimer));
+          new ArrayList<>(
+              createEngineExchangeTransitionConfigurationMethods(constructorArguments)));
     }
+  }
+
+  private Collection<? extends JsonRpcMethod> createEngineExchangeTransitionConfigurationMethods(
+      final ConstructorArguments constructorArguments) {
+
+    return VersionScheduler.startsFromBeginningUntil(
+            EngineExchangeTransitionConfigurationV1::new, CANCUN)
+        .build(constructorArguments);
   }
 
   private Collection<? extends JsonRpcMethod> createEngineForkchoiceUpdatedMethods(

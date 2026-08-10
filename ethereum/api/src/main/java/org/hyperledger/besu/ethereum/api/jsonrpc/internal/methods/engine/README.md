@@ -16,7 +16,8 @@ series, each in its own PR, to keep changes reviewable:
 | `engine_newPayloadV*` | Yes | Yes |
 | `engine_getPayloadV*` | Yes | Yes |
 | `engine_getPayloadBodiesBy*` | Yes | Yes |
-| `engine_getBlobsV*`, `engine_exchangeCapabilities`, `engine_preparePayloadDebug`, `engine_getClientVersionV1`, `engine_exchangeTransitionConfigurationV1` | Not yet | Not yet |
+| `engine_exchangeCapabilities`, `engine_preparePayloadDebug`, `engine_getClientVersionV1`, `engine_exchangeTransitionConfigurationV1` | Yes | Yes |
+| `engine_getBlobsV*` | Not yet | Not yet |
 
 The not-yet-migrated series still take their old flat constructor argument list (some via
 `ExecutionEngineJsonRpcMethod`'s TRANSITIONAL SHIM constructors, kept until every series has moved
@@ -26,10 +27,10 @@ follow the pattern below and update this table.
 
 ## Architecture (migrated series)
 
-Each method series (`engine_forkchoiceUpdatedV*`, `engine_newPayloadV*`, `engine_getPayloadV*`,
-`engine_getPayloadBodiesBy*` — see the migration status table above) is a **sealed class hierarchy
-mirroring the specification**: version N extends version N−1 and overrides only what its spec
-version adds or changes.
+Each migrated series that has more than one version (`engine_forkchoiceUpdatedV*`,
+`engine_newPayloadV*`, `engine_getPayloadV*`, `engine_getPayloadBodiesBy*` — see the migration
+status table above) is a **sealed class hierarchy mirroring the specification**: version N extends
+version N−1 and overrides only what its spec version adds or changes.
 
 - `EngineForkchoiceUpdatedV1 permits EngineForkchoiceUpdatedV2`, `... V3 permits
   EngineForkchoiceUpdatedV4`; `EngineNewPayloadV1 permits EngineNewPayloadV2`, `... V4 permits
@@ -37,6 +38,12 @@ version adds or changes.
   EngineGetPayloadV6`; `EngineGetPayloadBodiesByHashV1 permits EngineGetPayloadBodiesByHashV2` and
   `EngineGetPayloadBodiesByRangeV1 permits EngineGetPayloadBodiesByRangeV2`; and the latest version
   of each is `final`. Future migrated series follow the same shape.
+- The remaining migrated series (`engine_exchangeCapabilities`, `engine_preparePayloadDebug`,
+  `engine_getClientVersionV1`, `engine_exchangeTransitionConfigurationV1`) have a single spec
+  version so far, so they are plain (non-`sealed`, no `permits`) classes extending
+  `ExecutionEngineJsonRpcMethod` directly. They become sealed hierarchies the day a V2 is
+  specified — everything else about them (constructor shape, registration) is already the
+  migrated pattern.
 - All versions extend `ExecutionEngineJsonRpcMethod`, which owns the fork-window validation
   (`minSupportedFork` / `firstUnsupportedFork` constructor arguments, `validateForkSupported`,
   see also `ForkSupportHelper`). Concrete versions never check fork timestamps themselves.
