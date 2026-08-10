@@ -3,6 +3,7 @@
 ## Unreleased Changes
 
 ### Breaking Changes
+- Plugin API: `HealthCheckProvider` now returns `HealthCheckResult` (status + details map) instead of `boolean` [#10687](https://github.com/besu-eth/besu/issues/10687)
 - The experimental `--Xv5-discovery-enabled` flag is removed; use `--discovery-mode=V5` or `--discovery-mode=BOTH` instead.
 - The genesis file `v5Bootnodes` key is removed; ENR bootnodes must now be listed in the unified `bootnodes` array alongside enode URLs. Besu's bundled network genesis files were migrated automatically - this only affects custom/downstream genesis files that still use the old `v5Bootnodes` key, whose ENR entries will otherwise be silently dropped.
 - Removed the legacy `PANTHEON_` environment variable prefix for configuration options, everyone should already use the `BESU_` prefix at this time.
@@ -19,6 +20,8 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
+- Restore structured `{peers, sync}` detail in plugin-based `/readiness` responses via `HealthCheckProvider` [#10687](https://github.com/besu-eth/besu/issues/10687)
+- Fixed `debug_traceTransaction`/`debug_traceCall`/`debug_traceBlock` returning an invalid empty-string `returnValue` and a phantom `STOP` entry in `structLogs` for legacy EOA-to-EOA transfers that execute no EVM code. Now returns `returnValue:"0x"` and empty `structLogs`, matching the execution-apis opcode-tracer schema. [#10972](https://github.com/besu-eth/besu/pull/10972)
 - EIP-1459 DNS discovery now rejoins TXT records split across multiple `<character-string>`s. Records longer than 255 bytes were truncated, so Besu silently discarded most of every tree, resolving 832 of 3000 nodes from the mainnet tree. [#10985](https://github.com/besu-eth/besu/pull/10985)
 - EIP-1459 DNS discovery now verifies that each subtree record hashes to the subdomain it was served from, as the client protocol requires. [#10988](https://github.com/besu-eth/besu/pull/10988)
 - Queue backward-sync targets received before peer readiness and retry when a peer connects. [#10843](https://github.com/besu-eth/besu/pull/10843)
@@ -36,11 +39,15 @@
 - Recover from restart during flatDB heal sync step [#10883](https://github.com/besu-eth/besu/pull/10883)
 
 ### Additions and Improvements
+- Align Kotlin runtime dependencies to 2.4.0 to support plugins compiled against the Kotlin 2.4 API. [#10983](https://github.com/besu-eth/besu/pull/10983)
 - Add `--checkpoint=<hash>:<number>:<totalDifficulty>` CLI option to anchor sync to a trusted checkpoint, overriding any checkpoint configured in the genesis file. The option is only used by snap sync and is ignored (with a warning) in FULL sync-mode.
 - Extract the Plugin API core module: the plugin lifecycle, service lookup and shared block/transaction data views now live in a new `besu-plugin-api-core` artifact, re-exported by `besu-plugin-api` so existing consumers are unaffected. Also adds a minimal `org.hyperledger.besu.plugin.CoreConfiguration` service exposing the node data path. [#10875](https://github.com/besu-eth/besu/pull/10875)
 - Extract the Plugin API metrics module. The metrics contracts (`MetricsSystem`, metric categories and instruments) now live in a new `besu-plugin-api-metrics` artifact, re-exported by `besu-plugin-api` so existing consumers are unaffected. [#10903](https://github.com/besu-eth/besu/pull/10903)
 - Extract the Plugin API permissioning module. The permissioning contracts (`PermissioningService` and the node connection, node message and transaction permissioning providers) now live in a new `besu-plugin-api-permissioning` artifact, re-exported by `besu-plugin-api` so existing consumers are unaffected. [#10919](https://github.com/besu-eth/besu/pull/10919)
 - Extract the Plugin API security module. The security module contracts (`SecurityModuleService`, the `SecurityModule` signer SPI, its `PublicKey` and `Signature` data interfaces and `SecurityModuleException`) now live in a new `besu-plugin-api-security` artifact, re-exported by `besu-plugin-api` so existing consumers are unaffected. [#10941](https://github.com/besu-eth/besu/pull/10941)
+- Extract the Plugin API storage module. The key-value storage contracts (`StorageService`, the `KeyValueStorageFactory` SPI with its store, transaction and snapshot interfaces, `SegmentIdentifier`, the data storage configuration views and `StorageException`) now live in a new `besu-plugin-api-storage` artifact, re-exported by `besu-plugin-api` so existing consumers are unaffected. Also adds an `org.hyperledger.besu.plugin.storage.StorageConfiguration` service exposing the storage path and data storage configuration. [#10984](https://github.com/besu-eth/besu/pull/10984)
+- Extract the Plugin API p2p module. The peer-to-peer networking contracts (`P2PService` and the `Peer`, `PeerConnection`, `PeerInfo`, `Capability` and `Message` data views) now live in a new `besu-plugin-api-p2p` artifact, re-exported by `besu-plugin-api` so existing consumers are unaffected. [#10995](https://github.com/besu-eth/besu/pull/10995)
+- Extract the Plugin API txpool module. The transaction pool contracts (`TransactionPoolService`, `TransactionPoolValidatorService` and the `PluginTransactionPoolValidator` / `PluginTransactionPoolValidatorFactory` validation SPI) now live in a new `besu-plugin-api-txpool` artifact, re-exported by `besu-plugin-api` so existing consumers are unaffected. [#11007](https://github.com/besu-eth/besu/pull/11007)
 - Add `--logging-format` CLI option to select structured JSON console logging (`ECS`, `GCP`, `LOGSTASH`, `GELF`) in addition to the default `PLAIN` pattern output, without requiring a custom `LOG4J_CONFIGURATION_FILE`. Each format is a bundled Log4j2 configuration file selected at startup. [#9626](https://github.com/besu-eth/besu/issues/9626)
 - Add a japicmp compatibility check (`:plugin-api:checkAPICompatibility`) that fails the build if the Plugin API changes in any way that is not a pure addition against the last released version [#10823](https://github.com/besu-eth/besu/pull/10823)
 - Remove the Plugin API source-hash check (`:plugin-api:checkAPIChanges`), which fired on any source edit without saying anything about actual compatibility. The japicmp check is now the compatibility gate for the Plugin API [#10879](https://github.com/besu-eth/besu/pull/10879)

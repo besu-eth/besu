@@ -12,28 +12,22 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.plugin.services;
+package org.hyperledger.besu.plugin.services.txvalidator;
 
 import org.hyperledger.besu.plugin.Unstable;
-import org.hyperledger.besu.plugin.services.txvalidator.PluginTransactionPoolValidator;
-import org.hyperledger.besu.plugin.services.txvalidator.PluginTransactionPoolValidatorFactory;
 
-/** Transaction validator for addition of transactions to the transaction pool */
+/** Interface for a factory that creates transaction validators for txpool usage */
 @Unstable
-public interface TransactionPoolValidatorService extends BesuService {
+public interface PluginTransactionPoolValidatorFactory {
 
   /**
-   * Returns the transaction validator to be used in the txpool
+   * Create a transaction validator for txpool usage.
+   *
+   * <p>May be called for every transaction offered to the transaction pool, not just once per
+   * registration, so implementations should be cheap to run and must not rely on state accumulating
+   * in the returned validator, which is discarded after validating a single transaction.
    *
    * @return the transaction validator
    */
   PluginTransactionPoolValidator createTransactionValidator();
-
-  /**
-   * Registers the transaction validator factory with the service
-   *
-   * @param pluginTransactionPoolValidatorFactory transaction validator factory to be used
-   */
-  void registerPluginTransactionValidatorFactory(
-      PluginTransactionPoolValidatorFactory pluginTransactionPoolValidatorFactory);
 }

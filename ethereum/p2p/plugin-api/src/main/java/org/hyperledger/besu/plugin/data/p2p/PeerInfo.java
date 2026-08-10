@@ -22,9 +22,10 @@ import org.apache.tuweni.bytes.Bytes;
 public interface PeerInfo {
 
   /**
-   * Get the address of this peer.
+   * Get the Ethereum address of this peer, derived from its node public key. This is not a network
+   * address; see {@link PeerConnection#getRemoteAddress()} for the socket address.
    *
-   * @return peer address
+   * @return the Ethereum address derived from the peer's node public key
    */
   Address getAddress();
 
