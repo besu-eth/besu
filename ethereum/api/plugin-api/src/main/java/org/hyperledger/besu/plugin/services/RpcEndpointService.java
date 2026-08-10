@@ -32,20 +32,22 @@ public interface RpcEndpointService extends BesuService {
   /**
    * Register a function as an RPC endpoint exposed via JSON-RPC.
    *
-   * <p>The mechanism is a Java function that takes a list of Strings and returns any Java object,
-   * registered in a specific namespace with a function name.
+   * <p>The mechanism is a Java function that takes a {@link PluginRpcRequest} and returns any Java
+   * object, registered in a specific namespace with a function name.
    *
    * <p>The resulting endpoint is the {@code namespace} and the {@code functionName} concatenated
    * with an underscore to create the JSON-RPC method name.
    *
-   * <p>The function takes a {@link PluginRpcRequest} which contains a list of the inputs expressed
-   * entirely as strings. Javascript numbers are converted to strings via their toString method, and
-   * complex input objects are not supported.
+   * <p>The request carries the raw JSON-decoded parameters of the call as an {@code Object[]}:
+   * strings, numbers, booleans, lists, and maps for JSON objects. The function is responsible for
+   * validating and converting them, and reports a failure by throwing a {@link
+   * org.hyperledger.besu.plugin.services.exception.PluginRpcEndpointException}, which is returned
+   * to the caller as a JSON-RPC error with the code and message of the exception's error.
    *
    * <p>The output is a Java object, primitive, or array that will be inspected via <a
    * href="https://github.com/FasterXML/jackson-databind">Jackson databind</a>. In general if
    * JavaBeans naming patterns are followed those names will be reflected in the returned JSON
-   * object. If the method throws an exception the return is an error with an INTERNAL_ERROR
+   * object. If the method throws any other exception the return is an error with an INTERNAL_ERROR
    * treatment.
    *
    * @param namespace The namespace of the method, must be alphanumeric.

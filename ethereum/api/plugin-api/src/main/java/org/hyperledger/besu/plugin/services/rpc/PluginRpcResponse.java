@@ -14,14 +14,14 @@
  */
 package org.hyperledger.besu.plugin.services.rpc;
 
-/** The interface Plugin rpc response. */
+/** The response returned by an in-process RPC call. */
 public interface PluginRpcResponse extends RpcResponse {
 
   /**
-   * Get the result, unfortunately there is no typing yet, so call must know how to interact with
-   * the response
+   * Get the result of the call. There is no typing yet, so the caller must know how to interact
+   * with the returned object.
    *
-   * @return the result
+   * @return the result of the call
    */
   Object getResult();
 }
