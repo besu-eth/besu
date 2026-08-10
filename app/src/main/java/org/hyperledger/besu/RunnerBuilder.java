@@ -1409,7 +1409,7 @@ public class RunnerBuilder {
                 natService,
                 namedPlugins,
                 dataDir,
-                besuController.getProtocolManager().ethContext().getEthPeers(),
+                besuController.getEthPeers(),
                 consensusEngineServer,
                 apiConfiguration,
                 enodeDnsConfiguration,

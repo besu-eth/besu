@@ -61,10 +61,8 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
       ProtocolContext protocolContext,
       Vertx vertx,
       EngineCallListener engineCallListener,
-      // Nullable: engine_exchangeTransitionConfigurationV1 is the one migrated series
-      // constructed even when no merge-compatible mining coordinator is present (see
-      // ExecutionEngineJsonRpcMethods.create()'s no-mergeCoordinator branch), and it never reads
-      // this field. Every other migrated series is only ever constructed with a real coordinator.
+      // Nullable for engine_exchangeTransitionConfigurationV1 that is constructed even when
+      // no merge-compatible mining coordinator is present, and it never reads this field.
       @Nullable MergeMiningCoordinator mergeCoordinator,
       EthPeers ethPeers,
       MetricsSystem metricsSystem,

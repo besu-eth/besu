@@ -16,7 +16,7 @@ series, each in its own PR, to keep changes reviewable:
 | `engine_newPayloadV*` | Yes | Yes |
 | `engine_getPayloadV*` | Yes | Yes |
 | `engine_getPayloadBodiesBy*` | Yes | Yes |
-| `engine_exchangeCapabilities`, `engine_preparePayloadDebug`, `engine_getClientVersionV1`, `engine_exchangeTransitionConfigurationV1` | Yes | Yes |
+| `engine_exchangeCapabilities`, `engine_getClientVersionV1`, `engine_exchangeTransitionConfigurationV1` | Yes | Yes |
 | `engine_getBlobsV*` | Not yet | Not yet |
 
 The not-yet-migrated series still take their old flat constructor argument list (some via
@@ -38,7 +38,7 @@ version N−1 and overrides only what its spec version adds or changes.
   EngineGetPayloadV6`; `EngineGetPayloadBodiesByHashV1 permits EngineGetPayloadBodiesByHashV2` and
   `EngineGetPayloadBodiesByRangeV1 permits EngineGetPayloadBodiesByRangeV2`; and the latest version
   of each is `final`. Future migrated series follow the same shape.
-- The remaining migrated series (`engine_exchangeCapabilities`, `engine_preparePayloadDebug`,
+- The remaining migrated series (`engine_exchangeCapabilities`,
   `engine_getClientVersionV1`, `engine_exchangeTransitionConfigurationV1`) have a single spec
   version so far, so they are plain (non-`sealed`, no `permits`) classes extending
   `ExecutionEngineJsonRpcMethod` directly. They become sealed hierarchies the day a V2 is

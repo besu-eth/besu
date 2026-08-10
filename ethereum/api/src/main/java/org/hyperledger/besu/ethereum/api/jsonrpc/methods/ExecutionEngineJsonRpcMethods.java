@@ -25,6 +25,7 @@ import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator
 import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcApis;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ConstructorArgumentsBuilder;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.ConstructorArguments;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
@@ -116,21 +117,19 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
   @Override
   protected Map<String, JsonRpcMethod> create() {
     final EngineQosTimer engineQosTimer = new EngineQosTimer(consensusEngineServer);
-    // mergeCoordinator is nullable here: engine_exchangeTransitionConfigurationV1 is registered
-    // even when no merge-compatible mining coordinator is present (see the else branch below), and
-    // it never reads it.
-    final ConstructorArguments constructorArguments =
-        new ConstructorArguments(
-            protocolSchedule,
-            protocolContext,
-            consensusEngineServer,
-            engineQosTimer,
-            mergeCoordinator.orElse(null),
-            ethPeers,
-            metricsSystem,
-            GET_PAYLOAD_BODIES_MAX_REQUEST_SIZE);
+    final ConstructorArgumentsBuilder constructorArgumentsBuilder =
+        new ConstructorArgumentsBuilder()
+            .protocolSchedule(protocolSchedule)
+            .protocolContext(protocolContext)
+            .vertx(consensusEngineServer)
+            .engineCallListener(engineQosTimer)
+            .ethPeers(ethPeers)
+            .metricsSystem(metricsSystem)
+            .maxRequestBlocks(GET_PAYLOAD_BODIES_MAX_REQUEST_SIZE);
 
     if (mergeCoordinator.isPresent()) {
+      final ConstructorArguments constructorArguments =
+          constructorArgumentsBuilder.mergeCoordinator(mergeCoordinator.get()).build();
       List<JsonRpcMethod> executionEngineApisSupported = new ArrayList<>();
       executionEngineApisSupported.addAll(
           createEngineForkchoiceUpdatedMethods(constructorArguments));
@@ -175,9 +174,12 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
 
       return mapOf(executionEngineApisSupported);
     } else {
+      // engine_exchangeTransitionConfigurationV1 is registered when no merge-compatible mining
+      // coordinator is present, so merge coordinator is not required to be present.
       return mapOf(
           new ArrayList<>(
-              createEngineExchangeTransitionConfigurationMethods(constructorArguments)));
+              createEngineExchangeTransitionConfigurationMethods(
+                  constructorArgumentsBuilder.build())));
     }
   }
 
