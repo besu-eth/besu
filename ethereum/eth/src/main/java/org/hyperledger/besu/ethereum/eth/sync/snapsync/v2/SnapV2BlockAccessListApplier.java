@@ -505,7 +505,8 @@ public class SnapV2BlockAccessListApplier {
 
       final Hash oldStorageRoot = storageRootOf(existingAccount);
       final boolean isAccountCompleted =
-          accountRangeTracker.isAccountHashDownloaded(asBytes32(accountHash));
+          accountRangeTracker.isAccountHashDownloaded(asBytes32(accountHash))
+              || existingAccount == null;
       final StorageRootResult storageResult =
           maybeUpdateStorageRoot(
               accountHash,

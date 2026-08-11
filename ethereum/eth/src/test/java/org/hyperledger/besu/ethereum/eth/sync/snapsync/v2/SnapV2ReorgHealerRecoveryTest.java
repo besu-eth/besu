@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.eth.sync.snapsync.v2;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator.applyForStrategy;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
@@ -33,6 +34,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldSt
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 
 import java.util.Map;
 import java.util.Optional;
@@ -250,10 +252,23 @@ class SnapV2ReorgHealerRecoveryTest {
    * </pre>
    *
    * Locally only slot sp1 was ever downloaded, so sp2's orphaned change never reached the flat db
-   * and only sp1 is re-fetched.
+   * and only sp1 is re-fetched. The initial state (block 1) is applied with a COMPLETED range to
+   * simulate a full snap-sync download of the account leaf and storage; sp2's flat-db value is then
+   * removed to simulate the storage child still being in flight.
    */
   @Test
   void pendingAccountGetsSlotFixAndCanonicalStorageRoot() {
+    final BlockAccessList baseBal =
+        b.merge(
+            b.balWithBalances(Map.of(PETE, Wei.of(100))),
+            b.balWithStorageChanges(
+                PETE, Map.of(SP1, UInt256.valueOf(1), SP2, UInt256.valueOf(2))));
+    final Block block1 = b.appendBlockWithBal(b.header(0), baseBal, 1L);
+    applyTo(localCoordinator, 1, 1, fullAccountRange(), new DownloadedStorageRangeTracker());
+    applyTo(canonicalCoordinator, 1, 1, fullAccountRange(), new DownloadedStorageRangeTracker());
+
+    removeStorageSlot(PETE, SP2);
+
     final DownloadedAccountRangeTracker accountTracker = new DownloadedAccountRangeTracker();
     accountTracker.registerPending(Bytes32.ZERO, MAX_KEY, 1);
     final DownloadedStorageRangeTracker storageTracker = new DownloadedStorageRangeTracker();
@@ -261,15 +276,6 @@ class SnapV2ReorgHealerRecoveryTest {
         Bytes32.wrap(PETE.addressHash().getBytes()),
         Bytes32.wrap(ReorgBlockchainBuilder.slotHash(SP1).getBytes()),
         Bytes32.wrap(ReorgBlockchainBuilder.slotHash(SP1).getBytes()));
-
-    final BlockAccessList baseBal =
-        b.merge(
-            b.balWithBalances(Map.of(PETE, Wei.of(100))),
-            b.balWithStorageChanges(
-                PETE, Map.of(SP1, UInt256.valueOf(1), SP2, UInt256.valueOf(2))));
-    final Block block1 = b.appendBlockWithBal(b.header(0), baseBal, 1L);
-    applyTo(localCoordinator, 1, 1, accountTracker, storageTracker);
-    applyTo(canonicalCoordinator, 1, 1, fullAccountRange(), new DownloadedStorageRangeTracker());
 
     final Block block2s =
         b.appendStale(
@@ -484,6 +490,17 @@ class SnapV2ReorgHealerRecoveryTest {
                     address.addressHash(), new StorageSlotKey(slotKey)),
             forest -> Optional.<Bytes>empty())
         .map(UInt256::fromBytes);
+  }
+
+  private void removeStorageSlot(final Address address, final UInt256 slotKey) {
+    final WorldStateKeyValueStorage.Updater updater = localCoordinator.updater();
+    applyForStrategy(
+        updater,
+        bonsai ->
+            bonsai.removeStorageValueBySlotHash(
+                address.addressHash(), ReorgBlockchainBuilder.slotHash(slotKey)),
+        forest -> {});
+    updater.commit();
   }
 
   private Optional<Bytes> readCode(final Address address) {
