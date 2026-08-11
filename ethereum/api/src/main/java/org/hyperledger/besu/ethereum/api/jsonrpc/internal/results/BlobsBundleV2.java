@@ -24,29 +24,20 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- * Osaka version of the blobs bundle: same JSON shape as {@link BlobsBundleV1}, but the {@code
- * proofs} field carries cell proofs, so blob type conversion is applied when the transaction pool
- * still holds pre-Osaka blob proofs.
- */
 public final class BlobsBundleV2 extends BlobsBundleV1 {
-
   private static final Logger LOG = LoggerFactory.getLogger(BlobsBundleV2.class);
 
   public BlobsBundleV2(final List<Transaction> transactions) {
     super(transactions, BlobsBundleV2::convertBlobType);
   }
 
-  private static BlobsWithCommitments convertBlobType(
-      final BlobsWithCommitments blobsWithCommitments) {
-    // This may occur during fork transitions when the pool contains outdated blob types.
-    // It should not happen once the pool is refreshed with new transactions.
-    if (blobsWithCommitments.getBlobType() == BlobType.KZG_PROOF) {
+  private static BlobsWithCommitments convertBlobType(final BlobsWithCommitments bwc) {
+    if (bwc.getBlobType() == BlobType.KZG_PROOF) {
       LOG.warn(
           "BlobsWithCommitments {} has a blob type of KZG_PROOF. Converting to KZG_CELL_PROOFS.",
-          blobsWithCommitments.getVersionedHashes());
-      return CKZG4844Helper.convertToVersion1(blobsWithCommitments);
+          bwc.getVersionedHashes());
+      return CKZG4844Helper.convertToVersion1(bwc);
     }
-    return blobsWithCommitments;
+    return bwc;
   }
 }

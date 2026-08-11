@@ -38,6 +38,7 @@ import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
@@ -80,6 +81,7 @@ public class EngineGetPayloadBodiesByHashV1Test extends AbstractScheduledApiTest
             .vertx(vertx)
             .engineCallListener(engineCallListener)
             .mergeCoordinator(mock(MergeMiningCoordinator.class))
+            .transactionPool(mock(TransactionPool.class))
             .ethPeers(mock(EthPeers.class))
             .metricsSystem(new NoOpMetricsSystem())
             .maxRequestBlocks(maxRequestBlocks)

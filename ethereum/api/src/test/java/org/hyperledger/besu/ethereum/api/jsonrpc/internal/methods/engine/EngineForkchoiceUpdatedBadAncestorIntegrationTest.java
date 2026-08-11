@@ -141,6 +141,7 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
                 .vertx(vertx)
                 .engineCallListener(mock(EngineCallListener.class))
                 .mergeCoordinator(mergeCoordinator)
+                .transactionPool(transactionPool)
                 .ethPeers(mock(EthPeers.class))
                 .metricsSystem(new NoOpMetricsSystem())
                 .maxRequestBlocks(0)

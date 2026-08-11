@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngin
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineCallListener;
 import org.hyperledger.besu.ethereum.api.jsonrpc.methods.ExecutionEngineJsonRpcMethods.VersionScheduler;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
@@ -50,6 +51,7 @@ class VersionSchedulerTest {
           .vertx(mock(Vertx.class))
           .engineCallListener(mock(EngineCallListener.class))
           .mergeCoordinator(mock(MergeMiningCoordinator.class))
+          .transactionPool(mock(TransactionPool.class))
           .ethPeers(mock(EthPeers.class))
           .metricsSystem(new NoOpMetricsSystem())
           .maxRequestBlocks(0)

@@ -32,6 +32,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.ExecutionPaylo
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
@@ -58,6 +59,7 @@ public class EngineGetPayloadBodiesByHashV2Test extends EngineGetPayloadBodiesBy
             .vertx(vertx)
             .engineCallListener(engineCallListener)
             .mergeCoordinator(mock(MergeMiningCoordinator.class))
+            .transactionPool(mock(TransactionPool.class))
             .ethPeers(mock(EthPeers.class))
             .metricsSystem(new NoOpMetricsSystem())
             .maxRequestBlocks(maxRequestBlocks)
@@ -70,6 +72,12 @@ public class EngineGetPayloadBodiesByHashV2Test extends EngineGetPayloadBodiesBy
   @Test
   public void shouldReturnExpectedMethodName() {
     assertThat(method.getName()).isEqualTo("engine_getPayloadBodiesByHashV2");
+  }
+
+  @Override
+  @Test
+  public void shouldReturnWithdrawalNullWhenBlockIsPreShanghai() {
+    // not applicable to V2
   }
 
   @Test

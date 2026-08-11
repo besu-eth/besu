@@ -25,11 +25,12 @@ import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator
 import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcApis;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ConstructorArgumentsBuilder;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.ConstructorArguments;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineExchangeCapabilities;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineExchangeTransitionConfiguration;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineExchangeTransitionConfigurationV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineForkchoiceUpdatedV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineForkchoiceUpdatedV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineForkchoiceUpdatedV3;
@@ -72,7 +73,6 @@ import com.google.common.annotations.VisibleForTesting;
 import io.vertx.core.Vertx;
 
 public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
-
   private static final int GET_PAYLOAD_BODIES_MAX_REQUEST_SIZE = 1024;
 
   private final Optional<MergeMiningCoordinator> mergeCoordinator;
@@ -117,69 +117,52 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
   @Override
   protected Map<String, JsonRpcMethod> create() {
     final EngineQosTimer engineQosTimer = new EngineQosTimer(consensusEngineServer);
+    final ConstructorArgumentsBuilder constructorArgumentsBuilder =
+        new ConstructorArgumentsBuilder();
+    constructorArgumentsBuilder
+        .protocolSchedule(protocolSchedule)
+        .protocolContext(protocolContext)
+        .vertx(consensusEngineServer)
+        .transactionPool(transactionPool)
+        .metricsSystem(metricsSystem)
+        .ethPeers(ethPeers)
+        .engineCallListener(engineQosTimer)
+        .maxRequestBlocks(GET_PAYLOAD_BODIES_MAX_REQUEST_SIZE);
+
     if (mergeCoordinator.isPresent()) {
       final ConstructorArguments constructorArguments =
-          new ConstructorArguments(
-              protocolSchedule,
-              protocolContext,
-              consensusEngineServer,
-              engineQosTimer,
-              mergeCoordinator.get(),
-              ethPeers,
-              metricsSystem,
-              GET_PAYLOAD_BODIES_MAX_REQUEST_SIZE);
-
-      List<JsonRpcMethod> executionEngineApisSupported = new ArrayList<>();
+          constructorArgumentsBuilder.mergeCoordinator(mergeCoordinator.get()).build();
+      final List<JsonRpcMethod> executionEngineApisSupported = new ArrayList<>();
       executionEngineApisSupported.addAll(
           createEngineForkchoiceUpdatedMethods(constructorArguments));
+
       executionEngineApisSupported.addAll(createEngineNewPayloadMethods(constructorArguments));
+
       executionEngineApisSupported.addAll(createEngineGetPayloadMethods(constructorArguments));
+
+      executionEngineApisSupported.addAll(
+          createEngineExchangeTransitionConfigurationMethods(constructorArguments));
+
       executionEngineApisSupported.addAll(
           createGetPayloadBodiesByHashMethods(constructorArguments));
+
       executionEngineApisSupported.addAll(
           createGetPayloadBodiesByRangeMethods(constructorArguments));
 
+      executionEngineApisSupported.addAll(createGetBlobsMethods(constructorArguments));
+
       executionEngineApisSupported.addAll(
           Arrays.asList(
-              new EngineExchangeTransitionConfiguration(
-                  consensusEngineServer, protocolContext, engineQosTimer),
-              new EngineExchangeCapabilities(
-                  consensusEngineServer, protocolContext, engineQosTimer),
-              new EnginePreparePayloadDebug(
-                  consensusEngineServer, protocolContext, engineQosTimer, mergeCoordinator.get()),
-              new EngineGetClientVersionV1(
-                  consensusEngineServer, protocolContext, engineQosTimer, clientVersion, commit),
-              new EngineGetBlobsV1(
-                  consensusEngineServer,
-                  protocolContext,
-                  protocolSchedule,
-                  engineQosTimer,
-                  transactionPool)));
-
-      if (protocolSchedule.milestoneFor(OSAKA).isPresent()) {
-        executionEngineApisSupported.add(
-            new EngineGetBlobsV2(
-                consensusEngineServer,
-                protocolContext,
-                protocolSchedule,
-                engineQosTimer,
-                transactionPool,
-                metricsSystem));
-        executionEngineApisSupported.add(
-            new EngineGetBlobsV3(
-                consensusEngineServer,
-                protocolContext,
-                protocolSchedule,
-                engineQosTimer,
-                transactionPool,
-                metricsSystem));
-      }
+              new EngineExchangeCapabilities(constructorArguments),
+              new EnginePreparePayloadDebug(constructorArguments),
+              new EngineGetClientVersionV1(constructorArguments, clientVersion, commit)));
 
       return mapOf(executionEngineApisSupported);
     } else {
       return mapOf(
-          new EngineExchangeTransitionConfiguration(
-              consensusEngineServer, protocolContext, engineQosTimer));
+          List.copyOf(
+              createEngineExchangeTransitionConfigurationMethods(
+                  constructorArgumentsBuilder.build())));
     }
   }
 
@@ -210,9 +193,6 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
   private Collection<? extends JsonRpcMethod> createEngineGetPayloadMethods(
       final ConstructorArguments constructorArguments) {
 
-    // special case at the first hardfork (Shanghai), before it was possible to call either V1 or V2
-    // so both versions are scheduled at the beginning, and only V1 must be stopped at Shanghai
-    // timestamp
     return VersionScheduler.startsFromBeginningUntil(EngineGetPayloadV1::new, SHANGHAI)
         .thenAlsoFromBeginning(EngineGetPayloadV2::new)
         .thenFrom(CANCUN, EngineGetPayloadV3::new)
@@ -222,6 +202,15 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
         .build(constructorArguments);
   }
 
+  private Collection<? extends JsonRpcMethod> createEngineExchangeTransitionConfigurationMethods(
+      final ConstructorArguments constructorArguments) {
+
+    return VersionScheduler.startsFromBeginningUntil(
+            EngineExchangeTransitionConfigurationV1::new, CANCUN)
+        .build(constructorArguments);
+  }
+
+  @SuppressWarnings("unchecked")
   private Collection<? extends JsonRpcMethod> createGetPayloadBodiesByHashMethods(
       final ConstructorArguments constructorArguments) {
     return VersionScheduler.alwaysActive(
@@ -229,10 +218,20 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
         .build(constructorArguments);
   }
 
+  @SuppressWarnings("unchecked")
   private Collection<? extends JsonRpcMethod> createGetPayloadBodiesByRangeMethods(
       final ConstructorArguments constructorArguments) {
     return VersionScheduler.alwaysActive(
             EngineGetPayloadBodiesByRangeV1::new, EngineGetPayloadBodiesByRangeV2::new)
+        .build(constructorArguments);
+  }
+
+  @SuppressWarnings("unchecked")
+  private Collection<? extends JsonRpcMethod> createGetBlobsMethods(
+      final ConstructorArguments constructorArguments) {
+
+    return VersionScheduler.startsFrom(CANCUN, EngineGetBlobsV1::new)
+        .thenFrom(OSAKA, EngineGetBlobsV2::new, EngineGetBlobsV3::new)
         .build(constructorArguments);
   }
 
@@ -242,9 +241,9 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
     List<MethodVersionBuildData> pendingMethods = new ArrayList<>();
 
     /**
-     * Creates one version of an engine method. Migrated series share the same {@code
-     * (ConstructorArguments, HardforkId, HardforkId)} constructor signature, so their constructor
-     * references can be used directly, keeping method instantiation free of reflection.
+     * Creates one version of an engine method. Since all versioned engine methods share the same
+     * constructor signature, their constructor references can be used directly, keeping method
+     * instantiation free of reflection.
      */
     @FunctionalInterface
     interface EngineMethodFactory {
@@ -259,6 +258,13 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
       return vs;
     }
 
+    static VersionScheduler startsFrom(
+        final HardforkId from, final EngineMethodFactory firstVersion) {
+      final VersionScheduler vs = new VersionScheduler();
+      vs.pendingMethods.add(new MethodVersionBuildData(firstVersion, from, null));
+      return vs;
+    }
+
     static VersionScheduler alwaysActive(final EngineMethodFactory... methods) {
       final VersionScheduler vs = new VersionScheduler();
       Arrays.stream(methods)
@@ -266,7 +272,7 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
       return vs;
     }
 
-    VersionScheduler thenAlsoFromBeginning(final EngineMethodFactory method) {
+    public VersionScheduler thenAlsoFromBeginning(final EngineMethodFactory method) {
       checkState(
           pendingMethods.isEmpty() || pendingMethods.stream().allMatch(mvbd -> mvbd.to == null),
           "This method can only be called for methods that are active since Paris hardfork");
@@ -274,7 +280,8 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
       return this;
     }
 
-    VersionScheduler thenFrom(final HardforkId hardforkId, final EngineMethodFactory... methods) {
+    final VersionScheduler thenFrom(
+        final HardforkId hardforkId, final EngineMethodFactory... methods) {
       pendingMethods.forEach(mvbd -> readyMethods.add(mvbd.withTo(hardforkId)));
       pendingMethods = new ArrayList<>();
       Arrays.stream(methods)

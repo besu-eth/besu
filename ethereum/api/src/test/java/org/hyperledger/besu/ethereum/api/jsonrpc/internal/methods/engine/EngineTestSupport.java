@@ -25,7 +25,7 @@ import java.util.Optional;
 
 public class EngineTestSupport {
 
-  static JsonRpcError fromErrorResp(final JsonRpcResponse resp) {
+  public static JsonRpcError fromErrorResp(final JsonRpcResponse resp) {
     assertThat(resp.getType()).isEqualTo(RpcResponseType.ERROR);
     return Optional.of(resp)
         .map(JsonRpcErrorResponse.class::cast)

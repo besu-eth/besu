@@ -43,6 +43,7 @@ public class EngineGetPayloadV3Test extends EngineGetPayloadV2Test {
             .vertx(vertx)
             .engineCallListener(engineCallListener)
             .mergeCoordinator(mergeMiningCoordinator)
+            .transactionPool(transactionPool)
             .ethPeers(ethPeers)
             .metricsSystem(metricsSystem)
             .maxRequestBlocks(0)
