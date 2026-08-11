@@ -92,19 +92,6 @@ public class MessageCallProcessor extends AbstractMessageProcessor {
   @Override
   public void start(final MessageFrame frame, final OperationTracer operationTracer) {
     LOG.trace("Executing message-call");
-    // EIP-8025 witness: record code read at frame entry. Delegated accounts add both the
-    // designator address and the delegation target.
-    frame
-        .getCodeReadTracker()
-        .ifPresent(
-            t -> {
-              final Address contract = frame.getContractAddress();
-              t.addCodeRead(contract);
-              final var account = frame.getWorldUpdater().get(contract);
-              if (account != null && CodeDelegationHelper.hasCodeDelegation(account.getCode())) {
-                t.addCodeRead(CodeDelegationHelper.getTargetAddress(account.getCode()));
-              }
-            });
     try {
       transferValue(frame);
 
@@ -145,6 +132,20 @@ public class MessageCallProcessor extends AbstractMessageProcessor {
     // point, it is created. Even if the value is zero we are still creating an account with 0x!
     final MutableAccount recipientAccount =
         frame.getWorldUpdater().getOrCreate(frame.getRecipientAddress());
+
+    // EIP-8025 witness: record code read at frame entry. Delegated accounts add both the
+    // designator address and the delegation target.
+    frame
+        .getCodeReadTracker()
+        .ifPresent(
+            t -> {
+              final Address contract = frame.getContractAddress();
+              t.addCodeRead(contract);
+              final var account = frame.getWorldUpdater().get(contract);
+              if (account != null && CodeDelegationHelper.hasCodeDelegation(account.getCode())) {
+                t.addCodeRead(CodeDelegationHelper.getTargetAddress(account.getCode()));
+              }
+            });
 
     if (Objects.equals(frame.getValue(), Wei.ZERO)) {
       // This is only here for situations where you are calling a public address from a private
