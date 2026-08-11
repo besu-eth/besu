@@ -37,9 +37,7 @@ public enum InternalProfileName {
   /** The 'ENTERPRISE' profile */
   ENTERPRISE("profiles/enterprise-private.toml"),
   /** The 'PRIVATE' profile */
-  PRIVATE("profiles/enterprise-private.toml"),
-  /** The 'DEV' profile. */
-  DEV("profiles/dev.toml");
+  PRIVATE("profiles/enterprise-private.toml");
 
   private final String configFile;
 
