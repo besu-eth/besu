@@ -63,7 +63,9 @@ public class DebugTraceTransactionStepFactory {
           };
       case CALL_TRACER ->
           transactionTrace -> {
-            var result = CallTracerResultConverter.convert(transactionTrace);
+            final boolean onlyTopCall =
+                Boolean.TRUE.equals(traceOptions.tracerConfig().getOrDefault("onlyTopCall", false));
+            var result = CallTracerResultConverter.convert(transactionTrace, onlyTopCall);
             return new DebugTraceTransactionResult(transactionTrace, result);
           };
       case FLAT_CALL_TRACER ->

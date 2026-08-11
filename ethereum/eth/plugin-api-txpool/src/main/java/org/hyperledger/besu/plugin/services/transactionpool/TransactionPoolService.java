@@ -19,12 +19,15 @@ import org.hyperledger.besu.plugin.services.BesuService;
 
 import java.util.Collection;
 
-/** Service to enable and disable the transaction pool. */
+/**
+ * Service to control and inspect the transaction pool: enable or disable the pool, query whether it
+ * is currently enabled, and read the pending transactions.
+ */
 public interface TransactionPoolService extends BesuService {
-  /** Enables the transaction pool. */
+  /** Disables the transaction pool. */
   void disableTransactionPool();
 
-  /** Disables the transaction pool. */
+  /** Enables the transaction pool. */
   void enableTransactionPool();
 
   /**

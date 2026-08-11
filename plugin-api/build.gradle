@@ -33,6 +33,8 @@ dependencies {
   api project(':crypto:plugin-api')
   api project(':ethereum:permissioning:plugin-api')
   api project(':services:kvstore:plugin-api')
+  api project(':ethereum:p2p:plugin-api')
+  api project(':ethereum:eth:plugin-api-txpool')
   api project(':datatypes')
   api 'org.apache.commons:commons-lang3'
   api 'io.consensys.tuweni:tuweni-bytes'
@@ -64,7 +66,9 @@ tasks.register('checkAPICompatibility', me.champeau.gradle.japicmp.JapicmpTask) 
     project(':metrics:plugin-api').tasks.named('jar'),
     project(':ethereum:permissioning:plugin-api').tasks.named('jar'),
     project(':crypto:plugin-api').tasks.named('jar'),
-    project(':services:kvstore:plugin-api').tasks.named('jar'))
+    project(':services:kvstore:plugin-api').tasks.named('jar'),
+    project(':ethereum:p2p:plugin-api').tasks.named('jar'),
+    project(':ethereum:eth:plugin-api-txpool').tasks.named('jar'))
   newClasspath.from(sourceSets.main.runtimeClasspath)
 
   packageIncludes = [
@@ -84,6 +88,10 @@ tasks.register('checkAPICompatibility', me.champeau.gradle.japicmp.JapicmpTask) 
   // exclusion covering it (method/field/class/compatibilityChangeExcludes), e.g.
   //   methodExcludes = ['org.hyperledger.besu.plugin.services.metrics.Counter#inc(long)']
   // Exclusions are cleared by the release PR that bumps apiBaselineVersion.
+  methodExcludes = [
+    'org.hyperledger.besu.plugin.services.HealthCheckService$HealthCheckProvider#isHealthy(org.hyperledger.besu.plugin.services.HealthCheckService$ParamSource)',
+    'org.hyperledger.besu.plugin.services.HealthCheckService$HealthCheckProvider#check(org.hyperledger.besu.plugin.services.HealthCheckService$ParamSource)'
+  ]
 
   txtOutputFile = layout.buildDirectory.file('reports/japicmp/plugin-api-compatibility.txt')
   htmlOutputFile = layout.buildDirectory.file('reports/japicmp/plugin-api-compatibility.html')
