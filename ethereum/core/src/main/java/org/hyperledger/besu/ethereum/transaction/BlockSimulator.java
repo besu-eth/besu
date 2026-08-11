@@ -444,6 +444,14 @@ public class BlockSimulator {
               callParameter.getGas(),
               blockStateCallSimulationResult.getRemainingGas());
 
+      // When enforcing consensus caps (block-building mode), bound the auto-filled gas limit to
+      // txGasLimitCap (EIP-7825/EIP-8037) so the built transaction passes validation. For
+      // user-provided gas that exceeds the cap, the validator still rejects it explicitly.
+      if (!validationParams.isAllowExceedingGasLimit() && callParameter.getGas().isEmpty()) {
+        gasLimit =
+            Math.min(gasLimit, protocolSpec.getGasLimitCalculator().transactionGasLimitCap());
+      }
+
       BiFunction<ProtocolSpec, Optional<BlockHeader>, Wei> blobGasPricePerGasSupplier =
           getBlobGasPricePerGasSupplier(blockStateCall.getBlockOverrides(), validationParams);
 
