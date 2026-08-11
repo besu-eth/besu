@@ -161,9 +161,22 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
     params.add("--data-path");
     params.add(dataDir.toAbsolutePath().toString());
 
-    if (node.isDevMode()) {
-      params.add("--network");
-      params.add("DEV");
+    if (node.isDevMode() && node.getGenesisConfig().isEmpty()) {
+      // --network=dev is deprecated; pass dev.json directly as genesis file instead
+      try (final var devGenesisStream =
+          ProcessBesuNodeRunner.class.getResourceAsStream("/dev.json")) {
+        if (devGenesisStream == null) {
+          throw new IllegalStateException("/dev.json resource not found");
+        }
+        final String devGenesis = new String(devGenesisStream.readAllBytes(), UTF_8);
+        final Path devGenesisFile = createGenesisFile(node, devGenesis);
+        params.add("--genesis-file");
+        params.add(devGenesisFile.toAbsolutePath().toString());
+        params.add("--network-id");
+        params.add("2018");
+      } catch (final IOException e) {
+        throw new IllegalStateException("Failed to load dev.json genesis", e);
+      }
     } else if (node.getNetwork() != null) {
       params.add("--network");
       params.add(node.getNetwork().name());
