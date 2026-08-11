@@ -133,6 +133,7 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
             .mergeCoordinator(mergeCoordinator)
             .ethPeers(ethPeers)
             .metricsSystem(new NoOpMetricsSystem())
+            .maxRequestBlocks(0)
             .build(),
         null,
         SHANGHAI);
