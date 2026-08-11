@@ -36,6 +36,7 @@ public class BlockSimulationParameter {
 
   final List<? extends BlockStateCall> blockStateCalls;
   private final boolean validation;
+  private final boolean enforceConsensusGasLimitCaps;
   private final boolean traceTransfers;
   private final boolean returnFullTransactions;
   private final boolean returnTrieLog;
@@ -58,6 +59,7 @@ public class BlockSimulationParameter {
     this(
         blockStateCalls,
         validation,
+        false,
         traceTransfers,
         returnFullTransactions,
         returnTrieLog,
@@ -67,6 +69,7 @@ public class BlockSimulationParameter {
   public BlockSimulationParameter(
       final List<? extends BlockStateCall> blockStateCalls,
       final boolean validation,
+      final boolean enforceConsensusGasLimitCaps,
       final boolean traceTransfers,
       final boolean returnFullTransactions,
       final boolean returnTrieLog,
@@ -74,6 +77,7 @@ public class BlockSimulationParameter {
     checkNotNull(blockStateCalls);
     this.blockStateCalls = blockStateCalls;
     this.validation = validation;
+    this.enforceConsensusGasLimitCaps = enforceConsensusGasLimitCaps;
     this.traceTransfers = traceTransfers;
     this.returnFullTransactions = returnFullTransactions;
     this.returnTrieLog = returnTrieLog;
@@ -86,6 +90,10 @@ public class BlockSimulationParameter {
 
   public boolean isValidation() {
     return validation;
+  }
+
+  public boolean isEnforceConsensusGasLimitCaps() {
+    return enforceConsensusGasLimitCaps;
   }
 
   public boolean isTraceTransfers() {
@@ -173,6 +181,7 @@ public class BlockSimulationParameter {
   public static class BlockSimulationParameterBuilder {
     private List<? extends BlockStateCall> blockStateCalls = List.of();
     private boolean validation = false;
+    private boolean enforceConsensusGasLimitCaps = false;
     private boolean traceTransfers = false;
     private boolean returnFullTransactions = false;
     private boolean returnTrieLog = false;
@@ -187,6 +196,12 @@ public class BlockSimulationParameter {
 
     public BlockSimulationParameterBuilder validation(final boolean validation) {
       this.validation = validation;
+      return this;
+    }
+
+    public BlockSimulationParameterBuilder enforceConsensusGasLimitCaps(
+        final boolean enforceConsensusGasLimitCaps) {
+      this.enforceConsensusGasLimitCaps = enforceConsensusGasLimitCaps;
       return this;
     }
 
@@ -215,6 +230,7 @@ public class BlockSimulationParameter {
       return new BlockSimulationParameter(
           blockStateCalls,
           validation,
+          enforceConsensusGasLimitCaps,
           traceTransfers,
           returnFullTransactions,
           returnTrieLog,

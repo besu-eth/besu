@@ -166,20 +166,4 @@ public class ChainSyncStateStorage {
       }
     }
   }
-
-  /** Deletes the chain sync state file. */
-  public void deleteState() {
-    synchronized (writeLock) {
-      try {
-        if (stateFile.exists()) {
-          Files.delete(stateFile.toPath());
-        }
-        if (tempFile.exists()) {
-          Files.delete(tempFile.toPath());
-        }
-      } catch (final IOException e) {
-        LOG.error("Failed to delete chain sync state file", e);
-      }
-    }
-  }
 }

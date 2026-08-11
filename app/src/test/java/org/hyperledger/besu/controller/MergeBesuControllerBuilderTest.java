@@ -46,6 +46,8 @@ import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.Checkpoint;
+import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.ImmutableCheckpoint;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
@@ -348,6 +350,27 @@ public class MergeBesuControllerBuilderTest {
             .isSyncing();
 
     assertThat(isSyncing).isTrue();
+  }
+
+  @Test
+  public void checkpointOverrideIsReflectedInSyncState() {
+    final Checkpoint override =
+        ImmutableCheckpoint.builder()
+            .blockHash(
+                Hash.fromHexString(
+                    "0x0000000000000000000000000000000000000000000000000000000000000001"))
+            .blockNumber(1234L)
+            .totalDifficulty(Difficulty.of(9999L))
+            .build();
+
+    final Optional<Checkpoint> checkpoint =
+        visitWithMockConfigs(new MergeBesuControllerBuilder())
+            .checkpoint(Optional.of(override))
+            .build()
+            .getSyncState()
+            .getCheckpoint();
+
+    assertThat(checkpoint).contains(override);
   }
 
   @Test

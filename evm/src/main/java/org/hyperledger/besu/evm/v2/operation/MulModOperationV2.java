@@ -61,7 +61,7 @@ public class MulModOperationV2 extends AbstractFixedCostOperationV2 {
     final UInt256 modulus =
         new UInt256(stack[mOffset], stack[mOffset + 1], stack[mOffset + 2], stack[mOffset + 3]);
 
-    final UInt256 r = modulus.isZero() ? UInt256.ZERO : valueA.mulMod(valueB, modulus);
+    final UInt256 r = valueA.mulMod(valueB, modulus);
 
     stack[mOffset] = r.u3();
     stack[mOffset + 1] = r.u2();

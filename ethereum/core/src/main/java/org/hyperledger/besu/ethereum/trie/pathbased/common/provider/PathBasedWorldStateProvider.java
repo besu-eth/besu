@@ -259,6 +259,20 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
         .map(MutableWorldState::freezeStorage);
   }
 
+  private BlockHeader headerOrThrow(final Hash blockHash) {
+    return blockchain
+        .getBlockHeader(blockHash)
+        .orElseThrow(
+            () -> new IllegalStateException("Missing block header for block hash " + blockHash));
+  }
+
+  private TrieLog trieLogOrThrow(final Hash blockHash) {
+    return trieLogManager
+        .getTrieLogLayer(blockHash)
+        .orElseThrow(
+            () -> new IllegalStateException("Missing trie log for block hash " + blockHash));
+  }
+
   private Optional<PathBasedWorldState> rollFullWorldStateToBlockHash(
       final PathBasedWorldState mutableState, final Hash blockHash) {
     if (blockHash.equals(mutableState.blockHash())) {
@@ -274,22 +288,22 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
         if (maybePersistedHeader.isEmpty()) {
           trieLogManager.getTrieLogLayer(mutableState.blockHash()).ifPresent(rollBacks::add);
         } else {
-          BlockHeader targetHeader = blockchain.getBlockHeader(blockHash).get();
+          BlockHeader targetHeader = headerOrThrow(blockHash);
           BlockHeader persistedHeader = maybePersistedHeader.get();
           // roll back from persisted to even with target
           Hash persistedBlockHash = persistedHeader.getBlockHash();
           while (persistedHeader.getNumber() > targetHeader.getNumber()) {
             LOG.debug("Rollback {}", persistedBlockHash);
-            rollBacks.add(trieLogManager.getTrieLogLayer(persistedBlockHash).get());
-            persistedHeader = blockchain.getBlockHeader(persistedHeader.getParentHash()).get();
+            rollBacks.add(trieLogOrThrow(persistedBlockHash));
+            persistedHeader = headerOrThrow(persistedHeader.getParentHash());
             persistedBlockHash = persistedHeader.getBlockHash();
           }
           // roll forward to target
           Hash targetBlockHash = targetHeader.getBlockHash();
           while (persistedHeader.getNumber() < targetHeader.getNumber()) {
             LOG.debug("Rollforward {}", targetBlockHash);
-            rollForwards.add(trieLogManager.getTrieLogLayer(targetBlockHash).get());
-            targetHeader = blockchain.getBlockHeader(targetHeader.getParentHash()).get();
+            rollForwards.add(trieLogOrThrow(targetBlockHash));
+            targetHeader = headerOrThrow(targetHeader.getParentHash());
             targetBlockHash = targetHeader.getBlockHash();
           }
 
@@ -297,11 +311,11 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
           while (!persistedBlockHash.equals(targetBlockHash)) {
             LOG.debug("Paired Rollback {}", persistedBlockHash);
             LOG.debug("Paired Rollforward {}", targetBlockHash);
-            rollForwards.add(trieLogManager.getTrieLogLayer(targetBlockHash).get());
-            targetHeader = blockchain.getBlockHeader(targetHeader.getParentHash()).get();
+            rollForwards.add(trieLogOrThrow(targetBlockHash));
+            targetHeader = headerOrThrow(targetHeader.getParentHash());
 
-            rollBacks.add(trieLogManager.getTrieLogLayer(persistedBlockHash).get());
-            persistedHeader = blockchain.getBlockHeader(persistedHeader.getParentHash()).get();
+            rollBacks.add(trieLogOrThrow(persistedBlockHash));
+            persistedHeader = headerOrThrow(persistedHeader.getParentHash());
 
             targetBlockHash = targetHeader.getBlockHash();
             persistedBlockHash = persistedHeader.getBlockHash();
@@ -323,7 +337,7 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
           }
           pathBasedUpdater.commit();
 
-          mutableState.persist(blockchain.getBlockHeader(blockHash).get());
+          mutableState.persist(headerOrThrow(blockHash));
 
           LOG.debug(
               "Archive rolling finished, {} now at {}",
@@ -346,7 +360,7 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
           return Optional.empty();
         }
       } catch (final RuntimeException re) {
-        LOG.info("Archive rolling failed for block hash " + blockHash, re);
+        LOG.warn("Archive rolling failed for block hash " + blockHash, re);
         if (re instanceof MerkleTrieException) {
           // need to throw to trigger the heal
           throw re;

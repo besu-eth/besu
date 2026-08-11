@@ -21,6 +21,8 @@ import org.hyperledger.besu.components.BesuComponent;
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.consensus.merge.MergeContext;
+import org.hyperledger.besu.consensus.merge.NewPayloadListener;
+import org.hyperledger.besu.consensus.merge.UnverifiedForkchoiceListener;
 import org.hyperledger.besu.consensus.qbft.BFTPivotSelectorFromPeers;
 import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.datatypes.Hash;
@@ -42,7 +44,6 @@ import org.hyperledger.besu.ethereum.chain.GenesisState;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.chain.VariablesStorage;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
@@ -64,11 +65,11 @@ import org.hyperledger.besu.ethereum.eth.sync.DefaultSynchronizer;
 import org.hyperledger.besu.ethereum.eth.sync.PivotBlockSelector;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.common.PivotSelectorAtHead;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSelectorFromPeers;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSelectorFromSafeBlock;
 import org.hyperledger.besu.ethereum.eth.sync.common.SingleBlockHeaderDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.Checkpoint;
-import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.ImmutableCheckpoint;
 import org.hyperledger.besu.ethereum.eth.sync.fullsync.SyncTerminationCondition;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
@@ -238,6 +239,9 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
 
   /** The global code cache */
   protected PathBasedCodeCache codeCache;
+
+  /** The effective checkpoint to sync to (CLI override or genesis). */
+  protected Optional<Checkpoint> checkpoint = Optional.empty();
 
   /** Instantiates a new Besu controller builder. */
   protected BesuControllerBuilder() {}
@@ -421,6 +425,17 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
    */
   public BesuControllerBuilder requiredBlocks(final Map<Long, Hash> requiredBlocks) {
     this.requiredBlocks = requiredBlocks;
+    return this;
+  }
+
+  /**
+   * Sets the effective checkpoint to sync to.
+   *
+   * @param checkpoint the resolved checkpoint, or empty if none applies
+   * @return the besu controller builder
+   */
+  public BesuControllerBuilder checkpoint(final Optional<Checkpoint> checkpoint) {
+    this.checkpoint = checkpoint;
     return this;
   }
 
@@ -757,21 +772,6 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
 
     final EthMessages ethMessages = new EthMessages();
     final EthMessages snapMessages = new EthMessages();
-
-    Optional<Checkpoint> checkpoint = Optional.empty();
-    if (genesisConfigOptions.getCheckpointOptions().isValid()) {
-      checkpoint =
-          Optional.of(
-              ImmutableCheckpoint.builder()
-                  .blockHash(
-                      Hash.fromHexString(
-                          genesisConfigOptions.getCheckpointOptions().getHash().get()))
-                  .blockNumber(genesisConfigOptions.getCheckpointOptions().getNumber().getAsLong())
-                  .totalDifficulty(
-                      Difficulty.fromHexString(
-                          genesisConfigOptions.getCheckpointOptions().getTotalDifficulty().get()))
-                  .build());
-    }
 
     final PeerTaskExecutor peerTaskExecutor =
         new PeerTaskExecutor(
@@ -1152,26 +1152,58 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
           new SingleBlockHeaderDownloader(ethContext, protocolSchedule);
 
       final List<Runnable> cleanups = new ArrayList<>();
+      final Runnable cleanupAction =
+          () -> {
+            cleanups.forEach(Runnable::run);
+          };
 
-      final PivotSelectorFromSafeBlock selector =
-          new PivotSelectorFromSafeBlock(
-              protocolContext,
-              genesisConfigOptions,
-              headerDownloader,
-              protocolSchedule,
-              Clock.systemUTC(),
-              syncConfig.getSnapSyncConfiguration().getPivotBlockWindowValidity(),
-              () -> {
-                cleanups.forEach(Runnable::run);
-                LOG.info("Initial sync done, unsubscribing forkchoice + newPayload listeners");
-              });
+      final PivotBlockSelector selector;
+      final NewPayloadListener newPayloadListener;
+      final UnverifiedForkchoiceListener forkchoiceListener;
+      if (Boolean.TRUE.equals(syncConfig.getSnapSyncConfiguration().isSnap2Enabled())) {
+        final PivotSelectorAtHead atHeadSelector =
+            new PivotSelectorAtHead(
+                protocolContext,
+                genesisConfigOptions,
+                headerDownloader,
+                protocolSchedule,
+                ethContext,
+                syncConfig.getSyncMinimumPeerCount(),
+                Clock.systemUTC(),
+                syncConfig.getSnapSyncConfiguration().getPivotBlockWindowValidity(),
+                cleanupAction);
+        selector = atHeadSelector;
+        newPayloadListener = atHeadSelector;
+        forkchoiceListener = atHeadSelector;
+      } else {
+        final PivotSelectorFromSafeBlock safeBlockSelector =
+            new PivotSelectorFromSafeBlock(
+                protocolContext,
+                genesisConfigOptions,
+                headerDownloader,
+                protocolSchedule,
+                Clock.systemUTC(),
+                syncConfig.getSnapSyncConfiguration().getPivotBlockWindowValidity(),
+                cleanupAction);
+        selector = safeBlockSelector;
+        newPayloadListener = safeBlockSelector;
+        forkchoiceListener = safeBlockSelector;
+      }
 
-      final long newPayloadSubscriptionId = mergeContext.addNewPayloadListener(selector);
-      cleanups.add(() -> mergeContext.removeNewPayloadListener(newPayloadSubscriptionId));
-
-      final long selectorSubscriptionId = mergeContext.addNewUnverifiedForkchoiceListener(selector);
+      final long newPayloadSubscriptionId = mergeContext.addNewPayloadListener(newPayloadListener);
       cleanups.add(
-          () -> mergeContext.removeNewUnverifiedForkchoiceListener(selectorSubscriptionId));
+          () -> {
+            mergeContext.removeNewPayloadListener(newPayloadSubscriptionId);
+            LOG.info("Unsubscribed newPayload listener");
+          });
+
+      final long selectorSubscriptionId =
+          mergeContext.addNewUnverifiedForkchoiceListener(forkchoiceListener);
+      cleanups.add(
+          () -> {
+            mergeContext.removeNewUnverifiedForkchoiceListener(selectorSubscriptionId);
+            LOG.info("Unsubscribed forkchoice listener");
+          });
 
       return selector;
     } else {
