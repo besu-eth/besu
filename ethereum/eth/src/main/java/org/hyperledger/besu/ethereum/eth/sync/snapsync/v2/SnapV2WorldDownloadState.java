@@ -108,9 +108,17 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
 
   private static final Duration HEARTBEAT_INTERVAL = Duration.ofSeconds(30);
   private static final long COMPLETION_DEBUG_LOG_INTERVAL_MS = TimeUnit.SECONDS.toMillis(10);
+
+  static final long DEFAULT_CHILD_QUEUE_HIGH_WATERMARK = 10_000;
+  static final long DEFAULT_CHILD_QUEUE_LOW_WATERMARK = 5_000;
+
+  private final long childQueueLowWatermark;
+  private final long childQueueHighWatermark;
+
   private volatile ScheduledFuture<?> heartbeatFuture;
   private volatile long lastCompletionDebugLogMillis;
   private volatile long pivotCatchupStartMillis;
+  private boolean accountRequestsPaused;
 
   public SnapV2WorldDownloadState(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
@@ -127,7 +135,8 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
       final SnapV2BlockAccessListApplier blockAccessListApplier,
       final SnapV2ReorgHealer reorgHealer,
       final Blockchain blockchain,
-      final EthContext ethContext) {
+      final EthContext ethContext,
+      final long storagePipelineInFlightCapacity) {
     super(
         worldStateStorageCoordinator,
         pendingRequests,
@@ -144,6 +153,8 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
     this.reorgHealer = reorgHealer;
     this.blockchain = blockchain;
     this.ethContext = ethContext;
+    this.childQueueLowWatermark = computeChildQueueLowWatermark(storagePipelineInFlightCapacity);
+    this.childQueueHighWatermark = computeChildQueueHighWatermark(childQueueLowWatermark);
 
     accountRangeTracker.setOnRangeCompleted(
         (rangeStart, rangeEnd) ->
@@ -363,6 +374,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
     pendingCodeRequests.clear();
     accountRangeTracker.clear();
     storageRangeTracker.clear();
+    accountRequestsPaused = false;
     pivotCatchupFuture = null;
     chainCatchupFuture = null;
     pivotCatchupStartMillis = 0;
@@ -855,15 +867,45 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
   }
 
   private boolean shouldPauseAccountRequests() {
-    // TODO: Replace this drain-to-zero gate with bounded backpressure. Account ranges should pause
-    // only while child queues are above a high-watermark, then resume below a low-watermark.
-    return hasIncompleteTasks(pendingStorageRequests)
-        || hasIncompleteTasks(pendingLargeStorageRequests)
-        || hasIncompleteTasks(pendingCodeRequests);
+    accountRequestsPaused =
+        evaluateAccountBackpressure(
+            accountRequestsPaused,
+            childQueueLowWatermark,
+            childQueueHighWatermark,
+            pendingStorageRequests,
+            pendingLargeStorageRequests,
+            pendingCodeRequests);
+    return accountRequestsPaused;
   }
 
-  private boolean hasIncompleteTasks(final TaskCollection<SnapDataRequest> queue) {
-    return !queue.allTasksCompleted();
+  /**
+   * Always at least 25% above the storage pipeline's in-flight capacity so resuming account
+   * downloads can't drain a child queue dry and starve it.
+   */
+  static long computeChildQueueLowWatermark(final long storagePipelineInFlightCapacity) {
+    return Math.max(DEFAULT_CHILD_QUEUE_LOW_WATERMARK, storagePipelineInFlightCapacity * 5 / 4);
+  }
+
+  static long computeChildQueueHighWatermark(final long childQueueLowWatermark) {
+    return Math.max(DEFAULT_CHILD_QUEUE_HIGH_WATERMARK, 2 * childQueueLowWatermark);
+  }
+
+  /**
+   * Bounded backpressure with hysteresis: account ranges pause once any child queue backs up to the
+   * high watermark and keep flowing again only after every child queue has drained below the low
+   * watermark.
+   */
+  static boolean evaluateAccountBackpressure(
+      final boolean currentlyPaused,
+      final long lowWatermark,
+      final long highWatermark,
+      final InMemoryTaskQueue<SnapDataRequest> pendingStorageRequests,
+      final InMemoryTaskQueue<SnapDataRequest> pendingLargeStorageRequests,
+      final InMemoryTaskQueue<SnapDataRequest> pendingCodeRequests) {
+    final long watermark = currentlyPaused ? lowWatermark : highWatermark;
+    return pendingStorageRequests.size() >= watermark
+        || pendingLargeStorageRequests.size() >= watermark
+        || pendingCodeRequests.size() >= watermark;
   }
 
   @Override
