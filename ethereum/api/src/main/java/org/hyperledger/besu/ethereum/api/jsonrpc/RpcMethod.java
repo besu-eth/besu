@@ -72,7 +72,6 @@ public enum RpcMethod {
   ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1("engine_getPayloadBodiesByRangeV1"),
   ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2("engine_getPayloadBodiesByRangeV2"),
   ENGINE_EXCHANGE_CAPABILITIES("engine_exchangeCapabilities"),
-  ENGINE_PREPARE_PAYLOAD_DEBUG("engine_preparePayload_debug"),
   ETH_ACCOUNTS("eth_accounts"),
   ETH_BLOCK_NUMBER("eth_blockNumber"),
   ETH_CALL("eth_call"),
