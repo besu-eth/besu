@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTra
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.frame.CodeReadTracker;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
@@ -79,6 +80,15 @@ public class SystemCallProcessor {
       final BlockProcessingContext context,
       final Bytes inputData,
       final Optional<AccessLocationTracker> accessLocationTracker) {
+    return process(callAddress, context, inputData, accessLocationTracker, Optional.empty());
+  }
+
+  public Bytes process(
+      final Address callAddress,
+      final BlockProcessingContext context,
+      final Bytes inputData,
+      final Optional<AccessLocationTracker> accessLocationTracker,
+      final Optional<CodeReadTracker> codeReadTracker) {
     WorldUpdater blockUpdater = context.getWorldState().updater();
     WorldUpdater systemCallUpdater = blockUpdater.updater();
     // EIP-7928: the account is read before we can know whether there is code to run, so an absent
@@ -103,7 +113,8 @@ public class SystemCallProcessor {
             context.getBlockHeader(),
             context.getBlockHashLookup(),
             inputData,
-            accessLocationTracker);
+            accessLocationTracker,
+            codeReadTracker);
 
     // System calls are untraced by default. A tracer is only passed when it is block-aware,
     // enabled, and opts into system-call tracing. Otherwise, OperationTracer.NO_TRACING is used.
@@ -157,7 +168,8 @@ public class SystemCallProcessor {
       final ProcessableBlockHeader blockHeader,
       final BlockHashLookup blockHashLookup,
       final Bytes inputData,
-      final Optional<AccessLocationTracker> maybeAccessLocationTracker) {
+      final Optional<AccessLocationTracker> maybeAccessLocationTracker,
+      final Optional<CodeReadTracker> codeReadTracker) {
 
     final AbstractMessageProcessor processor =
         mainnetTransactionProcessor.getMessageProcessor(MessageFrame.Type.MESSAGE_CALL);
@@ -194,6 +206,7 @@ public class SystemCallProcessor {
           builder.eip7928AccessList(tracker);
           tracker.addTouchedAccount(callAddress);
         });
+    codeReadTracker.ifPresent(builder::codeReadTracker);
 
     return builder.build();
   }

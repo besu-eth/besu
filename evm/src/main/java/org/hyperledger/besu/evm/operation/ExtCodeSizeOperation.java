@@ -62,6 +62,7 @@ public class ExtCodeSizeOperation extends AbstractOperation {
       } else {
         final Account account = getAccount(address, frame);
 
+        frame.getCodeReadTracker().ifPresent(t -> t.addCodeRead(address));
         Bytes codeSize = (account == null) ? Bytes.EMPTY : Words.intBytes(account.getCode().size());
         frame.pushStackItem(codeSize);
 

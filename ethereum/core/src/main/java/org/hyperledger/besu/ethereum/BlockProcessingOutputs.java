@@ -30,6 +30,7 @@ public class BlockProcessingOutputs {
   private final Optional<List<Request>> maybeRequests;
   private final Optional<BlockAccessList> maybeBlockAccessList;
   private final long cumulativeBlockGasUsed;
+  private final Optional<WitnessData> witnessData;
 
   /**
    * Creates a new instance.
@@ -87,11 +88,39 @@ public class BlockProcessingOutputs {
       final Optional<List<Request>> maybeRequests,
       final Optional<BlockAccessList> blockAccessList,
       final long cumulativeBlockGasUsed) {
+    this(
+        worldState,
+        receipts,
+        maybeRequests,
+        blockAccessList,
+        cumulativeBlockGasUsed,
+        Optional.empty());
+  }
+
+  /**
+   * Creates a new instance.
+   *
+   * @param worldState the world state after processing the block
+   * @param receipts the receipts produced by processing the block
+   * @param maybeRequests the requests produced by processing the block
+   * @param blockAccessList the block-level access list produced by processing the block
+   * @param cumulativeBlockGasUsed the cumulative block gas used (pre-refund for EIP-7778)
+   * @param witnessData the EIP-8025 witness data collected during block processing, or empty if
+   *     witness collection was not enabled for this block
+   */
+  public BlockProcessingOutputs(
+      final MutableWorldState worldState,
+      final List<TransactionReceipt> receipts,
+      final Optional<List<Request>> maybeRequests,
+      final Optional<BlockAccessList> blockAccessList,
+      final long cumulativeBlockGasUsed,
+      final Optional<WitnessData> witnessData) {
     this.worldState = worldState;
     this.receipts = receipts;
     this.maybeRequests = maybeRequests;
     this.maybeBlockAccessList = blockAccessList;
     this.cumulativeBlockGasUsed = cumulativeBlockGasUsed;
+    this.witnessData = witnessData;
   }
 
   /**
@@ -139,5 +168,13 @@ public class BlockProcessingOutputs {
    */
   public long getCumulativeBlockGasUsed() {
     return cumulativeBlockGasUsed;
+  }
+
+  /**
+   * Returns the EIP-8025 witness data collected during block processing, or empty if witness
+   * collection was not enabled for this block.
+   */
+  public Optional<WitnessData> getWitnessData() {
+    return witnessData;
   }
 }

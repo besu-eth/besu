@@ -235,6 +235,9 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
     if (parent.getEip7928AccessList().isPresent()) {
       builder.eip7928AccessList(parent.getEip7928AccessList().get());
     }
+    if (parent.getCodeReadTracker().isPresent()) {
+      builder.codeReadTracker(parent.getCodeReadTracker().get());
+    }
 
     builder.build();
 
