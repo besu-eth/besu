@@ -41,7 +41,6 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -65,7 +64,7 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
   private static final Logger PROCESS_LOG =
       LoggerFactory.getLogger("org.hyperledger.besu.SubProcessLog");
 
-  private final Map<String, Process> besuProcesses = new HashMap<>();
+  private final Map<String, Process> besuProcesses = new ConcurrentHashMap<>();
   private final ExecutorService outputProcessorExecutor = Executors.newCachedThreadPool();
   private volatile boolean capturingConsole;
   private final ByteArrayOutputStream consoleContents = new ByteArrayOutputStream();
@@ -130,7 +129,14 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
 
       nodeOutputs.put(node.getName(), EvictingQueue.create(MAX_STARTUP_OUTPUT_LINES));
       final Process process = processBuilder.start();
-      process.onExit().thenRun(() -> node.setExitCode(process.exitValue()));
+      process
+          .onExit()
+          .thenRun(
+              () -> {
+                if (besuProcesses.get(node.getName()) == process) {
+                  node.setExitCode(process.exitValue());
+                }
+              });
       outputProcessorExecutor.execute(() -> printOutput(node, process));
       besuProcesses.put(node.getName(), process);
     } catch (final IOException e) {

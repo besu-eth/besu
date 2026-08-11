@@ -66,9 +66,11 @@ import org.hyperledger.besu.ethereum.api.graphql.GraphQLConfiguration;
 import org.hyperledger.besu.ethereum.api.handlers.TimeoutOptions;
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration;
+import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.ImmutableCheckpoint;
 import org.hyperledger.besu.ethereum.p2p.config.DiscoveryMode;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
@@ -2242,6 +2244,88 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
+  public void checkpointOverridePassedWhenSpecified() {
+    // The default network (mainnet) has a genesis checkpoint, so this also verifies the CLI
+    // override
+    // takes precedence over the genesis checkpoint.
+    final String hash = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
+    final long blockNumber = 12345678L;
+
+    parseCommand("--checkpoint=" + hash + ":" + blockNumber + ":1000000");
+
+    verify(mockControllerBuilderFactory)
+        .checkpoint(
+            Optional.of(
+                ImmutableCheckpoint.builder()
+                    .blockHash(Hash.fromHexString(hash))
+                    .blockNumber(blockNumber)
+                    .totalDifficulty(Difficulty.of(1000000L))
+                    .build()));
+    verify(mockControllerBuilder).build();
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void checkpointEmptyWhenNoneConfigured() throws IOException {
+    final Path genesisFile = createFakeGenesisFile(GENESIS_VALID_JSON);
+
+    parseCommand("--genesis-file", genesisFile.toString());
+
+    verify(mockControllerBuilderFactory).checkpoint(Optional.empty());
+    verify(mockControllerBuilder).build();
+
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void checkpointOverrideRejectsInvalidValue() {
+    parseCommand("--checkpoint=not-a-valid-checkpoint");
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).contains("Invalid checkpoint");
+  }
+
+  @Test
+  public void invalidGenesisCheckpointIsRejected() throws IOException {
+    final Path genesisFile = createFakeGenesisFile(genesisWithMalformedCheckpoint());
+
+    parseCommand("--genesis-file", genesisFile.toString());
+
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains("The checkpoint block configured in the genesis file is not valid");
+  }
+
+  @Test
+  public void checkpointOverrideSkipsGenesisCheckpointValidation() throws IOException {
+    final Path genesisFile = createFakeGenesisFile(genesisWithMalformedCheckpoint());
+    final String hash = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
+
+    parseCommand(
+        "--genesis-file", genesisFile.toString(), "--checkpoint=" + hash + ":12345678:1000000");
+
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .doesNotContain("The checkpoint block configured in the genesis file is not valid");
+  }
+
+  private static JsonObject genesisWithMalformedCheckpoint() {
+    return new JsonObject()
+        .put(
+            "config",
+            new JsonObject()
+                .put("chainId", GENESIS_CONFIG_TEST_CHAINID)
+                .put(
+                    "checkpoint",
+                    new JsonObject()
+                        .put(
+                            "hash",
+                            "0x0000000000000000000000000000000000000000000000000000000000000001")
+                        .put("number", 100)
+                        .put("totalDifficulty", "not-a-number")));
+  }
+
+  @Test
   public void logLevelHasNullAsDefaultValue() {
     final TestBesuCommand command = parseCommand();
 
@@ -2515,6 +2599,20 @@ public class BesuCommandTest extends CommandTestAbstract {
   public void logWarnIfFastSyncMinPeersUsedWithFullSync() {
     parseCommand("--sync-mode", "FULL", "--sync-min-peers", "1");
     verify(mockLogger).warn("--sync-min-peers is ignored in FULL sync-mode");
+  }
+
+  @Test
+  public void logWarnIfCheckpointUsedWithFullSync() {
+    final String hash = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
+    parseCommand("--sync-mode", "FULL", "--checkpoint=" + hash + ":12345678:1000000");
+    verify(mockLogger).warn("--checkpoint is ignored in FULL sync-mode");
+  }
+
+  @Test
+  public void doNotWarnIfCheckpointUsedWithSnapSync() {
+    final String hash = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
+    parseCommand("--sync-mode", "SNAP", "--checkpoint=" + hash + ":12345678:1000000");
+    verify(mockLogger, never()).warn("--checkpoint is ignored in FULL sync-mode");
   }
 
   @Test

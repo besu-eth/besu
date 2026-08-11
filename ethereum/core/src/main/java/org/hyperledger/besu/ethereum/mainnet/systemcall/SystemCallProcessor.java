@@ -81,13 +81,17 @@ public class SystemCallProcessor {
       final Optional<AccessLocationTracker> accessLocationTracker) {
     WorldUpdater blockUpdater = context.getWorldState().updater();
     WorldUpdater systemCallUpdater = blockUpdater.updater();
+    // EIP-7928: the account is read before we can know whether there is code to run, so an absent
+    // system contract still belongs in the access list.
+    accessLocationTracker.ifPresent(tracker -> tracker.addTouchedAccount(callAddress));
     final Account maybeContract = systemCallUpdater.get(callAddress);
-    if (maybeContract == null) {
-      throw new SystemCallNoCodeAtAddressException("Invalid system call address: " + callAddress);
-    }
-    if (maybeContract.getCode().isEmpty()) {
+    if (maybeContract == null || maybeContract.getCode().isEmpty()) {
+      // Throwing skips the flush at the end of a successful call, so flush here instead.
+      applyAccessLocationTracker(accessLocationTracker, context, systemCallUpdater);
       throw new SystemCallNoCodeAtAddressException(
-          "Invalid system call, no code at address " + callAddress);
+          maybeContract == null
+              ? "Invalid system call address: " + callAddress
+              : "Invalid system call, no code at address " + callAddress);
     }
 
     final AbstractMessageProcessor processor =
@@ -114,11 +118,7 @@ public class SystemCallProcessor {
       processor.process(stack.peekFirst(), tracer);
     }
 
-    accessLocationTracker.ifPresent(
-        tracker ->
-            context
-                .getBlockAccessListBuilder()
-                .ifPresent(builder -> builder.apply(tracker, systemCallUpdater)));
+    applyAccessLocationTracker(accessLocationTracker, context, systemCallUpdater);
 
     if (frame.getState() == MessageFrame.State.COMPLETED_SUCCESS) {
       systemCallUpdater.commit();
@@ -138,6 +138,17 @@ public class SystemCallProcessor {
             .map(haltReason -> "System call halted: " + haltReason.getDescription())
             .orElse("System call did not execute to completion");
     throw new RuntimeException(errorMessage);
+  }
+
+  private static void applyAccessLocationTracker(
+      final Optional<AccessLocationTracker> accessLocationTracker,
+      final BlockProcessingContext context,
+      final WorldUpdater systemCallUpdater) {
+    accessLocationTracker.ifPresent(
+        tracker ->
+            context
+                .getBlockAccessListBuilder()
+                .ifPresent(builder -> builder.apply(tracker, systemCallUpdater)));
   }
 
   private MessageFrame createMessageFrame(

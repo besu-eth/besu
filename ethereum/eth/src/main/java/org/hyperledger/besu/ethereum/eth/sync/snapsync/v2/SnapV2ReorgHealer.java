@@ -21,22 +21,30 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedAccountRangeTra
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedStorageRangeTracker;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
 
 import com.google.common.annotations.VisibleForTesting;
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
+import org.apache.tuweni.units.bigints.UInt256;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Computes the information needed to recover from a chain reorganization past the current snap/2
- * pivot, and applies the canonical-fork BALs.
+ * Recovers the partially-downloaded state from a chain reorganization past the current snap/2
+ * pivot.
  *
  * <ul>
  *   <li>Accounts and slots that appear in the canonical BALs (whether overlapping with the orphaned
@@ -46,6 +54,9 @@ import org.slf4j.LoggerFactory;
  *       re-fetches (see {@link ReorgPlan}): accounts whose record must be re-fetched, and
  *       per-account storage slots.
  * </ul>
+ *
+ * <p>{@link #recoverFromReorg} runs the whole sequence and is the entry point used by the pivot
+ * catch-up.
  */
 public class SnapV2ReorgHealer {
 
@@ -56,25 +67,34 @@ public class SnapV2ReorgHealer {
   private final MutableBlockchain blockchain;
   private final ProtocolSchedule protocolSchedule;
   private final SnapV2BlockAccessListApplier applier;
+  private final WorldStateStorageCoordinator worldStateStorageCoordinator;
+  private final SnapV2ReorgStateFetcher stateFetcher;
 
   public SnapV2ReorgHealer(
       final MutableBlockchain blockchain,
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
-      final ProtocolSchedule protocolSchedule) {
+      final ProtocolSchedule protocolSchedule,
+      final SnapV2ReorgStateFetcher stateFetcher) {
     this(
         blockchain,
         protocolSchedule,
         new SnapV2BlockAccessListApplier(
-            worldStateStorageCoordinator, blockchain, protocolSchedule));
+            worldStateStorageCoordinator, blockchain, protocolSchedule),
+        worldStateStorageCoordinator,
+        stateFetcher);
   }
 
   SnapV2ReorgHealer(
       final MutableBlockchain blockchain,
       final ProtocolSchedule protocolSchedule,
-      final SnapV2BlockAccessListApplier applier) {
+      final SnapV2BlockAccessListApplier applier,
+      final WorldStateStorageCoordinator worldStateStorageCoordinator,
+      final SnapV2ReorgStateFetcher stateFetcher) {
     this.blockchain = blockchain;
     this.protocolSchedule = protocolSchedule;
     this.applier = applier;
+    this.worldStateStorageCoordinator = worldStateStorageCoordinator;
+    this.stateFetcher = stateFetcher;
   }
 
   /**
@@ -178,8 +198,130 @@ public class SnapV2ReorgHealer {
       final ReorgPlan plan,
       final DownloadedAccountRangeTracker accountRangeTracker,
       final DownloadedStorageRangeTracker storageRangeTracker) {
-    applier.applyBlockAccessLists(
-        plan.fromBlock(), plan.toBlock(), accountRangeTracker, storageRangeTracker);
+    final var batch =
+        applier.applyBlockAccessLists(
+            plan.fromBlock(), plan.toBlock(), accountRangeTracker, storageRangeTracker);
+    batch.commit();
+  }
+
+  /**
+   * Runs the full reorg recovery: plans the divergence, fetches the diverged state from peers at
+   * the new pivot (in parallel with the canonical BAL application), applies the corrections, and
+   * repairs the storage roots of pending accounts affected by the canonical fork.
+   *
+   * @throws ReorgUnrecoverableException if the reorg cannot be planned locally
+   * @throws org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldStateDownloaderException if the
+   *     peer-fetched state is unavailable, invalid, or inconsistent with the local state
+   */
+  public ReorgRecoveryResult recoverFromReorg(
+      final BlockHeader oldPivot,
+      final BlockHeader newPivot,
+      final DownloadedAccountRangeTracker accountRangeTracker,
+      final DownloadedStorageRangeTracker storageRangeTracker) {
+
+    final ReorgPlan plan = planReorg(oldPivot, newPivot, accountRangeTracker, storageRangeTracker);
+
+    LOG.info(
+        "snap/2 reorg recovery: {} accounts to refetch, {} accounts with slots to refetch",
+        plan.accountsToRefetch().size(),
+        plan.slotsToRefetch().size());
+
+    final CompletableFuture<FetchedReorgState> fetchFuture =
+        plan.isClean()
+            ? CompletableFuture.completedFuture(FetchedReorgState.empty())
+            : fetchStateToRefetch(plan, newPivot);
+
+    // Apply canonical BALs while the re-fetch is in flight. The BAL commit must happen
+    // before fixDivergedSlots below because it opens storage tries from on-disk roots and
+    // the Bonsai Updater is write-only (no read-back of uncommitted writes).
+    applyCanonicalBals(plan, accountRangeTracker, storageRangeTracker);
+
+    final FetchedReorgState fetched = joinUnwrapped(fetchFuture);
+    final ReorgRecoveryResult recovery =
+        applier.applyReorgCorrections(plan, fetched, accountRangeTracker, storageRangeTracker);
+
+    LOG.info(
+        "snap/2 reorg recovery complete: {} accounts restored, {} accounts deleted",
+        recovery.correctedStorageRoots().size(),
+        recovery.deletedAccounts().size());
+    return recovery;
+  }
+
+  private CompletableFuture<FetchedReorgState> fetchStateToRefetch(
+      final ReorgPlan plan, final BlockHeader newPivot) {
+
+    final Set<Hash> accountsToFetch = new HashSet<>(plan.accountsToRefetch());
+    accountsToFetch.addAll(plan.slotsToRefetch().keySet());
+
+    return stateFetcher
+        .fetchAccounts(accountsToFetch, newPivot)
+        .thenCompose(accounts -> fetchMissingSlotsAndCodes(plan, newPivot, accounts));
+  }
+
+  private CompletableFuture<FetchedReorgState> fetchMissingSlotsAndCodes(
+      final ReorgPlan plan,
+      final BlockHeader newPivot,
+      final Map<Hash, Optional<PmtStateTrieAccountValue>> accounts) {
+
+    final Map<Hash, Map<Hash, Optional<UInt256>>> slotsByAccount = new ConcurrentHashMap<>();
+    final List<CompletableFuture<Void>> slotFutures = new ArrayList<>();
+
+    for (final Map.Entry<Hash, Optional<PmtStateTrieAccountValue>> entry : accounts.entrySet()) {
+      if (entry.getValue().isEmpty()) {
+        continue;
+      }
+      final Hash accountHash = entry.getKey();
+      final Set<Hash> slotsToRefetch = plan.slotsToRefetchFor(accountHash);
+      if (!slotsToRefetch.isEmpty()) {
+        final Hash storageRoot = entry.getValue().get().getStorageRoot();
+        slotFutures.add(
+            stateFetcher
+                .fetchSlots(accountHash, storageRoot, slotsToRefetch, newPivot)
+                .thenAccept(slots -> slotsByAccount.put(accountHash, slots)));
+      }
+    }
+
+    final Set<Hash> missingCodeHashes = collectMissingCodeHashes(accounts);
+    final CompletableFuture<Map<Hash, Bytes>> codesFuture =
+        stateFetcher.fetchCodes(missingCodeHashes, newPivot);
+
+    final List<CompletableFuture<?>> all = new ArrayList<>(slotFutures);
+    all.add(codesFuture);
+    return CompletableFuture.allOf(all.toArray(CompletableFuture[]::new))
+        .thenApply(v -> new FetchedReorgState(accounts, slotsByAccount, codesFuture.join()));
+  }
+
+  private Set<Hash> collectMissingCodeHashes(
+      final Map<Hash, Optional<PmtStateTrieAccountValue>> accounts) {
+    final Set<Hash> missing = new HashSet<>();
+    for (final Map.Entry<Hash, Optional<PmtStateTrieAccountValue>> entry : accounts.entrySet()) {
+      if (entry.getValue().isEmpty()) {
+        continue;
+      }
+      final Hash codeHash = entry.getValue().get().getCodeHash();
+      if (!Hash.EMPTY.equals(codeHash) && !hasCodeLocally(codeHash, entry.getKey())) {
+        missing.add(codeHash);
+      }
+    }
+    return missing;
+  }
+
+  private boolean hasCodeLocally(final Hash codeHash, final Hash accountHash) {
+    return worldStateStorageCoordinator
+        .getCode(codeHash, accountHash)
+        .map(code -> !code.isEmpty())
+        .orElse(false);
+  }
+
+  private static <T> T joinUnwrapped(final CompletableFuture<T> future) {
+    try {
+      return future.join();
+    } catch (final CompletionException e) {
+      if (e.getCause() instanceof RuntimeException runtimeException) {
+        throw runtimeException;
+      }
+      throw e;
+    }
   }
 
   private Map<Hash, AccountTouches> collectOrphanedTouches(

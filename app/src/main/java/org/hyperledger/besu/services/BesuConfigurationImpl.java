@@ -22,11 +22,13 @@ import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.plugin.CoreConfiguration;
 import org.hyperledger.besu.plugin.services.BesuConfiguration;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
+import org.hyperledger.besu.plugin.storage.StorageConfiguration;
 
 import java.nio.file.Path;
 
 /** A concrete implementation of BesuConfiguration which is used in Besu plugin framework. */
-public class BesuConfigurationImpl implements BesuConfiguration, CoreConfiguration {
+public class BesuConfigurationImpl
+    implements BesuConfiguration, CoreConfiguration, StorageConfiguration {
   private Path storagePath;
   private Path dataPath;
   private DataStorageConfiguration dataStorageConfiguration;

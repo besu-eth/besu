@@ -43,7 +43,6 @@ import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManager;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManagerTestBuilder;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManagerTestUtil;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
-import org.hyperledger.besu.ethereum.eth.manager.RespondingEthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutor;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetBodiesFromPeerTask;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetBodiesFromPeerTaskExecutorAnswer;
@@ -66,7 +65,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 import jakarta.validation.constraints.NotNull;
@@ -97,7 +95,6 @@ public class BackwardSyncContextTest {
   private BackwardSyncContext context;
 
   private MutableBlockchain remoteBlockchain;
-  private RespondingEthPeer peer;
   private MutableBlockchain localBlockchain;
   private static final BlockDataGenerator blockDataGenerator = new BlockDataGenerator();
 
@@ -166,7 +163,7 @@ public class BackwardSyncContextTest {
             .setEthScheduler(new EthScheduler(1, 1, 1, metricsSystem))
             .build();
 
-    peer = EthProtocolManagerTestUtil.createPeer(ethProtocolManager);
+    EthProtocolManagerTestUtil.createPeer(ethProtocolManager);
     EthContext ethContext = ethProtocolManager.ethContext();
 
     when(blockValidator.validateAndProcessBlock(any(), any(), any(), any()))
@@ -310,17 +307,35 @@ public class BackwardSyncContextTest {
   }
 
   @Test
-  public void shouldNotSyncUntilHashWhenNotInSync() {
+  public void shouldQueueHashForSyncWhenNotReady() throws Exception {
     doReturn(false).when(context).isReady();
+    when(backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(context))
+        .thenReturn(backwardSyncAlgorithm);
+    when(backwardSyncAlgorithm.executeBackwardsSync(null))
+        .thenReturn(CompletableFuture.completedFuture(null));
+
     final Hash hash = getRemoteBlockByNumber(REMOTE_HEIGHT).getHash();
     final CompletableFuture<Void> future = context.syncBackwardsUntil(hash);
 
-    respondUntilFutureIsDone(future);
+    future.orTimeout(30, TimeUnit.SECONDS);
+    future.get();
 
-    assertThatThrownBy(future::get)
-        .isInstanceOf(ExecutionException.class)
-        .hasMessageContaining("Backward sync is not ready");
-    assertThat(backwardChain.getFirstHashToAppend()).isEmpty();
+    assertThat(backwardChain.getFirstHashToAppend()).contains(hash);
+  }
+
+  @Test
+  public void shouldKeepOnlyLatestHashQueuedWhileNotReady() {
+    doReturn(false).when(context).isReady();
+    when(backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(context))
+        .thenReturn(backwardSyncAlgorithm);
+    when(backwardSyncAlgorithm.executeBackwardsSync(null)).thenReturn(new CompletableFuture<>());
+
+    final Hash firstHash = getRemoteBlockByNumber(REMOTE_HEIGHT - 1).getHash();
+    final Hash latestHash = getRemoteBlockByNumber(REMOTE_HEIGHT).getHash();
+    context.syncBackwardsUntil(firstHash);
+    context.syncBackwardsUntil(latestHash);
+
+    assertThat(backwardChain.getHashesToAppend()).containsExactly(latestHash);
   }
 
   @Test
@@ -359,13 +374,6 @@ public class BackwardSyncContextTest {
 
     future.get();
     assertThat(backwardChain.getTrustedBlock(higherBlock.getHash())).isEqualTo(higherBlock);
-  }
-
-  private void respondUntilFutureIsDone(final CompletableFuture<Void> future) {
-    final RespondingEthPeer.Responder responder =
-        RespondingEthPeer.blockchainResponder(remoteBlockchain);
-
-    peer.respondWhileOtherThreadsWork(responder, () -> !future.isDone());
   }
 
   @NotNull

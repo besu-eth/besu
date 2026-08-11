@@ -22,6 +22,8 @@ import org.hyperledger.besu.tests.acceptance.dsl.node.BesuNode;
 import java.io.IOException;
 import java.util.List;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -57,6 +59,9 @@ public class HealthCheckPluginTest extends AcceptanceTestBase {
             .execute();
 
     assertThat(response.code()).isEqualTo(200);
+    final JsonNode body = new ObjectMapper().readTree(response.body().string());
+    assertThat(body.get("status").asText()).isEqualTo("UP");
+    assertThat(body.get("checks").get("testPlugin").asText()).isEqualTo("liveness");
     waitForFile(pluginNode.homeDirectory().resolve("plugins/liveness-plugin-called"));
   }
 
@@ -77,6 +82,9 @@ public class HealthCheckPluginTest extends AcceptanceTestBase {
             .execute();
 
     assertThat(response.code()).isEqualTo(200);
+    final JsonNode body = new ObjectMapper().readTree(response.body().string());
+    assertThat(body.get("status").asText()).isEqualTo("UP");
+    assertThat(body.get("checks").get("testPlugin").asText()).isEqualTo("readiness");
     waitForFile(pluginNode.homeDirectory().resolve("plugins/readiness-plugin-called"));
   }
 }

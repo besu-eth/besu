@@ -105,6 +105,7 @@ import org.hyperledger.besu.ethereum.permissioning.account.AccountPermissioningC
 import org.hyperledger.besu.ethereum.permissioning.node.InsufficientPeersPermissioningProvider;
 import org.hyperledger.besu.ethereum.permissioning.node.NodePermissioningController;
 import org.hyperledger.besu.ethereum.permissioning.node.PeerPermissionsAdapter;
+import org.hyperledger.besu.ethereum.permissioning.pluginadapter.PermissioningServiceImpl;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethstats.EthStatsService;
@@ -122,7 +123,6 @@ import org.hyperledger.besu.plugin.BesuPlugin;
 import org.hyperledger.besu.plugin.data.EnodeURL;
 import org.hyperledger.besu.plugin.services.HealthCheckService;
 import org.hyperledger.besu.services.BesuPluginContextImpl;
-import org.hyperledger.besu.services.PermissioningServiceImpl;
 import org.hyperledger.besu.services.RpcEndpointServiceImpl;
 import org.hyperledger.besu.services.TransactionValidatorServiceImpl;
 import org.hyperledger.besu.util.BesuVersionUtils;
@@ -1548,8 +1548,11 @@ public class RunnerBuilder {
 
   private HealthService.HealthCheck adaptProvider(
       final HealthCheckService.HealthCheckProvider provider) {
-    return healthServiceParams ->
-        new HealthService.HealthCheckResult(
-            provider.isHealthy(healthServiceParams::getParam), new JsonObject());
+    return healthServiceParams -> {
+      final HealthCheckService.HealthCheckResult result =
+          provider.check(healthServiceParams::getParam);
+      return new HealthService.HealthCheckResult(
+          result.isHealthy(), new JsonObject(result.getDetails()));
+    };
   }
 }

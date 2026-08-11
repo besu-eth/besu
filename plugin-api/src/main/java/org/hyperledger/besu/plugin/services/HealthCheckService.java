@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.plugin.services;
 
+import java.util.Collections;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -66,6 +68,64 @@ public interface HealthCheckService extends BesuService {
     return getHealthCheck("/readiness");
   }
 
+  /** Result of a health check evaluation, including optional diagnostic details. */
+  final class HealthCheckResult {
+    private final boolean healthy;
+    private final Map<String, Object> details;
+
+    /**
+     * Creates a health check result.
+     *
+     * @param healthy whether the check passed
+     * @param details diagnostic details to include under {@code checks}; may be null or empty. Null
+     *     keys and null values are omitted. Values should be JSON-friendly types that Vert.x {@code
+     *     JsonObject} can encode (for example String, Number, Boolean, Map, or List). Custom object
+     *     types are not guaranteed to render correctly in the HTTP response.
+     */
+    public HealthCheckResult(final boolean healthy, final Map<String, Object> details) {
+      this.healthy = healthy;
+      if (details == null || details.isEmpty()) {
+        this.details = Collections.emptyMap();
+      } else {
+        final Map<String, Object> copy = new java.util.LinkedHashMap<>();
+        for (final Map.Entry<String, Object> entry : details.entrySet()) {
+          if (entry.getKey() != null && entry.getValue() != null) {
+            copy.put(entry.getKey(), entry.getValue());
+          }
+        }
+        this.details = copy.isEmpty() ? Collections.emptyMap() : Map.copyOf(copy);
+      }
+    }
+
+    /**
+     * Creates a healthy or unhealthy result with no details.
+     *
+     * @param healthy whether the check passed
+     * @return the result
+     */
+    public static HealthCheckResult of(final boolean healthy) {
+      return new HealthCheckResult(healthy, Collections.emptyMap());
+    }
+
+    /**
+     * Returns whether the check passed.
+     *
+     * @return true if healthy
+     */
+    public boolean isHealthy() {
+      return healthy;
+    }
+
+    /**
+     * Returns diagnostic details for the response {@code checks} object.
+     *
+     * @return the details map; never null
+     */
+    public Map<String, Object> getDetails() {
+      return details;
+    }
+  }
+
   /** Functional interface for health check providers. */
   @FunctionalInterface
   interface HealthCheckProvider {
@@ -73,9 +133,9 @@ public interface HealthCheckService extends BesuService {
      * Evaluates the health status based on query parameters.
      *
      * @param paramSource the query parameter source from the health check request
-     * @return true if healthy, false otherwise
+     * @return the health check result, including optional structured details
      */
-    boolean isHealthy(ParamSource paramSource);
+    HealthCheckResult check(ParamSource paramSource);
   }
 
   /** Functional interface for accessing query parameters. */
