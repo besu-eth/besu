@@ -185,9 +185,8 @@ public sealed class EngineNewPayloadV1<
     // 3. Client software MAY initiate a sync process if requisite data for payload validation is
     // missing. Sync process is specified in the Sync section.
     final boolean needsSync = maybeParentHeader.isEmpty();
-    final boolean syncInProgress = mergeContext.get().isSyncing();
-    // Only start backward sync when we're not already syncing
-    if (needsSync && !syncInProgress) {
+    // Only start backward sync when the initial sync is done
+    if (needsSync && mergeContext.get().isInitialSyncDone()) {
       logger()
           .atDebug()
           .setMessage("Parent of block {} is not present, append it to backward sync")
@@ -237,7 +236,7 @@ public sealed class EngineNewPayloadV1<
       return respondWith(reqId, blockParam, null, SYNCING);
     }
 
-    if (syncInProgress) {
+    if (mergeContext.get().isSyncing()) {
       logger().debug("We are syncing");
       return respondWith(reqId, blockParam, null, SYNCING);
     }
