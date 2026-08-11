@@ -477,7 +477,8 @@ public class BlockSimulatorTest {
 
     GasLimitCalculator gasLimitCalculator = mock(GasLimitCalculator.class);
     when(protocolSpec.getGasLimitCalculator()).thenReturn(gasLimitCalculator);
-    when(gasLimitCalculator.nextGasLimit(anyLong(), anyLong(), anyLong())).thenReturn(blockGasLimit);
+    when(gasLimitCalculator.nextGasLimit(anyLong(), anyLong(), anyLong()))
+        .thenReturn(blockGasLimit);
     when(gasLimitCalculator.computeExcessBlobGas(anyLong(), anyLong(), anyLong())).thenReturn(0L);
     when(gasLimitCalculator.transactionGasLimitCap()).thenReturn(txGasLimitCap);
 
@@ -494,8 +495,19 @@ public class BlockSimulatorTest {
 
     ArgumentCaptor<Long> gasCaptor = ArgumentCaptor.forClass(Long.class);
     when(transactionSimulator.processWithWorldUpdater(
-            any(), any(), any(), any(), any(), any(), any(), gasCaptor.capture(), any(), any(),
-            any(), any(), any()))
+            any(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any(),
+            gasCaptor.capture(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any()))
         .thenReturn(Optional.empty());
 
     BlockSimulationParameter parameter =
@@ -528,8 +540,19 @@ public class BlockSimulatorTest {
     ArgumentCaptor<TransactionValidationParams> paramsCaptor =
         ArgumentCaptor.forClass(TransactionValidationParams.class);
     when(transactionSimulator.processWithWorldUpdater(
-            any(), any(), paramsCaptor.capture(), any(), any(), any(), any(), anyLong(), any(),
-            any(), any(), any(), any()))
+            any(),
+            any(),
+            paramsCaptor.capture(),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any()))
         .thenReturn(Optional.empty());
 
     BlockSimulationParameter parameter =
@@ -559,8 +582,19 @@ public class BlockSimulatorTest {
     ArgumentCaptor<TransactionValidationParams> paramsCaptor =
         ArgumentCaptor.forClass(TransactionValidationParams.class);
     when(transactionSimulator.processWithWorldUpdater(
-            any(), any(), paramsCaptor.capture(), any(), any(), any(), any(), anyLong(), any(),
-            any(), any(), any(), any()))
+            any(),
+            any(),
+            paramsCaptor.capture(),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any()))
         .thenReturn(Optional.empty());
 
     BlockSimulationParameter parameter =
