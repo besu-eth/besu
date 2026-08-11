@@ -12,7 +12,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.services;
+package org.hyperledger.besu.ethereum.eth.transactions.pluginadapter;
 
 import org.hyperledger.besu.plugin.services.TransactionPoolValidatorService;
 import org.hyperledger.besu.plugin.services.txvalidator.PluginTransactionPoolValidator;

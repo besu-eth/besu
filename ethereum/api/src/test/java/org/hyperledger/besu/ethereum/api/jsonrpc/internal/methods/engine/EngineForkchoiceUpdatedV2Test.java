@@ -65,6 +65,7 @@ public class EngineForkchoiceUpdatedV2Test extends EngineForkchoiceUpdatedV1Test
             .mergeCoordinator(mergeCoordinator)
             .ethPeers(mock(EthPeers.class))
             .metricsSystem(new NoOpMetricsSystem())
+            .maxRequestBlocks(0)
             .build(),
         PARIS,
         CANCUN);

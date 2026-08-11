@@ -118,6 +118,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
             .mergeCoordinator(mergeCoordinator)
             .ethPeers(mock(EthPeers.class))
             .metricsSystem(new NoOpMetricsSystem())
+            .maxRequestBlocks(0)
             .build(),
         null,
         SHANGHAI);
