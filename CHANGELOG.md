@@ -22,6 +22,7 @@
 ### Bug fixes
 - Restore structured `{peers, sync}` detail in plugin-based `/readiness` responses via `HealthCheckProvider` [#10687](https://github.com/besu-eth/besu/issues/10687)
 - Fixed `debug_traceTransaction`/`debug_traceCall`/`debug_traceBlock` returning an invalid empty-string `returnValue` and a phantom `STOP` entry in `structLogs` for legacy EOA-to-EOA transfers that execute no EVM code. Now returns `returnValue:"0x"` and empty `structLogs`, matching the execution-apis opcode-tracer schema. [#10972](https://github.com/besu-eth/besu/pull/10972)
+- Honor `callTracer`'s `onlyTopCall` tracer config in `debug_traceTransaction`/`debug_traceCall`/`debug_traceBlock`; the option was previously accepted but ignored, so responses always included the nested `calls` array. [#10967](https://github.com/besu-eth/besu/pull/10967)
 - EIP-1459 DNS discovery now rejoins TXT records split across multiple `<character-string>`s. Records longer than 255 bytes were truncated, so Besu silently discarded most of every tree, resolving 832 of 3000 nodes from the mainnet tree. [#10985](https://github.com/besu-eth/besu/pull/10985)
 - EIP-1459 DNS discovery now verifies that each subtree record hashes to the subdomain it was served from, as the client protocol requires. [#10988](https://github.com/besu-eth/besu/pull/10988)
 - Queue backward-sync targets received before peer readiness and retry when a peer connects. [#10843](https://github.com/besu-eth/besu/pull/10843)
