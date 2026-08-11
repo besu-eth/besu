@@ -2395,6 +2395,12 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
+  public void assertThatDiscoveryUdpAndMetricsTcpMaySharePort() {
+    parseCommand("--p2p-discovery-port=44444", "--metrics-enabled", "--metrics-port=44444");
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
   public void assertThatDuplicatePortSpecifiedFails() {
     parseCommand(
         "--p2p-port=9",

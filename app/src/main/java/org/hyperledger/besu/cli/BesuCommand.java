@@ -341,7 +341,19 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   private final PreSynchronizationTaskRunner preSynchronizationTaskRunner =
       new PreSynchronizationTaskRunner();
 
-  private final Set<Integer> allocatedPorts = new HashSet<>();
+  private final Set<String> allocatedPorts = new HashSet<>();
+
+  private enum Transport {
+    TCP,
+    UDP
+  }
+
+  private record PortBinding(Integer port, Transport transport) {
+    private String clashKey() {
+      return port + "/" + transport;
+    }
+  }
+
   private Supplier<GenesisConfig> genesisConfigSupplier =
       Suppliers.memoize(this::readGenesisConfig);
 
@@ -2774,15 +2786,15 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
   private void checkPortClash() {
     getEffectivePorts().stream()
-        .filter(Objects::nonNull)
-        .filter(port -> port > 0)
+        .filter(binding -> binding.port() != null)
+        .filter(binding -> binding.port() > 0)
         .forEach(
-            port -> {
-              if (!allocatedPorts.add(port)) {
+            binding -> {
+              if (!allocatedPorts.add(binding.clashKey())) {
                 throw new ParameterException(
                     commandLine,
                     "Port number '"
-                        + port
+                        + binding.port()
                         + "' has been specified multiple times. Please review the supplied configuration.");
               }
             });
@@ -2796,22 +2808,17 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   protected void checkIfRequiredPortsAreAvailable() {
     final List<String> unavailablePorts = new ArrayList<>();
     getEffectivePorts().stream()
-        .filter(Objects::nonNull)
-        .filter(port -> port > 0)
+        .filter(binding -> binding.port() != null)
+        .filter(binding -> binding.port() > 0)
         .forEach(
-            port -> {
-              if (port.equals(p2PDiscoveryConfig.p2pPort())
-                  && NetworkUtility.isPortUnavailableForTcp(port)) {
-                unavailablePorts.add(port + "/TCP");
+            binding -> {
+              if (binding.transport() == Transport.TCP
+                  && NetworkUtility.isPortUnavailableForTcp(binding.port())) {
+                unavailablePorts.add(binding.port() + "/TCP");
               }
-              if (port.equals(p2PDiscoveryConfig.p2pDiscoveryPort())
-                  && NetworkUtility.isPortUnavailableForUdp(port)) {
-                unavailablePorts.add(port + "/UDP");
-              }
-              if (!port.equals(p2PDiscoveryConfig.p2pPort())
-                  && !port.equals(p2PDiscoveryConfig.p2pDiscoveryPort())
-                  && NetworkUtility.isPortUnavailableForTcp(port)) {
-                unavailablePorts.add(port + "/TCP");
+              if (binding.transport() == Transport.UDP
+                  && NetworkUtility.isPortUnavailableForUdp(binding.port())) {
+                unavailablePorts.add(binding.port() + "/UDP");
               }
             });
     if (!unavailablePorts.isEmpty()) {
@@ -2823,41 +2830,63 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   }
 
   /**
-   * * Gets the list of effective ports (ports that are enabled).
+   * Gets the list of effective ports (ports that are enabled) tagged with transport protocol.
    *
-   * @return The list of effective ports
+   * @return The list of effective port bindings
    */
-  private List<Integer> getEffectivePorts() {
-    final List<Integer> effectivePorts = new ArrayList<>();
-    addPortIfEnabled(effectivePorts, p2PDiscoveryOptions.p2pPort, p2PDiscoveryOptions.p2pEnabled);
-    if (p2PDiscoveryOptions.p2pDiscoveryPort != null
-        && !p2PDiscoveryOptions.p2pDiscoveryPort.equals(p2PDiscoveryOptions.p2pPort)) {
+  private List<PortBinding> getEffectivePorts() {
+    final List<PortBinding> effectivePorts = new ArrayList<>();
+    final boolean p2pEnabled = p2PDiscoveryOptions.p2pEnabled;
+    addPortIfEnabled(effectivePorts, p2PDiscoveryOptions.p2pPort, Transport.TCP, p2pEnabled);
+    final boolean discoverySharesP2pPort =
+        p2PDiscoveryOptions.p2pDiscoveryPort == null
+            || p2PDiscoveryOptions.p2pDiscoveryPort.equals(p2PDiscoveryOptions.p2pPort);
+    if (discoverySharesP2pPort) {
+      addPortIfEnabled(effectivePorts, p2PDiscoveryOptions.p2pPort, Transport.UDP, p2pEnabled);
+    } else {
       addPortIfEnabled(
-          effectivePorts, p2PDiscoveryOptions.p2pDiscoveryPort, p2PDiscoveryOptions.p2pEnabled);
+          effectivePorts, p2PDiscoveryOptions.p2pDiscoveryPort, Transport.UDP, p2pEnabled);
     }
     addPortIfEnabled(
-        effectivePorts, graphQlOptions.getGraphQLHttpPort(), graphQlOptions.isGraphQLHttpEnabled());
+        effectivePorts,
+        graphQlOptions.getGraphQLHttpPort(),
+        Transport.TCP,
+        graphQlOptions.isGraphQLHttpEnabled());
     addPortIfEnabled(
-        effectivePorts, jsonRpcHttpOptions.getRpcHttpPort(), jsonRpcHttpOptions.isRpcHttpEnabled());
+        effectivePorts,
+        jsonRpcHttpOptions.getRpcHttpPort(),
+        Transport.TCP,
+        jsonRpcHttpOptions.isRpcHttpEnabled());
     addPortIfEnabled(
-        effectivePorts, rpcWebsocketOptions.getRpcWsPort(), rpcWebsocketOptions.isRpcWsEnabled());
-    addPortIfEnabled(effectivePorts, engineRPCConfig.engineRpcPort(), isEngineApiEnabled());
+        effectivePorts,
+        rpcWebsocketOptions.getRpcWsPort(),
+        Transport.TCP,
+        rpcWebsocketOptions.isRpcWsEnabled());
     addPortIfEnabled(
-        effectivePorts, metricsOptions.getMetricsPort(), metricsOptions.getMetricsEnabled());
+        effectivePorts, engineRPCConfig.engineRpcPort(), Transport.TCP, isEngineApiEnabled());
+    addPortIfEnabled(
+        effectivePorts,
+        metricsOptions.getMetricsPort(),
+        Transport.TCP,
+        metricsOptions.getMetricsEnabled());
     return effectivePorts;
   }
 
   /**
-   * Adds port to the specified list only if enabled.
+   * Adds a port binding to the specified list only if enabled.
    *
-   * @param ports The list of ports
+   * @param ports The list of port bindings
    * @param port The port value
+   * @param transport The transport protocol the port is bound on
    * @param enabled true if enabled, false otherwise
    */
   private void addPortIfEnabled(
-      final List<Integer> ports, final Integer port, final boolean enabled) {
+      final List<PortBinding> ports,
+      final Integer port,
+      final Transport transport,
+      final boolean enabled) {
     if (enabled) {
-      ports.add(port);
+      ports.add(new PortBinding(port, transport));
     }
   }
 
