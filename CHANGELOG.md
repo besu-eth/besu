@@ -3,6 +3,7 @@
 ## Unreleased Changes
 
 ### Breaking Changes
+- `--network=dev` is no longer supported; use `ephemery` or Kurtosis for local devnets. [#10836](https://github.com/besu-eth/besu/pull/10836)
 - Plugin API: `HealthCheckProvider` now returns `HealthCheckResult` (status + details map) instead of `boolean` [#10687](https://github.com/besu-eth/besu/issues/10687)
 - The experimental `--Xv5-discovery-enabled` flag is removed; use `--discovery-mode=V5` or `--discovery-mode=BOTH` instead.
 - The genesis file `v5Bootnodes` key is removed; ENR bootnodes must now be listed in the unified `bootnodes` array alongside enode URLs. Besu's bundled network genesis files were migrated automatically - this only affects custom/downstream genesis files that still use the old `v5Bootnodes` key, whose ENR entries will otherwise be silently dropped.
@@ -22,7 +23,9 @@
 ### Bug fixes
 - Restore structured `{peers, sync}` detail in plugin-based `/readiness` responses via `HealthCheckProvider` [#10687](https://github.com/besu-eth/besu/issues/10687)
 - Fixed `debug_traceTransaction`/`debug_traceCall`/`debug_traceBlock` returning an invalid empty-string `returnValue` and a phantom `STOP` entry in `structLogs` for legacy EOA-to-EOA transfers that execute no EVM code. Now returns `returnValue:"0x"` and empty `structLogs`, matching the execution-apis opcode-tracer schema. [#10972](https://github.com/besu-eth/besu/pull/10972)
+- Honor `callTracer`'s `onlyTopCall` tracer config in `debug_traceTransaction`/`debug_traceCall`/`debug_traceBlock`; the option was previously accepted but ignored, so responses always included the nested `calls` array. [#10967](https://github.com/besu-eth/besu/pull/10967)
 - EIP-1459 DNS discovery now rejoins TXT records split across multiple `<character-string>`s. Records longer than 255 bytes were truncated, so Besu silently discarded most of every tree, resolving 832 of 3000 nodes from the mainnet tree. [#10985](https://github.com/besu-eth/besu/pull/10985)
+- EIP-1459 DNS discovery now verifies that each subtree record hashes to the subdomain it was served from, as the client protocol requires. [#10988](https://github.com/besu-eth/besu/pull/10988)
 - Queue backward-sync targets received before peer readiness and retry when a peer connects. [#10843](https://github.com/besu-eth/besu/pull/10843)
 - Return `BLOCK_NOT_FOUND` for unknown block hashes and `GENESIS_BLOCK_NOT_TRACEABLE` for genesis blocks from `debug_traceBlockByHash`. [#10701](https://github.com/besu-eth/besu/pull/10701)
 - Bonsai world state rolling failures are now logged at `WARN` instead of `INFO`, and a missing block header or trie log during a roll reports which block hash or trie log was missing. [#10859](https://github.com/besu-eth/besu/issues/10859)
@@ -55,6 +58,7 @@
 - DiscV4 now supports IPv6 dual-stack RLPx: a node running `--discovery-mode=V4` with `--p2p-interface-ipv6`/`--p2p-host-ipv6` set now binds a second IPv6 RLPx TCP socket and advertises IPv6 ENR/enode fields, instead of those options being ignored with a warning. [#10800](https://github.com/besu-eth/besu/pull/10800)
 - Dual-stack discovery and RLPx now support binding the same port number for both `--p2p-port` and `--p2p-port-ipv6`, using a single dual-stack socket instead of two independent per-family sockets - simplifying firewall rules for operators. Previously this configuration could fail to start with a port-conflict error. [#10800](https://github.com/besu-eth/besu/pull/10800)
 - Add discovery/RLPx observability metrics for the shared DiscV4/DiscV5 transport and outbound RLPx connections - see the PR description for the full list of new metrics. [#10837](https://github.com/besu-eth/besu/pull/10837)
+- Add `--p2p-discovery-port` and `--p2p-discovery-port-ipv6` flags to configure a separate UDP port for devp2p peer discovery, independent of the TCP p2p port. Specify `0` to request an ephemeral port from the OS. [#10718](https://github.com/besu-eth/besu/pull/10718)
 - Add `--p2p-tx-feecap` CLI option, the P2P equivalent of `--rpc-tx-feecap`, capping the maximum transaction fees (in Wei) accepted for transactions received from peers. The default is no cap, leaving existing behaviour unchanged. [#10819](https://github.com/besu-eth/besu/pull/10819)
 
 ## 26.7.1
