@@ -585,7 +585,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
 
       final Optional<WitnessData> maybeWitnessData =
           witnessCodeTracker.map(
-              t -> new WitnessData(t.getCodeReads(), t.getPreStateCodeReads(), Map.of()));
+              t -> new WitnessData(t.getCodeReads(), t.getAuthorizationCodeReads(), Map.of()));
 
       return new BlockProcessingResult(
           Optional.of(

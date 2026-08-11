@@ -31,9 +31,10 @@ public interface CodeReadTracker {
   void addCodeRead(Address address);
 
   /**
-   * Records that the given account's pre-state contract code was read (EIP-7702 authority check).
+   * Records that the given account's contract code was read during EIP-7702 SET_CODE authorization
+   * processing, before EVM execution begins.
    *
-   * @param address the address whose pre-state code was read
+   * @param address the address whose code was read during authorization
    */
-  void addPreStateCodeRead(Address address);
+  void addAuthorizationCodeRead(Address address);
 }

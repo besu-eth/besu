@@ -117,7 +117,7 @@ public class BonsaiExecutionWitnessBuilder {
           buildCodes(
               ws,
               maybeWitnessData.map(WitnessData::codeReads).orElse(Set.of()),
-              maybeWitnessData.map(WitnessData::preStateCodeReads).orElse(Set.of()),
+              maybeWitnessData.map(WitnessData::authorizationCodeReads).orElse(Set.of()),
               inBlockCodeChanged);
       final Map<Long, Hash> accessedAncestors =
           maybeWitnessData.map(WitnessData::accessedAncestors).orElse(Map.of());

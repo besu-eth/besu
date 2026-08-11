@@ -28,7 +28,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class WitnessCodeTracker implements CodeReadTracker {
 
   private final Set<Address> codeReads = ConcurrentHashMap.newKeySet();
-  private final Set<Address> preStateCodeReads = ConcurrentHashMap.newKeySet();
+  private final Set<Address> authorizationCodeReads = ConcurrentHashMap.newKeySet();
 
   @Override
   public void addCodeRead(final Address address) {
@@ -36,15 +36,15 @@ public class WitnessCodeTracker implements CodeReadTracker {
   }
 
   @Override
-  public void addPreStateCodeRead(final Address address) {
-    preStateCodeReads.add(address);
+  public void addAuthorizationCodeRead(final Address address) {
+    authorizationCodeReads.add(address);
   }
 
   public Set<Address> getCodeReads() {
     return Collections.unmodifiableSet(codeReads);
   }
 
-  public Set<Address> getPreStateCodeReads() {
-    return Collections.unmodifiableSet(preStateCodeReads);
+  public Set<Address> getAuthorizationCodeReads() {
+    return Collections.unmodifiableSet(authorizationCodeReads);
   }
 }

@@ -25,4 +25,6 @@ import java.util.Set;
  * addresses whose code was read, and the ancestor block headers that were accessed.
  */
 public record WitnessData(
-    Set<Address> codeReads, Set<Address> preStateCodeReads, Map<Long, Hash> accessedAncestors) {}
+    Set<Address> codeReads,
+    Set<Address> authorizationCodeReads,
+    Map<Long, Hash> accessedAncestors) {}
