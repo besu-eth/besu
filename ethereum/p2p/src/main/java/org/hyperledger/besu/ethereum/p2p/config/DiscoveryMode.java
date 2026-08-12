@@ -22,7 +22,7 @@ public enum DiscoveryMode {
   /** Run only DiscV5. Requires a secp256k1 node key; falls back to V4 if unsupported. */
   V5,
 
-  /** Run only DiscV4 (default). */
+  /** Run only DiscV4. */
   V4;
 
   /**
