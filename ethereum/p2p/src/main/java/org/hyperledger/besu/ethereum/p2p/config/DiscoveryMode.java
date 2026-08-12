@@ -23,5 +23,14 @@ public enum DiscoveryMode {
   V5,
 
   /** Run only DiscV4 (default). */
-  V4
+  V4;
+
+  /**
+   * The discovery mode used when none is explicitly configured.
+   *
+   * @return the default discovery mode
+   */
+  public static DiscoveryMode getDefault() {
+    return V4;
+  }
 }

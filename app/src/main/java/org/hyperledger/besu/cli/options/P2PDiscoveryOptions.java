@@ -86,12 +86,11 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
   @CommandLine.Option(
       names = {"--discovery-mode"},
       description =
-          "Discovery protocol(s) to run: V4 (default), V5, or BOTH. "
+          "Discovery protocol(s) to run: V4, V5, or BOTH (default: ${DEFAULT-VALUE}). "
               + "V4 runs only DiscV4. "
               + "V5 runs only DiscV5 (requires a secp256k1 node key; falls back to V4 if unsupported). "
-              + "BOTH runs DiscV4 and DiscV5 concurrently on a shared UDP socket.",
-      defaultValue = "V4")
-  public DiscoveryMode discoveryMode = DiscoveryMode.V4;
+              + "BOTH runs DiscV4 and DiscV5 concurrently on a shared UDP socket.")
+  public DiscoveryMode discoveryMode = DiscoveryMode.getDefault();
 
   /**
    * A list of bootstrap nodes can be passed and a hardcoded list will be used otherwise by the

@@ -430,7 +430,7 @@ public class P2PDiscoveryOptionsTest extends CommandTestAbstract {
   public void discoveryModeDefault() {
     parseCommand();
 
-    verify(mockRunnerBuilder).discoveryMode(eq(DiscoveryMode.V4));
+    verify(mockRunnerBuilder).discoveryMode(eq(DiscoveryMode.getDefault()));
     verify(mockRunnerBuilder).build();
 
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
