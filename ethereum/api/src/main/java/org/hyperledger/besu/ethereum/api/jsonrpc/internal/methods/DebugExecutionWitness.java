@@ -18,6 +18,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.WitnessCodeReads;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
@@ -33,6 +34,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.WitnessCodeTracker;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiExecutionWitnessBuilder;
 
 import java.util.Optional;
@@ -109,13 +111,19 @@ public class DebugExecutionWitness extends AbstractBlockParameterOrBlockHashMeth
     if (maybeBlock.isEmpty()) {
       return new JsonRpcErrorResponse(reqId, RpcErrorType.BLOCK_NOT_FOUND);
     }
+
+    // The parent block must be present in order to re-execute the block against its parent state.
     final Block block = maybeBlock.get();
     final BlockHeader blockHeader = block.getHeader();
-
     if (blockchain.getBlockHeader(blockHeader.getParentHash()).isEmpty()) {
       return new JsonRpcErrorResponse(reqId, RpcErrorType.BLOCK_NOT_FOUND);
     }
 
+    // Re-execute the block against its parent state. Validation is skipped (NONE/NONE) because the
+    // block is already imported. The WitnessCodeTracker accumulates every code read across all
+    // transactions; the BAL and ancestor accesses come from BlockProcessingOutputs.
+    // shouldPersist=false keeps the world state unchanged; shouldRecordBadBlock=false suppresses
+    // bad-block storage for what is known to be a valid, imported block.
     final BlockProcessingResult result =
         protocolSchedule
             .getByBlockHeader(blockHeader)
@@ -134,16 +142,35 @@ public class DebugExecutionWitness extends AbstractBlockParameterOrBlockHashMeth
       return new JsonRpcErrorResponse(reqId, RpcErrorType.INTERNAL_ERROR);
     }
 
+    // The block access list is required for witness generation; if it is absent, the block was not
+    // processed with the BAL feature enabled, and we cannot generate a witness.
+    final BlockAccessList blockAccessList =
+        result
+            .getYield()
+            .flatMap(BlockProcessingOutputs::getBlockAccessList)
+            .orElseThrow(
+                () ->
+                    new IllegalStateException(
+                        "block access list is required for witness generation but was absent for block "
+                            + blockHeader.getHash()));
+
+    // The witness data is required for witness generation; if it is absent, the block was not
+    // processed with witness collection enabled, and we cannot generate a witness.
+    WitnessCodeReads witnessCodeReads =
+        result
+            .getYield()
+            .flatMap(BlockProcessingOutputs::getWitnessCodeReads)
+            .orElseThrow(
+                () ->
+                    new IllegalStateException(
+                        "witness data is required for witness generation but was absent for block "
+                            + blockHeader.getHash()));
+
     final BonsaiExecutionWitnessBuilder.Witness witness;
     try {
-      witness =
-          witnessBuilder.buildWitness(
-              blockHeader,
-              result.getYield().flatMap(BlockProcessingOutputs::getBlockAccessList),
-              result.getYield().flatMap(BlockProcessingOutputs::getWitnessData));
-      if (witness.state().isEmpty()) {
-        return new JsonRpcErrorResponse(reqId, RpcErrorType.INTERNAL_ERROR);
-      }
+      // Pass the BAL (state trie nodes) and WitnessCodeReads (code reads, ancestor headers) collected
+      // during re-execution to the witness builder.
+      witness = witnessBuilder.buildWitness(blockHeader, blockAccessList, witnessCodeReads);
     } catch (final IllegalStateException e) {
       return new JsonRpcErrorResponse(reqId, RpcErrorType.INTERNAL_ERROR);
     }

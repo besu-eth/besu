@@ -233,6 +233,9 @@ public abstract class AbstractCallOperation extends AbstractOperation {
     final Account contract = getAccount(to, frame);
     cost = clampedAdd(cost, gasCalculator().calculateCodeDelegationResolutionGas(frame, contract));
 
+    // EIP-8025 witness: the delegation-resolution gas is charged above, meaning alice's designator
+    // code is read at this point. Record it before the subsequent gas check so the witness captures
+    // alice's code even when the call OOGs after delegation resolution.
     frame
         .getCodeReadTracker()
         .ifPresent(

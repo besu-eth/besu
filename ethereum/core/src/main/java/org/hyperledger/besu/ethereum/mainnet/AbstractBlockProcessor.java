@@ -23,7 +23,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.WitnessData;
+import org.hyperledger.besu.ethereum.WitnessCodeReads;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -583,9 +583,9 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       // EIP-8037: gas_metered = max(cumulative_regular, cumulative_state)
       final long gasMetered = Math.max(cumulativeRegularGasUsed, cumulativeStateGasUsed);
 
-      final Optional<WitnessData> maybeWitnessData =
+      final Optional<WitnessCodeReads> maybeWitnessCodeReads =
           witnessCodeTracker.map(
-              t -> new WitnessData(t.getCodeReads(), t.getAuthorizationCodeReads(), Map.of()));
+              t -> new WitnessCodeReads(t.getCodeReads(), t.getAuthorizationCodeReads(), Map.of()));
 
       return new BlockProcessingResult(
           Optional.of(
@@ -595,7 +595,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                   maybeRequests,
                   maybeBlockAccessList,
                   gasMetered,
-                  maybeWitnessData)),
+                  maybeWitnessCodeReads)),
           parallelizedTxFound ? Optional.of(nbParallelTx) : Optional.empty());
     } finally {
       stateRootCommitter.cancel();

@@ -141,7 +141,12 @@ public interface BlockProcessor {
       final AbstractBlockProcessor.PreprocessingFunction preprocessingBlockFunction,
       final Optional<WitnessCodeTracker> witnessCodeTracker) {
     return processBlock(
-        protocolContext, blockchain, worldState, block, blockAccessList, preprocessingBlockFunction);
+        protocolContext,
+        blockchain,
+        worldState,
+        block,
+        blockAccessList,
+        preprocessingBlockFunction);
   }
 
   /**

@@ -240,8 +240,8 @@ public class MainnetBlockValidator implements BlockValidator {
             result.getYield().flatMap(BlockProcessingOutputs::getRequests);
         Optional<BlockAccessList> processedBlockAccessList =
             result.getYield().flatMap(BlockProcessingOutputs::getBlockAccessList);
-        Optional<WitnessData> maybeWitnessData =
-            result.getYield().flatMap(BlockProcessingOutputs::getWitnessData);
+        Optional<WitnessCodeReads> maybeWitnessCodeReads =
+            result.getYield().flatMap(BlockProcessingOutputs::getWitnessCodeReads);
         long cumulativeBlockGasUsed =
             result.getYield().map(BlockProcessingOutputs::getCumulativeBlockGasUsed).orElse(0L);
         if (!blockBodyValidator.validateBody(
@@ -266,7 +266,7 @@ public class MainnetBlockValidator implements BlockValidator {
                     maybeRequests,
                     processedBlockAccessList,
                     cumulativeBlockGasUsed,
-                    maybeWitnessData)),
+                    maybeWitnessCodeReads)),
             result.getNbParallelizedTransactions());
       }
     } catch (MerkleTrieException ex) {

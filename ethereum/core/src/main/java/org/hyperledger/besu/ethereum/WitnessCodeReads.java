@@ -21,10 +21,10 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Immutable snapshot of EIP-8025 witness data collected during block processing: the sets of
+ * Immutable snapshot of EIP-8025 code reads collected during block processing: the sets of
  * addresses whose code was read, and the ancestor block headers that were accessed.
  */
-public record WitnessData(
+public record WitnessCodeReads(
     Set<Address> codeReads,
     Set<Address> authorizationCodeReads,
     Map<Long, Hash> accessedAncestors) {}

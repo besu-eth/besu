@@ -37,14 +37,28 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
 /**
- * A layered Bonsai world state storage that intercepts trie node reads and collects them into a
- * witness set. Used by {@code debug_executionWitness} to build the execution witness for a block.
+ * A layered Bonsai world state storage that intercepts trie-node reads and collects them for
+ * EIP-8025 witness generation.
+ *
+ * <p>Wraps a parent {@link BonsaiWorldStateKeyValueStorage} and overrides account- and storage-trie
+ * read methods to record every node fetched into an internal set. It also replaces the flat-DB
+ * strategy with one that always traverses the trie (bypassing any warm cache) so that no accessed
+ * node is silently omitted from the witness.
+ *
+ * <p>Used exclusively by {@link BonsaiExecutionWitnessBuilder}; not intended for normal block
+ * processing.
  */
 public class BonsaiWorldStateWitnessStorage extends BonsaiWorldStateLayerStorage {
 
   private final Set<Bytes> trieNodes;
   private final BonsaiFlatDbStrategy witnessFlatDbStrategy;
 
+  /**
+   * Creates a new witness storage layered on top of {@code parent}.
+   *
+   * @param metricsSystem metrics system passed through to the internal flat-DB strategy
+   * @param parent the underlying Bonsai storage that supplies the actual trie node bytes
+   */
   public BonsaiWorldStateWitnessStorage(
       final MetricsSystem metricsSystem, final BonsaiWorldStateKeyValueStorage parent) {
     super(parent);
@@ -162,6 +176,11 @@ public class BonsaiWorldStateWitnessStorage extends BonsaiWorldStateLayerStorage
     return witnessFlatDbStrategy;
   }
 
+  /**
+   * Returns the set of raw trie node bytes intercepted during this storage session.
+   *
+   * @return all trie nodes read through this storage, as raw {@link Bytes}
+   */
   public Set<Bytes> getTrieNodes() {
     return trieNodes;
   }

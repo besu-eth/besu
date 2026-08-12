@@ -30,7 +30,7 @@ public class BlockProcessingOutputs {
   private final Optional<List<Request>> maybeRequests;
   private final Optional<BlockAccessList> maybeBlockAccessList;
   private final long cumulativeBlockGasUsed;
-  private final Optional<WitnessData> witnessData;
+  private final Optional<WitnessCodeReads> witnessCodeReads;
 
   /**
    * Creates a new instance.
@@ -105,7 +105,7 @@ public class BlockProcessingOutputs {
    * @param maybeRequests the requests produced by processing the block
    * @param blockAccessList the block-level access list produced by processing the block
    * @param cumulativeBlockGasUsed the cumulative block gas used (pre-refund for EIP-7778)
-   * @param witnessData the EIP-8025 witness data collected during block processing, or empty if
+   * @param witnessCodeReads the EIP-8025 witness data collected during block processing, or empty if
    *     witness collection was not enabled for this block
    */
   public BlockProcessingOutputs(
@@ -114,13 +114,13 @@ public class BlockProcessingOutputs {
       final Optional<List<Request>> maybeRequests,
       final Optional<BlockAccessList> blockAccessList,
       final long cumulativeBlockGasUsed,
-      final Optional<WitnessData> witnessData) {
+      final Optional<WitnessCodeReads> witnessCodeReads) {
     this.worldState = worldState;
     this.receipts = receipts;
     this.maybeRequests = maybeRequests;
     this.maybeBlockAccessList = blockAccessList;
     this.cumulativeBlockGasUsed = cumulativeBlockGasUsed;
-    this.witnessData = witnessData;
+    this.witnessCodeReads = witnessCodeReads;
   }
 
   /**
@@ -174,7 +174,7 @@ public class BlockProcessingOutputs {
    * Returns the EIP-8025 witness data collected during block processing, or empty if witness
    * collection was not enabled for this block.
    */
-  public Optional<WitnessData> getWitnessData() {
-    return witnessData;
+  public Optional<WitnessCodeReads> getWitnessCodeReads() {
+    return witnessCodeReads;
   }
 }

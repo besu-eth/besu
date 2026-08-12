@@ -234,13 +234,13 @@ public class MainnetTransactionProcessor {
    * @param miningBeneficiary address that receives the priority fee from this transaction
    * @param operationTracer observer called at each EVM operation step
    * @param blockHashLookup provides block hashes for the BLOCKHASH opcode
-   * @param transactionValidationParams controls how strictly the transaction is validated
-   *     (e.g. allows skipping balance checks during tracing)
+   * @param transactionValidationParams controls how strictly the transaction is validated (e.g.
+   *     allows skipping balance checks during tracing)
    * @param blobGasPrice price per unit of blob gas, used to charge type-3 transactions
-   * @param accessLocationTracker optional EIP-7928 block access list tracker; empty if BAL
-   *     tracking is not active for this block
-   * @param codeReadTracker optional EIP-8025 witness code tracker; empty if witness generation
-   *     is not requested
+   * @param accessLocationTracker optional EIP-7928 block access list tracker; empty if BAL tracking
+   *     is not active for this block
+   * @param codeReadTracker optional EIP-8025 witness code tracker; empty if witness generation is
+   *     not requested
    * @return the result of processing the transaction, including success/failure status, gas used,
    *     logs, and output data
    */

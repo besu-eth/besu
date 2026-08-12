@@ -18,7 +18,7 @@ import static org.hyperledger.besu.ethereum.trie.pathbased.common.provider.World
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.WitnessData;
+import org.hyperledger.besu.ethereum.WitnessCodeReads;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
@@ -40,7 +40,6 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -69,14 +68,21 @@ public class BonsaiExecutionWitnessBuilder {
 
   /**
    * Builds the EIP-8025 execution witness (state trie nodes, codes, headers) for a block. Uses the
-   * TrieLog + BAL for {@code state}, the {@link WitnessData}'s accumulated code-read sets for
-   * {@code codes}, and the oldest accessed ancestor from {@link WitnessData#accessedAncestors()}
+   * TrieLog + BAL for {@code state}, the {@link WitnessCodeReads}'s accumulated code-read sets for
+   * {@code codes}, and the oldest accessed ancestor from {@link WitnessCodeReads#accessedAncestors()}
    * for {@code headers}.
    */
   public Witness buildWitness(
       final BlockHeader blockHeader,
-      final Optional<BlockAccessList> maybeBlockAccessList,
-      final Optional<WitnessData> maybeWitnessData) {
+      final BlockAccessList blockAccessList,
+      final WitnessCodeReads witnessCodeReads) {
+
+    if (blockAccessList.isEmpty()) {
+      throw new IllegalStateException(
+          "block access list is required for witness generation but was absent for block "
+              + blockHeader.getHash());
+    }
+
     final TrieLog trieLog =
         worldStateProvider
             .getTrieLogManager()
@@ -107,20 +113,19 @@ public class BonsaiExecutionWitnessBuilder {
     }
 
     try (worldState) {
-      final List<String> state = buildTrieNodes(blockHeader, trieLog, ws, maybeBlockAccessList);
+      final List<String> state = buildTrieNodes(blockHeader, trieLog, ws, blockAccessList);
       // Addresses whose code was written during the block (CREATE, or a 7702 delegation designator
       // set this block). A stateless verifier already reconstructs this code from the block itself,
       // so an execution read that observed the in-block code must not pull the account's pre-state
       // code into the witness — mirroring EELS get_code, which skips reads served from code_writes.
-      final Set<Address> inBlockCodeChanged = collectInBlockCodeChanges(maybeBlockAccessList);
+      final Set<Address> inBlockCodeChanged = buildInBlockCodeWriteAddresses(blockAccessList);
       final List<String> codes =
           buildCodes(
               ws,
-              maybeWitnessData.map(WitnessData::codeReads).orElse(Set.of()),
-              maybeWitnessData.map(WitnessData::authorizationCodeReads).orElse(Set.of()),
+              witnessCodeReads.codeReads(),
+              witnessCodeReads.authorizationCodeReads(),
               inBlockCodeChanged);
-      final Map<Long, Hash> accessedAncestors =
-          maybeWitnessData.map(WitnessData::accessedAncestors).orElse(Map.of());
+      final Map<Long, Hash> accessedAncestors = witnessCodeReads.accessedAncestors();
       final long oldestAncestor =
           accessedAncestors.keySet().stream()
               .min(Long::compare)
@@ -146,7 +151,7 @@ public class BonsaiExecutionWitnessBuilder {
       final BlockHeader blockHeader,
       final TrieLog trieLog,
       final BonsaiWorldState worldView,
-      final Optional<BlockAccessList> maybeBal) {
+      final BlockAccessList blockAccessList) {
 
     final BonsaiWorldStateWitnessStorage witnessStorage =
         new BonsaiWorldStateWitnessStorage(
@@ -166,33 +171,16 @@ public class BonsaiExecutionWitnessBuilder {
     final BonsaiWorldStateUpdateAccumulator updater =
         (BonsaiWorldStateUpdateAccumulator) witnessWorldState.updater();
 
-    // Prefer BAL when present (Amsterdam+) and fall back to TrieLog alone for pre-Amsterdam blocks.
-    if (maybeBal.isPresent()) {
-      maybeBal
-          .get()
-          .accountChanges()
-          .forEach(
-              ac -> {
-                updater.getAccount(ac.address());
-                ac.storageReads()
-                    .forEach(
-                        sr -> updater.getStorageValueByStorageSlotKey(ac.address(), sr.slot()));
-                ac.storageChanges()
-                    .forEach(
-                        sc -> updater.getStorageValueByStorageSlotKey(ac.address(), sc.slot()));
-              });
-    } else {
-      trieLog
-          .getAccountChanges()
-          .forEach(
-              (address, __) -> {
-                updater.getAccount(address);
-                trieLog
-                    .getStorageChanges(address)
-                    .keySet()
-                    .forEach(slot -> updater.getStorageValueByStorageSlotKey(address, slot));
-              });
-    }
+    blockAccessList
+        .accountChanges()
+        .forEach(
+            ac -> {
+              updater.getAccount(ac.address());
+              ac.storageReads()
+                  .forEach(sr -> updater.getStorageValueByStorageSlotKey(ac.address(), sr.slot()));
+              ac.storageChanges()
+                  .forEach(sc -> updater.getStorageValueByStorageSlotKey(ac.address(), sc.slot()));
+            });
 
     updater.rollForward(trieLog);
     updater.commit();
@@ -235,16 +223,17 @@ public class BonsaiExecutionWitnessBuilder {
   }
 
   /**
-   * Collects the addresses whose bytecode was written during the block from the block access list.
-   * Returns an empty set when no BAL is present (pre-Amsterdam), which disables the in-block
-   * filter.
+   * Returns the set of addresses whose bytecode was written during the block (CREATE outputs or
+   * EIP-7702 designation changes). A stateless verifier reconstructs in-block code writes from the
+   * block body itself, so these addresses are excluded from the {@code codes} witness to avoid
+   * redundancy.
    */
-  private Set<Address> collectInBlockCodeChanges(final Optional<BlockAccessList> maybeBal) {
-    if (maybeBal.isEmpty()) {
+  private Set<Address> buildInBlockCodeWriteAddresses(final BlockAccessList bal) {
+    if (bal.isEmpty()) {
       return Set.of();
     }
     final Set<Address> changed = ConcurrentHashMap.newKeySet();
-    for (final var accountChanges : maybeBal.get().accountChanges()) {
+    for (final var accountChanges : bal.accountChanges()) {
       if (!accountChanges.codeChanges().isEmpty()) {
         changed.add(accountChanges.address());
       }
