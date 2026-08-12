@@ -16,12 +16,12 @@ package org.hyperledger.besu.ethereum.p2p.config;
 
 /** Controls which discovery protocol(s) the node runs. */
 public enum DiscoveryMode {
-  /** Run both DiscV4 and DiscV5 concurrently on a shared UDP socket (default). */
+  /** Run both DiscV4 and DiscV5 concurrently on a shared UDP socket. */
   BOTH,
 
   /** Run only DiscV5. Requires a secp256k1 node key; falls back to V4 if unsupported. */
   V5,
 
-  /** Run only DiscV4. */
+  /** Run only DiscV4 (default). */
   V4
 }
