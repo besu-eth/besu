@@ -75,6 +75,55 @@ application {
   mainClass = 'org.hyperledger.besu.evmtool.EvmTool'
 }
 
+// Runs the execution-spec devnet state_tests via the `state-test` subcommand. Reuses the devnet
+// fixture download/extract from the :ethereum:referencetests project (extractDevnetFixtures)
+// instead of fetching separately, and fails the build on any failure.
+//
+// Optional gradle properties:
+//   -PstateTestWorkers=N        parallelism (defaults to available processors)
+//   -PstateTestPath=<subdir>    scope to a subdirectory of state_tests (e.g. for_amsterdam)
+//   -PstateTestFilter=<substr>  only run tests whose name contains <substr> (or a *?-glob)
+tasks.register('stateTestsDevnet', JavaExec) {
+  description = 'Runs execution-spec devnet state_tests via the evmtool state-test runner.'
+  group = 'verification'
+
+  dependsOn ':ethereum:referencetests:extractDevnetFixtures'
+
+  classpath = sourceSets.main.runtimeClasspath
+  mainClass = 'org.hyperledger.besu.evmtool.EvmTool'
+
+  def stateFixtures = project(':ethereum:referencetests').layout.buildDirectory
+    .dir('execution-spec-devnet-tests/fixtures/state_tests')
+  def workerCount = project.findProperty('stateTestWorkers')?.toString()
+    ?: Runtime.runtime.availableProcessors().toString()
+  def subPath = project.findProperty('stateTestPath')?.toString()
+  def nameFilter = project.findProperty('stateTestFilter')?.toString()
+
+  doFirst {
+    def fixturesDir = stateFixtures.get().asFile
+    if (!fixturesDir.exists()) {
+      throw new GradleException(
+      "State fixtures not found at ${fixturesDir}.\n" +
+      "Check the devnetTarConfig version in ethereum/referencetests/build.gradle.")
+    }
+    def runDir = subPath ? new File(fixturesDir, subPath) : fixturesDir
+    if (!runDir.exists()) {
+      throw new GradleException("State fixtures path not found: ${runDir} (from -PstateTestPath=${subPath})")
+    }
+    def cmd = [
+      'state-test',
+      '--summary-only',
+      '--workers',
+      workerCount
+    ]
+    if (nameFilter != null) {
+      cmd += ['--run', nameFilter]
+    }
+    cmd += runDir.absolutePath
+    args = cmd
+  }
+}
+
 
 // rename the top level dir from besu-<version> to besu and this makes it really
 // simple for use in docker

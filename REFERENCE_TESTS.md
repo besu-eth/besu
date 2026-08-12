@@ -112,6 +112,64 @@ ExecutionSpecDevnet{Blockchain,State}Test_{hardfork}_{eip_or_topic}_{batch_index
 
 The devnet fixtures are resolved from the same GitHub Ivy repository as stable fixtures. The dependency is declared separately via the `devnetTarConfig` configuration in `ethereum/referencetests/build.gradle`.
 
+## Fast State Test Runner (evmtool)
+
+The `referenceTests*` tasks above generate one JUnit test per fixture. In addition, `evmtool`'s `state-test` subcommand consumes the `state_tests` fixtures directly — no per-fixture code generation — which makes a whole fixture tree a seconds-long run rather than a build.
+
+### Gradle task
+
+`stateTestsDevnet` **reuses the same devnet fixture download/extract** as `referenceTestsDevnet` (the `extractDevnetFixtures` task — no separate download) and **fails the build on any test failure**.
+
+```bash
+./gradlew :ethereum:evmtool:stateTestsDevnet
+```
+
+| Property | Meaning |
+|----------|---------|
+| `-PstateTestWorkers=N` | Parallel workers (default: available processors) |
+| `-PstateTestPath=<subdir>` | Scope to a subdirectory, e.g. `for_amsterdam` |
+| `-PstateTestFilter=<substr>` | Only run tests whose node id matches — see [Filter syntax](#filter-syntax) |
+
+```bash
+./gradlew :ethereum:evmtool:stateTestsDevnet -PstateTestPath=for_amsterdam -PstateTestWorkers=8
+```
+
+### Filter syntax
+
+`--run` (and the `-PstateTestFilter` property) accepts two forms:
+
+- **No `*` or `?`** — a case-insensitive **substring** match against the node id.
+- **Contains `*` or `?`** — a case-insensitive **regex** that must match the *whole* node id. `*` is rewritten to `.*`, `?` to any single character, and `.` is escaped to a literal (node ids contain `.py`). Everything else reaches `java.util.regex`, so alternation and character classes work.
+
+Because the expression is a regex, the `[`, `]`, `(` and `)` that pytest node ids are full of are **metacharacters, not literals**. Escape them to match literally:
+
+```bash
+# WRONG: '[' opens a character class -> rejected before any test runs
+$EVM state-test --run '*[fork_Amsterdam*' <fixtures>
+#   Invalid --run/--test-name pattern '*[fork_Amsterdam*': Unclosed character class. …
+
+# RIGHT: escape it, or just use the substring form
+$EVM state-test --run '*\[fork_Amsterdam*' <fixtures>
+$EVM state-test --run 'fork_Amsterdam' <fixtures>
+```
+
+The pattern is compiled once before any fixture is read, so a malformed expression is an immediate, explicit failure (exit 1) rather than a run that quietly executes nothing. A filter that compiles but matches no test is also an error — an empty run never reports success.
+
+### Running the evmtool binary directly
+
+```bash
+./gradlew :ethereum:evmtool:installDist
+EVM=./ethereum/evmtool/build/install/evmtool/bin/evmtool
+
+$EVM state-test --workers 8 <path-to>/state_tests/
+```
+
+Flags: `--workers N`, `--run <substr-or-regex>`, `--json-array` to emit machine-readable results (`[{name, pass, fork, stateRoot, error}]`), and `--summary-only` to suppress the per-test JSON line that external tooling parses (which remains the default).
+
+The subcommand exits non-zero if any test fails, if no test ran at all, or if the `--run` pattern is malformed. Fixture files that cannot be read as a state test are listed separately under "Unreadable" and do **not** count as failures — they say nothing about Besu. As of the currently pinned `tests-glamsterdam-devnet` fixtures that is 14 `state_tests` files (`test_bad_v_r_s`), which carry a pre-signed transaction in `post[].txbytes` rather than a `secretKey` that `StateTestVersionedTransaction` can sign with. The JUnit `referenceTestsDevnet` gate drops those same fixtures, silently.
+
+> The gradle-extracted fixtures live at `ethereum/referencetests/build/execution-spec-devnet-tests/fixtures/state_tests/`, so you can point the binary there after running `referenceTestsDevnet` (or `extractDevnetFixtures`) once.
+
 ## Enabling JSON Tracing
 
 Besu supports detailed opcode-level JSON tracing. You can enable it using either a JVM system property or an environment variable.

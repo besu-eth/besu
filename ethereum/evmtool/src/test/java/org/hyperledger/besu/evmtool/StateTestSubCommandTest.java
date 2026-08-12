@@ -44,6 +44,49 @@ class StateTestSubCommandTest {
   }
 
   @Test
+  void testNameMatchesExactlyAndRunMatchesSubstrings() {
+    // Conflating the two would make a caller that passes an exact test id run every test whose
+    // name merely contains it.
+    assertThat(runWithArgs("--test-name", "accessLis", "access-list.json")).doesNotContain("\"d\"");
+    assertThat(runWithArgs("--test-name", "accessList", "access-list.json")).contains("\"d\"");
+    assertThat(runWithArgs("--run", "accessLis", "access-list.json")).contains("\"d\"");
+    assertThat(runWithArgs("--run", "*ccess?ist", "access-list.json")).contains("\"d\"");
+  }
+
+  @Test
+  void summaryOnlySuppressesThePerTestLineForPassingTests() {
+    assertThat(runWithArgs("access-list.json")).contains("\"pass\":true");
+    assertThat(runWithArgs("--summary-only", "access-list.json"))
+        .doesNotContain("\"pass\":true")
+        .contains("State test summary: ");
+  }
+
+  @Test
+  void missingFileIsReportedRatherThanReadAsAListOfFilenamesFromStdin() {
+    // An empty file list means "read filenames from stdin", so a path that resolves to nothing
+    // has to be an error rather than a silent drop, or the command blocks forever.
+    final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    final StateTestSubCommand stateTestSubCommand =
+        new StateTestSubCommand(new EvmToolCommand(System.in, new PrintWriter(baos, true, UTF_8)));
+    new CommandLine(stateTestSubCommand).parseArgs("./file-does-not-exist.json");
+    stateTestSubCommand.run();
+    assertThat(stateTestSubCommand.getExitCode()).isEqualTo(1);
+  }
+
+  private String runWithArgs(final String... args) {
+    final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    final EvmToolCommand parentCommand =
+        new EvmToolCommand(System.in, new PrintWriter(baos, true, UTF_8));
+    final StateTestSubCommand stateTestSubCommand = new StateTestSubCommand(parentCommand);
+    final String[] resolved = args.clone();
+    resolved[resolved.length - 1] =
+        StateTestSubCommandTest.class.getResource(resolved[resolved.length - 1]).getPath();
+    new CommandLine(stateTestSubCommand).parseArgs(resolved);
+    stateTestSubCommand.run();
+    return baos.toString(UTF_8);
+  }
+
+  @Test
   void shouldWorkWithValidStateTest() {
     final ByteArrayOutputStream baos = new ByteArrayOutputStream();
     EvmToolCommand parentCommand =
