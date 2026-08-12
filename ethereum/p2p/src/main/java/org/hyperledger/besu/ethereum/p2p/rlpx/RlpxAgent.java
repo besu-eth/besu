@@ -212,6 +212,26 @@ public class RlpxAgent {
     }
   }
 
+  /**
+   * Checks whether a connection to this peer already exists or is already in flight, without
+   * initiating a new attempt.
+   *
+   * @param peerId the ID of the peer to check
+   * @return {@code true} if a connection to this peer is already established or in progress
+   */
+  public boolean isConnectingOrConnected(final Bytes peerId) {
+    if (peersConnectingCache.asMap().containsKey(peerId)) {
+      return true;
+    }
+    try {
+      return allConnectionsSupplier
+          .get()
+          .anyMatch(c -> c.getPeer().getId().equals(peerId) && !c.isDisconnected());
+    } catch (final Exception e) {
+      throw new RuntimeException(e);
+    }
+  }
+
   public void disconnect(final Bytes peerId, final DisconnectReason reason) {
     try {
       allActiveConnectionsSupplier

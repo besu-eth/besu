@@ -417,12 +417,23 @@ public class DefaultP2PNetwork implements P2PNetwork {
 
   @VisibleForTesting
   void attemptPeerConnections() {
+    final int maxPeers = rlpxAgent.getMaxPeers();
+    final int currentPeerCount = rlpxAgent.getConnectionCount();
+    if (currentPeerCount >= maxPeers) {
+      LOG.trace("Skipping connection attempts to discovered peers - already at max peers.");
+      return;
+    }
     LOG.trace("Initiating connections to discovered peers.");
     final Stream<DiscoveryPeer> toTry =
         streamDiscoveredPeers()
             .filter(DiscoveryPeer::isReadyForConnections)
             .filter(peerDiscoveryAgent::checkForkId)
-            .sorted(Comparator.comparing(DiscoveryPeer::getLastAttemptedConnection));
+            // Skip peers a connect() attempt would reject anyway (already connected, or another
+            // outbound attempt already in flight) - avoids wasting a capped slot and growing the
+            // connecting-cache/attempt-metric volume for a proposal that can't succeed.
+            .filter(p -> !rlpxAgent.isConnectingOrConnected(p.getId()))
+            .sorted(Comparator.comparing(DiscoveryPeer::getLastAttemptedConnection))
+            .limit(maxPeers - currentPeerCount);
     toTry.forEach(p -> rlpxAgent.connect(p, ConnectSource.MAINTAIN));
   }
 

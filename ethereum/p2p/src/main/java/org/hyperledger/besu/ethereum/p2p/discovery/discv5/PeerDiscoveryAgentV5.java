@@ -480,14 +480,18 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
             });
   }
 
-  /** Builds a stream of candidate peers suitable for outbound connection attempts. */
+  /**
+   * Builds a stream of candidate peers suitable for outbound connection attempts.
+   *
+   * <p>Only proposes {@code newPeers} - retrying known-but-unconnected peers up to max-peers is
+   * {@code DefaultP2PNetwork#attemptPeerConnections()}'s job, not this per-second tick's.
+   */
   private Stream<DiscoveryPeer> candidatePeers(final Collection<NodeRecord> newPeers) {
     if (LOG.isTraceEnabled() && !newPeers.isEmpty()) {
       LOG.trace("Discovered {} new peers", newPeers.size());
     }
 
-    final MutableDiscoverySystem system = discoverySystem.get();
-    if (system == null) {
+    if (discoverySystem.get() == null) {
       return Stream.empty();
     }
 
@@ -499,13 +503,10 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
             .map(NodeRecord::getNodeId)
             .orElse(Bytes.EMPTY);
 
-    // Combine newly discovered peers with known peers and filter for suitability
-    final Stream<NodeRecord> knownPeers = system.streamLiveNodes();
     final List<DiscoveryPeer> candidates =
-        Stream.concat(newPeers.stream(), knownPeers)
+        newPeers.stream()
             .distinct()
-            // Defensive: exclude the local node record that streamLiveNodes may include.
-            // The discovery library currently excludes it, but this is not an API guarantee.
+            // Defensive: exclude the local node record, in case it's ever included.
             .filter(nr -> !nr.getNodeId().equals(localNodeId))
             .map(nr -> DiscoveryPeerFactory.fromNodeRecord(nr, preferIpv6Outbound))
             // Use isListening() instead of isReadyForConnections() because

@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.p2p.discovery.discv5;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
@@ -23,6 +24,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.ethereum.forkid.ForkId;
 import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
 import org.hyperledger.besu.ethereum.p2p.config.DiscoveryConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.ImmutableNetworkingConfiguration;
@@ -272,7 +274,6 @@ class PeerDiscoveryAgentV5Test {
     when(mockSystem.start()).thenReturn(CompletableFuture.completedFuture(null));
     when(mockSystem.searchForNewPeers())
         .thenReturn(CompletableFuture.completedFuture(List.of(peerRecord)));
-    when(mockSystem.streamLiveNodes()).thenAnswer(invocation -> Stream.of(peerRecord));
 
     final PeerDiscoveryAgentV5 restrictedAgent =
         new PeerDiscoveryAgentV5(
@@ -353,20 +354,44 @@ class PeerDiscoveryAgentV5Test {
     when(mockSystem.start()).thenReturn(CompletableFuture.completedFuture(null));
     when(mockSystem.searchForNewPeers())
         .thenReturn(CompletableFuture.completedFuture(List.of(peerRecord)));
-    when(mockSystem.streamLiveNodes()).thenAnswer(invocation -> Stream.of(peerRecord));
+    when(forkIdManager.peerCheck(any(ForkId.class))).thenReturn(true);
 
     // Agent with NOOP permissions (the default setUp agent) — permissions should not interfere
     agent.start(1234);
 
-    // Wait for at least one discovery tick to complete
+    // With NOOP permissions, the peer is not rejected by permissions - it reaches connect().
+    Awaitility.await()
+        .pollInterval(50, TimeUnit.MILLISECONDS)
+        .atMost(3, TimeUnit.SECONDS)
+        .untilAsserted(
+            () -> verify(rlpxAgent, atLeastOnce()).connect(any(), eq(ConnectSource.DISCV5)));
+  }
+
+  @Test
+  void discoveryTickDoesNotReconnectKnownLiveNodesWithoutNewPeers() throws Exception {
+    final NodeRecord liveRecord =
+        NodeRecordFactory.DEFAULT.fromEnr(
+            "enr:-KO4QK1ecw-CGrDDZ4YwFrhgqctD0tWMHKJhUVxsS4um3aUFe3yBHRtVL9uYKk16DurN1IdSKTOB1zNCvjBybjZ_KAq"
+                + "GAYtJ5U8wg2V0aMfGhJsZKtCAgmlkgnY0gmlwhA_MtDmJc2VjcDI1NmsxoQNXD7fj3sscyOKBiHYy14igj1vJYWdKYZH7n3T8qRpIcYRzb"
+                + "mFwwIN0Y3CCdl-DdWRwgnZf");
+
+    when(mockSystem.start()).thenReturn(CompletableFuture.completedFuture(null));
+    // No new peers this round...
+    when(mockSystem.searchForNewPeers()).thenReturn(CompletableFuture.completedFuture(List.of()));
+    // ...but the live-node table (e.g. DNS-seeded) is non-empty.
+    lenient().when(mockSystem.streamLiveNodes()).thenAnswer(invocation -> Stream.of(liveRecord));
+
+    agent.start(1234);
+
     Awaitility.await()
         .pollInterval(50, TimeUnit.MILLISECONDS)
         .atMost(3, TimeUnit.SECONDS)
         .untilAsserted(() -> verify(mockSystem, atLeastOnce()).searchForNewPeers());
 
-    // With NOOP permissions, peers are not rejected by permissions.
-    // (They may still be filtered by bonding status, which is a DiscV4 concept, but the
-    // permission layer itself does not block them.)
+    // The live-node table must never be re-proposed to rlpxAgent.connect() by the per-second
+    // discovery tick - that's DefaultP2PNetwork#attemptPeerConnections()'s job.
+    verify(rlpxAgent, never()).connect(any(), any(ConnectSource.class));
+    verify(mockSystem, never()).streamLiveNodes();
   }
 
   @Test

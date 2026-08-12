@@ -21,6 +21,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -106,6 +107,10 @@ public final class DefaultP2PNetworkTest {
     lenient()
         .when(discoveryAgent.start(anyInt()))
         .thenReturn(CompletableFuture.completedFuture(30301));
+    // attemptPeerConnections() caps at (maxPeers - current); default to "plenty of room" so
+    // existing tests that don't care about the cap keep exercising every candidate peer.
+    lenient().when(rlpxAgent.getMaxPeers()).thenReturn(25);
+    lenient().when(rlpxAgent.getConnectionCount()).thenReturn(0);
   }
 
   @Test
@@ -326,6 +331,57 @@ public final class DefaultP2PNetworkTest {
     final DefaultP2PNetwork network = network();
     network.attemptPeerConnections();
     verify(rlpxAgent, times(3)).connect(any(), eq(ConnectSource.MAINTAIN));
+  }
+
+  @Test
+  public void attemptPeerConnections_respectsMaxPeersCap() {
+    when(rlpxAgent.getMaxPeers()).thenReturn(25);
+    when(rlpxAgent.getConnectionCount()).thenReturn(24);
+
+    final List<DiscoveryPeerV4> discoPeers = new ArrayList<>();
+    discoPeers.add(DiscoveryPeerV4.fromEnode(PeerTestHelper.enode()));
+    discoPeers.add(DiscoveryPeerV4.fromEnode(PeerTestHelper.enode()));
+    discoPeers.add(DiscoveryPeerV4.fromEnode(PeerTestHelper.enode()));
+    discoPeers.forEach(DiscoveryPeerV4::setBonded);
+    discoPeers.get(0).setLastAttemptedConnection(5);
+    discoPeers.get(1).setLastAttemptedConnection(10);
+    discoPeers.get(2).setLastAttemptedConnection(15);
+    when(discoveryAgent.streamDiscoveredPeers()).thenReturn(discoPeers.stream());
+
+    final DefaultP2PNetwork network = network();
+    network.attemptPeerConnections();
+
+    // Only one slot free (25 max - 24 current) - the single most-stale candidate connects.
+    verify(rlpxAgent, times(1)).connect(peerCaptor.capture(), eq(ConnectSource.MAINTAIN));
+    assertThat(peerCaptor.getValue()).isEqualTo(discoPeers.get(0));
+  }
+
+  @Test
+  public void attemptPeerConnections_noAttemptsAtMaxPeers() {
+    when(rlpxAgent.getMaxPeers()).thenReturn(25);
+    when(rlpxAgent.getConnectionCount()).thenReturn(25);
+
+    final DefaultP2PNetwork network = network();
+    network.attemptPeerConnections();
+
+    verify(rlpxAgent, never()).connect(any(), any(ConnectSource.class));
+    verify(discoveryAgent, never()).streamDiscoveredPeers();
+  }
+
+  @Test
+  public void attemptPeerConnections_excludesAlreadyConnectingOrConnectedPeers() {
+    final DiscoveryPeerV4 connectingPeer = DiscoveryPeerV4.fromEnode(PeerTestHelper.enode());
+    final DiscoveryPeerV4 freePeer = DiscoveryPeerV4.fromEnode(PeerTestHelper.enode());
+    connectingPeer.setBonded();
+    freePeer.setBonded();
+    when(rlpxAgent.isConnectingOrConnected(connectingPeer.getId())).thenReturn(true);
+    when(discoveryAgent.streamDiscoveredPeers()).thenReturn(Stream.of(connectingPeer, freePeer));
+
+    final DefaultP2PNetwork network = network();
+    network.attemptPeerConnections();
+
+    verify(rlpxAgent, never()).connect(eq(connectingPeer), any(ConnectSource.class));
+    verify(rlpxAgent).connect(freePeer, ConnectSource.MAINTAIN);
   }
 
   @Test
