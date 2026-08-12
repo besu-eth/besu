@@ -24,11 +24,13 @@ import java.util.OptionalLong;
 import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.infra.BenchmarkParams;
 
-public class AddOperationBenchmark extends BinaryArithmeticOperationBenchmark {
+public class AddOperationBenchmark extends BinaryArithmeticOperationBenchmark
+    implements GasCostBenchmark {
   @Param("ADD_RANDOM_RANDOM")
   private String caseName;
 
-  static OptionalLong getGasCost(final BenchmarkParams params, final GasCalculator calc) {
+  @Override
+  public OptionalLong getGasCost(final BenchmarkParams params, final GasCalculator calc) {
     return OptionalLong.of(new AddOperationOptimized(calc).getGasCost());
   }
 

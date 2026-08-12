@@ -20,25 +20,6 @@ import java.util.OptionalLong;
 
 import org.openjdk.jmh.infra.BenchmarkParams;
 
-public final class GasFormulas {
-
-  private GasFormulas() {}
-
-  public static OptionalLong compute(final BenchmarkParams params, final GasCalculator calc) {
-    final String fqn = params.getBenchmark();
-    if (fqn.endsWith(".baseline")) {
-      return OptionalLong.empty();
-    }
-    final String className = fqn.substring(0, fqn.lastIndexOf('.'));
-    try {
-      final GasCostBenchmark gcb =
-          Class.forName(className)
-              .asSubclass(GasCostBenchmark.class)
-              .getDeclaredConstructor()
-              .newInstance();
-      return gcb.getGasCost(params, calc);
-    } catch (ClassCastException | ReflectiveOperationException e) {
-      return OptionalLong.empty();
-    }
-  }
+public interface GasCostBenchmark {
+  OptionalLong getGasCost(BenchmarkParams params, GasCalculator calc);
 }
