@@ -40,9 +40,10 @@ import org.openjdk.jmh.infra.BenchmarkParams;
 @Measurement(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
 @OutputTimeUnit(value = TimeUnit.NANOSECONDS)
 @BenchmarkMode(Mode.AverageTime)
-public class SHA256Benchmark {
+public class SHA256Benchmark implements GasCostBenchmark {
 
-  public static OptionalLong getGasCost(final BenchmarkParams params, final GasCalculator calc) {
+  @Override
+  public OptionalLong getGasCost(final BenchmarkParams params, final GasCalculator calc) {
     final int size = Integer.parseInt(params.getParam("inputSize"));
     return OptionalLong.of(calc.sha256PrecompiledContractGasCost(Bytes.wrap(new byte[size])));
   }

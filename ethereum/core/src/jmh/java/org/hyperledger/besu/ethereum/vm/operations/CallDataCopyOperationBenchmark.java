@@ -41,9 +41,10 @@ import org.openjdk.jmh.infra.Blackhole;
 @OutputTimeUnit(value = TimeUnit.NANOSECONDS)
 @Measurement(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
 @BenchmarkMode(Mode.AverageTime)
-public class CallDataCopyOperationBenchmark {
+public class CallDataCopyOperationBenchmark implements GasCostBenchmark {
 
-  public static OptionalLong getGasCost(final BenchmarkParams params, final GasCalculator calc) {
+  @Override
+  public OptionalLong getGasCost(final BenchmarkParams params, final GasCalculator calc) {
     final long size = Long.parseLong(params.getParam("dataSize"));
     final MessageFrame frame = BenchmarkHelper.createMessageCallFrame();
     frame.expandMemory(0, size);

@@ -40,9 +40,10 @@ import org.openjdk.jmh.infra.BenchmarkParams;
 @Measurement(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
 @OutputTimeUnit(value = TimeUnit.NANOSECONDS)
 @BenchmarkMode(Mode.AverageTime)
-public class Keccak256Benchmark {
+public class Keccak256Benchmark implements GasCostBenchmark {
 
-  public static OptionalLong getGasCost(final BenchmarkParams params, final GasCalculator calc) {
+  @Override
+  public OptionalLong getGasCost(final BenchmarkParams params, final GasCalculator calc) {
     final long size = Long.parseLong(params.getParam("inputSize"));
     final MessageFrame frame = BenchmarkHelper.createMessageCallFrame();
     frame.expandMemory(0, size);
