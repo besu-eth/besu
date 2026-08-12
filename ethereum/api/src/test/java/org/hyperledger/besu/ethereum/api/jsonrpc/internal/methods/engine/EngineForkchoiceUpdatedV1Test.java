@@ -74,7 +74,7 @@ import org.mockito.quality.Strictness;
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
-  protected static final Consumer<BlockHeaderTestFixture> NO_OP = bhb -> {};
+  protected static final Consumer<BlockHeaderTestFixture> NO_OP = _ -> {};
   protected EngineForkchoiceUpdatedV1<?> method;
 
   protected static final Vertx vertx = Vertx.vertx();
