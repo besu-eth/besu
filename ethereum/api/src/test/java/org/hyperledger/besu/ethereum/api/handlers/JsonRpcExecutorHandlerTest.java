@@ -45,6 +45,7 @@ import io.vertx.core.buffer.Buffer;
 import io.vertx.core.http.HttpServerRequest;
 import io.vertx.core.http.HttpServerResponse;
 import io.vertx.core.impl.future.SucceededFuture;
+import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.net.SocketAddress;
 import io.vertx.ext.web.RoutingContext;
@@ -79,7 +80,7 @@ class JsonRpcExecutorHandlerTest {
   }
 
   @Test
-  void testTimeoutHandling() {
+  void testTimeoutHandlingForJsonObjectRequest() {
     // Arrange
     Handler<RoutingContext> handler =
         JsonRpcExecutorHandler.handler(mockExecutor, mockTracer, mockConfig);
@@ -88,6 +89,37 @@ class JsonRpcExecutorHandlerTest {
     ArgumentCaptor<Handler<Long>> timerHandlerCaptor = ArgumentCaptor.forClass(Handler.class);
 
     when(mockContext.get(eq(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name()))).thenReturn("{}");
+    when(mockVertx.setTimer(delayCaptor.capture(), timerHandlerCaptor.capture())).thenReturn(1L);
+    when(mockContext.get("timerId")).thenReturn(1L);
+
+    // Act
+    handler.handle(mockContext);
+
+    // Assert
+    long timeoutMillis = timeoutSeconds * 1000;
+    verify(mockVertx).setTimer(eq(timeoutMillis), any());
+
+    // Simulate timeout
+    timerHandlerCaptor.getValue().handle(1L);
+
+    // Verify timeout handling
+    verify(mockResponse, times(1))
+        .setStatusCode(eq(HttpResponseStatus.REQUEST_TIMEOUT.code())); // Expect 408 Request Timeout
+    verify(mockResponse, times(1)).end(contains("Timeout expired"));
+    verify(mockVertx, times(1)).cancelTimer(1L);
+  }
+
+  @Test
+  void testTimeoutHandlingForJsonArrayRequest() {
+    // Arrange
+    Handler<RoutingContext> handler =
+        JsonRpcExecutorHandler.handler(mockExecutor, mockTracer, mockConfig);
+    ArgumentCaptor<Long> delayCaptor = ArgumentCaptor.forClass(Long.class);
+    @SuppressWarnings("unchecked")
+    ArgumentCaptor<Handler<Long>> timerHandlerCaptor = ArgumentCaptor.forClass(Handler.class);
+
+    when(mockContext.get(eq(ContextKey.REQUEST_BODY_AS_JSON_ARRAY.name())))
+        .thenReturn(new JsonArray());
     when(mockVertx.setTimer(delayCaptor.capture(), timerHandlerCaptor.capture())).thenReturn(1L);
     when(mockContext.get("timerId")).thenReturn(1L);
 
