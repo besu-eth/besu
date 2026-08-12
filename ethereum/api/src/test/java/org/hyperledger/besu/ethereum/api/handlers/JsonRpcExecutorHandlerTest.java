@@ -31,7 +31,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.context.ContextKey;
 import org.hyperledger.besu.ethereum.api.jsonrpc.execution.JsonRpcExecutor;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcNoResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 
 import java.util.HashMap;
@@ -98,10 +98,9 @@ class JsonRpcExecutorHandlerTest {
     when(mockContext.data()).thenReturn(contextData);
     when(mockContext.get(eq(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name())))
         .thenReturn(jsonRequest);
-    when(mockResponse.putHeader(any(CharSequence.class), any(CharSequence.class)))
-        .thenReturn(mockResponse);
+    stubJsonResponseStreamer();
     when(mockExecutor.execute(any(), any(), any(), any(), any(), any()))
-        .thenReturn(new JsonRpcNoResponse());
+        .thenReturn(new JsonRpcSuccessResponse(1, "0x1"));
 
     when(mockVertx.setTimer(delayCaptor.capture(), timerHandlerCaptor.capture())).thenReturn(1L);
     when(mockContext.get("timerId")).thenReturn(1L);
