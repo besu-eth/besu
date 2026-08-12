@@ -368,7 +368,7 @@ class PeerDiscoveryAgentV5Test {
   }
 
   @Test
-  void discoveryTickDoesNotReconnectKnownLiveNodesWithoutNewPeers() throws Exception {
+  void discoveryTickDoesNotReconnectAlreadyConnectingLiveNodes() throws Exception {
     final NodeRecord liveRecord =
         NodeRecordFactory.DEFAULT.fromEnr(
             "enr:-KO4QK1ecw-CGrDDZ4YwFrhgqctD0tWMHKJhUVxsS4um3aUFe3yBHRtVL9uYKk16DurN1IdSKTOB1zNCvjBybjZ_KAq"
@@ -376,10 +376,10 @@ class PeerDiscoveryAgentV5Test {
                 + "mFwwIN0Y3CCdl-DdWRwgnZf");
 
     when(mockSystem.start()).thenReturn(CompletableFuture.completedFuture(null));
-    // No new peers this round...
     when(mockSystem.searchForNewPeers()).thenReturn(CompletableFuture.completedFuture(List.of()));
-    // ...but the live-node table (e.g. DNS-seeded) is non-empty.
-    lenient().when(mockSystem.streamLiveNodes()).thenAnswer(invocation -> Stream.of(liveRecord));
+    when(mockSystem.streamLiveNodes()).thenAnswer(invocation -> Stream.of(liveRecord));
+    when(forkIdManager.peerCheck(any(ForkId.class))).thenReturn(true);
+    when(rlpxAgent.isConnectingOrConnected(any())).thenReturn(true);
 
     agent.start(1234);
 
@@ -388,10 +388,29 @@ class PeerDiscoveryAgentV5Test {
         .atMost(3, TimeUnit.SECONDS)
         .untilAsserted(() -> verify(mockSystem, atLeastOnce()).searchForNewPeers());
 
-    // The live-node table must never be re-proposed to rlpxAgent.connect() by the per-second
-    // discovery tick - that's DefaultP2PNetwork#attemptPeerConnections()'s job.
     verify(rlpxAgent, never()).connect(any(), any(ConnectSource.class));
-    verify(mockSystem, never()).streamLiveNodes();
+  }
+
+  @Test
+  void discoveryTickConnectsKnownLiveNodeNeverAttempted() throws Exception {
+    final NodeRecord liveRecord =
+        NodeRecordFactory.DEFAULT.fromEnr(
+            "enr:-KO4QK1ecw-CGrDDZ4YwFrhgqctD0tWMHKJhUVxsS4um3aUFe3yBHRtVL9uYKk16DurN1IdSKTOB1zNCvjBybjZ_KAq"
+                + "GAYtJ5U8wg2V0aMfGhJsZKtCAgmlkgnY0gmlwhA_MtDmJc2VjcDI1NmsxoQNXD7fj3sscyOKBiHYy14igj1vJYWdKYZH7n3T8qRpIcYRzb"
+                + "mFwwIN0Y3CCdl-DdWRwgnZf");
+
+    when(mockSystem.start()).thenReturn(CompletableFuture.completedFuture(null));
+    when(mockSystem.searchForNewPeers()).thenReturn(CompletableFuture.completedFuture(List.of()));
+    when(mockSystem.streamLiveNodes()).thenAnswer(invocation -> Stream.of(liveRecord));
+    when(forkIdManager.peerCheck(any(ForkId.class))).thenReturn(true);
+
+    agent.start(1234);
+
+    Awaitility.await()
+        .pollInterval(50, TimeUnit.MILLISECONDS)
+        .atMost(3, TimeUnit.SECONDS)
+        .untilAsserted(
+            () -> verify(rlpxAgent, atLeastOnce()).connect(any(), eq(ConnectSource.DISCV5)));
   }
 
   @Test

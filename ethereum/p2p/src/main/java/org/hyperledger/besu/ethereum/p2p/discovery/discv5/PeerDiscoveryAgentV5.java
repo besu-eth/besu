@@ -483,15 +483,17 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
   /**
    * Builds a stream of candidate peers suitable for outbound connection attempts.
    *
-   * <p>Only proposes {@code newPeers} - retrying known-but-unconnected peers up to max-peers is
-   * {@code DefaultP2PNetwork#attemptPeerConnections()}'s job, not this per-second tick's.
+   * <p>Excludes peers {@link RlpxAgent#isConnectingOrConnected} already reports as handled, so a
+   * live peer isn't re-proposed every tick, but a never-attempted one (e.g. a bootnode) still gets
+   * a fast connection attempt.
    */
   private Stream<DiscoveryPeer> candidatePeers(final Collection<NodeRecord> newPeers) {
     if (LOG.isTraceEnabled() && !newPeers.isEmpty()) {
       LOG.trace("Discovered {} new peers", newPeers.size());
     }
 
-    if (discoverySystem.get() == null) {
+    final MutableDiscoverySystem system = discoverySystem.get();
+    if (system == null) {
       return Stream.empty();
     }
 
@@ -503,8 +505,9 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
             .map(NodeRecord::getNodeId)
             .orElse(Bytes.EMPTY);
 
+    final Stream<NodeRecord> knownPeers = system.streamLiveNodes();
     final List<DiscoveryPeer> candidates =
-        newPeers.stream()
+        Stream.concat(newPeers.stream(), knownPeers)
             .distinct()
             // Defensive: exclude the local node record, in case it's ever included.
             .filter(nr -> !nr.getNodeId().equals(localNodeId))
@@ -515,6 +518,7 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
             .filter(DiscoveryPeer::isListening)
             .filter(peer -> peer.getForkId().map(forkIdManager::peerCheck).orElse(true))
             .filter(peer -> isPeerPermitted(localNode, peer))
+            .filter(peer -> !rlpxAgent.isConnectingOrConnected(peer.getId()))
             .toList();
     if (LOG.isTraceEnabled() && !candidates.isEmpty()) {
       LOG.trace("Total unique peers eligible for connection: {}", candidates.size());
