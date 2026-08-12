@@ -49,9 +49,7 @@ import org.openjdk.jmh.results.ScalarResult;
  * JMH {@link ExternalProfiler} that publishes the per-benchmark gas cost as a secondary metric
  * named {@code gas}, computed once per trial using Besu's own {@link GasCalculator}.
  *
- * <p>Run with: {@code ./gradlew :ethereum:core:jmh -Pprofiler=gas}
- *
- * <p>To select a different fork: {@code -Pprofiler=gas:cancun}
+ * <p>Run with: {@code ./gradlew :ethereum:core:jmh -PgasProfiler=true}
  */
 public class GasProfiler implements ExternalProfiler {
 

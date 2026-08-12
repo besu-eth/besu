@@ -949,7 +949,11 @@ subprojects {
         if (asyncProfiler == null) profilers = []
         profilers.add('gc')
       }
-      profilers.add('org.hyperledger.besu.ethereum.vm.operations.GasProfiler')
+      var gasProfiler = _strCmdArg('gasProfiler')
+      if (gasProfiler != null && gasProfiler.toBoolean()) {
+        if (asyncProfiler == null) profilers = []
+        profilers.add('org.hyperledger.besu.ethereum.vm.operations.GasProfiler')
+      }
       duplicateClassesStrategy = DuplicatesStrategy.INCLUDE
     }
 
