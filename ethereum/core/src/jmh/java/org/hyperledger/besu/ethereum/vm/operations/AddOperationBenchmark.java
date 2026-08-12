@@ -28,8 +28,8 @@ public class AddOperationBenchmark extends BinaryArithmeticOperationBenchmark {
   @Param("ADD_RANDOM_RANDOM")
   private String caseName;
 
-  public static OptionalLong getGasCost(final BenchmarkParams params, final GasCalculator calc) {
-    return OptionalLong.of(calc.getVeryLowTierGasCost());
+  static OptionalLong getGasCost(final BenchmarkParams params, final GasCalculator calc) {
+    return OptionalLong.of(new AddOperationOptimized(calc).getGasCost());
   }
 
   @Override
