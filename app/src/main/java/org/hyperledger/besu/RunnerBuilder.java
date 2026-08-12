@@ -167,7 +167,7 @@ public class RunnerBuilder {
   private final Collection<Bytes> bannedNodeIds = new ArrayList<>();
   private boolean p2pEnabled = true;
   private boolean discoveryEnabled;
-  private DiscoveryMode discoveryMode = DiscoveryMode.BOTH;
+  private DiscoveryMode discoveryMode = DiscoveryMode.V4;
   private String p2pAdvertisedHost;
   private String p2pListenInterface = NetworkUtility.INADDR_ANY;
   private int p2pListenPort;
