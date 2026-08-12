@@ -15,6 +15,8 @@
 package org.hyperledger.besu.consensus.common.bft.blockcreation;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -39,6 +41,7 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -126,6 +129,30 @@ public class BftMiningCoordinatorTest {
     // BFT processor should be started once for every time the mining
     // coordinator is restarted
     verify(bftProcessor, times(2)).start();
+  }
+
+  @Test
+  public void concurrentStopDoesNotTearDownAStartInProgress() throws Exception {
+    final Thread[] stopper = new Thread[1];
+    doAnswer(
+            invocation -> {
+              stopper[0] = new Thread(bftMiningCoordinator::stop, "concurrent-stop");
+              stopper[0].start();
+              stopper[0].join(500);
+              return null;
+            })
+        .when(controller)
+        .start();
+
+    bftMiningCoordinator.enable();
+    bftMiningCoordinator.start();
+    stopper[0].join(5000);
+    assertThat(stopper[0].isAlive()).isFalse();
+
+    final InOrder inOrder = inOrder(bftExecutors);
+    inOrder.verify(bftExecutors).start();
+    inOrder.verify(bftExecutors).executeBftProcessor(bftProcessor);
+    inOrder.verify(bftExecutors).stop();
   }
 
   @Test
