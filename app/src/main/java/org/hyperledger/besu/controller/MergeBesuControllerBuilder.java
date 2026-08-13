@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.controller;
 
+import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.consensus.merge.MergeContext;
 import org.hyperledger.besu.consensus.merge.MergeProtocolSchedule;
 import org.hyperledger.besu.consensus.merge.PostMergeContext;
@@ -186,6 +187,29 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
         balConfiguration,
         metricsSystem,
         evmConfiguration);
+  }
+
+  /**
+   * Whether the chain described by this genesis config is post-merge at genesis, meaning it has no
+   * pre-merge blocks at all.
+   *
+   * <p>The genesis block's total difficulty is simply its own difficulty, so a genesis difficulty
+   * at or above the terminal total difficulty means the terminal condition is already satisfied at
+   * block zero. Hoodi is the motivating case: it sets {@code difficulty: 0x01} alongside {@code
+   * terminalTotalDifficulty: 0}, which a zero-difficulty check misreads as a transition chain.
+   *
+   * <p>Parsing mirrors {@code GenesisState:268} so the two cannot drift.
+   *
+   * @param genesisConfig the genesis config
+   * @return true if genesis already satisfies the terminal total difficulty
+   */
+  static boolean isPostMergeAtGenesis(final GenesisConfig genesisConfig) {
+    return genesisConfig
+        .getConfigOptions()
+        .getTerminalTotalDifficulty()
+        .map(Difficulty::of)
+        .map(ttd -> Difficulty.fromHexString(genesisConfig.getDifficulty()).greaterOrEqualThan(ttd))
+        .orElse(false);
   }
 
   @Override
