@@ -45,7 +45,7 @@ public class DiscoveryConfiguration {
   private int discV5DiscoveryIntervalSeconds = 1;
   private int discV5DiscoveryTimeoutSeconds = 60;
   private double discV5MinimumPeerRatio = 0.8;
-  private DiscoveryMode discoveryMode = DiscoveryMode.BOTH;
+  private DiscoveryMode discoveryMode = DiscoveryMode.getDefault();
 
   public static DiscoveryConfiguration create() {
     return new DiscoveryConfiguration();

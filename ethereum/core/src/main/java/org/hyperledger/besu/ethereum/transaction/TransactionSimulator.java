@@ -535,26 +535,18 @@ public class TransactionSimulator {
         simulationGasCap = userProvidedGasLimit;
       }
     } else {
-      final long txGasLimitCap =
-          protocolSchedule
-              .getByBlockHeader(blockHeader)
-              .getGasLimitCalculator()
-              .transactionGasLimitCap();
       if (rpcGasCap > 0) {
-        simulationGasCap = Math.min(rpcGasCap, Math.min(txGasLimitCap, blockGasLimit));
+        simulationGasCap = Math.min(rpcGasCap, blockGasLimit);
         LOG.trace(
-            "No user provided gas limit, setting simulation gas cap to the value of min(rpc-gas-cap={},txGasLimitCap={},blockGasLimit={})={}",
+            "No user provided gas limit, setting simulation gas cap to the value of min(rpc-gas-cap={},blockGasLimit={})={}",
             rpcGasCap,
-            txGasLimitCap,
             blockGasLimit,
             simulationGasCap);
       } else {
-        simulationGasCap = Math.min(txGasLimitCap, blockGasLimit);
+        simulationGasCap = blockGasLimit;
         LOG.trace(
-            "No user provided gas limit and rpc-gas-cap options is not set, setting simulation gas cap to min(txGasLimitCap={},blockGasLimit={})={}",
-            txGasLimitCap,
-            blockGasLimit,
-            simulationGasCap);
+            "No user provided gas limit and rpc-gas-cap option is not set, setting simulation gas cap to block gas limit {}",
+            blockGasLimit);
       }
     }
     return simulationGasCap;

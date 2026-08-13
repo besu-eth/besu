@@ -121,6 +121,7 @@ public class EngineGetPayloadV1Test extends AbstractScheduledApiTest {
             .mergeCoordinator(mergeMiningCoordinator)
             .ethPeers(ethPeers)
             .metricsSystem(metricsSystem)
+            .maxRequestBlocks(0)
             .build(),
         null,
         SHANGHAI);

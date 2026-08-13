@@ -46,9 +46,9 @@ public interface PeerConnection {
   Peer getPeer();
 
   /**
-   * Returns the Peer's Description.
+   * Returns the remote node's identity as advertised during the connection handshake.
    *
-   * @return Peer Description
+   * @return the advertised identity of the remote node
    */
   PeerInfo getPeerInfo();
 
