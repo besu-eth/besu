@@ -55,7 +55,8 @@ public class SystemCallRequestProcessor
         new SystemCallProcessor(context.getProtocolSpec().getTransactionProcessor());
 
     Bytes systemCallOutput =
-        systemCallProcessor.process(callAddress, context, Bytes.EMPTY, accessLocationTracker);
+        systemCallProcessor.process(
+            callAddress, context, Bytes.EMPTY, accessLocationTracker, context.getCodeReadTracker());
 
     return new Request(requestType, systemCallOutput);
   }

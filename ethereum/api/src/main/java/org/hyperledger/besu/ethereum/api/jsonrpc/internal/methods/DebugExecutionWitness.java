@@ -39,6 +39,9 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiExecuti
 
 import java.util.Optional;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * Implements {@code debug_executionWitness}: reconstructs the EIP-8025 execution witness for a
  * previously-imported block by re-executing it against the persisted parent world state.
@@ -59,6 +62,8 @@ import java.util.Optional;
  * </ul>
  */
 public class DebugExecutionWitness extends AbstractBlockParameterOrBlockHashMethod {
+
+  private static final Logger LOG = LoggerFactory.getLogger(DebugExecutionWitness.class);
 
   private final ProtocolContext protocolContext;
   private final ProtocolSchedule protocolSchedule;
@@ -142,36 +147,38 @@ public class DebugExecutionWitness extends AbstractBlockParameterOrBlockHashMeth
       return new JsonRpcErrorResponse(reqId, RpcErrorType.INTERNAL_ERROR);
     }
 
-    // The block access list is required for witness generation; if it is absent, the block was not
-    // processed with the BAL feature enabled, and we cannot generate a witness.
-    final BlockAccessList blockAccessList =
-        result
-            .getYield()
-            .flatMap(BlockProcessingOutputs::getBlockAccessList)
-            .orElseThrow(
-                () ->
-                    new IllegalStateException(
-                        "block access list is required for witness generation but was absent for block "
-                            + blockHeader.getHash()));
-
-    // The witness data is required for witness generation; if it is absent, the block was not
-    // processed with witness collection enabled, and we cannot generate a witness.
-    WitnessCodeReads witnessCodeReads =
-        result
-            .getYield()
-            .flatMap(BlockProcessingOutputs::getWitnessCodeReads)
-            .orElseThrow(
-                () ->
-                    new IllegalStateException(
-                        "witness data is required for witness generation but was absent for block "
-                            + blockHeader.getHash()));
-
     final BonsaiExecutionWitnessBuilder.Witness witness;
     try {
+      // The block access list is required for witness generation; if it is absent, the block was
+      // not
+      // processed with the BAL feature enabled, and we cannot generate a witness.
+      final BlockAccessList blockAccessList =
+          result
+              .getYield()
+              .flatMap(BlockProcessingOutputs::getBlockAccessList)
+              .orElseThrow(
+                  () ->
+                      new IllegalStateException(
+                          "block access list is required for witness generation but was absent for block "
+                              + blockHeader.getHash()));
+
+      // The witness data is required for witness generation; if it is absent, the block was not
+      // processed with witness collection enabled, and we cannot generate a witness.
+      final WitnessCodeReads witnessCodeReads =
+          result
+              .getYield()
+              .flatMap(BlockProcessingOutputs::getWitnessCodeReads)
+              .orElseThrow(
+                  () ->
+                      new IllegalStateException(
+                          "witness data is required for witness generation but was absent for block "
+                              + blockHeader.getHash()));
+
       // Pass the BAL (state trie nodes) and WitnessCodeReads (code reads, ancestor headers)
       // collected during re-execution to the witness builder.
       witness = witnessBuilder.buildWitness(blockHeader, blockAccessList, witnessCodeReads);
     } catch (final IllegalStateException e) {
+      LOG.error("Failed to build execution witness for block {}", blockHeader.getHash(), e);
       return new JsonRpcErrorResponse(reqId, RpcErrorType.INTERNAL_ERROR);
     }
     return new ExecutionWitnessResult(witness.state(), witness.codes(), witness.headers());

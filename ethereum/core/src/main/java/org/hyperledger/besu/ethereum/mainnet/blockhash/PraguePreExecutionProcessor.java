@@ -66,7 +66,12 @@ public class PraguePreExecutionProcessor extends CancunPreExecutionProcessor {
 
     Bytes inputData = context.getBlockHeader().getParentHash().getBytes();
     try {
-      processor.process(historyStorageAddress, context, inputData, accessLocationTracker);
+      processor.process(
+          historyStorageAddress,
+          context,
+          inputData,
+          accessLocationTracker,
+          context.getCodeReadTracker());
     } catch (SystemCallNoCodeAtAddressException e) {
       // According to EIP-2935, the system call should fail silently if no code exists at the
       // contract address

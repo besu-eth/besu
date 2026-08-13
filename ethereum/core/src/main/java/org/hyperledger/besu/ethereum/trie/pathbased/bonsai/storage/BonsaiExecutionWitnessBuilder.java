@@ -118,7 +118,7 @@ public class BonsaiExecutionWitnessBuilder {
       // set this block). A stateless verifier already reconstructs this code from the block itself,
       // so an execution read that observed the in-block code must not pull the account's pre-state
       // code into the witness — mirroring EELS get_code, which skips reads served from code_writes.
-      final Set<Address> inBlockCodeChanged = buildInBlockCodeWriteAddresses(blockAccessList);
+      final Set<Address> inBlockCodeChanged = buildCodeDeployments(blockAccessList);
       final List<String> codes =
           buildCodes(
               ws,
@@ -223,12 +223,11 @@ public class BonsaiExecutionWitnessBuilder {
   }
 
   /**
-   * Returns the set of addresses whose bytecode was written during the block (CREATE outputs or
-   * EIP-7702 designation changes). A stateless verifier reconstructs in-block code writes from the
-   * block body itself, so these addresses are excluded from the {@code codes} witness to avoid
-   * redundancy.
+   * Returns the set of addresses where code was newly deployed during the block (CREATE outputs or
+   * EIP-7702 designation changes). A stateless verifier reconstructs these from the block body
+   * itself, so they are excluded from the {@code codes} witness to avoid redundancy.
    */
-  private Set<Address> buildInBlockCodeWriteAddresses(final BlockAccessList bal) {
+  private Set<Address> buildCodeDeployments(final BlockAccessList bal) {
     if (bal.isEmpty()) {
       return Set.of();
     }
@@ -249,8 +248,17 @@ public class BonsaiExecutionWitnessBuilder {
       final Blockchain blockchain, final long oldestAncestor, final long blockNumber) {
     final List<String> result = new ArrayList<>();
     for (long number = oldestAncestor; number < blockNumber; number++) {
+      final long n = number;
       result.add(
-          RLP.encode(blockchain.getBlockHeader(number).orElseThrow()::writeTo).toHexString());
+          RLP.encode(
+                  blockchain
+                          .getBlockHeader(n)
+                          .orElseThrow(
+                              () ->
+                                  new IllegalStateException(
+                                      "ancestor header missing for block " + n))
+                      ::writeTo)
+              .toHexString());
     }
     return result;
   }
