@@ -23,6 +23,11 @@ import java.util.Set;
 /**
  * Immutable snapshot of EIP-8025 code reads collected during block processing: the sets of
  * addresses whose code was read, and the ancestor block headers that were accessed.
+ *
+ * @param codeReads addresses whose bytecode was read during EVM execution
+ * @param authorizationCodeReads addresses whose bytecode was read during EIP-7702 authorization
+ *     processing
+ * @param accessedAncestors block numbers and their hashes resolved via BLOCKHASH during execution
  */
 public record WitnessCodeReads(
     Set<Address> codeReads,

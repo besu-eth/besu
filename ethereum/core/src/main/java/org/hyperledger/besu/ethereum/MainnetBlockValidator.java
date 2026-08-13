@@ -347,6 +347,16 @@ public class MainnetBlockValidator implements BlockValidator {
     return processBlock(context, worldState, block, blockAccessList, Optional.empty());
   }
 
+  /**
+   * Processes a block, returning the result of the processing.
+   *
+   * @param context the ProtocolContext
+   * @param worldState the world state for the parent block state root hash
+   * @param block the block to be processed
+   * @param blockAccessList optional block access list
+   * @param witnessCodeTracker optional tracker that collects code reads for EIP-8025 witness
+   * @return the result of processing the block
+   */
   protected BlockProcessingResult processBlock(
       final ProtocolContext context,
       final MutableWorldState worldState,

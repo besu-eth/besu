@@ -173,6 +173,8 @@ public class BlockProcessingOutputs {
   /**
    * Returns the EIP-8025 witness data collected during block processing, or empty if witness
    * collection was not enabled for this block.
+   *
+   * @return the witness code reads, or empty if not collected
    */
   public Optional<WitnessCodeReads> getWitnessCodeReads() {
     return witnessCodeReads;
