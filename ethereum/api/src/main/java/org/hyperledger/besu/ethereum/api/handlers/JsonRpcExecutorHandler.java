@@ -48,8 +48,7 @@ public class JsonRpcExecutorHandler {
               .setTimer(
                   timeoutMillis,
                   id -> {
-                    final String requestBodyAsJson =
-                        ctx.get(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name()).toString();
+                    final String requestBodyAsJson = getRequestBodyAsString(ctx);
                     LOG.error(
                         "Timeout ({} ms) occurred in JSON-RPC executor for method {}",
                         timeoutMillis,
