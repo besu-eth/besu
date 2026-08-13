@@ -334,26 +334,26 @@ public final class DefaultP2PNetworkTest {
   }
 
   @Test
-  public void attemptPeerConnections_attemptsAllCandidatesRegardlessOfRemainingSlots() {
+  public void attemptPeerConnections_overprovisionsButBoundsCandidateCount() {
     when(rlpxAgent.getMaxPeers()).thenReturn(25);
     when(rlpxAgent.getConnectionCount()).thenReturn(24);
 
+    // 1 slot open, overprovision factor 3 -> at most 3 candidates attempted, out of 5 ready.
     final List<DiscoveryPeerV4> discoPeers = new ArrayList<>();
-    discoPeers.add(DiscoveryPeerV4.fromEnode(PeerTestHelper.enode()));
-    discoPeers.add(DiscoveryPeerV4.fromEnode(PeerTestHelper.enode()));
-    discoPeers.add(DiscoveryPeerV4.fromEnode(PeerTestHelper.enode()));
-    discoPeers.forEach(DiscoveryPeerV4::setBonded);
-    discoPeers.get(0).setLastAttemptedConnection(5);
-    discoPeers.get(1).setLastAttemptedConnection(10);
-    discoPeers.get(2).setLastAttemptedConnection(15);
+    for (int i = 0; i < 5; i++) {
+      final DiscoveryPeerV4 peer = DiscoveryPeerV4.fromEnode(PeerTestHelper.enode());
+      peer.setBonded();
+      peer.setLastAttemptedConnection(i);
+      discoPeers.add(peer);
+    }
     when(discoveryAgent.streamDiscoveredPeers()).thenReturn(discoPeers.stream());
 
     final DefaultP2PNetwork network = network();
     network.attemptPeerConnections();
 
-    // Only one slot nominally free (25 max - 24 current), but all 3 candidates are still
-    // attempted - gatePeerConnection() rejects any excess cheaply instead of capping upstream.
     verify(rlpxAgent, times(3)).connect(any(), eq(ConnectSource.MAINTAIN));
+    verify(rlpxAgent, never()).connect(eq(discoPeers.get(3)), any());
+    verify(rlpxAgent, never()).connect(eq(discoPeers.get(4)), any());
   }
 
   @Test

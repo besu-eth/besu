@@ -126,6 +126,9 @@ public class DefaultP2PNetwork implements P2PNetwork {
 
   private static final Logger LOG = LoggerFactory.getLogger(DefaultP2PNetwork.class);
 
+  // Tolerates failed attempts without capping to exactly the open slot count.
+  private static final int CANDIDATE_OVERPROVISION_FACTOR = 3;
+
   private final ScheduledExecutorService peerConnectionScheduler =
       Executors.newSingleThreadScheduledExecutor();
   private final PeerDiscoveryAgent peerDiscoveryAgent;
@@ -422,13 +425,13 @@ public class DefaultP2PNetwork implements P2PNetwork {
       return;
     }
     LOG.trace("Initiating connections to discovered peers.");
-    // gatePeerConnection() rejects excess attempts cheaply (TOO_MANY_PEERS) once at capacity,
-    // so no cap here - avoids wasting a round if a capped candidate fails to connect.
+    final int openSlots = rlpxAgent.getMaxPeers() - rlpxAgent.getConnectionCount();
     streamDiscoveredPeers()
         .filter(DiscoveryPeer::isReadyForConnections)
         .filter(peerDiscoveryAgent::checkForkId)
         .filter(p -> !rlpxAgent.isConnectingOrConnected(p.getId()))
         .sorted(Comparator.comparing(DiscoveryPeer::getLastAttemptedConnection))
+        .limit((long) openSlots * CANDIDATE_OVERPROVISION_FACTOR)
         .forEach(p -> rlpxAgent.connect(p, ConnectSource.MAINTAIN));
   }
 
