@@ -25,6 +25,7 @@ import org.hyperledger.besu.tests.acceptance.dsl.node.cluster.Cluster;
 import org.hyperledger.besu.tests.acceptance.dsl.node.cluster.ClusterConfigurationBuilder;
 import org.hyperledger.besu.tests.acceptance.dsl.node.configuration.BesuNodeConfigurationBuilder;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -68,6 +69,9 @@ public class BootNodesGenesisSetupTest extends AcceptanceTestBase {
   @ParameterizedTest
   @ValueSource(strings = {"enode", "enr"})
   public void shouldConnectNodesViaBootnodesInGenesis(final String bootnodeField) throws Exception {
+    // Pin discovery mode to the one that consumes this bootnode format.
+    final String discoveryMode = bootnodeField.equals("enr") ? "V5" : "V4";
+
     final KeyPair nodeAKeyPair =
         createKeyPair(
             Bytes32.fromHexString(
@@ -78,7 +82,8 @@ public class BootNodesGenesisSetupTest extends AcceptanceTestBase {
                 "0xc87509a1c067bbde78beb793e6fa76530b6382a4c0241e5e4a9ec0a0f44dc0d3"));
 
     // Start nodeA first with no genesis bootnodes — it just listens for incoming connections
-    final Node nodeA = besu.createNode("nodeA", b -> addDiscoveryBootnodes(b, nodeAKeyPair, null));
+    final Node nodeA =
+        besu.createNode("nodeA", b -> addDiscoveryBootnodes(b, nodeAKeyPair, null, discoveryMode));
     noDiscoveryCluster.addNode(nodeA);
 
     final Map<String, Object> nodeAInfo = nodeA.execute(admin.nodeInfo());
@@ -86,7 +91,8 @@ public class BootNodesGenesisSetupTest extends AcceptanceTestBase {
     assertThat(nodeABootnode).isNotNull();
 
     final Node nodeB =
-        besu.createNode("nodeB", b -> addDiscoveryBootnodes(b, nodeBKeyPair, nodeABootnode));
+        besu.createNode(
+            "nodeB", b -> addDiscoveryBootnodes(b, nodeBKeyPair, nodeABootnode, discoveryMode));
     noDiscoveryCluster.addNode(nodeB);
 
     nodeA.verify(net.awaitPeerCount(1));
@@ -99,7 +105,10 @@ public class BootNodesGenesisSetupTest extends AcceptanceTestBase {
   }
 
   private BesuNodeConfigurationBuilder addDiscoveryBootnodes(
-      final BesuNodeConfigurationBuilder b, final KeyPair keyPair, final String bootnode) {
+      final BesuNodeConfigurationBuilder b,
+      final KeyPair keyPair,
+      final String bootnode,
+      final String discoveryMode) {
     final String discoverySection =
         bootnode != null
             ? String.format("\"discovery\":{\"bootnodes\":[\"%s\"]}", bootnode)
@@ -113,6 +122,7 @@ public class BootNodesGenesisSetupTest extends AcceptanceTestBase {
                         "{\"config\":{\"ethash\":{},%s},\"gasLimit\":\"0x1\",\"difficulty\":\"0x1\"}",
                         discoverySection)))
         .bootnodeEligible(false)
+        .extraCLIOptions(List.of("--discovery-mode=" + discoveryMode))
         .jsonRpcEnabled()
         .jsonRpcAdmin();
   }
