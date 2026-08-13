@@ -220,10 +220,7 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
 
     final OptionalLong terminalBlockNumber = genesisConfigOptions.getTerminalBlockNumber();
     final Optional<Hash> terminalBlockHash = genesisConfigOptions.getTerminalBlockHash();
-    final boolean isPostMergeAtGenesis =
-        genesisConfigOptions.getTerminalTotalDifficulty().isPresent()
-            && genesisConfigOptions.getTerminalTotalDifficulty().get().isZero()
-            && blockchain.getGenesisBlockHeader().getDifficulty().isZero();
+    final boolean isPostMergeAtGenesis = isPostMergeAtGenesis(genesisConfig);
 
     final MergeContext mergeContext =
         postMergeContext
