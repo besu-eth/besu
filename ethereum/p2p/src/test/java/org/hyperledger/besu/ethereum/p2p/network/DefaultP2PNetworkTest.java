@@ -334,7 +334,7 @@ public final class DefaultP2PNetworkTest {
   }
 
   @Test
-  public void attemptPeerConnections_respectsMaxPeersCap() {
+  public void attemptPeerConnections_attemptsAllCandidatesRegardlessOfRemainingSlots() {
     when(rlpxAgent.getMaxPeers()).thenReturn(25);
     when(rlpxAgent.getConnectionCount()).thenReturn(24);
 
@@ -351,9 +351,9 @@ public final class DefaultP2PNetworkTest {
     final DefaultP2PNetwork network = network();
     network.attemptPeerConnections();
 
-    // Only one slot free (25 max - 24 current) - the single most-stale candidate connects.
-    verify(rlpxAgent, times(1)).connect(peerCaptor.capture(), eq(ConnectSource.MAINTAIN));
-    assertThat(peerCaptor.getValue()).isEqualTo(discoPeers.get(0));
+    // Only one slot nominally free (25 max - 24 current), but all 3 candidates are still
+    // attempted - gatePeerConnection() rejects any excess cheaply instead of capping upstream.
+    verify(rlpxAgent, times(3)).connect(any(), eq(ConnectSource.MAINTAIN));
   }
 
   @Test

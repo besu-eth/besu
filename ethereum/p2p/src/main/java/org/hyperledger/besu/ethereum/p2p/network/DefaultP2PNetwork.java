@@ -417,24 +417,19 @@ public class DefaultP2PNetwork implements P2PNetwork {
 
   @VisibleForTesting
   void attemptPeerConnections() {
-    final int maxPeers = rlpxAgent.getMaxPeers();
-    final int currentPeerCount = rlpxAgent.getConnectionCount();
-    if (currentPeerCount >= maxPeers) {
+    if (rlpxAgent.getConnectionCount() >= rlpxAgent.getMaxPeers()) {
       LOG.trace("Skipping connection attempts to discovered peers - already at max peers.");
       return;
     }
     LOG.trace("Initiating connections to discovered peers.");
-    final Stream<DiscoveryPeer> toTry =
-        streamDiscoveredPeers()
-            .filter(DiscoveryPeer::isReadyForConnections)
-            .filter(peerDiscoveryAgent::checkForkId)
-            // Skip peers a connect() attempt would reject anyway (already connected, or another
-            // outbound attempt already in flight) - avoids wasting a capped slot and growing the
-            // connecting-cache/attempt-metric volume for a proposal that can't succeed.
-            .filter(p -> !rlpxAgent.isConnectingOrConnected(p.getId()))
-            .sorted(Comparator.comparing(DiscoveryPeer::getLastAttemptedConnection))
-            .limit(maxPeers - currentPeerCount);
-    toTry.forEach(p -> rlpxAgent.connect(p, ConnectSource.MAINTAIN));
+    // gatePeerConnection() rejects excess attempts cheaply (TOO_MANY_PEERS) once at capacity,
+    // so no cap here - avoids wasting a round if a capped candidate fails to connect.
+    streamDiscoveredPeers()
+        .filter(DiscoveryPeer::isReadyForConnections)
+        .filter(peerDiscoveryAgent::checkForkId)
+        .filter(p -> !rlpxAgent.isConnectingOrConnected(p.getId()))
+        .sorted(Comparator.comparing(DiscoveryPeer::getLastAttemptedConnection))
+        .forEach(p -> rlpxAgent.connect(p, ConnectSource.MAINTAIN));
   }
 
   @Override
