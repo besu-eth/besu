@@ -101,7 +101,7 @@ public interface BlockValidator {
    * @param witnessCodeTracker optional tracker that collects code reads for EIP-8025 witness
    * @return the result of the block processing
    */
-  default BlockProcessingResult validateAndProcessBlock(
+  BlockProcessingResult validateAndProcessBlock(
       final ProtocolContext context,
       final Block block,
       final HeaderValidationMode headerValidationMode,
@@ -109,16 +109,7 @@ public interface BlockValidator {
       final Optional<BlockAccessList> blockAccessList,
       final boolean shouldPersist,
       final boolean shouldRecordBadBlock,
-      final Optional<WitnessCodeTracker> witnessCodeTracker) {
-    return validateAndProcessBlock(
-        context,
-        block,
-        headerValidationMode,
-        ommerValidationMode,
-        blockAccessList,
-        shouldPersist,
-        shouldRecordBadBlock);
-  }
+      final Optional<WitnessCodeTracker> witnessCodeTracker);
 
   /**
    * Performs fast block validation appropriate for use during syncing skipping transaction receipt
