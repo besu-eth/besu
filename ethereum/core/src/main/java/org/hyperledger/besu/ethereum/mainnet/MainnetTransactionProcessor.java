@@ -220,30 +220,6 @@ public class MainnetTransactionProcessor {
         Optional.empty());
   }
 
-  /**
-   * Processes a single transaction against the provided world state.
-   *
-   * <p>Validates the transaction, charges upfront gas, executes EVM code (or processes a SET_CODE
-   * authorization list for type-4 transactions), refunds unused gas to the sender, and pays the
-   * mining beneficiary.
-   *
-   * @param worldState mutable world state to execute the transaction against
-   * @param blockHeader header of the block containing this transaction, used for gas pricing,
-   *     timestamp, and base fee
-   * @param transaction the transaction to process
-   * @param miningBeneficiary address that receives the priority fee from this transaction
-   * @param operationTracer observer called at each EVM operation step
-   * @param blockHashLookup provides block hashes for the BLOCKHASH opcode
-   * @param transactionValidationParams controls how strictly the transaction is validated (e.g.
-   *     allows skipping balance checks during tracing)
-   * @param blobGasPrice price per unit of blob gas, used to charge type-3 transactions
-   * @param accessLocationTracker optional EIP-7928 block access list tracker; empty if BAL tracking
-   *     is not active for this block
-   * @param codeReadTracker optional EIP-8025 witness code tracker; empty if witness generation is
-   *     not requested
-   * @return the result of processing the transaction, including success/failure status, gas used,
-   *     logs, and output data
-   */
   public TransactionProcessingResult processTransaction(
       final WorldUpdater worldState,
       final ProcessableBlockHeader blockHeader,
