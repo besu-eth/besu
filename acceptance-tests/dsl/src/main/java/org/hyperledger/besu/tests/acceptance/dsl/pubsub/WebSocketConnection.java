@@ -29,8 +29,14 @@ import io.vertx.core.http.WebSocketConnectOptions;
 import io.vertx.core.json.DecodeException;
 import io.vertx.core.json.Json;
 import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class WebSocketConnection {
+
+  private static final Logger LOG = LoggerFactory.getLogger(WebSocketConnection.class);
+  private static final int MAX_CONNECT_ATTEMPTS = 5;
+  private static final long INITIAL_RETRY_BACKOFF_MILLIS = 200;
 
   private final WebSocketConnectOptions options;
   private final ConcurrentLinkedDeque<SubscriptionEvent> subscriptionEvents;
@@ -82,38 +88,56 @@ public class WebSocketConnection {
   }
 
   private void connect(final Vertx vertx) {
+    attemptConnect(vertx, 1);
+
+    WaitUtils.waitFor(() -> assertThat(connection).isNotNull());
+  }
+
+  private void attemptConnect(final Vertx vertx, final int attempt) {
     vertx
         .createWebSocketClient()
         .connect(options)
-        .onComplete(
+        .onSuccess(
             websocket -> {
-              webSocketConnection(websocket.result());
+              webSocketConnection(websocket);
 
-              websocket
-                  .result()
-                  .handler(
-                      data -> {
-                        try {
-                          final WebSocketEvent eventType =
-                              Json.decodeValue(data, WebSocketEvent.class);
+              websocket.handler(
+                  data -> {
+                    try {
+                      final WebSocketEvent eventType =
+                          Json.decodeValue(data, WebSocketEvent.class);
 
-                          if (eventType.isSubscription()) {
-                            success(Json.decodeValue(data, SubscriptionEvent.class));
-                          } else {
-                            success(Json.decodeValue(data, JsonRpcSuccessEvent.class));
-                          }
+                      if (eventType.isSubscription()) {
+                        success(Json.decodeValue(data, SubscriptionEvent.class));
+                      } else {
+                        success(Json.decodeValue(data, JsonRpcSuccessEvent.class));
+                      }
 
-                        } catch (final DecodeException e) {
-                          error(
-                              "Data: "
-                                  + data.toString()
-                                  + "\nException: "
-                                  + ExceptionUtils.getStackTrace(e));
-                        }
-                      });
+                    } catch (final DecodeException e) {
+                      error(
+                          "Data: "
+                              + data.toString()
+                              + "\nException: "
+                              + ExceptionUtils.getStackTrace(e));
+                    }
+                  });
+            })
+        .onFailure(
+            cause -> {
+              if (attempt >= MAX_CONNECT_ATTEMPTS) {
+                LOG.error(
+                    "Websocket connect failed after {} attempts, giving up", attempt, cause);
+                return;
+              }
+              final long backoffMillis = INITIAL_RETRY_BACKOFF_MILLIS * attempt;
+              LOG.warn(
+                  "Websocket connect failed (attempt {}/{}), retrying in {}ms",
+                  attempt,
+                  MAX_CONNECT_ATTEMPTS,
+                  backoffMillis,
+                  cause);
+              vertx.setTimer(backoffMillis, id -> attemptConnect(vertx, attempt + 1));
             });
-
-    WaitUtils.waitFor(() -> assertThat(connection).isNotNull());
   }
 
   private void webSocketConnection(final WebSocket connection) {
