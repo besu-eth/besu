@@ -68,7 +68,6 @@ public class DebugExecutionWitness extends AbstractBlockParameterOrBlockHashMeth
   private final ProtocolContext protocolContext;
   private final ProtocolSchedule protocolSchedule;
   private final Blockchain blockchain;
-  private final BonsaiExecutionWitnessBuilder witnessBuilder;
 
   public DebugExecutionWitness(
       final BlockchainQueries blockchainQueries,
@@ -78,9 +77,6 @@ public class DebugExecutionWitness extends AbstractBlockParameterOrBlockHashMeth
     this.protocolContext = protocolContext;
     this.protocolSchedule = protocolSchedule;
     blockchain = getBlockchainQueries().getBlockchain();
-    witnessBuilder =
-        new BonsaiExecutionWitnessBuilder(
-            getBlockchainQueries().getWorldStateArchive(), blockchain);
   }
 
   @Override
@@ -175,7 +171,12 @@ public class DebugExecutionWitness extends AbstractBlockParameterOrBlockHashMeth
                               + blockHeader.getHash()));
 
       // Pass the BAL (state trie nodes) and WitnessCodeReads (code reads, ancestor headers)
-      // collected during re-execution to the witness builder.
+      // collected during re-execution to the witness builder. The builder is created here rather
+      // than at construction time so that non-Bonsai nodes surface a per-request error instead of
+      // crashing at startup.
+      final BonsaiExecutionWitnessBuilder witnessBuilder =
+          new BonsaiExecutionWitnessBuilder(
+              getBlockchainQueries().getWorldStateArchive(), blockchain);
       witness = witnessBuilder.buildWitness(blockHeader, blockAccessList, witnessCodeReads);
     } catch (final IllegalStateException e) {
       LOG.error("Failed to build execution witness for block {}", blockHeader.getHash(), e);

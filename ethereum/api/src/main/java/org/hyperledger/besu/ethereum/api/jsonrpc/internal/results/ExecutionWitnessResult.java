@@ -31,27 +31,4 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 public record ExecutionWitnessResult(
     @JsonProperty("state") List<String> state,
     @JsonProperty("codes") List<String> codes,
-    @JsonProperty("headers") List<String> headers) {
-
-  public ExecutionWitnessResult(
-      final List<String> state, final List<String> codes, final List<String> headers) {
-    this.state = state;
-    this.codes = codes;
-    this.headers = headers;
-  }
-
-  @Override
-  public List<String> state() {
-    return state;
-  }
-
-  @Override
-  public List<String> codes() {
-    return codes;
-  }
-
-  @Override
-  public List<String> headers() {
-    return headers;
-  }
-}
+    @JsonProperty("headers") List<String> headers) {}

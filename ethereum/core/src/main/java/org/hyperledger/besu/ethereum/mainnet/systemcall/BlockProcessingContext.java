@@ -58,14 +58,14 @@ public class BlockProcessingContext {
       final BlockHashLookup blockHashLookup,
       final OperationTracer operationTracer,
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
-      final Optional<? extends CodeReadTracker> codeReadTracker) {
+      final Optional<CodeReadTracker> codeReadTracker) {
     this.blockHeader = blockHeader;
     this.worldState = worldState;
     this.protocolSpec = protocolSpec;
     this.blockHashLookup = blockHashLookup;
     this.operationTracer = operationTracer;
     this.blockAccessListBuilder = blockAccessListBuilder;
-    this.codeReadTracker = codeReadTracker.map(t -> t);
+    this.codeReadTracker = codeReadTracker;
   }
 
   public MutableWorldState getWorldState() {

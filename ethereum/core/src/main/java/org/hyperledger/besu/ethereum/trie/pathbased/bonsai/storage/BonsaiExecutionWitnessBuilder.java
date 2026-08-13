@@ -77,12 +77,6 @@ public class BonsaiExecutionWitnessBuilder {
       final BlockAccessList blockAccessList,
       final WitnessCodeReads witnessCodeReads) {
 
-    if (blockAccessList.isEmpty()) {
-      throw new IllegalStateException(
-          "block access list is required for witness generation but was absent for block "
-              + blockHeader.getHash());
-    }
-
     final TrieLog trieLog =
         worldStateProvider
             .getTrieLogManager()
@@ -100,19 +94,17 @@ public class BonsaiExecutionWitnessBuilder {
                     new IllegalStateException(
                         "Parent header not found: " + blockHeader.getParentHash()));
 
-    final MutableWorldState worldState =
+    try (final MutableWorldState worldState =
         worldStateProvider
             .getWorldState(withBlockHeaderAndNoUpdateNodeHead(parentHeader))
             .orElseThrow(
                 () ->
                     new IllegalStateException(
-                        "parent world state unavailable for " + parentHeader.getHash()));
+                        "parent world state unavailable for " + parentHeader.getHash()))) {
 
-    if (!(worldState instanceof BonsaiWorldState ws)) {
-      throw new IllegalStateException("parent world state is not a BonsaiWorldState");
-    }
-
-    try (worldState) {
+      if (!(worldState instanceof BonsaiWorldState ws)) {
+        throw new IllegalStateException("parent world state is not a BonsaiWorldState");
+      }
       final List<String> state = buildTrieNodes(blockHeader, trieLog, ws, blockAccessList);
       // Addresses whose code was written during the block (CREATE, or a 7702 delegation designator
       // set this block). A stateless verifier already reconstructs this code from the block itself,

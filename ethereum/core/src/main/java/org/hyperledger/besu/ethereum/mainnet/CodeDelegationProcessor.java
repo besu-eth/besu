@@ -132,6 +132,11 @@ public class CodeDelegationProcessor {
     eip7928AccessList.ifPresent(t -> t.addTouchedAccount(authorizer));
     result.addAccessedDelegatorAddress(authorizer);
 
+    // EIP-8025 witness: EELS validate_authorization reads the authority's pre-state code to check
+    // whether it already holds a delegation designator, before the nonce check. Record it here so
+    // the witness includes the bytecode even for authorities whose authorization ultimately fails.
+    codeReadTracker.ifPresent(t -> t.addAuthorizationCodeRead(authorizer));
+
     if (!canSetCodeDelegation(codeDelegation, maybeExistingAccount)) {
       result.incrementInvalidAuthorization();
       return;
@@ -146,11 +151,6 @@ public class CodeDelegationProcessor {
             ? worldUpdater.getAccount(authorizer)
             : worldUpdater.createAccount(authorizer);
     eip7928AccessList.ifPresent(t -> t.addTouchedAccount(authority.getAddress()));
-    // EIP-8025 witness: EELS validate_authorization reads the authority's pre-state code here to
-    // check whether it already holds a delegation designator. Record this as an authorization code
-    // read so the witness includes the authority's bytecode for any authority that passes
-    // validation.
-    codeReadTracker.ifPresent(t -> t.addAuthorizationCodeRead(authorizer));
 
     if (authorityAlreadyExists) {
       result.incrementAlreadyExistingDelegators();
