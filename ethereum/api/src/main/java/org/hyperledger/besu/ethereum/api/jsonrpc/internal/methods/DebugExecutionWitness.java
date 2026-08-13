@@ -168,8 +168,8 @@ public class DebugExecutionWitness extends AbstractBlockParameterOrBlockHashMeth
 
     final BonsaiExecutionWitnessBuilder.Witness witness;
     try {
-      // Pass the BAL (state trie nodes) and WitnessCodeReads (code reads, ancestor headers) collected
-      // during re-execution to the witness builder.
+      // Pass the BAL (state trie nodes) and WitnessCodeReads (code reads, ancestor headers)
+      // collected during re-execution to the witness builder.
       witness = witnessBuilder.buildWitness(blockHeader, blockAccessList, witnessCodeReads);
     } catch (final IllegalStateException e) {
       return new JsonRpcErrorResponse(reqId, RpcErrorType.INTERNAL_ERROR);

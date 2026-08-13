@@ -105,8 +105,8 @@ public class BlockProcessingOutputs {
    * @param maybeRequests the requests produced by processing the block
    * @param blockAccessList the block-level access list produced by processing the block
    * @param cumulativeBlockGasUsed the cumulative block gas used (pre-refund for EIP-7778)
-   * @param witnessCodeReads the EIP-8025 witness data collected during block processing, or empty if
-   *     witness collection was not enabled for this block
+   * @param witnessCodeReads the EIP-8025 witness data collected during block processing, or empty
+   *     if witness collection was not enabled for this block
    */
   public BlockProcessingOutputs(
       final MutableWorldState worldState,

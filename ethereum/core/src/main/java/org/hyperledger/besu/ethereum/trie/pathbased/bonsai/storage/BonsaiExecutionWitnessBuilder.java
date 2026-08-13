@@ -69,8 +69,8 @@ public class BonsaiExecutionWitnessBuilder {
   /**
    * Builds the EIP-8025 execution witness (state trie nodes, codes, headers) for a block. Uses the
    * TrieLog + BAL for {@code state}, the {@link WitnessCodeReads}'s accumulated code-read sets for
-   * {@code codes}, and the oldest accessed ancestor from {@link WitnessCodeReads#accessedAncestors()}
-   * for {@code headers}.
+   * {@code codes}, and the oldest accessed ancestor from {@link
+   * WitnessCodeReads#accessedAncestors()} for {@code headers}.
    */
   public Witness buildWitness(
       final BlockHeader blockHeader,

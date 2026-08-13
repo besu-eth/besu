@@ -61,7 +61,6 @@ import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 import org.slf4j.Logger;
@@ -585,7 +584,11 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
 
       final Optional<WitnessCodeReads> maybeWitnessCodeReads =
           witnessCodeTracker.map(
-              t -> new WitnessCodeReads(t.getCodeReads(), t.getAuthorizationCodeReads(), Map.of()));
+              t ->
+                  new WitnessCodeReads(
+                      t.getCodeReads(),
+                      t.getAuthorizationCodeReads(),
+                      blockHashLookup.getAccessedAncestors()));
 
       return new BlockProcessingResult(
           Optional.of(
