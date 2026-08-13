@@ -104,8 +104,7 @@ public class WebSocketConnection {
               websocket.handler(
                   data -> {
                     try {
-                      final WebSocketEvent eventType =
-                          Json.decodeValue(data, WebSocketEvent.class);
+                      final WebSocketEvent eventType = Json.decodeValue(data, WebSocketEvent.class);
 
                       if (eventType.isSubscription()) {
                         success(Json.decodeValue(data, SubscriptionEvent.class));
@@ -125,8 +124,7 @@ public class WebSocketConnection {
         .onFailure(
             cause -> {
               if (attempt >= MAX_CONNECT_ATTEMPTS) {
-                LOG.error(
-                    "Websocket connect failed after {} attempts, giving up", attempt, cause);
+                LOG.error("Websocket connect failed after {} attempts, giving up", attempt, cause);
                 return;
               }
               final long backoffMillis = INITIAL_RETRY_BACKOFF_MILLIS * attempt;
