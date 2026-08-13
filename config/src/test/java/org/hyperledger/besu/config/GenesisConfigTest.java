@@ -295,6 +295,11 @@ class GenesisConfigTest {
   }
 
   @Test
+  void shouldGetSlotNumberFromJsonNumber() {
+    assertThat(fromConfig("{\"slotNumber\":999}").getSlotNumber()).isEqualTo("0x3e7");
+  }
+
+  @Test
   void shouldDefaultSlotNumberToZero() {
     assertThat(EMPTY_CONFIG.getSlotNumber()).isEqualTo("0x0");
   }
