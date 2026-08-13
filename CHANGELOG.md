@@ -22,6 +22,7 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
+- Fix `NullPointerException` in the JSON-RPC HTTP timeout handler for batch (array) requests. [11023](https://github.com/besu-eth/besu/pull/11023)
 - Fix `--discovery-mode=BOTH`/`V5` re-proposing its entire known-peer table for outbound connection on every discovery tick, driving excess CPU/GC from wasted RLPx handshakes.
 - Restore structured `{peers, sync}` detail in plugin-based `/readiness` responses via `HealthCheckProvider` [#10687](https://github.com/besu-eth/besu/issues/10687)
 - Fixed `debug_traceTransaction`/`debug_traceCall`/`debug_traceBlock` returning an invalid empty-string `returnValue` and a phantom `STOP` entry in `structLogs` for legacy EOA-to-EOA transfers that execute no EVM code. Now returns `returnValue:"0x"` and empty `structLogs`, matching the execution-apis opcode-tracer schema. [#10972](https://github.com/besu-eth/besu/pull/10972)
