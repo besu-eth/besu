@@ -46,7 +46,6 @@ import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
-import org.hyperledger.besu.evm.frame.CodeReadTracker;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.StackedUpdater;
 import org.hyperledger.besu.evm.worldstate.WorldState;
@@ -346,8 +345,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                 transaction,
                 i,
                 blockHashLookup,
-                transactionLocationTracker,
-                witnessCodeTracker);
+                transactionLocationTracker);
 
         if (transactionProcessingResult.isInvalid()) {
           String errorMessage =
@@ -617,31 +615,6 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       final int location,
       final BlockHashLookup blockHashLookup,
       final Optional<AccessLocationTracker> accessLocationTracker) {
-    return getTransactionProcessingResult(
-        preProcessingContext,
-        blockProcessingContext,
-        transactionUpdater,
-        blobGasPrice,
-        miningBeneficiary,
-        transaction,
-        location,
-        blockHashLookup,
-        accessLocationTracker,
-        Optional.empty());
-  }
-
-  @SuppressWarnings("unused") // preProcessingContext and location are used by subclasses
-  protected TransactionProcessingResult getTransactionProcessingResult(
-      final Optional<PreprocessingContext> preProcessingContext,
-      final BlockProcessingContext blockProcessingContext,
-      final WorldUpdater transactionUpdater,
-      final Wei blobGasPrice,
-      final Address miningBeneficiary,
-      final Transaction transaction,
-      final int location,
-      final BlockHashLookup blockHashLookup,
-      final Optional<AccessLocationTracker> accessLocationTracker,
-      final Optional<? extends CodeReadTracker> codeReadTracker) {
     return transactionProcessor.processTransaction(
         transactionUpdater,
         blockProcessingContext.getBlockHeader(),
@@ -652,7 +625,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         TransactionValidationParams.processingBlock(),
         blobGasPrice,
         accessLocationTracker,
-        codeReadTracker.map(t -> t));
+        blockProcessingContext.getCodeReadTracker());
   }
 
   @SuppressWarnings(

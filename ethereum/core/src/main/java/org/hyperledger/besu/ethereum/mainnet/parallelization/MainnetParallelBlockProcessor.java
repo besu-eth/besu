@@ -35,7 +35,6 @@ import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
-import org.hyperledger.besu.evm.frame.CodeReadTracker;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
@@ -101,31 +100,6 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
       final int location,
       final BlockHashLookup blockHashLookup,
       final Optional<AccessLocationTracker> accessLocationTracker) {
-    return getTransactionProcessingResult(
-        preProcessingContext,
-        blockProcessingContext,
-        transactionUpdater,
-        blobGasPrice,
-        miningBeneficiary,
-        transaction,
-        location,
-        blockHashLookup,
-        accessLocationTracker,
-        Optional.empty());
-  }
-
-  @Override
-  protected TransactionProcessingResult getTransactionProcessingResult(
-      final Optional<PreprocessingContext> preProcessingContext,
-      final BlockProcessingContext blockProcessingContext,
-      final WorldUpdater transactionUpdater,
-      final Wei blobGasPrice,
-      final Address miningBeneficiary,
-      final Transaction transaction,
-      final int location,
-      final BlockHashLookup blockHashLookup,
-      final Optional<AccessLocationTracker> accessLocationTracker,
-      final Optional<? extends CodeReadTracker> codeReadTracker) {
     return preProcessingContext
         .flatMap(
             ctx ->
@@ -148,8 +122,7 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
                     transaction,
                     location,
                     blockHashLookup,
-                    accessLocationTracker,
-                    codeReadTracker));
+                    accessLocationTracker));
   }
 
   @Override
