@@ -51,12 +51,7 @@ public class CancunPreExecutionProcessor extends FrontierPreExecutionProcessor {
     SystemCallProcessor processor =
         new SystemCallProcessor(context.getProtocolSpec().getTransactionProcessor());
     try {
-      processor.process(
-          BEACON_ROOTS_ADDRESS,
-          context,
-          beaconRootsAddress,
-          accessLocationTracker,
-          context.getCodeReadTracker());
+      processor.process(BEACON_ROOTS_ADDRESS, context, beaconRootsAddress, accessLocationTracker);
     } catch (SystemCallNoCodeAtAddressException e) {
       // According to EIP-4788, fail silently if no code exists
       LOG.warn("Invalid system call address: {}", BEACON_ROOTS_ADDRESS);

@@ -80,15 +80,7 @@ public class SystemCallProcessor {
       final BlockProcessingContext context,
       final Bytes inputData,
       final Optional<AccessLocationTracker> accessLocationTracker) {
-    return process(callAddress, context, inputData, accessLocationTracker, Optional.empty());
-  }
-
-  public Bytes process(
-      final Address callAddress,
-      final BlockProcessingContext context,
-      final Bytes inputData,
-      final Optional<AccessLocationTracker> accessLocationTracker,
-      final Optional<CodeReadTracker> codeReadTracker) {
+    final Optional<CodeReadTracker> codeReadTracker = context.getCodeReadTracker();
     WorldUpdater blockUpdater = context.getWorldState().updater();
     WorldUpdater systemCallUpdater = blockUpdater.updater();
     // EIP-7928: the account is read before we can know whether there is code to run, so an absent
