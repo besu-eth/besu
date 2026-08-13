@@ -129,15 +129,15 @@ dependencies {
 
     api 'io.projectreactor:reactor-core:3.8.6'
 
-    api 'io.consensys.tuweni:tuweni-bytes:2.7.2'
-    api 'io.consensys.tuweni:tuweni-config:2.7.2'
-    api 'io.consensys.tuweni:tuweni-concurrent:2.7.2'
-    api 'io.consensys.tuweni:tuweni-crypto:2.7.2'
-    api 'io.consensys.tuweni:tuweni-io:2.7.2'
-    api 'io.consensys.tuweni:tuweni-net:2.7.2'
-    api 'io.consensys.tuweni:tuweni-rlp:2.7.2'
-    api 'io.consensys.tuweni:tuweni-toml:2.7.2'
-    api 'io.consensys.tuweni:tuweni-units:2.7.2'
+    api 'io.consensys.tuweni:tuweni-bytes:2.8.0'
+    api 'io.consensys.tuweni:tuweni-config:2.8.0'
+    api 'io.consensys.tuweni:tuweni-concurrent:2.8.0'
+    api 'io.consensys.tuweni:tuweni-crypto:2.8.0'
+    api 'io.consensys.tuweni:tuweni-io:2.8.0'
+    api 'io.consensys.tuweni:tuweni-net:2.8.0'
+    api 'io.consensys.tuweni:tuweni-rlp:2.8.0'
+    api 'io.consensys.tuweni:tuweni-toml:2.8.0'
+    api 'io.consensys.tuweni:tuweni-units:2.8.0'
 
     api 'jakarta.validation:jakarta.validation-api:3.1.1'
 
@@ -201,7 +201,7 @@ dependencies {
 
     api 'io.consensys.protocols:jc-kzg-4844:2.1.8'
 
-    api 'io.consensys.protocols:discovery:26.6.0'
+    api 'io.consensys.protocols:discovery:26.8.0'
   }
 }
 
