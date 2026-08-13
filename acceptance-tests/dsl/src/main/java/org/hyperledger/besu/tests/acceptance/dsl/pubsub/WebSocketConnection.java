@@ -25,6 +25,7 @@ import java.util.concurrent.ConcurrentLinkedDeque;
 
 import io.vertx.core.Vertx;
 import io.vertx.core.http.WebSocket;
+import io.vertx.core.http.WebSocketClient;
 import io.vertx.core.http.WebSocketConnectOptions;
 import io.vertx.core.json.DecodeException;
 import io.vertx.core.json.Json;
@@ -41,6 +42,11 @@ public class WebSocketConnection {
   private final WebSocketConnectOptions options;
   private final ConcurrentLinkedDeque<SubscriptionEvent> subscriptionEvents;
 
+  // Vert.x wraps the client in a Cleaner that shuts it down (closing its connections) once the
+  // client itself becomes unreachable, so a strong reference must be kept for the connection's
+  // lifetime rather than letting the client returned by createWebSocketClient() go out of scope.
+  private final WebSocketClient webSocketClient;
+
   private volatile String error;
   private volatile boolean receivedResponse;
   private volatile JsonRpcSuccessEvent latestEvent;
@@ -55,6 +61,7 @@ public class WebSocketConnection {
     options = new WebSocketConnectOptions();
     options.setPort(node.getJsonRpcWebSocketPort().get());
     options.setHost(node.getHostName());
+    webSocketClient = vertx.createWebSocketClient();
 
     connect(vertx);
   }
@@ -94,8 +101,7 @@ public class WebSocketConnection {
   }
 
   private void attemptConnect(final Vertx vertx, final int attempt) {
-    vertx
-        .createWebSocketClient()
+    webSocketClient
         .connect(options)
         .onSuccess(
             websocket -> {
