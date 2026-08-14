@@ -17,7 +17,6 @@ package org.hyperledger.besu.ethereum.vm.operations;
 import org.hyperledger.besu.crypto.Hash;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
-import java.util.OptionalLong;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
@@ -43,9 +42,9 @@ import org.openjdk.jmh.infra.BenchmarkParams;
 public class SHA256Benchmark implements GasCostBenchmark {
 
   @Override
-  public OptionalLong getGasCost(final BenchmarkParams params, final GasCalculator calc) {
+  public long getGasCost(final BenchmarkParams params, final GasCalculator calc) {
     final int size = Integer.parseInt(params.getParam("inputSize"));
-    return OptionalLong.of(calc.sha256PrecompiledContractGasCost(Bytes.wrap(new byte[size])));
+    return calc.sha256PrecompiledContractGasCost(Bytes.wrap(new byte[size]));
   }
 
   @Param({"32", "64", "128", "256", "512", "1024", "2048", "4096"})

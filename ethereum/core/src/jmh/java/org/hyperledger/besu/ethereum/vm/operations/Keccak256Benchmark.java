@@ -18,7 +18,6 @@ import org.hyperledger.besu.crypto.Hash;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
-import java.util.OptionalLong;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
@@ -43,11 +42,11 @@ import org.openjdk.jmh.infra.BenchmarkParams;
 public class Keccak256Benchmark implements GasCostBenchmark {
 
   @Override
-  public OptionalLong getGasCost(final BenchmarkParams params, final GasCalculator calc) {
+  public long getGasCost(final BenchmarkParams params, final GasCalculator calc) {
     final long size = Long.parseLong(params.getParam("inputSize"));
     final MessageFrame frame = BenchmarkHelper.createMessageCallFrame();
     frame.expandMemory(0, size);
-    return OptionalLong.of(calc.keccak256OperationGasCost(frame, 0, size));
+    return calc.keccak256OperationGasCost(frame, 0, size);
   }
 
   @Param({"32", "64", "128", "256", "512"})
