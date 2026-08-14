@@ -50,6 +50,9 @@ import org.openjdk.jmh.results.ScalarResult;
  * named {@code gas}, computed once per trial using Besu's own {@link GasCalculator}.
  *
  * <p>Run with: {@code ./gradlew :ethereum:core:jmh -PgasProfiler=true}
+ *
+ * <p>To specify the EVM fork (defaults to OSAKA): {@code ./gradlew :ethereum:core:jmh
+ * -PgasProfiler=true -PgasProfilerFork=CANCUN}
  */
 public class GasProfiler implements ExternalProfiler {
 

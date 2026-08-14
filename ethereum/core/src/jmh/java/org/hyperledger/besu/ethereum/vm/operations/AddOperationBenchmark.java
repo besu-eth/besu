@@ -19,8 +19,6 @@ import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.operation.AddOperationOptimized;
 import org.hyperledger.besu.evm.operation.Operation;
 
-import java.util.OptionalLong;
-
 import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.infra.BenchmarkParams;
 
@@ -30,8 +28,8 @@ public class AddOperationBenchmark extends BinaryArithmeticOperationBenchmark
   private String caseName;
 
   @Override
-  public OptionalLong getGasCost(final BenchmarkParams params, final GasCalculator calc) {
-    return OptionalLong.of(new AddOperationOptimized(calc).getGasCost());
+  public long getGasCost(final BenchmarkParams params, final GasCalculator calc) {
+    return new AddOperationOptimized(calc).getGasCost();
   }
 
   @Override

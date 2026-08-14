@@ -36,7 +36,7 @@ public final class GasFormulas {
               .asSubclass(GasCostBenchmark.class)
               .getDeclaredConstructor()
               .newInstance();
-      return gcb.getGasCost(params, calc);
+      return OptionalLong.of(gcb.getGasCost(params, calc));
     } catch (ClassCastException | ReflectiveOperationException e) {
       return OptionalLong.empty();
     }

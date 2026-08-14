@@ -16,10 +16,8 @@ package org.hyperledger.besu.ethereum.vm.operations;
 
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
-import java.util.OptionalLong;
-
 import org.openjdk.jmh.infra.BenchmarkParams;
 
 public interface GasCostBenchmark {
-  OptionalLong getGasCost(BenchmarkParams params, GasCalculator calc);
+  long getGasCost(BenchmarkParams params, GasCalculator calc);
 }

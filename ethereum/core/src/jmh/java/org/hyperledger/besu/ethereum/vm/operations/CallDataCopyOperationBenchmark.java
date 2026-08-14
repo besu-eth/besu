@@ -19,7 +19,6 @@ import org.hyperledger.besu.evm.gascalculator.CancunGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.operation.CallDataCopyOperation;
 
-import java.util.OptionalLong;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -44,11 +43,11 @@ import org.openjdk.jmh.infra.Blackhole;
 public class CallDataCopyOperationBenchmark implements GasCostBenchmark {
 
   @Override
-  public OptionalLong getGasCost(final BenchmarkParams params, final GasCalculator calc) {
+  public long getGasCost(final BenchmarkParams params, final GasCalculator calc) {
     final long size = Long.parseLong(params.getParam("dataSize"));
     final MessageFrame frame = BenchmarkHelper.createMessageCallFrame();
     frame.expandMemory(0, size);
-    return OptionalLong.of(calc.dataCopyOperationGasCost(frame, 0, size));
+    return calc.dataCopyOperationGasCost(frame, 0, size);
   }
 
   private CallDataCopyOperation callDataCopyOperation;
