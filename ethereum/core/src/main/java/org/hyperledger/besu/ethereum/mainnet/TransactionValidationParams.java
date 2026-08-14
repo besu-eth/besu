@@ -49,15 +49,23 @@ public interface TransactionValidationParams {
   TransactionValidationParams transactionSimulatorAllowExceedingBalanceAndFutureNonceParams =
       ImmutableTransactionValidationParams.of(true, true, false, false, false, true, true, false);
 
-  // eth_simulateV1 strict: preserves caller-provided gas pricing (defaulting to 0 if not specified)
-  // so that base fee validation is enforced against the caller's literal values.
-  TransactionValidationParams blockSimulatorStrictParams =
-      ImmutableTransactionValidationParams.of(false, false, false, false, false, true, false, true);
-
   // eth_simulateV1 non-strict: allows exceeding balance and future nonces, and preserves
   // caller-provided gas pricing so that gas fees are actually charged during simulation.
   TransactionValidationParams blockSimulatorNonStrictParams =
       ImmutableTransactionValidationParams.of(true, true, false, false, false, true, true, true);
+
+  // eth_simulateV1 strict: enforces economic rules (balance, nonce, base fee) against the
+  // caller's literal values, but does NOT enforce consensus-level transaction caps
+  // (EIP-7825, EIP-8037). Those caps govern mempool/block-building for real transactions
+  // and are not applicable to simulation.
+  TransactionValidationParams blockSimulatorStrictParams =
+      ImmutableTransactionValidationParams.of(false, false, false, false, false, true, true, true);
+
+  // Block-building simulation strict: same economic rules as blockSimulatorStrictParams, but
+  // also enforces consensus-level transaction caps (EIP-7825, EIP-8037) because this path
+  // is used to simulate real block production where those caps must apply.
+  TransactionValidationParams blockSimulatorConsensusStrictParams =
+      ImmutableTransactionValidationParams.of(false, false, false, false, false, true, false, true);
 
   @Value.Default
   default boolean isAllowFutureNonce() {
@@ -125,10 +133,30 @@ public interface TransactionValidationParams {
     return transactionSimulatorAllowExceedingBalanceAndFutureNonceParams;
   }
 
+  /**
+   * Returns validation params for eth_simulateV1 strict mode. Enforces economic rules (balance,
+   * nonce, base fee) against the caller's literal values, but does not enforce consensus-level
+   * transaction caps (EIP-7825, EIP-8037), which govern mempool/block-building for real
+   * transactions and are not applicable to RPC simulation.
+   */
   static TransactionValidationParams blockSimulatorStrict() {
     return blockSimulatorStrictParams;
   }
 
+  /**
+   * Returns validation params for block-building simulation strict mode. Same economic rules as
+   * {@link #blockSimulatorStrict()}, but also enforces consensus-level transaction caps (EIP-7825,
+   * EIP-8037) because this path simulates real block production where those caps must apply.
+   */
+  static TransactionValidationParams blockSimulatorConsensusStrict() {
+    return blockSimulatorConsensusStrictParams;
+  }
+
+  /**
+   * Returns validation params for eth_simulateV1 non-strict mode. Allows exceeding balance and
+   * future nonces, and preserves caller-provided gas pricing so that gas fees are charged during
+   * simulation.
+   */
   static TransactionValidationParams blockSimulatorNonStrict() {
     return blockSimulatorNonStrictParams;
   }

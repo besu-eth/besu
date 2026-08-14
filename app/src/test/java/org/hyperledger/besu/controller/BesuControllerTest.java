@@ -24,10 +24,12 @@ import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.config.QbftConfigOptions;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
+import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.Checkpoint;
 
 import java.io.IOException;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalLong;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -148,15 +150,20 @@ public class BesuControllerTest {
         GenesisConfig.fromResource("/valid_post_merge_near_head_checkpoint.json");
 
     final BesuControllerBuilder besuControllerBuilder =
-        new BesuController.Builder().fromGenesisFile(postMergeGenesisFile, SyncMode.SNAP);
+        new BesuController.Builder()
+            .checkpoint(genesisCheckpoint(postMergeGenesisFile))
+            .fromGenesisFile(postMergeGenesisFile, SyncMode.SNAP);
 
     assertThat(besuControllerBuilder).isInstanceOf(MergeBesuControllerBuilder.class);
   }
 
   @Test
   public void defaultMainnetSnapSyncUsesMergeControllerBuilder() {
+    final GenesisConfig mainnet = GenesisConfig.mainnet();
     final BesuControllerBuilder besuControllerBuilder =
-        new BesuController.Builder().fromGenesisFile(GenesisConfig.mainnet(), SyncMode.SNAP);
+        new BesuController.Builder()
+            .checkpoint(genesisCheckpoint(mainnet))
+            .fromGenesisFile(mainnet, SyncMode.SNAP);
 
     assertThat(besuControllerBuilder).isInstanceOf(MergeBesuControllerBuilder.class);
   }
@@ -169,7 +176,9 @@ public class BesuControllerTest {
             "/invalid_post_merge_checkpoint_total_difficulty_same_as_TTD.json");
 
     final BesuControllerBuilder besuControllerBuilder =
-        new BesuController.Builder().fromGenesisFile(mergeAtGenesisFile, SyncMode.SNAP);
+        new BesuController.Builder()
+            .checkpoint(genesisCheckpoint(mergeAtGenesisFile))
+            .fromGenesisFile(mergeAtGenesisFile, SyncMode.SNAP);
 
     assertThat(besuControllerBuilder).isInstanceOf(TransitionBesuControllerBuilder.class);
   }
@@ -179,9 +188,52 @@ public class BesuControllerTest {
     final GenesisConfig checkpointPreMerge =
         GenesisConfig.fromResource("/valid_pre_merge_checkpoint.json");
     final BesuControllerBuilder besuControllerBuilder =
-        new BesuController.Builder().fromGenesisFile(checkpointPreMerge, SyncMode.SNAP);
+        new BesuController.Builder()
+            .checkpoint(genesisCheckpoint(checkpointPreMerge))
+            .fromGenesisFile(checkpointPreMerge, SyncMode.SNAP);
 
     assertThat(besuControllerBuilder).isInstanceOf(TransitionBesuControllerBuilder.class);
+  }
+
+  @Test
+  public void explicitPostMergeCheckpointOnPreMergeGenesisUsesMergeControllerBuilder() {
+    // Genesis has a pre-merge checkpoint (TD < TTD), which alone selects the transition builder. An
+    // explicitly provided post-merge checkpoint (TD > TTD = 58750000000000000000000) is used in
+    // preference to the genesis fallback and selects the vanilla merge builder.
+    final GenesisConfig checkpointPreMerge =
+        GenesisConfig.fromResource("/valid_pre_merge_checkpoint.json");
+    final Checkpoint postMergeCheckpoint =
+        Checkpoint.of(
+            "0x0000000000000000000000000000000000000000000000000000000000000000",
+            12345678L,
+            "58750000000000000000001");
+
+    final BesuControllerBuilder besuControllerBuilder =
+        new BesuController.Builder()
+            .checkpoint(Optional.of(postMergeCheckpoint))
+            .fromGenesisFile(checkpointPreMerge, SyncMode.SNAP);
+
+    assertThat(besuControllerBuilder).isInstanceOf(MergeBesuControllerBuilder.class);
+  }
+
+  @Test
+  public void fromGenesisFilePropagatesCheckpointToBuilderForSyncState() {
+    // The factory must hand the resolved checkpoint to the built controller builder (which feeds it
+    // to SyncState), not only use it for builder selection.
+    final Checkpoint checkpoint =
+        Checkpoint.of(
+            "0x0000000000000000000000000000000000000000000000000000000000000001", 50L, "0x64");
+
+    final BesuControllerBuilder besuControllerBuilder =
+        new BesuController.Builder()
+            .checkpoint(Optional.of(checkpoint))
+            .fromGenesisFile(GenesisConfig.mainnet(), SyncMode.SNAP);
+
+    assertThat(besuControllerBuilder.checkpoint).contains(checkpoint);
+  }
+
+  private static Optional<Checkpoint> genesisCheckpoint(final GenesisConfig genesisConfig) {
+    return Checkpoint.fromConfig(genesisConfig.getConfigOptions().getCheckpointOptions());
   }
 
   @Test

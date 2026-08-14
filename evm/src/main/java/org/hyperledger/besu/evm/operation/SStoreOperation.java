@@ -69,6 +69,16 @@ public class SStoreOperation extends AbstractOperation {
 
   @Override
   public OperationResult execute(final MessageFrame frame, final EVM evm) {
+    final UInt256 key = UInt256.fromBytes(frame.popStackItem());
+    final UInt256 newValue = UInt256.fromBytes(frame.popStackItem());
+
+    // EIP-8038: resolve the account ahead of the gas checks below, so that an SSTORE which halts
+    // for insufficient gas has still recorded the account in the block access list.
+    final MutableAccount account = getMutableAccount(frame.getRecipientAddress(), frame);
+    if (account == null) {
+      return ILLEGAL_STATE_CHANGE;
+    }
+
     final long remainingGas = frame.getRemainingGas();
 
     if (frame.isStatic()) {
@@ -79,22 +89,8 @@ public class SStoreOperation extends AbstractOperation {
       return new OperationResult(minimumGasRemaining, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 
-    final UInt256 key = UInt256.fromBytes(frame.popStackItem());
-    final UInt256 newValue = UInt256.fromBytes(frame.popStackItem());
-
-    final Address address = frame.getRecipientAddress();
-
-    final long sloadCost =
-        frame.warmUpStorage(address, key) ? 0L : gasCalculator().getSStoreColdAccessGasCost();
-    if (remainingGas < sloadCost) {
-      return new OperationResult(sloadCost, ExceptionalHaltReason.INSUFFICIENT_GAS);
-    }
-
-    final MutableAccount account = getMutableAccount(address, frame);
-    if (account == null) {
-      return ILLEGAL_STATE_CHANGE;
-    }
-
+    final Address address = account.getAddress();
+    final boolean slotIsWarm = frame.warmUpStorage(address, key);
     final Supplier<UInt256> currentValueSupplier =
         Suppliers.memoize(() -> getStorageValue(account, key, frame));
     final Supplier<UInt256> originalValueSupplier =
@@ -102,7 +98,7 @@ public class SStoreOperation extends AbstractOperation {
 
     final long cost =
         gasCalculator().slotAccessCost(newValue, currentValueSupplier, originalValueSupplier)
-            + sloadCost;
+            + (slotIsWarm ? 0L : gasCalculator().getSStoreColdAccessGasCost());
     if (remainingGas < cost) {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }

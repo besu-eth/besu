@@ -249,6 +249,9 @@ public class Transaction
         checkArgument(
             maybeCodeDelegationList.isPresent(),
             "Must specify code delegation authorizations for code delegation transaction");
+        checkArgument(
+            !maybeCodeDelegationList.get().isEmpty(),
+            "Code delegation transaction must have at least one authorization");
       }
     }
 

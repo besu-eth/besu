@@ -105,6 +105,13 @@ public class RpcWebsocketOptions {
   private final Integer rpcWsMaxConnections = DefaultCommandValues.DEFAULT_WS_MAX_CONNECTIONS;
 
   @CommandLine.Option(
+      names = {"--rpc-ws-max-active-subscriptions"},
+      description =
+          "Maximum number of global active WebSocket subscriptions allowed for JSON-RPC (eth_subscribe). Must be >= 0. 0 specifies no limit (default: ${DEFAULT-VALUE}). Once this limit is reached, incoming subscriptions will return an error.")
+  private final Integer rpcWsMaxActiveSubscriptions =
+      DefaultCommandValues.DEFAULT_WS_MAX_ACTIVE_SUBSCRIPTIONS;
+
+  @CommandLine.Option(
       names = {"--rpc-ws-api", "--rpc-ws-apis"},
       paramLabel = "<api name>",
       split = " {0,1}, {0,1}",
@@ -239,6 +246,11 @@ public class RpcWebsocketOptions {
           commandLine,
           "Unable to authenticate JSON-RPC WebSocket endpoint without a supplied credentials file or authentication public key file");
     }
+
+    if (rpcWsMaxActiveSubscriptions < 0) {
+      throw new CommandLine.ParameterException(
+          commandLine, "--rpc-ws-max-active-subscriptions must be >= 0 (0 specifies no limit)");
+    }
   }
 
   /**
@@ -348,6 +360,7 @@ public class RpcWebsocketOptions {
     webSocketConfiguration.setPort(rpcWsPort);
     webSocketConfiguration.setMaxFrameSize(rpcWsMaxFrameSize);
     webSocketConfiguration.setMaxActiveConnections(rpcWsMaxConnections);
+    webSocketConfiguration.setMaxActiveSubscriptions(rpcWsMaxActiveSubscriptions);
     webSocketConfiguration.setRpcApis(rpcWsApis);
     webSocketConfiguration.setRpcApisNoAuth(
         rpcWsApiMethodsNoAuth.stream().distinct().collect(Collectors.toList()));

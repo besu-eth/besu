@@ -323,15 +323,22 @@ public class EthPeers implements PeerSelector {
   void reattemptPendingPeerRequests() {
     synchronized (this) {
       final Iterator<PendingPeerRequest> iterator = pendingRequests.iterator();
-      while (iterator.hasNext()
-          && streamAvailablePeers()
-              .anyMatch(EthPeerImmutableAttributes::hasAvailableRequestCapacity)) {
+      while (iterator.hasNext() && hasPeerWithAvailableRequestCapacity()) {
         final PendingPeerRequest request = iterator.next();
         if (request.attemptExecution()) {
           pendingRequests.remove(request);
         }
       }
     }
+  }
+
+  private boolean hasPeerWithAvailableRequestCapacity() {
+    for (final EthPeer peer : activeConnections.values()) {
+      if (!peer.isDisconnected() && peer.hasAvailableRequestCapacity()) {
+        return true;
+      }
+    }
+    return false;
   }
 
   public long subscribeConnect(final ConnectCallback callback) {

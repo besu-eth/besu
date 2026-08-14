@@ -136,24 +136,24 @@ public class BackwardSyncContext {
   }
 
   public synchronized CompletableFuture<Void> syncBackwardsUntil(final Hash newBlockHash) {
-    if (isReady()) {
-      if (!isTrusted(newBlockHash)) {
-        LOG.atDebug()
-            .setMessage("Appending new head block hash {} to backward sync")
-            .addArgument(() -> newBlockHash.getBytes().toHexString())
-            .log();
+    if (!isTrusted(newBlockHash)) {
+      LOG.atDebug()
+          .setMessage("Appending new head block hash {} to backward sync")
+          .addArgument(() -> newBlockHash.getBytes().toHexString())
+          .log();
+      if (isReady()) {
         backwardChain.addNewHash(newBlockHash);
+      } else {
+        backwardChain.replaceQueuedHashesWith(newBlockHash);
       }
-
-      final Status status = getOrStartSyncSession();
-      backwardChain
-          .getBlock(newBlockHash)
-          .ifPresent(
-              newTargetBlock -> status.updateTargetHeight(newTargetBlock.getHeader().getNumber()));
-      return status.currentFuture;
-    } else {
-      return CompletableFuture.failedFuture(new Throwable("Backward sync is not ready"));
     }
+
+    final Status status = getOrStartSyncSession();
+    backwardChain
+        .getBlock(newBlockHash)
+        .ifPresent(
+            newTargetBlock -> status.updateTargetHeight(newTargetBlock.getHeader().getNumber()));
+    return status.currentFuture;
   }
 
   public synchronized CompletableFuture<Void> syncBackwardsUntil(final Block newPivot) {
@@ -161,13 +161,9 @@ public class BackwardSyncContext {
       backwardChain.appendTrustedBlock(newPivot);
     }
 
-    if (isReady()) {
-      final Status status = getOrStartSyncSession();
-      status.updateTargetHeight(newPivot.getHeader().getNumber());
-      return status.currentFuture;
-    } else {
-      return CompletableFuture.failedFuture(new Throwable("Backward sync is not ready"));
-    }
+    final Status status = getOrStartSyncSession();
+    status.updateTargetHeight(newPivot.getHeader().getNumber());
+    return status.currentFuture;
   }
 
   private Status getOrStartSyncSession() {
