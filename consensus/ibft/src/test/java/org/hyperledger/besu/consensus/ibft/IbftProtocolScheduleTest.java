@@ -45,6 +45,7 @@ import org.hyperledger.besu.ethereum.core.Util;
 import org.hyperledger.besu.ethereum.core.components.EthereumCoreComponent;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
@@ -53,6 +54,7 @@ import java.util.List;
 import java.util.OptionalLong;
 import javax.inject.Singleton;
 
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import dagger.Component;
 import dagger.Module;
 import dagger.Provides;
@@ -114,6 +116,33 @@ public class IbftProtocolScheduleTest {
                 .getGasLimitCalculator()
                 .transactionGasLimitCap())
         .isEqualTo(8_000_000L);
+  }
+
+  @Test
+  public void specIsNotPoSWhenShanghaiOrLaterForkIsConfigured() {
+    final long shanghaiTime = 10;
+    final ObjectNode genesisConfigNode = JsonUtil.createEmptyObjectNode();
+    genesisConfigNode.put("shanghaitime", shanghaiTime);
+
+    final BftProtocolSchedule schedule =
+        IbftProtocolScheduleBuilder.create(
+            JsonGenesisConfigOptions.fromJsonObject(genesisConfigNode),
+            new ForksSchedule<>(List.of(new ForkSpec<>(0, JsonQbftConfigOptions.DEFAULT))),
+            false,
+            mock(BftExtraDataCodec.class),
+            EvmConfiguration.DEFAULT,
+            MiningConfiguration.MINING_DISABLED,
+            new BadBlockManager(),
+            false,
+            BalConfiguration.DEFAULT,
+            new NoOpMetricsSystem(),
+            8_000_000L);
+
+    final ProtocolSpec shanghaiSpec = schedule.getByBlockNumberOrTimestamp(1, shanghaiTime);
+
+    // IBFT is a PoA consensus, so its specs must never be reported as PoS, otherwise the PoS
+    // transaction selection timeout is used instead of the configured PoA percentage.
+    assertThat(shanghaiSpec.isPoS()).isFalse();
   }
 
   private boolean validateHeader(

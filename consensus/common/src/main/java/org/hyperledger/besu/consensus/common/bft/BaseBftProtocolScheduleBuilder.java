@@ -148,6 +148,10 @@ public abstract class BaseBftProtocolScheduleBuilder {
         .blockValidatorBuilder(MainnetBlockValidatorBuilder::frontier)
         .blockImporterBuilder(MainnetBlockImporter::new)
         .difficultyCalculator((time, parent) -> BigInteger.ONE)
+        // BFT is a PoA consensus, so specs must not be marked as PoS even when the network is
+        // configured with an execution fork that is PoS on mainnet (Paris and later). Otherwise
+        // the PoS transaction selection timeout would be used instead of the configured PoA one.
+        .isPoS(false)
         .skipZeroBlockRewards(true)
         .blockHeaderFunctions(BftBlockHeaderFunctions.forOnchainBlock(bftExtraDataCodec))
         .blockReward(Wei.of(configOptions.getBlockRewardWei()))
