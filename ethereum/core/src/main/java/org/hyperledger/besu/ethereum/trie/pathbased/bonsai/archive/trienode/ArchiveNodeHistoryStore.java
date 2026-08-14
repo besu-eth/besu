@@ -60,7 +60,7 @@ public final class ArchiveNodeHistoryStore {
    * the latest value before a given block.
    */
   private static boolean naturalKeyMatches(final Bytes naturalKey, final Bytes foundKey) {
-    return foundKey.size() >= naturalKey.size()
+    return foundKey.size() >= naturalKey.size() + 8
         && ArchiveNodeKey.naturalKeyFromHistoryKey(foundKey).equals(naturalKey);
   }
 }

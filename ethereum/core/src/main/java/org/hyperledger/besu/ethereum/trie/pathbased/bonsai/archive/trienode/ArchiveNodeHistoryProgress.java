@@ -52,6 +52,7 @@ public final class ArchiveNodeHistoryProgress {
         .get(TRIE_BRANCH_STORAGE_ARCHIVE, PROGRESS_KEY)
         .map(
             raw -> {
+              if (raw.length < 16) return false;
               final Bytes b = Bytes.wrap(raw);
               return block >= b.getLong(0) && block <= b.getLong(8);
             })

@@ -163,7 +163,10 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
               blockHeader.getStateRoot(), accountAddress, accountStorageKeys));
     } catch (final Exception ex) {
       LOG.error(
-          "failed archive proof query for block {}", blockHeader.getBlockHash().toHexString(), ex);
+          "failed archive proof query for block {} ({})",
+          blockHeader.getNumber(),
+          blockHeader.getBlockHash().toShortLogString(),
+          ex);
       return Optional.empty();
     }
   }
