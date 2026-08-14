@@ -82,6 +82,13 @@ public sealed class EngineForkchoiceUpdatedV1<PA extends PayloadAttributesV1>
     return RpcMethod.ENGINE_FORKCHOICE_UPDATED_V1.getMethodName();
   }
 
+  // The Engine API spec mandates that forkchoiceUpdated calls are processed in the order they
+  // have been received; applies to the whole sealed V1-V4 hierarchy.
+  @Override
+  protected final boolean requiresOrderedExecution() {
+    return true;
+  }
+
   @SuppressWarnings("unchecked")
   protected Class<PA> getPayloadAttributesClass() {
     return (Class<PA>) PayloadAttributesV1.class;

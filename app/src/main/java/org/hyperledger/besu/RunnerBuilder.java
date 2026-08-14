@@ -148,7 +148,6 @@ import com.google.common.base.Strings;
 import graphql.GraphQL;
 import inet.ipaddr.IPAddress;
 import io.vertx.core.Vertx;
-import io.vertx.core.VertxOptions;
 import io.vertx.core.json.JsonObject;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -1377,8 +1376,11 @@ public class RunnerBuilder {
       final RpcEndpointServiceImpl rpcEndpointServiceImpl,
       final TransactionSimulator transactionSimulator,
       final EthScheduler ethScheduler) {
-    // sync vertx for engine consensus API, to process requests in FIFO order;
-    final Vertx consensusEngineServer = Vertx.vertx(new VertxOptions().setWorkerPoolSize(1));
+    // vertx for the engine consensus API: engine methods execute concurrently on its worker
+    // pool, except engine_forkchoiceUpdated calls, which the Engine API spec requires to be
+    // processed in the order received — those run on a dedicated single-threaded executor
+    // (see ExecutionEngineJsonRpcMethod#requiresOrderedExecution)
+    final Vertx consensusEngineServer = Vertx.vertx();
 
     final Map<String, JsonRpcMethod> methods =
         new JsonRpcMethodsFactory()

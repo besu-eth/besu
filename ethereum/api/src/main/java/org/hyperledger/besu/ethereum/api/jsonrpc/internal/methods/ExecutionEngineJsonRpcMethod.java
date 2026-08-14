@@ -37,7 +37,11 @@ import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
 
 import com.fasterxml.jackson.databind.JsonMappingException;
+import io.vertx.core.AsyncResult;
+import io.vertx.core.Handler;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
+import io.vertx.core.WorkerExecutor;
 import org.immutables.value.Value;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -71,7 +75,12 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
   // Must be <= the engine HTTP timeout so Thread A is released before the HTTP timer writes a
   // response. Uses the same default (30s) as JsonRpcConfiguration.DEFAULT_HTTP_TIMEOUT_SEC.
   private static final long ENGINE_API_RESPONSE_TIMEOUT_MS = 30_000L;
+  // Single-threaded executor shared by all methods requiring ordered execution, so that their
+  // calls are processed serially in arrival order regardless of which HTTP connection they
+  // arrive on.
+  private static final String ORDERED_EXECUTOR_NAME = "engine-ordered-execution";
   private final Vertx syncVertx;
+  private final WorkerExecutor orderedExecutor;
   protected final Optional<MergeContext> mergeContextOptional;
   protected final Supplier<MergeContext> mergeContext;
   protected final ProtocolSchedule protocolSchedule;
@@ -137,6 +146,9 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
       final HardforkId minSupportedFork,
       final HardforkId firstUnsupportedFork) {
     this.syncVertx = vertx;
+    // every instance gets its own wrapper, but all of them share the same named
+    // single-threaded pool
+    this.orderedExecutor = vertx.createSharedWorkerExecutor(ORDERED_EXECUTOR_NAME, 1);
     this.protocolSchedule = protocolSchedule;
     this.maybeProtocolSchedule = Optional.ofNullable(protocolSchedule);
     this.protocolContext = protocolContext;
@@ -160,7 +172,7 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
 
     final CompletableFuture<JsonRpcResponse> cf = new CompletableFuture<>();
 
-    syncVertx.<JsonRpcResponse>executeBlocking(
+    final Handler<Promise<JsonRpcResponse>> blockingHandler =
         z -> {
           logger()
               .trace(
@@ -168,8 +180,8 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
                   this.getName(),
                   request.getRequest().getParams());
           z.tryComplete(syncResponse(request));
-        },
-        true,
+        };
+    final Handler<AsyncResult<JsonRpcResponse>> resultHandler =
         resp ->
             cf.complete(
                 resp.otherwise(
@@ -192,7 +204,16 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
                           return new JsonRpcErrorResponse(
                               request.getRequest().getId(), RpcErrorType.INVALID_REQUEST);
                         })
-                    .result()));
+                    .result());
+
+    if (requiresOrderedExecution()) {
+      // ordered=false: the executor's single thread already serializes execution, and unordered
+      // submission preserves global arrival order across HTTP connections, while ordered=true
+      // would only preserve it per calling context.
+      orderedExecutor.executeBlocking(blockingHandler, false, resultHandler);
+    } else {
+      syncVertx.executeBlocking(blockingHandler, false, resultHandler);
+    }
     try {
       return cf.get(ENGINE_API_RESPONSE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
     } catch (TimeoutException e) {
@@ -209,6 +230,20 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
       logger().error("Failed to get execution engine response", e);
       return new JsonRpcErrorResponse(request.getRequest().getId(), RpcErrorType.INTERNAL_ERROR);
     }
+  }
+
+  /**
+   * Whether calls to this method must be processed serially, in the same order as they have been
+   * received.
+   *
+   * <p>The Engine API specification mandates this only for {@code engine_forkchoiceUpdated}
+   * ("Execution Layer client software MUST process engine_forkchoiceUpdated method calls in the
+   * same order as they have been received"), so by default engine methods execute concurrently on
+   * the engine Vertx worker pool and only the {@code engine_forkchoiceUpdated} hierarchy overrides
+   * this to return {@code true}.
+   */
+  protected boolean requiresOrderedExecution() {
+    return false;
   }
 
   /**
