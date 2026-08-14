@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 
 import static org.hyperledger.besu.util.FutureUtils.exceptionallyCompose;
+import static org.hyperledger.besu.util.log.LogUtil.throttledLog;
 
 import org.hyperledger.besu.ethereum.eth.manager.exceptions.MaxRetriesReachedException;
 import org.hyperledger.besu.ethereum.eth.manager.exceptions.NoAvailablePeersException;
@@ -22,6 +23,7 @@ import org.hyperledger.besu.ethereum.eth.sync.ChainDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.TrailingPeerRequirements;
 import org.hyperledger.besu.ethereum.eth.sync.common.NoSyncRequiredException;
 import org.hyperledger.besu.ethereum.eth.sync.common.NoSyncRequiredState;
+import org.hyperledger.besu.ethereum.eth.sync.common.PivotBelowCheckpointException;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncActions;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotUpdateListener;
 import org.hyperledger.besu.ethereum.eth.sync.common.SyncException;
@@ -35,6 +37,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -48,14 +51,17 @@ import org.slf4j.LoggerFactory;
 public class SnapSyncDownloader implements SnapSyncController {
 
   private static final Duration FAST_SYNC_RETRY_DELAY = Duration.ofSeconds(5);
+  private static final int PIVOT_BELOW_CHECKPOINT_LOG_DELAY_SECONDS = 30;
   private static final Logger LOG = LoggerFactory.getLogger(SnapSyncDownloader.class);
 
   private final PivotSyncActions fastSyncActions;
   private final WorldStateDownloader worldStateDownloader;
   private final Path fastSyncDataDirectory;
   private final SyncDurationMetrics syncDurationMetrics;
+  private final OptionalLong checkpointBlockNumber;
   private volatile Optional<TrailingPeerRequirements> trailingPeerRequirements = Optional.empty();
   private final AtomicBoolean running = new AtomicBoolean(false);
+  private final AtomicBoolean shouldLogPivotBelowCheckpoint = new AtomicBoolean(true);
   private SnapSyncProcessState initialPivotSyncState;
 
   public SnapSyncDownloader(
@@ -63,12 +69,14 @@ public class SnapSyncDownloader implements SnapSyncController {
       final WorldStateDownloader worldStateDownloader,
       final Path fastSyncDataDirectory,
       final SnapSyncProcessState initialPivotSyncState,
-      final SyncDurationMetrics syncDurationMetrics) {
+      final SyncDurationMetrics syncDurationMetrics,
+      final OptionalLong checkpointBlockNumber) {
     this.fastSyncActions = fastSyncActions;
     this.worldStateDownloader = worldStateDownloader;
     this.fastSyncDataDirectory = fastSyncDataDirectory;
     this.initialPivotSyncState = initialPivotSyncState;
     this.syncDurationMetrics = syncDurationMetrics;
+    this.checkpointBlockNumber = checkpointBlockNumber;
   }
 
   @Override
@@ -112,6 +120,10 @@ public class SnapSyncDownloader implements SnapSyncController {
     } else if (rootCause instanceof WrongChainException) {
       LOG.info("Snap sync pivot is not on the canonical chain; re-pivoting to a new block.");
       return start(new SnapSyncProcessState());
+    } else if (rootCause instanceof PivotBelowCheckpointException) {
+      LOG.debug("{} Waiting before selecting a new pivot.", rootCause.getMessage());
+      return fastSyncActions.scheduleFutureTask(
+          () -> start(new SnapSyncProcessState()), FAST_SYNC_RETRY_DELAY);
     } else if (rootCause instanceof StalledDownloadException) {
       LOG.debug("Stalled sync re-pivoting to newer block.");
       return start(new SnapSyncProcessState());
@@ -198,6 +210,43 @@ public class SnapSyncDownloader implements SnapSyncController {
     return fastSyncState;
   }
 
+  /**
+   * Rejects a pivot that is at or below the trusted checkpoint. Stage 1 stops at the checkpoint (or
+   * validates against it) and Stage 2 only downloads bodies above it, so such a pivot cannot be
+   * synced: in headers-to-checkpoint-only mode the backward driver has no range to walk, and with
+   * all headers it would silently skip Stage 2 and heal a world state the checkpoint never covers.
+   *
+   * @param currentState the sync state holding the resolved pivot block header
+   * @return the failure to propagate, or empty when the pivot is usable
+   */
+  private Optional<PivotBelowCheckpointException> checkPivotIsAboveCheckpoint(
+      final SnapSyncProcessState currentState) {
+    if (checkpointBlockNumber.isEmpty()) {
+      return Optional.empty();
+    }
+    final long checkpointNumber = checkpointBlockNumber.getAsLong();
+    return currentState
+        .getPivotBlockHeader()
+        .filter(pivot -> pivot.getNumber() <= checkpointNumber)
+        .map(
+            pivot -> {
+              throttledLog(
+                  LOG::warn,
+                  String.format(
+                      "Selected pivot block %d is at or below the trusted checkpoint %d; "
+                          + "the consensus client has not caught up to the checkpoint yet. "
+                          + "Waiting for a higher pivot, retrying every %d seconds.",
+                      pivot.getNumber(), checkpointNumber, FAST_SYNC_RETRY_DELAY.toSeconds()),
+                  shouldLogPivotBelowCheckpoint,
+                  PIVOT_BELOW_CHECKPOINT_LOG_DELAY_SECONDS);
+              return new PivotBelowCheckpointException(
+                  "Pivot block "
+                      + pivot.getNumber()
+                      + " is at or below the trusted checkpoint "
+                      + checkpointNumber);
+            });
+  }
+
   private CompletableFuture<SnapSyncProcessState> downloadChainAndWorldState(
       final SnapSyncProcessState currentState) {
     // Synchronized ensures that stop isn't called while we're in the process of starting a
@@ -214,6 +263,15 @@ public class SnapSyncDownloader implements SnapSyncController {
       if (currentState.getPivotBlockHeader().map(h -> h.getNumber() == 0L).orElse(false)) {
         LOG.info("Pivot is genesis; no snap sync required, proceeding to full/backward sync.");
         return CompletableFuture.failedFuture(new NoSyncRequiredException());
+      }
+
+      // Unlike a genesis pivot, a pivot at or below the trusted checkpoint is not a "nothing to do"
+      // case: the operator asked us to sync from the checkpoint, so we wait for the consensus
+      // client to catch up.
+      final Optional<PivotBelowCheckpointException> belowCheckpoint =
+          checkPivotIsAboveCheckpoint(currentState);
+      if (belowCheckpoint.isPresent()) {
+        return CompletableFuture.failedFuture(belowCheckpoint.get());
       }
 
       final ChainDownloader chainDownloader =

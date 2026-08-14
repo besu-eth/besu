@@ -41,6 +41,8 @@ import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldStateDownloader;
 import org.hyperledger.besu.metrics.SyncDurationMetrics;
 
 import java.nio.file.Path;
+import java.time.Duration;
+import java.util.OptionalLong;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
@@ -63,13 +65,18 @@ public class SnapSyncDownloaderTest {
   private SnapSyncDownloader downloader;
 
   public void setup() {
+    setup(OptionalLong.empty());
+  }
+
+  public void setup(final OptionalLong checkpointBlockNumber) {
     downloader =
         new SnapSyncDownloader(
             fastSyncActions,
             worldStateDownloader,
             fastSyncDataDirectory,
             new SnapSyncProcessState(),
-            SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
+            SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS,
+            checkpointBlockNumber);
   }
 
   @Test
@@ -127,6 +134,88 @@ public class SnapSyncDownloaderTest {
   }
 
   @Test
+  public void shouldWaitForAHigherPivotWhenPivotIsBelowTheCheckpoint() {
+    // The consensus client has not caught up to the checkpoint the operator configured, so the
+    // pivot it offers is below it. Snap syncing that range is impossible: Stage 1 stops at the
+    // checkpoint and Stage 2 only downloads bodies above it. Nothing may be started.
+    setup(OptionalLong.of(100));
+    final SnapSyncProcessState selectPivotBlockState = new SnapSyncProcessState(50);
+    final BlockHeader pivotBelowCheckpoint = new BlockHeaderTestFixture().number(50).buildHeader();
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
+        .thenReturn(completedFuture(selectPivotBlockState));
+    when(fastSyncActions.resolvePivotBlockHeader(selectPivotBlockState))
+        .thenReturn(completedFuture(new SnapSyncProcessState(pivotBelowCheckpoint)));
+    // Do not run the scheduled retry: this test only asserts that the wait is scheduled.
+    when(fastSyncActions.scheduleFutureTask(any(), any())).thenReturn(new CompletableFuture<>());
+
+    final CompletableFuture<SnapSyncProcessState> result = downloader.start();
+
+    verify(fastSyncActions, never()).createChainDownloader(any(), any());
+    verify(worldStateDownloader, never()).run(any(), any());
+    // Re-pivot after a delay, not immediately: the pivot selector returns the same block until the
+    // chain head has advanced, so an immediate retry would spin on it.
+    verify(fastSyncActions).scheduleFutureTask(any(), eq(Duration.ofSeconds(5)));
+    assertThat(result).isNotDone();
+  }
+
+  @Test
+  public void shouldWaitWhenPivotIsExactlyAtTheCheckpoint() {
+    // A pivot at the checkpoint leaves no range for Stage 2 either, so it is treated the same way.
+    setup(OptionalLong.of(100));
+    final SnapSyncProcessState selectPivotBlockState = new SnapSyncProcessState(100);
+    final BlockHeader pivotAtCheckpoint = new BlockHeaderTestFixture().number(100).buildHeader();
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
+        .thenReturn(completedFuture(selectPivotBlockState));
+    when(fastSyncActions.resolvePivotBlockHeader(selectPivotBlockState))
+        .thenReturn(completedFuture(new SnapSyncProcessState(pivotAtCheckpoint)));
+    when(fastSyncActions.scheduleFutureTask(any(), any())).thenReturn(new CompletableFuture<>());
+
+    final CompletableFuture<SnapSyncProcessState> result = downloader.start();
+
+    verify(fastSyncActions, never()).createChainDownloader(any(), any());
+    verify(worldStateDownloader, never()).run(any(), any());
+    assertThat(result).isNotDone();
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void shouldStartDownloadingOnceAPivotAboveTheCheckpointIsOffered() {
+    setup(OptionalLong.of(100));
+    final SnapSyncProcessState belowCheckpointState = new SnapSyncProcessState(50);
+    final SnapSyncProcessState aboveCheckpointState = new SnapSyncProcessState(150);
+    final BlockHeader pivotBelowCheckpoint = new BlockHeaderTestFixture().number(50).buildHeader();
+    final BlockHeader pivotAboveCheckpoint = new BlockHeaderTestFixture().number(150).buildHeader();
+
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
+        .thenReturn(completedFuture(belowCheckpointState), completedFuture(aboveCheckpointState));
+    when(fastSyncActions.resolvePivotBlockHeader(belowCheckpointState))
+        .thenReturn(completedFuture(new SnapSyncProcessState(pivotBelowCheckpoint)));
+    when(fastSyncActions.resolvePivotBlockHeader(aboveCheckpointState))
+        .thenReturn(completedFuture(new SnapSyncProcessState(pivotAboveCheckpoint)));
+    // Run the scheduled retry inline so the second pivot is picked up within the test.
+    when(fastSyncActions.scheduleFutureTask(any(), any()))
+        .thenAnswer(invocation -> ((Supplier<?>) invocation.getArgument(0)).get());
+    when(fastSyncActions.createChainDownloader(
+            snapSyncState(pivotAboveCheckpoint), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+        .thenReturn(chainDownloader);
+    when(chainDownloader.start()).thenReturn(completedFuture(null));
+    when(worldStateDownloader.run(
+            any(PivotSyncActions.class), eq(snapSyncState(pivotAboveCheckpoint))))
+        .thenReturn(completedFuture(null));
+
+    final CompletableFuture<SnapSyncProcessState> result = downloader.start();
+
+    // The below-checkpoint pivot never started a download; the retry with a higher pivot did.
+    verify(fastSyncActions, never())
+        .createChainDownloader(
+            eq(snapSyncState(pivotBelowCheckpoint)),
+            eq(SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS));
+    verify(fastSyncActions, times(2)).selectPivotBlock(new SnapSyncProcessState());
+    verify(chainDownloader).start();
+    assertThat(result).isCompletedWithValue(snapSyncState(pivotAboveCheckpoint));
+  }
+
+  @Test
   public void shouldResumeFastSync() {
     setup();
     final BlockHeader pivotBlockHeader = new BlockHeaderTestFixture().number(50).buildHeader();
@@ -147,7 +236,8 @@ public class SnapSyncDownloaderTest {
             worldStateDownloader,
             fastSyncDataDirectory,
             fastSyncState,
-            SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
+            SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS,
+            OptionalLong.empty());
 
     final CompletableFuture<SnapSyncProcessState> result = resumedDownloader.start();
 

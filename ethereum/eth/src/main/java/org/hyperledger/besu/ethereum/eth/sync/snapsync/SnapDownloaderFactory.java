@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.sync.PivotBlockSelector;
@@ -22,6 +23,7 @@ import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncStateStorage;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncActions;
+import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.Checkpoint;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.context.SnapSyncStatePersistenceManager;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.v2.SnapV2WorldStateDownloader;
@@ -38,6 +40,7 @@ import org.hyperledger.besu.services.tasks.InMemoryTasksPriorityQueues;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -116,8 +119,7 @@ public class SnapDownloaderFactory {
                         CompactEncoding.bytesToPath(address.addressHash().getBytes())));
       }
     } else if (chainSyncState == null
-        && protocolContext.getBlockchain().getChainHeadBlockNumber()
-            != BlockHeader.GENESIS_BLOCK_NUMBER) {
+        && !holdsNothingButTheTrustAnchor(protocolContext.getBlockchain(), syncState)) {
       LOG.info(
           "Snap sync was requested, but cannot be enabled because the local blockchain is not empty.");
       return Optional.empty();
@@ -184,9 +186,46 @@ public class SnapDownloaderFactory {
             snapWorldStateDownloader,
             syncDataDirectory,
             snapSyncState,
-            syncDurationMetrics);
+            syncDurationMetrics,
+            syncState
+                .getCheckpoint()
+                .map(checkpoint -> OptionalLong.of(checkpoint.blockNumber()))
+                .orElse(OptionalLong.empty()));
     syncState.setWorldStateDownloadStatus(snapWorldStateDownloader);
     return Optional.of(fastSyncDownloader);
+  }
+
+  /**
+   * Whether the local blockchain holds nothing but the lower trust anchor, so a snap sync may still
+   * start from scratch. That anchor is genesis, or — with checkpoint sync — the trusted checkpoint
+   * header on its own: {@code SnapSyncChainDownloader} stores that header and moves the chain head
+   * to it before it persists its {@code ChainSyncState}, so a crash in between leaves a database
+   * whose only content is the checkpoint header. Treating that as "not empty" would permanently
+   * disable snap sync for the data directory and silently fall back to full sync over a chain with
+   * a gap below the checkpoint.
+   *
+   * @param blockchain the local blockchain
+   * @param syncState the sync state holding the configured checkpoint, if any
+   * @return true when nothing but the trust anchor is stored
+   */
+  static boolean holdsNothingButTheTrustAnchor(
+      final Blockchain blockchain, final SyncState syncState) {
+    final BlockHeader chainHead = blockchain.getChainHeadHeader();
+    if (chainHead.getNumber() == BlockHeader.GENESIS_BLOCK_NUMBER) {
+      return true;
+    }
+    final Optional<Checkpoint> maybeCheckpoint = syncState.getCheckpoint();
+    // A body at the chain head means real block data was imported, not just the checkpoint header.
+    if (maybeCheckpoint
+            .map(checkpoint -> chainHead.getHash().equals(checkpoint.blockHash()))
+            .orElse(false)
+        && blockchain.getBlockBody(chainHead.getHash()).isEmpty()) {
+      LOG.info(
+          "Local blockchain holds only the trusted checkpoint header {}, most likely from an interrupted snap sync; restarting snap sync.",
+          chainHead.getNumber());
+      return true;
+    }
+    return false;
   }
 
   protected static InMemoryTasksPriorityQueues<SnapDataRequest>

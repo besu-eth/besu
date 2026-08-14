@@ -382,8 +382,6 @@ public class SnapSyncChainDownloader
         .downloadBlockHeader(checkpointHash)
         .thenApply(
             checkpointBlockHeader -> {
-              // Store checkpoint header in blockchain
-              blockchain.unsafeSetChainHead(checkpointBlockHeader, checkpointDifficulty);
               blockchain.unsafeStoreHeader(checkpointBlockHeader, checkpointDifficulty);
 
               LOG.debug(
