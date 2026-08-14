@@ -130,11 +130,19 @@ public class MainnetBlockValidatorTest {
             any(AbstractBlockProcessor.PreprocessingFunction.class),
             any());
     when(blockProcessor.processBlock(
-            eq(protocolContext), any(), any(), any(), eq(Optional.empty()),
+            eq(protocolContext),
+            any(),
+            any(),
+            any(),
+            eq(Optional.empty()),
             any(AbstractBlockProcessor.PreprocessingFunction.class)))
         .thenReturn(successfulProcessingResult);
     when(blockProcessor.processBlock(
-            eq(protocolContext), any(), any(), any(), eq(Optional.empty()),
+            eq(protocolContext),
+            any(),
+            any(),
+            any(),
+            eq(Optional.empty()),
             any(AbstractBlockProcessor.PreprocessingFunction.class)))
         .thenReturn(successfulProcessingResult);
 
@@ -223,7 +231,11 @@ public class MainnetBlockValidatorTest {
     final Optional<BlockAccessList> optionalBal = Optional.of(bal);
     when(blockAccessListValidator.validate(eq(optionalBal), any(), anyInt())).thenReturn(true);
     when(blockProcessor.processBlock(
-            eq(protocolContext), any(), any(), any(), eq(optionalBal),
+            eq(protocolContext),
+            any(),
+            any(),
+            any(),
+            eq(optionalBal),
             any(AbstractBlockProcessor.PreprocessingFunction.class)))
         .thenReturn(new BlockProcessingResult(Optional.empty(), false));
 
@@ -645,7 +657,11 @@ public class MainnetBlockValidatorTest {
     when(blockHeaderValidator.validateHeader(any(), any(), any())).thenReturn(true);
     when(blockHeaderValidator.validateHeader(any(), any(), any(), any())).thenReturn(true);
     when(blockProcessor.processBlock(
-            eq(protocolContext), any(), any(), any(), eq(Optional.empty()),
+            eq(protocolContext),
+            any(),
+            any(),
+            any(),
+            eq(Optional.empty()),
             any(AbstractBlockProcessor.PreprocessingFunction.class)))
         .thenReturn(successfulProcessingResult);
     when(blockBodyValidator.validateBody(any(), any(), any(), any(), any(), any(), any()))
