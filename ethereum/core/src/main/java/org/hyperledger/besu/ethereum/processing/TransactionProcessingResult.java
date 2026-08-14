@@ -52,6 +52,9 @@ public class TransactionProcessingResult
 
   private final long stateGasUsed;
 
+  /** EIP-8037 block-accounting regular gas; {@link Long#MIN_VALUE} means "not set". */
+  private long regularGasUsedForBlock = Long.MIN_VALUE;
+
   private final List<Log> logs;
 
   private final Bytes output;
@@ -356,6 +359,29 @@ public class TransactionProcessingResult
    */
   public long getStateGasUsed() {
     return stateGasUsed;
+  }
+
+  /**
+   * Returns the unfloored regular gas dimension for EIP-8037 block accounting: the EIP-7976
+   * calldata floor raises what the sender pays but does not count toward the block. The fallback is
+   * equivalent while the floor is not binding.
+   *
+   * @return the unfloored regular gas used for block accounting
+   */
+  public long getRegularGasUsedForBlock() {
+    return regularGasUsedForBlock == Long.MIN_VALUE
+        ? estimateGasUsedByTransaction - stateGasUsed
+        : regularGasUsedForBlock;
+  }
+
+  /**
+   * Sets the unfloored regular gas dimension for EIP-8037 block accounting.
+   *
+   * @param regularGasUsedForBlock the unfloored regular gas
+   */
+  @SuppressWarnings("checkstyle:HiddenField")
+  public void setRegularGasUsedForBlock(final long regularGasUsedForBlock) {
+    this.regularGasUsedForBlock = regularGasUsedForBlock;
   }
 
   /**

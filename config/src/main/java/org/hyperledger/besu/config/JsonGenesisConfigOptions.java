@@ -58,6 +58,10 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
   private static final String DEPOSIT_CONTRACT_ADDRESS_KEY = "depositcontractaddress";
   private static final String CONSOLIDATION_REQUEST_CONTRACT_ADDRESS_KEY =
       "consolidationrequestcontractaddress";
+  private static final String BUILDER_DEPOSIT_REQUEST_CONTRACT_ADDRESS_KEY =
+      "builderdepositrequestcontractaddress";
+  private static final String BUILDER_EXIT_REQUEST_CONTRACT_ADDRESS_KEY =
+      "builderexitrequestcontractaddress";
 
   private final ObjectNode configRoot;
   private final Map<String, String> configOverrides = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
@@ -444,6 +448,18 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
   }
 
   @Override
+  public Optional<Address> getBuilderDepositRequestContractAddress() {
+    return JsonUtil.getString(configRoot, BUILDER_DEPOSIT_REQUEST_CONTRACT_ADDRESS_KEY)
+        .map(Address::fromHexString);
+  }
+
+  @Override
+  public Optional<Address> getBuilderExitRequestContractAddress() {
+    return JsonUtil.getString(configRoot, BUILDER_EXIT_REQUEST_CONTRACT_ADDRESS_KEY)
+        .map(Address::fromHexString);
+  }
+
+  @Override
   public Map<String, Object> asMap() {
     final ImmutableMap.Builder<String, Object> builder = ImmutableMap.builder();
     getChainId().ifPresent(chainId -> builder.put("chainId", chainId));
@@ -487,6 +503,10 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
     getDepositContractAddress().ifPresent(l -> builder.put("depositContractAddress", l));
     getConsolidationRequestContractAddress()
         .ifPresent(l -> builder.put("consolidationRequestContractAddress", l));
+    getBuilderDepositRequestContractAddress()
+        .ifPresent(l -> builder.put("builderDepositRequestContractAddress", l));
+    getBuilderExitRequestContractAddress()
+        .ifPresent(l -> builder.put("builderExitRequestContractAddress", l));
 
     if (isClique()) {
       builder.put("clique", getCliqueConfigOptions().asMap());

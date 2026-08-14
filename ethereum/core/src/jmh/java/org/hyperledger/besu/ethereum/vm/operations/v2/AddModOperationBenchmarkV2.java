@@ -62,7 +62,11 @@ public class AddModOperationBenchmarkV2 extends TernaryArithmeticBenchmarkV2 {
     "ADDMOD_64_64_128",
     "ADDMOD_192_192_256",
     "ADDMOD_128_256_0",
-    "ADDMOD_RANDOM_RANDOM_RANDOM"
+    "ADDMOD_RANDOM_RANDOM_RANDOM",
+    "ADDMOD_256_256_POW2_1_63",
+    "ADDMOD_256_256_POW2_1_255",
+    "ADDMOD_256_256_POW2_100_200",
+    "ADDMOD_256_256_POW2_100_255"
   })
   private String caseName;
 

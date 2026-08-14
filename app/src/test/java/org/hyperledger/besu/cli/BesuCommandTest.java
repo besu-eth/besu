@@ -20,7 +20,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.hyperledger.besu.cli.options.ChainPruningOptions.CHAIN_DATA_PRUNING_RETAINED_MINIMUM;
-import static org.hyperledger.besu.config.NetworkDefinition.DEV;
 import static org.hyperledger.besu.config.NetworkDefinition.EPHEMERY;
 import static org.hyperledger.besu.config.NetworkDefinition.EXPERIMENTAL_EIPS;
 import static org.hyperledger.besu.config.NetworkDefinition.FUTURE_EIPS;
@@ -66,9 +65,11 @@ import org.hyperledger.besu.ethereum.api.graphql.GraphQLConfiguration;
 import org.hyperledger.besu.ethereum.api.handlers.TimeoutOptions;
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration;
+import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.ImmutableCheckpoint;
 import org.hyperledger.besu.ethereum.p2p.config.DiscoveryMode;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
@@ -195,9 +196,6 @@ public class BesuCommandTest extends CommandTestAbstract {
       String.format(
           "%s%s",
           HOODI.name().charAt(0), HOODI.name().substring(1).toLowerCase(Locale.getDefault()));
-  private static final String NETWORK_DEV_CONFIG_LOG =
-      String.format(
-          "%s%s", DEV.name().charAt(0), DEV.name().substring(1).toLowerCase(Locale.getDefault()));
 
   static {
     DEFAULT_JSON_RPC_CONFIGURATION = JsonRpcConfiguration.createDefault();
@@ -684,7 +682,7 @@ public class BesuCommandTest extends CommandTestAbstract {
 
     parseCommand(
         "--network",
-        "dev",
+        "sepolia",
         "--discovery-dns-url",
         "enrtree://AM5FCQLWIZX2QFPNJAP7VUERCCRNGRHWZG3YYHIUV7BVDQ5FDPRT2@nodes.example.org");
 
@@ -878,10 +876,10 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
-  public void discoveryModeDefaultIsBoth() {
+  public void discoveryModeDefault() {
     parseCommand();
 
-    verify(mockRunnerBuilder).discoveryMode(eq(DiscoveryMode.BOTH));
+    verify(mockRunnerBuilder).discoveryMode(eq(DiscoveryMode.getDefault()));
     verify(mockRunnerBuilder).build();
 
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
@@ -1322,18 +1320,6 @@ public class BesuCommandTest extends CommandTestAbstract {
     assertThat(commandErrorOutput.toString(UTF_8))
         .contains(
             "Invalid value for option '--sync-mode': 'bogus' is not a valid sync mode. Valid values are: FULL, SNAP");
-  }
-
-  @Test
-  public void syncMode_full_by_default_for_dev() {
-    parseCommand("--network", "dev");
-    verify(mockControllerBuilder).synchronizerConfiguration(syncConfigurationCaptor.capture());
-
-    final SynchronizerConfiguration syncConfig = syncConfigurationCaptor.getValue();
-    assertThat(syncConfig.getSyncMode()).isEqualTo(SyncMode.FULL);
-
-    assertThat(commandOutput.toString(UTF_8)).isEmpty();
-    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
   }
 
   @Test
@@ -1921,19 +1907,11 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
-  public void devModeOptionMustBeUsed() {
+  public void devNetworkAbortsWithDeprecationError() {
     parseCommand("--network", "dev");
 
-    final ArgumentCaptor<EthNetworkConfig> networkArg =
-        ArgumentCaptor.forClass(EthNetworkConfig.class);
-
-    verify(mockControllerBuilderFactory).fromEthNetworkConfig(networkArg.capture(), any());
-    verify(mockControllerBuilder).build();
-
-    assertThat(networkArg.getValue()).isEqualTo(EthNetworkConfig.getNetworkConfig(DEV));
-
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
-    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).contains("--network=dev is no longer supported");
   }
 
   @Test
@@ -2087,11 +2065,6 @@ public class BesuCommandTest extends CommandTestAbstract {
     networkValuesCanBeOverridden("experimental_eips");
   }
 
-  @Test
-  public void devValuesCanBeOverridden() {
-    networkValuesCanBeOverridden("dev");
-  }
-
   private void networkValuesCanBeOverridden(final String network) {
     parseCommand(
         "--network",
@@ -2239,6 +2212,88 @@ public class BesuCommandTest extends CommandTestAbstract {
         .containsEntry(block1, Hash.fromHexStringLenient(hash1));
     assertThat(requiredBlocksArg.getValue())
         .containsEntry(block2, Hash.fromHexStringLenient(hash2));
+  }
+
+  @Test
+  public void checkpointOverridePassedWhenSpecified() {
+    // The default network (mainnet) has a genesis checkpoint, so this also verifies the CLI
+    // override
+    // takes precedence over the genesis checkpoint.
+    final String hash = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
+    final long blockNumber = 12345678L;
+
+    parseCommand("--checkpoint=" + hash + ":" + blockNumber + ":1000000");
+
+    verify(mockControllerBuilderFactory)
+        .checkpoint(
+            Optional.of(
+                ImmutableCheckpoint.builder()
+                    .blockHash(Hash.fromHexString(hash))
+                    .blockNumber(blockNumber)
+                    .totalDifficulty(Difficulty.of(1000000L))
+                    .build()));
+    verify(mockControllerBuilder).build();
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void checkpointEmptyWhenNoneConfigured() throws IOException {
+    final Path genesisFile = createFakeGenesisFile(GENESIS_VALID_JSON);
+
+    parseCommand("--genesis-file", genesisFile.toString());
+
+    verify(mockControllerBuilderFactory).checkpoint(Optional.empty());
+    verify(mockControllerBuilder).build();
+
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void checkpointOverrideRejectsInvalidValue() {
+    parseCommand("--checkpoint=not-a-valid-checkpoint");
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).contains("Invalid checkpoint");
+  }
+
+  @Test
+  public void invalidGenesisCheckpointIsRejected() throws IOException {
+    final Path genesisFile = createFakeGenesisFile(genesisWithMalformedCheckpoint());
+
+    parseCommand("--genesis-file", genesisFile.toString());
+
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains("The checkpoint block configured in the genesis file is not valid");
+  }
+
+  @Test
+  public void checkpointOverrideSkipsGenesisCheckpointValidation() throws IOException {
+    final Path genesisFile = createFakeGenesisFile(genesisWithMalformedCheckpoint());
+    final String hash = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
+
+    parseCommand(
+        "--genesis-file", genesisFile.toString(), "--checkpoint=" + hash + ":12345678:1000000");
+
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .doesNotContain("The checkpoint block configured in the genesis file is not valid");
+  }
+
+  private static JsonObject genesisWithMalformedCheckpoint() {
+    return new JsonObject()
+        .put(
+            "config",
+            new JsonObject()
+                .put("chainId", GENESIS_CONFIG_TEST_CHAINID)
+                .put(
+                    "checkpoint",
+                    new JsonObject()
+                        .put(
+                            "hash",
+                            "0x0000000000000000000000000000000000000000000000000000000000000001")
+                        .put("number", 100)
+                        .put("totalDifficulty", "not-a-number")));
   }
 
   @Test
@@ -2515,6 +2570,20 @@ public class BesuCommandTest extends CommandTestAbstract {
   public void logWarnIfFastSyncMinPeersUsedWithFullSync() {
     parseCommand("--sync-mode", "FULL", "--sync-min-peers", "1");
     verify(mockLogger).warn("--sync-min-peers is ignored in FULL sync-mode");
+  }
+
+  @Test
+  public void logWarnIfCheckpointUsedWithFullSync() {
+    final String hash = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
+    parseCommand("--sync-mode", "FULL", "--checkpoint=" + hash + ":12345678:1000000");
+    verify(mockLogger).warn("--checkpoint is ignored in FULL sync-mode");
+  }
+
+  @Test
+  public void doNotWarnIfCheckpointUsedWithSnapSync() {
+    final String hash = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
+    parseCommand("--sync-mode", "SNAP", "--checkpoint=" + hash + ":12345678:1000000");
+    verify(mockLogger, never()).warn("--checkpoint is ignored in FULL sync-mode");
   }
 
   @Test
@@ -3048,7 +3117,7 @@ public class BesuCommandTest extends CommandTestAbstract {
 
   @Test
   void shouldShowCorrectFormatForCustomNetworkDefaultTargetGasLimit() {
-    parseCommand("--network", "dev");
+    parseCommand("--network", "sepolia");
 
     final ArgumentCaptor<MiningConfiguration> miningArg =
         ArgumentCaptor.forClass(MiningConfiguration.class);
@@ -3063,15 +3132,15 @@ public class BesuCommandTest extends CommandTestAbstract {
     final String startupConfigLog = getStartupConfigLog();
     final String targetGasLimitOutput =
         ConfigurationOverviewBuilder.normalizeGas(DEFAULT_TARGET_GAS_LIMIT);
-    assertThat(startupConfigLog)
-        .contains(String.format("%s: %s", "Network", NETWORK_DEV_CONFIG_LOG));
+    assertThat(startupConfigLog).contains(String.format("%s: %s", "Network", "Sepolia"));
     assertThat(startupConfigLog)
         .contains(String.format("%s: %s", "Target Gas Limit", targetGasLimitOutput));
   }
 
   @Test
   void shouldShowCorrectFormatForCustomNetworkCustomTargetGasLimit() {
-    parseCommand("--network", "dev", "--target-gas-limit", String.valueOf(CUSTOM_TARGET_GAS_LIMIT));
+    parseCommand(
+        "--network", "sepolia", "--target-gas-limit", String.valueOf(CUSTOM_TARGET_GAS_LIMIT));
 
     final ArgumentCaptor<MiningConfiguration> miningArg =
         ArgumentCaptor.forClass(MiningConfiguration.class);
@@ -3088,8 +3157,7 @@ public class BesuCommandTest extends CommandTestAbstract {
     final String startupConfigLog = getStartupConfigLog();
     final String targetGasLimitOutput =
         ConfigurationOverviewBuilder.normalizeGas(CUSTOM_TARGET_GAS_LIMIT);
-    assertThat(startupConfigLog)
-        .contains(String.format("%s: %s", "Network", NETWORK_DEV_CONFIG_LOG));
+    assertThat(startupConfigLog).contains(String.format("%s: %s", "Network", "Sepolia"));
     assertThat(startupConfigLog)
         .contains(String.format("%s: %s", "Target Gas Limit", targetGasLimitOutput));
   }

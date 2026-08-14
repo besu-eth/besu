@@ -66,6 +66,7 @@ public class PostMergeContextTest {
 
   @Test
   public void switchFromPoWToPoSStopSyncAndCallsSubscribers() {
+    when(mockSyncState.isInitialSyncPhaseDone()).thenReturn(Boolean.TRUE);
     when(mockSyncState.hasReachedTerminalDifficulty()).thenReturn(Optional.of(Boolean.TRUE));
     when(mockSyncState.isInSync()).thenReturn(Boolean.TRUE);
 
@@ -79,6 +80,7 @@ public class PostMergeContextTest {
 
   @Test
   public void setPrePoSStateNotStopSync() {
+    when(mockSyncState.isInitialSyncPhaseDone()).thenReturn(Boolean.TRUE);
     when(mockSyncState.hasReachedTerminalDifficulty()).thenReturn(Optional.of(Boolean.FALSE));
 
     postMergeContext.setIsPostMerge(Difficulty.of(9L));
@@ -267,6 +269,8 @@ public class PostMergeContextTest {
     // after setting a syncState things should progress as expected.
     postMergeContext.setSyncState(mockSyncState);
 
+    when(mockSyncState.isInitialSyncPhaseDone()).thenReturn(Boolean.TRUE);
+
     // Assuming we're not in sync
     when(mockSyncState.isInSync()).thenReturn(Boolean.FALSE);
 
@@ -339,6 +343,7 @@ public class PostMergeContextTest {
     // On post-merge networks (e.g. Hoodi), reachedTerminalDifficulty is always true.
     // During full sync, markInitialSyncPhaseAsDone() is called before downloading begins,
     // so isInSync() reflects actual peer sync state. The node is syncing but not yet in sync.
+    when(mockSyncState.isInitialSyncPhaseDone()).thenReturn(Boolean.TRUE);
     when(mockSyncState.hasReachedTerminalDifficulty()).thenReturn(Optional.of(Boolean.TRUE));
     when(mockSyncState.isInSync()).thenReturn(Boolean.FALSE);
 

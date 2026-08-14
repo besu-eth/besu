@@ -33,6 +33,8 @@ dependencies {
   api project(':crypto:algorithms')
   api project(':plugin-api')
 
+  implementation 'javax.inject:javax.inject'
+
   testImplementation 'org.assertj:assertj-core'
   testImplementation 'org.junit.jupiter:junit-jupiter'
 }

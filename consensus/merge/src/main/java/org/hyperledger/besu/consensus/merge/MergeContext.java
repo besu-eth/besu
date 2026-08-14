@@ -57,6 +57,13 @@ public interface MergeContext extends ConsensusContext {
   boolean isSyncing();
 
   /**
+   * Is initial sync done.
+   *
+   * @return the boolean
+   */
+  boolean isInitialSyncDone();
+
+  /**
    * Observe new is post merge state.
    *
    * @param mergeStateHandler the merge state handler
