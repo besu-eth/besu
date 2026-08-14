@@ -24,6 +24,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.chain.GenesisState;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
@@ -198,8 +199,6 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
    * block zero. Hoodi is the motivating case: it sets {@code difficulty: 0x01} alongside {@code
    * terminalTotalDifficulty: 0}, which a zero-difficulty check misreads as a transition chain.
    *
-   * <p>Parsing mirrors {@code GenesisState:268} so the two cannot drift.
-   *
    * @param genesisConfig the genesis config
    * @return true if genesis already satisfies the terminal total difficulty
    */
@@ -208,7 +207,7 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
         .getConfigOptions()
         .getTerminalTotalDifficulty()
         .map(Difficulty::of)
-        .map(ttd -> Difficulty.fromHexString(genesisConfig.getDifficulty()).greaterOrEqualThan(ttd))
+        .map(ttd -> GenesisState.parseDifficulty(genesisConfig).greaterOrEqualThan(ttd))
         .orElse(false);
   }
 

@@ -15,6 +15,7 @@
 package org.hyperledger.besu.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.controller.MergeBesuControllerBuilder.isPostMergeAtGenesis;
 
 import org.hyperledger.besu.config.GenesisConfig;
@@ -98,5 +99,27 @@ class PostMergeAtGenesisTest {
             """);
 
     assertThat(isPostMergeAtGenesis(genesis)).isFalse();
+  }
+
+  @Test
+  void malformedDifficultyIsReportedAgainstTheGenesisField() {
+    // This predicate is the first thing to parse difficulty, ahead of GenesisState, so it has to
+    // produce the same error a malformed value would get there.
+    final GenesisConfig genesis =
+        GenesisConfig.fromConfig(
+            """
+            {
+              "config": { "terminalTotalDifficulty": 0 },
+              "nonce": "0x0",
+              "timestamp": "0x0",
+              "difficulty": "0xnothex",
+              "gasLimit": "0x1388",
+              "alloc": {}
+            }
+            """);
+
+    assertThatThrownBy(() -> isPostMergeAtGenesis(genesis))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("Invalid difficulty in genesis block configuration: 0xnothex");
   }
 }
