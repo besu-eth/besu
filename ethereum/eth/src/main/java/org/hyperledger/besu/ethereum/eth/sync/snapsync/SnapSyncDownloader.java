@@ -41,6 +41,7 @@ import java.util.OptionalLong;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 
 import com.google.common.io.MoreFiles;
@@ -52,6 +53,9 @@ public class SnapSyncDownloader implements SnapSyncController {
 
   private static final Duration FAST_SYNC_RETRY_DELAY = Duration.ofSeconds(5);
   private static final int PIVOT_BELOW_CHECKPOINT_LOG_DELAY_SECONDS = 30;
+  private static final int WRONG_CHAIN_LOG_DELAY_SECONDS = 30;
+  private static final int WRONG_CHAIN_REPIVOT_WARN_THRESHOLD = 3;
+
   private static final Logger LOG = LoggerFactory.getLogger(SnapSyncDownloader.class);
 
   private final PivotSyncActions fastSyncActions;
@@ -62,6 +66,8 @@ public class SnapSyncDownloader implements SnapSyncController {
   private volatile Optional<TrailingPeerRequirements> trailingPeerRequirements = Optional.empty();
   private final AtomicBoolean running = new AtomicBoolean(false);
   private final AtomicBoolean shouldLogPivotBelowCheckpoint = new AtomicBoolean(true);
+  private final AtomicBoolean shouldLogWrongChain = new AtomicBoolean(true);
+  private final AtomicInteger consecutiveWrongChainRePivots = new AtomicInteger(0);
   private SnapSyncProcessState initialPivotSyncState;
 
   public SnapSyncDownloader(
@@ -111,6 +117,9 @@ public class SnapSyncDownloader implements SnapSyncController {
   private CompletableFuture<SnapSyncProcessState> handleFailure(final Throwable error) {
     trailingPeerRequirements = Optional.empty();
     Throwable rootCause = ExceptionUtils.rootCause(error);
+    if (!(rootCause instanceof WrongChainException)) {
+      consecutiveWrongChainRePivots.set(0);
+    }
     if (rootCause instanceof NoSyncRequiredException) {
       return CompletableFuture.completedFuture(new NoSyncRequiredState());
     } else if (rootCause instanceof SyncException syncEx) {
@@ -118,7 +127,23 @@ public class SnapSyncDownloader implements SnapSyncController {
       LOG.debug("Sync error ({}), re-pivoting.", syncEx.getError());
       return start(new SnapSyncProcessState());
     } else if (rootCause instanceof WrongChainException) {
-      LOG.info("Snap sync pivot is not on the canonical chain; re-pivoting to a new block.");
+      final int rePivots = consecutiveWrongChainRePivots.incrementAndGet();
+      LOG.info(
+          "Snap sync pivot is not on the chain we trust, re-pivoting to a new block: {}",
+          rootCause.getMessage());
+      if (rePivots >= WRONG_CHAIN_REPIVOT_WARN_THRESHOLD) {
+        throttledLog(
+            LOG::warn,
+            String.format(
+                "Snap sync has re-pivoted %d times in a row because the downloaded headers do not "
+                    + "connect to the chain we trust. Re-pivoting cannot recover from a trusted "
+                    + "checkpoint that is not on the canonical chain: if one is configured (in the "
+                    + "genesis file or via --checkpoint), verify its hash and number against "
+                    + "another node or a block explorer. Last failure: %s",
+                rePivots, rootCause.getMessage()),
+            shouldLogWrongChain,
+            WRONG_CHAIN_LOG_DELAY_SECONDS);
+      }
       return start(new SnapSyncProcessState());
     } else if (rootCause instanceof PivotBelowCheckpointException) {
       LOG.debug("{} Waiting before selecting a new pivot.", rootCause.getMessage());

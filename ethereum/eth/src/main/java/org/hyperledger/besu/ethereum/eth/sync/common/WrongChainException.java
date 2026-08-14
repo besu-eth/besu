@@ -33,8 +33,10 @@ package org.hyperledger.besu.ethereum.eth.sync.common;
  * <p>Recognised by {@code SnapSyncChainDownloader.shouldRetry} as non-retryable, so the cycle is
  * not retried from the saved state; the failure propagates instead to {@code
  * SnapSyncDownloader.handleFailure}, which re-pivots to a fresh block. A genuinely wrong chain — a
- * mis-configured checkpoint hash, say — therefore shows up as repeated re-pivots in the logs rather
- * than as a hard stop.
+ * mis-configured checkpoint hash, say — therefore shows up as repeated re-pivots rather than as a
+ * hard stop. Because re-pivoting cannot recover from that, {@code handleFailure} escalates to a
+ * throttled WARN naming the checkpoint as the likely cause once the re-pivots stop looking like a
+ * transient reorg.
  */
 public class WrongChainException extends RuntimeException {
 

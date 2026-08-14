@@ -314,6 +314,39 @@ public class SnapSyncDownloaderTest {
   }
 
   @Test
+  public void shouldKeepRePivotingWhenWrongChainRepeatsPastTheWarnThreshold() {
+    setup();
+    final SnapSyncProcessState selectPivotBlockState = new SnapSyncProcessState(50);
+    final BlockHeader pivotBlockHeader = new BlockHeaderTestFixture().number(50).buildHeader();
+    final SnapSyncProcessState resolvePivotBlockHeaderState =
+        new SnapSyncProcessState(pivotBlockHeader);
+
+    // Consecutive wrong-chain failures escalate to a warning about the trusted checkpoint, but must
+    // not change the control flow: the downloader keeps re-pivoting and still succeeds once a pivot
+    // on the trusted chain is found.
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
+        .thenThrow(new WrongChainException("checkpoint mismatch 1"))
+        .thenThrow(new WrongChainException("checkpoint mismatch 2"))
+        .thenThrow(new WrongChainException("checkpoint mismatch 3"))
+        .thenThrow(new WrongChainException("checkpoint mismatch 4"))
+        .thenReturn(completedFuture(selectPivotBlockState));
+    when(fastSyncActions.resolvePivotBlockHeader(selectPivotBlockState))
+        .thenReturn(completedFuture(resolvePivotBlockHeaderState));
+    when(fastSyncActions.createChainDownloader(
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+        .thenReturn(chainDownloader);
+    when(chainDownloader.start()).thenReturn(completedFuture(null));
+    when(worldStateDownloader.run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader))))
+        .thenReturn(completedFuture(null));
+
+    final CompletableFuture<SnapSyncProcessState> result = downloader.start();
+
+    // Four failed attempts, then the successful re-pivot.
+    verify(fastSyncActions, times(5)).selectPivotBlock(new SnapSyncProcessState());
+    assertThat(result).isCompletedWithValue(snapSyncState(pivotBlockHeader));
+  }
+
+  @Test
   public void shouldAbortIfWorldStateDownloadFails() {
     setup();
     final CompletableFuture<Void> worldStateFuture = new CompletableFuture<>();

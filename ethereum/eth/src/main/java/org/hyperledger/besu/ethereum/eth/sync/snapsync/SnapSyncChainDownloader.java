@@ -617,8 +617,12 @@ public class SnapSyncChainDownloader
 
   /**
    * Verifies that the header the backward Stage-1 download produced at the trusted checkpoint
-   * height matches the checkpoint. A mismatch means the pivot is not on the checkpoint's chain,
-   * which is a fatal, non-recoverable condition.
+   * height matches the checkpoint. A mismatch means the pivot is not on the checkpoint's chain, so
+   * this cycle cannot produce a valid chain: {@link WrongChainException} is thrown, which {@link
+   * #shouldRetry} treats as non-retryable so snap sync re-pivots to a fresh block rather than
+   * retrying from the saved state. A checkpoint that is genuinely not canonical therefore keeps
+   * failing this check on every re-pivot; see {@code SnapSyncDownloader.handleFailure}, which warns
+   * the operator once the re-pivots stop looking transient.
    *
    * @param checkpoint the trusted body checkpoint header
    */
@@ -837,7 +841,9 @@ public class SnapSyncChainDownloader
 
     final Optional<Throwable> failWith = shouldRetry(error);
     if (failWith.isPresent()) {
-      // Non-retryable error - fail (metrics will be stopped by outer handler)
+      // Non-retryable error - fail. The CHAIN_DOWNLOAD_DURATION timer is deliberately left
+      // running: the phase is measured once across re-pivots, so a later successful cycle records
+      // it (see SyncDurationMetrics).
       failSnapV2PivotCatchupIfNeeded(failWith.get());
       overallResult.completeExceptionally(failWith.get());
     } else {
