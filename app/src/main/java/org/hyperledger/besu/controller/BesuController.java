@@ -404,9 +404,6 @@ public class BesuController implements java.io.Closeable {
 
       // wrap with TransitionBesuControllerBuilder if we have a terminal total difficulty:
       if (hasTTD) {
-        // A chain that is already post-merge at its genesis block has no pre-merge blocks to
-        // validate, and neither does one being snap-synced from a post-merge checkpoint. Either way
-        // the transition machinery is dead weight, so use the vanilla merge builder.
         if (MergeBesuControllerBuilder.isPostMergeAtGenesis(genesisConfig)
             || (syncMode == SyncMode.SNAP && isCheckpointPoSBlock(configOptions))) {
           return new MergeBesuControllerBuilder().genesisConfig(genesisConfig);
