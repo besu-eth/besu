@@ -28,6 +28,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -37,6 +38,12 @@ import org.junit.jupiter.api.Test;
  * instance under both interfaces, IBFT registers two distinct objects.
  */
 public class PoaQueryServicePluginTest extends AcceptanceTestBase {
+
+  // besu.plugins.dir is JVM-global; clear it so each test's node gets its own plugins dir
+  @AfterEach
+  public void clearPluginsDirProperty() {
+    System.clearProperty("besu.plugins.dir");
+  }
 
   @Test
   public void qbftNodeExposesConsensusQueryServices() throws Exception {
