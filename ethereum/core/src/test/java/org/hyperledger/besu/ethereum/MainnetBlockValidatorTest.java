@@ -20,7 +20,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -119,31 +118,14 @@ public class MainnetBlockValidatorTest {
         .thenReturn(true);
     when(blockBodyValidator.validateBodyLight(any(), any(), any(), any(), any())).thenReturn(true);
     when(blockAccessListValidator.validate(any(), any(), anyInt())).thenReturn(true);
-    doCallRealMethod()
-        .when(blockProcessor)
-        .processBlock(
+    when(blockProcessor.processBlock(
+            eq(protocolContext),
             any(),
             any(),
             any(),
-            any(),
-            any(),
+            eq(Optional.empty()),
             any(AbstractBlockProcessor.PreprocessingFunction.class),
-            any());
-    when(blockProcessor.processBlock(
-            eq(protocolContext),
-            any(),
-            any(),
-            any(),
-            eq(Optional.empty()),
-            any(AbstractBlockProcessor.PreprocessingFunction.class)))
-        .thenReturn(successfulProcessingResult);
-    when(blockProcessor.processBlock(
-            eq(protocolContext),
-            any(),
-            any(),
-            any(),
-            eq(Optional.empty()),
-            any(AbstractBlockProcessor.PreprocessingFunction.class)))
+            any()))
         .thenReturn(successfulProcessingResult);
 
     assertNoBadBlocks();
@@ -236,7 +218,8 @@ public class MainnetBlockValidatorTest {
             any(),
             any(),
             eq(optionalBal),
-            any(AbstractBlockProcessor.PreprocessingFunction.class)))
+            any(AbstractBlockProcessor.PreprocessingFunction.class),
+            any()))
         .thenReturn(new BlockProcessingResult(Optional.empty(), false));
 
     BlockProcessingResult result =
@@ -344,7 +327,8 @@ public class MainnetBlockValidatorTest {
             any(MutableWorldState.class),
             eq(block),
             eq(Optional.empty()),
-            any(AbstractBlockProcessor.PreprocessingFunction.class)))
+            any(AbstractBlockProcessor.PreprocessingFunction.class),
+            any()))
         .thenReturn(BlockProcessingResult.FAILED);
 
     BlockProcessingResult result =
@@ -388,7 +372,8 @@ public class MainnetBlockValidatorTest {
             any(MutableWorldState.class),
             eq(block),
             eq(Optional.empty()),
-            any(AbstractBlockProcessor.PreprocessingFunction.class));
+            any(AbstractBlockProcessor.PreprocessingFunction.class),
+            any());
 
     BlockProcessingResult result =
         mainnetFrontierBlockValidator.validateAndProcessBlock(
@@ -433,7 +418,8 @@ public class MainnetBlockValidatorTest {
             any(MutableWorldState.class),
             eq(block),
             eq(Optional.empty()),
-            any(AbstractBlockProcessor.PreprocessingFunction.class)))
+            any(AbstractBlockProcessor.PreprocessingFunction.class),
+            any()))
         .thenReturn(exceptionalResult);
 
     BlockProcessingResult result =
@@ -455,7 +441,8 @@ public class MainnetBlockValidatorTest {
             any(MutableWorldState.class),
             eq(block),
             eq(Optional.empty()),
-            any(AbstractBlockProcessor.PreprocessingFunction.class)))
+            any(AbstractBlockProcessor.PreprocessingFunction.class),
+            any()))
         .thenReturn(BlockProcessingResult.FAILED);
 
     BlockProcessingResult result =
@@ -480,7 +467,8 @@ public class MainnetBlockValidatorTest {
             any(MutableWorldState.class),
             eq(block),
             eq(Optional.empty()),
-            any(AbstractBlockProcessor.PreprocessingFunction.class)))
+            any(AbstractBlockProcessor.PreprocessingFunction.class),
+            any()))
         .thenReturn(BlockProcessingResult.FAILED);
 
     BlockProcessingResult result =
@@ -505,7 +493,8 @@ public class MainnetBlockValidatorTest {
             any(MutableWorldState.class),
             eq(block),
             eq(Optional.empty()),
-            any(AbstractBlockProcessor.PreprocessingFunction.class)))
+            any(AbstractBlockProcessor.PreprocessingFunction.class),
+            any()))
         .thenReturn(BlockProcessingResult.FAILED);
 
     BlockProcessingResult result =
@@ -662,7 +651,8 @@ public class MainnetBlockValidatorTest {
             any(),
             any(),
             eq(Optional.empty()),
-            any(AbstractBlockProcessor.PreprocessingFunction.class)))
+            any(AbstractBlockProcessor.PreprocessingFunction.class),
+            any()))
         .thenReturn(successfulProcessingResult);
     when(blockBodyValidator.validateBody(any(), any(), any(), any(), any(), any(), any()))
         .thenReturn(true);
