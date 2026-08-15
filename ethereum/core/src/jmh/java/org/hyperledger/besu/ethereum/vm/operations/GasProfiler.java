@@ -110,7 +110,9 @@ public class GasProfiler implements ExternalProfiler {
   }
 
   @Override
-  public void beforeTrial(final BenchmarkParams params) {}
+  public void beforeTrial(final BenchmarkParams params) {
+    System.out.printf("[GasProfiler] fork=%s%n", fork);
+  }
 
   @Override
   public Collection<? extends Result<?>> afterTrial(
