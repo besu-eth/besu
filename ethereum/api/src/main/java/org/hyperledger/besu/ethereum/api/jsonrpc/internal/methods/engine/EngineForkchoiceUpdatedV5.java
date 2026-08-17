@@ -56,7 +56,7 @@ public final class EngineForkchoiceUpdatedV5 extends EngineForkchoiceUpdatedV4<P
       final HardforkId minFork,
       final HardforkId maxFork) {
     super(constructorArguments, minFork, maxFork);
-    this.transactionPool = constructorArguments.transactionPool();
+    this.transactionPool = constructorArguments.transactionPool().orElseThrow();
   }
 
   @Override

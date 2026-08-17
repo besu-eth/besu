@@ -402,9 +402,11 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
                       parentHeader,
                       ethScheduler));
 
-          // First call (empty block, synchronous in preparePayload): run normally so that
-          // preparePayload completes and the retry loop is started.
-          // Second call (inside the retry loop): cancel block creation first so that
+          // The minimal block (synchronous in preparePayload) is created via the 8-arg
+          // createBlock() overload, which internally delegates to this 9-arg overload — that
+          // first (delegated) invocation runs normally so that preparePayload completes and the
+          // retry loop is started. The retry loop calls this 9-arg (inclusion-list-aware)
+          // overload directly as its second invocation: cancel block creation first so that
           // isBlockCreationCancelled is true when the RuntimeException reaches the catch block.
           doCallRealMethod()
               .doAnswer(
@@ -425,6 +427,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
                   eq(Optional.empty()),
                   eq(Optional.empty()),
                   eq(Optional.empty()),
+                  any(),
                   any());
           return beingSpiedOn;
         };

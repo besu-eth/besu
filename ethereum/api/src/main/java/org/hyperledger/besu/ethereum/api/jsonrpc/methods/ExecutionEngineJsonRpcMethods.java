@@ -158,7 +158,7 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
               mergeCoordinator.get(),
               ethPeers,
               metricsSystem,
-              transactionPool);
+              Optional.of(transactionPool));
 
       List<JsonRpcMethod> executionEngineApisSupported = new ArrayList<>();
       executionEngineApisSupported.addAll(

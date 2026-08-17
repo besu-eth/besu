@@ -17,7 +17,9 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 import static java.util.Collections.emptyList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BOGOTA;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SHANGHAI;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.VALID;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -40,20 +42,19 @@ import org.hyperledger.besu.datatypes.RequestType;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
-import org.hyperledger.besu.datatypes.parameters.UnsignedLongParameter;
 import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EngineForkchoiceUpdatedParameter;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePayloadAttributesParameter;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePayloadParameter;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ConstructorArgumentsBuilder;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ForkchoiceStateV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttributesV5;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EnginePayloadStatusResult;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineUpdateForkchoiceResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.ForkchoiceUpdatedResultV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadStatusV1;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
@@ -85,7 +86,9 @@ import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
 import java.math.BigInteger;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 
@@ -104,7 +107,7 @@ import org.mockito.quality.Strictness;
 
 /**
  * Integration test for the complete Inclusion List (IL) workflow: engine_getInclusionListV1 ->
- * engine_forkchoiceUpdatedV4 -> payload building -> engine_newPayloadV5
+ * engine_forkchoiceUpdatedV5 -> payload building -> engine_newPayloadV6
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -146,8 +149,8 @@ public class InclusionListWorkflowIntegrationTest {
 
   private StubMetricsSystem metricsSystem;
   private EngineGetInclusionListV1 getInclusionListMethod;
-  private EngineForkchoiceUpdatedV4 forkchoiceUpdatedMethod;
-  private EngineNewPayloadV5 newPayloadStrictMethod;
+  private EngineForkchoiceUpdatedV5 forkchoiceUpdatedMethod;
+  private EngineNewPayloadV6<?, ?> newPayloadStrictMethod;
 
   @BeforeEach
   public void setUp() {
@@ -164,32 +167,31 @@ public class InclusionListWorkflowIntegrationTest {
     when(protocolSpec.getRequestsValidator()).thenReturn(new MainnetRequestsValidator());
     when(protocolSchedule.getForNextBlockHeader(any(), anyLong())).thenReturn(protocolSpec);
     when(protocolSchedule.getByBlockHeader(any())).thenReturn(protocolSpec);
+    when(protocolSchedule.milestoneFor(SHANGHAI)).thenReturn(Optional.of(1_000_000L));
     when(protocolSchedule.milestoneFor(CANCUN)).thenReturn(Optional.of(1_000_000L));
     when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.of(AMSTERDAM_MILESTONE));
+    when(protocolSchedule.milestoneFor(BOGOTA)).thenReturn(Optional.of(AMSTERDAM_MILESTONE));
     when(protocolSchedule.hardforkFor(any())).thenReturn(Optional.of(AMSTERDAM_HARDFORK));
 
     getInclusionListMethod =
         new EngineGetInclusionListV1(
             vertx, protocolContext, engineCallListener, transactionPool, metricsSystem);
 
-    forkchoiceUpdatedMethod =
-        new EngineForkchoiceUpdatedV4(
-            vertx,
-            protocolSchedule,
-            protocolContext,
-            mergeCoordinator,
-            transactionPool,
-            engineCallListener);
+    final var constructorArguments =
+        new ConstructorArgumentsBuilder()
+            .protocolSchedule(protocolSchedule)
+            .protocolContext(protocolContext)
+            .vertx(vertx)
+            .engineCallListener(engineCallListener)
+            .mergeCoordinator(mergeCoordinator)
+            .ethPeers(ethPeers)
+            .metricsSystem(metricsSystem)
+            .transactionPool(transactionPool)
+            .build();
 
-    newPayloadStrictMethod =
-        new EngineNewPayloadV5(
-            vertx,
-            protocolSchedule,
-            protocolContext,
-            mergeCoordinator,
-            ethPeers,
-            engineCallListener,
-            metricsSystem);
+    forkchoiceUpdatedMethod = new EngineForkchoiceUpdatedV5(constructorArguments, BOGOTA, null);
+
+    newPayloadStrictMethod = new EngineNewPayloadV6<>(constructorArguments, BOGOTA, null);
   }
 
   @Test
@@ -214,12 +216,12 @@ public class InclusionListWorkflowIntegrationTest {
     assertThat(metricsSystem.getCounterValue("engine_inclusion_list_transactions_generated"))
         .isGreaterThan(0);
 
-    // Step 2: forkchoiceUpdatedV4 - initiate payload building with IL transactions
+    // Step 2: forkchoiceUpdatedV5 - initiate payload building with IL transactions
     final BlockHeader childHeader = createChildBlockHeader(parentHeader);
     setupValidForkchoiceUpdate(childHeader, parentHeader);
 
-    final EnginePayloadAttributesParameter payloadAttrs =
-        new EnginePayloadAttributesParameter(
+    final PayloadAttributesV5 payloadAttrs =
+        new PayloadAttributesV5(
             String.valueOf(childHeader.getTimestamp() + 1),
             Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
             Address.ECREC.toString(),
@@ -229,19 +231,7 @@ public class InclusionListWorkflowIntegrationTest {
             "0x1c9c380",
             ilTxHexList);
 
-    final PayloadIdentifier mockPayloadId =
-        PayloadIdentifier.forPayloadParams(
-            childHeader.getHash(),
-            payloadAttrs.getTimestamp(),
-            payloadAttrs.getPrevRandao(),
-            payloadAttrs.getSuggestedFeeRecipient(),
-            Optional.empty(),
-            Optional.ofNullable(payloadAttrs.getParentBeaconBlockRoot()),
-            Optional.ofNullable(payloadAttrs.getSlotNumber()),
-            Optional.ofNullable(payloadAttrs.getTargetGasLimit()),
-            payloadAttrs.getInclusionListTransactions().stream()
-                .map(Transaction::readFrom)
-                .toList());
+    final PayloadIdentifier mockPayloadId = new PayloadIdentifier(1L);
 
     when(mergeCoordinator.preparePayload(any(MergeMiningCoordinator.PreparePayloadArgs.class)))
         .thenReturn(mockPayloadId);
@@ -250,22 +240,21 @@ public class InclusionListWorkflowIntegrationTest {
         callForkchoiceUpdated(childHeader, parentHeader, payloadAttrs);
     assertThat(fcuResponse.getType()).isEqualTo(RpcResponseType.SUCCESS);
 
-    final EngineUpdateForkchoiceResult fcuResult =
-        (EngineUpdateForkchoiceResult) ((JsonRpcSuccessResponse) fcuResponse).getResult();
+    final ForkchoiceUpdatedResultV1 fcuResult =
+        (ForkchoiceUpdatedResultV1) ((JsonRpcSuccessResponse) fcuResponse).getResult();
     assertThat(fcuResult.getPayloadStatus().getStatus()).isEqualTo(VALID);
     assertThat(fcuResult.getPayloadId()).isNotNull();
 
     // Verify preparePayload was called with IL transactions
     verify(mergeCoordinator).preparePayload(any(MergeMiningCoordinator.PreparePayloadArgs.class));
 
-    // Step 3: newPayloadV5 - validate payload with empty IL (valid, no constraints)
+    // Step 3: newPayloadV6 - validate payload with empty IL (valid, no constraints)
     final BlockHeader payloadHeader = setupValidPayloadHeader();
 
     // Empty IL means no constraints to enforce - should be VALID
-    final JsonRpcResponse newPayloadResp =
-        callNewPayload(newPayloadStrictMethod, payloadHeader, emptyList(), emptyList());
+    final JsonRpcResponse newPayloadResp = callNewPayload(payloadHeader, emptyList(), emptyList());
 
-    final EnginePayloadStatusResult npResult = fromSuccessResp(newPayloadResp);
+    final PayloadStatusV1 npResult = fromSuccessResp(newPayloadResp);
     assertThat(npResult.getStatusAsString()).isEqualTo(VALID.name());
   }
 
@@ -274,22 +263,9 @@ public class InclusionListWorkflowIntegrationTest {
     final BlockHeader payloadHeader = setupValidPayloadHeader();
 
     // Empty IL means no constraints - should always be VALID
-    final JsonRpcResponse resp =
-        callNewPayload(newPayloadStrictMethod, payloadHeader, emptyList(), emptyList());
+    final JsonRpcResponse resp = callNewPayload(payloadHeader, emptyList(), emptyList());
 
-    final EnginePayloadStatusResult result = fromSuccessResp(resp);
-    assertThat(result.getStatusAsString()).isEqualTo(VALID.name());
-  }
-
-  @Test
-  public void fullWorkflow_newPayloadValidWithNullIL() {
-    final BlockHeader payloadHeader = setupValidPayloadHeader();
-
-    // Null IL means no constraints - should always be VALID
-    final JsonRpcResponse resp =
-        callNewPayload(newPayloadStrictMethod, payloadHeader, emptyList(), null);
-
-    final EnginePayloadStatusResult result = fromSuccessResp(resp);
+    final PayloadStatusV1 result = fromSuccessResp(resp);
     assertThat(result.getStatusAsString()).isEqualTo(VALID.name());
   }
 
@@ -392,8 +368,6 @@ public class InclusionListWorkflowIntegrationTest {
     when(mergeCoordinator.getOrSyncHeadByHash(any(), any())).thenReturn(Optional.of(header));
     when(mergeCoordinator.updateForkChoice(any(), any(), any()))
         .thenReturn(ForkchoiceResult.withResult(Optional.empty(), Optional.of(header)));
-    when(mergeCoordinator.updateForkChoiceWithoutLegacySkip(any(), any(), any()))
-        .thenReturn(ForkchoiceResult.withResult(Optional.empty(), Optional.of(header)));
     when(mergeCoordinator.isDescendantOf(any(), any())).thenReturn(true);
     when(blockchain.getBlockHeader(header.getHash())).thenReturn(Optional.of(header));
     when(blockchain.getBlockHeader(parent.getHash())).thenReturn(Optional.of(parent));
@@ -420,30 +394,26 @@ public class InclusionListWorkflowIntegrationTest {
   }
 
   private JsonRpcResponse callForkchoiceUpdated(
-      final BlockHeader header,
-      final BlockHeader parent,
-      final EnginePayloadAttributesParameter payloadAttrs) {
+      final BlockHeader header, final BlockHeader parent, final PayloadAttributesV5 payloadAttrs) {
     return forkchoiceUpdatedMethod.response(
         new JsonRpcRequestContext(
             new JsonRpcRequest(
                 "2.0",
-                RpcMethod.ENGINE_FORKCHOICE_UPDATED_V4.getMethodName(),
+                RpcMethod.ENGINE_FORKCHOICE_UPDATED_V5.getMethodName(),
                 new Object[] {
-                  new EngineForkchoiceUpdatedParameter(
-                      header.getHash(), Hash.ZERO, parent.getHash()),
+                  new ForkchoiceStateV1(header.getHash(), parent.getHash(), parent.getHash()),
                   payloadAttrs
                 })));
   }
 
   private JsonRpcResponse callNewPayload(
-      final EngineNewPayloadV5 method,
       final BlockHeader header,
       final List<String> payloadTxs,
       final List<String> inclusionListTxs) {
-    final EnginePayloadParameter payload = mockEnginePayload(header, payloadTxs);
+    final Map<String, Object> payload = mockEnginePayloadParam(header, payloadTxs);
     final List<String> requestsWithoutRequestId =
         VALID_REQUESTS.stream()
-            .sorted(Comparator.comparing(r -> r.getType()))
+            .sorted(Comparator.comparing(Request::getType))
             .map(
                 r ->
                     Bytes.concatenate(Bytes.of(r.getType().getSerializedType()), r.getData())
@@ -454,40 +424,43 @@ public class InclusionListWorkflowIntegrationTest {
         new Object[] {
           payload, emptyList(), MOCK_PBSR.toHexString(), requestsWithoutRequestId, inclusionListTxs
         };
-    return method.response(
-        new JsonRpcRequestContext(new JsonRpcRequest("2.0", method.getName(), params)));
+    return newPayloadStrictMethod.response(
+        new JsonRpcRequestContext(
+            new JsonRpcRequest("2.0", newPayloadStrictMethod.getName(), params)));
   }
 
-  private EnginePayloadParameter mockEnginePayload(
+  private Map<String, Object> mockEnginePayloadParam(
       final BlockHeader header, final List<String> txs) {
-    return new EnginePayloadParameter(
-        header.getHash(),
-        header.getParentHash(),
-        header.getCoinbase(),
-        header.getStateRoot(),
-        new UnsignedLongParameter(header.getNumber()),
-        header.getBaseFee().map(w -> w.toHexString()).orElse("0x0"),
-        new UnsignedLongParameter(header.getGasLimit()),
-        new UnsignedLongParameter(header.getGasUsed()),
-        new UnsignedLongParameter(header.getTimestamp()),
-        header.getExtraData() == null ? null : header.getExtraData().toHexString(),
-        header.getReceiptsRoot(),
-        header.getLogsBloom(),
-        header.getPrevRandao().map(Bytes32::toHexString).orElse("0x0"),
-        txs,
-        null,
-        header.getBlobGasUsed().map(UnsignedLongParameter::new).orElse(null),
-        header.getExcessBlobGas().map(BlobGas::toHexString).orElse(null),
-        ENCODED_BLOCK_ACCESS_LIST,
-        header.getOptionalSlotNumber().map(UnsignedLongParameter::new).orElse(null));
+    final Map<String, Object> payload = new HashMap<>();
+    payload.put("blockHash", header.getHash().toHexString());
+    payload.put("parentHash", header.getParentHash().toHexString());
+    payload.put("feeRecipient", header.getCoinbase().toHexString());
+    payload.put("stateRoot", header.getStateRoot().toHexString());
+    payload.put("blockNumber", Bytes.ofUnsignedLong(header.getNumber()).toHexString());
+    payload.put("baseFeePerGas", header.getBaseFee().map(Wei::toHexString).orElse("0x0"));
+    payload.put("gasLimit", Bytes.ofUnsignedLong(header.getGasLimit()).toHexString());
+    payload.put("gasUsed", Bytes.ofUnsignedLong(header.getGasUsed()).toHexString());
+    payload.put("timestamp", Bytes.ofUnsignedLong(header.getTimestamp()).toHexString());
+    payload.put(
+        "extraData", header.getExtraData() == null ? null : header.getExtraData().toHexString());
+    payload.put("receiptsRoot", header.getReceiptsRoot().toHexString());
+    payload.put("logsBloom", header.getLogsBloom().toHexString());
+    payload.put("prevRandao", header.getPrevRandao().map(Bytes32::toHexString).orElse("0x0"));
+    payload.put("transactions", txs);
+    payload.put(
+        "blobGasUsed", Bytes.ofUnsignedLong(header.getBlobGasUsed().orElse(0L)).toHexString());
+    payload.put("excessBlobGas", header.getExcessBlobGas().orElse(BlobGas.ZERO).toHexString());
+    payload.put("blockAccessList", ENCODED_BLOCK_ACCESS_LIST);
+    payload.put("slotNumber", Bytes.ofUnsignedLong(header.getSlotNumber()).toHexString());
+    return payload;
   }
 
-  private EnginePayloadStatusResult fromSuccessResp(final JsonRpcResponse resp) {
+  private PayloadStatusV1 fromSuccessResp(final JsonRpcResponse resp) {
     assertThat(resp.getType()).isEqualTo(RpcResponseType.SUCCESS);
     return Optional.of(resp)
         .map(JsonRpcSuccessResponse.class::cast)
         .map(JsonRpcSuccessResponse::getResult)
-        .map(EnginePayloadStatusResult.class::cast)
+        .map(PayloadStatusV1.class::cast)
         .get();
   }
 
