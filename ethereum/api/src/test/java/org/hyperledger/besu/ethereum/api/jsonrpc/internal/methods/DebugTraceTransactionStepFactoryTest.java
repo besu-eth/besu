@@ -16,12 +16,14 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTrace;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.CallTracerResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.DebugTraceTransactionResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.FourByteTracerResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.OpCodeLoggerTracerResult;
@@ -31,8 +33,12 @@ import org.hyperledger.besu.ethereum.debug.TracerType;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.evm.precompile.PrecompileContractRegistry;
+import org.hyperledger.besu.evm.tracing.TraceFrame;
 
 import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 
@@ -230,6 +236,35 @@ class DebugTraceTransactionStepFactoryTest {
     assertThat(result).isNotNull();
     assertThat(result.getTxHash()).isEqualTo(EXPECTED_HASH);
     assertThat(result.getResult()).isNotNull();
+  }
+
+  @Test
+  @DisplayName("CALL_TRACER with onlyTopCall reports only the root frame and omits nested calls")
+  void callTracerWithOnlyTopCallOmitsNestedCalls() {
+    // A non-empty frame list routes through buildCallHierarchyFromFrames; on the onlyTopCall
+    // path the frames themselves are never inspected, so a bare mock frame is sufficient.
+    final TraceFrame nestedFrame = mock(TraceFrame.class);
+    when(mockTransactionTrace.getTraceFrames()).thenReturn(List.of(nestedFrame));
+    when(mockTransaction.isContractCreation()).thenReturn(false);
+    when(mockTransaction.getTo()).thenReturn(Optional.of(Address.fromHexString("0x01")));
+    when(mockTransaction.getGasLimit()).thenReturn(21000L);
+    when(mockResult.getGasRemaining()).thenReturn(0L);
+
+    final TraceOptions traceOptions =
+        new TraceOptions(TracerType.CALL_TRACER, null, Map.of("onlyTopCall", true));
+    final DebugTraceTransactionResult result =
+        DebugTraceTransactionStepFactory.create(traceOptions, mockProtocolSpec)
+            .apply(mockTransactionTrace);
+
+    assertThat(result.getResult()).isInstanceOf(CallTracerResult.class);
+    final CallTracerResult callResult = (CallTracerResult) result.getResult();
+    // Root frame is populated from the transaction/result...
+    assertThat(callResult.getType()).isNotNull();
+    assertThat(callResult.getFrom()).isNotNull();
+    // ...but no nested calls are reported, and onlyTopCall collects no subcall frames at all,
+    // so the trace frames are never inspected.
+    assertThat(callResult.getCalls()).isNullOrEmpty();
+    verifyNoInteractions(nestedFrame);
   }
 
   @Test
