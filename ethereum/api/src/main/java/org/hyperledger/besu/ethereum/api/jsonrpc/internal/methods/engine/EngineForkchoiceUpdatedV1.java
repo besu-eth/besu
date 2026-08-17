@@ -145,7 +145,7 @@ public sealed class EngineForkchoiceUpdatedV1<PA extends PayloadAttributesV1>
             forkChoice.getFinalizedBlockHash());
 
     // 1. Client software MAY initiate a sync process if forkchoiceState.headBlockHash references an
-    // unknown payload or a payload that can't be validated because data that are requisite for the
+    // unknown payload or a payload that can't be validated because data that is requisite for the
     // validation is missing. The sync process is specified in the Sync section.
     final Optional<BlockHeader> maybeNewHead =
         mergeCoordinator.getOrSyncHeadByHash(
@@ -156,6 +156,13 @@ public sealed class EngineForkchoiceUpdatedV1<PA extends PayloadAttributesV1>
     }
 
     final BlockHeader newHead = maybeNewHead.get();
+
+    // verify world state is available for the newHead otherwise return syncing
+    if (!protocolContext
+        .getWorldStateArchive()
+        .isWorldStateAvailable(newHead.getStateRoot(), newHead.getHash())) {
+      return syncingResponse(requestId, forkChoice);
+    }
 
     // 5. Client software MUST return -38002: Invalid forkchoice state error if the payload
     // referenced by forkchoiceState.headBlockHash is VALID and a payload referenced by either

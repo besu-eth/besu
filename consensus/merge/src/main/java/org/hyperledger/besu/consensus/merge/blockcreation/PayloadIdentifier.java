@@ -14,18 +14,13 @@
  */
 package org.hyperledger.besu.consensus.merge.blockcreation;
 
-import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Quantity;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 
 import java.math.BigInteger;
-import java.util.List;
-import java.util.Optional;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
-import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt64;
 
 /** The Payload identifier. */
@@ -90,54 +85,6 @@ public class PayloadIdentifier implements Quantity {
             ^ ((long) preparePayloadArgs.parentHeader().getHash().getBytes().hashCode()) << 8
             ^ ((long) preparePayloadArgs.prevRandao().hashCode()) << 16
             ^ ((long) preparePayloadArgs.feeRecipient().getBytes().hashCode()) << 24
-            ^ parentBeaconBlockRootPart << 32
-            ^ slotNumberPart << 40
-            ^ slotNumberPart >> 24
-            ^ withdrawalPart << 48
-            ^ withdrawalPart >> 16
-            ^ targetGasLimitPart << 56
-            ^ targetGasLimitPart >> 8);
-  }
-
-  /**
-   * TRANSITIONAL SHIM (removed in the getPayload migration PR): positional overload kept so
-   * not-yet-migrated engine getPayload tests keep compiling alongside the {@link
-   * MergeMiningCoordinator.PreparePayloadArgs} form.
-   *
-   * @param parentHash the parent hash
-   * @param timestamp the timestamp
-   * @param prevRandao the prev randao
-   * @param feeRecipient the fee recipient
-   * @param withdrawals the optional withdrawals
-   * @param parentBeaconBlockRoot the optional parent beacon block root
-   * @param slotNumber the optional beacon slot number
-   * @param targetGasLimit the optional target gas limit
-   * @return the payload identifier
-   */
-  public static PayloadIdentifier forPayloadParams(
-      final Hash parentHash,
-      final Long timestamp,
-      final Bytes32 prevRandao,
-      final Address feeRecipient,
-      final Optional<List<Withdrawal>> withdrawals,
-      final Optional<Bytes32> parentBeaconBlockRoot,
-      final Optional<Long> slotNumber,
-      final Optional<Long> targetGasLimit) {
-    final long parentBeaconBlockRootPart =
-        parentBeaconBlockRoot.map(b32 -> (long) b32.hashCode()).orElse(Long.MAX_VALUE);
-    final long withdrawalPart =
-        withdrawals.map(ws -> ws.stream().mapToLong(Withdrawal::hashCode).sum()).orElse(-1L);
-    final long slotNumberPart = slotNumber.orElse(-1L);
-
-    final long targetGasLimitPart = targetGasLimit.orElse(-1L);
-
-    // we finally spread all the values over 64bit, rotating only values where the shift could lose
-    // bits
-    return new PayloadIdentifier(
-        timestamp
-            ^ ((long) parentHash.getBytes().hashCode()) << 8
-            ^ ((long) prevRandao.hashCode()) << 16
-            ^ ((long) feeRecipient.getBytes().hashCode()) << 24
             ^ parentBeaconBlockRootPart << 32
             ^ slotNumberPart << 40
             ^ slotNumberPart >> 24

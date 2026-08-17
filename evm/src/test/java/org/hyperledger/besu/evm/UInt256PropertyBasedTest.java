@@ -415,6 +415,55 @@ public class UInt256PropertyBasedTest {
   }
 
   @Property
+  void property_mulMod_byPowerOfTwo_matchesBigInteger(
+      @ForAll("unsigned1to32") final byte[] a,
+      @ForAll("unsigned1to32") final byte[] b,
+      @ForAll("powerOfTwoExponent") final int k) {
+    // Arrange
+    final BigInteger M = BigInteger.ONE.shiftLeft(k);
+    final UInt256 ua = UInt256.fromBytesBE(a);
+    final UInt256 ub = UInt256.fromBytesBE(b);
+    final UInt256 um = UInt256.fromBytesBE(bigUnsignedToBytes32(M));
+
+    // Act
+    byte[] got = ua.mulMod(ub, um).toBytesBE();
+
+    // Assert
+    BigInteger A = toBigUnsigned(a);
+    BigInteger B = toBigUnsigned(b);
+    byte[] exp = bigUnsignedToBytes32(A.multiply(B).mod(M));
+    assertThat(got).containsExactly(exp);
+  }
+
+  /**
+   * Guards the "every lower limb is zero" half of the power-of-two test in {@link
+   * UInt256#mulMod(UInt256, UInt256)}. {@link
+   * #property_mulMod_byPowerOfTwo_matchesBigInteger(byte[], byte[], int)} cannot cover it: its
+   * moduli are exact powers of two, so the lower limbs are zero by construction and the condition
+   * holds vacuously.
+   */
+  @Property
+  void property_mulMod_byNearPowerOfTwo_matchesBigInteger(
+      @ForAll("unsigned1to32") final byte[] a,
+      @ForAll("unsigned1to32") final byte[] b,
+      @ForAll("nearPowerOfTwoModulus") final byte[] m) {
+    // Arrange
+    final UInt256 ua = UInt256.fromBytesBE(a);
+    final UInt256 ub = UInt256.fromBytesBE(b);
+    final UInt256 um = UInt256.fromBytesBE(m);
+
+    // Act
+    byte[] got = ua.mulMod(ub, um).toBytesBE();
+
+    // Assert
+    BigInteger A = toBigUnsigned(a);
+    BigInteger B = toBigUnsigned(b);
+    BigInteger M = toBigUnsigned(m);
+    byte[] exp = bigUnsignedToBytes32(A.multiply(B).mod(M));
+    assertThat(got).containsExactly(exp);
+  }
+
+  @Property
   void property_divByZero_invariants() {
     // Arrange
     UInt256 x = UInt256.fromBytesBE(new byte[] {1, 2, 3, 4});

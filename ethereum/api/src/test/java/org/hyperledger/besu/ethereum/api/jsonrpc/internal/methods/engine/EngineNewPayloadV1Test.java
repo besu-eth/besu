@@ -27,6 +27,7 @@ import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErr
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.UNSUPPORTED_FORK;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -133,6 +134,7 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
             .mergeCoordinator(mergeCoordinator)
             .ethPeers(ethPeers)
             .metricsSystem(new NoOpMetricsSystem())
+            .maxRequestBlocks(0)
             .build(),
         null,
         SHANGHAI);
@@ -317,6 +319,7 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
   @Test
   public void shouldRespondWithSyncingDuringBackwardsSync() {
     BlockHeader mockHeader = createBlockHeader(getMinSupportedTimestamp());
+    when(mergeContext.isInitialSyncDone()).thenReturn(true);
     when(mergeCoordinator.appendNewPayloadToSync(any()))
         .thenReturn(CompletableFuture.completedFuture(null));
     var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList())));
@@ -325,6 +328,21 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
     assertThat(res.getLatestValidHash()).isEmpty();
     assertThat(res.getStatusAsString()).isEqualTo(SYNCING.name());
     assertThat(res.getError()).isNull();
+    verify(mergeCoordinator).appendNewPayloadToSync(any());
+    verify(engineCallListener, times(1)).executionEngineCalled();
+  }
+
+  @Test
+  public void shouldNotAppendToBackwardSyncWhenInitialSyncNotDone() {
+    BlockHeader mockHeader = createBlockHeader(getMinSupportedTimestamp());
+    when(mergeContext.isInitialSyncDone()).thenReturn(false);
+    var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList())));
+
+    PayloadStatusV1 res = fromSuccessResp(resp);
+    assertThat(res.getLatestValidHash()).isEmpty();
+    assertThat(res.getStatusAsString()).isEqualTo(SYNCING.name());
+    assertThat(res.getError()).isNull();
+    verify(mergeCoordinator, never()).appendNewPayloadToSync(any());
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 

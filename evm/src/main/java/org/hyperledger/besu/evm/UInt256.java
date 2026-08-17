@@ -470,7 +470,8 @@ public record UInt256(long u3, long u2, long u1, long u0) {
 
   /**
    * Keep the low {@code n} bits, zero the rest; used by the power-of-two modulus fast path in
-   * {@link #addMod(UInt256, UInt256)} where mod-by-2^n is a bitmask.
+   * {@link #addMod(UInt256, UInt256)} and {@link #mulMod(UInt256, UInt256)} where mod-by-2^n is a
+   * bitmask.
    *
    * @param n number of low bits to keep; caller guarantees {@code 1 <= n < 256}.
    * @return {@code this & ((1 << n) - 1)}.
@@ -717,9 +718,30 @@ public record UInt256(long u3, long u2, long u1, long u0) {
     if (this.isZero() || other.isZero() || modulus.isZeroOrOne()) return ZERO;
     if (this.isOne()) return other.mod(modulus);
     if (other.isOne()) return this.mod(modulus);
-    if (modulus.u3 != 0) return modulus.mul(this, other);
-    if (modulus.u2 != 0) return modulus.asUInt192().mul(this, other);
-    if (modulus.u1 != 0) return modulus.asUInt128().mul(this, other);
+
+    // Fast path: when the modulus is a power of two:
+    // (a * b) mod 2^N == (a * b) & (2^N - 1)
+    if (modulus.u3 != 0) {
+      if ((modulus.u3 & (modulus.u3 - 1)) == 0 && (modulus.u2 | modulus.u1 | modulus.u0) == 0) {
+        return mul(other).maskLow(192 + Long.numberOfTrailingZeros(modulus.u3));
+      }
+      return modulus.mul(this, other);
+    }
+    if (modulus.u2 != 0) {
+      if ((modulus.u2 & (modulus.u2 - 1)) == 0 && (modulus.u1 | modulus.u0) == 0) {
+        return mul(other).maskLow(128 + Long.numberOfTrailingZeros(modulus.u2));
+      }
+      return modulus.asUInt192().mul(this, other);
+    }
+    if (modulus.u1 != 0) {
+      if ((modulus.u1 & (modulus.u1 - 1)) == 0 && modulus.u0 == 0) {
+        return mul(other).maskLow(64 + Long.numberOfTrailingZeros(modulus.u1));
+      }
+      return modulus.asUInt128().mul(this, other);
+    }
+    if ((modulus.u0 & (modulus.u0 - 1)) == 0) {
+      return mul(other).maskLow(Long.numberOfTrailingZeros(modulus.u0));
+    }
     return modulus.asUInt64().mul(this, other);
   }
 

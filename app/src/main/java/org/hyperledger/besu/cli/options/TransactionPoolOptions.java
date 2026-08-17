@@ -255,9 +255,6 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
     private static final String ETH65_TX_ANNOUNCED_BUFFERING_PERIOD_FLAG =
         "--Xeth65-tx-announced-buffering-period-milliseconds";
 
-    @Deprecated(forRemoval = true) // alias of MAX_TRACKED_SEEN_TXS
-    private static final String MAX_TRACKED_SEEN_TXS_PER_PEER = "--Xmax-tracked-seen-txs-per-peer";
-
     private static final String MAX_TRACKED_SEEN_TXS = "--Xmax-tracked-seen-txs";
     private static final String MAX_SEND_QUEUE_SIZE_PER_PEER = "--Xmax-send-queue-size-per-peer";
     private static final String PEER_TRACKER_FORGET_EVICTED_TXS_FLAG =
@@ -285,7 +282,7 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
         TransactionPoolConfiguration.Unstable.ETH65_TRX_ANNOUNCED_BUFFERING_PERIOD;
 
     @CommandLine.Option(
-        names = {MAX_TRACKED_SEEN_TXS, /*Deprecated*/ MAX_TRACKED_SEEN_TXS_PER_PEER},
+        names = {MAX_TRACKED_SEEN_TXS},
         paramLabel = "<LONG>",
         hidden = true,
         description =
