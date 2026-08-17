@@ -341,15 +341,16 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   private final PreSynchronizationTaskRunner preSynchronizationTaskRunner =
       new PreSynchronizationTaskRunner();
 
-  private final Set<String> allocatedPorts = new HashSet<>();
+  private final Set<PortBinding> allocatedPorts = new HashSet<>();
 
-  private enum Transport {
+  enum Transport {
     TCP,
     UDP
   }
 
-  private record PortBinding(Integer port, Transport transport) {
-    private String clashKey() {
+  record PortBinding(Integer port, Transport transport) {
+    @Override
+    public String toString() {
       return port + "/" + transport;
     }
   }
@@ -2786,11 +2787,10 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
   private void checkPortClash() {
     getEffectivePorts().stream()
-        .filter(binding -> binding.port() != null)
-        .filter(binding -> binding.port() > 0)
+        .filter(binding -> binding.port() != null && binding.port() > 0)
         .forEach(
             binding -> {
-              if (!allocatedPorts.add(binding.clashKey())) {
+              if (!allocatedPorts.add(binding)) {
                 throw new ParameterException(
                     commandLine,
                     "Port number '"
@@ -2806,21 +2806,16 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
    * @throws InvalidConfigurationException if ports are not available.
    */
   protected void checkIfRequiredPortsAreAvailable() {
-    final List<String> unavailablePorts = new ArrayList<>();
-    getEffectivePorts().stream()
-        .filter(binding -> binding.port() != null)
-        .filter(binding -> binding.port() > 0)
-        .forEach(
-            binding -> {
-              if (binding.transport() == Transport.TCP
-                  && NetworkUtility.isPortUnavailableForTcp(binding.port())) {
-                unavailablePorts.add(binding.port() + "/TCP");
-              }
-              if (binding.transport() == Transport.UDP
-                  && NetworkUtility.isPortUnavailableForUdp(binding.port())) {
-                unavailablePorts.add(binding.port() + "/UDP");
-              }
-            });
+    final List<PortBinding> unavailablePorts =
+        getEffectivePorts().stream()
+            .filter(binding -> binding.port() != null && binding.port() > 0)
+            .filter(
+                binding ->
+                    switch (binding.transport()) {
+                      case TCP -> NetworkUtility.isPortUnavailableForTcp(binding.port());
+                      case UDP -> NetworkUtility.isPortUnavailableForUdp(binding.port());
+                    })
+            .toList();
     if (!unavailablePorts.isEmpty()) {
       throw new InvalidConfigurationException(
           "Port(s) '"
@@ -2836,16 +2831,34 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
    */
   private List<PortBinding> getEffectivePorts() {
     final List<PortBinding> effectivePorts = new ArrayList<>();
-    final boolean p2pEnabled = p2PDiscoveryOptions.p2pEnabled;
-    addPortIfEnabled(effectivePorts, p2PDiscoveryOptions.p2pPort, Transport.TCP, p2pEnabled);
-    final boolean discoverySharesP2pPort =
-        p2PDiscoveryOptions.p2pDiscoveryPort == null
-            || p2PDiscoveryOptions.p2pDiscoveryPort.equals(p2PDiscoveryOptions.p2pPort);
-    if (discoverySharesP2pPort) {
-      addPortIfEnabled(effectivePorts, p2PDiscoveryOptions.p2pPort, Transport.UDP, p2pEnabled);
-    } else {
-      addPortIfEnabled(
-          effectivePorts, p2PDiscoveryOptions.p2pDiscoveryPort, Transport.UDP, p2pEnabled);
+    addPortIfEnabled(
+        effectivePorts,
+        p2PDiscoveryConfig.p2pPort(),
+        Transport.TCP,
+        p2PDiscoveryConfig.p2pEnabled());
+    addPortIfEnabled(
+        effectivePorts,
+        p2PDiscoveryConfig.p2pDiscoveryPort(),
+        Transport.UDP,
+        p2PDiscoveryConfig.p2pEnabled());
+    if (p2PDiscoveryConfig.p2pInterfaceIpv6().isPresent()) {
+      // Skip when equal to the IPv4 port: Besu binds a single dual-stack socket in that case.
+      if (!p2PDiscoveryConfig.p2pPortIpv6().equals(p2PDiscoveryConfig.p2pPort())) {
+        addPortIfEnabled(
+            effectivePorts,
+            p2PDiscoveryConfig.p2pPortIpv6(),
+            Transport.TCP,
+            p2PDiscoveryConfig.p2pEnabled());
+      }
+      if (!p2PDiscoveryConfig
+          .p2pDiscoveryPortIpv6()
+          .equals(p2PDiscoveryConfig.p2pDiscoveryPort())) {
+        addPortIfEnabled(
+            effectivePorts,
+            p2PDiscoveryConfig.p2pDiscoveryPortIpv6(),
+            Transport.UDP,
+            p2PDiscoveryConfig.p2pEnabled());
+      }
     }
     addPortIfEnabled(
         effectivePorts,

@@ -307,11 +307,12 @@ public class EphemeryTest extends CommandTestAbstract {
     Field portsField = BesuCommand.class.getDeclaredField("allocatedPorts");
     portsField.setAccessible(true);
     @SuppressWarnings("unchecked")
-    Set<String> allocatedPorts = (Set<String>) portsField.get(besuCommand);
+    Set<BesuCommand.PortBinding> allocatedPorts =
+        (Set<BesuCommand.PortBinding>) portsField.get(besuCommand);
 
     // Add some ports
-    allocatedPorts.add("8545/TCP");
-    allocatedPorts.add("30303/TCP");
+    allocatedPorts.add(new BesuCommand.PortBinding(8545, BesuCommand.Transport.TCP));
+    allocatedPorts.add(new BesuCommand.PortBinding(30303, BesuCommand.Transport.TCP));
     assertThat(allocatedPorts).hasSizeGreaterThanOrEqualTo(2);
     besuCommand.clearAllocatedPorts();
 
