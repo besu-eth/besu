@@ -26,7 +26,8 @@ import java.util.Optional;
 public interface SynchronizationService extends BesuService {
 
   /**
-   * Enables P2P discovery.
+   * Fires a new unverified forkchoice event on the merge context and records the safe and finalized
+   * blocks on the blockchain.
    *
    * @param head the head of the chain.
    * @param safeBlock the safe block.

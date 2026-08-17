@@ -245,62 +245,90 @@ class SnapV2ReorgHealerRecoveryTest {
    * canonical account record rather than recomputed locally.
    *
    * <pre>
-   * gen -- 1 (P=100+sp1:1+sp2:2) -- 2s (P.sp1=10, P.sp2=20)      orphaned
-   *                              \-- 2c (P=300) -- 3c (empty)     canonical
+   * gen -- 1 (P=100+sp1:1) -- 2 (P.sp2=2) -- 3s (P.sp1=10, P.sp2=20)   orphaned
+   *                                      \-- 3c (P=300) -- 4c (empty)  canonical
+   * Local: account range PENDING, storage downloaded for sp1 only.
    * </pre>
    *
-   * Locally only slot sp1 was ever downloaded, so sp2's orphaned change never reached the flat db
-   * and only sp1 is re-fetched.
+   * The same shared base is applied to both sides; the only difference is the tracker state. Blocks
+   * 1 and 2 must be applied in separate windows: a single [1,2] window would treat PETE as new and
+   * land sp2 locally as well.
    */
   @Test
   void pendingAccountGetsSlotFixAndCanonicalStorageRoot() {
+    // Account range covering all hashes, with 1 outstanding child so it stays PENDING.
     final DownloadedAccountRangeTracker accountTracker = new DownloadedAccountRangeTracker();
     accountTracker.registerPending(Bytes32.ZERO, MAX_KEY, 1);
+    // Only slot sp1 has been downloaded: a single-slot range [h(sp1), h(sp1)].
     final DownloadedStorageRangeTracker storageTracker = new DownloadedStorageRangeTracker();
     storageTracker.registerSlotRange(
         Bytes32.wrap(PETE.addressHash().getBytes()),
         Bytes32.wrap(ReorgBlockchainBuilder.slotHash(SP1).getBytes()),
         Bytes32.wrap(ReorgBlockchainBuilder.slotHash(SP1).getBytes()));
 
-    final BlockAccessList baseBal =
-        b.merge(
-            b.balWithBalances(Map.of(PETE, Wei.of(100))),
-            b.balWithStorageChanges(
-                PETE, Map.of(SP1, UInt256.valueOf(1), SP2, UInt256.valueOf(2))));
-    final Block block1 = b.appendBlockWithBal(b.header(0), baseBal, 1L);
+    // Block 1 (shared base): creates PETE with balance 100 and slot sp1. PETE is new, so it is
+    // applied in full on both sides despite the locally pending range.
+    final Block block1 =
+        b.appendBlockWithBal(
+            b.header(0),
+            b.merge(
+                b.balWithBalances(Map.of(PETE, Wei.of(100))),
+                b.balWithStorageChanges(PETE, Map.of(SP1, UInt256.valueOf(1)))),
+            1L);
     applyTo(localCoordinator, 1, 1, accountTracker, storageTracker);
     applyTo(canonicalCoordinator, 1, 1, fullAccountRange(), new DownloadedStorageRangeTracker());
 
-    final Block block2s =
+    // Block 2 (shared base): slot sp2 appears. PETE now exists locally, so the slot guard skips
+    // the not-yet-downloaded sp2; the canonical side applies it.
+    final Block block2 =
+        b.appendBlockWithBal(
+            block1.getHeader(), b.balWithStorageChanges(PETE, Map.of(SP2, UInt256.valueOf(2))), 2L);
+    applyTo(localCoordinator, 2, 2, accountTracker, storageTracker);
+    applyTo(canonicalCoordinator, 2, 2, fullAccountRange(), new DownloadedStorageRangeTracker());
+
+    // Orphaned fork: rewrites both slots; only the downloaded sp1 lands locally.
+    final Block block3s =
         b.appendStale(
-            block1.getHeader(),
+            block2.getHeader(),
             b.balWithStorageChanges(
                 PETE, Map.of(SP1, UInt256.valueOf(10), SP2, UInt256.valueOf(20))),
-            2L);
-    applyTo(localCoordinator, 2, 2, accountTracker, storageTracker);
+            3L);
+    applyTo(localCoordinator, 3, 3, accountTracker, storageTracker);
     assertThat(readStorageSlot(PETE, SP1)).hasValue(UInt256.valueOf(10));
+    assertThat(readStorageSlot(PETE, SP2)).isEmpty();
 
-    final Block block2c =
-        b.appendCanonical(block1.getHeader(), b.balWithBalances(Map.of(PETE, Wei.of(300))), 2L);
-    applyTo(canonicalCoordinator, 2, 2, fullAccountRange(), new DownloadedStorageRangeTracker());
+    // Canonical fork: balance only.
+    final Block block3c =
+        b.appendCanonical(block2.getHeader(), b.balWithBalances(Map.of(PETE, Wei.of(300))), 3L);
+    applyTo(canonicalCoordinator, 3, 3, fullAccountRange(), new DownloadedStorageRangeTracker());
 
     final Hash canonicalRoot = worldStateRoot(canonicalCoordinator);
     final Block newPivotBlock =
-        b.appendCanonical(block2c.getHeader(), b.emptyBal(), 3L, canonicalRoot);
+        b.appendCanonical(block3c.getHeader(), b.emptyBal(), 4L, canonicalRoot);
 
+    final AtomicInteger accountFetches = new AtomicInteger();
+    final AtomicInteger codeFetches = new AtomicInteger();
+    final AtomicInteger storageFetches = new AtomicInteger();
     final SnapV2ReorgHealer healer =
-        healerServing(canonicalRoot, new AtomicInteger(), new AtomicInteger(), new AtomicInteger());
+        healerServing(canonicalRoot, accountFetches, codeFetches, storageFetches);
 
     final ReorgRecoveryResult result =
         healer.recoverFromReorg(
-            block2s.getHeader(), newPivotBlock.getHeader(), accountTracker, storageTracker);
+            block3s.getHeader(), newPivotBlock.getHeader(), accountTracker, storageTracker);
 
-    // Balance from the canonical BAL, downloaded slot restored, root taken from the fetched record.
+    // Balance from the canonical BAL; the downloaded slot is restored from the re-fetch. sp2 was
+    // never downloaded and the canonical fork never touched it, so it is not re-fetched.
     assertThat(readAccount(PETE).getBalance()).isEqualTo(Wei.of(300));
     assertThat(readStorageSlot(PETE, SP1)).hasValue(UInt256.valueOf(1));
-    // sp2 was never downloaded locally; the orphaned change never landed and nothing was fetched.
     assertThat(readStorageSlot(PETE, SP2)).isEmpty();
+    assertThat(accountFetches).hasValue(1);
+    assertThat(storageFetches).hasValue(1);
+    assertThat(codeFetches).hasValue(0);
 
+    // Pending account: the storage root is installed from the fetched canonical record, not
+    // recomputed from the partial local trie (which still lacks sp2). No world-state root
+    // equality is asserted here: the local storage stays incomplete until sp2's chunk arrives
+    // via the ongoing download.
     final PmtStateTrieAccountValue canonicalPete = readAccount(canonicalCoordinator, PETE);
     assertThat(readAccount(PETE).getStorageRoot()).isEqualTo(canonicalPete.getStorageRoot());
     assertThat(result.deletedAccounts()).isEmpty();

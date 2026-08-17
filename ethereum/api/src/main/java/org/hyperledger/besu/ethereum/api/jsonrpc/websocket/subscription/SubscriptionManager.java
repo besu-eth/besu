@@ -154,7 +154,7 @@ public class SubscriptionManager extends AbstractVerticle {
 
   private void removeSubscriptions(final Message<String> message) {
     final String connectionId = message.body();
-    if (connectionId == null || "".equals(connectionId)) {
+    if (connectionId == null || connectionId.isEmpty()) {
       LOG.warn("Received invalid connectionId ({}). No subscriptions removed.", connectionId);
     }
 

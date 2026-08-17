@@ -59,6 +59,7 @@ dependencies {
     api project(':ethereum:blockcreation')
     api project(':ethereum:core')
     api project(':ethereum:eth')
+    api project(':ethereum:eth:plugin-api-sync')
     api project(':ethereum:eth:plugin-api-txpool')
     api project(':ethereum:p2p')
     api project(':ethereum:p2p:plugin-api')

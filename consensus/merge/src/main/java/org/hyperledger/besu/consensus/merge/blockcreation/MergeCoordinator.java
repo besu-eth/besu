@@ -587,7 +587,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
           .setMessage("BlockHeader {} is already present in blockchain")
           .addArgument(maybeHeadHeader.get()::toLogString)
           .log();
-    } else {
+    } else if (mergeContext.isInitialSyncDone()) {
       backwardSyncContext.maybeUpdateTargetHeight(headHash);
       backwardSyncContext
           .syncBackwardsUntil(headHash)

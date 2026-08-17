@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod.ENGINE_EXCHANGE_CAPABILITIES;
-import static org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod.ENGINE_PREPARE_PAYLOAD_DEBUG;
 
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
@@ -75,7 +74,6 @@ public class EngineExchangeCapabilities extends ExecutionEngineJsonRpcMethod {
         Stream.of(RpcMethod.values())
             .filter(e -> e.getMethodName().startsWith("engine_"))
             .filter(e -> !e.equals(ENGINE_EXCHANGE_CAPABILITIES))
-            .filter(e -> !e.equals(ENGINE_PREPARE_PAYLOAD_DEBUG))
             .map(RpcMethod::getMethodName)
             .collect(Collectors.toList());
 

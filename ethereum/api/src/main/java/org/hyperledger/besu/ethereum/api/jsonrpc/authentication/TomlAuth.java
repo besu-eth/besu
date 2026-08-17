@@ -74,7 +74,7 @@ public class TomlAuth implements AuthenticationProvider {
           }
 
           final TomlUser tomlUser = readTomlUserFromTable(username, userData);
-          if ("".equals(tomlUser.getPassword())) {
+          if (tomlUser.getPassword().isEmpty()) {
             f.fail("No password set for user");
             return;
           }

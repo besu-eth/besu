@@ -100,8 +100,6 @@ public class SnapV2BlockAccessListApplier {
         stageAccountChanges(
             changes, accountTrie, updater, storageRangeTracker, accountRangeTracker);
 
-    stageAccountTrieChanges(accountTrie, updater);
-
     LOG.info(
         "Applied snap/2 BALs: {} accounts, {} storage slots, {} storage roots updated",
         stats.accounts,
@@ -205,7 +203,7 @@ public class SnapV2BlockAccessListApplier {
     for (final Map.Entry<Hash, Bytes32> entry : correctRoots.entrySet()) {
       final Hash accountHash = entry.getKey();
       final Hash correctRoot = Hash.wrap(entry.getValue());
-      final PmtStateTrieAccountValue existingAccount = readExistingAccount(accountHash);
+      final PmtStateTrieAccountValue existingAccount = readTrieAccount(accountTrie, accountHash);
       if (existingAccount == null) {
         LOG.warn(
             "snap/2 skipping storage root patch for account {}: not found locally", accountHash);
@@ -229,9 +227,6 @@ public class SnapV2BlockAccessListApplier {
       patched++;
     }
 
-    if (patched > 0) {
-      stageAccountTrieChanges(accountTrie, updater);
-    }
     return patched;
   }
 
@@ -358,7 +353,7 @@ public class SnapV2BlockAccessListApplier {
       final DownloadedAccountRangeTracker accountRangeTracker,
       final WorldStateKeyValueStorage.Updater updater) {
 
-    final PmtStateTrieAccountValue localAccount = readExistingAccount(accountHash);
+    final PmtStateTrieAccountValue localAccount = readFlatAccount(accountHash);
     if (localAccount == null) {
       throw new WorldStateDownloaderException(
           "snap/2 reorg correction: account " + accountHash + " not found locally");
@@ -485,7 +480,7 @@ public class SnapV2BlockAccessListApplier {
   /**
    * Stages account, storage, and code changes into the updater batch. Updates the in-memory account
    * trie values and commits per-account storage tries, staging their trie nodes into the same
-   * updater. Nothing is persisted until the caller invokes {@code updater.commit()}.
+   * updater. The account trie itself is deliberately left uncommitted.
    */
   private BalApplicationStats stageAccountChanges(
       final Map<Hash, PerAccountChanges> changesByHash,
@@ -502,7 +497,7 @@ public class SnapV2BlockAccessListApplier {
       final Hash accountHash = entry.getKey();
       final PerAccountChanges perAccount = entry.getValue();
 
-      final PmtStateTrieAccountValue existingAccount = readExistingAccount(accountHash);
+      final PmtStateTrieAccountValue existingAccount = readFlatAccount(accountHash);
 
       final long newNonce = computeNewNonce(perAccount, existingAccount);
       final Wei newBalance = computeNewBalance(perAccount, existingAccount);
@@ -510,7 +505,8 @@ public class SnapV2BlockAccessListApplier {
 
       final Hash oldStorageRoot = storageRootOf(existingAccount);
       final boolean isAccountCompleted =
-          accountRangeTracker.isAccountHashDownloaded(asBytes32(accountHash));
+          accountRangeTracker.isAccountHashDownloaded(asBytes32(accountHash))
+              || existingAccount == null;
       final StorageRootResult storageResult =
           maybeUpdateStorageRoot(
               accountHash,
@@ -546,7 +542,7 @@ public class SnapV2BlockAccessListApplier {
    * Walks the account trie and stages dirty merkle nodes into the updater batch. Does not persist
    * anything; the actual commit happens in the caller via {@code updater.commit()}.
    */
-  private void stageAccountTrieChanges(
+  private static void stageAccountTrieChanges(
       final MerkleTrie<Bytes, Bytes> accountTrie, final WorldStateKeyValueStorage.Updater updater) {
 
     final NodeUpdater nodeUpdater =
@@ -559,12 +555,19 @@ public class SnapV2BlockAccessListApplier {
     accountTrie.commit(nodeUpdater);
   }
 
-  private PmtStateTrieAccountValue readExistingAccount(final Hash accountHash) {
-    return worldStateStorageCoordinator
-        .applyForStrategy(
-            bonsai -> bonsai.getAccount(accountHash), forest -> Optional.<Bytes>empty())
-        .map(b -> PmtStateTrieAccountValue.readFrom(RLP.input(b)))
-        .orElse(null);
+  private PmtStateTrieAccountValue readFlatAccount(final Hash accountHash) {
+    return readAccountData(
+        worldStateStorageCoordinator.applyForStrategy(
+            bonsai -> bonsai.getAccount(accountHash), forest -> Optional.<Bytes>empty()));
+  }
+
+  private static PmtStateTrieAccountValue readTrieAccount(
+      final MerkleTrie<Bytes, Bytes> trie, final Hash accountHash) {
+    return readAccountData(trie.get(accountHash.getBytes()));
+  }
+
+  private static PmtStateTrieAccountValue readAccountData(final Optional<Bytes> accountData) {
+    return accountData.map(b -> PmtStateTrieAccountValue.readFrom(RLP.input(b))).orElse(null);
   }
 
   private static long computeNewNonce(
@@ -740,6 +743,7 @@ public class SnapV2BlockAccessListApplier {
   record BatchState(
       MerkleTrie<Bytes, Bytes> accountTrie, WorldStateKeyValueStorage.Updater updater) {
     void commit() {
+      stageAccountTrieChanges(accountTrie, updater);
       updater.commit();
     }
   }
