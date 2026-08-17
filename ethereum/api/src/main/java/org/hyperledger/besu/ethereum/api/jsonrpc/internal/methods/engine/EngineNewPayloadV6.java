@@ -154,7 +154,8 @@ public final class EngineNewPayloadV6<
     }
   }
 
-  private boolean isAlreadyInPayload(final Bytes rawTx, final Set<Transaction> payloadTransactions) {
+  private boolean isAlreadyInPayload(
+      final Bytes rawTx, final Set<Transaction> payloadTransactions) {
     try {
       return payloadTransactions.contains(
           TransactionDecoder.decodeOpaqueBytes(rawTx, EncodingContext.BLOCK_BODY));

@@ -65,7 +65,7 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
       MergeMiningCoordinator mergeCoordinator,
       EthPeers ethPeers,
       MetricsSystem metricsSystem,
-      Optional<TransactionPool> transactionPool) {}
+      TransactionPool transactionPool) {}
 
   private static final Logger LOG = LoggerFactory.getLogger(ExecutionEngineJsonRpcMethod.class);
   public static final long ENGINE_API_LOGGING_THRESHOLD = 60000L;

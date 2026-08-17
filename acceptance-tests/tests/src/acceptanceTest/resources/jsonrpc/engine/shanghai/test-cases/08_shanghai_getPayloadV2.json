@@ -3,7 +3,7 @@
     "jsonrpc": "2.0",
     "method": "engine_getPayloadV2",
     "params": [
-      "0x477f5894b4fbb46a"
+      "0x477f5894b4fbb46b"
     ],
     "id": 67
   },

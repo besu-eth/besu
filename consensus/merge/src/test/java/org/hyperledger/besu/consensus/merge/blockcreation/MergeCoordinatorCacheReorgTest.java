@@ -27,7 +27,6 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.config.MergeConfiguration;
 import org.hyperledger.besu.consensus.merge.MergeContext;
 import org.hyperledger.besu.consensus.merge.PayloadWrapper;
-import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.PreparePayloadArgs;
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SECPPrivateKey;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;

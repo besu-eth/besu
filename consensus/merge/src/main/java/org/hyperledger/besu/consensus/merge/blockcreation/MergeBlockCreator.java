@@ -65,41 +65,6 @@ class MergeBlockCreator extends AbstractBlockCreator {
   }
 
   /**
-   * Create block and return block creation result.
-   *
-   * @param maybeTransactions the maybe transactions
-   * @param random the random
-   * @param timestamp the timestamp
-   * @param withdrawals optional list of withdrawals
-   * @param parentBeaconBlockRoot optional root hash of the parent beacon block
-   * @param slotNumber optional slot number (EIP-7843)
-   * @param targetGasLimit optional CL-supplied target gas limit for this payload
-   * @param parentHeader the parent header
-   * @return the block creation result
-   */
-  public BlockCreationResult createBlock(
-      final Optional<List<Transaction>> maybeTransactions,
-      final Bytes32 random,
-      final long timestamp,
-      final Optional<List<Withdrawal>> withdrawals,
-      final Optional<Bytes32> parentBeaconBlockRoot,
-      final Optional<Long> slotNumber,
-      final Optional<Long> targetGasLimit,
-      final BlockHeader parentHeader) {
-
-    return createBlock(
-        maybeTransactions,
-        random,
-        timestamp,
-        withdrawals,
-        parentBeaconBlockRoot,
-        slotNumber,
-        targetGasLimit,
-        parentHeader,
-        List.of());
-  }
-
-  /**
    * Create block with inclusion list support (EIP-7805).
    *
    * @param maybeTransactions the maybe transactions

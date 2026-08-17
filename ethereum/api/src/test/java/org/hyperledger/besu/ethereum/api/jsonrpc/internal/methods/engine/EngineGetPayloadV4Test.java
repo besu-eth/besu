@@ -26,7 +26,6 @@ import org.hyperledger.besu.consensus.merge.PayloadWrapper;
 import org.hyperledger.besu.consensus.merge.blockcreation.PayloadIdentifier;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BlobGas;
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.RequestType;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
@@ -50,7 +49,6 @@ import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.core.kzg.BlobsWithCommitments;
 
 import java.math.BigInteger;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -132,17 +130,7 @@ public class EngineGetPayloadV4Test extends AbstractEngineGetPayloadTest {
             .excessBlobGas(BlobGas.of(10L))
             .buildHeader();
     // should return withdrawals, deposits and excessGas for a post-6110 block
-    PayloadIdentifier payloadIdentifier =
-        PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            pragueHardfork.milestone(),
-            Bytes32.random(),
-            Address.fromHexString("0x42"),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            Collections.emptyList());
+    PayloadIdentifier payloadIdentifier = newPayloadIdentifier(pragueHardfork.milestone());
 
     BlobTestFixture blobTestFixture = new BlobTestFixture();
     BlobsWithCommitments bwc = blobTestFixture.createBlobsWithCommitments(1);
@@ -215,17 +203,7 @@ public class EngineGetPayloadV4Test extends AbstractEngineGetPayloadTest {
 
     BlockHeader header =
         new BlockHeaderTestFixture().timestamp(pragueHardfork.milestone() + 1).buildHeader();
-    PayloadIdentifier payloadIdentifier =
-        PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            pragueHardfork.milestone(),
-            Bytes32.random(),
-            Address.fromHexString("0x42"),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            Collections.emptyList());
+    PayloadIdentifier payloadIdentifier = newPayloadIdentifier(pragueHardfork.milestone());
 
     BlockWithReceipts block =
         new BlockWithReceipts(

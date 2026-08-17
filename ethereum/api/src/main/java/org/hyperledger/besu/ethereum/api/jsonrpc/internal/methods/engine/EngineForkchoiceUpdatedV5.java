@@ -40,7 +40,8 @@ import org.slf4j.LoggerFactory;
  * inclusionListTransactions} field. Decoded inclusion-list transactions are added to the
  * transaction pool and forwarded to {@code preparePayload} so block building can satisfy them.
  */
-public final class EngineForkchoiceUpdatedV5 extends EngineForkchoiceUpdatedV4<PayloadAttributesV5> {
+public final class EngineForkchoiceUpdatedV5
+    extends EngineForkchoiceUpdatedV4<PayloadAttributesV5> {
 
   private static final Logger LOG = LoggerFactory.getLogger(EngineForkchoiceUpdatedV5.class);
 
@@ -56,7 +57,7 @@ public final class EngineForkchoiceUpdatedV5 extends EngineForkchoiceUpdatedV4<P
       final HardforkId minFork,
       final HardforkId maxFork) {
     super(constructorArguments, minFork, maxFork);
-    this.transactionPool = constructorArguments.transactionPool().orElseThrow();
+    this.transactionPool = constructorArguments.transactionPool();
   }
 
   @Override

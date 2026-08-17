@@ -54,6 +54,7 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.math.BigInteger;
 import java.time.Duration;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -230,17 +231,6 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
 
   @Override
   public PayloadIdentifier preparePayload(final PreparePayloadArgs preparePayloadArgs) {
-    final BlockHeader parentHeader = preparePayloadArgs.parentHeader();
-    final Long timestamp = preparePayloadArgs.timestamp();
-    final Bytes32 prevRandao = preparePayloadArgs.prevRandao();
-    final Address feeRecipient = preparePayloadArgs.feeRecipient();
-    final Optional<List<Withdrawal>> withdrawals = preparePayloadArgs.withdrawals();
-    final Optional<Bytes32> parentBeaconBlockRoot = preparePayloadArgs.parentBeaconBlockRoot();
-    final Optional<Long> slotNumber = preparePayloadArgs.slotNumber();
-    final Optional<Long> targetGasLimit = preparePayloadArgs.targetGasLimit();
-    final List<Transaction> inclusionListTransactions =
-        preparePayloadArgs.inclusionListTransactions().orElse(List.of());
-
     // we assume that preparePayload is always called sequentially, since the RPC Engine calls
     // are sequential, if this assumption changes, then more synchronization should be added to
     // shared data structures
@@ -258,19 +248,25 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     cancelAnyExistingBlockCreationTasks(payloadIdentifier);
 
     final MergeBlockCreator mergeBlockCreator =
-        this.mergeBlockCreatorFactory.forParams(parentHeader, Optional.ofNullable(feeRecipient));
+        this.mergeBlockCreatorFactory.forParams(
+            preparePayloadArgs.parentHeader(),
+            Optional.ofNullable(preparePayloadArgs.feeRecipient()));
 
-    // put the minimal block in first, it includes only the inclusion list txs
+    final List<Transaction> inclusionListTransactions =
+        preparePayloadArgs.inclusionListTransactions().orElse(List.of());
+
+    // put the empty block in first
     final BlockCreationResult minimalBlockResult =
         mergeBlockCreator.createBlock(
-            Optional.of(inclusionListTransactions),
-            prevRandao,
-            timestamp,
-            withdrawals,
-            parentBeaconBlockRoot,
-            slotNumber,
-            targetGasLimit,
-            parentHeader);
+            Optional.of(Collections.emptyList()),
+            preparePayloadArgs.prevRandao(),
+            preparePayloadArgs.timestamp(),
+            preparePayloadArgs.withdrawals(),
+            preparePayloadArgs.parentBeaconBlockRoot(),
+            preparePayloadArgs.slotNumber(),
+            preparePayloadArgs.targetGasLimit(),
+            preparePayloadArgs.parentHeader(),
+            inclusionListTransactions);
     final Block minimalBlock = minimalBlockResult.getBlock();
 
     BlockProcessingResult result =
@@ -303,11 +299,11 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
         preparePayloadArgs.prevRandao(),
         payloadIdentifier,
         mergeBlockCreator,
-        withdrawals,
-        parentBeaconBlockRoot,
-        slotNumber,
-        targetGasLimit,
-        parentHeader,
+        preparePayloadArgs.withdrawals(),
+        preparePayloadArgs.parentBeaconBlockRoot(),
+        preparePayloadArgs.slotNumber(),
+        preparePayloadArgs.targetGasLimit(),
+        preparePayloadArgs.parentHeader(),
         inclusionListTransactions);
 
     return payloadIdentifier;

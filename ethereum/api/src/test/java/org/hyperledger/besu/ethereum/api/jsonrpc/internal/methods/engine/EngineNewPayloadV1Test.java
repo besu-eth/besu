@@ -103,6 +103,8 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
 
   @Mock protected EthPeers ethPeers;
 
+  @Mock protected TransactionPool transactionPool;
+
   @Mock protected WorldStateArchive worldStateArchive;
 
   @Mock protected EngineCallListener engineCallListener;

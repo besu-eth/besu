@@ -101,29 +101,6 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
       final String clientVersion,
       final String commit,
       final TransactionPool transactionPool,
-      final MetricsSystem metricsSystem) {
-    this(
-        miningCoordinator,
-        protocolSchedule,
-        protocolContext,
-        ethPeers,
-        consensusEngineServer,
-        clientVersion,
-        commit,
-        transactionPool,
-        metricsSystem,
-        InclusionListConfiguration.DEFAULT);
-  }
-
-  ExecutionEngineJsonRpcMethods(
-      final MiningCoordinator miningCoordinator,
-      final ProtocolSchedule protocolSchedule,
-      final ProtocolContext protocolContext,
-      final EthPeers ethPeers,
-      final Vertx consensusEngineServer,
-      final String clientVersion,
-      final String commit,
-      final TransactionPool transactionPool,
       final MetricsSystem metricsSystem,
       final InclusionListConfiguration inclusionListConfiguration) {
     this.mergeCoordinator =
@@ -158,7 +135,7 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
               mergeCoordinator.get(),
               ethPeers,
               metricsSystem,
-              Optional.of(transactionPool));
+              transactionPool);
 
       List<JsonRpcMethod> executionEngineApisSupported = new ArrayList<>();
       executionEngineApisSupported.addAll(

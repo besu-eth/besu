@@ -74,28 +74,6 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
    */
   PayloadIdentifier preparePayload(final PreparePayloadArgs preparePayloadArgs);
 
-  default PayloadIdentifier preparePayload(
-      final BlockHeader parentHeader,
-      final Long timestamp,
-      final Bytes32 prevRandao,
-      final Address feeRecipient,
-      final Optional<List<Withdrawal>> withdrawals,
-      final Optional<Bytes32> parentBeaconBlockRoot,
-      final Optional<Long> slotNumber,
-      final Optional<Long> targetGasLimit) {
-    return preparePayload(
-        new PreparePayloadArgs(
-            parentHeader,
-            timestamp,
-            prevRandao,
-            feeRecipient,
-            withdrawals,
-            parentBeaconBlockRoot,
-            slotNumber,
-            targetGasLimit,
-            Optional.empty()));
-  }
-
   @Override
   default boolean isCompatibleWithEngineApi() {
     return true;
