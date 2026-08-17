@@ -14,12 +14,13 @@
  */
 package org.hyperledger.besu.plugin.services.rpc;
 
-/** The interface Plugin rpc request. */
+/** The request handed to a registered RPC endpoint, carrying the raw call parameters. */
 public interface PluginRpcRequest {
   /**
-   * Get params.
+   * Get the raw JSON-decoded parameters of the call: strings, numbers, booleans, lists, and maps
+   * for JSON objects. The endpoint is responsible for validating and converting them.
    *
-   * @return the object [ ]
+   * @return the parameters of the call
    */
   Object[] getParams();
 }
