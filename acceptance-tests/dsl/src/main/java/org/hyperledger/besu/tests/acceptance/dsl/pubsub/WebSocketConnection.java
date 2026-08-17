@@ -36,8 +36,6 @@ import org.slf4j.LoggerFactory;
 public class WebSocketConnection {
 
   private static final Logger LOG = LoggerFactory.getLogger(WebSocketConnection.class);
-  private static final int MAX_CONNECT_ATTEMPTS = 5;
-  private static final long INITIAL_RETRY_BACKOFF_MILLIS = 200;
 
   private final WebSocketConnectOptions options;
   private final ConcurrentLinkedDeque<SubscriptionEvent> subscriptionEvents;
@@ -63,7 +61,7 @@ public class WebSocketConnection {
     options.setHost(node.getHostName());
     webSocketClient = vertx.createWebSocketClient();
 
-    connect(vertx);
+    connect();
   }
 
   public JsonRpcSuccessEvent subscribe(final String params) {
@@ -94,13 +92,7 @@ public class WebSocketConnection {
     return latestEvent;
   }
 
-  private void connect(final Vertx vertx) {
-    attemptConnect(vertx, 1);
-
-    WaitUtils.waitFor(() -> assertThat(connection).isNotNull());
-  }
-
-  private void attemptConnect(final Vertx vertx, final int attempt) {
+  private void connect() {
     webSocketClient
         .connect(options)
         .onSuccess(
@@ -127,21 +119,9 @@ public class WebSocketConnection {
                     }
                   });
             })
-        .onFailure(
-            cause -> {
-              if (attempt >= MAX_CONNECT_ATTEMPTS) {
-                LOG.error("Websocket connect failed after {} attempts, giving up", attempt, cause);
-                return;
-              }
-              final long backoffMillis = INITIAL_RETRY_BACKOFF_MILLIS * attempt;
-              LOG.warn(
-                  "Websocket connect failed (attempt {}/{}), retrying in {}ms",
-                  attempt,
-                  MAX_CONNECT_ATTEMPTS,
-                  backoffMillis,
-                  cause);
-              vertx.setTimer(backoffMillis, id -> attemptConnect(vertx, attempt + 1));
-            });
+        .onFailure(cause -> LOG.error("Websocket connect failed", cause));
+
+    WaitUtils.waitFor(() -> assertThat(connection).isNotNull());
   }
 
   private void webSocketConnection(final WebSocket connection) {
