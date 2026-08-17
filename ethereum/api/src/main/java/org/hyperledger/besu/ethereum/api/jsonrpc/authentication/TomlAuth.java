@@ -61,13 +61,12 @@ public class TomlAuth implements AuthenticationProvider {
     return vertx.executeBlocking(() -> authenticateBlocking(username, password), false);
   }
 
-  private TomlUser authenticateBlocking(final String username, final String password) {
-    final TomlParseResult parseResult;
-    try {
-      parseResult = Toml.parse(options.getTomlPath());
-    } catch (final IOException e) {
-      throw new CredentialValidationException(e.getMessage(), e);
-    }
+  // Declares IOException so a config/IO problem (e.g. a missing or unreadable toml file) fails
+  // the Future with its own specific, diagnosable type rather than being folded into
+  // CredentialValidationException alongside actual bad-credentials failures.
+  private TomlUser authenticateBlocking(final String username, final String password)
+      throws IOException {
+    final TomlParseResult parseResult = Toml.parse(options.getTomlPath());
 
     final TomlTable userData = parseResult.getTableOrEmpty("Users." + username);
     if (userData.isEmpty()) {

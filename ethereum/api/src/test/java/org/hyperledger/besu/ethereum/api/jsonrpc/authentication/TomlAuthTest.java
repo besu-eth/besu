@@ -34,14 +34,12 @@ import org.junit.jupiter.api.extension.ExtendWith;
 public class TomlAuthTest {
 
   private Vertx vertx;
-  private VertxTestContext testContext;
   private UsernamePasswordCredentials validAuthInfo;
   private TomlAuth tomlAuth;
 
   @BeforeEach
   public void before() throws URISyntaxException {
     vertx = Vertx.vertx();
-    testContext = new VertxTestContext();
 
     tomlAuth =
         new TomlAuth(
@@ -50,65 +48,105 @@ public class TomlAuthTest {
   }
 
   @Test
-  public void authInfoWithoutUsernameShouldFailAuthentication() {
+  public void authInfoWithoutUsernameShouldFailAuthentication(final VertxTestContext testContext) {
     UsernamePasswordCredentials authInfo = new UsernamePasswordCredentials(null, "foo");
 
     tomlAuth
         .authenticate(authInfo)
         .onComplete(
-            testContext.failing(th -> assertEquals("username cannot be null", th.getMessage())));
+            testContext.failing(
+                th ->
+                    testContext.verify(
+                        () -> {
+                          assertEquals("username cannot be null", th.getMessage());
+                          testContext.completeNow();
+                        })));
   }
 
   @Test
-  public void authInfoWithoutPasswordShouldFailAuthentication() {
+  public void authInfoWithoutPasswordShouldFailAuthentication(final VertxTestContext testContext) {
     UsernamePasswordCredentials authInfo = new UsernamePasswordCredentials("foo", null);
 
     tomlAuth
         .authenticate(authInfo)
         .onComplete(
-            testContext.failing(th -> assertEquals("password cannot be null", th.getMessage())));
+            testContext.failing(
+                th ->
+                    testContext.verify(
+                        () -> {
+                          assertEquals("password cannot be null", th.getMessage());
+                          testContext.completeNow();
+                        })));
   }
 
   @Test
-  public void parseFailureWithIOExceptionShouldFailAuthentication() {
+  public void parseFailureWithIOExceptionShouldFailAuthentication(
+      final VertxTestContext testContext) {
     tomlAuth = new TomlAuth(vertx, new TomlAuthOptions().setTomlPath("invalid_path"));
 
     tomlAuth
         .authenticate(validAuthInfo)
         .onComplete(
-            testContext.failing(th -> assertEquals(th.getClass(), NoSuchFileException.class)));
+            testContext.failing(
+                th ->
+                    testContext.verify(
+                        () -> {
+                          assertEquals(NoSuchFileException.class, th.getClass());
+                          testContext.completeNow();
+                        })));
   }
 
   @Test
-  public void authInfoWithAbsentUserShouldFailAuthentication() {
+  public void authInfoWithAbsentUserShouldFailAuthentication(final VertxTestContext testContext) {
     UsernamePasswordCredentials authInfo = new UsernamePasswordCredentials("foo", "foo");
 
     tomlAuth
         .authenticate(authInfo)
-        .onComplete(testContext.failing(th -> assertEquals("User not found", th.getMessage())));
+        .onComplete(
+            testContext.failing(
+                th ->
+                    testContext.verify(
+                        () -> {
+                          assertEquals("User not found", th.getMessage());
+                          testContext.completeNow();
+                        })));
   }
 
   @Test
-  public void userWithoutPasswordSetShouldFailAuthentication() {
+  public void userWithoutPasswordSetShouldFailAuthentication(final VertxTestContext testContext) {
     UsernamePasswordCredentials authInfo = new UsernamePasswordCredentials("noPasswordUser", "foo");
 
     tomlAuth
         .authenticate(authInfo)
         .onComplete(
-            testContext.failing(th -> assertEquals("No password set for user", th.getMessage())));
+            testContext.failing(
+                th ->
+                    testContext.verify(
+                        () -> {
+                          assertEquals("No password set for user", th.getMessage());
+                          testContext.completeNow();
+                        })));
   }
 
   @Test
-  public void passwordMismatchShouldFailAuthentication() {
+  public void passwordMismatchShouldFailAuthentication(final VertxTestContext testContext) {
     UsernamePasswordCredentials authInfo = new UsernamePasswordCredentials("userA", "foo");
 
     tomlAuth
         .authenticate(authInfo)
-        .onComplete(testContext.failing(th -> assertEquals("Invalid password", th.getMessage())));
+        .onComplete(
+            testContext.failing(
+                th ->
+                    testContext.verify(
+                        () -> {
+                          assertEquals("Invalid password", th.getMessage());
+                          testContext.completeNow();
+                        })));
   }
 
   @Test
-  public void validPasswordWithAllValuesShouldAuthenticateAndCreateUserSuccessfully() {
+  public void validPasswordWithAllValuesShouldAuthenticateAndCreateUserSuccessfully(
+      final VertxTestContext testContext) {
     JsonObject expectedPrincipal =
         new JsonObject()
             .put("username", "userA")
@@ -123,11 +161,18 @@ public class TomlAuthTest {
     tomlAuth
         .authenticate(authInfo)
         .onComplete(
-            testContext.succeeding(res -> assertEquals(expectedPrincipal, res.principal())));
+            testContext.succeeding(
+                res ->
+                    testContext.verify(
+                        () -> {
+                          assertEquals(expectedPrincipal, res.principal());
+                          testContext.completeNow();
+                        })));
   }
 
   @Test
-  public void validPasswordWithOptionalValuesShouldAuthenticateAndCreateUserSuccessfully() {
+  public void validPasswordWithOptionalValuesShouldAuthenticateAndCreateUserSuccessfully(
+      final VertxTestContext testContext) {
     JsonObject expectedPrincipal =
         new JsonObject()
             .put("username", "userB")
@@ -141,7 +186,13 @@ public class TomlAuthTest {
     tomlAuth
         .authenticate(authInfo)
         .onComplete(
-            testContext.succeeding(res -> assertEquals(expectedPrincipal, res.principal())));
+            testContext.succeeding(
+                res ->
+                    testContext.verify(
+                        () -> {
+                          assertEquals(expectedPrincipal, res.principal());
+                          testContext.completeNow();
+                        })));
   }
 
   private String getTomlPath(final String tomlFileName) throws URISyntaxException {

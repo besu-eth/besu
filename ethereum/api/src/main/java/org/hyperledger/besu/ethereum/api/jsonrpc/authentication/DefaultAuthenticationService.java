@@ -251,8 +251,19 @@ public class DefaultAuthenticationService implements AuthenticationService {
                       .onComplete(
                           ignored -> {
                             final Optional<User> optionalUser = Optional.ofNullable(user);
-                            validateExpiryExists(optionalUser);
-                            handler.handle(optionalUser);
+                            // Vert.x 5 runs this callback inside Future#onComplete, whose
+                            // FutureBase#signalComplete swallows any exception thrown here rather
+                            // than letting it propagate to the outer try/catch, so
+                            // validateExpiryExists must be guarded directly or a missing/invalid
+                            // expiry silently drops the handler callback instead of failing
+                            // authentication.
+                            try {
+                              validateExpiryExists(optionalUser);
+                              handler.handle(optionalUser);
+                            } catch (final Exception e) {
+                              LOG.debug("exception validating JWT ", e);
+                              handler.handle(Optional.empty());
+                            }
                           });
                 } else {
                   LOG.debug("Invalid JWT token {}", r.cause().toString());
