@@ -27,13 +27,10 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcRespon
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.DebugTraceTransactionResult;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.calltrace.CallTracer;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.api.query.TransactionWithMetadata;
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
-import org.hyperledger.besu.ethereum.debug.TracerType;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
-import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 
 import java.util.Optional;
@@ -106,12 +103,7 @@ public class DebugTraceTransaction implements JsonRpcMethod {
       final TraceOptions traceOptions) {
     final Hash blockHash = transactionWithMetadata.getBlockHash().get();
 
-    final boolean isCallTracer = traceOptions.tracerType() == TracerType.CALL_TRACER;
-    final OperationTracer execTracer =
-        isCallTracer
-            ? new CallTracer(
-                Boolean.TRUE.equals(traceOptions.tracerConfig().getOrDefault("onlyTopCall", false)))
-            : new DebugOperationTracer(traceOptions.opCodeTracerConfig(), true);
+    final OperationTracer execTracer = DebugOperationTracerFactory.create(traceOptions, true);
 
     return blockchain
         .getBlockchain()

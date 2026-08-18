@@ -21,7 +21,6 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.Tracer;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTrace;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.DebugTraceTransactionResult;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.calltrace.CallTracer;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -330,12 +329,7 @@ public class DebugTraceBlockStreamer {
       final BlockHeader header,
       final Wei blobGasPrice,
       final BlockHashLookup blockHashLookup) {
-    final boolean isCallTracer = traceOptions.tracerType() == TracerType.CALL_TRACER;
-    final OperationTracer tracer =
-        isCallTracer
-            ? new CallTracer(
-                Boolean.TRUE.equals(traceOptions.tracerConfig().getOrDefault("onlyTopCall", false)))
-            : new DebugOperationTracer(traceOptions.opCodeTracerConfig(), true);
+    final OperationTracer tracer = DebugOperationTracerFactory.create(traceOptions, true);
 
     final AccessLocationTracker accessListTracker =
         BlockAccessList.BlockAccessListBuilder.createTransactionAccessLocationTracker(0);
