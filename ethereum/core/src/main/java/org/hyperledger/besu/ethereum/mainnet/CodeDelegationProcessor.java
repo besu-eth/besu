@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
+import org.hyperledger.besu.evm.frame.CodeReadTracker;
 import org.hyperledger.besu.evm.worldstate.CodeDelegationService;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
@@ -74,7 +75,8 @@ public class CodeDelegationProcessor {
   public CodeDelegationResult process(
       final WorldUpdater worldUpdater,
       final Transaction transaction,
-      final Optional<AccessLocationTracker> eip7928AccessList) {
+      final Optional<AccessLocationTracker> eip7928AccessList,
+      final Optional<CodeReadTracker> codeReadTracker) {
     final CodeDelegationResult result = new CodeDelegationResult();
 
     // Per authority, whether it held a delegation in the pre-transaction state. Captured on the
@@ -88,7 +90,12 @@ public class CodeDelegationProcessor {
         .forEach(
             codeDelegation ->
                 processCodeDelegation(
-                    worldUpdater, codeDelegation, result, delegatedBeforeTx, eip7928AccessList));
+                    worldUpdater,
+                    codeDelegation,
+                    result,
+                    delegatedBeforeTx,
+                    eip7928AccessList,
+                    codeReadTracker));
 
     return result;
   }
@@ -98,7 +105,8 @@ public class CodeDelegationProcessor {
       final CodeDelegation codeDelegation,
       final CodeDelegationResult result,
       final Map<Address, Boolean> delegatedBeforeTx,
-      final Optional<AccessLocationTracker> eip7928AccessList) {
+      final Optional<AccessLocationTracker> eip7928AccessList,
+      final Optional<CodeReadTracker> codeReadTracker) {
     LOG.trace("Processing code delegation: {}", codeDelegation);
 
     if (!isCodeDelegationValid(codeDelegation)) {
@@ -123,6 +131,11 @@ public class CodeDelegationProcessor {
         Optional.ofNullable(worldUpdater.get(authorizer));
     eip7928AccessList.ifPresent(t -> t.addTouchedAccount(authorizer));
     result.addAccessedDelegatorAddress(authorizer);
+
+    // EIP-8025 witness: EELS validate_authorization reads the authority's pre-state code to check
+    // whether it already holds a delegation designator, before the nonce check. Record it here so
+    // the witness includes the bytecode even for authorities whose authorization ultimately fails.
+    codeReadTracker.ifPresent(t -> t.addAuthorizationCodeRead(authorizer));
 
     if (!canSetCodeDelegation(codeDelegation, maybeExistingAccount)) {
       result.incrementInvalidAuthorization();

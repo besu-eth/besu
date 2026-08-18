@@ -36,6 +36,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
 import org.hyperledger.besu.ethereum.core.BlockchainSetupUtil;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.BlockAccessListValidator;
 import org.hyperledger.besu.ethereum.mainnet.BlockBodyValidator;
 import org.hyperledger.besu.ethereum.mainnet.BlockHeaderValidator;
@@ -118,10 +119,13 @@ public class MainnetBlockValidatorTest {
     when(blockBodyValidator.validateBodyLight(any(), any(), any(), any(), any())).thenReturn(true);
     when(blockAccessListValidator.validate(any(), any(), anyInt())).thenReturn(true);
     when(blockProcessor.processBlock(
-            eq(protocolContext), any(), any(), any(), eq(Optional.empty())))
-        .thenReturn(successfulProcessingResult);
-    when(blockProcessor.processBlock(
-            eq(protocolContext), any(), any(), any(), eq(Optional.empty())))
+            eq(protocolContext),
+            any(),
+            any(),
+            any(),
+            eq(Optional.empty()),
+            any(AbstractBlockProcessor.PreprocessingFunction.class),
+            any()))
         .thenReturn(successfulProcessingResult);
 
     assertNoBadBlocks();
@@ -208,7 +212,14 @@ public class MainnetBlockValidatorTest {
                     List.of())));
     final Optional<BlockAccessList> optionalBal = Optional.of(bal);
     when(blockAccessListValidator.validate(eq(optionalBal), any(), anyInt())).thenReturn(true);
-    when(blockProcessor.processBlock(eq(protocolContext), any(), any(), any(), eq(optionalBal)))
+    when(blockProcessor.processBlock(
+            eq(protocolContext),
+            any(),
+            any(),
+            any(),
+            eq(optionalBal),
+            any(AbstractBlockProcessor.PreprocessingFunction.class),
+            any()))
         .thenReturn(new BlockProcessingResult(Optional.empty(), false));
 
     BlockProcessingResult result =
@@ -315,7 +326,9 @@ public class MainnetBlockValidatorTest {
             eq(blockchain),
             any(MutableWorldState.class),
             eq(block),
-            eq(Optional.empty())))
+            eq(Optional.empty()),
+            any(AbstractBlockProcessor.PreprocessingFunction.class),
+            any()))
         .thenReturn(BlockProcessingResult.FAILED);
 
     BlockProcessingResult result =
@@ -358,7 +371,9 @@ public class MainnetBlockValidatorTest {
             eq(blockchain),
             any(MutableWorldState.class),
             eq(block),
-            eq(Optional.empty()));
+            eq(Optional.empty()),
+            any(AbstractBlockProcessor.PreprocessingFunction.class),
+            any());
 
     BlockProcessingResult result =
         mainnetFrontierBlockValidator.validateAndProcessBlock(
@@ -402,7 +417,9 @@ public class MainnetBlockValidatorTest {
             eq(blockchain),
             any(MutableWorldState.class),
             eq(block),
-            eq(Optional.empty())))
+            eq(Optional.empty()),
+            any(AbstractBlockProcessor.PreprocessingFunction.class),
+            any()))
         .thenReturn(exceptionalResult);
 
     BlockProcessingResult result =
@@ -423,7 +440,9 @@ public class MainnetBlockValidatorTest {
             eq(blockchain),
             any(MutableWorldState.class),
             eq(block),
-            eq(Optional.empty())))
+            eq(Optional.empty()),
+            any(AbstractBlockProcessor.PreprocessingFunction.class),
+            any()))
         .thenReturn(BlockProcessingResult.FAILED);
 
     BlockProcessingResult result =
@@ -447,7 +466,9 @@ public class MainnetBlockValidatorTest {
             eq(blockchain),
             any(MutableWorldState.class),
             eq(block),
-            eq(Optional.empty())))
+            eq(Optional.empty()),
+            any(AbstractBlockProcessor.PreprocessingFunction.class),
+            any()))
         .thenReturn(BlockProcessingResult.FAILED);
 
     BlockProcessingResult result =
@@ -471,7 +492,9 @@ public class MainnetBlockValidatorTest {
             eq(blockchain),
             any(MutableWorldState.class),
             eq(block),
-            eq(Optional.empty())))
+            eq(Optional.empty()),
+            any(AbstractBlockProcessor.PreprocessingFunction.class),
+            any()))
         .thenReturn(BlockProcessingResult.FAILED);
 
     BlockProcessingResult result =
@@ -623,7 +646,13 @@ public class MainnetBlockValidatorTest {
     when(blockHeaderValidator.validateHeader(any(), any(), any())).thenReturn(true);
     when(blockHeaderValidator.validateHeader(any(), any(), any(), any())).thenReturn(true);
     when(blockProcessor.processBlock(
-            eq(protocolContext), any(), any(), any(), eq(Optional.empty())))
+            eq(protocolContext),
+            any(),
+            any(),
+            any(),
+            eq(Optional.empty()),
+            any(AbstractBlockProcessor.PreprocessingFunction.class),
+            any()))
         .thenReturn(successfulProcessingResult);
     when(blockBodyValidator.validateBody(any(), any(), any(), any(), any(), any(), any()))
         .thenReturn(true);

@@ -18,6 +18,7 @@ import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.frame.CodeReadTracker;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
@@ -31,6 +32,7 @@ public class BlockProcessingContext {
   private final BlockHashLookup blockHashLookup;
   private final ProtocolSpec protocolSpec;
   private final Optional<BlockAccessListBuilder> blockAccessListBuilder;
+  private final Optional<CodeReadTracker> codeReadTracker;
 
   public BlockProcessingContext(
       final ProcessableBlockHeader blockHeader,
@@ -39,12 +41,31 @@ public class BlockProcessingContext {
       final BlockHashLookup blockHashLookup,
       final OperationTracer operationTracer,
       final Optional<BlockAccessListBuilder> blockAccessListBuilder) {
+    this(
+        blockHeader,
+        worldState,
+        protocolSpec,
+        blockHashLookup,
+        operationTracer,
+        blockAccessListBuilder,
+        Optional.empty());
+  }
+
+  public BlockProcessingContext(
+      final ProcessableBlockHeader blockHeader,
+      final MutableWorldState worldState,
+      final ProtocolSpec protocolSpec,
+      final BlockHashLookup blockHashLookup,
+      final OperationTracer operationTracer,
+      final Optional<BlockAccessListBuilder> blockAccessListBuilder,
+      final Optional<CodeReadTracker> codeReadTracker) {
     this.blockHeader = blockHeader;
     this.worldState = worldState;
     this.protocolSpec = protocolSpec;
     this.blockHashLookup = blockHashLookup;
     this.operationTracer = operationTracer;
     this.blockAccessListBuilder = blockAccessListBuilder;
+    this.codeReadTracker = codeReadTracker;
   }
 
   public MutableWorldState getWorldState() {
@@ -69,5 +90,9 @@ public class BlockProcessingContext {
 
   public Optional<BlockAccessListBuilder> getBlockAccessListBuilder() {
     return blockAccessListBuilder;
+  }
+
+  public Optional<CodeReadTracker> getCodeReadTracker() {
+    return codeReadTracker;
   }
 }

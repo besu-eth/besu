@@ -35,6 +35,7 @@ import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.frame.CodeReadTracker;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
@@ -206,6 +207,30 @@ public class MainnetTransactionProcessor {
       final TransactionValidationParams transactionValidationParams,
       final Wei blobGasPrice,
       final Optional<AccessLocationTracker> accessLocationTracker) {
+    return processTransaction(
+        worldState,
+        blockHeader,
+        transaction,
+        miningBeneficiary,
+        operationTracer,
+        blockHashLookup,
+        transactionValidationParams,
+        blobGasPrice,
+        accessLocationTracker,
+        Optional.empty());
+  }
+
+  public TransactionProcessingResult processTransaction(
+      final WorldUpdater worldState,
+      final ProcessableBlockHeader blockHeader,
+      final Transaction transaction,
+      final Address miningBeneficiary,
+      final OperationTracer operationTracer,
+      final BlockHashLookup blockHashLookup,
+      final TransactionValidationParams transactionValidationParams,
+      final Wei blobGasPrice,
+      final Optional<AccessLocationTracker> accessLocationTracker,
+      final Optional<CodeReadTracker> codeReadTracker) {
     try {
       final var transactionValidator = transactionValidatorFactory.get();
       LOG.trace("Starting execution of {}", transaction);
@@ -322,7 +347,7 @@ public class MainnetTransactionProcessor {
         final CodeDelegationResult codeDelegationResult =
             maybeCodeDelegationProcessor
                 .get()
-                .process(delegationUpdater, transaction, accessLocationTracker);
+                .process(delegationUpdater, transaction, accessLocationTracker, codeReadTracker);
         eip2930WarmAddressList.addAll(codeDelegationResult.accessedDelegatorAddresses());
         // EIP-7702: an invalid authorization grows no state, so it refunds its full worst-case
         // intrinsic charge, like an authority that already existed. Not pre-Amsterdam.
@@ -379,6 +404,7 @@ public class MainnetTransactionProcessor {
               .eip2930AccessListWarmStorage(eip2930StorageList);
 
       accessLocationTracker.ifPresent(commonMessageFrameBuilder::eip7928AccessList);
+      codeReadTracker.ifPresent(commonMessageFrameBuilder::codeReadTracker);
 
       if (transaction.getVersionedHashes().isPresent()) {
         commonMessageFrameBuilder.versionedHashes(
