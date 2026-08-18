@@ -37,9 +37,25 @@ import java.util.Optional;
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 @DisplayName("CallTracer")
 class CallTracerTest {
+
+  @ParameterizedTest
+  @CsvSource({
+    "100, 0",
+    "101, 1",
+    "164, 63",
+    "1000, 886",
+    "10000, 9746",
+    "-5, 0",
+  })
+  @DisplayName("calculatePrecompileGas applies the warm-access cap then the 63/64 rule")
+  void calculatePrecompileGasAppliesGethStyleCalculation(final long preOpGas, final long expected) {
+    assertThat(CallTracer.calculatePrecompileGas(preOpGas)).isEqualTo(expected);
+  }
 
   private static MessageFrame frame(final Address sender, final Address ownAddress) {
     final MessageFrame frame = mock(MessageFrame.class);

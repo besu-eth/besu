@@ -102,10 +102,16 @@ public class CallTracer implements OperationTracer {
   @Override
   public void traceStartTransaction(final WorldView worldView, final Transaction transaction) {
     this.transaction = transaction;
+    this.rootBuilder = null;
+    this.pendingType = null;
+    this.stack.clear();
   }
 
   @Override
   public void tracePreExecution(final MessageFrame frame) {
+    if (onlyTopCall) {
+      return;
+    }
     final Operation op = frame.getCurrentOperation();
     if (op == null) {
       return;
@@ -460,7 +466,7 @@ public class CallTracer implements OperationTracer {
   // reports it: warm-access cost subtracted, then the standard 63/64 EIP-150 rule).
   // ------------------------------------------------------------------------------------------
 
-  private static long calculatePrecompileGas(final long preOpGas) {
+  static long calculatePrecompileGas(final long preOpGas) {
     final long post = Math.max(0L, preOpGas);
     final long base = post > WARM_ACCESS_GAS ? post - WARM_ACCESS_GAS : 0L;
     return base - (base / GAS_CALL_STIPEND_DIVISOR);
