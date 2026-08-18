@@ -62,6 +62,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.base.Stopwatch;
 import org.apache.tuweni.bytes.Bytes;
+import org.jspecify.annotations.Nullable;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
@@ -96,32 +97,32 @@ public class StateTestSubCommand implements Runnable {
   @Option(
       names = {"--fork"},
       description = "Force the state tests to run on a specific fork.")
-  private String fork = null;
+  private @Nullable String fork = null;
 
   @Option(
       names = {"--test-name"},
       description = "Limit execution to one named test.")
-  private String testName = null;
+  private @Nullable String testName = null;
 
   @Option(
       names = {"--data-index"},
       description = "Limit execution to one data variable.")
-  private Integer dataIndex = null;
+  private @Nullable Integer dataIndex = null;
 
   @Option(
       names = {"--gas-index"},
       description = "Limit execution to one gas variable.")
-  private Integer gasIndex = null;
+  private @Nullable Integer gasIndex = null;
 
   @Option(
       names = {"--value-index"},
       description = "Limit execution to one value variable.")
-  private Integer valueIndex = null;
+  private @Nullable Integer valueIndex = null;
 
   @Option(
       names = {"--fork-index"},
       description = "Limit execution to one fork.")
-  private String forkIndex = null;
+  private @Nullable String forkIndex = null;
 
   @Option(
       names = {"--cache-precompiles"},
@@ -139,7 +140,7 @@ public class StateTestSubCommand implements Runnable {
    * Default constructor for the StateTestSubCommand class. This constructor doesn't take any
    * arguments and initializes the parentCommand to null. PicoCLI requires this constructor.
    */
-  @SuppressWarnings("unused")
+  @SuppressWarnings({"unused", "NullAway"}) // Picocli injects the parent after construction.
   public StateTestSubCommand() {
     // PicoCLI requires this
     this(null);
