@@ -26,6 +26,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 /** The Genesis config file. */
@@ -271,7 +272,13 @@ public class GenesisConfig {
    * @return the slot number
    */
   public String getSlotNumber() {
-    return JsonUtil.getValueAsString(genesisRoot, "slotnumber", "0x0");
+    final JsonNode node = genesisRoot.get("slotnumber");
+    if (node == null) {
+      return "0x0";
+    }
+    // JSON numbers are decimal; hex-encode so callers parse hex like
+    // every other genesis field.
+    return node.isNumber() ? "0x" + Long.toHexString(node.asLong()) : node.asText();
   }
 
   /**
