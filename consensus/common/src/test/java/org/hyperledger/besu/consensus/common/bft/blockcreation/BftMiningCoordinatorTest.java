@@ -15,6 +15,7 @@
 package org.hyperledger.besu.consensus.common.bft.blockcreation;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
@@ -35,6 +36,7 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 
+import java.time.Duration;
 import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 
@@ -146,8 +148,7 @@ public class BftMiningCoordinatorTest {
 
     bftMiningCoordinator.enable();
     bftMiningCoordinator.start();
-    stopper[0].join(5000);
-    assertThat(stopper[0].isAlive()).isFalse();
+    assertTimeoutPreemptively(Duration.ofSeconds(5), () -> stopper[0].join());
 
     final InOrder inOrder = inOrder(bftExecutors);
     inOrder.verify(bftExecutors).start();
