@@ -20,15 +20,14 @@ import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
 /**
- * The {@code --run}/{@code --test-name} filter shared by the fixture runners: a case-insensitive
- * substring match, or — when the expression contains {@code *} or {@code ?} — a case-insensitive
- * regex in which {@code *} means {@code .*} and {@code ?} means any single character. Everything
- * else reaches {@link Pattern} untouched, so alternation and character classes work, mirroring
- * hive's {@code --sim.limit}.
+ * The {@code --test-name} filter used by {@code block-test} and {@code state-test}. An expression
+ * without {@code *} or {@code ?} is a case-insensitive substring match. One with either is a
+ * case-insensitive regex that must match the whole test id, where {@code *} becomes {@code .*} and
+ * {@code ?} becomes {@code .}. The rest of the expression is passed to {@link Pattern} as-is, so
+ * alternation and character classes work, as in hive's {@code --sim.limit}.
  *
- * <p>Compiling once, before any fixture is read, is what makes a malformed expression an immediate
- * failure rather than one raised part-way through a run, where callers would have to distinguish it
- * from an unreadable fixture file.
+ * <p>Callers compile the expression before reading any fixture, so a malformed pattern fails up
+ * front rather than part-way through a run.
  */
 final class TestNameFilter {
 
@@ -43,7 +42,7 @@ final class TestNameFilter {
   /**
    * Compiles a filter expression.
    *
-   * @param expression the {@code --run} expression, never null
+   * @param expression the {@code --test-name} expression, never null
    * @return the compiled filter
    * @throws IllegalArgumentException if the expression is not a valid pattern
    */
@@ -51,16 +50,16 @@ final class TestNameFilter {
     if (expression.indexOf('*') < 0 && expression.indexOf('?') < 0) {
       return new TestNameFilter(null, expression.toLowerCase(Locale.ROOT));
     }
-    // '.' is a literal: test ids are pytest node ids, so they are full of ".py"
+    // '.' is escaped: test ids are pytest node ids, which contain ".py"
     final String pattern = expression.replace(".", "\\.").replace("*", ".*").replace("?", ".");
     try {
       return new TestNameFilter(Pattern.compile(pattern, Pattern.CASE_INSENSITIVE), null);
     } catch (final PatternSyntaxException e) {
       throw new IllegalArgumentException(
           String.format(
-              "Invalid --run/--test-name pattern '%s': %s."
-                  + " Test ids contain regex metacharacters such as '[' and '(' — escape them"
-                  + " (\\[) if you mean them literally.",
+              "Invalid --test-name pattern '%s': %s."
+                  + " Test ids contain regex metacharacters such as '[' and '('."
+                  + " Escape them (\\[) to match literally.",
               expression, e.getDescription()),
           e);
     }

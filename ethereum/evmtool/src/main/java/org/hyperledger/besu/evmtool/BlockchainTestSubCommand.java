@@ -107,7 +107,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
   public static final String COMMAND_NAME = "block-test";
 
   @Option(
-      names = {"--test-name", "--run"},
+      names = {"--test-name"},
       description =
           "Limit execution to tests whose name contains the given substring, or matches the given"
               + " pattern (a regex, with * and ? as wildcards).")
@@ -151,7 +151,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
   // picocli does it magically
   @Parameters private final List<Path> blockchainTestFiles = new ArrayList<>();
 
-  // Cache protocol schedules across all tests — creating all 30+ schedules is very expensive
+  // Cached across all tests: building the 30+ reference test schedules is expensive
   private volatile ReferenceTestProtocolSchedules cachedSchedules;
 
   /**
@@ -233,14 +233,17 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       System.err.println("Error: " + e.getMessage());
       e.printStackTrace(System.err);
     } finally {
-      // An empty run is not a pass: a typo in --run, or a fixture tree that failed to
-      // materialise, would otherwise be indistinguishable from a clean sweep.
+      // Fail an empty run, so a typo in --test-name or a fixture tree that did not materialise
+      // cannot be mistaken for a clean sweep.
       boolean ranNothing = false;
       if (!results.hasTests()) {
         ranNothing = true;
-        parentCommand.out.printf(
-            "No blockchain test was executed%s.%n",
-            testName == null ? "" : " matching --run/--test-name '" + testName + "'");
+        // Not printed under --json-array, where that output is parsed and only the array belongs.
+        if (!jsonArray) {
+          parentCommand.out.printf(
+              "No blockchain test was executed%s.%n",
+              testName == null ? "" : " matching --test-name '" + testName + "'");
+        }
       }
       exitCode = results.failed() > 0 || setupFailed || ranNothing ? 1 : 0;
       if (jsonArray) {
@@ -281,10 +284,10 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
   }
 
   /**
-   * Reads one fixture file and runs it. A file that cannot be read is reported in the summary, but
-   * kept apart from the test failures: it says nothing about Besu, only that the fixture has a
-   * shape this harness cannot build. Shared by the sequential and parallel paths so that the same
+   * Reads one fixture file and runs it. Used by both the sequential and the parallel path, so a
    * directory yields the same counts whatever {@code --workers} is.
+   *
+   * <p>A file that cannot be read is recorded as unreadable rather than as a test failure.
    */
   private void runFile(
       final Path file,

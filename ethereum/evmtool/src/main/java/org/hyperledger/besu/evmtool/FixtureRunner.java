@@ -38,14 +38,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 /**
- * Scaffolding shared by the fixture-consuming subcommands — {@code block-test}, {@code state-test}
- * and {@code engine-test}. They differ in what a test <em>is</em>, but agree on everything around
- * it: expanding paths into fixture files, spreading those files over a worker pool, tallying the
- * outcome, and emitting {@code --json-array}.
- *
- * <p>Keeping one copy is what makes the three subcommands report the same counts for the same
- * directory; when this logic was inlined three times it drifted, and a difference in, say, which
- * files a directory expands to is invisible in review until the totals disagree.
+ * Fixture handling shared by {@code block-test} and {@code state-test}: expanding paths into
+ * fixture files, running those files over a worker pool, tallying results, and emitting {@code
+ * --json-array}. Held in one place so both subcommands report the same counts for the same
+ * directory.
  */
 final class FixtureRunner {
 
@@ -76,8 +72,8 @@ final class FixtureRunner {
       } else if (path.toFile().isFile()) {
         files.add(path);
       } else {
-        // Callers read an empty file list as "no files given" and answer it by blocking on stdin
-        // for filenames, so a path that resolves to nothing has to be raised rather than dropped.
+        // An empty file list means "read filenames from stdin", so dropping an unresolvable path
+        // here would leave the command blocked on stdin instead of reporting the bad path.
         throw new FileNotFoundException("File not found: " + path);
       }
     }
@@ -117,8 +113,8 @@ final class FixtureRunner {
   }
 
   /**
-   * Prints the collected {@code --json-array} payload, falling back to an empty array so that a
-   * serialisation fault still yields parseable output.
+   * Prints the collected {@code --json-array} payload, falling back to an empty array so the output
+   * stays parseable if serialisation fails.
    *
    * @param out where to print
    * @param results the per-test result nodes
@@ -141,11 +137,11 @@ final class FixtureRunner {
   }
 
   /**
-   * Pass/fail tallies and the end-of-run summary block, shared by the subcommands that report one.
+   * Pass/fail tallies and the end-of-run summary block.
    *
-   * <p>Unreadable fixtures are tracked apart from failures on purpose: a file this harness cannot
-   * build a test from says nothing about Besu, and folding it into the failure count would make a
-   * fixture-format change look like a regression.
+   * <p>Unreadable fixtures are counted separately from failures. A file we cannot build a test from
+   * is a fixture problem rather than a Besu one, and counting it as a failure would make a fixture
+   * format change look like a regression.
    */
   static final class TestResults {
     private static final String SEPARATOR = "=".repeat(80);

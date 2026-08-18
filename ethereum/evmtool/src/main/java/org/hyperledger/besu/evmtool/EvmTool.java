@@ -32,9 +32,8 @@ public final class EvmTool {
     final EvmToolCommand evmToolCommand = new EvmToolCommand();
 
     final int exitCode = evmToolCommand.execute(args);
-    // Subcommands such as engine-test hold shared Vertx and EthScheduler pools whose non-daemon
-    // threads keep the JVM alive for their keep-alive window (~60s) past the last test, so the
-    // exit has to be explicit rather than by falling off the end of main.
+    // Exit explicitly: returning from main always yields 0, which would hide a subcommand failure
+    // from CI and gradle.
     System.exit(exitCode);
   }
 }

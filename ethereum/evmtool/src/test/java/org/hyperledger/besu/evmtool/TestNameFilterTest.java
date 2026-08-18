@@ -61,11 +61,11 @@ class TestNameFilterTest {
   }
 
   @Test
-  void malformedPatternFailsAtCompileTimeWithAnActionableMessage() {
+  void malformedPatternIsRejectedWhenCompiled() {
     assertThatThrownBy(() -> TestNameFilter.compile("*[fork_Amsterdam*"))
         .isInstanceOf(IllegalArgumentException.class)
-        .hasMessageContaining("Invalid --run/--test-name pattern '*[fork_Amsterdam*'")
-        .hasMessageContaining("escape them");
+        .hasMessageContaining("Invalid --test-name pattern '*[fork_Amsterdam*'")
+        .hasMessageContaining("Escape them");
   }
 
   @Test

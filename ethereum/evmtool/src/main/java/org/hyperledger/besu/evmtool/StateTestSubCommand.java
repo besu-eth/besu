@@ -106,15 +106,10 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
 
   @Option(
       names = {"--test-name"},
-      description = "Limit execution to the test with exactly this name.")
-  private String testName = null;
-
-  @Option(
-      names = {"--run"},
       description =
           "Limit execution to tests whose name contains the given substring, or matches the given"
               + " pattern (a regex, with * and ? as wildcards).")
-  private String runFilter = null;
+  private String testName = null;
 
   // Compiled up front so a malformed expression fails before any fixture is read
   private TestNameFilter nameFilter;
@@ -173,13 +168,13 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
   // Collected results for --json-array mode
   private final List<ObjectNode> jsonArrayResults = Collections.synchronizedList(new ArrayList<>());
 
-  // Fixture files this harness could not build a test from — reported, never silently dropped
+  // Fixture files we could not build a test from; reported at the end rather than dropped
   private final List<String> unreadableFiles = Collections.synchronizedList(new ArrayList<>());
 
-  // Cache protocol schedules across all tests — creating all 30+ schedules is very expensive
+  // Cached across all tests: building the 30+ reference test schedules is expensive
   private volatile ReferenceTestProtocolSchedules cachedSchedules;
 
-  // Cached ObjectMapper for summary output — thread-safe for createObjectNode()
+  // Shared for summary output; createObjectNode() is thread safe
   private static final ObjectMapper SHARED_OBJECT_MAPPER = JsonUtils.createObjectMapper();
 
   // picocli does it magically
@@ -211,9 +206,9 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
         stateTestMapper
             .getTypeFactory()
             .constructParametricType(Map.class, String.class, GeneralStateTestCaseSpec.class);
-    if (runFilter != null) {
+    if (testName != null) {
       try {
-        nameFilter = TestNameFilter.compile(runFilter);
+        nameFilter = TestNameFilter.compile(testName);
       } catch (final IllegalArgumentException e) {
         parentCommand.out.println(e.getMessage());
         anyFailure.set(true);
@@ -249,34 +244,44 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
     } catch (final UnsupportedForkException e) {
       throw e;
     } catch (final JsonProcessingException jpe) {
+      // A fixture that could not be parsed has to fail the run, otherwise a broken fixture tree
+      // reports success.
       parentCommand.out.println("File content error: " + jpe);
+      anyFailure.set(true);
     } catch (final IOException e) {
       System.err.println("Unable to read state file: " + e.getMessage());
       anyFailure.set(true);
     } catch (final Exception e) {
       System.err.println("Error: " + e.getMessage());
       e.printStackTrace(System.err);
+      anyFailure.set(true);
     }
 
-    if (runFilter != null && passCount.get() + failCount.get() == 0) {
-      // A filter that selects nothing is almost always a typo, and an empty run reporting success
-      // is indistinguishable from a clean sweep.
-      parentCommand.out.printf("No test matched --run '%s'; nothing was executed.%n", runFilter);
+    if (passCount.get() + failCount.get() == 0) {
+      // Fail an empty run, whether or not a filter was given, so a typo in --test-name or a fixture
+      // tree that did not materialise cannot be mistaken for a clean sweep. Matches block-test.
+      if (!jsonArray) {
+        parentCommand.out.printf(
+            "No state test was executed%s.%n",
+            testName == null ? "" : " matching --test-name '" + testName + "'");
+      }
       anyFailure.set(true);
     }
 
     if (jsonArray) {
       FixtureRunner.printJsonArray(parentCommand.out, jsonArrayResults);
-    } else if (passCount.get() + failCount.get() > 0) {
-      parentCommand.out.printf(
-          "%nState test summary: %d passed, %d failed%n", passCount.get(), failCount.get());
-    }
-
-    if (!unreadableFiles.isEmpty()) {
-      parentCommand.out.printf(
-          "%n%d fixture file(s) were not readable as state tests (no test in them ran):%n",
-          unreadableFiles.size());
-      unreadableFiles.forEach(f -> parentCommand.out.println("  - " + f));
+    } else {
+      if (passCount.get() + failCount.get() > 0) {
+        parentCommand.out.printf(
+            "%nState test summary: %d passed, %d failed%n", passCount.get(), failCount.get());
+      }
+      // Not printed under --json-array, where that output is parsed and only the array belongs.
+      if (!unreadableFiles.isEmpty()) {
+        parentCommand.out.printf(
+            "%n%d fixture file(s) were not readable as state tests (no test in them ran):%n",
+            unreadableFiles.size());
+        unreadableFiles.forEach(f -> parentCommand.out.println("  - " + f));
+      }
     }
   }
 
@@ -286,12 +291,12 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
   }
 
   /**
-   * Reads one fixture file and runs it. A file that cannot be read is reported, but kept apart from
-   * the test failures: it says nothing about Besu, only that the fixture has a shape this harness
-   * cannot build — the {@code test_bad_v_r_s} fixtures, say, carry a pre-signed transaction in
-   * {@code post[].txbytes} rather than a {@code secretKey} for {@code
-   * StateTestVersionedTransaction} to sign with. Shared by the sequential and parallel paths so the
+   * Reads one fixture file and runs it. Used by both the sequential and the parallel path so the
    * counts agree either way.
+   *
+   * <p>A file that cannot be read is reported separately from the test failures. The {@code
+   * test_bad_v_r_s} fixtures, for example, carry a pre-signed transaction in {@code post[].txbytes}
+   * instead of a {@code secretKey} for {@code StateTestVersionedTransaction} to sign with.
    */
   private void runFile(final Path file, final ObjectMapper mapper, final JavaType javaType) {
     final Map<String, GeneralStateTestCaseSpec> generalStateTests;
@@ -322,12 +327,12 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
                     try {
                       traceTestSpecs(generalStateTestEntry.getKey(), specs, isLastIteration);
                     } catch (final UnsupportedForkException e) {
-                      // A fork the reference-test schedules do not know about is a harness
-                      // configuration problem, not a per-test failure: surface it to the caller.
+                      // An unknown fork is a harness configuration problem rather than a test
+                      // failure, so let it out.
                       throw e;
                     } catch (final RuntimeException e) {
-                      // Charge an execution error to the test that caused it, so one broken
-                      // fixture cannot take the rest of the file down with it.
+                      // Record against the test that caused it, so one broken fixture does not
+                      // abandon the rest of the file.
                       if (isLastIteration) {
                         failCount.incrementAndGet();
                         anyFailure.set(true);
@@ -341,15 +346,8 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
     }
   }
 
-  /**
-   * Whether the given test is selected by {@code --test-name} (an exact name) and {@code --run} (a
-   * case-insensitive substring, or a regex with {@code *} and {@code ?} as wildcards). Both default
-   * to selecting everything.
-   */
+  /** Whether {@code --test-name} selects the given test. With no filter, everything is selected. */
   private boolean selects(final String test) {
-    if (testName != null && !testName.equals(test)) {
-      return false;
-    }
     return nameFilter == null || nameFilter.matches(test);
   }
 
@@ -484,15 +482,13 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
         final List<Log> logs = result.getLogs();
         final Hash actualLogsHash = Hash.hash(RLP.encode(out -> out.writeList(logs, Log::writeTo)));
         summaryLine.put("postLogsHash", actualLogsHash.getBytes().toHexString());
-        // Every fixture requires the post state root and logs hash to match; one expecting an
-        // exception requires the rejection on top of that. Rejection alone would also be satisfied
-        // by rejecting for the wrong reason, or while corrupting state.
+        // Every fixture requires the post state root and the logs hash to match. A fixture that
+        // expects an exception additionally requires the transaction to be rejected; checking the
+        // rejection alone would also pass when we reject for the wrong reason or corrupt state.
         //
-        // The expected exception name itself is not compared: EELS spells it
-        // "TransactionException.INSUFFICIENT_ACCOUNT_FUNDS" where Besu reports a prose message, and
-        // there is no mapping between the two here yet (EngineTestExceptionMapper is the
-        // engine-side
-        // equivalent).
+        // The expected exception name is not compared. EELS writes it as
+        // "TransactionException.INSUFFICIENT_ACCOUNT_FUNDS" while Besu reports a prose message, and
+        // there is no mapping between the two yet.
         final boolean exceptionExpected = spec.getExpectException() != null;
         final boolean postStateMatches =
             worldState.rootHash().equals(spec.getExpectedRootHash())

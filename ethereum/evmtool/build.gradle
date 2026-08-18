@@ -117,7 +117,7 @@ tasks.register('stateTestsDevnet', JavaExec) {
       workerCount
     ]
     if (nameFilter != null) {
-      cmd += ['--run', nameFilter]
+      cmd += ['--test-name', nameFilter]
     }
     cmd += runDir.absolutePath
     args = cmd
