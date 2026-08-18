@@ -1,15 +1,14 @@
 /*
- * Copyright contributors to Hyperledger Besu.
+ * Copyright contributors to Besu.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
- * in compliance with the License. You may obtain a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software distributed under the License
- * is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
- * or implied. See the License for the specific language governing permissions and limitations under
- * the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations under the License.
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -40,8 +39,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 /**
  * Fixture handling shared by {@code block-test} and {@code state-test}: expanding paths into
  * fixture files, running those files over a worker pool, tallying results, and emitting {@code
- * --json-array}. Held in one place so both subcommands report the same counts for the same
- * directory.
+ * --json-array}.
  */
 final class FixtureRunner {
 

@@ -235,18 +235,14 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       e.printStackTrace(System.err);
     } finally {
       // Fail an empty run, so a typo in --test-name or a fixture tree that did not materialise
-      // cannot be mistaken for a clean sweep.
-      boolean ranNothing = false;
-      if (!results.hasTests()) {
-        ranNothing = true;
-        // Not printed under --json-array, where that output is parsed and only the array belongs.
-        if (!jsonArray) {
-          parentCommand.out.printf(
-              "No blockchain test was executed%s.%n",
-              testName == null ? "" : " matching --test-name '" + testName + "'");
-        }
+      // cannot be mistaken for a clean sweep. Not printed under --json-array, where that output is
+      // parsed and only the array belongs.
+      if (!results.hasTests() && !jsonArray) {
+        parentCommand.out.printf(
+            "No blockchain test was executed%s.%n",
+            testName == null ? "" : " matching --test-name '" + testName + "'");
       }
-      exitCode = results.failed() > 0 || setupFailed || ranNothing ? 1 : 0;
+      exitCode = results.failed() > 0 || setupFailed || !results.hasTests() ? 1 : 0;
       if (jsonArray) {
         FixtureRunner.printJsonArray(parentCommand.out, jsonArrayResults);
       } else if (results.hasTests()) {

@@ -172,7 +172,7 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
   // Fixture files we could not build a test from; reported at the end rather than dropped
   private final List<String> unreadableFiles = Collections.synchronizedList(new ArrayList<>());
 
-  // Cached across all tests: building the 30+ reference test schedules is expensive
+  // Cached across all tests
   private volatile ReferenceTestProtocolSchedules cachedSchedules;
 
   // Shared for summary output; createObjectNode() is thread safe
@@ -294,10 +294,6 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
   /**
    * Reads one fixture file and runs it. Used by both the sequential and the parallel path so the
    * counts agree either way.
-   *
-   * <p>A file that cannot be read is reported separately from the test failures. The {@code
-   * test_bad_v_r_s} fixtures, for example, carry a pre-signed transaction in {@code post[].txbytes}
-   * instead of a {@code secretKey} for {@code StateTestVersionedTransaction} to sign with.
    */
   private void runFile(final Path file, final ObjectMapper mapper, final JavaType javaType) {
     final Map<String, GeneralStateTestCaseSpec> generalStateTests;
@@ -483,14 +479,12 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
         final List<Log> logs = result.getLogs();
         final Hash actualLogsHash = Hash.hash(RLP.encode(out -> out.writeList(logs, Log::writeTo)));
         summaryLine.put("postLogsHash", actualLogsHash.getBytes().toHexString());
+
         // Every fixture requires the post state root and the logs hash to match. A fixture that
         // expects an exception additionally requires the transaction to be rejected; checking the
         // rejection alone would also pass when we reject for the wrong reason or corrupt state.
-        //
-        // The expected exception name is not compared. EELS writes it as
-        // "TransactionException.INSUFFICIENT_ACCOUNT_FUNDS" while Besu reports a prose message, and
-        // there is no mapping between the two yet.
         final boolean exceptionExpected = spec.getExpectException() != null;
+
         final boolean postStateMatches =
             worldState.rootHash().equals(spec.getExpectedRootHash())
                 && actualLogsHash.equals(spec.getExpectedLogsHash());
