@@ -835,7 +835,8 @@ public class MainnetTransactionProcessor {
    * contract-creation NEW_ACCOUNT charge, then the per-authority delegation charges, then the
    * dispatch preparation's recipient load and entry charge. The first charge that cannot be
    * afforded halts the frame and skips the rest — an authorization out-of-gas means dispatch prep
-   * never starts, so the recipient is never loaded and must not appear in the block access list.
+   * never starts, so per EIP-7928 the recipient is never loaded and must not appear in the block
+   * access list.
    */
   private PrepCharges chargeTopFrame(
       final MessageFrame initialFrame,
@@ -872,10 +873,11 @@ public class MainnetTransactionProcessor {
       }
       if (!outOfGas) {
         final Address to = transaction.getTo().orElseThrow();
-        // EIP-7928 (v7.1.0): dispatch preparation reads the recipient's account *before* charging
-        // it, so the recipient stays in the block access list even when its own entry charge then
-        // runs out of gas — but an authorization out-of-gas, which precedes the load, leaves it
-        // out.
+        // EIP-7928: dispatch preparation reads the recipient's account *before* charging it, so the
+        // recipient stays in the block access list even when its own entry charge then runs out of
+        // gas. A transaction that halts on an earlier runtime charge — an EIP-7702 authorization's,
+        // above — never reaches this load, and the spec requires the recipient be left out of the
+        // list unless something else accessed it.
         initialFrame.getEip7928AccessList().ifPresent(bal -> bal.addTouchedAccount(to));
         if (stateGasActive) {
           // The recipient's NEW_ACCOUNT (value materialising an empty leaf) is measured because the
