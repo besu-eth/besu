@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.consensus.clique;
 
+import static java.util.Objects.requireNonNull;
+
 import org.hyperledger.besu.consensus.common.validator.ValidatorProvider;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.ProtocolContext;
@@ -24,9 +26,11 @@ import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
 import java.util.Collection;
 import java.util.Comparator;
 
+import org.jspecify.annotations.Nullable;
+
 /** The Clique helpers. */
 public class CliqueHelpers {
-  private static CliqueContext cliqueContext;
+  private static @Nullable CliqueContext cliqueContext;
 
   /** Default constructor. */
   CliqueHelpers() {}
@@ -38,6 +42,10 @@ public class CliqueHelpers {
    */
   public static void setCliqueContext(final CliqueContext cliqueContext) {
     CliqueHelpers.cliqueContext = cliqueContext;
+  }
+
+  private static CliqueContext getCliqueContext() {
+    return requireNonNull(cliqueContext, "Clique context must be initialized before use");
   }
 
   /**
@@ -59,7 +67,7 @@ public class CliqueHelpers {
    */
   static Address getProposerForBlockAfter(final BlockHeader parent) {
     final CliqueProposerSelector proposerSelector =
-        new CliqueProposerSelector(cliqueContext.getValidatorProvider());
+        new CliqueProposerSelector(getCliqueContext().getValidatorProvider());
     return proposerSelector.selectProposerForNextBlock(parent);
   }
 
