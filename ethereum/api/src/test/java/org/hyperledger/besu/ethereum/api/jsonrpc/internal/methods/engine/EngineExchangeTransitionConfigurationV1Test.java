@@ -34,8 +34,10 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ConstructorArgumentsBuilder;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.TransitionConfigurationV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineExchangeTransitionConfigurationResult;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -225,6 +227,17 @@ public class EngineExchangeTransitionConfigurationV1Test extends AbstractSchedul
     assertThat(res.get("terminalBlockHash"))
         .isEqualTo("0x0000000000000000000000000000000000000000000000000000000000000000");
     assertThat(res.get("terminalTotalDifficulty")).isEqualTo("0x0");
+  }
+
+  @Test
+  public void shouldRejectCallPostCancun() {
+    when(blockHeader.getTimestamp()).thenReturn(cancunHardfork.milestone());
+
+    var response = resp(new TransitionConfigurationV1(Difficulty.ZERO, Hash.ZERO, 0L));
+
+    assertThat(response.getType()).isEqualTo(RpcResponseType.ERROR);
+    assertThat(((JsonRpcErrorResponse) response).getErrorType())
+        .isEqualTo(RpcErrorType.UNSUPPORTED_FORK);
   }
 
   @Test
