@@ -79,7 +79,7 @@ public class TestMessageFrameBuilderV2 {
     return this;
   }
 
-  TestMessageFrameBuilderV2 originator(final Address originator) {
+  public TestMessageFrameBuilderV2 originator(final Address originator) {
     this.originator = originator;
     return this;
   }
