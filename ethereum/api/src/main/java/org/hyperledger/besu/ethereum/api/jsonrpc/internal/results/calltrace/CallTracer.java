@@ -199,7 +199,7 @@ public class CallTracer implements OperationTracer {
       if (STATICCALL.equals(type)) {
         // value intentionally omitted (null) for STATICCALL
       } else if (DELEGATECALL.equals(type)) {
-        b.value(ZERO_VALUE);
+        b.value(frame.getApparentValue().toShortHexString());
       } else {
         b.value(frame.getValue().toShortHexString());
       }
@@ -210,7 +210,7 @@ public class CallTracer implements OperationTracer {
     }
 
     pendingType = null;
-    stack.push(new Node(b, frame.getRemainingGas(), frame.getContractAddress()));
+    stack.push(new Node(b, frame.getRemainingGas(), frame.getRecipientAddress()));
   }
 
   @Override
@@ -237,12 +237,28 @@ public class CallTracer implements OperationTracer {
    *
    * @param tx the traced transaction
    * @param result the transaction's authoritative processing result
-   * @return the completed call tracer result, or {@code null} if the transaction never ran
+   * @return the completed call tracer result
    */
   public CallTracerResult buildResult(
       final Transaction tx, final TransactionProcessingResult result) {
     if (rootBuilder == null) {
-      return null;
+      // Validation failed before any frame was traced (e.g. debug_traceBlock replaying an
+      // invalid transaction) - synthesize the root call from the transaction itself, like the
+      // legacy converter did.
+      rootBuilder =
+          CallTracerResult.builder()
+              .type(tx.isContractCreation() ? CREATE : CALL)
+              .from(tx.getSender().getBytes().toHexString())
+              .to(
+                  tx.isContractCreation()
+                      ? tx.contractAddress().map(a -> a.getBytes().toHexString()).orElse(null)
+                      : tx.getTo().map(a -> a.getBytes().toHexString()).orElse(null))
+              .value(tx.getValue().toShortHexString())
+              .gas(tx.getGasLimit())
+              .input(tx.getPayload().toHexString());
+      if (result.getOutput() != null && !result.getOutput().isEmpty()) {
+        rootBuilder.output(result.getOutput().toHexString());
+      }
     }
     rootBuilder.gasUsed(tx.getGasLimit() - result.getGasRemaining());
     if (!result.isSuccessful()) {
@@ -328,7 +344,13 @@ public class CallTracer implements OperationTracer {
       cb.value(pendingValueHex);
     }
     if (pendingValid) {
-      final long len = Math.max(0L, pendingInLength);
+      // Clamp to already-expanded memory: offset/length are unclamped stack values, and the
+      // call/create failed before memory was expanded to fit them.
+      final long available = frame.memoryByteSize();
+      final long len =
+          pendingInOffset >= available
+              ? 0L
+              : Math.min(Math.max(0L, pendingInLength), available - pendingInOffset);
       final Bytes data = len == 0 ? Bytes.EMPTY : frame.readMemory(pendingInOffset, len);
       cb.input(data.toHexString());
     } else {
@@ -389,7 +411,12 @@ public class CallTracer implements OperationTracer {
     pendingPreOpGas = frame.getRemainingGas();
     final boolean hasValue = CALL.equals(opcode) || CALLCODE.equals(opcode);
     final int required = hasValue ? 7 : 6;
-    pendingValueHex = STATICCALL.equals(opcode) ? null : ZERO_VALUE;
+    pendingValueHex =
+        STATICCALL.equals(opcode)
+            ? null
+            : DELEGATECALL.equals(opcode)
+                ? frame.getApparentValue().toShortHexString()
+                : ZERO_VALUE;
     pendingTo = null;
     pendingInOffset = 0L;
     pendingInLength = 0L;
@@ -443,7 +470,7 @@ public class CallTracer implements OperationTracer {
     return CREATE.equals(type) || CREATE2.equals(type);
   }
 
-  /** Tracks one in-flight call-tree node, keyed to the {@link MessageFrame} it mirrors. */
+  // Tracks one in-flight call-tree node, keyed to the MessageFrame it mirrors.
   private static final class Node {
     private final CallTracerResult.Builder builder;
     private final long entryGas;
