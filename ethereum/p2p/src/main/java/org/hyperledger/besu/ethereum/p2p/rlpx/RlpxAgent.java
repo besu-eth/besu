@@ -228,7 +228,7 @@ public class RlpxAgent {
           .get()
           .anyMatch(c -> c.getPeer().getId().equals(peerId) && !c.isDisconnected());
     } catch (final Exception e) {
-      throw new RuntimeException(Failed to check connection state for peer " + peerId, e);
+      throw new RuntimeException("Failed to check connection state for peer " + peerId, e);
     }
   }
 
