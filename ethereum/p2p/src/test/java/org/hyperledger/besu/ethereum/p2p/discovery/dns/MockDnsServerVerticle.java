@@ -161,8 +161,14 @@ public class MockDnsServerVerticle extends AbstractVerticle {
 
     for (final String txtRecord : records) {
       // Compression pointer back to the question name at offset 0x0C (RFC 1035 4.1.4), rather than
-      // repeating the labels: Vert.x 5's stricter DNS decoder doesn't accept the repeated-labels
-      // form here the way the 4.x decoder did.
+      // repeating the (lowercased) labels. This isn't a decoder strictness issue -- the previous
+      // repeated-labels form decoded fine -- it's that Vert.x 5's DnsClientImpl (rewritten to
+      // delegate to Netty's DnsNameResolver) added a case-sensitive equality check between an
+      // answer's owner name and the query name, silently dropping any record that fails it;
+      // Vert.x 4.5.x had no such check. Lowercasing the labels here made the answer name diverge
+      // from the (non-lowercased) query name above, so the record was filtered out before this
+      // test ever saw it. A real EIP-1459 server whose response doesn't echo the query bytes
+      // verbatim would hit the same silent-drop in production -- see DNSResolver#resolveTxtStrings.
       buffer.appendShort((short) 0xC00C);
 
       buffer.appendShort((short) 16); // TXT record type

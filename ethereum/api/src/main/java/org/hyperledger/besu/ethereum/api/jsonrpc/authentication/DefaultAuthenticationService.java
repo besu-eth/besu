@@ -241,7 +241,7 @@ public class DefaultAuthenticationService implements AuthenticationService {
   public void authenticate(final String token, final Handler<Optional<User>> handler) {
     try {
       getJwtAuthProvider()
-          .authenticate(new TokenCredentials(new JsonObject().put("token", token)))
+          .authenticate(new TokenCredentials(token))
           .onComplete(
               r -> {
                 if (r.succeeded()) {

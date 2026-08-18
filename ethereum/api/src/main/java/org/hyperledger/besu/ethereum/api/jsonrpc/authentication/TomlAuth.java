@@ -44,13 +44,10 @@ public class TomlAuth implements AuthenticationProvider {
 
   @Override
   public Future<User> authenticate(final Credentials credentials) {
-    final UsernamePasswordCredentials usernamePasswordCredentials;
+    if (!(credentials instanceof final UsernamePasswordCredentials usernamePasswordCredentials)) {
+      return Future.failedFuture(new CredentialValidationException("Invalid credentials type"));
+    }
     try {
-      try {
-        usernamePasswordCredentials = (UsernamePasswordCredentials) credentials;
-      } catch (final ClassCastException e) {
-        throw new CredentialValidationException("Invalid credentials type", e);
-      }
       usernamePasswordCredentials.checkValid(null);
     } catch (final RuntimeException e) {
       return Future.failedFuture(e);
