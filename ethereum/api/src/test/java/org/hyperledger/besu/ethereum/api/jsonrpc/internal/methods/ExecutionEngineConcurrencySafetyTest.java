@@ -39,26 +39,28 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import io.vertx.core.Vertx;
+import io.vertx.core.VertxOptions;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 /**
- * Characterizes the concurrency/ordering behavior that engine_* methods currently get from {@link
- * ExecutionEngineJsonRpcMethod#response}'s nested {@code executeBlocking(ordered=true)} call.
- *
- * <p>This is a <em>characterization test</em>, not a specification test: it records whatever the
- * current behavior actually is (across a Vert.x major-version bump) so a change in behavior is
- * caught, rather than asserting an idealized guarantee that may or may not match what the
- * implementation actually provides today. See the class-level discussion in
- * ExecutionEngineJsonRpcMethod for why engine_* calls must not execute concurrently with one
- * another.
+ * Verifies the concurrency/ordering guarantee that engine_* methods get from {@link
+ * ExecutionEngineJsonRpcMethod#response}'s nested {@code executeBlocking(ordered=true)} call: with
+ * a single-worker-thread Vertx instance -- the same configuration production uses (see {@code
+ * RunnerBuilder#jsonRpcMethods}, which builds {@code consensusEngineServer} with {@code new
+ * VertxOptions().setWorkerPoolSize(1)}) -- at most one engine_* call body can ever be executing at
+ * once, whether calls land on the same method instance or two different ones sharing the Vertx
+ * instance. See the class-level discussion in ExecutionEngineJsonRpcMethod for why engine_* calls
+ * must not execute concurrently with one another.
  */
 class ExecutionEngineConcurrencySafetyTest {
 
-  // A single shared, real Vertx instance -- mirrors production, where one syncVertx is injected
-  // into every ExecutionEngineJsonRpcMethod subclass instance.
-  private static final Vertx vertx = Vertx.vertx();
+  // A single shared, real Vertx instance -- mirrors production's consensusEngineServer, where one
+  // single-worker-thread syncVertx is injected into every ExecutionEngineJsonRpcMethod subclass
+  // instance. A default (multi-threaded) Vertx.vertx() here would let same-/cross-method calls
+  // genuinely overlap, defeating the purpose of this test.
+  private static final Vertx vertx = Vertx.vertx(new VertxOptions().setWorkerPoolSize(1));
 
   @AfterAll
   static void closeVertx() {
@@ -131,17 +133,12 @@ class ExecutionEngineConcurrencySafetyTest {
     final List<String> completionOrder =
         fireConcurrently(callers, id -> method.response(request("engine_test", id)));
 
-    // Record (not assert-as-correct) the observed concurrency so a regression in behavior across
-    // the Vert.x version bump is caught either way, whatever the "before" number turns out to be.
-    System.out.println(
-        "single-method max observed concurrency: " + method.maxObservedConcurrency.get());
-    System.out.println("single-method completion order: " + completionOrder);
-
     assertThat(method.maxObservedConcurrency.get())
         .as(
-            "engine_test observed concurrency baseline (compare across the vertx version bump; "
-                + "not necessarily 1 -- see class javadoc)")
-        .isGreaterThan(0);
+            "engine_test calls dispatched concurrently to a single method instance must still be "
+                + "serialized by the single-worker-thread Vertx instance; completion order was: %s",
+            completionOrder)
+        .isEqualTo(1);
   }
 
   /**
@@ -203,14 +200,19 @@ class ExecutionEngineConcurrencySafetyTest {
 
     final int maxA = methodA.maxObservedConcurrency.get();
     final int maxB = methodB.maxObservedConcurrency.get();
-    System.out.println("cross-method max concurrency, method A body: " + maxA);
-    System.out.println("cross-method max concurrency, method B body: " + maxB);
-    System.out.println(
-        "cross-method max concurrency, callers dispatched at once: "
-            + maxCrossMethodConcurrency.get());
 
-    assertThat(maxA).as("engine_newPayload body baseline").isGreaterThan(0);
-    assertThat(maxB).as("engine_forkchoiceUpdated body baseline").isGreaterThan(0);
+    assertThat(maxA)
+        .as(
+            "engine_newPayload body must never overlap with itself or engine_forkchoiceUpdated "
+                + "(callers dispatched at once: %s)",
+            maxCrossMethodConcurrency.get())
+        .isEqualTo(1);
+    assertThat(maxB)
+        .as(
+            "engine_forkchoiceUpdated body must never overlap with itself or engine_newPayload "
+                + "(callers dispatched at once: %s)",
+            maxCrossMethodConcurrency.get())
+        .isEqualTo(1);
   }
 
   private static void await(final CountDownLatch latch) {

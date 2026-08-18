@@ -99,14 +99,12 @@ import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.auth.JWTOptions;
 import io.vertx.ext.auth.User;
-import io.vertx.ext.auth.authentication.TokenCredentials;
 import io.vertx.ext.auth.authorization.PermissionBasedAuthorization;
 import io.vertx.ext.auth.jwt.JWTAuth;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
-import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -309,27 +307,37 @@ public class WebSocketServiceLoginTest {
                     assertThat(token).isNotNull();
                     assertThat(token).isNotEmpty();
 
+                    // Goes through AuthenticationService#authenticate (the same path production
+                    // JSON-RPC/WS requests use), not the raw JWTAuth provider, since only
+                    // DefaultAuthenticationService#authenticate populates
+                    // user.authorizations() -- which PermissionBasedAuthorization#match depends
+                    // on. Assertions are wrapped in testContext.verify(...) because a thrown
+                    // AssertionError here would otherwise be silently swallowed by Vert.x's
+                    // Future completion handling instead of failing the test.
                     websocketService
                         .authenticationService
                         .get()
-                        .getJwtAuthProvider()
-                        .authenticate(new TokenCredentials(token))
-                        .onComplete(
-                            (r) -> {
-                              Assertions.assertThat(r.succeeded()).isTrue();
-                              final User user = r.result();
-                              assertThat(PermissionBasedAuthorization.create("noauths").match(user))
-                                  .isFalse();
-                              assertThat(
-                                      PermissionBasedAuthorization.create("fakePermission")
-                                          .match(user))
-                                  .isTrue();
-                              assertThat(
-                                      PermissionBasedAuthorization.create("eth:subscribe")
-                                          .match(user))
-                                  .isTrue();
-                              testContext.completeNow();
-                            });
+                        .authenticate(
+                            token,
+                            maybeUser ->
+                                testContext.verify(
+                                    () -> {
+                                      assertThat(maybeUser).isPresent();
+                                      final User user = maybeUser.orElseThrow();
+                                      assertThat(
+                                              PermissionBasedAuthorization.create("noauths")
+                                                  .match(user))
+                                          .isFalse();
+                                      assertThat(
+                                              PermissionBasedAuthorization.create("fakePermission")
+                                                  .match(user))
+                                          .isTrue();
+                                      assertThat(
+                                              PermissionBasedAuthorization.create("eth:subscribe")
+                                                  .match(user))
+                                          .isTrue();
+                                      testContext.completeNow();
+                                    }));
                   });
         };
     Handler<AsyncResult<HttpClientRequest>> requestHandler =
@@ -346,7 +354,12 @@ public class WebSocketServiceLoginTest {
             "/login")
         .onComplete(requestHandler);
 
-    testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    assertThat(testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        .as("test context should complete before the timeout")
+        .isTrue();
+    if (testContext.failed()) {
+      throw new AssertionError(testContext.causeOfFailure());
+    }
   }
 
   @Test
