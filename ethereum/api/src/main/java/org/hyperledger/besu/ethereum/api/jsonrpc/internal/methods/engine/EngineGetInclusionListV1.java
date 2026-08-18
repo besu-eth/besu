@@ -14,20 +14,13 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
-import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
-import org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder;
+import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
@@ -36,11 +29,8 @@ import org.hyperledger.besu.plugin.services.metrics.Counter;
 
 import java.time.Duration;
 import java.util.List;
-import java.util.Optional;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import io.vertx.core.Vertx;
-import org.apache.tuweni.bytes.Bytes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -81,48 +71,19 @@ public class EngineGetInclusionListV1 extends ExecutionEngineJsonRpcMethod {
   public JsonRpcResponse syncResponse(final JsonRpcRequestContext request) {
     engineCallListener.executionEngineCalled();
 
-    final Hash parentHash;
-    try {
-      parentHash = request.getRequiredParameter(0, Hash.class);
-    } catch (JsonRpcParameterException e) {
-      throw new InvalidJsonRpcParameters(
-          "Invalid parent hash parameter (index 0)", RpcErrorType.INVALID_BLOCK_HASH_PARAMS, e);
-    }
-
-    final Optional<BlockHeader> parentHeader =
-        protocolContext.getBlockchain().getBlockHeader(parentHash);
-    if (parentHeader.isEmpty()) {
-      LOG.debug("Unknown parent block hash: {}", parentHash);
-      return new JsonRpcErrorResponse(request.getRequest().getId(), RpcErrorType.UNKNOWN_PARENT);
-    }
-
     final long startTimeNanos = System.nanoTime();
     final List<PendingTransaction> selectedPendingTransactions =
-        transactionPool.getInclusionListPendingTransactions(parentHeader.get());
+        transactionPool.getInclusionListPendingTransactions();
     final long durationMs = Duration.ofNanos(System.nanoTime() - startTimeNanos).toMillis();
 
-    final AtomicInteger totalEncodedSize = new AtomicInteger(0);
-
-    final List<String> result =
-        selectedPendingTransactions.stream()
-            .map(PendingTransaction::getTransaction)
-            .map(tx -> TransactionEncoder.encodeOpaqueBytes(tx, EncodingContext.BLOCK_BODY))
-            .peek(
-                bytes ->
-                    LOG.info(
-                        "This tx encoded size {} bytes, total size {}",
-                        bytes.size(),
-                        totalEncodedSize.addAndGet(bytes.size())))
-            .map(Bytes::toHexString)
-            .toList();
+    final List<Transaction> result =
+        selectedPendingTransactions.stream().map(PendingTransaction::getTransaction).toList();
 
     transactionsGeneratedCounter.inc(result.size());
     selectorDurationMsCounter.inc(durationMs);
 
     LOG.atInfo()
-        .setMessage(
-            "engine_getInclusionListV1: parentHash={}, selected {} transactions, selector took {}ms")
-        .addArgument(parentHash)
+        .setMessage("engine_getInclusionListV1: selected {} transactions, selector took {}ms")
         .addArgument(result.size())
         .addArgument(durationMs)
         .log();

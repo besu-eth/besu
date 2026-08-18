@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineTestSupport.fromErrorResp;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
@@ -34,7 +33,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -111,23 +109,13 @@ public class EngineGetInclusionListV1Test {
   }
 
   @Test
-  public void shouldReturnUnknownParentErrorForUnknownHash() {
-    final JsonRpcResponse response = resp(UNKNOWN_PARENT_HASH);
-
-    assertThat(fromErrorResp(response).getCode()).isEqualTo(RpcErrorType.UNKNOWN_PARENT.getCode());
-    assertThat(fromErrorResp(response).getMessage())
-        .isEqualTo(RpcErrorType.UNKNOWN_PARENT.getMessage());
-  }
-
-  @Test
   public void shouldReturnEmptyListWhenNoTransactionsInPool() {
-    when(transactionPool.getInclusionListPendingTransactions(parentBlockHeader))
-        .thenReturn(List.of());
+    when(transactionPool.getInclusionListPendingTransactions()).thenReturn(List.of());
 
     final JsonRpcResponse response = resp(KNOWN_PARENT_HASH);
     assertThat(response.getType()).isEqualTo(RpcResponseType.SUCCESS);
 
-    final List<String> result = fromSuccessResp(response);
+    final List<Transaction> result = fromSuccessResp(response);
     assertThat(result).isEmpty();
   }
 
@@ -140,18 +128,13 @@ public class EngineGetInclusionListV1Test {
     final PendingTransaction pt2 =
         PendingTransaction.newPendingTransaction(tx2, false, false, (byte) 0);
 
-    when(transactionPool.getInclusionListPendingTransactions(parentBlockHeader))
-        .thenReturn(List.of(pt1, pt2));
+    when(transactionPool.getInclusionListPendingTransactions()).thenReturn(List.of(pt1, pt2));
 
     final JsonRpcResponse response = resp(KNOWN_PARENT_HASH);
     assertThat(response.getType()).isEqualTo(RpcResponseType.SUCCESS);
 
-    final List<String> result = fromSuccessResp(response);
-    assertThat(result).isNotEmpty();
-    assertThat(result.size()).isLessThanOrEqualTo(2);
-    for (final String txHex : result) {
-      assertThat(txHex).startsWith("0x");
-    }
+    final List<Transaction> result = fromSuccessResp(response);
+    assertThat(result).contains(tx1, tx2);
   }
 
   @Test
@@ -162,30 +145,13 @@ public class EngineGetInclusionListV1Test {
     final PendingTransaction pt =
         PendingTransaction.newPendingTransaction(legacyTx, false, false, (byte) 0);
 
-    when(transactionPool.getInclusionListPendingTransactions(parentBlockHeader))
-        .thenReturn(List.of(pt));
+    when(transactionPool.getInclusionListPendingTransactions()).thenReturn(List.of(pt));
 
     final JsonRpcResponse response = resp(KNOWN_PARENT_HASH);
     assertThat(response.getType()).isEqualTo(RpcResponseType.SUCCESS);
 
-    final List<String> result = fromSuccessResp(response);
+    final List<Transaction> result = fromSuccessResp(response);
     assertThat(result).hasSize(1);
-  }
-
-  @Test
-  public void shouldReturnTransactionsAsHexStrings() {
-    final Transaction tx = createLegacyTransaction(0, Wei.of(100));
-    final PendingTransaction pt =
-        PendingTransaction.newPendingTransaction(tx, false, false, (byte) 0);
-
-    when(transactionPool.getInclusionListPendingTransactions(parentBlockHeader))
-        .thenReturn(List.of(pt));
-
-    final JsonRpcResponse response = resp(KNOWN_PARENT_HASH);
-    assertThat(response.getType()).isEqualTo(RpcResponseType.SUCCESS);
-
-    final List<String> result = fromSuccessResp(response);
-    assertThat(result).allSatisfy(hex -> assertThat(hex).startsWith("0x"));
   }
 
   @Test
@@ -194,8 +160,7 @@ public class EngineGetInclusionListV1Test {
     final PendingTransaction pt1 =
         PendingTransaction.newPendingTransaction(tx1, false, false, (byte) 0);
 
-    when(transactionPool.getInclusionListPendingTransactions(parentBlockHeader))
-        .thenReturn(List.of(pt1));
+    when(transactionPool.getInclusionListPendingTransactions()).thenReturn(List.of(pt1));
 
     resp(KNOWN_PARENT_HASH);
 
@@ -209,8 +174,7 @@ public class EngineGetInclusionListV1Test {
     final PendingTransaction pt1 =
         PendingTransaction.newPendingTransaction(tx1, false, false, (byte) 0);
 
-    when(transactionPool.getInclusionListPendingTransactions(parentBlockHeader))
-        .thenReturn(List.of(pt1));
+    when(transactionPool.getInclusionListPendingTransactions()).thenReturn(List.of(pt1));
 
     resp(KNOWN_PARENT_HASH);
 
@@ -248,7 +212,7 @@ public class EngineGetInclusionListV1Test {
   }
 
   @SuppressWarnings({"unchecked", "rawtypes"})
-  private List<String> fromSuccessResp(final JsonRpcResponse resp) {
+  private List<Transaction> fromSuccessResp(final JsonRpcResponse resp) {
     assertThat(resp.getType()).isEqualTo(RpcResponseType.SUCCESS);
     return Optional.of(resp)
         .map(JsonRpcSuccessResponse.class::cast)

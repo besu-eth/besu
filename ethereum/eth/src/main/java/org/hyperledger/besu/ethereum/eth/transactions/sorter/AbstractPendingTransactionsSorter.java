@@ -393,8 +393,7 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
   }
 
   @Override
-  public List<PendingTransaction> getInclusionListPendingTransactions(
-      final BlockHeader blockHeader) {
+  public List<PendingTransaction> getInclusionListPendingTransactions() {
     // ToDo: proper implementation
     return getPendingTransactions();
   }

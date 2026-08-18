@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.eth.transactions.inclusionlist;
 
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 
 import java.util.ArrayList;
@@ -34,9 +33,7 @@ public class DefaultInclusionListSelector implements InclusionListTransactionSel
 
   @Override
   public List<PendingTransaction> selectTransactions(
-      final Hash parentHash,
-      final List<List<PendingTransaction>> pendingTransactionsBySender,
-      final int maxBytes) {
+      final List<List<PendingTransaction>> pendingTransactionsBySender, final int maxBytes) {
 
     final List<PendingTransaction> selected = new ArrayList<>();
 
@@ -50,7 +47,7 @@ public class DefaultInclusionListSelector implements InclusionListTransactionSel
           continue goToNextSender;
         }
 
-        final int txSize = pendingTransaction.getTransaction().getSizeForBlockInclusion();
+        final int txSize = pendingTransaction.getTransaction().getSizeForAnnouncement();
 
         // TODO: this can be optimized checking if the remaining space could fit a smaller tx
         if (totalBytes + txSize > maxBytes) {
@@ -80,13 +77,11 @@ public class DefaultInclusionListSelector implements InclusionListTransactionSel
     }
 
     LOG.atInfo()
-        .setMessage(
-            "IL selector: selected {} transactions ({} bytes) from {} candidates for parent {}")
+        .setMessage("IL selector: selected {} transactions ({} bytes) from {} candidates")
         .addArgument(selected.size())
         .addArgument(totalBytes)
         .addArgument(
             () -> pendingTransactionsBySender.stream().map(List::size).reduce(0, Integer::sum))
-        .addArgument(parentHash)
         .log();
 
     return selected;

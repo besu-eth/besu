@@ -89,21 +89,9 @@ public class BaseFeePrioritizedTransactions extends AbstractPrioritizedTransacti
   }
 
   @Override
-  List<PendingTransaction> getInclusionList(final BlockHeader header) {
-    if (!header.equals(lastBlockHeaderSeen)) {
-      LOG.warn(
-          "Inclusion list request has inconsistent block header, not executable pending transactions may be returned."
-              + " Requested header {}, txpool header {}",
-          header.getHash(),
-          lastBlockHeaderSeen.getHash());
-
-      // ToDo: in this case to improve the results we could at least calculate the baseFee based on
-      // this header
-      // and use it to filter out txs not paying enough
-    }
-
+  List<PendingTransaction> getInclusionList() {
     return inclusionListTransactionSelector.selectTransactions(
-        header.getHash(), getBySender(), InclusionListConfiguration.MAX_BYTES_PER_INCLUSION_LIST);
+        getBySender(), InclusionListConfiguration.MAX_BYTES_PER_INCLUSION_LIST);
   }
 
   /**

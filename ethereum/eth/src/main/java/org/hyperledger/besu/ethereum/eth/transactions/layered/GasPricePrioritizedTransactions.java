@@ -71,7 +71,7 @@ public class GasPricePrioritizedTransactions extends AbstractPrioritizedTransact
   }
 
   @Override
-  List<PendingTransaction> getInclusionList(final BlockHeader header) {
+  List<PendingTransaction> getInclusionList() {
     return List.of();
   }
 

@@ -297,5 +297,5 @@ public abstract class AbstractPrioritizedTransactions extends AbstractSequential
     return currMinPriorityFeePerGas;
   }
 
-  abstract List<PendingTransaction> getInclusionList(final BlockHeader header);
+  abstract List<PendingTransaction> getInclusionList();
 }

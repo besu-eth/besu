@@ -61,6 +61,8 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.Request;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
+import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
+import org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
@@ -195,7 +197,7 @@ public class InclusionListWorkflowIntegrationTest {
   }
 
   @Test
-  public void fullWorkflow_getIL_forkchoiceUpdated_newPayloadValid_strictMode() {
+  public void fullWorkflow_getIL_forkchoiceUpdated_newPayloadValid() {
     // Step 1: getInclusionListV1 - get IL transactions from mempool
     final Transaction tx = createLegacyTransaction(0, Wei.of(100));
     final PendingTransaction pt =
@@ -204,21 +206,27 @@ public class InclusionListWorkflowIntegrationTest {
     final BlockHeader parentHeader = createParentBlockHeader();
     when(blockchain.getBlockHeader(parentHeader.getHash())).thenReturn(Optional.of(parentHeader));
 
-    when(transactionPool.getInclusionListPendingTransactions(parentHeader)).thenReturn(List.of(pt));
+    when(transactionPool.getInclusionListPendingTransactions()).thenReturn(List.of(pt));
 
     final JsonRpcResponse getILResponse = callGetInclusionList(parentHeader.getHash());
     assertThat(getILResponse.getType()).isEqualTo(RpcResponseType.SUCCESS);
 
     @SuppressWarnings("unchecked")
-    final List<String> ilTxHexList =
-        (List<String>) ((JsonRpcSuccessResponse) getILResponse).getResult();
-    assertThat(ilTxHexList).isNotEmpty();
+    final List<Transaction> ilTxList =
+        (List<Transaction>) ((JsonRpcSuccessResponse) getILResponse).getResult();
+    assertThat(ilTxList).isNotEmpty();
     assertThat(metricsSystem.getCounterValue("engine_inclusion_list_transactions_generated"))
         .isGreaterThan(0);
 
     // Step 2: forkchoiceUpdatedV5 - initiate payload building with IL transactions
     final BlockHeader childHeader = createChildBlockHeader(parentHeader);
     setupValidForkchoiceUpdate(childHeader, parentHeader);
+
+    final List<String> ilTxHexList =
+        ilTxList.stream()
+            .map(t -> TransactionEncoder.encodeOpaqueBytes(t, EncodingContext.POOLED_TRANSACTION))
+            .map(Bytes::toHexString)
+            .toList();
 
     final PayloadAttributesV5 payloadAttrs =
         new PayloadAttributesV5(
@@ -259,7 +267,7 @@ public class InclusionListWorkflowIntegrationTest {
   }
 
   @Test
-  public void fullWorkflow_newPayloadValidWithEmptyIL_strictMode() {
+  public void fullWorkflow_newPayloadValidWithEmptyIL() {
     final BlockHeader payloadHeader = setupValidPayloadHeader();
 
     // Empty IL means no constraints - should always be VALID
@@ -270,21 +278,11 @@ public class InclusionListWorkflowIntegrationTest {
   }
 
   @Test
-  public void getInclusionList_unknownParent_returnsError() {
-    final Hash unknownHash =
-        Hash.fromHexString("0x0000000000000000000000000000000000000000000000000000000000000099");
-    when(blockchain.getBlockHeader(unknownHash)).thenReturn(Optional.empty());
-
-    final JsonRpcResponse response = callGetInclusionList(unknownHash);
-    assertThat(response.getType()).isEqualTo(RpcResponseType.ERROR);
-  }
-
-  @Test
   public void getInclusionList_emptyMempool_returnsEmptyList() {
     final BlockHeader parentHeader = createParentBlockHeader();
     when(blockchain.getBlockHeader(parentHeader.getHash())).thenReturn(Optional.of(parentHeader));
 
-    when(transactionPool.getInclusionListPendingTransactions(parentHeader)).thenReturn(List.of());
+    when(transactionPool.getInclusionListPendingTransactions()).thenReturn(List.of());
 
     final JsonRpcResponse response = callGetInclusionList(parentHeader.getHash());
     assertThat(response.getType()).isEqualTo(RpcResponseType.SUCCESS);
@@ -303,7 +301,7 @@ public class InclusionListWorkflowIntegrationTest {
     final BlockHeader parentHeader = createParentBlockHeader();
     when(blockchain.getBlockHeader(parentHeader.getHash())).thenReturn(Optional.of(parentHeader));
 
-    when(transactionPool.getInclusionListPendingTransactions(parentHeader)).thenReturn(List.of(pt));
+    when(transactionPool.getInclusionListPendingTransactions()).thenReturn(List.of(pt));
 
     callGetInclusionList(parentHeader.getHash());
     assertThat(metricsSystem.getCounterValue("engine_inclusion_list_transactions_generated"))

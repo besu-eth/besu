@@ -81,8 +81,7 @@ public class DisabledPendingTransactions implements PendingTransactions {
   }
 
   @Override
-  public List<PendingTransaction> getInclusionListPendingTransactions(
-      final BlockHeader blockHeader) {
+  public List<PendingTransaction> getInclusionListPendingTransactions() {
     return List.of();
   }
 

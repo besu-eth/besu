@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.eth.transactions.inclusionlist;
 
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 
 import java.util.List;
@@ -28,12 +27,11 @@ public interface InclusionListTransactionSelector {
   /**
    * Selects transactions from the mempool for inclusion in an inclusion list.
    *
-   * @param parentHash the hash of the parent block
    * @param pendingTransactionsBySender the candidate transactions from the transaction pool grouped
    *     by sender
    * @param maxBytes the maximum total bytes allowed for selected transactions
    * @return the selected pending transactions
    */
   List<PendingTransaction> selectTransactions(
-      Hash parentHash, List<List<PendingTransaction>> pendingTransactionsBySender, int maxBytes);
+      List<List<PendingTransaction>> pendingTransactionsBySender, int maxBytes);
 }

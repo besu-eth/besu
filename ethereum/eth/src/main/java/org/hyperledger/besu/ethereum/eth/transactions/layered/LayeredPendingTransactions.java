@@ -349,9 +349,8 @@ public class LayeredPendingTransactions implements PendingTransactions {
   }
 
   @Override
-  public List<PendingTransaction> getInclusionListPendingTransactions(
-      final BlockHeader blockHeader) {
-    return prioritizedTransactions.getInclusionList(blockHeader);
+  public List<PendingTransaction> getInclusionListPendingTransactions() {
+    return prioritizedTransactions.getInclusionList();
   }
 
   @Override
