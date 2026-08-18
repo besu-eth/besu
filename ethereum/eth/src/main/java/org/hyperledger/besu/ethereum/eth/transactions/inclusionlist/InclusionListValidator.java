@@ -16,8 +16,6 @@ package org.hyperledger.besu.ethereum.eth.transactions.inclusionlist;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
-import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
-import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -66,16 +64,10 @@ public class InclusionListValidator {
       final ProtocolSpec protocolSpec,
       final ProtocolContext protocolContext,
       final BlockHeader newBlockHeader,
-      final BlockProcessingResult blockProcessingResult,
+      final long cumulativeBlockGasUsed,
       final List<Bytes> inclusionListTransactions) {
 
-    final BlockProcessingOutputs blockProcessingOutputs =
-        blockProcessingResult
-            .getYield()
-            .orElseThrow(() -> new IllegalStateException("No block processing outputs present"));
-
-    final long blockGasLeft =
-        newBlockHeader.getGasLimit() - blockProcessingOutputs.getCumulativeBlockGasUsed();
+    final long blockGasLeft = newBlockHeader.getGasLimit() - cumulativeBlockGasUsed;
     final WorldStateQueryParams worldStateQueryParams =
         WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(newBlockHeader);
     try (final MutableWorldState worldState =
@@ -89,9 +81,8 @@ public class InclusionListValidator {
                             + newBlockHeader.toLogString()))) {
 
       LOG.atInfo()
-          .setMessage("Strict IL validation: {} IL txs, {} payload txs, gasLeft={}")
+          .setMessage("Strict IL validation: {} IL txs, gasLeft={}")
           .addArgument(inclusionListTransactions.size())
-          .addArgument(blockProcessingResult.getReceipts().size())
           .addArgument(blockGasLeft)
           .log();
 

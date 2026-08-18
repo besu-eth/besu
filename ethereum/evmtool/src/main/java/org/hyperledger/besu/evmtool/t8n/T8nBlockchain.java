@@ -137,6 +137,11 @@ public class T8nBlockchain implements Blockchain {
   }
 
   @Override
+  public Optional<List<String>> getInclusionListHexTransactions(final Hash blockHash) {
+    return Optional.empty();
+  }
+
+  @Override
   public Optional<BlockHeader> getBlockHeader(final long blockNumber) {
     throw new NonDeterministicOperationException(NUMBER_LOOKUP_ERROR);
   }

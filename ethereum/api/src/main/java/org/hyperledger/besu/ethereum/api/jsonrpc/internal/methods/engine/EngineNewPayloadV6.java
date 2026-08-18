@@ -14,9 +14,13 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
-import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INCLUSION_LIST_UNSATISFIED;
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.ACCEPTED;
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.SYNCING;
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.VALID;
 
 import org.hyperledger.besu.datatypes.HardforkId;
+import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
@@ -25,9 +29,9 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcPara
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV3;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV4;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadPostExecutionValidationResultV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadStatusV2;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
@@ -38,7 +42,6 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -104,7 +107,39 @@ public final class EngineNewPayloadV6<
   }
 
   @Override
-  protected Optional<JsonRpcResponse> validatePostExecution(
+  protected void processAcceptedBlock(final Block block, final NPRP requestParameters) {
+    protocolContext
+        .getBlockchain()
+        .storeInclusionListTransactions(
+            block.getHash(), requestParameters.inclusionListTransactions());
+  }
+
+  @Override
+  protected PayloadStatusV2 createValidPayloadStatus(
+      final Hash latestValidHash,
+      final PayloadPostExecutionValidationResultV1 postExecutionResult) {
+    return new PayloadStatusV2(
+        VALID, latestValidHash, postExecutionResult.isInclusionListSatisfied());
+  }
+
+  @Override
+  protected PayloadStatusV2 createInvalidPayloadStatus(
+      final EngineStatus invalidStatus, final Hash latestValidHash, final String validationError) {
+    return new PayloadStatusV2(invalidStatus, latestValidHash, validationError);
+  }
+
+  @Override
+  protected PayloadStatusV2 createAcceptedPayloadStatus() {
+    return new PayloadStatusV2(ACCEPTED);
+  }
+
+  @Override
+  protected PayloadStatusV2 createSyncingPayloadStatus() {
+    return new PayloadStatusV2(SYNCING);
+  }
+
+  @Override
+  protected PayloadPostExecutionValidationResultV1 validatePostExecution(
       final Object reqId,
       final NPRP requestParameters,
       final Block block,
@@ -113,7 +148,7 @@ public final class EngineNewPayloadV6<
     final EP blockParam = requestParameters.payloadParameter();
     final List<String> inclusionListHexTransactions = requestParameters.inclusionListTransactions();
     if (inclusionListHexTransactions == null || inclusionListHexTransactions.isEmpty()) {
-      return Optional.empty();
+      return PayloadPostExecutionValidationResultV1.SUCCESS;
     }
 
     try {
@@ -130,27 +165,30 @@ public final class EngineNewPayloadV6<
       }
 
       if (notConfirmedILTxs.isEmpty()) {
-        return Optional.empty();
+        return PayloadPostExecutionValidationResultV1.SUCCESS;
       }
 
       final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(block.getHeader());
+
+      final BlockProcessingOutputs blockProcessingOutputs =
+          executionResult
+              .getYield()
+              .orElseThrow(() -> new IllegalStateException("No block processing outputs present"));
+
       final InclusionListValidationResult result =
           inclusionListValidator.validate(
-              protocolSpec, protocolContext, block.getHeader(), executionResult, notConfirmedILTxs);
+              protocolSpec,
+              protocolContext,
+              block.getHeader(),
+              blockProcessingOutputs.getCumulativeBlockGasUsed(),
+              notConfirmedILTxs);
       if (result.isValid()) {
-        return Optional.empty();
+        return PayloadPostExecutionValidationResultV1.SUCCESS;
       }
 
-      return Optional.of(
-          respondWithInvalid(
-              reqId,
-              blockParam,
-              mergeCoordinator.getLatestValidAncestor(blockParam.getParentHash()).orElse(null),
-              INCLUSION_LIST_UNSATISFIED,
-              result.getErrorMessage().orElse("")));
+      return new PayloadPostExecutionValidationResultV1(false);
     } catch (final Exception e) {
-      return Optional.of(
-          new JsonRpcErrorResponse(reqId, RpcErrorType.INVALID_INCLUSION_LIST_TRANSACTIONS_PARAMS));
+      throw e;
     }
   }
 

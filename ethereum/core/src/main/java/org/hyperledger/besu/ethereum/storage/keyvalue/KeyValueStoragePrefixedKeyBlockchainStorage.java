@@ -70,6 +70,7 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
   private static final Bytes TRANSACTION_LOCATION_PREFIX = Bytes.of(7);
   private static final Bytes BLOCK_ACCESS_LIST_PREFIX = Bytes.of(8);
   private static final Bytes SENDER_NONCE_TO_TX_HASH_PREFIX = Bytes.of(9);
+  private static final Bytes INCLUSION_LIST_TRANSACTIONS_PREFIX = Bytes.of(10);
   private static final SimpleNoCopyRlpEncoder NO_COPY_RLP_ENCODER = new SimpleNoCopyRlpEncoder();
 
   final KeyValueStorage blockchainStorage;
@@ -186,6 +187,12 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
         .map(bytes -> Hash.wrap(Bytes32.wrap(bytes, 0)));
   }
 
+  @Override
+  public Optional<List<String>> getInclusionListHexTransactions(final Hash blockHash) {
+    return get(INCLUSION_LIST_TRANSACTIONS_PREFIX, blockHash.getBytes())
+        .map(this::rlpDecodeHexTransactions);
+  }
+
   private static Bytes senderNonceKey(final Address sender, final long nonce) {
     return Bytes.concatenate(sender.getBytes(), Bytes.ofUnsignedLong(nonce));
   }
@@ -198,6 +205,10 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
 
   private List<TransactionReceipt> rlpDecodeTransactionReceipts(final Bytes bytes) {
     return RLP.input(bytes).readList(in -> TransactionReceiptDecoder.readFrom(in, true));
+  }
+
+  private List<String> rlpDecodeHexTransactions(final Bytes bytes) {
+    return RLP.input(bytes).readList(in -> in.readBytes().toHexString());
   }
 
   private BlockAccessList rlpDecodeBlockAccessList(final Bytes bytes) {
@@ -400,6 +411,15 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
     }
 
     @Override
+    public void putInclusionListTransactions(
+        final Hash blockHash, final List<String> hexTransactions) {
+      set(
+          INCLUSION_LIST_TRANSACTIONS_PREFIX,
+          blockHash.getBytes(),
+          rlpEncodeTransactions(hexTransactions));
+    }
+
+    @Override
     public void setChainHead(final Hash blockHash) {
       variablesUpdater.setChainHead(blockHash);
     }
@@ -469,6 +489,11 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
     }
 
     @Override
+    public void removeInclusionListTransactions(final Hash blockHash) {
+      remove(INCLUSION_LIST_TRANSACTIONS_PREFIX, blockHash.getBytes());
+    }
+
+    @Override
     public void commit() {
       blockchainTransaction.commit();
       variablesUpdater.commit();
@@ -516,6 +541,16 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
                             ? TransactionReceiptEncodingConfiguration.STORAGE_WITH_COMPACTION
                             : TransactionReceiptEncodingConfiguration.STORAGE_WITHOUT_COMPACTION;
                     TransactionReceiptEncoder.writeTo(r, rlpOutput, options);
+                  }));
+    }
+
+    private Bytes rlpEncodeTransactions(final List<String> hexTransactions) {
+      return RLP.encode(
+          o ->
+              o.writeList(
+                  hexTransactions,
+                  (s, rlpOutput) -> {
+                    rlpOutput.writeBytes(Bytes.fromHexString(s));
                   }));
     }
 

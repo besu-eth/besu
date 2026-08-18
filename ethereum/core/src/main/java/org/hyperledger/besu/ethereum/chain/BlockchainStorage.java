@@ -55,6 +55,8 @@ public interface BlockchainStorage {
 
   Optional<Hash> getTransactionHashBySenderAndNonce(Address sender, long nonce);
 
+  Optional<List<String>> getInclusionListHexTransactions(Hash blockHash);
+
   Updater updater();
 
   interface Updater {
@@ -93,6 +95,8 @@ public interface BlockchainStorage {
 
     void putTotalDifficulty(Hash blockHash, Difficulty totalDifficulty);
 
+    void putInclusionListTransactions(Hash blockHash, List<String> hexTransactions);
+
     void setChainHead(Hash blockHash);
 
     void setForkHeads(Collection<Hash> forkHeadHashes);
@@ -118,6 +122,8 @@ public interface BlockchainStorage {
     void removeTransactionHashBySenderAndNonce(Address sender, long nonce);
 
     void removeTotalDifficulty(final Hash blockHash);
+
+    void removeInclusionListTransactions(final Hash blockHash);
 
     void commit();
 

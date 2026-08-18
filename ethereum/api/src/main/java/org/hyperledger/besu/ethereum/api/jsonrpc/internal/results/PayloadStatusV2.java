@@ -22,46 +22,36 @@ import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 
-@JsonPropertyOrder({"status", "latestValidHash", "validationError"})
-public class PayloadStatusV1 {
-  EngineStatus status;
-  Hash latestValidHash;
-  String validationError;
+@JsonPropertyOrder({"status", "latestValidHash", "validationError", "inclusionListSatisfied"})
+public class PayloadStatusV2 extends PayloadStatusV1 {
+  Boolean inclusionListSatisfied;
 
   @JsonCreator
-  public PayloadStatusV1(
+  public PayloadStatusV2(
       @JsonProperty("status") final EngineStatus status,
       @JsonProperty("latestValidHash") final Hash latestValidHash,
-      @JsonProperty("validationError") final String validationError) {
-    this.status = status;
-    this.latestValidHash = latestValidHash;
-    this.validationError = validationError;
+      @JsonProperty("validationError") final String validationError,
+      @JsonProperty("inclusionListSatisfied") final Boolean inclusionListSatisfied) {
+    super(status, latestValidHash, validationError);
+    this.inclusionListSatisfied = inclusionListSatisfied;
   }
 
-  public PayloadStatusV1(final EngineStatus status, final Hash latestValidHash) {
-    this(status, latestValidHash, null);
+  public PayloadStatusV2(final EngineStatus status) {
+    this(status, null, null, null);
   }
 
-  public PayloadStatusV1(final EngineStatus status) {
-    this(status, null, null);
+  public PayloadStatusV2(
+      final EngineStatus status, final Hash latestValidHash, final String validationError) {
+    this(status, latestValidHash, validationError, null);
   }
 
-  @JsonGetter(value = "status")
-  public String getStatusAsString() {
-    return status.name();
+  public PayloadStatusV2(
+      final EngineStatus status, final Hash latestValidHash, final Boolean inclusionListSatisfied) {
+    this(status, latestValidHash, null, inclusionListSatisfied);
   }
 
-  public EngineStatus getStatus() {
-    return status;
-  }
-
-  @JsonGetter(value = "latestValidHash")
-  public Hash getLatestValidHash() {
-    return latestValidHash;
-  }
-
-  @JsonGetter(value = "validationError")
-  public String getError() {
-    return validationError;
+  @JsonGetter(value = "inclusionListSatisfied")
+  public Boolean getInclusionListSatisfied() {
+    return inclusionListSatisfied;
   }
 }
