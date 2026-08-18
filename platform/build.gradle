@@ -56,6 +56,7 @@ dependencies {
     api project(':crypto:services')
     api project(':datatypes')
     api project(':ethereum:api')
+    api project(':ethereum:api:plugin-api')
     api project(':ethereum:blockcreation')
     api project(':ethereum:core')
     api project(':ethereum:eth')

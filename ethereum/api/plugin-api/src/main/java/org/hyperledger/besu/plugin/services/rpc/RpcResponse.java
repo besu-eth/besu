@@ -14,7 +14,7 @@
  */
 package org.hyperledger.besu.plugin.services.rpc;
 
-/** Represent a Json RPC response */
+/** Represents a JSON-RPC response, carrying the response type */
 public interface RpcResponse {
 
   /**
