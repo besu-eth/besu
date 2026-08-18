@@ -19,15 +19,18 @@ import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErr
 
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.calltrace.CallTracer;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
+import org.hyperledger.besu.ethereum.debug.TracerType;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.transaction.CallParameter;
 import org.hyperledger.besu.ethereum.transaction.PreCloseStateHandler;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
 
 import java.util.Optional;
 
@@ -76,8 +79,12 @@ public abstract class AbstractTraceCall extends AbstractTraceByBlock {
 
     final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(maybeBlockHeader.get());
 
-    final DebugOperationTracer tracer =
-        new DebugOperationTracer(traceOptions.opCodeTracerConfig(), recordChildCallGas);
+    final boolean isCallTracer = traceOptions.tracerType() == TracerType.CALL_TRACER;
+    final OperationTracer tracer =
+        isCallTracer
+            ? new CallTracer(
+                Boolean.TRUE.equals(traceOptions.tracerConfig().getOrDefault("onlyTopCall", false)))
+            : new DebugOperationTracer(traceOptions.opCodeTracerConfig(), recordChildCallGas);
     return transactionSimulator
         .process(
             callParams,
@@ -94,6 +101,6 @@ public abstract class AbstractTraceCall extends AbstractTraceByBlock {
 
   protected abstract PreCloseStateHandler<Object> getSimulatorResultHandler(
       final JsonRpcRequestContext requestContext,
-      final DebugOperationTracer tracer,
+      final OperationTracer tracer,
       final ProtocolSpec protocolSpec);
 }

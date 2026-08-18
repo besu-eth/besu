@@ -15,16 +15,17 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTrace;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.CallTracerResultConverter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.DebugTraceTransactionResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.FourByteTracerResultConverter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.OpCodeLoggerTracerResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.calltrace.CallTracer;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.tracing.diff.StateDiffTrace;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.tracing.diff.StateTraceGenerator;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.tracing.diff.StateTraceResult;
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
 import org.hyperledger.besu.ethereum.debug.TracerType;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
@@ -48,11 +49,16 @@ public class DebugTraceTransactionStepFactory {
    *
    * @param traceOptions the trace options containing the tracer type and configuration
    * @param protocolSpec the protocol spec for the block being traced
+   * @param tracer the operation tracer used to produce the {@link TransactionTrace}; required for
+   *     {@link TracerType#CALL_TRACER}, which reads its result directly from the tracer instead of
+   *     an opcode-level trace
    * @return a function that processes a {@link TransactionTrace} and returns a {@link
    *     DebugTraceTransactionResult} with the appropriate tracer result
    */
   public static Function<TransactionTrace, DebugTraceTransactionResult> create(
-      final TraceOptions traceOptions, final ProtocolSpec protocolSpec) {
+      final TraceOptions traceOptions,
+      final ProtocolSpec protocolSpec,
+      final OperationTracer tracer) {
     TracerType tracerType = traceOptions.tracerType();
     return switch (tracerType) {
       case OPCODE_TRACER ->
@@ -63,9 +69,9 @@ public class DebugTraceTransactionStepFactory {
           };
       case CALL_TRACER ->
           transactionTrace -> {
-            final boolean onlyTopCall =
-                Boolean.TRUE.equals(traceOptions.tracerConfig().getOrDefault("onlyTopCall", false));
-            var result = CallTracerResultConverter.convert(transactionTrace, onlyTopCall);
+            var result =
+                ((CallTracer) tracer)
+                    .buildResult(transactionTrace.getTransaction(), transactionTrace.getResult());
             return new DebugTraceTransactionResult(transactionTrace, result);
           };
       case FLAT_CALL_TRACER ->
@@ -103,14 +109,18 @@ public class DebugTraceTransactionStepFactory {
    *
    * @param traceOptions the options of tracer to use for processing the transaction trace
    * @param protocolSpec the protocol spec for the block being traced
+   * @param tracer the operation tracer used to produce the {@link TransactionTrace}
    * @return an asynchronous function that processes a {@link TransactionTrace} and returns a {@link
    *     DebugTraceTransactionResult} with the appropriate tracer result
    */
   public static Function<TransactionTrace, CompletableFuture<DebugTraceTransactionResult>>
-      createAsync(final TraceOptions traceOptions, final ProtocolSpec protocolSpec) {
+      createAsync(
+          final TraceOptions traceOptions,
+          final ProtocolSpec protocolSpec,
+          final OperationTracer tracer) {
     return transactionTrace ->
         CompletableFuture.supplyAsync(
-            () -> create(traceOptions, protocolSpec).apply(transactionTrace));
+            () -> create(traceOptions, protocolSpec, tracer).apply(transactionTrace));
   }
 
   public static class UnimplementedTracerResult {

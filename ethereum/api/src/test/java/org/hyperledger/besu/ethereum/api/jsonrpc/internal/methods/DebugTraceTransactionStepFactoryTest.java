@@ -16,7 +16,6 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -27,16 +26,18 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.CallTracerResu
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.DebugTraceTransactionResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.FourByteTracerResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.OpCodeLoggerTracerResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.calltrace.CallTracer;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
 import org.hyperledger.besu.ethereum.debug.TracerType;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
+import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
+import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.precompile.PrecompileContractRegistry;
-import org.hyperledger.besu.evm.tracing.TraceFrame;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
 
 import java.util.Collections;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -92,6 +93,42 @@ class DebugTraceTransactionStepFactoryTest {
     when(mockTransactionTrace.getTraceFrames()).thenReturn(Collections.emptyList());
   }
 
+  /**
+   * Builds a {@link CallTracer} that has already been driven through a single, trivial, successful
+   * top-level call - mirroring how production call sites always drive the tracer through the real
+   * transaction before handing it to the step factory. The step factory itself later calls {@link
+   * CallTracer#buildResult} using the {@code mockTransaction}/{@code mockResult} pair configured in
+   * {@link #setUp()}.
+   */
+  private OperationTracer tracerFor(final TracerType tracerType) {
+    if (tracerType != TracerType.CALL_TRACER) {
+      return null;
+    }
+    final CallTracer tracer = new CallTracer(false);
+    final MessageFrame frame = mock(MessageFrame.class);
+    when(frame.getDepth()).thenReturn(0);
+    when(frame.getSenderAddress()).thenReturn(Address.fromHexString("0x00"));
+    when(frame.getContractAddress()).thenReturn(Address.fromHexString("0x01"));
+    when(frame.getValue()).thenReturn(Wei.ZERO);
+    when(frame.getInputData()).thenReturn(Bytes.EMPTY);
+    when(frame.getOutputData()).thenReturn(Bytes.EMPTY);
+    when(frame.getRemainingGas()).thenReturn(21000L);
+    when(frame.getState()).thenReturn(MessageFrame.State.COMPLETED_SUCCESS);
+    when(frame.getExceptionalHaltReason()).thenReturn(Optional.<ExceptionalHaltReason>empty());
+    when(frame.getRevertReason()).thenReturn(Optional.<Bytes>empty());
+    when(frame.getType()).thenReturn(MessageFrame.Type.MESSAGE_CALL);
+
+    final org.hyperledger.besu.datatypes.Transaction tx =
+        mock(org.hyperledger.besu.datatypes.Transaction.class);
+    when(tx.isContractCreation()).thenReturn(false);
+    when(tx.getGasLimit()).thenReturn(21000L);
+
+    tracer.traceStartTransaction(null, tx);
+    tracer.traceContextEnter(frame);
+    tracer.traceContextExit(frame);
+    return tracer;
+  }
+
   @Test
   @DisplayName("should create function for OPCODE_TRACER that returns OpCodeLoggerTracerResult")
   void shouldCreateFunctionForOpcodeTracer() {
@@ -99,7 +136,8 @@ class DebugTraceTransactionStepFactoryTest {
     TracerType tracerType = TracerType.OPCODE_TRACER;
     TraceOptions traceOptions = new TraceOptions(tracerType, null, null);
     Function<TransactionTrace, DebugTraceTransactionResult> function =
-        DebugTraceTransactionStepFactory.create(traceOptions, mockProtocolSpec);
+        DebugTraceTransactionStepFactory.create(
+            traceOptions, mockProtocolSpec, tracerFor(tracerType));
 
     // When
     DebugTraceTransactionResult result = function.apply(mockTransactionTrace);
@@ -117,7 +155,8 @@ class DebugTraceTransactionStepFactoryTest {
     TracerType tracerType = TracerType.FOUR_BYTE_TRACER;
     TraceOptions traceOptions = new TraceOptions(tracerType, null, null);
     Function<TransactionTrace, DebugTraceTransactionResult> function =
-        DebugTraceTransactionStepFactory.create(traceOptions, mockProtocolSpec);
+        DebugTraceTransactionStepFactory.create(
+            traceOptions, mockProtocolSpec, tracerFor(tracerType));
 
     // When
     DebugTraceTransactionResult result = function.apply(mockTransactionTrace);
@@ -137,7 +176,8 @@ class DebugTraceTransactionStepFactoryTest {
     // Given
     TraceOptions traceOptions = new TraceOptions(tracerType, null, null);
     Function<TransactionTrace, DebugTraceTransactionResult> function =
-        DebugTraceTransactionStepFactory.create(traceOptions, mockProtocolSpec);
+        DebugTraceTransactionStepFactory.create(
+            traceOptions, mockProtocolSpec, tracerFor(tracerType));
 
     // When
     DebugTraceTransactionResult result = function.apply(mockTransactionTrace);
@@ -156,7 +196,8 @@ class DebugTraceTransactionStepFactoryTest {
     // When
     TraceOptions traceOptions = new TraceOptions(tracerType, null, null);
     Function<TransactionTrace, DebugTraceTransactionResult> function =
-        DebugTraceTransactionStepFactory.create(traceOptions, mockProtocolSpec);
+        DebugTraceTransactionStepFactory.create(
+            traceOptions, mockProtocolSpec, tracerFor(tracerType));
 
     // Then
     assertThat(function).isNotNull();
@@ -170,7 +211,8 @@ class DebugTraceTransactionStepFactoryTest {
     // Given
     TraceOptions traceOptions = new TraceOptions(tracerType, null, null);
     Function<TransactionTrace, DebugTraceTransactionResult> function =
-        DebugTraceTransactionStepFactory.create(traceOptions, mockProtocolSpec);
+        DebugTraceTransactionStepFactory.create(
+            traceOptions, mockProtocolSpec, tracerFor(tracerType));
 
     // When
     DebugTraceTransactionResult result = function.apply(mockTransactionTrace);
@@ -187,7 +229,7 @@ class DebugTraceTransactionStepFactoryTest {
     // Given
     Function<TransactionTrace, CompletableFuture<DebugTraceTransactionResult>> asyncFunction =
         DebugTraceTransactionStepFactory.createAsync(
-            new TraceOptions(TracerType.OPCODE_TRACER, null, null), mockProtocolSpec);
+            new TraceOptions(TracerType.OPCODE_TRACER, null, null), mockProtocolSpec, null);
 
     // When
     CompletableFuture<DebugTraceTransactionResult> future =
@@ -209,7 +251,8 @@ class DebugTraceTransactionStepFactoryTest {
     // When
     TraceOptions traceOptions = new TraceOptions(tracerType, null, null);
     Function<TransactionTrace, CompletableFuture<DebugTraceTransactionResult>> asyncFunction =
-        DebugTraceTransactionStepFactory.createAsync(traceOptions, mockProtocolSpec);
+        DebugTraceTransactionStepFactory.createAsync(
+            traceOptions, mockProtocolSpec, tracerFor(tracerType));
 
     // Then
     assertThat(asyncFunction).isNotNull();
@@ -223,7 +266,8 @@ class DebugTraceTransactionStepFactoryTest {
     // Given
     TraceOptions traceOptions = new TraceOptions(tracerType, null, null);
     Function<TransactionTrace, CompletableFuture<DebugTraceTransactionResult>> asyncFunction =
-        DebugTraceTransactionStepFactory.createAsync(traceOptions, mockProtocolSpec);
+        DebugTraceTransactionStepFactory.createAsync(
+            traceOptions, mockProtocolSpec, tracerFor(tracerType));
 
     // When
     CompletableFuture<DebugTraceTransactionResult> future =
@@ -241,30 +285,59 @@ class DebugTraceTransactionStepFactoryTest {
   @Test
   @DisplayName("CALL_TRACER with onlyTopCall reports only the root frame and omits nested calls")
   void callTracerWithOnlyTopCallOmitsNestedCalls() {
-    // A non-empty frame list routes through buildCallHierarchyFromFrames; on the onlyTopCall
-    // path the frames themselves are never inspected, so a bare mock frame is sufficient.
-    final TraceFrame nestedFrame = mock(TraceFrame.class);
-    when(mockTransactionTrace.getTraceFrames()).thenReturn(List.of(nestedFrame));
+    final CallTracer tracer = new CallTracer(true);
+
+    final org.hyperledger.besu.datatypes.Transaction tx =
+        mock(org.hyperledger.besu.datatypes.Transaction.class);
+    when(tx.isContractCreation()).thenReturn(false);
+    when(tx.getGasLimit()).thenReturn(21000L);
+    tracer.traceStartTransaction(null, tx);
+
+    final MessageFrame rootFrame = mock(MessageFrame.class);
+    when(rootFrame.getDepth()).thenReturn(0);
+    when(rootFrame.getSenderAddress()).thenReturn(Address.fromHexString("0x00"));
+    when(rootFrame.getContractAddress()).thenReturn(Address.fromHexString("0x01"));
+    when(rootFrame.getValue()).thenReturn(Wei.ZERO);
+    when(rootFrame.getInputData()).thenReturn(Bytes.EMPTY);
+    when(rootFrame.getOutputData()).thenReturn(Bytes.EMPTY);
+    when(rootFrame.getRemainingGas()).thenReturn(21000L);
+    when(rootFrame.getState()).thenReturn(MessageFrame.State.COMPLETED_SUCCESS);
+    when(rootFrame.getExceptionalHaltReason()).thenReturn(Optional.<ExceptionalHaltReason>empty());
+    when(rootFrame.getRevertReason()).thenReturn(Optional.<Bytes>empty());
+    when(rootFrame.getType()).thenReturn(MessageFrame.Type.MESSAGE_CALL);
+    tracer.traceContextEnter(rootFrame);
+
+    // A nested call frame at depth 1: with onlyTopCall the tracer must never inspect it.
+    final MessageFrame nestedFrame = mock(MessageFrame.class);
+    when(nestedFrame.getDepth()).thenReturn(1);
+    tracer.traceContextEnter(nestedFrame);
+    tracer.tracePrecompileCall(nestedFrame, 0L, Bytes.EMPTY);
+    tracer.traceContextExit(nestedFrame);
+
+    tracer.traceContextExit(rootFrame);
+
+    // buildResult() (invoked by the step factory) reads the transaction/result pair carried by
+    // mockTransactionTrace, not the local `tx` used to drive the tracer above.
     when(mockTransaction.isContractCreation()).thenReturn(false);
-    when(mockTransaction.getTo()).thenReturn(Optional.of(Address.fromHexString("0x01")));
     when(mockTransaction.getGasLimit()).thenReturn(21000L);
     when(mockResult.getGasRemaining()).thenReturn(0L);
 
     final TraceOptions traceOptions =
         new TraceOptions(TracerType.CALL_TRACER, null, Map.of("onlyTopCall", true));
     final DebugTraceTransactionResult result =
-        DebugTraceTransactionStepFactory.create(traceOptions, mockProtocolSpec)
+        DebugTraceTransactionStepFactory.create(traceOptions, mockProtocolSpec, tracer)
             .apply(mockTransactionTrace);
 
     assertThat(result.getResult()).isInstanceOf(CallTracerResult.class);
     final CallTracerResult callResult = (CallTracerResult) result.getResult();
-    // Root frame is populated from the transaction/result...
+    // Root frame is populated from the transaction...
     assertThat(callResult.getType()).isNotNull();
     assertThat(callResult.getFrom()).isNotNull();
-    // ...but no nested calls are reported, and onlyTopCall collects no subcall frames at all,
-    // so the trace frames are never inspected.
+    // ...but no nested calls are reported: the guard only ever checks the nested frame's depth,
+    // never any of its call-tree data (address/value/input/output/gas).
     assertThat(callResult.getCalls()).isNullOrEmpty();
-    verifyNoInteractions(nestedFrame);
+    org.mockito.Mockito.verify(nestedFrame, org.mockito.Mockito.atLeastOnce()).getDepth();
+    org.mockito.Mockito.verifyNoMoreInteractions(nestedFrame);
   }
 
   @Test
@@ -274,9 +347,9 @@ class DebugTraceTransactionStepFactoryTest {
     TracerType tracerType = TracerType.OPCODE_TRACER;
     TraceOptions traceOptions = new TraceOptions(tracerType, null, null);
     Function<TransactionTrace, DebugTraceTransactionResult> syncFunction =
-        DebugTraceTransactionStepFactory.create(traceOptions, mockProtocolSpec);
+        DebugTraceTransactionStepFactory.create(traceOptions, mockProtocolSpec, null);
     Function<TransactionTrace, CompletableFuture<DebugTraceTransactionResult>> asyncFunction =
-        DebugTraceTransactionStepFactory.createAsync(traceOptions, mockProtocolSpec);
+        DebugTraceTransactionStepFactory.createAsync(traceOptions, mockProtocolSpec, null);
 
     // When
     DebugTraceTransactionResult syncResult = syncFunction.apply(mockTransactionTrace);

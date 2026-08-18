@@ -21,6 +21,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.Tracer;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTrace;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.DebugTraceTransactionResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.calltrace.CallTracer;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -41,6 +42,8 @@ import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.evm.tracing.TraceFrame;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -327,8 +330,12 @@ public class DebugTraceBlockStreamer {
       final BlockHeader header,
       final Wei blobGasPrice,
       final BlockHashLookup blockHashLookup) {
-    final DebugOperationTracer tracer =
-        new DebugOperationTracer(traceOptions.opCodeTracerConfig(), true);
+    final boolean isCallTracer = traceOptions.tracerType() == TracerType.CALL_TRACER;
+    final OperationTracer tracer =
+        isCallTracer
+            ? new CallTracer(
+                Boolean.TRUE.equals(traceOptions.tracerConfig().getOrDefault("onlyTopCall", false)))
+            : new DebugOperationTracer(traceOptions.opCodeTracerConfig(), true);
 
     final AccessLocationTracker accessListTracker =
         BlockAccessList.BlockAccessListBuilder.createTransactionAccessLocationTracker(0);
@@ -345,16 +352,23 @@ public class DebugTraceBlockStreamer {
             blobGasPrice,
             Optional.of(accessListTracker));
 
+    final List<TraceFrame> traceFrames;
+    if (tracer instanceof DebugOperationTracer debugTracer) {
+      traceFrames = debugTracer.copyTraceFrames();
+      debugTracer.reset();
+    } else {
+      traceFrames = List.of();
+    }
+
     final TransactionTrace transactionTrace =
         new TransactionTrace(
             transaction,
             result,
-            tracer.copyTraceFrames(),
+            traceFrames,
             Optional.empty(),
             accessListTracker.getTouchedAccounts());
-    tracer.reset();
 
-    return DebugTraceTransactionStepFactory.create(traceOptions, protocolSpec)
+    return DebugTraceTransactionStepFactory.create(traceOptions, protocolSpec, tracer)
         .apply(transactionTrace);
   }
 
