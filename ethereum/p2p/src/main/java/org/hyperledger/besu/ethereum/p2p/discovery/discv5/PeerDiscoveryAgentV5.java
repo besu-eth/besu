@@ -480,7 +480,13 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
             });
   }
 
-  /** Builds a stream of candidate peers suitable for outbound connection attempts. */
+  /**
+   * Builds a stream of candidate peers suitable for outbound connection attempts.
+   *
+   * <p>Excludes peers {@link RlpxAgent#isConnectingOrConnected} already reports as handled, so a
+   * live peer isn't re-proposed every tick, but a never-attempted one (e.g. a bootnode) still gets
+   * a fast connection attempt.
+   */
   private Stream<DiscoveryPeer> candidatePeers(final Collection<NodeRecord> newPeers) {
     if (LOG.isTraceEnabled() && !newPeers.isEmpty()) {
       LOG.trace("Discovered {} new peers", newPeers.size());
@@ -499,13 +505,11 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
             .map(NodeRecord::getNodeId)
             .orElse(Bytes.EMPTY);
 
-    // Combine newly discovered peers with known peers and filter for suitability
     final Stream<NodeRecord> knownPeers = system.streamLiveNodes();
     final List<DiscoveryPeer> candidates =
         Stream.concat(newPeers.stream(), knownPeers)
             .distinct()
-            // Defensive: exclude the local node record that streamLiveNodes may include.
-            // The discovery library currently excludes it, but this is not an API guarantee.
+            // Defensive: exclude the local node record, in case it's ever included.
             .filter(nr -> !nr.getNodeId().equals(localNodeId))
             .map(nr -> DiscoveryPeerFactory.fromNodeRecord(nr, preferIpv6Outbound))
             // Use isListening() instead of isReadyForConnections() because
@@ -514,6 +518,7 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
             .filter(DiscoveryPeer::isListening)
             .filter(peer -> peer.getForkId().map(forkIdManager::peerCheck).orElse(true))
             .filter(peer -> isPeerPermitted(localNode, peer))
+            .filter(peer -> !rlpxAgent.isConnectingOrConnected(peer.getId()))
             .toList();
     if (LOG.isTraceEnabled() && !candidates.isEmpty()) {
       LOG.trace("Total unique peers eligible for connection: {}", candidates.size());

@@ -56,6 +56,7 @@ import org.hyperledger.besu.plugin.services.BesuEvents.InitialSyncCompletionList
 import org.hyperledger.besu.plugin.services.BesuEvents.SyncStatusListener;
 import org.hyperledger.besu.plugin.services.BesuEvents.TTDReachedListener;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -574,6 +575,22 @@ public class SyncStateTest {
     syncState.setSyncTarget(syncTargetPeer.getEthPeer(), blockchain.getGenesisBlock().getHeader());
     verify(inSyncListener).onInSyncStatusChange(false);
     verify(inSyncListenerExact).onInSyncStatusChange(false);
+  }
+
+  @Test
+  public void inSyncCheckDrivenByABlockImportDoesNotTakeTheSyncStateMonitor() {
+    final List<Boolean> heldMonitorDuringCallback = new ArrayList<>();
+    syncState.subscribeInSync(
+        _ -> heldMonitorDuringCallback.add(Thread.holdsLock(syncState)),
+        Synchronizer.DEFAULT_IN_SYNC_TOLERANCE);
+
+    // Fires the block-added observer and therefore calls checkInSync() on this thread.
+    advanceLocalChain(blockchain.getChainHeadBlockNumber() + 1);
+
+    assertThat(heldMonitorDuringCallback)
+        .withFailMessage("a block import called checkInSync() while holding the sync state monitor")
+        .isNotEmpty()
+        .containsOnly(false);
   }
 
   private void advanceLocalChain(final long newChainHeight) {
