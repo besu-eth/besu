@@ -80,7 +80,7 @@ application {
 // instead of fetching separately, and fails the build on any failure.
 //
 // Optional gradle properties:
-//   -PstateTestWorkers=N        parallelism (defaults to available processors)
+//   -PstateTestWorkers=N        limit parallelism (the runner defaults to all available cores)
 //   -PstateTestPath=<subdir>    scope to a subdirectory of state_tests (e.g. for_amsterdam)
 //   -PstateTestFilter=<substr>  only run tests whose name contains <substr> (or a *?-glob)
 tasks.register('stateTestsDevnet', JavaExec) {
@@ -95,7 +95,6 @@ tasks.register('stateTestsDevnet', JavaExec) {
   def stateFixtures = project(':ethereum:referencetests').layout.buildDirectory
     .dir('execution-spec-devnet-tests/fixtures/state_tests')
   def workerCount = project.findProperty('stateTestWorkers')?.toString()
-    ?: Runtime.runtime.availableProcessors().toString()
   def subPath = project.findProperty('stateTestPath')?.toString()
   def nameFilter = project.findProperty('stateTestFilter')?.toString()
 
@@ -112,10 +111,11 @@ tasks.register('stateTestsDevnet', JavaExec) {
     }
     def cmd = [
       'state-test',
-      '--summary-only',
-      '--workers',
-      workerCount
+      '--summary-only'
     ]
+    if (workerCount != null) {
+      cmd += ['--workers', workerCount]
+    }
     if (nameFilter != null) {
       cmd += ['--test-name', nameFilter]
     }

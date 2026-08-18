@@ -126,7 +126,7 @@ The `referenceTests*` tasks above generate one JUnit test per fixture. The `evmt
 
 | Property | Meaning |
 |----------|---------|
-| `-PstateTestWorkers=N` | Parallel workers (default: available processors) |
+| `-PstateTestWorkers=N` | Limit parallelism (the runner already defaults to all available cores) |
 | `-PstateTestPath=<subdir>` | Scope to a subdirectory, e.g. `for_amsterdam` |
 | `-PstateTestFilter=<substr>` | Only run tests whose node id matches; see [Filter syntax](#filter-syntax) |
 
@@ -153,7 +153,7 @@ $EVM state-test --test-name '*\[fork_Amsterdam*' <fixtures>
 $EVM state-test --test-name 'fork_Amsterdam' <fixtures>
 ```
 
-The pattern is compiled before any fixture is read, so a malformed expression fails immediately with exit 1 rather than running nothing. A filter that compiles but matches no test is also an error: an empty run never reports success.
+The pattern is compiled before any fixture is read, so a malformed expression fails immediately with exit 1 rather than running nothing. An empty run is an error too, whether or not a filter was given: a run that executed no test never reports success.
 
 ### Running the evmtool binary directly
 
@@ -161,10 +161,14 @@ The pattern is compiled before any fixture is read, so a malformed expression fa
 ./gradlew :ethereum:evmtool:installDist
 EVM=./ethereum/evmtool/build/install/evmtool/bin/evmtool
 
-$EVM state-test --workers 8 <path-to>/state_tests/
+$EVM state-test <path-to>/state_tests/
 ```
 
-Flags: `--workers N`, `--test-name <substr-or-regex>`, `--json-array` to emit machine-readable results (`[{name, pass, fork, stateRoot, error}]`), and `--summary-only` to suppress the per-test JSON line that external tooling parses (which remains the default).
+A directory argument is expanded recursively and spread over one worker per available core. Pass `--workers N` to use fewer, for instance to keep the output of a multi-file run in a predictable order.
+
+Flags: `--workers N`, `--test-name <substr-or-regex>`, `--json-array` to emit machine-readable results (`[{name, pass, fork, stateRoot, error}]`), and `--summary-only` to suppress the per-test JSON line that external tooling parses (which remains the default). Under `--json-array` nothing but the array is printed, so the exit code is what reports an empty or failed run.
+
+`--workers`, `--test-name` and `--json-array` work the same way on `block-test`.
 
 The subcommand exits non-zero if any test fails, if no test ran at all, or if the `--test-name` pattern is malformed.
 
