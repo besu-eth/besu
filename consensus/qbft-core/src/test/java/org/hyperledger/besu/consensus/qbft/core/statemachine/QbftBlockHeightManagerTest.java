@@ -304,6 +304,38 @@ public class QbftBlockHeightManagerTest {
   }
 
   @Test
+  public void onBlockTimerExpiryForNonProposerWithPendingTransactionsKeepsRoundTimerRunning() {
+    // A transaction has arrived during the empty-block period, so a non-proposer must NOT go idle
+    // in case the proposer has crashed and nobody can propose until the full empty block period
+    // (maybe many minutes, or even longer) has expired.
+    when(finalState.isLocalNodeProposerForRound(roundIdentifier)).thenReturn(false);
+    when(blockTimer.checkEmptyBlockExpired(any(), anyLong())).thenReturn(false);
+    when(clock.millis()).thenReturn(25000L); // T+25s, inside the empty-block period
+    final QbftBlock nonEmptyBlock = new QbftBlockTestFixture().isEmpty(false).build();
+    when(blockCreator.createBlock(anyLong(), any()))
+        .thenReturn(new QbftBlockCreator.BlockCreationResult(nonEmptyBlock, Optional.empty()));
+
+    final QbftBlockHeightManager manager =
+        new QbftBlockHeightManager(
+            headerTestFixture.buildHeader(),
+            finalState,
+            roundChangeManager,
+            roundFactory,
+            clock,
+            messageValidatorFactory,
+            messageFactory,
+            validatorProvider);
+
+    manager.handleBlockTimerExpiry(roundIdentifier);
+
+    // Non-proposer must not go idle while a real block is pending: neither the empty-block timer is
+    // reset nor the round timer cancelled, so requestTimeout failure detection can advance the
+    // round.
+    verify(blockTimer, never()).resetTimerForEmptyBlock(any(), any(), anyLong());
+    verify(roundTimer, never()).cancelTimer();
+  }
+
+  @Test
   public void onBlockTimerExpiryForProposerWithEmptyBlock_ResetsTimerWhenPeriodNotExpired() {
     // Test for proposer case when block is empty and empty block period has NOT expired
     // This verifies the scenario from issue #8191: T+0s parent block, T+25s tx arrives,
