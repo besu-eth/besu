@@ -42,7 +42,6 @@ public abstract class AbstractLayeredTransactionPoolTest extends AbstractTransac
     final TransactionsLayer sparseLayer =
         new SparseTransactions(
             poolConfig,
-            protocolContext.getBlockchain()::getChainHeadHeader,
             ethScheduler,
             new EndLayer(txPoolMetrics),
             txPoolMetrics,
@@ -51,7 +50,6 @@ public abstract class AbstractLayeredTransactionPoolTest extends AbstractTransac
     final TransactionsLayer readyLayer =
         new ReadyTransactions(
             poolConfig,
-            protocolContext.getBlockchain()::getChainHeadHeader,
             ethScheduler,
             sparseLayer,
             txPoolMetrics,

@@ -20,7 +20,6 @@ import static org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolStru
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
-import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
@@ -41,7 +40,6 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.function.BiFunction;
 import java.util.function.Predicate;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -56,7 +54,6 @@ public abstract class AbstractPrioritizedTransactions extends AbstractSequential
 
   public AbstractPrioritizedTransactions(
       final TransactionPoolConfiguration poolConfig,
-      final Supplier<BlockHeader> chainHeadHeaderSupplier,
       final EthScheduler ethScheduler,
       final TransactionsLayer prioritizedTransactions,
       final TransactionPoolMetrics metrics,
@@ -66,7 +63,6 @@ public abstract class AbstractPrioritizedTransactions extends AbstractSequential
       final MiningConfiguration miningConfiguration) {
     super(
         poolConfig,
-        chainHeadHeaderSupplier,
         ethScheduler,
         prioritizedTransactions,
         transactionReplacementTester,

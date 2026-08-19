@@ -334,7 +334,6 @@ public class TransactionPoolFactory {
     final SparseTransactions sparseTransactions =
         new SparseTransactions(
             transactionPoolConfiguration,
-            protocolContext.getBlockchain()::getChainHeadHeader,
             ethScheduler,
             endLayer,
             metrics,
@@ -344,7 +343,6 @@ public class TransactionPoolFactory {
     final ReadyTransactions readyTransactions =
         new ReadyTransactions(
             transactionPoolConfiguration,
-            protocolContext.getBlockchain()::getChainHeadHeader,
             ethScheduler,
             sparseTransactions,
             metrics,
@@ -374,7 +372,6 @@ public class TransactionPoolFactory {
       pendingTransactionsSorter =
           new GasPricePrioritizedTransactions(
               transactionPoolConfiguration,
-              protocolContext.getBlockchain()::getChainHeadHeader,
               ethScheduler,
               readyTransactions,
               metrics,

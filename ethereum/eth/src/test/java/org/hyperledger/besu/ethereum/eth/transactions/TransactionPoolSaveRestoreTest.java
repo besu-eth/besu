@@ -90,7 +90,6 @@ public class TransactionPoolSaveRestoreTest extends AbstractTransactionPoolTestB
     final TransactionsLayer sparseLayer =
         new SparseTransactions(
             poolConfig,
-            protocolContext.getBlockchain()::getChainHeadHeader,
             ethScheduler,
             new EndLayer(txPoolMetrics),
             txPoolMetrics,
@@ -99,7 +98,6 @@ public class TransactionPoolSaveRestoreTest extends AbstractTransactionPoolTestB
     final TransactionsLayer readyLayer =
         new ReadyTransactions(
             poolConfig,
-            protocolContext.getBlockchain()::getChainHeadHeader,
             ethScheduler,
             sparseLayer,
             txPoolMetrics,

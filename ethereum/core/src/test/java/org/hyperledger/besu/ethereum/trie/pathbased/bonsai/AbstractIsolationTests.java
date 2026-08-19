@@ -143,7 +143,6 @@ public abstract class AbstractIsolationTests {
           poolConfiguration,
           new GasPricePrioritizedTransactions(
               poolConfiguration,
-              blockchain::getChainHeadHeader,
               ethScheduler,
               new EndLayer(txPoolMetrics),
               txPoolMetrics,

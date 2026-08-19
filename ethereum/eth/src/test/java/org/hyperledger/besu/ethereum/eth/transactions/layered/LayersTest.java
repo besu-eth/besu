@@ -1522,7 +1522,6 @@ public class LayersTest extends BaseTransactionPoolTest {
       this.sparse =
           new SparseTransactions(
               poolConfig,
-              LayersTest::mockBlockHeader,
               ethScheduler,
               this.dropped,
               txPoolMetrics,
@@ -1532,7 +1531,6 @@ public class LayersTest extends BaseTransactionPoolTest {
       this.ready =
           new ReadyTransactions(
               poolConfig,
-              LayersTest::mockBlockHeader,
               ethScheduler,
               this.sparse,
               txPoolMetrics,

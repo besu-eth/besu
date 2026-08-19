@@ -58,7 +58,6 @@ public class BaseFeePrioritizedTransactions extends AbstractPrioritizedTransacti
       final SenderBalanceChecker senderBalanceChecker) {
     super(
         poolConfig,
-        chainHeadHeaderSupplier,
         ethScheduler,
         nextLayer,
         metrics,
