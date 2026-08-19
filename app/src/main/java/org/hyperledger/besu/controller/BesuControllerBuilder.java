@@ -726,10 +726,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             bonsaiCachedMerkleTrieLoader,
             protocolSchedule);
 
-    // Install the archive trie-node strategy before the genesis state is written below, so genesis
-    // (block 0) nodes are captured; otherwise proofs fail for accounts untouched since genesis.
-    // syncState does not exist yet, so the gate reads it lazily via archiveSyncStateRef (bound
-    // below); only the genesis write happens first, and it short-circuits on block == 0.
+    // Install the archive strategy before the genesis write so block 0 is captured. syncState does
+    // not exist yet, so the gate reads it lazily via archiveSyncStateRef, bound below.
     final AtomicReference<SyncState> archiveSyncStateRef = new AtomicReference<>();
     if (DataStorageFormat.X_BONSAI_ARCHIVE.equals(dataStorageConfiguration.getDataStorageFormat())
         && dataStorageConfiguration
