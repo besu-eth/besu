@@ -151,7 +151,7 @@ public class InclusionListWorkflowIntegrationTest {
 
   private StubMetricsSystem metricsSystem;
   private EngineGetInclusionListV1 getInclusionListMethod;
-  private EngineForkchoiceUpdatedV5 forkchoiceUpdatedMethod;
+  private EngineForkchoiceUpdatedV5<?, ?> forkchoiceUpdatedMethod;
   private EngineNewPayloadV6<?, ?> newPayloadStrictMethod;
 
   @BeforeEach
@@ -191,7 +191,7 @@ public class InclusionListWorkflowIntegrationTest {
             .transactionPool(transactionPool)
             .build();
 
-    forkchoiceUpdatedMethod = new EngineForkchoiceUpdatedV5(constructorArguments, BOGOTA, null);
+    forkchoiceUpdatedMethod = new EngineForkchoiceUpdatedV5<>(constructorArguments, BOGOTA, null);
 
     newPayloadStrictMethod = new EngineNewPayloadV6<>(constructorArguments, BOGOTA, null);
   }

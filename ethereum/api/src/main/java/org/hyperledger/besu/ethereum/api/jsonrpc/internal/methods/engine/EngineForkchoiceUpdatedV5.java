@@ -24,6 +24,7 @@ import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ForkchoiceStateV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ForkchoiceUpdatedRequestParametersV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttributesV5;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.ForkchoiceUpdatedResultV1;
@@ -58,8 +59,10 @@ import org.slf4j.LoggerFactory;
  * inclusionListTransactions} field. Decoded inclusion-list transactions are added to the
  * transaction pool and forwarded to {@code preparePayload} so block building can satisfy them.
  */
-public final class EngineForkchoiceUpdatedV5
-    extends EngineForkchoiceUpdatedV4<PayloadAttributesV5> {
+public final class EngineForkchoiceUpdatedV5<
+        PA extends PayloadAttributesV5,
+        FRP extends ForkchoiceUpdatedRequestParametersV2<? extends PA>>
+    extends EngineForkchoiceUpdatedV4<PA, FRP> {
 
   private static final Logger LOG = LoggerFactory.getLogger(EngineForkchoiceUpdatedV5.class);
   private final InclusionListValidator inclusionListValidator = new InclusionListValidator();
@@ -84,8 +87,9 @@ public final class EngineForkchoiceUpdatedV5
   }
 
   @Override
-  protected Class<PayloadAttributesV5> getPayloadAttributesClass() {
-    return PayloadAttributesV5.class;
+  @SuppressWarnings("unchecked")
+  protected Class<PA> getPayloadAttributesClass() {
+    return (Class<PA>) PayloadAttributesV5.class;
   }
 
   /**
@@ -95,7 +99,7 @@ public final class EngineForkchoiceUpdatedV5
    */
   @Override
   protected ValidationResult<RpcErrorType> validatePayloadAttributes(
-      final BlockHeader newHead, final PayloadAttributesV5 attrs) {
+      final BlockHeader newHead, final PA attrs) {
     final ValidationResult<RpcErrorType> r = super.validatePayloadAttributes(newHead, attrs);
     return r.isValid() ? validatePayloadAttributesV5(attrs) : r;
   }
@@ -112,7 +116,7 @@ public final class EngineForkchoiceUpdatedV5
 
   @Override
   protected void setPreparePayloadArgs(
-      final PreparePayloadArgsBuilder preparePayloadArgsBuilder, final PayloadAttributesV5 attrs) {
+      final PreparePayloadArgsBuilder preparePayloadArgsBuilder, final PA attrs) {
     super.setPreparePayloadArgs(preparePayloadArgsBuilder, attrs);
     final List<Transaction> inclusionListTransactions =
         decodeInclusionListTransactions(attrs.getInclusionListTransactions());

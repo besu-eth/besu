@@ -59,7 +59,7 @@ import org.slf4j.LoggerFactory;
 public sealed class EngineForkchoiceUpdatedV4<
         PA extends PayloadAttributesV4,
         FRP extends ForkchoiceUpdatedRequestParametersV2<? extends PA>>
-    extends EngineForkchoiceUpdatedV3<PA, FRP>  permits EngineForkchoiceUpdatedV5{
+    extends EngineForkchoiceUpdatedV3<PA, FRP> permits EngineForkchoiceUpdatedV5 {
 
   private static final Logger LOG = LoggerFactory.getLogger(EngineForkchoiceUpdatedV4.class);
   private static final int CUSTODY_COLUMNS_BYTE_LENGTH = 16;

@@ -109,8 +109,6 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
 
   @Mock protected EngineCallListener engineCallListener;
 
-  @Mock protected TransactionPool transactionPool;
-
   @BeforeEach
   @Override
   public void before() {
