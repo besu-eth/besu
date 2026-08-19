@@ -47,7 +47,7 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy {
 
   private final TrieNodeStrategy base;
   private final ArchiveNodeHistoryStore historyStore;
-  private final ArchiveIndexProgress indexProgress;
+  private final ArchiveCoverageTracker coverageTracker;
   private final BooleanSupplier archiveGate;
 
   // Tracks the last transaction that recorded progress so that record() is called at most once per
@@ -57,11 +57,11 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy {
   public ArchiveTrieNodeStrategy(
       final TrieNodeStrategy base,
       final ArchiveNodeHistoryStore historyStore,
-      final ArchiveIndexProgress indexProgress,
+      final ArchiveCoverageTracker coverageTracker,
       final BooleanSupplier archiveGate) {
     this.base = Objects.requireNonNull(base);
     this.historyStore = Objects.requireNonNull(historyStore);
-    this.indexProgress = Objects.requireNonNull(indexProgress);
+    this.coverageTracker = Objects.requireNonNull(coverageTracker);
     this.archiveGate = Objects.requireNonNull(archiveGate);
   }
 
@@ -79,7 +79,7 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy {
   private void maybeRecordProgress(
       final SegmentedKeyValueStorageTransaction transaction, final long block) {
     if (lastRecordedTx != transaction) {
-      indexProgress.record(transaction, block);
+      coverageTracker.record(transaction, block);
       lastRecordedTx = transaction;
     }
   }

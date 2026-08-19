@@ -26,21 +26,21 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-class ArchiveIndexProgressTest {
+class ArchiveCoverageTrackerTest {
 
   private SegmentedKeyValueStorage storage;
-  private ArchiveIndexProgress progress;
+  private ArchiveCoverageTracker progress;
 
   @BeforeEach
   void setUp() {
     storage = new SegmentedInMemoryKeyValueStorage(List.of(TRIE_BRANCH_STORAGE_ARCHIVE));
-    progress = new ArchiveIndexProgress(storage);
+    progress = new ArchiveCoverageTracker(storage);
   }
 
   @Test
   void coversNothingWhenNoProgressRecorded() {
-    assertThat(progress.isBlockIndexed(0)).isFalse();
-    assertThat(progress.isBlockIndexed(10)).isFalse();
+    assertThat(progress.hasArchiveBlock(0)).isFalse();
+    assertThat(progress.hasArchiveBlock(10)).isFalse();
   }
 
   @Test
@@ -49,8 +49,8 @@ class ArchiveIndexProgressTest {
     progress.record(tx, 5L);
     tx.commit();
 
-    assertThat(progress.isBlockIndexed(5L)).isTrue();
-    assertThat(progress.isBlockIndexed(6L)).isFalse();
+    assertThat(progress.hasArchiveBlock(5L)).isTrue();
+    assertThat(progress.hasArchiveBlock(6L)).isFalse();
   }
 
   @Test
@@ -65,10 +65,10 @@ class ArchiveIndexProgressTest {
     tx2.commit();
 
     // Covered range is [5, 10]
-    assertThat(progress.isBlockIndexed(5L)).isTrue();
-    assertThat(progress.isBlockIndexed(10L)).isTrue();
-    assertThat(progress.isBlockIndexed(4L)).isFalse();
-    assertThat(progress.isBlockIndexed(11L)).isFalse();
+    assertThat(progress.hasArchiveBlock(5L)).isTrue();
+    assertThat(progress.hasArchiveBlock(10L)).isTrue();
+    assertThat(progress.hasArchiveBlock(4L)).isFalse();
+    assertThat(progress.hasArchiveBlock(11L)).isFalse();
   }
 
   @Test
@@ -78,9 +78,9 @@ class ArchiveIndexProgressTest {
     tx.commit();
 
     // A fresh instance reading the same storage sees the same progress
-    final ArchiveIndexProgress anotherView = new ArchiveIndexProgress(storage);
-    assertThat(anotherView.isBlockIndexed(3L)).isTrue();
-    assertThat(anotherView.isBlockIndexed(4L)).isFalse();
+    final ArchiveCoverageTracker anotherView = new ArchiveCoverageTracker(storage);
+    assertThat(anotherView.hasArchiveBlock(3L)).isTrue();
+    assertThat(anotherView.hasArchiveBlock(4L)).isFalse();
   }
 
   @Test
@@ -89,6 +89,6 @@ class ArchiveIndexProgressTest {
     progress.record(tx, 7L);
     // NOT committed
 
-    assertThat(progress.isBlockIndexed(7L)).isFalse();
+    assertThat(progress.hasArchiveBlock(7L)).isFalse();
   }
 }

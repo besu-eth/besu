@@ -22,8 +22,8 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.trie.NodeLoader;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveCoverageTracker;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveHistoryReader;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveIndexProgress;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveProofNodeLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveTrieNodeStrategy;
@@ -67,7 +67,7 @@ class BonsaiArchiveGenesisProofTest {
     fixture.writeGenesisAccount();
 
     // Block 0 is covered and the account state-trie root node is served from the archive.
-    assertThat(fixture.indexProgress.isBlockIndexed(0L)).isTrue();
+    assertThat(fixture.coverageTracker.hasArchiveBlock(0L)).isTrue();
     final NodeLoader loader = ArchiveProofNodeLoader.forAccount(fixture.historyReader, 0L);
     assertThat(loader.getNode(Bytes.EMPTY, Bytes32.wrap(fixture.worldState.rootHash().getBytes())))
         .isPresent();
@@ -81,7 +81,7 @@ class BonsaiArchiveGenesisProofTest {
     fixture.writeGenesisAccount();
     fixture.installArchiveStrategy();
 
-    assertThat(fixture.indexProgress.isBlockIndexed(0L)).isFalse();
+    assertThat(fixture.coverageTracker.hasArchiveBlock(0L)).isFalse();
     final NodeLoader loader = ArchiveProofNodeLoader.forAccount(fixture.historyReader, 0L);
     assertThat(loader.getNode(Bytes.EMPTY, Bytes32.wrap(fixture.worldState.rootHash().getBytes())))
         .isEmpty();
@@ -92,7 +92,7 @@ class BonsaiArchiveGenesisProofTest {
     private final BonsaiWorldState worldState;
     private final BonsaiWorldStateKeyValueStorage storage;
     private final ArchiveNodeHistoryStore historyStore;
-    private final ArchiveIndexProgress indexProgress;
+    private final ArchiveCoverageTracker coverageTracker;
     private final ArchiveHistoryReader historyReader;
 
     private Fixture() {
@@ -103,14 +103,14 @@ class BonsaiArchiveGenesisProofTest {
       storage = worldState.getWorldStateStorage();
       final SegmentedKeyValueStorage composed = storage.getComposedWorldStateStorage();
       historyStore = new ArchiveNodeHistoryStore(composed);
-      indexProgress = new ArchiveIndexProgress(composed);
+      coverageTracker = new ArchiveCoverageTracker(composed);
       historyReader = new ArchiveHistoryReader(historyStore);
     }
 
     private void installArchiveStrategy() {
       storage.setTrieNodeStrategy(
           new ArchiveTrieNodeStrategy(
-              new BonsaiTrieNodeStrategy(), historyStore, indexProgress, () -> true));
+              new BonsaiTrieNodeStrategy(), historyStore, coverageTracker, () -> true));
     }
 
     private void writeGenesisAccount() {

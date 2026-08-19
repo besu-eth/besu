@@ -20,7 +20,7 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.WORLD_BLOCK_NUMBER_KEY;
 
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveIndexProgress;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveCoverageTracker;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeKey;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveTrieNodeStrategy;
@@ -39,7 +39,7 @@ class ArchiveTrieNodeStrategyTest {
 
   private SegmentedKeyValueStorage storage;
   private ArchiveNodeHistoryStore historyStore;
-  private ArchiveIndexProgress indexProgress;
+  private ArchiveCoverageTracker coverageTracker;
 
   @BeforeEach
   void setUp() {
@@ -47,12 +47,12 @@ class ArchiveTrieNodeStrategyTest {
         new SegmentedInMemoryKeyValueStorage(
             List.of(TRIE_BRANCH_STORAGE, TRIE_BRANCH_STORAGE_ARCHIVE));
     historyStore = new ArchiveNodeHistoryStore(storage);
-    indexProgress = new ArchiveIndexProgress(storage);
+    coverageTracker = new ArchiveCoverageTracker(storage);
   }
 
   private ArchiveTrieNodeStrategy strategyWithGate(final boolean gateOpen) {
     return new ArchiveTrieNodeStrategy(
-        new BonsaiTrieNodeStrategy(), historyStore, indexProgress, () -> gateOpen);
+        new BonsaiTrieNodeStrategy(), historyStore, coverageTracker, () -> gateOpen);
   }
 
   private static Bytes32 hash(final Bytes value) {
@@ -78,7 +78,7 @@ class ArchiveTrieNodeStrategyTest {
     tx.commit();
 
     assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location), 0L)).contains(node);
-    assertThat(indexProgress.isBlockIndexed(0L)).isTrue();
+    assertThat(coverageTracker.hasArchiveBlock(0L)).isTrue();
   }
 
   @Test
@@ -100,6 +100,6 @@ class ArchiveTrieNodeStrategyTest {
     // Archive must be empty
     assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location), 6L)).isEmpty();
     // Progress must be unset
-    assertThat(indexProgress.isBlockIndexed(6L)).isFalse();
+    assertThat(coverageTracker.hasArchiveBlock(6L)).isFalse();
   }
 }

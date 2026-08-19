@@ -28,19 +28,18 @@ import org.apache.tuweni.bytes.Bytes;
  * Tracks how much of the chain's trie-node history has been indexed into the archive, and answers
  * whether a given block is covered by that index.
  *
- * <p>Progress is stored directly in {@code TRIE_BRANCH_STORAGE_ARCHIVE} as two consecutive
+ * <p>Coverage is stored directly in {@code TRIE_BRANCH_STORAGE_ARCHIVE} as two consecutive
  * big-endian longs: {@code indexStartBlock} followed by {@code lastIndexedBlock}. There is no
- * in-memory state; every {@link #isBlockIndexed} read and every {@link #record} write goes straight
- * to storage.
+ * in-memory state; every {@link #hasArchiveBlock} read and every {@link #record} write goes
+ * straight to storage.
  */
-public final class ArchiveIndexProgress {
+public final class ArchiveCoverageTracker {
 
-  static final byte[] PROGRESS_KEY =
-      "ARCHIVE_TRIE_HISTORY_PROGRESS_KEY".getBytes(StandardCharsets.UTF_8);
+  static final byte[] COVERAGE_KEY = "ARCHIVE_TRIE_COVERAGE_KEY".getBytes(StandardCharsets.UTF_8);
 
   private final SegmentedKeyValueStorage storage;
 
-  public ArchiveIndexProgress(final SegmentedKeyValueStorage storage) {
+  public ArchiveCoverageTracker(final SegmentedKeyValueStorage storage) {
     this.storage = Objects.requireNonNull(storage);
   }
 
@@ -48,9 +47,9 @@ public final class ArchiveIndexProgress {
    * Returns {@code true} if {@code block} falls within the contiguous range of blocks that have
    * been indexed into the archive.
    */
-  public boolean isBlockIndexed(final long block) {
+  public boolean hasArchiveBlock(final long block) {
     return storage
-        .get(TRIE_BRANCH_STORAGE_ARCHIVE, PROGRESS_KEY)
+        .get(TRIE_BRANCH_STORAGE_ARCHIVE, COVERAGE_KEY)
         .map(
             raw -> {
               if (raw.length < 16) return false;
@@ -70,12 +69,12 @@ public final class ArchiveIndexProgress {
   public void record(final SegmentedKeyValueStorageTransaction tx, final long block) {
     final long startBlock =
         storage
-            .get(TRIE_BRANCH_STORAGE_ARCHIVE, PROGRESS_KEY)
+            .get(TRIE_BRANCH_STORAGE_ARCHIVE, COVERAGE_KEY)
             .map(raw -> Math.min(Bytes.wrap(raw).getLong(0), block))
             .orElse(block);
     tx.put(
         TRIE_BRANCH_STORAGE_ARCHIVE,
-        PROGRESS_KEY,
+        COVERAGE_KEY,
         Bytes.concatenate(Bytes.ofUnsignedLong(startBlock), Bytes.ofUnsignedLong(block))
             .toArrayUnsafe());
   }
