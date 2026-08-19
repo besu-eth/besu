@@ -278,6 +278,42 @@ class EthGetProofTest {
     assertThat(accountInTrie).isEmpty();
   }
 
+  @Test
+  void nonExistentAccountStorageProofHasOneEntryPerRequestedKey() {
+    final Address address = Address.fromHexString("7bebc8ba651aee624937e7d897853ac30c95a067");
+    final UInt256 key1 =
+        UInt256.fromHexString("0x0000000000000000000000000000000000000000000000000000000000000001");
+    final UInt256 key2 =
+        UInt256.fromHexString("0x0000000000000000000000000000000000000000000000000000000000000002");
+    final UInt256 key3 =
+        UInt256.fromHexString("0x0000000000000000000000000000000000000000000000000000000000000003");
+
+    final JsonRpcRequestContext request =
+        requestWithParams(
+            address.toString(),
+            new String[] {key1.toString(), key2.toString(), key3.toString()},
+            "0x" + Long.toHexString(blockNumber));
+
+    final JsonRpcSuccessResponse response = (JsonRpcSuccessResponse) method.response(request);
+    final GetProofResult result = (GetProofResult) response.getResult();
+
+    assertThat(result.getStorageProof())
+        .as("storageProof must contain one entry per requested key (EIP-1186)")
+        .hasSize(3);
+
+    result
+        .getStorageProof()
+        .forEach(
+            entry -> {
+              assertThat(UInt256.fromHexString(entry.getValue()))
+                  .as("storage value for non-existent account must be zero")
+                  .isEqualTo(UInt256.ZERO);
+              assertThat(entry.getStorageProof())
+                  .as("proof nodes for non-existent account must be empty")
+                  .isEmpty();
+            });
+  }
+
   private JsonRpcRequestContext requestWithParams(final Object... params) {
     return new JsonRpcRequestContext(new JsonRpcRequest(JSON_RPC_VERSION, ETH_METHOD, params));
   }
