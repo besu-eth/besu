@@ -727,7 +727,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             protocolSchedule);
 
     // Install the archive strategy before the genesis write so block 0 is captured. syncState does
-    // not exist yet, so the gate reads it lazily via archiveSyncStateRef, bound below.
+    // not exist yet, so the gate reads it lazily via archiveSyncStateRef
     final AtomicReference<SyncState> archiveSyncStateRef = new AtomicReference<>();
     if (DataStorageFormat.X_BONSAI_ARCHIVE.equals(dataStorageConfiguration.getDataStorageFormat())
         && dataStorageConfiguration
@@ -742,9 +742,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
               new BonsaiTrieNodeStrategy(),
               new ArchiveNodeHistoryStore(liveStorage),
               new ArchiveCoverageTracker(liveStorage),
-              // Only archive trie nodes while behind the network head (!isInSync). Once at the head
-              // we stop, so live blocks within the reorg window are never captured into the archive
-              // and cannot be invalidated by a reorg.
+              // Only archive while behind the head, so reorg-window blocks are never captured.
               () ->
                   !archiveSyncStateRef
                       .get()
