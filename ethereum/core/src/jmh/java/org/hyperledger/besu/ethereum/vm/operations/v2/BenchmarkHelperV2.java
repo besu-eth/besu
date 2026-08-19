@@ -18,13 +18,17 @@ import static org.mockito.Mockito.mock;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.UInt256;
+import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.frame.BlockValues;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
+import java.util.List;
+import java.util.Optional;
 import java.util.Random;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -39,15 +43,40 @@ public class BenchmarkHelperV2 {
    * @return a message-call frame ready to use in benchmark setup
    */
   public static MessageFrame createMessageCallFrame() {
+    return createMessageCallFrame(mock(BlockValues.class));
+  }
+
+  static MessageFrame createMessageCallFrame(final BlockValues blockValues) {
+    return createMessageCallFrame(blockValues, (__, ___) -> Hash.ZERO, Optional.empty());
+  }
+
+  static MessageFrame createMessageCallFrame(
+      final BlockValues blockValues, final Optional<List<VersionedHash>> versionedHashes) {
+    return createMessageCallFrame(blockValues, (__, ___) -> Hash.ZERO, versionedHashes);
+  }
+
+  static MessageFrame createMessageCallFrame(
+      final BlockValues blockValues,
+      final BlockHashLookup blockHashLookup,
+      final Optional<List<VersionedHash>> versionedHashes) {
+    return createMessageCallFrame(true, blockValues, blockHashLookup, versionedHashes);
+  }
+
+  static MessageFrame createMessageCallFrame(
+      final boolean enableEvmV2,
+      final BlockValues blockValues,
+      final BlockHashLookup blockHashLookup,
+      final Optional<List<VersionedHash>> versionedHashes) {
     return MessageFrame.builder()
-        .enableEvmV2(true)
+        .enableEvmV2(enableEvmV2)
         .worldUpdater(mock(WorldUpdater.class))
         .originator(Address.ZERO)
         .gasPrice(Wei.ONE)
         .blobGasPrice(Wei.ONE)
-        .blockValues(mock(BlockValues.class))
+        .blockValues(blockValues)
         .miningBeneficiary(Address.ZERO)
-        .blockHashLookup((__, ___) -> Hash.ZERO)
+        .blockHashLookup(blockHashLookup)
+        .versionedHashes(versionedHashes)
         .type(MessageFrame.Type.MESSAGE_CALL)
         .initialGas(Long.MAX_VALUE)
         .address(Address.ZERO)
