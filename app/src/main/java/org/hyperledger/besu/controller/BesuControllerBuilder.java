@@ -726,14 +726,10 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             bonsaiCachedMerkleTrieLoader,
             protocolSchedule);
 
-    // When archive state proofs are enabled the archive trie-node strategy must be installed before
-    // the genesis state is written below, otherwise genesis (block 0) trie nodes are persisted with
-    // the default strategy and never captured into the archive, and proofs fail for any account
-    // untouched since genesis. syncState is not created until later in build(), so the archive gate
-    // reads it lazily through archiveSyncStateRef, which is bound once syncState exists. The gate
-    // is
-    // never evaluated before then: the only state written in the meantime is the genesis write,
-    // which short-circuits on block == 0 in ArchiveTrieNodeStrategy before consulting the gate.
+    // Install the archive trie-node strategy before the genesis state is written below, so genesis
+    // (block 0) nodes are captured; otherwise proofs fail for accounts untouched since genesis.
+    // syncState does not exist yet, so the gate reads it lazily via archiveSyncStateRef (bound
+    // below); only the genesis write happens first, and it short-circuits on block == 0.
     final AtomicReference<SyncState> archiveSyncStateRef = new AtomicReference<>();
     if (DataStorageFormat.X_BONSAI_ARCHIVE.equals(dataStorageConfiguration.getDataStorageFormat())
         && dataStorageConfiguration
@@ -823,7 +819,6 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
     final boolean hasInitialSyncPhase = fullSyncDisabled && p2pEnabled;
     final SyncState syncState =
         new SyncState(blockchain, ethPeers, hasInitialSyncPhase, checkpoint);
-    // Bind syncState into the archive gate installed above (before the genesis write).
     archiveSyncStateRef.set(syncState);
 
     protocolContext
@@ -1012,9 +1007,6 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
         // Close the migrator before storageProvider so callback finishes before RocksDB is closed
         closeables.addFirst(archiveMigrator);
       }
-
-      // Note: the archive trie-node strategy (used to serve historical eth_getProof) is installed
-      // earlier in build(), before the genesis state is written. See archiveSyncStateRef above.
     }
 
     return new BesuController(
