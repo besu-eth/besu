@@ -102,6 +102,7 @@ import picocli.CommandLine.Option;
       BenchmarkSubCommand.class,
       B11rSubCommand.class,
       BlockchainTestSubCommand.class,
+      EngineTestSubCommand.class,
       StateTestSubCommand.class,
       T8nSubCommand.class,
       T8nServerSubCommand.class
@@ -292,11 +293,11 @@ public class EvmToolCommand implements Runnable {
     this.out = out;
   }
 
-  void execute(final String... args) {
-    execute(System.in, new PrintWriter(System.out, true, UTF_8), args);
+  int execute(final String... args) {
+    return execute(System.in, new PrintWriter(System.out, true, UTF_8), args);
   }
 
-  void execute(final InputStream input, final PrintWriter output, final String[] args) {
+  int execute(final InputStream input, final PrintWriter output, final String[] args) {
     final CommandLine commandLine = new CommandLine(this).setOut(output);
     out = output;
     in = input;
@@ -333,7 +334,7 @@ public class EvmToolCommand implements Runnable {
           }
           return new CommandLine.RunLast().execute(parseResult);
         });
-    commandLine.execute(args);
+    return commandLine.execute(args);
   }
 
   private static void addForkHelp(final CommandLine subCommandLine) {

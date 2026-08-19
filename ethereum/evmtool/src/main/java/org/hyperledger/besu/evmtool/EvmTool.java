@@ -31,6 +31,10 @@ public final class EvmTool {
     LogConfigurator.setLevel("", "OFF");
     final EvmToolCommand evmToolCommand = new EvmToolCommand();
 
-    evmToolCommand.execute(args);
+    final int exitCode = evmToolCommand.execute(args);
+    // Subcommands such as engine-test hold shared Vertx and EthScheduler pools whose non-daemon
+    // threads keep the JVM alive for their keep-alive window (~60s) past the last test, so the
+    // exit has to be explicit rather than by falling off the end of main.
+    System.exit(exitCode);
   }
 }
