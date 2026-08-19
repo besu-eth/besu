@@ -27,7 +27,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
 
-import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 
 public interface WorldStateArchive extends Closeable {
@@ -88,24 +87,4 @@ public interface WorldStateArchive extends Closeable {
       final Address accountAddress,
       final List<UInt256> accountStorageKeys,
       final Function<Optional<WorldStateProof>, ? extends Optional<U>> mapper);
-
-  /**
-   * Heal the world state to fix inconsistency
-   *
-   * @param maybeAccountToRepair the optional account to repair
-   * @param location the location of the inconsistency
-   */
-  void heal(Optional<Address> maybeAccountToRepair, Bytes location);
-
-  /** A world state healer */
-  @FunctionalInterface
-  interface WorldStateHealer {
-    /**
-     * Heal the world state to fix inconsistency
-     *
-     * @param maybeAccountToRepair the optional account to repair
-     * @param location the location of the inconsistency
-     */
-    void heal(Optional<Address> maybeAccountToRepair, Bytes location);
-  }
 }

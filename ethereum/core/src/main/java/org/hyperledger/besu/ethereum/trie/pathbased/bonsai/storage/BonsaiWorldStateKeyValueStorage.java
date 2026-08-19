@@ -244,12 +244,6 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
         });
   }
 
-  public void downgradeToPartialFlatDbMode() {
-    flatDbStrategyProvider.downgradeToPartialFlatDbMode(composedWorldStateStorage);
-    cacheManager.clear(ACCOUNT_INFO_STATE);
-    cacheManager.clear(ACCOUNT_STORAGE_STORAGE);
-  }
-
   @Override
   public void clear() {
     super.clear();

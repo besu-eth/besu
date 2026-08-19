@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.mainnet.staterootcommitter;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hyperledger.besu.ethereum.core.WorldStateHealerHelper.throwingWorldStateHealerSupplier;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig.createStatefulConfigWithTrie;
 
 import org.hyperledger.besu.config.GenesisConfig;
@@ -653,7 +652,6 @@ class StateRootCommitterIntegrationTest {
               new BonsaiCachedMerkleTrieLoader(new NoOpMetricsSystem()),
               null,
               EvmConfiguration.DEFAULT,
-              throwingWorldStateHealerSupplier(),
               new PathBasedCodeCache());
       genesisState.writeStateTo(bonsaiArchive.getWorldState());
 
@@ -923,7 +921,6 @@ class StateRootCommitterIntegrationTest {
               new BonsaiCachedMerkleTrieLoader(new NoOpMetricsSystem()),
               null,
               EvmConfiguration.DEFAULT,
-              throwingWorldStateHealerSupplier(),
               new PathBasedCodeCache());
       genesisState.writeStateTo(archive.getWorldState());
       final ProtocolContext protocolContext =
