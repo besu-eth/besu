@@ -45,6 +45,8 @@ import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.testutil.BlockTestUtil;
 import org.hyperledger.besu.testutil.TestClock;
 
+import java.io.ByteArrayInputStream;
+import java.io.DataInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.math.BigInteger;
@@ -111,7 +113,8 @@ public final class RlpBlockExporterTest {
   public void exportBlocks_noBounds(final @TempDir Path outputDir) throws IOException {
     final Path outputPath = outputDir.resolve("output");
     final RlpBlockExporter exporter = new RlpBlockExporter(blockchain);
-    exporter.exportBlocks(outputPath.toFile(), Optional.empty(), Optional.empty());
+    exporter.exportBlocks(
+        outputPath.toFile(), Optional.empty(), Optional.empty(), Optional.empty());
 
     // Iterate over blocks and check that they match expectations
     final RawBlockIterator blockIterator = getBlockIterator(outputPath);
@@ -133,7 +136,8 @@ public final class RlpBlockExporterTest {
     final RlpBlockExporter exporter = new RlpBlockExporter(blockchain);
 
     final long lowerBound = 990;
-    exporter.exportBlocks(outputPath.toFile(), Optional.of(lowerBound), Optional.empty());
+    exporter.exportBlocks(
+        outputPath.toFile(), Optional.empty(), Optional.of(lowerBound), Optional.empty());
 
     // Iterate over blocks and check that they match expectations
     final RawBlockIterator blockIterator = getBlockIterator(outputPath);
@@ -155,7 +159,8 @@ public final class RlpBlockExporterTest {
     final RlpBlockExporter exporter = new RlpBlockExporter(blockchain);
 
     final long upperBound = 10;
-    exporter.exportBlocks(outputPath.toFile(), Optional.empty(), Optional.of(upperBound));
+    exporter.exportBlocks(
+        outputPath.toFile(), Optional.empty(), Optional.empty(), Optional.of(upperBound));
 
     // Iterate over blocks and check that they match expectations
     final RawBlockIterator blockIterator = getBlockIterator(outputPath);
@@ -179,7 +184,8 @@ public final class RlpBlockExporterTest {
 
     final long lowerBound = 5;
     final long upperBound = 10;
-    exporter.exportBlocks(outputPath.toFile(), Optional.of(lowerBound), Optional.of(upperBound));
+    exporter.exportBlocks(
+        outputPath.toFile(), Optional.empty(), Optional.of(lowerBound), Optional.of(upperBound));
 
     // Iterate over blocks and check that they match expectations
     final RawBlockIterator blockIterator = getBlockIterator(outputPath);
@@ -203,7 +209,8 @@ public final class RlpBlockExporterTest {
 
     final long lowerBound = chainHead - 10;
     final long upperBound = chainHead + 10;
-    exporter.exportBlocks(outputPath.toFile(), Optional.of(lowerBound), Optional.of(upperBound));
+    exporter.exportBlocks(
+        outputPath.toFile(), Optional.empty(), Optional.of(lowerBound), Optional.of(upperBound));
 
     // Iterate over blocks and check that they match expectations
     final RawBlockIterator blockIterator = getBlockIterator(outputPath);
@@ -223,7 +230,10 @@ public final class RlpBlockExporterTest {
   public void exportBlocks_negativeStartNumber(final @TempDir File outputPath) throws IOException {
     final RlpBlockExporter exporter = new RlpBlockExporter(blockchain);
 
-    assertThatThrownBy(() -> exporter.exportBlocks(outputPath, Optional.of(-1L), Optional.empty()))
+    assertThatThrownBy(
+            () ->
+                exporter.exportBlocks(
+                    outputPath, Optional.empty(), Optional.of(-1L), Optional.empty()))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("greater than 0");
   }
@@ -232,7 +242,10 @@ public final class RlpBlockExporterTest {
   public void exportBlocks_negativeEndNumber(final @TempDir File outputPath) throws IOException {
     final RlpBlockExporter exporter = new RlpBlockExporter(blockchain);
 
-    assertThatThrownBy(() -> exporter.exportBlocks(outputPath, Optional.empty(), Optional.of(-1L)))
+    assertThatThrownBy(
+            () ->
+                exporter.exportBlocks(
+                    outputPath, Optional.empty(), Optional.empty(), Optional.of(-1L)))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("greater than 0");
   }
@@ -241,9 +254,57 @@ public final class RlpBlockExporterTest {
   public void exportBlocks_outOfOrderBounds(final @TempDir File outputPath) throws IOException {
     final RlpBlockExporter exporter = new RlpBlockExporter(blockchain);
 
-    assertThatThrownBy(() -> exporter.exportBlocks(outputPath, Optional.of(10L), Optional.of(2L)))
+    assertThatThrownBy(
+            () ->
+                exporter.exportBlocks(
+                    outputPath, Optional.empty(), Optional.of(10L), Optional.of(2L)))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("Start block must be less than end block");
+  }
+
+  @Test
+  public void exportBlocks_emptyOptionalDoesNotCreateSidecar(final @TempDir Path outputDir)
+      throws IOException {
+    final Path outputPath = outputDir.resolve("output");
+    final RlpBlockExporter exporter = new RlpBlockExporter(blockchain);
+
+    exporter.exportBlocks(outputPath.toFile(), Optional.empty(), Optional.of(0L), Optional.of(10L));
+
+    assertThat(Files.exists(outputPath)).isTrue();
+    assertThat(outputDir.toFile().list()).containsOnly("output");
+  }
+
+  @Test
+  public void exportBlocks_writesOneFramePerBlock(final @TempDir Path outputDir)
+      throws IOException {
+    final Path outputPath = outputDir.resolve("output");
+    final Path balsPath = outputDir.resolve("output.bals");
+    final RlpBlockExporter exporter = new RlpBlockExporter(blockchain);
+
+    final long startBlock = 0L;
+    final long endBlock = 10L;
+    exporter.exportBlocks(
+        outputPath.toFile(),
+        Optional.of(balsPath.toFile()),
+        Optional.of(startBlock),
+        Optional.of(endBlock));
+
+    assertThat(Files.exists(balsPath)).isTrue();
+
+    // Sidecar is a sequence of frames: [uint32 BE length][rlp bytes], one per exported block.
+    // The test chain predates BAL activation, so every frame has a zero-length payload.
+    final byte[] bals = Files.readAllBytes(balsPath);
+    try (final DataInputStream in = new DataInputStream(new ByteArrayInputStream(bals))) {
+      long frameCount = 0L;
+      while (in.available() > 0) {
+        final int length = in.readInt();
+        assertThat(length).isGreaterThanOrEqualTo(0);
+        final byte[] payload = new byte[length];
+        in.readFully(payload);
+        frameCount++;
+      }
+      assertThat(frameCount).isEqualTo(endBlock - startBlock);
+    }
   }
 
   private RawBlockIterator getBlockIterator(final Path blocks) throws IOException {

@@ -19,8 +19,10 @@ import static com.google.common.base.Preconditions.checkArgument;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 
+import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -48,6 +50,8 @@ public class RlpBlockExporter {
    * Export blocks that are stored in Besu's block storage.
    *
    * @param outputFile the path at which to save the exported block data
+   * @param maybeBalsOutputFile optional path for a sidecar file holding each block's Block Access
+   *     List; if empty no sidecar is written
    * @param maybeStartBlock the starting index of the block list to export (inclusive)
    * @param maybeEndBlock the ending index of the block list to export (exclusive), if not specified
    *     a single block will be export
@@ -55,6 +59,7 @@ public class RlpBlockExporter {
    */
   public void exportBlocks(
       final File outputFile,
+      final Optional<File> maybeBalsOutputFile,
       final Optional<Long> maybeStartBlock,
       final Optional<Long> maybeEndBlock)
       throws IOException {
@@ -67,34 +72,57 @@ public class RlpBlockExporter {
 
     // Append to file if a range is specified
     final boolean append = maybeStartBlock.isPresent();
-    FileOutputStream outputStream = new FileOutputStream(outputFile, append);
 
     LOG.info(
-        "Exporting blocks [{},{}) to file {} (appending: {})",
+        "Exporting blocks [{},{}) to file {} (appending: {}, bals: {})",
         startBlock,
         endBlock,
         outputFile.toString(),
-        Boolean.toString(append));
+        Boolean.toString(append),
+        maybeBalsOutputFile.map(File::toString).orElse("none"));
 
-    long blockNumber = 0L;
-    for (long i = startBlock; i < endBlock; i++) {
-      Optional<Block> maybeBlock = blockchain.getBlockByNumber(i);
-      if (maybeBlock.isEmpty()) {
-        LOG.warn("Unable to export blocks [{} - {}).  Blocks not found.", i, endBlock);
-        break;
+    try (final FileOutputStream outputStream = new FileOutputStream(outputFile, append);
+        final DataOutputStream balsStream = openBalsStream(maybeBalsOutputFile, append)) {
+      long blockNumber = 0L;
+      for (long i = startBlock; i < endBlock; i++) {
+        final Optional<Block> maybeBlock = blockchain.getBlockByNumber(i);
+        if (maybeBlock.isEmpty()) {
+          LOG.warn("Unable to export blocks [{} - {}).  Blocks not found.", i, endBlock);
+          break;
+        }
+
+        final Block block = maybeBlock.get();
+        blockNumber = block.getHeader().getNumber();
+        if (blockNumber % 100 == 0) {
+          LOG.info("Export at block {}", blockNumber);
+        }
+
+        exportBlock(outputStream, block);
+        if (balsStream != null) {
+          exportBal(balsStream, block);
+        }
       }
-
-      final Block block = maybeBlock.get();
-      blockNumber = block.getHeader().getNumber();
-      if (blockNumber % 100 == 0) {
-        LOG.info("Export at block {}", blockNumber);
-      }
-
-      exportBlock(outputStream, block);
+      LOG.info("Export complete at block {}", blockNumber);
     }
+  }
 
-    outputStream.close();
-    LOG.info("Export complete at block {}", blockNumber);
+  private DataOutputStream openBalsStream(
+      final Optional<File> maybeBalsOutputFile, final boolean append) throws IOException {
+    if (maybeBalsOutputFile.isEmpty()) {
+      return null;
+    }
+    return new DataOutputStream(new FileOutputStream(maybeBalsOutputFile.get(), append));
+  }
+
+  private void exportBal(final DataOutputStream balsStream, final Block block) throws IOException {
+    final Bytes balRlp =
+        blockchain
+            .getBlockAccessList(block.getHash())
+            .flatMap(BlockAccessList::rawRlp)
+            .orElse(Bytes.EMPTY);
+    final byte[] bytes = balRlp.toArrayUnsafe();
+    balsStream.writeInt(bytes.length);
+    balsStream.write(bytes);
   }
 
   /**
