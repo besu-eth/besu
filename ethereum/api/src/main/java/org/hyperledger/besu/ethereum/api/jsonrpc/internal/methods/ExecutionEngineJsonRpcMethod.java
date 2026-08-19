@@ -160,39 +160,41 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
 
     final CompletableFuture<JsonRpcResponse> cf = new CompletableFuture<>();
 
-    syncVertx.<JsonRpcResponse>executeBlocking(
-        z -> {
-          logger()
-              .trace(
-                  "execution engine JSON-RPC request {} {}",
-                  this.getName(),
-                  request.getRequest().getParams());
-          z.tryComplete(syncResponse(request));
-        },
-        true,
-        resp ->
-            cf.complete(
-                resp.otherwise(
-                        t -> {
-                          if (logger().isDebugEnabled()) {
-                            logger()
-                                .atDebug()
-                                .setMessage("failed to exec consensus method {}")
-                                .addArgument(this.getName())
-                                .setCause(t)
-                                .log();
-                          } else {
-                            logger()
-                                .atError()
-                                .setMessage("failed to exec consensus method {}, error: {}")
-                                .addArgument(this.getName())
-                                .addArgument(t.getMessage())
-                                .log();
-                          }
-                          return new JsonRpcErrorResponse(
-                              request.getRequest().getId(), RpcErrorType.INVALID_REQUEST);
-                        })
-                    .result()));
+    syncVertx
+        .<JsonRpcResponse>executeBlocking(
+            () -> {
+              logger()
+                  .trace(
+                      "execution engine JSON-RPC request {} {}",
+                      this.getName(),
+                      request.getRequest().getParams());
+              return syncResponse(request);
+            },
+            true)
+        .onComplete(
+            resp ->
+                cf.complete(
+                    resp.otherwise(
+                            t -> {
+                              if (logger().isDebugEnabled()) {
+                                logger()
+                                    .atDebug()
+                                    .setMessage("failed to exec consensus method {}")
+                                    .addArgument(this.getName())
+                                    .setCause(t)
+                                    .log();
+                              } else {
+                                logger()
+                                    .atError()
+                                    .setMessage("failed to exec consensus method {}, error: {}")
+                                    .addArgument(this.getName())
+                                    .addArgument(t.getMessage())
+                                    .log();
+                              }
+                              return new JsonRpcErrorResponse(
+                                  request.getRequest().getId(), RpcErrorType.INVALID_REQUEST);
+                            })
+                        .result()));
     try {
       return cf.get(ENGINE_API_RESPONSE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
     } catch (TimeoutException e) {

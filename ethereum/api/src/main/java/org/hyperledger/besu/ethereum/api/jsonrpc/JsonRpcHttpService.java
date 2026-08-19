@@ -235,7 +235,8 @@ public class JsonRpcHttpService {
 
       httpServer
           .requestHandler(buildRouter())
-          .listen(
+          .listen()
+          .onComplete(
               res -> {
                 if (!res.failed()) {
                   resultFuture.complete(null);
@@ -536,15 +537,17 @@ public class JsonRpcHttpService {
     }
 
     final CompletableFuture<?> resultFuture = new CompletableFuture<>();
-    httpServer.close(
-        res -> {
-          if (res.failed()) {
-            resultFuture.completeExceptionally(res.cause());
-          } else {
-            httpServer = null;
-            resultFuture.complete(null);
-          }
-        });
+    httpServer
+        .close()
+        .onComplete(
+            res -> {
+              if (res.failed()) {
+                resultFuture.completeExceptionally(res.cause());
+              } else {
+                httpServer = null;
+                resultFuture.complete(null);
+              }
+            });
     return resultFuture;
   }
 
