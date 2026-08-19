@@ -68,7 +68,9 @@ public class NodeLocalConfigPermissioningController implements NodeConnectionPer
         permissioningConfiguration,
         fixedNodes,
         localNodeId,
-        new AllowlistPersistor(permissioningConfiguration.getNodePermissioningConfigFilePath()),
+        new AllowlistPersistor(
+            Objects.requireNonNull(
+                permissioningConfiguration.getNodePermissioningConfigFilePath())),
         metricsSystem);
   }
 
