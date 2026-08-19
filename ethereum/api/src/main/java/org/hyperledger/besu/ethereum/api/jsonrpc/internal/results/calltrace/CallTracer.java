@@ -63,7 +63,6 @@ public class CallTracer implements OperationTracer {
   private static final String PRECOMPILE_FAILED = "precompile failed";
   private static final String ZERO_VALUE = "0x0";
 
-  private static final long WARM_ACCESS_GAS = 100L;
   private static final long GAS_CALL_STIPEND_DIVISOR = 64L;
 
   private final boolean onlyTopCall;
@@ -81,7 +80,6 @@ public class CallTracer implements OperationTracer {
   private String pendingValueHex;
   private long pendingInOffset;
   private long pendingInLength;
-  private long pendingPreOpGas;
   private Address pendingBeneficiary;
 
   /**
@@ -149,13 +147,8 @@ public class CallTracer implements OperationTracer {
     }
     final Node node = stack.peek();
     node.isPrecompile = true;
-    if (stack.size() > 1) {
-      // Besu never spawns a real child frame for a precompile, so there is no genuine gas
-      // allocation to report; approximate it the way geth does. Not applicable when the
-      // transaction itself targets a precompile directly - there is no enclosing CALL opcode
-      // budget to approximate from, so the root keeps its tx.gasLimit "gas" field.
-      node.builder.gas(calculatePrecompileGas(pendingPreOpGas));
-    }
+    // traceContextEnter already fired for this precompile frame with its exact allocated gas;
+    // no approximation needed.
     final long cap = node.builder.getGas().longValueExact();
 
     if (frame.getExceptionalHaltReason().isPresent()) {
@@ -414,7 +407,6 @@ public class CallTracer implements OperationTracer {
 
   private void capturePendingCall(final MessageFrame frame, final String opcode) {
     pendingType = opcode;
-    pendingPreOpGas = frame.getRemainingGas();
     final boolean hasValue = CALL.equals(opcode) || CALLCODE.equals(opcode);
     final int required = hasValue ? 7 : 6;
     pendingValueHex =
@@ -458,18 +450,6 @@ public class CallTracer implements OperationTracer {
   private void capturePendingSelfDestruct(final MessageFrame frame) {
     pendingValid = frame.stackSize() >= 1;
     pendingBeneficiary = pendingValid ? Words.toAddress(frame.getStackItem(0)) : null;
-  }
-
-  // ------------------------------------------------------------------------------------------
-  // Gas helpers (Geth-style precompile gas cap; Besu does not spawn a child frame for
-  // precompiles' gas accounting, so the forwarded amount is approximated the same way geth
-  // reports it: warm-access cost subtracted, then the standard 63/64 EIP-150 rule).
-  // ------------------------------------------------------------------------------------------
-
-  static long calculatePrecompileGas(final long preOpGas) {
-    final long post = Math.max(0L, preOpGas);
-    final long base = post > WARM_ACCESS_GAS ? post - WARM_ACCESS_GAS : 0L;
-    return base - (base / GAS_CALL_STIPEND_DIVISOR);
   }
 
   private static boolean isCreateType(final String type) {

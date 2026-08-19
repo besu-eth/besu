@@ -37,24 +37,37 @@ import java.util.Optional;
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
 
 @DisplayName("CallTracer")
 class CallTracerTest {
 
-  @ParameterizedTest
-  @CsvSource({
-    "100, 0",
-    "101, 1",
-    "164, 63",
-    "1000, 886",
-    "10000, 9746",
-    "-5, 0",
-  })
-  @DisplayName("calculatePrecompileGas applies the warm-access cap then the 63/64 rule")
-  void calculatePrecompileGasAppliesGethStyleCalculation(final long preOpGas, final long expected) {
-    assertThat(CallTracer.calculatePrecompileGas(preOpGas)).isEqualTo(expected);
+  @Test
+  @DisplayName("reports a nested precompile's exact entry gas, not an approximation")
+  void precompileCallReportsExactEntryGas() {
+    final CallTracer tracer = new CallTracer(false);
+    final Address sender = Address.fromHexString("0x00");
+    final Address rootContract = Address.fromHexString("0x01");
+    final MessageFrame root = frame(sender, rootContract);
+
+    final Transaction tx = mockTransaction();
+    tracer.traceStartTransaction(null, tx);
+    tracer.traceContextEnter(root);
+
+    // A CALL into a precompile: Besu still creates a real MessageFrame and fires
+    // traceContextEnter for it with its exact allocated gas before executePrecompile runs.
+    final Address precompileAddress = Address.fromHexString("0x04");
+    final MessageFrame precompileFrame = frame(sender, precompileAddress);
+    when(precompileFrame.getRemainingGas()).thenReturn(12_345L);
+    tracer.traceContextEnter(precompileFrame);
+
+    tracer.tracePrecompileCall(precompileFrame, 3_000L, Bytes.fromHexString("0xabcd"));
+    tracer.traceContextExit(precompileFrame);
+    tracer.traceContextExit(root);
+
+    final CallTracerResult result = tracer.buildResult(tx, mockResult(21_000L, true));
+    final CallTracerResult precompileNode = result.getCalls().get(0);
+    assertThat(precompileNode.getGas()).isEqualTo("0x3039"); // 12345 in hex, not an approximation
+    assertThat(precompileNode.getGasUsed()).isEqualTo("0xbb8"); // 3000
   }
 
   private static MessageFrame frame(final Address sender, final Address ownAddress) {
