@@ -157,6 +157,11 @@ public class EthFeeHistory implements JsonRpcMethod {
           e);
     }
 
+    if (maybeRewardPercentiles.isPresent()
+        && !areRewardPercentilesValid(maybeRewardPercentiles.get())) {
+      return new JsonRpcErrorResponse(requestId, RpcErrorType.INVALID_REWARD_PERCENTILES_PARAMS);
+    }
+
     final BlockHeader chainHeadHeader = blockchain.getChainHeadHeader();
     final long chainHeadBlockNumber = chainHeadHeader.getNumber();
     final long highestBlockNumber = highestBlock.getNumber().orElse(chainHeadBlockNumber);
@@ -174,6 +179,8 @@ public class EthFeeHistory implements JsonRpcMethod {
             : Optional.empty();
     final ProtocolSpec nextBlockProtocolSpec =
         protocolSchedule.getForNextBlockHeader(chainHeadHeader, chainHeadHeader.getTimestamp());
+    // Already validated as ascending above; the sort is kept so the list handed to
+    // calculateRewards is ordered by construction rather than by assumption.
     final Optional<List<Double>> sortedRewardPercentiles =
         maybeRewardPercentiles
             .filter(list -> list.size() <= MAXIMUM_QUERY_PERCENTILES)
@@ -325,6 +332,32 @@ public class EthFeeHistory implements JsonRpcMethod {
                     return rewards;
                   });
             });
+  }
+
+  /**
+   * Checks the reward percentile list against the constraints the JSON-RPC contract states: each
+   * value within [0, 100], listed in ascending order.
+   *
+   * <p>Ascending order is not a cosmetic requirement. {@code calculateRewards} carries its
+   * cumulative gas counter and transaction index across percentiles instead of rescanning the
+   * block, which only yields correct rewards for an ascending list.
+   *
+   * <p>The list-size limit is deliberately not checked here: oversized lists answer with a null
+   * reward field rather than an error, which is the behaviour introduced with
+   * MAXIMUM_QUERY_PERCENTILES.
+   *
+   * @param rewardPercentiles the percentiles supplied by the caller, in request order
+   * @return true if the list satisfies the documented constraints
+   */
+  private static boolean areRewardPercentilesValid(final List<Double> rewardPercentiles) {
+    double previous = Double.NEGATIVE_INFINITY;
+    for (final Double percentile : rewardPercentiles) {
+      if (percentile == null || percentile < 0 || percentile > 100 || percentile < previous) {
+        return false;
+      }
+      previous = percentile;
+    }
+    return true;
   }
 
   record TransactionInfo(long gasUsed, Wei effectivePriorityFeePerGas) {}

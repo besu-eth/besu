@@ -368,6 +368,32 @@ public class EthFeeHistoryTest {
   }
 
   @Test
+  public void rejectsNonAscendingRewardPercentiles() {
+    assertThat(
+            ((JsonRpcErrorResponse) feeHistoryRequest("0x1", "latest", new double[] {80.0, 20.0}))
+                .getErrorType())
+        .isEqualTo(RpcErrorType.INVALID_REWARD_PERCENTILES_PARAMS);
+  }
+
+  @Test
+  public void rejectsOutOfRangeRewardPercentiles() {
+    assertThat(
+            ((JsonRpcErrorResponse) feeHistoryRequest("0x1", "latest", new double[] {-1.0}))
+                .getErrorType())
+        .isEqualTo(RpcErrorType.INVALID_REWARD_PERCENTILES_PARAMS);
+    assertThat(
+            ((JsonRpcErrorResponse) feeHistoryRequest("0x1", "latest", new double[] {100.1}))
+                .getErrorType())
+        .isEqualTo(RpcErrorType.INVALID_REWARD_PERCENTILES_PARAMS);
+  }
+
+  @Test
+  public void acceptsAscendingRewardPercentilesIncludingBounds() {
+    assertThat(feeHistoryRequest("0x1", "latest", new double[] {0.0, 20.0, 20.0, 100.0}))
+        .isInstanceOf(JsonRpcSuccessResponse.class);
+  }
+
+  @Test
   public void blockCountBounds() {
     assertThat(
             ((JsonRpcErrorResponse) feeHistoryRequest("0x0", "latest", new double[] {100.0}))
