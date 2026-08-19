@@ -33,7 +33,6 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.Optional;
 import java.util.function.LongSupplier;
-import java.util.function.Supplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,9 +53,30 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
       final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader,
       final ServiceManager pluginContext,
       final EvmConfiguration evmConfiguration,
-      final Supplier<WorldStateHealer> worldStateHealerSupplier,
       final PathBasedCodeCache codeCache,
       final MetricsSystem metricsSystem) {
+    this(
+        worldStateKeyValueStorage,
+        blockchain,
+        dataStorageConfiguration,
+        bonsaiCachedMerkleTrieLoader,
+        pluginContext,
+        evmConfiguration,
+        codeCache,
+        metricsSystem,
+        Optional.empty());
+  }
+
+  public BonsaiArchiveWorldStateProvider(
+      final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
+      final Blockchain blockchain,
+      final DataStorageConfiguration dataStorageConfiguration,
+      final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader,
+      final ServiceManager pluginContext,
+      final EvmConfiguration evmConfiguration,
+      final PathBasedCodeCache codeCache,
+      final MetricsSystem metricsSystem,
+      final Optional<Long> amsterdamMilestone) {
     super(
         worldStateKeyValueStorage,
         blockchain,
@@ -64,8 +84,8 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
         bonsaiCachedMerkleTrieLoader,
         pluginContext,
         evmConfiguration,
-        worldStateHealerSupplier,
-        codeCache);
+        codeCache,
+        amsterdamMilestone);
     this.codeCache = codeCache;
     this.archiveWorldStateConfig =
         WorldStateConfig.newBuilder(worldStateConfig).trieDisabled(true).build();

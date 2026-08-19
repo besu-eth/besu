@@ -12,14 +12,25 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.plugin.services.rpc;
+package org.hyperledger.besu.plugin.services.worldstate;
 
-/** The interface Plugin rpc request. */
-public interface PluginRpcRequest {
+import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
+
+/** Result of state-root computation: root hash and deferred storage writes. */
+public interface StateRootComputation {
+
   /**
-   * Get params.
+   * The computed state root hash.
    *
-   * @return the object [ ]
+   * @return the computed state root hash
    */
-  Object[] getParams();
+  Hash root();
+
+  /**
+   * Applies deferred storage writes produced during root computation.
+   *
+   * @param updater the world state storage updater
+   */
+  void applyTo(WorldStateKeyValueStorage.Updater updater);
 }

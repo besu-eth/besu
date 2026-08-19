@@ -22,11 +22,11 @@ import java.util.NoSuchElementException;
 public class RequestContractAddresses {
   /** EIP-8282 builder deposit request predeploy (spec-fixed default when not configured). */
   public static final Address DEFAULT_BUILDER_DEPOSIT_REQUEST_CONTRACT_ADDRESS =
-      Address.fromHexString("0x0000884d2AA32eAa155F59A2f24eFa73D9008282");
+      Address.fromHexString("0x0000BFF46984E3725691FA540A8C7589300D8282");
 
   /** EIP-8282 builder exit request predeploy (spec-fixed default when not configured). */
   public static final Address DEFAULT_BUILDER_EXIT_REQUEST_CONTRACT_ADDRESS =
-      Address.fromHexString("0x000014574A74c805590AFF9499fc7A690f008282");
+      Address.fromHexString("0x000064D678505AD48F8CCB093BC65613800E8282");
 
   private final Address withdrawalRequestContractAddress;
   private final Address depositContractAddress;
