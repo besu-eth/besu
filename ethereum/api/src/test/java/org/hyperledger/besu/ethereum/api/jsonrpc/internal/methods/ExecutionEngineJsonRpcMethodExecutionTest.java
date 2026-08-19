@@ -16,12 +16,16 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineCallListener;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
+import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
 import java.util.ArrayList;
@@ -49,6 +53,12 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
 
   @Mock private EngineCallListener engineCallListener;
 
+  @Mock private ProtocolSchedule protocolSchedule;
+
+  @Mock private MergeMiningCoordinator mergeCoordinator;
+
+  @Mock private EthPeers ethPeers;
+
   @AfterAll
   public static void tearDown() {
     vertx.close();
@@ -59,11 +69,10 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
     // each call blocks until the other one has started executing, so the test only
     // completes if the two calls run in parallel
     final CyclicBarrier bothStarted = new CyclicBarrier(2);
-    final StubEngineMethod method =
-        new StubEngineMethod(
+    final UnorderedStubEngineMethod method =
+        new UnorderedStubEngineMethod(
             protocolContext,
             engineCallListener,
-            false,
             req -> {
               try {
                 bothStarted.await(10, TimeUnit.SECONDS);
@@ -82,11 +91,13 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
   public void orderedMethodCallsNeverExecuteConcurrently() throws Exception {
     final AtomicInteger active = new AtomicInteger();
     final AtomicInteger maxActive = new AtomicInteger();
-    final StubEngineMethod method =
-        new StubEngineMethod(
+    final OrderedStubEngineMethod method =
+        new OrderedStubEngineMethod(
+            protocolSchedule,
             protocolContext,
             engineCallListener,
-            true,
+            mergeCoordinator,
+            ethPeers,
             req -> {
               maxActive.accumulateAndGet(active.incrementAndGet(), Math::max);
               try {
@@ -104,7 +115,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
     assertThat(maxActive.get()).isEqualTo(1);
   }
 
-  private List<JsonRpcResponse> callConcurrently(final StubEngineMethod method, final int callers)
+  private List<JsonRpcResponse> callConcurrently(final JsonRpcMethod method, final int callers)
       throws Exception {
     final ExecutorService pool = Executors.newFixedThreadPool(callers);
     try {
@@ -127,28 +138,57 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
     }
   }
 
-  private static class StubEngineMethod extends ExecutionEngineJsonRpcMethod {
-    private final boolean ordered;
+  private static class UnorderedStubEngineMethod extends ExecutionEngineJsonRpcMethod {
     private final Function<JsonRpcRequestContext, JsonRpcResponse> body;
 
-    StubEngineMethod(
+    UnorderedStubEngineMethod(
         final ProtocolContext protocolContext,
         final EngineCallListener engineCallListener,
-        final boolean ordered,
         final Function<JsonRpcRequestContext, JsonRpcResponse> body) {
       super(vertx, protocolContext, engineCallListener);
-      this.ordered = ordered;
       this.body = body;
     }
 
     @Override
     public String getName() {
-      return "engine_stub";
+      return "engine_stub_unordered";
     }
 
     @Override
-    protected boolean requiresOrderedExecution() {
-      return ordered;
+    public JsonRpcResponse syncResponse(final JsonRpcRequestContext request) {
+      return body.apply(request);
+    }
+  }
+
+  private static class OrderedStubEngineMethod extends OrderedExecutionJsonRpcMethod {
+    private final Function<JsonRpcRequestContext, JsonRpcResponse> body;
+
+    OrderedStubEngineMethod(
+        final ProtocolSchedule protocolSchedule,
+        final ProtocolContext protocolContext,
+        final EngineCallListener engineCallListener,
+        final MergeMiningCoordinator mergeCoordinator,
+        final EthPeers ethPeers,
+        final Function<JsonRpcRequestContext, JsonRpcResponse> body) {
+      super(
+          new ConstructorArgumentsBuilder()
+              .protocolSchedule(protocolSchedule)
+              .protocolContext(protocolContext)
+              .vertx(vertx)
+              .engineCallListener(engineCallListener)
+              .mergeCoordinator(mergeCoordinator)
+              .ethPeers(ethPeers)
+              .metricsSystem(new NoOpMetricsSystem())
+              .maxRequestBlocks(0)
+              .build(),
+          null,
+          null);
+      this.body = body;
+    }
+
+    @Override
+    public String getName() {
+      return "engine_stub_ordered";
     }
 
     @Override

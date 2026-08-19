@@ -40,6 +40,15 @@ version adds or changes.
 - All versions extend `ExecutionEngineJsonRpcMethod`, which owns the fork-window validation
   (`minSupportedFork` / `firstUnsupportedFork` constructor arguments, `validateForkSupported`,
   see also `ForkSupportHelper`). Concrete versions never check fork timestamps themselves.
+- Engine methods execute concurrently by default. The `engine_forkchoiceUpdatedV*` and
+  `engine_newPayloadV*` series are the exception: the Engine API spec requires them to be
+  processed in the order they were received, so `EngineForkchoiceUpdatedV1` and
+  `EngineNewPayloadV1` extend `OrderedExecutionJsonRpcMethod` instead of
+  `ExecutionEngineJsonRpcMethod` directly — a compile-time choice, not a runtime flag, so a new
+  ordered series must extend `OrderedExecutionJsonRpcMethod` from its V1 class onward.
+  `OrderedExecutionJsonRpcMethod` runs calls through a single-threaded `WorkerExecutor` created
+  from the engine consensus API's existing Vertx instance (`ConstructorArguments.vertx()` — the
+  same one backing `EngineQosTimer`), rather than a dedicated Vertx instance just for ordering.
 - Migrated series take a single `ExecutionEngineJsonRpcMethod.ConstructorArguments` record (built
   via the generated `ConstructorArgumentsBuilder`) plus `(minSupportedFork, firstUnsupportedFork)`,
   instead of a bespoke positional argument list per series — this is what lets `VersionScheduler`
