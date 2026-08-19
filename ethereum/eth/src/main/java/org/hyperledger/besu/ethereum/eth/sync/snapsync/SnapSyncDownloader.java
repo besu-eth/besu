@@ -128,9 +128,11 @@ public class SnapSyncDownloader implements SnapSyncController {
       return start(new SnapSyncProcessState());
     } else if (rootCause instanceof WrongChainException) {
       final int rePivots = consecutiveWrongChainRePivots.incrementAndGet();
-      LOG.info(
-          "Snap sync pivot is not on the chain we trust, re-pivoting to a new block: {}",
-          rootCause.getMessage());
+      LOG.atDebug()
+          .setMessage(
+              "Snap sync pivot is not on the chain we trust, re-pivoting to a new block: {}")
+          .addArgument(rootCause.getMessage())
+          .log();
       if (rePivots >= WRONG_CHAIN_REPIVOT_WARN_THRESHOLD) {
         throttledLog(
             LOG::warn,
