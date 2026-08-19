@@ -1291,6 +1291,9 @@ public abstract class MainnetProtocolSpecs {
             // Amsterdam: Validator uses pre-refund gas_metered = max(regular, state) from
             // processing
             .blockGasUsedValidator(BlockGasUsedValidator.AMSTERDAM)
+            // EIP-7843: slotNumber header field is mandatory from Amsterdam onwards
+            .blockHeaderValidatorBuilder(
+                MainnetBlockHeaderValidator::slotNumberAwareBlockHeaderValidator)
             .hardforkId(AMSTERDAM);
 
     // EIP-8282 introduces the builder deposit (0x03) and builder exit (0x04) system-contract
