@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -26,21 +26,21 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-class ArchiveNodeHistoryProgressTest {
+class ArchiveIndexProgressTest {
 
   private SegmentedKeyValueStorage storage;
-  private ArchiveNodeHistoryProgress progress;
+  private ArchiveIndexProgress progress;
 
   @BeforeEach
   void setUp() {
     storage = new SegmentedInMemoryKeyValueStorage(List.of(TRIE_BRANCH_STORAGE_ARCHIVE));
-    progress = new ArchiveNodeHistoryProgress(storage);
+    progress = new ArchiveIndexProgress(storage);
   }
 
   @Test
   void coversNothingWhenNoProgressRecorded() {
-    assertThat(progress.covers(0)).isFalse();
-    assertThat(progress.covers(10)).isFalse();
+    assertThat(progress.isBlockIndexed(0)).isFalse();
+    assertThat(progress.isBlockIndexed(10)).isFalse();
   }
 
   @Test
@@ -49,8 +49,8 @@ class ArchiveNodeHistoryProgressTest {
     progress.record(tx, 5L);
     tx.commit();
 
-    assertThat(progress.covers(5L)).isTrue();
-    assertThat(progress.covers(6L)).isFalse();
+    assertThat(progress.isBlockIndexed(5L)).isTrue();
+    assertThat(progress.isBlockIndexed(6L)).isFalse();
   }
 
   @Test
@@ -65,10 +65,10 @@ class ArchiveNodeHistoryProgressTest {
     tx2.commit();
 
     // Covered range is [5, 10]
-    assertThat(progress.covers(5L)).isTrue();
-    assertThat(progress.covers(10L)).isTrue();
-    assertThat(progress.covers(4L)).isFalse();
-    assertThat(progress.covers(11L)).isFalse();
+    assertThat(progress.isBlockIndexed(5L)).isTrue();
+    assertThat(progress.isBlockIndexed(10L)).isTrue();
+    assertThat(progress.isBlockIndexed(4L)).isFalse();
+    assertThat(progress.isBlockIndexed(11L)).isFalse();
   }
 
   @Test
@@ -78,9 +78,9 @@ class ArchiveNodeHistoryProgressTest {
     tx.commit();
 
     // A fresh instance reading the same storage sees the same progress
-    final ArchiveNodeHistoryProgress anotherView = new ArchiveNodeHistoryProgress(storage);
-    assertThat(anotherView.covers(3L)).isTrue();
-    assertThat(anotherView.covers(4L)).isFalse();
+    final ArchiveIndexProgress anotherView = new ArchiveIndexProgress(storage);
+    assertThat(anotherView.isBlockIndexed(3L)).isTrue();
+    assertThat(anotherView.isBlockIndexed(4L)).isFalse();
   }
 
   @Test
@@ -89,6 +89,6 @@ class ArchiveNodeHistoryProgressTest {
     progress.record(tx, 7L);
     // NOT committed
 
-    assertThat(progress.covers(7L)).isFalse();
+    assertThat(progress.isBlockIndexed(7L)).isFalse();
   }
 }

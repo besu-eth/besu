@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -25,21 +25,22 @@ import java.util.Objects;
 import org.apache.tuweni.bytes.Bytes;
 
 /**
- * Tracks the progress of indexing historical trie nodes in the archive store.
+ * Tracks how much of the chain's trie-node history has been indexed into the archive, and answers
+ * whether a given block is covered by that index.
  *
  * <p>Progress is stored directly in {@code TRIE_BRANCH_STORAGE_ARCHIVE} as two consecutive
  * big-endian longs: {@code indexStartBlock} followed by {@code lastIndexedBlock}. There is no
- * in-memory state; every {@link #covers} read and every {@link #record} write goes straight to
- * storage.
+ * in-memory state; every {@link #isBlockIndexed} read and every {@link #record} write goes straight
+ * to storage.
  */
-public final class ArchiveNodeHistoryProgress {
+public final class ArchiveIndexProgress {
 
   static final byte[] PROGRESS_KEY =
       "ARCHIVE_TRIE_HISTORY_PROGRESS_KEY".getBytes(StandardCharsets.UTF_8);
 
   private final SegmentedKeyValueStorage storage;
 
-  public ArchiveNodeHistoryProgress(final SegmentedKeyValueStorage storage) {
+  public ArchiveIndexProgress(final SegmentedKeyValueStorage storage) {
     this.storage = Objects.requireNonNull(storage);
   }
 
@@ -47,7 +48,7 @@ public final class ArchiveNodeHistoryProgress {
    * Returns {@code true} if {@code block} falls within the contiguous range of blocks that have
    * been indexed into the archive.
    */
-  public boolean covers(final long block) {
+  public boolean isBlockIndexed(final long block) {
     return storage
         .get(TRIE_BRANCH_STORAGE_ARCHIVE, PROGRESS_KEY)
         .map(

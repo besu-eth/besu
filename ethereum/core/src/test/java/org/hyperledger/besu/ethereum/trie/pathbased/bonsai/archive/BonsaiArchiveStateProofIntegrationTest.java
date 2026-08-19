@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -22,7 +22,7 @@ import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBa
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.trie.NodeLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveHistoryReader;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryProgress;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveIndexProgress;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveProofNodeLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveTrieNodeStrategy;
@@ -42,7 +42,7 @@ import org.junit.jupiter.api.Test;
  * End-to-end integration test for the bonsai archive trie-node write and proof-read pipeline.
  *
  * <p>Covers the full chain: ArchiveTrieNodeStrategy → ArchiveNodeHistoryStore →
- * ArchiveNodeHistoryProgress → ArchiveProofNodeLoader (as would be used by
+ * ArchiveIndexProgress → ArchiveProofNodeLoader (as would be used by
  * BonsaiArchiveWorldStateStorageCoordinator). Does NOT require a real block-processing stack.
  */
 class BonsaiArchiveStateProofIntegrationTest {
@@ -56,13 +56,13 @@ class BonsaiArchiveStateProofIntegrationTest {
     storage =
         new SegmentedInMemoryKeyValueStorage(
             List.of(TRIE_BRANCH_STORAGE, TRIE_BRANCH_STORAGE_ARCHIVE));
-    final ArchiveNodeHistoryProgress historyProgress = new ArchiveNodeHistoryProgress(storage);
+    final ArchiveIndexProgress indexProgress = new ArchiveIndexProgress(storage);
     final ArchiveNodeHistoryStore historyStore = new ArchiveNodeHistoryStore(storage);
     final BonsaiTrieNodeStrategy baseStrategy = new BonsaiTrieNodeStrategy();
     historyReader = new ArchiveHistoryReader(historyStore);
     // Gate always open: acts as initial-sync mode
     archiveStrategy =
-        new ArchiveTrieNodeStrategy(baseStrategy, historyStore, historyProgress, () -> true);
+        new ArchiveTrieNodeStrategy(baseStrategy, historyStore, indexProgress, () -> true);
   }
 
   private static Bytes32 hash(final Bytes value) {
@@ -123,9 +123,9 @@ class BonsaiArchiveStateProofIntegrationTest {
     archiveStrategy.putFlatAccountTrieNode(storage, tx, location, hash(node), node);
     tx.commit();
 
-    final ArchiveNodeHistoryProgress loaded = new ArchiveNodeHistoryProgress(storage);
-    assertThat(loaded.covers(0L)).isTrue();
-    assertThat(loaded.covers(1L)).isFalse(); // only block 0 was archived
+    final ArchiveIndexProgress loaded = new ArchiveIndexProgress(storage);
+    assertThat(loaded.isBlockIndexed(0L)).isTrue();
+    assertThat(loaded.isBlockIndexed(1L)).isFalse(); // only block 0 was archived
   }
 
   @Test

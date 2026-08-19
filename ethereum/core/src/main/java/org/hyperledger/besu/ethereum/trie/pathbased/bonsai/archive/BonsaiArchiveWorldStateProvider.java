@@ -21,7 +21,7 @@ import org.hyperledger.besu.ethereum.proof.WorldStateProof;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveHistoryReader;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryProgress;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveIndexProgress;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
@@ -59,7 +59,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
   private final WorldStateConfig archiveWorldStateConfig;
   private volatile LongSupplier archiveMigrationProgressSupplier = () -> -1L;
 
-  private final ArchiveNodeHistoryProgress archiveHistoryProgress;
+  private final ArchiveIndexProgress archiveIndexProgress;
   private final ArchiveHistoryReader archiveHistoryReader;
 
   public BonsaiArchiveWorldStateProvider(
@@ -97,7 +97,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
     final SegmentedKeyValueStorage liveStorage =
         worldStateKeyValueStorage.getComposedWorldStateStorage();
     final ArchiveNodeHistoryStore archiveHistoryStore = new ArchiveNodeHistoryStore(liveStorage);
-    this.archiveHistoryProgress = new ArchiveNodeHistoryProgress(liveStorage);
+    this.archiveIndexProgress = new ArchiveIndexProgress(liveStorage);
     this.archiveHistoryReader = new ArchiveHistoryReader(archiveHistoryStore);
   }
 
@@ -150,7 +150,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
       final List<UInt256> accountStorageKeys,
       final Function<Optional<WorldStateProof>, ? extends Optional<U>> mapper) {
     final long blockNumber = blockHeader.getNumber();
-    if (!archiveHistoryProgress.covers(blockNumber)) {
+    if (!archiveIndexProgress.isBlockIndexed(blockNumber)) {
       return super.getAccountProof(blockHeader, accountAddress, accountStorageKeys, mapper);
     }
     try {

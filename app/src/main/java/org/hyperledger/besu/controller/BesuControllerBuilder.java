@@ -89,7 +89,7 @@ import org.hyperledger.besu.ethereum.trie.forest.ForestWorldStateArchive;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.BonsaiArchiveFlatDbStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.BonsaiArchiveWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.BonsaiFlatDbToArchiveMigrator;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryProgress;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveIndexProgress;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
@@ -728,6 +728,42 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             bonsaiCachedMerkleTrieLoader,
             worldStateHealerSupplier::get);
 
+    // When archive state proofs are enabled the archive trie-node strategy must be installed before
+    // the genesis state is written below, otherwise genesis (block 0) trie nodes are persisted with
+    // the default strategy and never captured into the archive, and proofs fail for any account
+    // untouched since genesis. syncState is not created until later in build(), so the archive gate
+    // reads it lazily through archiveSyncStateRef, which is bound once syncState exists. The gate
+    // is
+    // never evaluated before then: the only state written in the meantime is the genesis write,
+    // which short-circuits on block == 0 in ArchiveTrieNodeStrategy before consulting the gate.
+    final AtomicReference<SyncState> archiveSyncStateRef = new AtomicReference<>();
+    if (DataStorageFormat.X_BONSAI_ARCHIVE.equals(dataStorageConfiguration.getDataStorageFormat())
+        && dataStorageConfiguration
+            .getPathBasedExtraStorageConfiguration()
+            .getUnstable()
+            .getBonsaiArchiveStateProofsEnabled()) {
+      final BonsaiWorldStateKeyValueStorage keyValueStorage =
+          worldStateStorageCoordinator.getStrategy(BonsaiWorldStateKeyValueStorage.class);
+      final SegmentedKeyValueStorage liveStorage = keyValueStorage.getComposedWorldStateStorage();
+      final ArchiveTrieNodeStrategy archiveTrieNodeStrategy =
+          new ArchiveTrieNodeStrategy(
+              new BonsaiTrieNodeStrategy(),
+              new ArchiveNodeHistoryStore(liveStorage),
+              new ArchiveIndexProgress(liveStorage),
+              // Only archive trie nodes while behind the network head (!isInSync). Once at the head
+              // we stop, so live blocks within the reorg window are never captured into the archive
+              // and cannot be invalidated by a reorg.
+              () ->
+                  !archiveSyncStateRef
+                      .get()
+                      .isInSync(
+                          dataStorageConfiguration
+                              .getPathBasedExtraStorageConfiguration()
+                              .getMaxLayersToLoad()));
+      keyValueStorage.setTrieNodeStrategy(archiveTrieNodeStrategy);
+      LOG.info("Bonsai archive proofs enabled (--Xbonsai-archive-state-proofs-enabled)");
+    }
+
     if (maybeStoredGenesisBlockHash.isEmpty()) {
       genesisState.writeStateTo(worldStateArchive.getWorldState());
     }
@@ -789,6 +825,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
     final boolean hasInitialSyncPhase = fullSyncDisabled && p2pEnabled;
     final SyncState syncState =
         new SyncState(blockchain, ethPeers, hasInitialSyncPhase, checkpoint);
+    // Bind syncState into the archive gate installed above (before the genesis write).
+    archiveSyncStateRef.set(syncState);
 
     protocolContext
         .safeConsensusContext(MergeContext.class)
@@ -979,26 +1017,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
         closeables.addFirst(archiveMigrator);
       }
 
-      if (dataStorageConfiguration
-          .getPathBasedExtraStorageConfiguration()
-          .getUnstable()
-          .getBonsaiArchiveStateProofsEnabled()) {
-        final BonsaiWorldStateKeyValueStorage keyValueStorage =
-            worldStateStorageCoordinator.getStrategy(BonsaiWorldStateKeyValueStorage.class);
-        final SegmentedKeyValueStorage liveStorage = keyValueStorage.getComposedWorldStateStorage();
-        final ArchiveTrieNodeStrategy archiveTrieNodeStrategy =
-            new ArchiveTrieNodeStrategy(
-                new BonsaiTrieNodeStrategy(),
-                new ArchiveNodeHistoryStore(liveStorage),
-                new ArchiveNodeHistoryProgress(liveStorage),
-                () ->
-                    !syncState.isInSync(
-                        dataStorageConfiguration
-                            .getPathBasedExtraStorageConfiguration()
-                            .getMaxLayersToLoad()));
-        keyValueStorage.setTrieNodeStrategy(archiveTrieNodeStrategy);
-        LOG.info("Bonsai archive proofs enabled (--Xbonsai-archive-state-proofs-enabled)");
-      }
+      // Note: the archive trie-node strategy (used to serve historical eth_getProof) is installed
+      // earlier in build(), before the genesis state is written. See archiveSyncStateRef above.
     }
 
     return new BesuController(
