@@ -52,6 +52,7 @@
 - `eth_simulateV1` no longer applies EIP-7825's transaction gas limit cap to simulation gas, fixing incorrect block/transaction hashes on Osaka [#10885](https://github.com/besu-eth/besu/pull/10885)
 - Recover from restart during flatDB heal sync step [#10883](https://github.com/besu-eth/besu/pull/10883)
 - Move to a new BFT round and select a new proposer for a block if transactions arrive at a non-proposing node after blockperiodseconds but before emptyblockperiodseconds [#11031](https://github.com/besu-eth/besu/pull/11031) 
+- Fix `eth_call`/`eth_estimateGas` returning blob base fee of 0 in no-fee simulation mode (`allowExceedingBalance`). EIP-4844 requires `MIN_BLOB_GASPRICE = 1`, so contracts gating on `BLOBBASEFEE >= 1` would incorrectly revert in simulation. [#10899](https://github.com/besu-eth/besu/pull/10899)
 
 ### Additions and Improvements
 - Align Kotlin runtime dependencies to 2.4.0 to support plugins compiled against the Kotlin 2.4 API. [#10983](https://github.com/besu-eth/besu/pull/10983)
