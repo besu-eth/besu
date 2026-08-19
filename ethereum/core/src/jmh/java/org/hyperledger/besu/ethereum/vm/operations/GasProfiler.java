@@ -46,8 +46,9 @@ import org.openjdk.jmh.results.Result;
 import org.openjdk.jmh.results.ScalarResult;
 
 /**
- * JMH {@link ExternalProfiler} that publishes the per-benchmark gas cost as a secondary metric
- * named {@code gas}, computed once per trial using Besu's own {@link GasCalculator}.
+ * JMH {@link ExternalProfiler} that publishes two secondary metrics per benchmark trial: {@code
+ * gas} (the EVM gas cost derived from Besu's own {@link GasCalculator}) and {@code mgas_per_s}
+ * (throughput in MGas/s, computed as {@code gas × 1e3 / ns_per_op}).
  *
  * <p>Run with: {@code ./gradlew :ethereum:core:jmh -PgasProfiler=true}
  *
@@ -96,7 +97,7 @@ public class GasProfiler implements ExternalProfiler {
 
   @Override
   public String getDescription() {
-    return "Emits per-benchmark gas cost as secondary metric 'gas' using " + fork + " gas rules";
+    return "Emits 'gas' and 'mgas_per_s' secondary metrics using " + fork + " gas rules";
   }
 
   @Override
@@ -121,7 +122,15 @@ public class GasProfiler implements ExternalProfiler {
     if (gas.isEmpty()) {
       return Collections.emptyList();
     }
-    return List.of(new ScalarResult("gas", (double) gas.getAsLong(), "gas", AggregationPolicy.AVG));
+    final double gasValue = (double) gas.getAsLong();
+    final double primaryScore = br.getPrimaryResult().getScore();
+    if (Double.isFinite(primaryScore) && primaryScore > 0) {
+      return List.of(
+          new ScalarResult("gas", gasValue, "gas", AggregationPolicy.AVG),
+          new ScalarResult(
+              "mgas_per_s", gasValue * 1e3 / primaryScore, "MGas/s", AggregationPolicy.AVG));
+    }
+    return List.of(new ScalarResult("gas", gasValue, "gas", AggregationPolicy.AVG));
   }
 
   @Override
