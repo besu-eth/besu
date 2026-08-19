@@ -95,11 +95,8 @@ class ArchiveTrieNodeStrategyTest {
     strategy.putFlatAccountTrieNode(storage, tx, location, hash(node), node);
     tx.commit();
 
-    // Live trie write happened
     assertThat(storage.get(TRIE_BRANCH_STORAGE, location.toArrayUnsafe())).isPresent();
-    // Archive must be empty
     assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location), 6L)).isEmpty();
-    // Progress must be unset
     assertThat(coverageTracker.hasArchiveBlock(6L)).isFalse();
   }
 }

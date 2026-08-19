@@ -38,13 +38,6 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-/**
- * End-to-end integration test for the bonsai archive trie-node write and proof-read pipeline.
- *
- * <p>Covers the full chain: ArchiveTrieNodeStrategy → ArchiveNodeHistoryStore →
- * ArchiveCoverageTracker → ArchiveProofNodeLoader (as would be used by
- * BonsaiArchiveWorldStateStorageCoordinator). Does NOT require a real block-processing stack.
- */
 class BonsaiArchiveStateProofIntegrationTest {
 
   private SegmentedKeyValueStorage storage;
