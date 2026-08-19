@@ -22,6 +22,8 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Queue;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * A read pipe that aggregates all incoming batches into a single batch.
  *
@@ -55,13 +57,13 @@ public class AggregatingReadPipe<T> implements ReadPipe<List<T>> {
   }
 
   @Override
-  public List<T> get() {
+  public @Nullable List<T> get() {
     drainInputToPendingByGet();
     return emitPendingUpTo(Integer.MAX_VALUE);
   }
 
   @Override
-  public List<T> poll() {
+  public @Nullable List<T> poll() {
     drainInputToPendingByPoll();
 
     if (input.hasMore()) {
@@ -87,7 +89,7 @@ public class AggregatingReadPipe<T> implements ReadPipe<List<T>> {
     return 0;
   }
 
-  private List<T> emitPendingUpTo(final int maximumSize) {
+  private @Nullable List<T> emitPendingUpTo(final int maximumSize) {
     if (pendingItems.isEmpty()) {
       return null;
     }
