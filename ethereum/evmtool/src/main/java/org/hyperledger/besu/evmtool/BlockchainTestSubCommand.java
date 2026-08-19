@@ -152,8 +152,9 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
   // picocli does it magically
   @Parameters private final List<Path> blockchainTestFiles = new ArrayList<>();
 
-  // Cached across all tests: building the 30+ reference test schedules is expensive
-  private volatile ReferenceTestProtocolSchedules cachedSchedules;
+  // Cached across all tests: building the 30+ reference test schedules is expensive.
+  // Guarded by getSchedules().
+  private ReferenceTestProtocolSchedules cachedSchedules;
 
   /**
    * Default constructor for the BlockchainTestSubCommand class. This constructor doesn't take any
@@ -308,6 +309,18 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
     return nameFilter.matches(test);
   }
 
+  /**
+   * The reference test schedules, built once and shared by every worker. Building them is expensive
+   * — 30+ schedules per call — and {@code create} also initialises the KZG trusted setup, which is
+   * process-wide state, so the check-then-act has to be atomic rather than merely visible.
+   */
+  private synchronized ReferenceTestProtocolSchedules getSchedules() {
+    if (cachedSchedules == null) {
+      cachedSchedules = ReferenceTestProtocolSchedules.create(parentCommand.getEvmConfiguration());
+    }
+    return cachedSchedules;
+  }
+
   private void traceTestSpecs(
       final String test,
       final BlockchainReferenceTestCaseSpec spec,
@@ -329,10 +342,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
                     genesisBlockHeader.getStateRoot(), genesisBlockHeader.getHash()))
             .orElseThrow();
 
-    if (cachedSchedules == null) {
-      cachedSchedules = ReferenceTestProtocolSchedules.create(parentCommand.getEvmConfiguration());
-    }
-    final ProtocolSchedule schedule = cachedSchedules.getByName(spec.getNetwork());
+    final ProtocolSchedule schedule = getSchedules().getByName(spec.getNetwork());
 
     BlockTestTracerManager tracerManager = null;
     PrintStream traceWriter;

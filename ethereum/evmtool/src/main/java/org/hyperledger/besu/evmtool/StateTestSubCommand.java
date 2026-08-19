@@ -172,8 +172,8 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
   // Fixture files we could not build a test from; reported at the end rather than dropped
   private final List<String> unreadableFiles = Collections.synchronizedList(new ArrayList<>());
 
-  // Cached across all tests
-  private volatile ReferenceTestProtocolSchedules cachedSchedules;
+  // Cached across all tests; guarded by getSchedules()
+  private ReferenceTestProtocolSchedules cachedSchedules;
 
   // Shared for summary output; createObjectNode() is thread safe
   private static final ObjectMapper SHARED_OBJECT_MAPPER = JsonUtils.createObjectMapper();
@@ -348,6 +348,18 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
     return nameFilter == null || nameFilter.matches(test);
   }
 
+  /**
+   * The reference test schedules, built once and shared by every worker. Building them is expensive
+   * — 30+ schedules per call — and {@code create} also initialises the KZG trusted setup, which is
+   * process-wide state, so the check-then-act has to be atomic rather than merely visible.
+   */
+  private synchronized ReferenceTestProtocolSchedules getSchedules() {
+    if (cachedSchedules == null) {
+      cachedSchedules = ReferenceTestProtocolSchedules.create(parentCommand.getEvmConfiguration());
+    }
+    return cachedSchedules;
+  }
+
   private void traceTestSpecs(
       final String test,
       final List<GeneralStateTestCaseEipSpec> specs,
@@ -406,11 +418,7 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
         }
 
         final String forkName = fork == null ? spec.getFork() : fork;
-        if (cachedSchedules == null) {
-          cachedSchedules =
-              ReferenceTestProtocolSchedules.create(parentCommand.getEvmConfiguration());
-        }
-        final ProtocolSchedule protocolSchedule = cachedSchedules.getByName(forkName);
+        final ProtocolSchedule protocolSchedule = getSchedules().getByName(forkName);
         if (protocolSchedule == null) {
           throw new UnsupportedForkException(forkName);
         }
