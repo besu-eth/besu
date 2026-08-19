@@ -66,6 +66,11 @@ public class NoOpMerkleTrie<K extends Bytes, V> implements MerkleTrie<K, V> {
   }
 
   @Override
+  public void putDeferred(final K key, final Function<Optional<V>, Optional<V>> merger) {
+    // noop
+  }
+
+  @Override
   public void remove(final K key) {
     // noop
   }

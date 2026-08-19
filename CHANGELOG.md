@@ -9,6 +9,9 @@
 - The experimental `--Xv5-discovery-enabled` flag is removed; discovery now defaults to `--discovery-mode=V4`. Use `--discovery-mode=BOTH` or `--discovery-mode=V5` to enable DiscV5.
 - The genesis file `v5Bootnodes` key is removed; ENR bootnodes must now be listed in the unified `bootnodes` array alongside enode URLs. Besu's bundled network genesis files were migrated automatically - this only affects custom/downstream genesis files that still use the old `v5Bootnodes` key, whose ENR entries will otherwise be silently dropped.
 - Removed the legacy `PANTHEON_` environment variable prefix for configuration options, everyone should already use the `BESU_` prefix at this time.
+- Plugin API
+  - `StateRootCommitter` API redesign: removed the `SYNCHRONOUS` field and `computeRoot(...)` method; `compute(MutableWorldState, BlockHeader, WorldUpdater)` is now the abstract method for state root computation. [#10804](https://github.com/besu-eth/besu/pull/10804)
+  - `MutableWorldState.persist(BlockHeader)` is now abstract; implementations must provide it (previously it defaulted to `persist(blockHeader, StateRootCommitter.SYNCHRONOUS)`). [#10804](https://github.com/besu-eth/besu/pull/10804)
 - Removed `--min-block-occupancy-ratio` option. The flag has been a silent no-op since 26.4.0. [#11017](https://github.com/besu-eth/besu/pull/11017)
 - Removed BFT genesis config key `xemptyblockperiodseconds` (deprecated since 26.5.0). Use `emptyblockperiodseconds` instead.
 - Removed the custom `engine_preparePayload_debug` RPC methods, use the standard `testing_buildBlockV1` instead. [#11011](https://github.com/besu-eth/besu/pull/11011)

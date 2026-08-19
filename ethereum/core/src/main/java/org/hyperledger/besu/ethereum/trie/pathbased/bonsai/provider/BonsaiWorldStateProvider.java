@@ -26,10 +26,13 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.cache.Bonsa
 import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.PathBasedWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogManager;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.data.BlockHeader;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.HashSet;
 import java.util.Optional;
@@ -48,6 +51,7 @@ public class BonsaiWorldStateProvider extends PathBasedWorldStateProvider {
   private static final Logger LOG = LoggerFactory.getLogger(BonsaiWorldStateProvider.class);
   private final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader;
   private final Supplier<WorldStateHealer> worldStateHealerSupplier;
+  private final Optional<Long> amsterdamMilestone;
 
   public BonsaiWorldStateProvider(
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
@@ -58,14 +62,37 @@ public class BonsaiWorldStateProvider extends PathBasedWorldStateProvider {
       final EvmConfiguration evmConfiguration,
       final Supplier<WorldStateHealer> worldStateHealerSupplier,
       final PathBasedCodeCache codeCache) {
+    this(
+        worldStateKeyValueStorage,
+        blockchain,
+        pathBasedExtraStorageConfiguration,
+        bonsaiCachedMerkleTrieLoader,
+        pluginContext,
+        evmConfiguration,
+        worldStateHealerSupplier,
+        codeCache,
+        Optional.empty());
+  }
+
+  public BonsaiWorldStateProvider(
+      final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
+      final Blockchain blockchain,
+      final PathBasedExtraStorageConfiguration pathBasedExtraStorageConfiguration,
+      final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader,
+      final ServiceManager pluginContext,
+      final EvmConfiguration evmConfiguration,
+      final Supplier<WorldStateHealer> worldStateHealerSupplier,
+      final PathBasedCodeCache codeCache,
+      final Optional<Long> amsterdamMilestone) {
     super(worldStateKeyValueStorage, blockchain, pathBasedExtraStorageConfiguration, pluginContext);
     this.bonsaiCachedMerkleTrieLoader = bonsaiCachedMerkleTrieLoader;
     this.worldStateHealerSupplier = worldStateHealerSupplier;
+    this.amsterdamMilestone = amsterdamMilestone;
     this.evmConfiguration = evmConfiguration;
     provideWorldStateCacheManager(
         new BonsaiWorldStateCacheManager(
             this, worldStateKeyValueStorage, evmConfiguration, worldStateConfig, codeCache));
-    loadHeadWorldState(
+    initializeHeadWorldState(
         new BonsaiWorldState(
             this, worldStateKeyValueStorage, evmConfiguration, worldStateConfig, codeCache));
   }
@@ -85,15 +112,47 @@ public class BonsaiWorldStateProvider extends PathBasedWorldStateProvider {
         worldStateKeyValueStorage, blockchain, pathBasedExtraStorageConfiguration, trieLogManager);
     this.bonsaiCachedMerkleTrieLoader = bonsaiCachedMerkleTrieLoader;
     this.worldStateHealerSupplier = worldStateHealerSupplier;
+    this.amsterdamMilestone = Optional.empty();
     this.evmConfiguration = evmConfiguration;
     provideWorldStateCacheManager(bonsaiWorldStateCacheManager);
-    loadHeadWorldState(
+    initializeHeadWorldState(
         new BonsaiWorldState(
             this, worldStateKeyValueStorage, evmConfiguration, worldStateConfig, codeCache));
   }
 
   public BonsaiCachedMerkleTrieLoader getCachedMerkleTrieLoader() {
     return bonsaiCachedMerkleTrieLoader;
+  }
+
+  private void initializeHeadWorldState(final BonsaiWorldState headWorldState) {
+    blockchain
+        .getBlockHeader(headWorldState.getWorldStateBlockHash())
+        .ifPresentOrElse(
+            header -> loadHeadWorldState(header, headWorldState),
+            () -> this.headWorldState = headWorldState);
+  }
+
+  @Override
+  protected void loadHeadWorldState(
+      final BlockHeader blockHeader, final PathBasedWorldState headWorldState) {
+    super.loadHeadWorldState(blockHeader, headWorldState);
+    prepareWorldStateForBlock(blockHeader, headWorldState);
+  }
+
+  @Override
+  public void prepareWorldStateForBlock(
+      final BlockHeader blockHeader, final MutableWorldState worldState) {
+    if (isAmsterdamActive(blockHeader)) {
+      if (worldState instanceof BonsaiWorldState bonsaiWorldState) {
+        bonsaiWorldState.disableCacheMerkleTrieLoader();
+      }
+    }
+  }
+
+  private boolean isAmsterdamActive(final BlockHeader blockHeader) {
+    return amsterdamMilestone
+        .map(milestone -> Long.compareUnsigned(blockHeader.getTimestamp(), milestone) >= 0)
+        .orElse(false);
   }
 
   private BonsaiWorldStateKeyValueStorage getBonsaiWorldStateKeyValueStorage() {
