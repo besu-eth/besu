@@ -180,9 +180,14 @@ public class IbftProtocolScheduleTest {
             .poaBlockTxsSelectionMaxTime(PositiveNumber.fromInt(75))
             .build();
 
+    // a BFT spec must not be marked as PoS, even with Shanghai or a later fork configured
+    assertThat(shanghaiSpec.isPoS()).isFalse();
+
     // same expression BlockTransactionSelector uses to size the selection timeout: the PoA
     // percentage of the block period must apply, not the PoS timeout (5000 ms by default)
     assertThat(miningConfiguration.getBlockTxsSelectionMaxTime(shanghaiSpec.isPoS()))
+        .isEqualTo(Duration.ofMillis(1500));
+    assertThat(miningConfiguration.getBlockTxsSelectionMaxTime(false))
         .isEqualTo(Duration.ofMillis(1500));
   }
 
