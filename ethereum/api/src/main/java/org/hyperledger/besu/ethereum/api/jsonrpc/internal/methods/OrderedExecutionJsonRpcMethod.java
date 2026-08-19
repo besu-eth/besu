@@ -65,7 +65,17 @@ public abstract class OrderedExecutionJsonRpcMethod extends ExecutionEngineJsonR
     orderedExecutor.<JsonRpcResponse>executeBlocking(
         promise -> promise.complete(computeResponseSafely(request)),
         false,
-        result -> cf.complete(result.result()));
+        result -> {
+          // computeResponseSafely never throws, so a failure here means the executor could not
+          // run the task at all (e.g. rejected because it is closing during shutdown); complete
+          // exceptionally so the ExecutionException branch below returns INTERNAL_ERROR instead
+          // of a null response
+          if (result.succeeded()) {
+            cf.complete(result.result());
+          } else {
+            cf.completeExceptionally(result.cause());
+          }
+        });
 
     try {
       return cf.get(ENGINE_API_RESPONSE_TIMEOUT_MS, TimeUnit.MILLISECONDS);

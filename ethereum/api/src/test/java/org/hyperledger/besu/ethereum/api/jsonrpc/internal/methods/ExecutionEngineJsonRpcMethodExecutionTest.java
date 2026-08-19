@@ -61,7 +61,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
 
   @AfterAll
   public static void tearDown() {
-    vertx.close();
+    vertx.close().toCompletionStage().toCompletableFuture().join();
   }
 
   @Test
