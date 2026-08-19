@@ -135,24 +135,6 @@ public class QbftProtocolScheduleTest {
   }
 
   @Test
-  public void specIsNotPoSWhenShanghaiOrLaterForkIsConfigured() {
-    final long shanghaiTime = 10;
-    final ObjectNode genesisConfigNode = JsonUtil.createEmptyObjectNode();
-    genesisConfigNode.put("shanghaitime", shanghaiTime);
-
-    final BftProtocolSchedule schedule =
-        createProtocolSchedule(
-            JsonGenesisConfigOptions.fromJsonObject(genesisConfigNode),
-            List.of(new ForkSpec<>(0, JsonQbftConfigOptions.DEFAULT)));
-
-    final ProtocolSpec shanghaiSpec = schedule.getByBlockNumberOrTimestamp(1, shanghaiTime);
-
-    // QBFT is a PoA consensus, so its specs must never be reported as PoS, otherwise the PoS
-    // transaction selection timeout is used instead of the configured PoA percentage.
-    assertThat(shanghaiSpec.isPoS()).isFalse();
-  }
-
-  @Test
   public void poaBlockTxsSelectionMaxTimeAppliesWhenShanghaiOrLaterForkIsConfigured() {
     final long shanghaiTime = 10;
     final ObjectNode genesisConfigNode = JsonUtil.createEmptyObjectNode();

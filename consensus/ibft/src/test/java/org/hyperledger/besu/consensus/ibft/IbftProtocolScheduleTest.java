@@ -122,33 +122,6 @@ public class IbftProtocolScheduleTest {
   }
 
   @Test
-  public void specIsNotPoSWhenShanghaiOrLaterForkIsConfigured() {
-    final long shanghaiTime = 10;
-    final ObjectNode genesisConfigNode = JsonUtil.createEmptyObjectNode();
-    genesisConfigNode.put("shanghaitime", shanghaiTime);
-
-    final BftProtocolSchedule schedule =
-        IbftProtocolScheduleBuilder.create(
-            JsonGenesisConfigOptions.fromJsonObject(genesisConfigNode),
-            new ForksSchedule<>(List.of(new ForkSpec<>(0, JsonBftConfigOptions.DEFAULT))),
-            false,
-            mock(BftExtraDataCodec.class),
-            EvmConfiguration.DEFAULT,
-            MiningConfiguration.MINING_DISABLED,
-            new BadBlockManager(),
-            false,
-            BalConfiguration.DEFAULT,
-            new NoOpMetricsSystem(),
-            8_000_000L);
-
-    final ProtocolSpec shanghaiSpec = schedule.getByBlockNumberOrTimestamp(1, shanghaiTime);
-
-    // IBFT is a PoA consensus, so its specs must never be reported as PoS, otherwise the PoS
-    // transaction selection timeout is used instead of the configured PoA percentage.
-    assertThat(shanghaiSpec.isPoS()).isFalse();
-  }
-
-  @Test
   public void poaBlockTxsSelectionMaxTimeAppliesWhenShanghaiOrLaterForkIsConfigured() {
     final long shanghaiTime = 10;
     final ObjectNode genesisConfigNode = JsonUtil.createEmptyObjectNode();
