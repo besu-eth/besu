@@ -15,9 +15,10 @@
 package org.hyperledger.besu.ethereum.vm.operations;
 
 import org.hyperledger.besu.evm.frame.MessageFrame;
-import org.hyperledger.besu.evm.gascalculator.CancunGasCalculator;
+import org.hyperledger.besu.evm.gascalculator.OsakaGasCalculator;
 import org.hyperledger.besu.evm.operation.CallDataCopyOperation;
 
+import java.util.OptionalLong;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -31,6 +32,7 @@ import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.Warmup;
+import org.openjdk.jmh.infra.BenchmarkParams;
 import org.openjdk.jmh.infra.Blackhole;
 
 @State(Scope.Thread)
@@ -65,9 +67,17 @@ public class CallDataCopyOperationBenchmark {
   protected MessageFrame frame;
   protected Bytes callData;
 
+  public static OptionalLong gas(final BenchmarkParams params) {
+    if (params.getBenchmark().endsWith(".baseline")) return OptionalLong.empty();
+    final long dataSize = Long.parseLong(params.getParam("dataSize"));
+    final MessageFrame frame = BenchmarkHelper.createMessageCallFrame();
+    frame.expandMemory(0, dataSize);
+    return OptionalLong.of(new OsakaGasCalculator().dataCopyOperationGasCost(frame, 0, dataSize));
+  }
+
   @Setup
   public void setUp() {
-    callDataCopyOperation = new CallDataCopyOperation(new CancunGasCalculator());
+    callDataCopyOperation = new CallDataCopyOperation(new OsakaGasCalculator());
     callData = BenchmarkHelper.createCallData(dataSize, nonZeroData);
     frame = BenchmarkHelper.createMessageCallFrameWithCallData(callData);
 

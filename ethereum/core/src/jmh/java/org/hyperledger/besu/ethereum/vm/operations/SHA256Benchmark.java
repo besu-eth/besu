@@ -15,7 +15,9 @@
 package org.hyperledger.besu.ethereum.vm.operations;
 
 import org.hyperledger.besu.crypto.Hash;
+import org.hyperledger.besu.evm.gascalculator.OsakaGasCalculator;
 
+import java.util.OptionalLong;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
@@ -31,6 +33,7 @@ import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.Warmup;
+import org.openjdk.jmh.infra.BenchmarkParams;
 
 @State(Scope.Thread)
 @Warmup(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
@@ -41,6 +44,12 @@ public class SHA256Benchmark {
 
   @Param({"32", "64", "128", "256", "512", "1024", "2048", "4096"})
   private String inputSize;
+
+  public static OptionalLong gas(final BenchmarkParams params) {
+    final int inputSize = Integer.parseInt(params.getParam("inputSize"));
+    return OptionalLong.of(
+        new OsakaGasCalculator().sha256PrecompiledContractGasCost(Bytes.wrap(new byte[inputSize])));
+  }
 
   public Bytes bytes;
 
