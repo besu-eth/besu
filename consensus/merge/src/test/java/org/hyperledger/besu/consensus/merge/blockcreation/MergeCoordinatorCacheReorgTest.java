@@ -182,7 +182,6 @@ public class MergeCoordinatorCacheReorgTest implements MergeGenesisConfigHelper 
             cachedMerkleTrieLoader,
             pluginContext,
             EvmConfiguration.DEFAULT,
-            () -> null,
             new PathBasedCodeCache());
 
     protocolContext =

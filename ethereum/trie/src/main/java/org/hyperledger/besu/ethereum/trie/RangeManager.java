@@ -252,4 +252,14 @@ public class RangeManager {
     }
     return next;
   }
+
+  /**
+   * Returns the next 32-byte key after {@code key}, or {@link Optional#empty()} if {@code key} was
+   * the maximum value (overflow). Unlike {@link #nextKey(Bytes32)}, this never throws — callers
+   * paginating trie entries use the empty result to terminate the loop.
+   */
+  public static Optional<Bytes32> incrementBytes32(final Bytes32 value) {
+    final UInt256 incremented = UInt256.fromBytes(value).add(UInt256.ONE);
+    return incremented.isZero() ? Optional.empty() : Optional.of(incremented);
+  }
 }

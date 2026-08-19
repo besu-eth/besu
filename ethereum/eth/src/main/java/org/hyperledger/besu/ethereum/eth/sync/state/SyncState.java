@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.eth.sync.state;
 
 import org.hyperledger.besu.consensus.merge.NewPayloadListener;
-import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.ChainHead;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -44,6 +43,11 @@ public class SyncState implements NewPayloadListener {
   private final Blockchain blockchain;
   private final EthPeers ethPeers;
 
+  // Ensures checkInSync() re-evaluation gives a consistent view of sync status. A
+  // standalone lock is used instead of the object monitor to prevent checkInSync()
+  // causing a deadlock while synchronized on the object monitor.
+  private final Object inSyncLock = new Object();
+
   private final AtomicLong inSyncSubscriberId = new AtomicLong();
   private final Map<Long, InSyncTracker> inSyncTrackers = new ConcurrentHashMap<>();
   private final Subscribers<SyncStatusListener> syncStatusListeners = Subscribers.create();
@@ -64,8 +68,6 @@ public class SyncState implements NewPayloadListener {
 
   private volatile long lastPayloadBlockNumber = 0L;
   private volatile boolean payloadReceived = false;
-
-  private Optional<Address> maybeAccountToRepair = Optional.empty();
 
   public SyncState(final Blockchain blockchain, final EthPeers ethPeers) {
     this(blockchain, ethPeers, false, Optional.empty());
@@ -324,22 +326,25 @@ public class SyncState implements NewPayloadListener {
             .orElse(localChainHeight));
   }
 
-  private synchronized void checkInSync() {
-    final ChainHead localChain = getLocalChainHead();
-    final Optional<ChainHeadEstimate> syncTargetChain = getSyncTargetChainHead();
-    final Optional<ChainHeadEstimate> bestPeerChain = getBestPeerChainHead();
+  /** Evaluates whether this node is in sync and notifies any tracker whose verdict changed. */
+  private void checkInSync() {
+    synchronized (inSyncLock) {
+      final ChainHead localChain = getLocalChainHead();
+      final Optional<ChainHeadEstimate> syncTargetChain = getSyncTargetChainHead();
+      final Optional<ChainHeadEstimate> bestPeerChain = getBestPeerChainHead();
 
-    // Remove listener when we've found a peer.
-    newPeerListenerId.ifPresent(
-        listenerId -> {
-          ethPeers.unsubscribeConnect(listenerId);
-          newPeerListenerId = Optional.empty();
-        });
+      // Remove listener when we've found a peer.
+      newPeerListenerId.ifPresent(
+          listenerId -> {
+            ethPeers.unsubscribeConnect(listenerId);
+            newPeerListenerId = Optional.empty();
+          });
 
-    inSyncTrackers
-        .values()
-        .forEach(
-            (syncTracker) -> syncTracker.checkState(localChain, syncTargetChain, bestPeerChain));
+      inSyncTrackers
+          .values()
+          .forEach(
+              (syncTracker) -> syncTracker.checkState(localChain, syncTargetChain, bestPeerChain));
+    }
   }
 
   public Optional<Checkpoint> getCheckpoint() {
@@ -362,14 +367,6 @@ public class SyncState implements NewPayloadListener {
 
   public void markResyncNeeded() {
     isResyncNeeded = true;
-  }
-
-  public Optional<Address> getAccountToRepair() {
-    return maybeAccountToRepair;
-  }
-
-  public void markAccountToRepair(final Optional<Address> address) {
-    maybeAccountToRepair = address;
   }
 
   public void markInitialSyncRestart() {

@@ -49,7 +49,7 @@ public class JsonRpcExecutorHandler {
                   timeoutMillis,
                   id -> {
                     final String requestBodyAsJson = getRequestBodyAsString(ctx);
-                    LOG.error(
+                    LOG.warn(
                         "Timeout ({} ms) occurred in JSON-RPC executor for method {}",
                         timeoutMillis,
                         getShortLogString(requestBodyAsJson));
@@ -74,7 +74,7 @@ public class JsonRpcExecutorHandler {
                     if (e instanceof ClosedChannelException) {
                       // The remote end closed the connection before we finished writing.
                       // No point trying to send an error response on a closed channel.
-                      LOG.error(
+                      LOG.warn(
                           "{} - Connection closed before JSON-RPC response could be written",
                           method);
                     } else {
