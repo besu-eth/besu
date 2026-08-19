@@ -2479,6 +2479,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .preferIpv6Outbound(p2PDiscoveryConfig.preferIpv6Outbound())
             .discoveryMode(p2PDiscoveryConfig.discoveryMode())
             .transactionValidatorService(transactionValidatorServiceImpl)
+            .inclusionListConfiguration(engineRPCConfig.toInclusionListConfiguration())
             .build();
 
     addShutdownHook(runner);

@@ -97,6 +97,7 @@ dependencies {
   testImplementation project(path: ':crypto:services', configuration: 'testSupportArtifacts')
   testImplementation project(path: ':ethereum:core', configuration: 'testArtifacts')
   testImplementation project(path: ':ethereum:core', configuration: 'testSupportArtifacts')
+  testImplementation project(path: ':metrics:core', configuration: 'testSupportArtifacts')
   testImplementation project(':services:kvstore')
   testImplementation project(':testutil')
 

@@ -166,4 +166,6 @@ public interface MutableBlockchain extends Blockchain {
    * @param blockHash The hash of the last safe block.
    */
   void setSafeBlock(final Hash blockHash);
+
+  void storeInclusionListTransactions(final Hash blockHash, final List<String> hexTransactions);
 }

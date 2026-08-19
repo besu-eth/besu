@@ -24,11 +24,11 @@ import org.hyperledger.besu.consensus.merge.MergeContext;
 import org.hyperledger.besu.consensus.merge.PayloadWrapper;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.consensus.merge.blockcreation.PayloadIdentifier;
+import org.hyperledger.besu.consensus.merge.blockcreation.PreparePayloadArgsBuilder;
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
@@ -85,16 +85,7 @@ public abstract class AbstractEngineGetPayloadTest extends AbstractScheduledApiT
 
   protected static final Vertx vertx = Vertx.vertx();
   protected static final BlockResultFactory factory = new BlockResultFactory();
-  protected static final PayloadIdentifier mockPid =
-      PayloadIdentifier.forPayloadParams(
-          Hash.ZERO,
-          1337L,
-          Bytes32.random(),
-          Address.fromHexString("0x42"),
-          Optional.empty(),
-          Optional.empty(),
-          Optional.empty(),
-          Optional.empty());
+  protected static final PayloadIdentifier mockPid = newPayloadIdentifier(1337L);
   protected static final BlockHeader mockHeader =
       new BlockHeaderTestFixture().prevRandao(Bytes32.random()).buildHeader();
   private static final Block mockBlock =
@@ -168,18 +159,7 @@ public abstract class AbstractEngineGetPayloadTest extends AbstractScheduledApiT
 
   @Test
   public void shouldFailForUnknownPayloadId() {
-    final var resp =
-        resp(
-            getMethodName(),
-            PayloadIdentifier.forPayloadParams(
-                Hash.ZERO,
-                0L,
-                Bytes32.random(),
-                Address.fromHexString("0x42"),
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty()));
+    final var resp = resp(getMethodName(), newPayloadIdentifier(0L));
     assertThat(resp).isInstanceOf(JsonRpcErrorResponse.class);
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
@@ -198,17 +178,18 @@ public abstract class AbstractEngineGetPayloadTest extends AbstractScheduledApiT
             new JsonRpcRequest("2.0", methodName, new Object[] {pid.serialize()})));
   }
 
+  protected static PayloadIdentifier newPayloadIdentifier(final long timestamp) {
+    return PayloadIdentifier.forPayloadParams(
+        new PreparePayloadArgsBuilder()
+            .parentHeader(new BlockHeaderTestFixture().buildHeader())
+            .timestamp(timestamp)
+            .prevRandao(Bytes32.random())
+            .feeRecipient(Address.fromHexString("0x42"))
+            .build());
+  }
+
   protected PayloadIdentifier setupPayload(final long timestamp) {
-    PayloadIdentifier payloadIdentifier =
-        PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            timestamp,
-            Bytes32.random(),
-            Address.fromHexString("0x42"),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+    PayloadIdentifier payloadIdentifier = newPayloadIdentifier(timestamp);
     final BlockHeader mockHeader = new BlockHeaderTestFixture().timestamp(timestamp).buildHeader();
     final Block mockBlock =
         new Block(mockHeader, new BlockBody(Collections.emptyList(), Collections.emptyList()));
@@ -234,16 +215,7 @@ public abstract class AbstractEngineGetPayloadTest extends AbstractScheduledApiT
     //    (payload with withdrawals - while both have 0 txs, this simulates the update)
 
     final long validTimestamp = getValidPayloadTimestamp();
-    final PayloadIdentifier testPid =
-        PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            validTimestamp,
-            Bytes32.random(),
-            Address.fromHexString("0x42"),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+    final PayloadIdentifier testPid = newPayloadIdentifier(validTimestamp);
 
     final BlockHeader testHeader =
         new BlockHeaderTestFixture()

@@ -28,7 +28,6 @@ import org.hyperledger.besu.consensus.merge.PayloadWrapper;
 import org.hyperledger.besu.consensus.merge.blockcreation.PayloadIdentifier;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BlobGas;
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
@@ -101,16 +100,7 @@ public class EngineGetPayloadV3Test extends AbstractEngineGetPayloadTest {
             .excessBlobGas(BlobGas.of(10L))
             .buildHeader();
 
-    PayloadIdentifier shanghaiPid =
-        PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            cancunHardfork.milestone() - 1,
-            Bytes32.random(),
-            Address.fromHexString("0x42"),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+    PayloadIdentifier shanghaiPid = newPayloadIdentifier(cancunHardfork.milestone() - 1);
 
     BlockWithReceipts shanghaiBlock =
         new BlockWithReceipts(
@@ -143,16 +133,7 @@ public class EngineGetPayloadV3Test extends AbstractEngineGetPayloadTest {
             .excessBlobGas(BlobGas.of(10L))
             .buildHeader();
 
-    PayloadIdentifier postCancunPid =
-        PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            cancunHardfork.milestone(),
-            Bytes32.random(),
-            Address.fromHexString("0x42"),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+    PayloadIdentifier postCancunPid = newPayloadIdentifier(cancunHardfork.milestone());
 
     BlockWithReceipts pragueBlock =
         new BlockWithReceipts(
@@ -187,16 +168,7 @@ public class EngineGetPayloadV3Test extends AbstractEngineGetPayloadTest {
             .excessBlobGas(BlobGas.of(10L))
             .buildHeader();
     // should return withdrawals and excessGas for a post-cancun block
-    PayloadIdentifier postCancunPid =
-        PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            cancunHardfork.milestone(),
-            Bytes32.random(),
-            Address.fromHexString("0x42"),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+    PayloadIdentifier postCancunPid = newPayloadIdentifier(cancunHardfork.milestone());
 
     BlobTestFixture blobTestFixture = new BlobTestFixture();
     BlobsWithCommitments bwc = blobTestFixture.createBlobsWithCommitments(1);

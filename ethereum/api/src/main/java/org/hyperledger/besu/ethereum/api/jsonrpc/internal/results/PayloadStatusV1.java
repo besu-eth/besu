@@ -17,8 +17,6 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus;
 
-import java.util.Optional;
-
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -27,17 +25,25 @@ import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 @JsonPropertyOrder({"status", "latestValidHash", "validationError"})
 public class PayloadStatusV1 {
   EngineStatus status;
-  Optional<Hash> latestValidHash;
-  Optional<String> validationError;
+  Hash latestValidHash;
+  String validationError;
 
   @JsonCreator
   public PayloadStatusV1(
       @JsonProperty("status") final EngineStatus status,
       @JsonProperty("latestValidHash") final Hash latestValidHash,
-      @JsonProperty("validationError") final Optional<String> validationError) {
+      @JsonProperty("validationError") final String validationError) {
     this.status = status;
-    this.latestValidHash = Optional.ofNullable(latestValidHash);
+    this.latestValidHash = latestValidHash;
     this.validationError = validationError;
+  }
+
+  public PayloadStatusV1(final EngineStatus status, final Hash latestValidHash) {
+    this(status, latestValidHash, null);
+  }
+
+  public PayloadStatusV1(final EngineStatus status) {
+    this(status, null, null);
   }
 
   @JsonGetter(value = "status")
@@ -50,16 +56,12 @@ public class PayloadStatusV1 {
   }
 
   @JsonGetter(value = "latestValidHash")
-  public String getLatestValidHashAsString() {
-    return latestValidHash.map(h -> h.getBytes().toHexString()).orElse(null);
-  }
-
-  public Optional<Hash> getLatestValidHash() {
+  public Hash getLatestValidHash() {
     return latestValidHash;
   }
 
   @JsonGetter(value = "validationError")
   public String getError() {
-    return validationError.orElse(null);
+    return validationError;
   }
 }

@@ -27,7 +27,6 @@ import org.hyperledger.besu.consensus.merge.PayloadWrapper;
 import org.hyperledger.besu.consensus.merge.blockcreation.PayloadIdentifier;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BlobGas;
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.RequestType;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
@@ -60,7 +59,6 @@ import java.util.List;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
-import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -125,16 +123,7 @@ public class EngineGetPayloadV6Test extends AbstractEngineGetPayloadTest {
                     Optional.of(emptyList()))),
             List.of(mock(TransactionReceipt.class)));
 
-    final PayloadIdentifier payloadIdentifier =
-        PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            header.getTimestamp(),
-            Bytes32.random(),
-            Address.fromHexString("0x42"),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+    final PayloadIdentifier payloadIdentifier = newPayloadIdentifier(header.getTimestamp());
 
     final List<Request> requests =
         List.of(
@@ -172,16 +161,7 @@ public class EngineGetPayloadV6Test extends AbstractEngineGetPayloadTest {
             .blobGasUsed(0L)
             .buildHeader();
 
-    final PayloadIdentifier payloadIdentifier =
-        PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            header.getTimestamp(),
-            Bytes32.random(),
-            Address.fromHexString("0x42"),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+    final PayloadIdentifier payloadIdentifier = newPayloadIdentifier(header.getTimestamp());
 
     final BlockWithReceipts blockWithReceipts =
         new BlockWithReceipts(
