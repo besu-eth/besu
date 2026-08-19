@@ -184,7 +184,12 @@ public class JsonRpcJWTTest {
               ws.writeTextMessage(Json.encode(req));
             });
 
-    testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    assertThat(testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        .as("test context should complete before the timeout")
+        .isTrue();
+    if (testContext.failed()) {
+      throw new AssertionError(testContext.causeOfFailure());
+    }
     engineJsonRpcService.stop();
     httpClient.close();
     webSocketClient.close();
@@ -250,7 +255,12 @@ public class JsonRpcJWTTest {
               ws.writeTextMessage(Json.encode(req));
             });
 
-    testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    assertThat(testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        .as("test context should complete before the timeout")
+        .isTrue();
+    if (testContext.failed()) {
+      throw new AssertionError(testContext.causeOfFailure());
+    }
     engineJsonRpcService.stop();
     httpClient.close();
     webSocketClient.close();
@@ -314,7 +324,12 @@ public class JsonRpcJWTTest {
               testContext.completeNow();
             });
 
-    testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    assertThat(testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        .as("test context should complete before the timeout")
+        .isTrue();
+    if (testContext.failed()) {
+      throw new AssertionError(testContext.causeOfFailure());
+    }
     engineJsonRpcService.stop();
 
     httpClient.close();
@@ -383,7 +398,12 @@ public class JsonRpcJWTTest {
                       });
             });
 
-    testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    assertThat(testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        .as("test context should complete before the timeout")
+        .isTrue();
+    if (testContext.failed()) {
+      throw new AssertionError(testContext.causeOfFailure());
+    }
     engineJsonRpcService.stop();
 
     httpClient.close();
@@ -434,7 +454,12 @@ public class JsonRpcJWTTest {
               testContext.completeNow();
             });
 
-    testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    assertThat(testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        .as("test context should complete before the timeout")
+        .isTrue();
+    if (testContext.failed()) {
+      throw new AssertionError(testContext.causeOfFailure());
+    }
     engineJsonRpcService.stop();
     httpClient.close();
     webSocketClient.close();

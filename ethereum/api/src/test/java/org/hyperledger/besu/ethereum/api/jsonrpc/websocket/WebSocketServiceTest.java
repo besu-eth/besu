@@ -246,7 +246,12 @@ public class WebSocketServiceTest {
               }
             });
 
-    testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    assertThat(testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        .as("test context should complete before the timeout")
+        .isTrue();
+    if (testContext.failed()) {
+      throw new AssertionError(testContext.causeOfFailure());
+    }
   }
 
   @Test
@@ -270,7 +275,12 @@ public class WebSocketServiceTest {
               }
             });
 
-    testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    assertThat(testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        .as("test context should complete before the timeout")
+        .isTrue();
+    if (testContext.failed()) {
+      throw new AssertionError(testContext.causeOfFailure());
+    }
   }
 
   @Test
@@ -294,7 +304,12 @@ public class WebSocketServiceTest {
                           websocket.result().close();
                         }));
 
-    testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    assertThat(testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        .as("test context should complete before the timeout")
+        .isTrue();
+    if (testContext.failed()) {
+      throw new AssertionError(testContext.causeOfFailure());
+    }
   }
 
   @Test
@@ -316,7 +331,12 @@ public class WebSocketServiceTest {
               }
             });
 
-    testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    assertThat(testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        .as("test context should complete before the timeout")
+        .isTrue();
+    if (testContext.failed()) {
+      throw new AssertionError(testContext.causeOfFailure());
+    }
   }
 
   @SuppressWarnings("deprecation") // No alternative available in vertx 3.
@@ -347,7 +367,12 @@ public class WebSocketServiceTest {
                                     testContext.completeNow();
                                   }));
             });
-    testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    assertThat(testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        .as("test context should complete before the timeout")
+        .isTrue();
+    if (testContext.failed()) {
+      throw new AssertionError(testContext.causeOfFailure());
+    }
   }
 
   @Test
@@ -402,7 +427,12 @@ public class WebSocketServiceTest {
               websocket.close();
             });
 
-    testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    assertThat(testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        .as("test context should complete before the timeout")
+        .isTrue();
+    if (testContext.failed()) {
+      throw new AssertionError(testContext.causeOfFailure());
+    }
   }
 
   @Test
@@ -432,7 +462,12 @@ public class WebSocketServiceTest {
               }
             });
 
-    testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    assertThat(testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        .as("test context should complete before the timeout")
+        .isTrue();
+    if (testContext.failed()) {
+      throw new AssertionError(testContext.causeOfFailure());
+    }
     testContext.verify(() -> websocketMethods.remove(method.getName()));
   }
 
@@ -463,7 +498,12 @@ public class WebSocketServiceTest {
               }
             });
 
-    testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    assertThat(testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        .as("test context should complete before the timeout")
+        .isTrue();
+    if (testContext.failed()) {
+      throw new AssertionError(testContext.causeOfFailure());
+    }
     testContext.verify(() -> websocketMethods.remove(method.getName()));
   }
 }
