@@ -120,25 +120,27 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
 
     account.incrementNonce();
 
-    // EIP-8037: an already-alive target adds no leaf, so it owes no NEW_ACCOUNT. complete() needs
-    // the same answer to know whether a failed create has anything to refill.
-    // EIP-7928: probing liveness is also what puts the target in the block access list, so it
+    // EIP-8037: an already existent target adds no leaf, so it owes no NEW_ACCOUNT. complete()
+    // needs
+    // the same answer to know whether a failed create has anything to refill. Existent is the
+    // EIP-161 sense — the address already has a state trie leaf, i.e. it is present and non-empty.
+    // EIP-7928: the existence check is also what puts the target in the block access list, so it
     // stays listed even if the charge below runs out of gas.
     final Address contractAddress = generateTargetContractAddress(frame, code);
-    // Pre-Amsterdam forks need neither the liveness answer nor the access-list entry.
+    // Pre-Amsterdam forks need neither the existence answer nor the access-list entry.
     final StateGasCostCalculator stateGasCalc = gasCalculator().stateGasCostCalculator();
-    boolean targetAlive = false;
+    boolean targetExists = false;
     if (stateGasCalc.isActive()) {
       final Account existingTarget = getAccount(contractAddress, frame);
-      targetAlive = existingTarget != null && !existingTarget.isEmpty();
+      targetExists = existingTarget != null && !existingTarget.isEmpty();
     }
 
     // EIP-8037: regular gas is deducted before state gas is charged (ordering requirement).
     frame.decrementRemainingGas(cost);
-    if (!targetAlive && !frame.consumeStateGas(stateGasCalc.newContractStateGas())) {
+    if (!targetExists && !frame.consumeStateGas(stateGasCalc.newContractStateGas())) {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
-    spawnChildMessage(frame, code, contractAddress, targetAlive);
+    spawnChildMessage(frame, code, contractAddress, targetExists);
     frame.incrementRemainingGas(cost);
 
     return new OperationResult(cost, null, getPcIncrement());
@@ -209,7 +211,7 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
       final MessageFrame parent,
       final Code code,
       final Address contractAddress,
-      final boolean targetAlive) {
+      final boolean targetExists) {
     final Wei value = Wei.wrap(parent.getStackItem(0));
     final Bytes inputData = getInputData(parent);
 
@@ -230,7 +232,7 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
             .value(value)
             .apparentValue(value)
             .code(code)
-            .completer(child -> complete(parent, child, targetAlive));
+            .completer(child -> complete(parent, child, targetExists));
 
     if (parent.getEip7928AccessList().isPresent()) {
       builder.eip7928AccessList(parent.getEip7928AccessList().get());
@@ -253,7 +255,7 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
   }
 
   private void complete(
-      final MessageFrame frame, final MessageFrame childFrame, final boolean targetAlive) {
+      final MessageFrame frame, final MessageFrame childFrame, final boolean targetExists) {
     frame.setState(MessageFrame.State.CODE_EXECUTING);
 
     frame.incrementRemainingGas(childFrame.getRemainingGas());
@@ -274,7 +276,7 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
     } else {
       // EIP-8037: no account was created, so refill whatever was charged for it. The child's own
       // state gas was already unwound by AbstractMessageProcessor.
-      if (!targetAlive) {
+      if (!targetExists) {
         frame.refillStateGasReservoir(
             gasCalculator().stateGasCostCalculator().newContractStateGas());
       }
