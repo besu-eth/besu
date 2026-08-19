@@ -1,15 +1,14 @@
 /*
  * Copyright contributors to Besu.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
- * in compliance with the License. You may obtain a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software distributed under the License
- * is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
- * or implied. See the License for the specific language governing permissions and limitations under
- * the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations under the License.
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -158,11 +157,17 @@ public class EngineTestCaseSpec {
     return Optional.of(new BlobScheduleOptions(root));
   }
 
+  /**
+   * Reads one blob schedule parameter, which fixtures encode either as a JSON number or as a hex
+   * string. Overflow throws rather than truncating, matching {@code
+   * BlockchainReferenceTestCaseSpec.SpecConfig}: a silently wrapped value would build a blob
+   * schedule that does not match the fixture, which is far harder to diagnose than a parse failure.
+   */
   private static int asInt(final JsonNode node) {
     if (node == null || node.isNull()) {
       return 0;
     }
-    return node.isNumber() ? node.asInt() : Long.decode(node.asText().trim()).intValue();
+    return Math.toIntExact(node.isNumber() ? node.asLong() : Long.decode(node.asText().trim()));
   }
 
   public String getNetwork() {
