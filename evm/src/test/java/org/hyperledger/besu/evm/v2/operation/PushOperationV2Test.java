@@ -114,6 +114,24 @@ public class PushOperationV2Test {
   }
 
   @Test
+  void push9InMiddleOfLongCode() {
+    final byte[] code = generateCode(100);
+    final int pc = 10;
+    staticOperation(frame, code, pc, 9);
+    assertThat(frame.getStackItemV2(0))
+        .isEqualTo(UInt256.fromBytesBE(Arrays.copyOfRange(code, pc + 1, pc + 1 + 9)));
+  }
+
+  @Test
+  void push20InMiddleOfLongCode() {
+    final byte[] code = generateCode(100);
+    final int pc = 10;
+    staticOperation(frame, code, pc, 20);
+    assertThat(frame.getStackItemV2(0))
+        .isEqualTo(UInt256.fromBytesBE(Arrays.copyOfRange(code, pc + 1, pc + 1 + 20)));
+  }
+
+  @Test
   void paddedPush32NearEndOfLongCode() {
     final byte[] code = generateCode(100);
     final int pc = code.length - 21;
@@ -121,6 +139,41 @@ public class PushOperationV2Test {
     final byte[] expected = new byte[32];
     System.arraycopy(code, pc + 1, expected, 0, 20);
     assertThat(frame.getStackItemV2(0)).isEqualTo(UInt256.fromBytesBE(expected));
+  }
+
+  @Test
+  void pushOntoFullStackOverflows() {
+    final byte[] code = generateCode(4);
+    while (frame.stackHasSpaceV2(1)) {
+      frame.setTopV2(frame.stackTopV2() + 1);
+    }
+    final int top = frame.stackTopV2();
+    final var result = staticOperation(frame, code, 0, 1);
+    assertThat(result.getHaltReason())
+        .isEqualTo(org.hyperledger.besu.evm.frame.ExceptionalHaltReason.TOO_MANY_STACK_ITEMS);
+    assertThat(frame.stackTopV2()).isEqualTo(top);
+  }
+
+  @Test
+  void exhaustivePushSizesAndPositions() {
+    // varied bytes with high bits set, to catch sign-extension mistakes
+    final byte[] code = new byte[90];
+    for (int i = 0; i < code.length; i++) {
+      code[i] = (byte) (i * 37 + 101);
+    }
+    for (int pushSize = 1; pushSize <= 32; pushSize++) {
+      for (int pc = 0; pc < code.length; pc++) {
+        frame.setTopV2(0);
+        staticOperation(frame, code, pc, pushSize);
+        // reference: copy available bytes, right-pad with zeros to pushSize
+        final byte[] expected = new byte[pushSize];
+        final int available = Math.max(0, Math.min(pushSize, code.length - pc - 1));
+        System.arraycopy(code, Math.min(pc + 1, code.length), expected, 0, available);
+        assertThat(frame.getStackItemV2(0))
+            .as("pushSize=%s pc=%s", pushSize, pc)
+            .isEqualTo(UInt256.fromBytesBE(expected));
+      }
+    }
   }
 
   private static byte[] generateCode(final int numBytes) {
