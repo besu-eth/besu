@@ -120,8 +120,7 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
 
     account.incrementNonce();
 
-    // EIP-8037: an already existent target adds no leaf, so it owes no NEW_ACCOUNT. complete()
-    // needs
+    // EIP-8037: an existent target adds no leaf, so it owes no NEW_ACCOUNT, and complete() needs
     // the same answer to know whether a failed create has anything to refill. Existent is the
     // EIP-161 sense — the address already has a state trie leaf, i.e. it is present and non-empty.
     // EIP-7928: the existence check is also what puts the target in the block access list, so it
@@ -266,8 +265,8 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
 
     if (childFrame.getState() == MessageFrame.State.COMPLETED_SUCCESS) {
       Address createdAddress = childFrame.getContractAddress();
-      // Absorb the child's spill before the refund below, so the refund unwinds the combined
-      // spill rather than only this frame's share.
+      // The parent takes over the child's spill, so later refunds in this frame unwind the
+      // combined spill rather than only this frame's share.
       frame.incrementStateGasSpilled(childFrame.getStateGasSpilled());
       // EIP-8037: a successful create adds the leaf it was charged for, so the charge stands.
       frame.pushStackItem(Words.fromAddress(createdAddress));

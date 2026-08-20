@@ -375,9 +375,10 @@ public class TransactionProcessingResult
   }
 
   /**
-   * Sets the unfloored regular gas dimension for EIP-8037 block accounting.
+   * Sets the regular gas dimension for EIP-8037 block accounting: {@code max(execution - state,
+   * calldata floor)}.
    *
-   * @param regularGasUsedForBlock the unfloored regular gas
+   * @param regularGasUsedForBlock the regular gas used for block accounting
    */
   @SuppressWarnings("checkstyle:HiddenField")
   public void setRegularGasUsedForBlock(final long regularGasUsedForBlock) {
