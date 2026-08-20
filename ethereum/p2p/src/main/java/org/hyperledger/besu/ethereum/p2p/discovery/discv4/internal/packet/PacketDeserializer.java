@@ -85,15 +85,15 @@ public class PacketDeserializer {
           case ENR_REQUEST -> enrRequestPacketDataRlpReader;
           case ENR_RESPONSE -> enrResponsePacketDataRlpReader;
         };
-    final PacketData packetData;
     try {
-      packetData = deserializer.readFrom(RLP.input(message.slice(Packet.PACKET_DATA_INDEX)));
+      final PacketData packetData =
+          deserializer.readFrom(RLP.input(message.slice(Packet.PACKET_DATA_INDEX)));
+      return packetFactory.create(packetType, packetData, message);
     } catch (final RLPException e) {
       throw new PeerDiscoveryPacketDecodingException("Malformed packet of type: " + packetType, e);
     } catch (final IllegalArgumentException e) {
       throw new PeerDiscoveryPacketDecodingException(
           "Failed decoding packet of type: " + packetType, e);
     }
-    return packetFactory.create(packetType, packetData, message);
   }
 }
