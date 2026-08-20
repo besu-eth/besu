@@ -61,9 +61,12 @@ public class PushOperationBenchmark {
   private static final int LARGE_CODE_SIZE = 24_576;
 
   public enum Position {
-    // full data, code continues past it: pc + 1 + pushSize <= code.length
+    // PC is within the first 16 bytes of the code (measure slow path to parse unaligned long values
+    // out of the code): pc + 1 <= 16
+    FIRST_16BYTES,
+    // full data, code continues past it: pc + 1 <= code.length - pushSize
     MID,
-    // push data ends exactly at the last byte of code: pc + 1 + pushSize == code.length
+    // push data ends exactly at the last byte of code: pc + 1 == code.length - pushSize
     END,
     // only 1...size-1 data bytes available: value must be shifted left to pad
     TRUNCATED,
@@ -116,6 +119,7 @@ public class PushOperationBenchmark {
       pushSizePool[i] = size;
       pcPool[i] =
           switch (pc) {
+            case FIRST_16BYTES -> random.nextInt(16);
             case MID -> random.nextInt(code.length - size);
             case END -> code.length - 1 - size;
             case TRUNCATED -> code.length - 1 - (size > 1 ? random.nextInt(1, size) : 0);
