@@ -9,6 +9,9 @@
 - The experimental `--Xv5-discovery-enabled` flag is removed; discovery now defaults to `--discovery-mode=V4`. Use `--discovery-mode=BOTH` or `--discovery-mode=V5` to enable DiscV5.
 - The genesis file `v5Bootnodes` key is removed; ENR bootnodes must now be listed in the unified `bootnodes` array alongside enode URLs. Besu's bundled network genesis files were migrated automatically - this only affects custom/downstream genesis files that still use the old `v5Bootnodes` key, whose ENR entries will otherwise be silently dropped.
 - Removed the legacy `PANTHEON_` environment variable prefix for configuration options, everyone should already use the `BESU_` prefix at this time.
+- Plugin API
+  - `StateRootCommitter` API redesign: removed the `SYNCHRONOUS` field and `computeRoot(...)` method; `compute(MutableWorldState, BlockHeader, WorldUpdater)` is now the abstract method for state root computation. [#10804](https://github.com/besu-eth/besu/pull/10804)
+  - `MutableWorldState.persist(BlockHeader)` is now abstract; implementations must provide it (previously it defaulted to `persist(blockHeader, StateRootCommitter.SYNCHRONOUS)`). [#10804](https://github.com/besu-eth/besu/pull/10804)
 - Removed `--min-block-occupancy-ratio` option. The flag has been a silent no-op since 26.4.0. [#11017](https://github.com/besu-eth/besu/pull/11017)
 - Removed BFT genesis config key `xemptyblockperiodseconds` (deprecated since 26.5.0). Use `emptyblockperiodseconds` instead.
 - Removed the custom `engine_preparePayload_debug` RPC methods, use the standard `testing_buildBlockV1` instead. [#11011](https://github.com/besu-eth/besu/pull/11011)
@@ -25,6 +28,7 @@
 ### Bug fixes
 - Fix `debug_getRawTransaction` returning bare RLP payload (missing EIP-2718 type-byte prefix) for typed transactions, causing `keccak256(raw) != txHash`. Fix `debug_getRawReceipts` double-wrapping typed receipts in an outer RLP byte-string instead of returning the raw `type || rlp(payload)` wire encoding. [#11083](https://github.com/besu-eth/besu/pull/11083)
 - Port clash detection during Besu start now treats TCP and UDP ports separately. [#10904](https://github.com/besu-eth/besu/issues/10904)
+- BFT (QBFT/IBFT) networks configured with Paris or a later execution fork no longer use the PoS transaction selection timeout. The protocol spec inherited `isPoS=true` from the mainnet fork definitions, so `--poa-block-txs-selection-max-time` was ignored and transaction selection ran for the full `--block-txs-selection-max-time` (5000 ms by default), inflating block times on short block-period networks. [#11005](https://github.com/besu-eth/besu/issues/11005)
 - Fix `NullPointerException` in the JSON-RPC HTTP timeout handler for batch (array) requests. [11023](https://github.com/besu-eth/besu/pull/11023)
 - Fix `--discovery-mode=BOTH`/`V5` re-proposing its entire known-peer table for outbound connection on every discovery tick, driving excess CPU/GC from wasted RLPx handshakes. [#11027](https://github.com/besu-eth/besu/pull/11027)
 - Restore structured `{peers, sync}` detail in plugin-based `/readiness` responses via `HealthCheckProvider` [#10687](https://github.com/besu-eth/besu/issues/10687)

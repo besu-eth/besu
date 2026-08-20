@@ -111,7 +111,6 @@ public class BlockchainReferenceTestCaseSpec {
               }
             },
             EvmConfiguration.DEFAULT,
-            () -> (__, ___) -> {},
             new PathBasedCodeCache());
 
     final MutableWorldState worldState = worldStateArchive.getWorldState();

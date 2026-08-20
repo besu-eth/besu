@@ -42,24 +42,30 @@ public interface MutableWorldState extends WorldState, MutableWorldView {
   void persist(BlockHeader blockHeader, StateRootCommitter committer);
 
   /**
-   * Persist accumulated changes to underlying storage.
+   * Persist accumulated changes to underlying storage using the implementation default committer.
    *
-   * @param blockHeader If persisting for an imported block, the block hash of the world state this
-   *     represents. If this does not represent a forward transition from one block to the next
-   *     `null` should be passed in.
+   * @param blockHeader If persisting for an imported block, the block header of the world state
+   *     this represents. If this does not represent a forward transition from one block to the next
+   *     {@code null} should be passed in.
    */
-  default void persist(final BlockHeader blockHeader) {
-    persist(blockHeader, StateRootCommitter.SYNCHRONOUS);
-  }
+  void persist(BlockHeader blockHeader);
 
   /**
-   * Freezes the storage by preventing any further changes to it
+   * Freezes the storage by preventing any further changes to it.
    *
    * @return this instance
    */
   default MutableWorldState freezeStorage() {
-    // no op
     throw new UnsupportedOperationException("cannot freeze");
+  }
+
+  /**
+   * Returns whether storage writes are frozen for this world state view.
+   *
+   * @return true if storage is frozen
+   */
+  default boolean isStorageFrozen() {
+    return false;
   }
 
   /**
@@ -68,7 +74,6 @@ public interface MutableWorldState extends WorldState, MutableWorldView {
    * @return this instance
    */
   default MutableWorldState disableTrie() {
-    // no op
     throw new UnsupportedOperationException("cannot disable trie");
   }
 }
