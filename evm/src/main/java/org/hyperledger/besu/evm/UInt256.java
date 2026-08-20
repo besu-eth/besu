@@ -87,7 +87,7 @@ public record UInt256(long u3, long u2, long u1, long u0) {
       return ZERO;
     }
     if (bytes.length < 8) {
-      return fromBytesSingleLimb(bytes);
+      return fromBytesSingleLimb(bytes, 0, bytes.length);
     }
     int prevIndex = bytes.length;
     int nextIndex = prevIndex - 8;
@@ -108,15 +108,53 @@ public record UInt256(long u3, long u2, long u1, long u0) {
     return new UInt256(u3, u2, u1, u0);
   }
 
+  /**
+   * Convert the sequence of bytes between {@code from} (inclusive) and {@code to} (exclusive) to a
+   * UInt256 value. If {@code to - from} is less than 32 bytes, the most significant bytes of the
+   * UInt256 value are set to 0. The caller must ensure that {@code to} does not exceed {@code
+   * bytes.length}.
+   *
+   * @param bytes raw bytes in BigEndian order.
+   * @param from start index of the bytes array to convert, inclusive
+   * @param to end index of the bytes array to convert, exclusive
+   * @return Big-endian UInt256 represented by the bytes.
+   */
+  public static UInt256 fromBytesBE(final byte[] bytes, final int from, final int to) {
+    // finish-off
+    if (bytes.length == 0 || to - from <= 0) {
+      return ZERO;
+    }
+    if (to - from < 8) {
+      return fromBytesSingleLimb(bytes, from, to);
+    }
+    int prevIndex = to;
+    int nextIndex = prevIndex - 8;
+    final long u0 = getLong(bytes, nextIndex, prevIndex);
+    prevIndex = nextIndex;
+
+    nextIndex = Math.max(from, prevIndex - 8);
+    final long u1 = getLong(bytes, nextIndex, prevIndex);
+    prevIndex = nextIndex;
+
+    nextIndex = Math.max(from, prevIndex - 8);
+    final long u2 = getLong(bytes, nextIndex, prevIndex);
+    prevIndex = nextIndex;
+
+    nextIndex = Math.max(from, to - BYTESIZE);
+    final long u3 = getLong(bytes, nextIndex, prevIndex);
+
+    return new UInt256(u3, u2, u1, u0);
+  }
+
   private static long getLong(final byte[] bytes, final int from, final int to) {
     int shift = (N_BYTES_PER_LIMB + from - to) * 8;
     final long value = (long) LONG_BE.get(bytes, from);
     return shift == N_BITS_PER_LIMB ? 0L : value >>> shift;
   }
 
-  private static UInt256 fromBytesSingleLimb(final byte[] bytes) {
+  private static UInt256 fromBytesSingleLimb(final byte[] bytes, final int from, final int to) {
     long value = 0;
-    for (int i = bytes.length - 1, shift = 0; i >= 0; i--, shift += 8) {
+    for (int i = to - 1, shift = 0; i >= from; i--, shift += 8) {
       value |= ((bytes[i] & 0xFFL) << shift);
     }
     return new UInt256(0, 0, 0, value);
@@ -911,7 +949,7 @@ public record UInt256(long u3, long u2, long u1, long u0) {
    * @return the result
    */
   // TODO: check perf - wiring shiftLeft callers with this one
-  private UInt256 shl0(final int shift) {
+  public UInt256 shl0(final int shift) {
     long w3 = u3, w2 = u2, w1 = u1, w0 = u0;
     if (shift == 256) {
       w3 = 0;
