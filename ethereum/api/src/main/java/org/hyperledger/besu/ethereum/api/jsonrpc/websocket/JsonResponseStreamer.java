@@ -14,10 +14,10 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.websocket;
 
-import org.hyperledger.besu.ethereum.api.jsonrpc.StreamBackpressure;
-
 import java.io.IOException;
 import java.io.OutputStream;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import io.vertx.core.buffer.Buffer;
@@ -30,6 +30,7 @@ class JsonResponseStreamer extends OutputStream {
 
   private static final Logger LOG = LoggerFactory.getLogger(JsonResponseStreamer.class);
   private static final Buffer EMPTY_BUFFER = Buffer.buffer();
+  private static final long DRAIN_TIMEOUT_SECONDS = 60;
 
   private final ServerWebSocket response;
   private final byte[] singleByteBuf = new byte[1];
@@ -37,6 +38,7 @@ class JsonResponseStreamer extends OutputStream {
   private boolean closed = false;
   private Buffer buffer = EMPTY_BUFFER;
   private final AtomicReference<Throwable> failure = new AtomicReference<>();
+  private volatile CountDownLatch pendingDrain;
 
   public JsonResponseStreamer(final ServerWebSocket response) {
     this.response = response;
@@ -44,6 +46,8 @@ class JsonResponseStreamer extends OutputStream {
         event -> {
           LOG.debug("Write to remote address {} failed", response.remoteAddress(), event);
           failure.set(event);
+          final CountDownLatch latch = pendingDrain;
+          if (latch != null) latch.countDown();
         });
   }
 
@@ -58,12 +62,35 @@ class JsonResponseStreamer extends OutputStream {
     stopOnFailureOrClosed();
 
     if (buffer != EMPTY_BUFFER) {
-      StreamBackpressure.awaitDrain(response);
+      awaitDrain();
       writeFrame(buffer, false);
     }
     Buffer buf = Buffer.buffer(len);
     buf.appendBytes(bbuf, off, len);
     buffer = buf;
+  }
+
+  private void awaitDrain() throws IOException {
+    if (!response.writeQueueFull()) return;
+    final CountDownLatch latch = new CountDownLatch(1);
+    pendingDrain = latch;
+    response.drainHandler(v -> latch.countDown());
+    stopOnFailureOrClosed();
+    if (response.writeQueueFull()) {
+      try {
+        if (!latch.await(DRAIN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+          throw new IOException("Timed out waiting for write queue to drain");
+        }
+      } catch (final InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new IOException("Interrupted waiting for write queue to drain", e);
+      } finally {
+        pendingDrain = null;
+      }
+    } else {
+      pendingDrain = null;
+    }
+    stopOnFailureOrClosed();
   }
 
   private void writeFrame(final Buffer buf, final boolean isFinal) {

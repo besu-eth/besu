@@ -17,7 +17,6 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.datatypes.BlobType.KZG_CELL_PROOFS;
 import static org.hyperledger.besu.datatypes.BlobType.KZG_PROOF;
-import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineTestSupport.fromErrorResp;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -33,10 +32,8 @@ import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.StreamingJsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlobAndProofV2;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlobTestFixture;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -45,12 +42,15 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.metrics.ObservableMetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
-import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.util.Arrays;
-import java.util.List;
 import java.util.Optional;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import io.vertx.core.Vertx;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -121,11 +121,14 @@ public class EngineGetBlobsV3Test extends AbstractScheduledApiTest {
   }
 
   @Test
-  public void shouldReturnValidBlobsWithKzgCellProofs() {
+  public void shouldReturnValidBlobsWithKzgCellProofs() throws IOException {
     BlobProofBundle bundle = createBundleWithBlobType(KZG_CELL_PROOFS);
-    JsonRpcSuccessResponse response =
-        getSuccessResponse(buildRequestContext(bundle.getVersionedHash()));
-    assertSingleValidBlob(response, bundle);
+    final JsonNode result = streamSuccessResult(buildRequestContext(bundle.getVersionedHash()));
+    assertThat(result.isArray()).isTrue();
+    assertThat(result.size()).isEqualTo(1);
+    assertThat(result.get(0).get("blob").asText())
+        .isEqualTo(bundle.getBlob().getData().toHexString());
+    assertThat(result.get(0).get("proofs").size()).isEqualTo(bundle.getKzgProof().size());
 
     verify(requestedCounter).inc(1);
     verify(availableCounter).inc(1);
@@ -134,7 +137,7 @@ public class EngineGetBlobsV3Test extends AbstractScheduledApiTest {
   }
 
   @Test
-  public void shouldReturnNullForMissingBlobsInPartialResponse() {
+  public void shouldReturnNullForMissingBlobsInPartialResponse() throws IOException {
     // V3 key feature: partial responses with null for missing blobs
     BlobProofBundle bundle1 = createBundleWithBlobType(KZG_CELL_PROOFS);
     VersionedHash unknownHash = new VersionedHash((byte) 1, Hash.ZERO);
@@ -144,17 +147,15 @@ public class EngineGetBlobsV3Test extends AbstractScheduledApiTest {
     when(transactionPool.getBlobProofBundle(unknownHash)).thenReturn(null);
     when(transactionPool.getBlobProofBundle(bundle3.getVersionedHash())).thenReturn(bundle3);
 
-    JsonRpcSuccessResponse response =
-        getSuccessResponse(
+    final JsonNode result =
+        streamSuccessResult(
             buildRequestContext(
                 bundle1.getVersionedHash(), unknownHash, bundle3.getVersionedHash()));
 
-    @SuppressWarnings("unchecked")
-    List<BlobAndProofV2> result = (List<BlobAndProofV2>) response.getResult();
-    assertThat(result).hasSize(3);
-    assertThat(result.get(0)).isNotNull(); // first blob found
-    assertThat(result.get(1)).isNull(); // middle blob missing - KEY V3 BEHAVIOR
-    assertThat(result.get(2)).isNotNull(); // third blob found
+    assertThat(result.size()).isEqualTo(3);
+    assertThat(result.get(0).isNull()).isFalse(); // first blob found
+    assertThat(result.get(1).isNull()).isTrue(); // middle blob missing - KEY V3 BEHAVIOR
+    assertThat(result.get(2).isNull()).isFalse(); // third blob found
 
     verify(requestedCounter).inc(3);
     verify(availableCounter).inc(2); // only 2 available
@@ -163,16 +164,12 @@ public class EngineGetBlobsV3Test extends AbstractScheduledApiTest {
   }
 
   @Test
-  public void shouldReturnNullForKzgProofBlobType() {
+  public void shouldReturnNullForKzgProofBlobType() throws IOException {
     // V3 rejects KZG_PROOF like V2 does
     BlobProofBundle bundle = createBundleWithBlobType(KZG_PROOF);
-    JsonRpcSuccessResponse response =
-        getSuccessResponse(buildRequestContext(bundle.getVersionedHash()));
-
-    @SuppressWarnings("unchecked")
-    List<BlobAndProofV2> result = (List<BlobAndProofV2>) response.getResult();
-    assertThat(result).hasSize(1);
-    assertThat(result.getFirst()).isNull(); // KZG_PROOF not supported
+    final JsonNode result = streamSuccessResult(buildRequestContext(bundle.getVersionedHash()));
+    assertThat(result.size()).isEqualTo(1);
+    assertThat(result.get(0).isNull()).isTrue(); // KZG_PROOF not supported
 
     verify(requestedCounter).inc(1);
     verify(availableCounter).inc(0); // 0 available due to unsupported type
@@ -181,7 +178,7 @@ public class EngineGetBlobsV3Test extends AbstractScheduledApiTest {
   }
 
   @Test
-  public void shouldMaintainOrderInPartialResponse() {
+  public void shouldMaintainOrderInPartialResponse() throws IOException {
     BlobProofBundle bundle1 = createBundleWithBlobType(KZG_CELL_PROOFS);
     BlobProofBundle bundle2 = createBundleWithBlobType(KZG_CELL_PROOFS);
     VersionedHash missing1 =
@@ -196,15 +193,14 @@ public class EngineGetBlobsV3Test extends AbstractScheduledApiTest {
                 "0x0400000000000000000000000000000000000000000000000000000000000000"));
     BlobProofBundle bundle5 = createBundleWithBlobType(KZG_CELL_PROOFS);
 
-    // Manually setup mocks to override the automatic setup in createBundleWithBlobType
     when(transactionPool.getBlobProofBundle(bundle1.getVersionedHash())).thenReturn(bundle1);
     when(transactionPool.getBlobProofBundle(bundle2.getVersionedHash())).thenReturn(bundle2);
     when(transactionPool.getBlobProofBundle(missing1)).thenReturn(null);
     when(transactionPool.getBlobProofBundle(missing2)).thenReturn(null);
     when(transactionPool.getBlobProofBundle(bundle5.getVersionedHash())).thenReturn(bundle5);
 
-    JsonRpcSuccessResponse response =
-        getSuccessResponse(
+    final JsonNode result =
+        streamSuccessResult(
             buildRequestContext(
                 bundle1.getVersionedHash(),
                 bundle2.getVersionedHash(),
@@ -212,52 +208,48 @@ public class EngineGetBlobsV3Test extends AbstractScheduledApiTest {
                 missing2,
                 bundle5.getVersionedHash()));
 
-    @SuppressWarnings("unchecked")
-    List<BlobAndProofV2> result = (List<BlobAndProofV2>) response.getResult();
-    assertThat(result).hasSize(5);
-    assertThat(result.get(0)).isNotNull(); // bundle1
-    assertThat(result.get(1)).isNotNull(); // bundle2
-    assertThat(result.get(2)).isNull(); // missing1
-    assertThat(result.get(3)).isNull(); // missing2
-    assertThat(result.get(4)).isNotNull(); // bundle5
+    assertThat(result.size()).isEqualTo(5);
+    assertThat(result.get(0).isNull()).isFalse(); // bundle1
+    assertThat(result.get(1).isNull()).isFalse(); // bundle2
+    assertThat(result.get(2).isNull()).isTrue(); // missing1
+    assertThat(result.get(3).isNull()).isTrue(); // missing2
+    assertThat(result.get(4).isNull()).isFalse(); // bundle5
 
     verify(partialResponseCounter).inc();
   }
 
   @Test
-  public void shouldReturnErrorForTooLargeRequest() {
+  public void shouldReturnErrorForTooLargeRequest() throws IOException {
     VersionedHash[] tooManyHashes = new VersionedHash[129]; // > 128 limit
     Arrays.fill(tooManyHashes, new VersionedHash((byte) 1, Hash.ZERO));
 
-    JsonRpcResponse response = method.syncResponse(buildRequestContext(tooManyHashes));
-
-    assertThat(fromErrorResp(response).getCode())
+    final JsonNode response = streamResponse(buildRequestContext(tooManyHashes));
+    assertThat(response.has("error")).isTrue();
+    assertThat(response.get("error").get("code").asInt())
         .isEqualTo(RpcErrorType.INVALID_ENGINE_GET_BLOBS_TOO_LARGE_REQUEST.getCode());
   }
 
   @Test
-  public void shouldReturnNullWhenSyncing() {
+  public void shouldReturnNullWhenSyncing() throws IOException {
     when(mergeContext.isSyncing()).thenReturn(true);
     BlobProofBundle bundle = createBundleWithBlobType(KZG_CELL_PROOFS);
 
-    JsonRpcSuccessResponse response =
-        getSuccessResponse(buildRequestContext(bundle.getVersionedHash()));
-
-    assertThat(response.getResult()).isNull();
+    final JsonNode response = streamResponse(buildRequestContext(bundle.getVersionedHash()));
+    assertThat(response.get("result").isNull()).isTrue();
     // No metrics should be incremented when syncing
     verifyNoInteractions(
         requestedCounter, availableCounter, partialResponseCounter, fullResponseCounter);
   }
 
   @Test
-  public void shouldSupportMinimum128Hashes() {
+  public void shouldSupportMinimum128Hashes() throws IOException {
     // Test capacity requirement from spec
     VersionedHash[] maxHashes = new VersionedHash[128];
     Arrays.fill(maxHashes, new VersionedHash((byte) 1, Hash.ZERO));
 
     // Should not error for exactly 128 hashes
-    JsonRpcResponse response = method.syncResponse(buildRequestContext(maxHashes));
-    assertThat(response.getType()).isEqualTo(RpcResponseType.SUCCESS);
+    final JsonNode response = streamResponse(buildRequestContext(maxHashes));
+    assertThat(response.has("error")).isFalse();
   }
 
   private BlobProofBundle createBundleWithBlobType(
@@ -274,19 +266,101 @@ public class EngineGetBlobsV3Test extends AbstractScheduledApiTest {
             "2.0", RpcMethod.ENGINE_GET_BLOBS_V3.getMethodName(), new Object[] {hashes}));
   }
 
-  private JsonRpcSuccessResponse getSuccessResponse(final JsonRpcRequestContext request) {
-    JsonRpcResponse response = method.syncResponse(request);
-    assertThat(response.getType()).isEqualTo(RpcResponseType.SUCCESS);
-    return (JsonRpcSuccessResponse) response;
+  // ── Streaming helpers ──────────────────────────────────────────────────────
+
+  private final ObjectMapper streamMapper = new ObjectMapper().registerModule(new Jdk8Module());
+
+  private JsonNode streamResponse(final JsonRpcRequestContext request) throws IOException {
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    method.streamResponse(request, out, streamMapper);
+    return streamMapper.readTree(out.toByteArray());
   }
 
-  private void assertSingleValidBlob(
-      final JsonRpcSuccessResponse response, final BlobProofBundle expected) {
-    @SuppressWarnings("unchecked")
-    List<BlobAndProofV2> result = (List<BlobAndProofV2>) response.getResult();
-    assertThat(result).hasSize(1);
-    assertThat(result.getFirst()).isNotNull();
-    assertThat(result.getFirst().getBlob()).isEqualTo(expected.getBlob().getData().toHexString());
-    assertThat(result.getFirst().getProofs()).hasSize(expected.getKzgProof().size());
+  private JsonNode streamSuccessResult(final JsonRpcRequestContext request) throws IOException {
+    final JsonNode response = streamResponse(request);
+    assertThat(response.has("error")).isFalse();
+    return response.get("result");
+  }
+
+  @Test
+  public void shouldImplementStreamingJsonRpcMethod() {
+    assertThat(method).isInstanceOf(StreamingJsonRpcMethod.class);
+  }
+
+  @Test
+  public void streamResponse_shouldReturnValidBlobs() throws IOException {
+    BlobProofBundle bundle = createBundleWithBlobType(KZG_CELL_PROOFS);
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    method.streamResponse(buildRequestContext(bundle.getVersionedHash()), out, streamMapper);
+
+    final JsonNode response = streamMapper.readTree(out.toByteArray());
+    assertThat(response.get("jsonrpc").asText()).isEqualTo("2.0");
+    assertThat(response.has("error")).isFalse();
+
+    final JsonNode result = response.get("result");
+    assertThat(result.isArray()).isTrue();
+    assertThat(result.size()).isEqualTo(1);
+    assertThat(result.get(0).get("blob").asText())
+        .isEqualTo(bundle.getBlob().getData().toHexString());
+  }
+
+  @Test
+  public void streamResponse_shouldReturnNullEntriesForMissingBlobs() throws IOException {
+    BlobProofBundle bundle1 = createBundleWithBlobType(KZG_CELL_PROOFS);
+    VersionedHash unknown = new VersionedHash((byte) 1, Hash.ZERO);
+    BlobProofBundle bundle3 = createBundleWithBlobType(KZG_CELL_PROOFS);
+
+    when(transactionPool.getBlobProofBundle(bundle1.getVersionedHash())).thenReturn(bundle1);
+    when(transactionPool.getBlobProofBundle(unknown)).thenReturn(null);
+    when(transactionPool.getBlobProofBundle(bundle3.getVersionedHash())).thenReturn(bundle3);
+
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    method.streamResponse(
+        buildRequestContext(bundle1.getVersionedHash(), unknown, bundle3.getVersionedHash()),
+        out,
+        streamMapper);
+
+    final JsonNode result = streamMapper.readTree(out.toByteArray()).get("result");
+    assertThat(result.isArray()).isTrue();
+    assertThat(result.size()).isEqualTo(3);
+    assertThat(result.get(0).isNull()).isFalse();
+    assertThat(result.get(1).isNull()).isTrue();
+    assertThat(result.get(2).isNull()).isFalse();
+  }
+
+  @Test
+  public void streamResponse_shouldReturnNullWhenSyncing() throws IOException {
+    when(mergeContext.isSyncing()).thenReturn(true);
+    BlobProofBundle bundle = createBundleWithBlobType(KZG_CELL_PROOFS);
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    method.streamResponse(buildRequestContext(bundle.getVersionedHash()), out, streamMapper);
+
+    final JsonNode response = streamMapper.readTree(out.toByteArray());
+    assertThat(response.get("result").isNull()).isTrue();
+  }
+
+  @Test
+  public void streamResponse_shouldReturnErrorWhenTooManyHashes() throws IOException {
+    VersionedHash[] hashes = new VersionedHash[129];
+    Arrays.fill(hashes, new VersionedHash((byte) 1, Hash.ZERO));
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    method.streamResponse(buildRequestContext(hashes), out, streamMapper);
+
+    final JsonNode response = streamMapper.readTree(out.toByteArray());
+    assertThat(response.has("error")).isTrue();
+    assertThat(response.get("error").get("code").asInt())
+        .isEqualTo(RpcErrorType.INVALID_ENGINE_GET_BLOBS_TOO_LARGE_REQUEST.getCode());
+  }
+
+  @Test
+  public void streamResponse_shouldReturnErrorWhenForkNotSupported() throws IOException {
+    when(blockHeader.getTimestamp()).thenReturn(osakaHardfork.milestone() - 1);
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    method.streamResponse(buildRequestContext(), out, streamMapper);
+
+    final JsonNode response = streamMapper.readTree(out.toByteArray());
+    assertThat(response.has("error")).isTrue();
+    assertThat(response.get("error").get("code").asInt())
+        .isEqualTo(RpcErrorType.UNSUPPORTED_FORK.getCode());
   }
 }
