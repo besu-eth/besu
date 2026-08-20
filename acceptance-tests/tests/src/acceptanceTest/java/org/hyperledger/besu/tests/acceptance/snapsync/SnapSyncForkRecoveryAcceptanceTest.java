@@ -361,6 +361,10 @@ public class SnapSyncForkRecoveryAcceptanceTest extends AcceptanceTestBase {
     // Restart against the same data directory and re-establish the peer + consensus head (runtime
     // peering and the newPayload header cache do not survive the restart).
     noDiscoveryCluster.startNode(syncNode);
+    // Wait until the RPC server is accepting connections before calling addPeer: the ports file
+    // is written when the port is bound, but the HTTP server may not be ready to handle requests
+    // yet. awaitPeerCount retries through ConnectException (WaitUtils ignoreExceptions).
+    syncNode.verify(net.awaitPeerCount(0));
     syncNode.execute(adminTransactions.addPeer(miner.enodeUrl()));
     syncNode.verify(net.awaitPeerCount(1));
     sendNewPayload(syncNode, head);
