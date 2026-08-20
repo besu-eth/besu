@@ -32,10 +32,10 @@ public interface WorldStateService extends BesuService {
   WorldView getWorldView();
 
   /**
-   * Returns a view of the world state at the specified block header.
+   * Returns a view of the world state at the specified block hash.
    *
-   * @param blockHash the block header to get the world view for
-   * @return the world view at the specified block header
+   * @param blockHash the hash of the block to get the world view for
+   * @return the world view at the specified block hash
    */
   Optional<WorldView> getWorldView(final Hash blockHash);
 }
