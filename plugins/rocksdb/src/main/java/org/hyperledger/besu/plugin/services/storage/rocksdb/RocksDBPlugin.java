@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.plugin.services.storage.rocksdb;
 
+import static java.util.Objects.requireNonNull;
+
 import org.hyperledger.besu.plugin.BesuPlugin;
 import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.services.PicoCLIOptions;
@@ -29,6 +31,7 @@ import java.util.Optional;
 
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,8 +43,8 @@ public class RocksDBPlugin implements BesuPlugin {
 
   private final RocksDBCLIOptions options;
   private final List<SegmentIdentifier> ignorableSegments = new ArrayList<>();
-  private ServiceManager context;
-  private RocksDBKeyValueStorageFactory factory;
+  private @Nullable ServiceManager context;
+  private @Nullable RocksDBKeyValueStorageFactory factory;
 
   /** Instantiates a newRocksDb plugin. */
   public RocksDBPlugin() {
@@ -158,7 +161,7 @@ public class RocksDBPlugin implements BesuPlugin {
   }
 
   private void createFactoriesAndRegisterWithStorageService() {
-    context
+    requireNonNull(context)
         .getService(StorageService.class)
         .ifPresentOrElse(
             this::createAndRegister,
