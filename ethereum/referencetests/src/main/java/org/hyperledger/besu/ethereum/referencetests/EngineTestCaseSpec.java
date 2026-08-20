@@ -226,7 +226,6 @@ public class EngineTestCaseSpec {
             SHARED_TRIE_LOADER,
             SHARED_SERVICE_MANAGER,
             EvmConfiguration.DEFAULT,
-            () -> (__, ___) -> {},
             new PathBasedCodeCache());
 
     final MutableWorldState worldState = worldStateArchive.getWorldState();
