@@ -70,14 +70,7 @@ public final class ArchiveCoverageTracker {
     final long startBlock =
         storage
             .get(TRIE_BRANCH_STORAGE_ARCHIVE, COVERAGE_KEY)
-            .map(
-                raw -> {
-                  final Bytes b = Bytes.wrap(raw);
-                  final long prevEnd = b.getLong(8);
-                  // Non-contiguous write means the gate was closed for some blocks; start a new
-                  // range to avoid claiming coverage over blocks that were never captured.
-                  return (block <= prevEnd + 1) ? Math.min(b.getLong(0), block) : block;
-                })
+            .map(raw -> Math.min(Bytes.wrap(raw).getLong(0), block))
             .orElse(block);
     tx.put(
         TRIE_BRANCH_STORAGE_ARCHIVE,

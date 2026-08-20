@@ -24,6 +24,7 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTran
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -58,11 +59,18 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy {
       final TrieNodeStrategy base,
       final ArchiveNodeHistoryStore historyStore,
       final ArchiveCoverageTracker coverageTracker,
-      final BooleanSupplier archiveGate) {
+      final BooleanSupplier gate) {
     this.base = Objects.requireNonNull(base);
     this.historyStore = Objects.requireNonNull(historyStore);
     this.coverageTracker = Objects.requireNonNull(coverageTracker);
-    this.archiveGate = Objects.requireNonNull(archiveGate);
+    // Latch: once the gate returns false it stays false and never reopens.
+    final AtomicBoolean latched = new AtomicBoolean(false);
+    this.archiveGate =
+        () -> {
+          final boolean open = !latched.get() && gate.getAsBoolean();
+          if (!open) latched.set(true);
+          return open;
+        };
   }
 
   private boolean shouldArchive(final long block) {
