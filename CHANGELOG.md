@@ -36,7 +36,6 @@
 - Fix wrong Bonsai storage root for same-block selfdestruct+recreate with unchanged slot values. [#10979](https://github.com/besu-eth/besu/pull/10979)
 - `eth_simulateV1` no longer applies EIP-7825's transaction gas limit cap to simulation gas, fixing incorrect block/transaction hashes on Osaka [#10885](https://github.com/besu-eth/besu/pull/10885)
 - Move to a new BFT round and select a new proposer for a block if transactions arrive at a non-proposing node after blockperiodseconds but before emptyblockperiodseconds [#11031](https://github.com/besu-eth/besu/pull/11031) 
-- Fix txpool incorrectly evicting authority pending transactions when EIP-7702 delegation tuples are skipped during block execution
 - Complete QBFT votes in a reasonable time when `empyblockperiodseconds` is set by treating QBFT votes as "non empty blocks" [#11111](https://github.com/besu-eth/besu/pull/11111)
 
 ### Additions and Improvements
@@ -55,6 +54,7 @@
 - Add `--p2p-discovery-port` and `--p2p-discovery-port-ipv6` flags to configure a separate UDP port for devp2p peer discovery, independent of the TCP p2p port. Specify `0` to request an ephemeral port from the OS. [#10718](https://github.com/besu-eth/besu/pull/10718)
 - Pending peer request iteration: `streamAvailablePeers()` scan replaced with an allocation-free capacity check. Reduces lock contention and GC pressure under a backlog of pending peer requests. [#10900](https://github.com/besu-eth/besu/pull/10900)
 - Engine API methods now execute concurrently, with only `engine_forkchoiceUpdated` and `engine_newPayload` calls processed serially in arrival order as the Engine API spec mandates. Previously all engine calls were serialized on a single thread, so light requests like `engine_getBlobsV2` could queue behind a block import and exceed the consensus client's timeout. [#11053](https://github.com/besu-eth/besu/pull/11053)
+- Add a server-side cap on EVM steps captured per debug_traceCall, debug_traceTransaction, and related trace methods to prevent unbounded execution [#11142](https://github.com/besu-eth/besu/pull/11142)
 
 ## 26.8.0
 
