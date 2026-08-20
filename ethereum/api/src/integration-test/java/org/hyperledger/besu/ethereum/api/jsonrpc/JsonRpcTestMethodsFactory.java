@@ -166,6 +166,14 @@ public class JsonRpcTestMethodsFactory {
     return protocolSchedule.getChainId().get();
   }
 
+  public ProtocolSchedule getProtocolSchedule() {
+    return protocolSchedule;
+  }
+
+  public TransactionSimulator getTransactionSimulator() {
+    return transactionSimulator;
+  }
+
   public Map<String, JsonRpcMethod> methods() {
     final P2PNetwork peerDiscovery = mock(P2PNetwork.class);
     final EthPeers ethPeers = mock(EthPeers.class);
