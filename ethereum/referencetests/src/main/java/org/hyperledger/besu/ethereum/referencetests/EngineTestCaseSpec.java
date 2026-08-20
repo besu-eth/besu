@@ -21,7 +21,6 @@ import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
-import org.hyperledger.besu.ethereum.core.ConsensusContextFixture;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
@@ -145,9 +144,9 @@ public class EngineTestCaseSpec {
       if (!value.isObject()) {
         continue;
       }
-      // Besu's BlobSchedule reads numeric, all-lowercase keys (target/max/basefeeupdatefraction),
-      // but EELS fixtures encode the values as hex strings (e.g. "0x0e") under a camelCase
-      // baseFeeUpdateFraction; convert to lowercase numeric nodes.
+
+      // BlobSchedule reads numeric, all-lowercase keys (target/max/basefeeupdatefraction),
+      // but the fixtures encode the values as hex strings (e.g. "0x0e") under a camelCase
       final ObjectNode entry = root.objectNode();
       entry.put("target", asInt(value.get("target")));
       entry.put("max", asInt(value.get("max")));
@@ -197,14 +196,6 @@ public class EngineTestCaseSpec {
   public MutableBlockchain buildBlockchain() {
     final Block genesisBlock = new Block(genesisBlockHeader, BlockBody.empty());
     return InMemoryKeyValueStorageProvider.createInMemoryBlockchain(genesisBlock);
-  }
-
-  public ProtocolContext buildProtocolContext(final MutableBlockchain blockchain) {
-    return new ProtocolContext.Builder()
-        .withBlockchain(blockchain)
-        .withWorldStateArchive(buildWorldStateArchive(blockchain))
-        .withConsensusContext(new ConsensusContextFixture())
-        .build();
   }
 
   /**
