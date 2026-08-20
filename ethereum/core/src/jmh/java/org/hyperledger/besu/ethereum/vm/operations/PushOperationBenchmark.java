@@ -16,12 +16,12 @@ package org.hyperledger.besu.ethereum.vm.operations;
 
 import static org.hyperledger.besu.evm.operation.PushOperation.staticOperation;
 
+import org.hyperledger.besu.evm.frame.MessageFrame;
+
 import java.util.Arrays;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
-import org.hyperledger.besu.evm.frame.MessageFrame;
-import org.hyperledger.besu.evm.operation.PushOperation;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Measurement;
@@ -34,21 +34,6 @@ import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.Warmup;
 import org.openjdk.jmh.infra.Blackhole;
 
-/**
- * Benchmarks {@link PushOperation#staticOperation}.
- *
- * <p>Dimensions:
- *
- * <ul>
- *   <li>{@code pushSize}: 1 (single byte), 8 (one limb), 20 (address-sized), 32 (full word), or
- *       RANDOM = uniform in 1..32 per sample
- *   <li>{@code position}: MID = full push data available with trailing code; END = push data ends
- *       exactly at the last code byte; TRUNCATED = code runs out mid-push so the value is
- *       left-shifted to zero-pad; OOB = pc past the data, nothing to read; RANDOM = uniform over
- *       the previous four per sample, to keep the JIT from specializing on one branch shape
- *   <li>{@code codeSize}: SNIPPET = 64-byte code; CONTRACT = 24k-byte code
- * </ul>
- */
 @State(Scope.Thread)
 @Warmup(iterations = 3, time = 1, timeUnit = TimeUnit.SECONDS)
 @OutputTimeUnit(value = TimeUnit.NANOSECONDS)
@@ -68,12 +53,12 @@ public class PushOperationBenchmark {
     MID,
     // push data ends exactly at the last byte of code: pc + 1 == code.length - pushSize
     END,
-    // only 1...size-1 data bytes available: value must be shifted left to pad
+    // only 1...size-1 data bytes available: value must be shifted left to pad with zeros
     TRUNCATED,
     // pc at end of code: nothing to read, pushes zero
     OOB,
-    // one of the other modes is picked at random
-    RANDOM;
+    // one of the other modes is picked at random to avoid JIT specialization
+    RANDOM
   }
 
   @Param({"1", "8", "20", "32", "RANDOM"})
@@ -94,12 +79,13 @@ public class PushOperationBenchmark {
   public void setUp() {
     frame = BenchmarkHelper.createMessageCallFrame();
     final Random random = new Random();
-    code = new byte[
-      switch(codeSize) {
-        case "SMALL" -> SMALL_CODE_SIZE;
-        case "BIG" -> LARGE_CODE_SIZE;
-        default -> throw new IllegalArgumentException("unknown code size " + codeSize);
-      }];
+    code =
+        new byte
+            [switch (codeSize) {
+              case "SMALL" -> SMALL_CODE_SIZE;
+              case "BIG" -> LARGE_CODE_SIZE;
+              default -> throw new IllegalArgumentException("unknown code size " + codeSize);
+            }];
     random.nextBytes(code);
 
     final boolean randomSize = "RANDOM".equals(pushSize);

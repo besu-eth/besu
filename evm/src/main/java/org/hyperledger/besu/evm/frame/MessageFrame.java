@@ -493,6 +493,16 @@ public class MessageFrame {
   // region --- EVM v2 long[] stack operations ---
   // ---------------------------------------------------------------------------
 
+  /**
+   * Gets a UInt256 value from the stack.
+   *
+   * <p>This function is unguarded (e.g. can throw {@link ArrayIndexOutOfBoundsException}) as it
+   * should only be used in test code. Using it in production might introduce performance
+   * regressions.
+   *
+   * @param offset index from the stack counting from top to bottom, to take a UInt256 value
+   * @return UInt256 value at the respective stack height
+   */
   @VisibleForTesting
   public org.hyperledger.besu.evm.UInt256 getStackItemV2(final int offset) {
     int index = (stackTopV2 - offset - 1) << 2;

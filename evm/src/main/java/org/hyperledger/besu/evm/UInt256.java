@@ -109,13 +109,14 @@ public record UInt256(long u3, long u2, long u1, long u0) {
   }
 
   /**
-   * Convert a sequence of bytes up to `to` to a UInt256 value. If `to - from` < 32 bytes, the least
-   * significant bytes of the UInt256 value are set to 0. If `bytes.length` is smaller than `to -
-   * from
+   * Convert the sequence of bytes between {@code from} (inclusive) and {@code to} (exclusive) to a
+   * UInt256 value. If {@code to - from} is less than 32 bytes, the most significant bytes of the
+   * UInt256 value are set to 0. The caller must ensure that {@code to} does not exceed {@code
+   * bytes.length}.
    *
    * @param bytes raw bytes in BigEndian order.
-   * @param from start index of the bytes array to convert
-   * @param to end index of the bytes array to convert
+   * @param from start index of the bytes array to convert, inclusive
+   * @param to end index of the bytes array to convert, exclusive
    * @return Big-endian UInt256 represented by the bytes.
    */
   public static UInt256 fromBytesBE(final byte[] bytes, final int from, final int to) {
