@@ -19,6 +19,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.account.PathBasedAccount;
@@ -127,6 +128,86 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
   public void importPriorStateFromSource(
       final PathBasedWorldStateUpdateAccumulator<ACCOUNT> source) {
     importFrom(source, ImportMode.INSERT);
+  }
+
+  public void importStateChangesFromPartialView(final PartialBlockAccessView partialView) {
+    importStateChangesFromPartialView(partialView, false);
+  }
+
+  /**
+   * Imports writes from a {@link PartialBlockAccessView} produced by parallel BAL execution.
+   * Account and storage changes are inserted directly as {@link PathBasedValue} entries so {@link
+   * #commit()} does not need to re-read prior values from the database.
+   *
+   * @param partialView partial access list for a single transaction
+   * @param clearEmptyAccounts when true, delete accounts that become empty after applying writes
+   */
+  public void importStateChangesFromPartialView(
+      final PartialBlockAccessView partialView, final boolean clearEmptyAccounts) {
+    for (final PartialBlockAccessView.AccountChanges accountChanges :
+        partialView.accountChanges()) {
+      final Address address = accountChanges.getAddress();
+      final boolean hasHeaderChange =
+          accountChanges.getPostBalance().isPresent()
+              || accountChanges.getNonceChange().isPresent()
+              || accountChanges.getNewCode().isPresent();
+      final boolean hasStorageChange = !accountChanges.getStorageChanges().isEmpty();
+
+      if (!hasHeaderChange && !hasStorageChange) {
+        continue;
+      }
+
+      MutableAccount accountValue = getOrCreate(address);
+
+      boolean shouldCheckForEmptyAccount = false;
+
+      if (accountChanges.getPostBalance().isPresent()) {
+        final Wei balance = accountChanges.getPostBalance().get();
+        accountValue.setBalance(balance);
+        shouldCheckForEmptyAccount = clearEmptyAccounts && balance.isZero();
+      }
+
+      if (accountChanges.getNonceChange().isPresent()) {
+        final long nonce = accountChanges.getNonceChange().get();
+        accountValue.setNonce(nonce);
+        shouldCheckForEmptyAccount |= clearEmptyAccounts && nonce == 0L;
+      }
+
+      if (accountChanges.getNewCode().isPresent()) {
+        final Bytes code = accountChanges.getNewCode().get();
+        accountValue.setCode(code);
+        shouldCheckForEmptyAccount |= clearEmptyAccounts && code.isEmpty();
+      }
+
+      if (hasStorageChange) {
+        final StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>> pendingStorageUpdates =
+            storageToUpdate.computeIfAbsent(
+                address,
+                k ->
+                    new StorageConsumingMap<>(
+                        address, new ConcurrentHashMap<>(), storagePreloader));
+        for (final PartialBlockAccessView.SlotChange slotChange :
+            accountChanges.getStorageChanges()) {
+          final StorageSlotKey slotKey = slotChange.slot();
+          final UInt256 prior =
+              slotChange.previousValue() != null ? slotChange.previousValue() : UInt256.ZERO;
+          final UInt256 updated =
+              slotChange.newValue() != null ? slotChange.newValue() : UInt256.ZERO;
+
+          final PathBasedValue<UInt256> pendingValue = pendingStorageUpdates.get(slotKey);
+          if (pendingValue == null) {
+            pendingStorageUpdates.put(slotKey, new PathBasedValue<>(prior, updated));
+          } else {
+            pendingValue.setUpdated(updated);
+          }
+        }
+      }
+
+      if (shouldCheckForEmptyAccount && accountValue.isEmpty()) {
+        deleteAccount(address);
+      }
+    }
+    this.isAccumulatorStateChanged = true;
   }
 
   private enum ImportMode {
