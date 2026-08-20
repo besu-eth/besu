@@ -123,6 +123,7 @@ graphql-tls-keystore-password-file="none.passwd"
 graphql-mtls-enabled=false
 graphql-tls-truststore-file="none.pfx"
 graphql-tls-truststore-password-file="none.passwd"
+graphql-max-blocks-range=100
 
 # WebSockets API
 rpc-ws-enabled=false
