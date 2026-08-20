@@ -17,18 +17,12 @@ package org.hyperledger.besu.evm.v2.operation;
 import org.hyperledger.besu.evm.UInt256;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
-
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.VarHandle;
-import java.nio.ByteOrder;
+import org.hyperledger.besu.evm.internal.OverflowException;
 
 /** The Push operation. */
 public class PushOperationV2 extends AbstractFixedCostOperationV2 {
   /** The constant PUSH_BASE. */
   public static final int PUSH_BASE = 0x5F;
-
-  private static final VarHandle LONG_BE =
-      MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
 
   private final int length;
 
@@ -71,76 +65,25 @@ public class PushOperationV2 extends AbstractFixedCostOperationV2 {
       final MessageFrame frame, final byte[] code, final int pc, final int pushSize) {
     final int start = pc + 1;
     final int end = start + pushSize;
-    long u0 = 0, u1 = 0, u2 = 0, u3 = 0;
-    // Hot path: the full push data is in bounds and there are at least 8 bytes of code before
-    // it, so every limb can be read as one unaligned big-endian long whose window may overlap
-    // preceding code bytes; the top limb is masked down to its actual width. The unconditional
-    // mask is a no-op (-1L >>> 0) when the top limb is full.
-    if (end <= code.length && start >= 8) {
-      switch ((pushSize - 1) >>> 3) {
-        case 0 -> u0 = ((long) LONG_BE.get(code, end - 8)) & (-1L >>> ((8 - pushSize) << 3));
-        case 1 -> {
-          u1 = ((long) LONG_BE.get(code, end - 16)) & (-1L >>> ((16 - pushSize) << 3));
-          u0 = (long) LONG_BE.get(code, end - 8);
-        }
-        case 2 -> {
-          u2 = ((long) LONG_BE.get(code, end - 24)) & (-1L >>> ((24 - pushSize) << 3));
-          u1 = (long) LONG_BE.get(code, end - 16);
-          u0 = (long) LONG_BE.get(code, end - 8);
-        }
-        default -> {
-          u3 = ((long) LONG_BE.get(code, end - 32)) & (-1L >>> ((32 - pushSize) << 3));
-          u2 = (long) LONG_BE.get(code, end - 24);
-          u1 = (long) LONG_BE.get(code, end - 16);
-          u0 = (long) LONG_BE.get(code, end - 8);
-        }
-      }
-    } else {
-      return pushSlow(frame, code, pc, pushSize);
+    UInt256 pushValue = UInt256.fromBytesBE(code, start, Math.min(end, code.length));
+
+    // Slow-path - when push is truncated and zeros need to be appended
+    if (end > code.length) {
+      final int remainingSize = Math.max(0, code.length - start);
+      pushValue = pushValue.shl0(Math.max(0, (pushSize - remainingSize) * 8));
     }
-
-    final long[] stack = frame.stackDataV2();
-    final int top = frame.stackTopV2();
-    final int offset = top << 2;
-    try {
-      // A full stack makes the first store land past the end of the backing array (its length is
-      // maxStackSize * 4), so overflow costs nothing on the non-overflowing path.
-      stack[offset] = u3;
-    } catch (final ArrayIndexOutOfBoundsException e) {
-      return OVERFLOW_RESPONSE;
-    }
-    stack[offset + 1] = u2;
-    stack[offset + 2] = u1;
-    stack[offset + 3] = u0;
-    frame.setTopV2(top + 1);
-
-    frame.setPC(pc + pushSize);
-    return pushSuccess;
-  }
-
-  // Rare path, kept out of staticOperation so the hot path stays inlineable: push data truncated
-  // by end of code (zero-padded on the right) or too close to the start of code for windowed
-  // reads.
-  private static OperationResult pushSlow(
-      final MessageFrame frame, final byte[] code, final int pc, final int pushSize) {
-    final int start = pc + 1;
-    final int remainingSize = Math.max(0, code.length - start);
-    final int copyLength = Math.min(remainingSize, pushSize);
-    final UInt256 pushValue =
-        UInt256.fromBytesBE(code, start, start + copyLength)
-            .shl0(Math.max(0, (pushSize - remainingSize) * 8));
 
     final long[] stack = frame.stackDataV2();
     final int top = frame.stackTopV2();
     final int offset = top << 2;
     try {
       stack[offset] = pushValue.u3();
-    } catch (final ArrayIndexOutOfBoundsException e) {
-      return OVERFLOW_RESPONSE;
+      stack[offset + 1] = pushValue.u2();
+      stack[offset + 2] = pushValue.u1();
+      stack[offset + 3] = pushValue.u0();
+    } catch (ArrayIndexOutOfBoundsException aiobe) {
+      throw new OverflowException();
     }
-    stack[offset + 1] = pushValue.u2();
-    stack[offset + 2] = pushValue.u1();
-    stack[offset + 3] = pushValue.u0();
     frame.setTopV2(top + 1);
 
     frame.setPC(pc + pushSize);

@@ -72,7 +72,7 @@ public class PushOperationBenchmarkV2 {
     // pc at end of code: nothing to read, pushes zero
     OOB,
     // one of the other modes is picked at random
-    RANDOM;
+    RANDOM
   }
 
   @Param({"1", "8", "20", "32", "RANDOM"})
