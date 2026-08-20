@@ -32,7 +32,14 @@ import org.apache.tuweni.units.bigints.UInt256;
  *   <li>{@link #NO_OP} — does nothing; used when {@code WorldStateConfig.isTrieDisabled()} is true.
  * </ul>
  */
-public interface FrontierStorageRootTracker extends FrontierRootHashTracker.StorageRootUpdater {
+public interface FrontierStorageRootTracker {
+
+  /**
+   * Updates the storage root of the account at {@code address} to reflect its pending storage
+   * changes.
+   */
+  void update(
+      Address address, StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>> storageUpdates);
 
   /** Discards any cached state. Call at the block boundary before processing a new block. */
   void reset();

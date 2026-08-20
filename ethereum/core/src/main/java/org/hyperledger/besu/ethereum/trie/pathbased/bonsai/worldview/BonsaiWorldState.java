@@ -34,8 +34,6 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCac
 import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedValue;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.preload.StorageConsumingMap;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.cache.PathBasedWorldStateCacheManager;
 import org.hyperledger.besu.ethereum.trie.patricia.ParallelStoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
@@ -63,7 +61,6 @@ public class BonsaiWorldState extends PathBasedWorldState {
   private final PathBasedCodeCache codeCache;
   private final EvmConfiguration evmConfiguration;
   private final FrontierRootHashTracker frontierRootHashTracker;
-  private final FrontierStorageRootTracker frontierStorageRootTracker;
 
   public BonsaiWorldState(
       final BonsaiWorldStateProvider archive,
@@ -105,7 +102,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
             evmConfiguration,
             codeCache);
     this.setAccumulator(acc);
-    this.frontierStorageRootTracker =
+    final FrontierStorageRootTracker frontierStorageRootTracker =
         worldStateConfig.isTrieDisabled()
             ? FrontierStorageRootTracker.NO_OP
             : new CachingFrontierStorageRootTracker(
@@ -125,14 +122,15 @@ public class BonsaiWorldState extends PathBasedWorldState {
                         bonsaiCachedMerkleTrieLoader.getAccountStateTrieNode(
                             getWorldStateStorage(), location, hash),
                     rootHash),
-            this::updateFrontierStorageState);
+            frontierStorageRootTracker);
+    // Keep frontier-derived caches aligned with accumulator resets.
+    acc.setCommittedTransactionListener(frontierRootHashTracker);
     this.codeCache = codeCache;
   }
 
   @Override
   public void persist(final BlockHeader blockHeader, final StateRootCommitter committer) {
     frontierRootHashTracker.reset();
-    frontierStorageRootTracker.reset();
     super.persist(blockHeader, committer);
   }
 
@@ -221,12 +219,6 @@ public class BonsaiWorldState extends PathBasedWorldState {
 
   public void disableCacheMerkleTrieLoader() {
     this.bonsaiCachedMerkleTrieLoader = new NoOpBonsaiCachedMerkleTrieLoader();
-  }
-
-  private void updateFrontierStorageState(
-      final Address address,
-      final StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>> storageUpdates) {
-    frontierStorageRootTracker.update(address, storageUpdates);
   }
 
   /**
