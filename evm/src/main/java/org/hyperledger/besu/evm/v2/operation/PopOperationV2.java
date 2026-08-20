@@ -19,6 +19,7 @@ import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.internal.UnderflowException;
 import org.hyperledger.besu.evm.operation.Operation.OperationResult;
 
+/** The Pop operation. */
 public class PopOperationV2 extends AbstractFixedCostOperationV2 {
   /** The Pop operation success result. */
   static final OperationResult popSuccess = new OperationResult(2, null);
@@ -44,8 +45,7 @@ public class PopOperationV2 extends AbstractFixedCostOperationV2 {
    * @return the operation result
    */
   public static OperationResult staticOperation(final MessageFrame frame) {
-    final int top = frame.stackTopV2();
-    if (top < 1) {
+    if (frame.stackHasItemsV2(1)) {
       throw new UnderflowException();
     }
     frame.setTopV2(frame.stackTopV2() - 1);
