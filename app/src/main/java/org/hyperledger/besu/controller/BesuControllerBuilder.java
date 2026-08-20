@@ -742,14 +742,16 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
               new BonsaiTrieNodeStrategy(),
               new ArchiveNodeHistoryStore(liveStorage),
               new ArchiveCoverageTracker(liveStorage),
-              // Only archive while behind the head, so reorg-window blocks are never captured.
-              () ->
-                  !archiveSyncStateRef
-                      .get()
-                      .isInSync(
-                          dataStorageConfiguration
-                              .getPathBasedExtraStorageConfiguration()
-                              .getMaxLayersToLoad()));
+              // Archive only while behind the head so reorg-window blocks are skipped; also keep
+              // archiving with no peers — a failed download can leave us peerless and still behind.
+              () -> {
+                final SyncState archiveSyncState = archiveSyncStateRef.get();
+                return !archiveSyncState.isInSync(
+                        dataStorageConfiguration
+                            .getPathBasedExtraStorageConfiguration()
+                            .getMaxLayersToLoad())
+                    || archiveSyncState.getBestPeerChainHead().isEmpty();
+              });
       keyValueStorage.setTrieNodeStrategy(archiveTrieNodeStrategy);
       LOG.info("Bonsai archive proofs enabled (--Xbonsai-archive-state-proofs-enabled)");
     }
