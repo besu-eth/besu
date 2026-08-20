@@ -55,20 +55,15 @@ class ArchiveCoverageTrackerTest {
 
   @Test
   void indexStartTracksFirstRecordedBlock() {
-    // Blocks are always archived in ascending order.
-    final SegmentedKeyValueStorageTransaction tx1 = storage.startTransaction();
-    progress.record(tx1, 5L);
-    tx1.commit();
+    record(5L);
+    record(6L);
+    record(7L);
 
-    final SegmentedKeyValueStorageTransaction tx2 = storage.startTransaction();
-    progress.record(tx2, 10L);
-    tx2.commit();
-
-    // Covered range is [5, 10]
+    // Covered range is [5, 7]
     assertThat(progress.hasArchiveBlock(5L)).isTrue();
-    assertThat(progress.hasArchiveBlock(10L)).isTrue();
+    assertThat(progress.hasArchiveBlock(7L)).isTrue();
     assertThat(progress.hasArchiveBlock(4L)).isFalse();
-    assertThat(progress.hasArchiveBlock(11L)).isFalse();
+    assertThat(progress.hasArchiveBlock(8L)).isFalse();
   }
 
   @Test
@@ -90,5 +85,27 @@ class ArchiveCoverageTrackerTest {
     // NOT committed
 
     assertThat(progress.hasArchiveBlock(7L)).isFalse();
+  }
+
+  @Test
+  void gapInArchivedBlocksResetsRangeToAvoidFalseCoverage() {
+    // Blocks 1-2 archived normally.
+    record(1L);
+    record(2L);
+
+    // Blocks 3-5 are skipped (gate was closed).  Record resumes at 6.
+    record(6L);
+
+    // New range starts at 6; the gap blocks must not be claimed.
+    assertThat(progress.hasArchiveBlock(6L)).isTrue();
+    assertThat(progress.hasArchiveBlock(3L)).isFalse();
+    assertThat(progress.hasArchiveBlock(4L)).isFalse();
+    assertThat(progress.hasArchiveBlock(5L)).isFalse();
+  }
+
+  private void record(final long block) {
+    final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
+    progress.record(tx, block);
+    tx.commit();
   }
 }
