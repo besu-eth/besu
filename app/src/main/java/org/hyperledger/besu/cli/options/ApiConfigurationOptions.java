@@ -113,6 +113,12 @@ public class ApiConfigurationOptions {
               + "before it is removed. Must be >0  (default: ${DEFAULT-VALUE})")
   private final Long rpcFilterTimeoutSeconds = ApiConfiguration.DEFAULT_FILTER_TIMEOUT.toSeconds();
 
+  @CommandLine.Option(
+      names = {"--rpc-max-trace-steps"},
+      description =
+          "Server-side cap on EVM steps captured per debug_trace*/trace_call request. Callers may request fewer steps but not more. Must be >=0. 0 disables the cap (default: ${DEFAULT-VALUE})")
+  private final Long rpcMaxTraceSteps = ApiConfiguration.DEFAULT_DEBUG_TRACE_STEP_LIMIT;
+
   /**
    * Validates the API options.
    *
@@ -166,7 +172,8 @@ public class ApiConfigurationOptions {
             .isGasAndPriorityFeeLimitingEnabled(apiGasAndPriorityFeeLimitingEnabled)
             .maxTraceFilterRange(maxTraceFilterRange)
             .maxFilterCount(rpcMaxActiveFilters)
-            .filterTimeout(Duration.ofSeconds(rpcFilterTimeoutSeconds));
+            .filterTimeout(Duration.ofSeconds(rpcFilterTimeoutSeconds))
+            .debugTraceStepLimit(rpcMaxTraceSteps);
     if (apiGasAndPriorityFeeLimitingEnabled) {
       builder
           .lowerBoundGasAndPriorityFeeCoefficient(apiGasAndPriorityFeeLowerBoundCoefficient)
