@@ -23,6 +23,7 @@ import static org.hyperledger.besu.ethereum.trie.RangeManager.findNewBeginElemen
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator.applyForStrategy;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.PatriciaAccountValue;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.StackTrie;
@@ -30,7 +31,6 @@ import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import org.hyperledger.besu.ethereum.trie.NodeUpdater;
-import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
@@ -217,8 +217,8 @@ public class AccountRangeDataRequest extends SnapDataRequest {
 
     // find missing storages and code
     for (Map.Entry<Bytes32, Bytes> account : taskElement.keys().entrySet()) {
-      final PmtStateTrieAccountValue accountValue =
-          PmtStateTrieAccountValue.readFrom(RLP.input(account.getValue()));
+      final PatriciaAccountValue accountValue =
+          PatriciaAccountValue.readFrom(RLP.input(account.getValue()));
       if (!accountValue.getStorageRoot().equals(Hash.EMPTY_TRIE_HASH)) {
         childRequests.add(
             createStorageRangeDataRequest(

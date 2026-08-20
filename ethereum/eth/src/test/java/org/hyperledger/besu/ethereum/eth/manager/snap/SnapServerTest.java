@@ -17,13 +17,14 @@ package org.hyperledger.besu.ethereum.eth.manager.snap;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 import static org.hyperledger.besu.ethereum.eth.manager.snap.SnapServer.HASH_LAST;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
-import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.WORLD_BLOCK_NUMBER_KEY;
+import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage.WORLD_BLOCK_NUMBER_KEY;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.PatriciaAccountValue;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.eth.manager.EthMessages;
 import org.hyperledger.besu.ethereum.eth.messages.snap.AccountRangeMessage;
@@ -39,10 +40,9 @@ import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.CompactEncoding;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
-import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.VersionedFlatDbCacheManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFlatDbStrategyProvider;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.cache.VersionedFlatDbCacheManager;
 import org.hyperledger.besu.ethereum.trie.patricia.SimpleMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
@@ -82,7 +82,7 @@ public class SnapServerTest {
 
   record SnapTestAccount(
       Hash addressHash,
-      PmtStateTrieAccountValue accountValue,
+      PatriciaAccountValue accountValue,
       MerkleTrie<Bytes32, Bytes> storage,
       Bytes code) {
     Bytes accountRLP() {
@@ -837,7 +837,7 @@ public class SnapServerTest {
   static SnapTestAccount createTestAccount(final String hexAddr) {
     return new SnapTestAccount(
         Hash.wrap(Bytes32.rightPad(Bytes.fromHexString(hexAddr))),
-        new PmtStateTrieAccountValue(
+        new PatriciaAccountValue(
             rand.nextInt(0, 1), Wei.of(rand.nextLong(0L, 1L)), Hash.EMPTY_TRIE_HASH, Hash.EMPTY),
         new SimpleMerklePatriciaTrie<>(a -> a),
         Bytes.EMPTY);
@@ -899,7 +899,7 @@ public class SnapServerTest {
     updater.commit();
     return new SnapTestAccount(
         acctHash,
-        new PmtStateTrieAccountValue(
+        new PatriciaAccountValue(
             rand.nextInt(0, 1), Wei.of(rand.nextLong(0L, 1L)),
             Hash.wrap(trie.getRootHash()), Hash.hash(mockCode)),
         trie,

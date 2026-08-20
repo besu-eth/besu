@@ -18,10 +18,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.PatriciaAccountValue;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
-import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.forest.storage.ForestWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
@@ -82,9 +82,8 @@ public class WorldStateProofProviderTest {
 
     // Define account value
     final Hash codeHash = Hash.hash(Bytes.fromHexString("0x1122"));
-    final PmtStateTrieAccountValue accountValue =
-        new PmtStateTrieAccountValue(
-            1L, Wei.of(2L), Hash.wrap(storageTrie.getRootHash()), codeHash);
+    final PatriciaAccountValue accountValue =
+        new PatriciaAccountValue(1L, Wei.of(2L), Hash.wrap(storageTrie.getRootHash()), codeHash);
     // Save to storage
     worldStateTrie.put(Bytes32.wrap(addressHash.getBytes()), RLP.encode(accountValue::writeTo));
     worldStateTrie.commit((location, hash, value) -> updater.putAccountStateTrieNode(hash, value));
@@ -127,9 +126,8 @@ public class WorldStateProofProviderTest {
 
     // Define account value
     final Hash codeHash = Hash.hash(Bytes.fromHexString("0x1122"));
-    final PmtStateTrieAccountValue accountValue =
-        new PmtStateTrieAccountValue(
-            1L, Wei.of(2L), Hash.wrap(storageTrie.getRootHash()), codeHash);
+    final PatriciaAccountValue accountValue =
+        new PatriciaAccountValue(1L, Wei.of(2L), Hash.wrap(storageTrie.getRootHash()), codeHash);
     // Save to storage
     worldStateTrie.put(Bytes32.wrap(addressHash.getBytes()), RLP.encode(accountValue::writeTo));
     worldStateTrie.commit((location, hash, value) -> updater.putAccountStateTrieNode(hash, value));

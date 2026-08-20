@@ -19,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.PatriciaAccountValue;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
@@ -28,7 +29,6 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedAccountRangeTra
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedStorageRangeTracker;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldStateDownloaderException;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
-import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
@@ -117,21 +117,21 @@ class SnapV2ReorgStateFetcherTest {
 
   @Test
   void fetchesPresentAccounts() {
-    final Map<Hash, Optional<PmtStateTrieAccountValue>> fetched =
+    final Map<Hash, Optional<PatriciaAccountValue>> fetched =
         fetcher.fetchAccounts(Set.of(ALICE.addressHash(), FRANK.addressHash()), pivotHeader).join();
 
     assertThat(fetched.get(ALICE.addressHash())).isPresent();
     assertThat(fetched.get(ALICE.addressHash()).get().getBalance()).isEqualTo(Wei.of(100));
 
     assertThat(fetched.get(FRANK.addressHash())).isPresent();
-    final PmtStateTrieAccountValue frank = fetched.get(FRANK.addressHash()).get();
+    final PatriciaAccountValue frank = fetched.get(FRANK.addressHash()).get();
     assertThat(frank.getBalance()).isEqualTo(Wei.of(200));
     assertThat(frank.getStorageRoot()).isNotEqualTo(Hash.EMPTY_TRIE_HASH);
   }
 
   @Test
   void fetchesAbsentAccountAsEmpty() {
-    final Map<Hash, Optional<PmtStateTrieAccountValue>> fetched =
+    final Map<Hash, Optional<PatriciaAccountValue>> fetched =
         fetcher.fetchAccounts(Set.of(UNKNOWN.addressHash()), pivotHeader).join();
 
     assertThat(fetched.get(UNKNOWN.addressHash())).isEmpty();
@@ -139,7 +139,7 @@ class SnapV2ReorgStateFetcherTest {
 
   @Test
   void fetchesAbsentAccountAlongsidePresentOnes() {
-    final Map<Hash, Optional<PmtStateTrieAccountValue>> fetched =
+    final Map<Hash, Optional<PatriciaAccountValue>> fetched =
         fetcher
             .fetchAccounts(Set.of(ALICE.addressHash(), UNKNOWN.addressHash()), pivotHeader)
             .join();
@@ -224,7 +224,7 @@ class SnapV2ReorgStateFetcherTest {
   }
 
   private Hash frankStorageRoot() {
-    final PmtStateTrieAccountValue frank =
+    final PatriciaAccountValue frank =
         fetcher
             .fetchAccounts(Set.of(FRANK.addressHash()), pivotHeader)
             .join()

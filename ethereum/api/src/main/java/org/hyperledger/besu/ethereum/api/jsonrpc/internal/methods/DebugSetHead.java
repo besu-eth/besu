@@ -15,7 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.UNKNOWN_BLOCK;
-import static org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams.withBlockHeaderAndUpdateNodeHead;
+import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.WorldStateQueryParams.withBlockHeaderAndUpdateNodeHead;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
@@ -30,7 +30,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.PathBasedWorldStateProvider;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 
 import java.util.Optional;
 
@@ -90,8 +90,8 @@ public class DebugSetHead extends AbstractBlockParameterOrBlockHashMethod {
     if (maybeMoveWorldstate.orElse(Boolean.FALSE)) {
       var archive = blockchainQueries.getWorldStateArchive();
 
-      // Only PathBasedWorldState's need to be moved:
-      if (archive instanceof PathBasedWorldStateProvider pathBasedArchive) {
+      // Only BonsaiWorldState's need to be moved:
+      if (archive instanceof BonsaiWorldStateProvider pathBasedArchive) {
         if (rollIncrementally(maybeBlockHeader.get(), blockchain, pathBasedArchive)) {
           return JsonRpcSuccessResponse.SUCCESS_RESULT;
         }
@@ -108,7 +108,7 @@ public class DebugSetHead extends AbstractBlockParameterOrBlockHashMethod {
   private boolean rollIncrementally(
       final BlockHeader target,
       final MutableBlockchain blockchain,
-      final PathBasedWorldStateProvider archive) {
+      final BonsaiWorldStateProvider archive) {
 
     try {
       if (archive.isWorldStateAvailable(target.getStateRoot(), target.getBlockHash())) {

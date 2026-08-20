@@ -21,6 +21,7 @@ import static org.mockito.Mockito.verify;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.PatriciaAccountValue;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.TrieGenerator;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
@@ -31,7 +32,6 @@ import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.RangeStorageEntriesCollector;
 import org.hyperledger.besu.ethereum.trie.TrieIterator;
-import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredNodeFactory;
@@ -82,8 +82,8 @@ public class AccountHealingTrackingTest {
   @Test
   void shouldMarkAccountForHealingWhenStorageProofIsReceived() {
     final Hash accountHash = Hash.hash(accounts.getFirst().getBytes());
-    final PmtStateTrieAccountValue stateTrieAccountValue =
-        PmtStateTrieAccountValue.readFrom(
+    final PatriciaAccountValue stateTrieAccountValue =
+        PatriciaAccountValue.readFrom(
             RLP.input(accountStateTrie.get(accountHash.getBytes()).orElseThrow()));
 
     final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
@@ -134,8 +134,8 @@ public class AccountHealingTrackingTest {
   @Test
   void shouldNotMarkAccountForHealingWhenAllStorageIsReceivedWithoutProof() {
     final Hash accountHash = Hash.hash(accounts.getFirst().getBytes());
-    final PmtStateTrieAccountValue stateTrieAccountValue =
-        PmtStateTrieAccountValue.readFrom(
+    final PatriciaAccountValue stateTrieAccountValue =
+        PatriciaAccountValue.readFrom(
             RLP.input(accountStateTrie.get(accountHash.getBytes()).orElseThrow()));
 
     final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
@@ -177,8 +177,8 @@ public class AccountHealingTrackingTest {
   @Test
   void shouldMarkAccountForHealingOnInvalidStorageProof() {
     final Hash accountHash = Hash.hash(accounts.getFirst().getBytes());
-    final PmtStateTrieAccountValue stateTrieAccountValue =
-        PmtStateTrieAccountValue.readFrom(
+    final PatriciaAccountValue stateTrieAccountValue =
+        PatriciaAccountValue.readFrom(
             RLP.input(accountStateTrie.get(accountHash.getBytes()).orElseThrow()));
 
     final List<Bytes> proofs =
@@ -206,8 +206,8 @@ public class AccountHealingTrackingTest {
   @Test
   void shouldMarkAccountForHealingOnInvalidStorageWithoutProof() {
     final Hash accountHash = Hash.hash(accounts.getFirst().getBytes());
-    final PmtStateTrieAccountValue stateTrieAccountValue =
-        PmtStateTrieAccountValue.readFrom(
+    final PatriciaAccountValue stateTrieAccountValue =
+        PatriciaAccountValue.readFrom(
             RLP.input(accountStateTrie.get(accountHash.getBytes()).orElseThrow()));
 
     final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
@@ -247,8 +247,8 @@ public class AccountHealingTrackingTest {
   @Test
   void shouldMarkAccountForHealingOnPartialStorageRange() {
     final Hash accountHash = Hash.hash(accounts.getFirst().getBytes());
-    final PmtStateTrieAccountValue stateTrieAccountValue =
-        PmtStateTrieAccountValue.readFrom(
+    final PatriciaAccountValue stateTrieAccountValue =
+        PatriciaAccountValue.readFrom(
             RLP.input(accountStateTrie.get(accountHash.getBytes()).orElseThrow()));
 
     final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
@@ -301,8 +301,8 @@ public class AccountHealingTrackingTest {
   @Test
   void shouldNotMarkAccountForHealingOnValidStorageTrieNodeDetection() {
     final Hash accountHash = Hash.hash(accounts.getFirst().getBytes());
-    final PmtStateTrieAccountValue stateTrieAccountValue =
-        PmtStateTrieAccountValue.readFrom(
+    final PatriciaAccountValue stateTrieAccountValue =
+        PatriciaAccountValue.readFrom(
             RLP.input(accountStateTrie.get(accountHash.getBytes()).orElseThrow()));
     final StorageTrieNodeHealingRequest storageTrieNodeHealingRequest =
         SnapDataRequest.createStorageTrieNodeDataRequest(

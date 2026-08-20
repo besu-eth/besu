@@ -18,6 +18,7 @@ import static org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRe
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator.applyForStrategy;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.PatriciaAccountValue;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
@@ -25,7 +26,6 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContex
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.CompactEncoding;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
-import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
@@ -120,7 +120,7 @@ public class AccountTrieNodeHealingRequest extends TrieNodeHealingRequest {
                   getLocation().size(),
                   account.size() - getLocation().size()))
           .map(RLP::input)
-          .map(PmtStateTrieAccountValue::readFrom)
+          .map(PatriciaAccountValue::readFrom)
           .filter(
               stateTrieAccountValue ->
                   // We need to ensure that the accounts to be healed do not have empty storage.
@@ -155,8 +155,7 @@ public class AccountTrieNodeHealingRequest extends TrieNodeHealingRequest {
       final Bytes path,
       final Bytes value) {
     final Stream.Builder<SnapDataRequest> builder = Stream.builder();
-    final PmtStateTrieAccountValue accountValue =
-        PmtStateTrieAccountValue.readFrom(RLP.input(value));
+    final PatriciaAccountValue accountValue = PatriciaAccountValue.readFrom(RLP.input(value));
 
     // Retrieve account hash
     final Hash accountHash =

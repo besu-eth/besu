@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.eth.sync.snapsync.v2;
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator.applyForStrategy;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.PatriciaAccountValue;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
@@ -38,7 +39,6 @@ import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
-import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
@@ -795,7 +795,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
         .map(
             b ->
                 Bytes32.wrap(
-                    PmtStateTrieAccountValue.readFrom(RLP.input(b)).getStorageRoot().getBytes()))
+                    PatriciaAccountValue.readFrom(RLP.input(b)).getStorageRoot().getBytes()))
         .orElseThrow(
             () ->
                 new WorldStateDownloaderException(
@@ -847,8 +847,8 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
                           "Account data missing for account %s at pivot %s",
                           accountHash, pivotHeader.getNumber(), null);
                     }
-                    final PmtStateTrieAccountValue accountValue =
-                        PmtStateTrieAccountValue.readFrom(RLP.input(accountData));
+                    final PatriciaAccountValue accountValue =
+                        PatriciaAccountValue.readFrom(RLP.input(accountData));
                     results.put(
                         accountHash, Bytes32.wrap(accountValue.getStorageRoot().getBytes()));
                     return null;

@@ -24,7 +24,7 @@ import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.PathBasedWorldStateProvider;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 
 import java.util.List;
@@ -57,7 +57,7 @@ public class ParallelTransactionPreprocessing implements PreprocessingFunction {
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
       final Optional<BlockAccessList> maybeBlockBal,
       final Optional<BlockHeader> maybeParentHeader) {
-    if (!(protocolContext.getWorldStateArchive() instanceof PathBasedWorldStateProvider)) {
+    if (!(protocolContext.getWorldStateArchive() instanceof BonsaiWorldStateProvider)) {
       return Optional.empty();
     }
 

@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.PatriciaAccountValue;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.TrieGenerator;
@@ -25,7 +26,6 @@ import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.TrieIterator;
-import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
@@ -99,8 +99,8 @@ class BonsaiCachedMerkleTrieLoaderTest {
   @Test
   void shouldAddStorageNodesInCacheDuringPreload() {
     final Hash hashAccountZero = accounts.get(0).addressHash();
-    final PmtStateTrieAccountValue stateTrieAccountValue =
-        PmtStateTrieAccountValue.readFrom(
+    final PatriciaAccountValue stateTrieAccountValue =
+        PatriciaAccountValue.readFrom(
             RLP.input(trie.get(hashAccountZero.getBytes()).orElseThrow()));
     final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
         new StoredMerklePatriciaTrie<>(
@@ -160,8 +160,8 @@ class BonsaiCachedMerkleTrieLoaderTest {
   @Test
   void shouldFallbackWhenStorageNodesIsNotInCache() {
     final Hash hashAccountZero = accounts.get(0).addressHash();
-    final PmtStateTrieAccountValue stateTrieAccountValue =
-        PmtStateTrieAccountValue.readFrom(
+    final PatriciaAccountValue stateTrieAccountValue =
+        PatriciaAccountValue.readFrom(
             RLP.input(trie.get(hashAccountZero.getBytes()).orElseThrow()));
     final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
         new StoredMerklePatriciaTrie<>(

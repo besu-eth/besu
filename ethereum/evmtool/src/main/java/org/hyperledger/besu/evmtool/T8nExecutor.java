@@ -54,7 +54,7 @@ import org.hyperledger.besu.ethereum.referencetests.ReferenceTestWorldState;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLP;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.account.PathBasedAccount;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.vm.BlockchainBasedBlockHashLookup;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
@@ -439,7 +439,7 @@ public class T8nExecutor {
       if (shouldClearEmptyAccounts(fork)) {
         var entries = new ArrayList<>(worldState.getAccumulator().getAccountsToUpdate().entrySet());
         for (var entry : entries) {
-          PathBasedAccount updated = entry.getValue().getUpdated();
+          BonsaiAccount updated = entry.getValue().getUpdated();
           if (updated != null && updated.isEmpty()) {
             worldState.getAccumulator().deleteAccount(entry.getKey());
           }

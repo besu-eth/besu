@@ -17,34 +17,32 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulato
 import org.hyperledger.besu.datatypes.AccountValue;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.PatriciaAccountValue;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldView;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedValue;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.preload.Consumer;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.StorageRootStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldView;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.Consumer;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.worldstate.UpdateTrackingAccount;
 
-public class BonsaiWorldStateUpdateAccumulator
-    extends PathBasedWorldStateUpdateAccumulator<BonsaiAccount> {
-  private final PathBasedCodeCache codeCache;
+public class BonsaiWorldStateUpdateAccumulator extends AbstractBonsaiWorldStateUpdateAccumulator {
+  private final BonsaiCodeCache codeCache;
 
   public BonsaiWorldStateUpdateAccumulator(
-      final PathBasedWorldView world,
-      final Consumer<PathBasedValue<BonsaiAccount>> accountPreloader,
+      final BonsaiWorldView world,
+      final Consumer<BonsaiValue<BonsaiAccount>> accountPreloader,
       final Consumer<StorageSlotKey> storagePreloader,
       final EvmConfiguration evmConfiguration,
-      final PathBasedCodeCache codeCache) {
+      final BonsaiCodeCache codeCache) {
     super(world, accountPreloader, storagePreloader, evmConfiguration);
-
     this.codeCache = codeCache;
   }
 
   @Override
-  public PathBasedWorldStateUpdateAccumulator<BonsaiAccount> copy() {
+  public BonsaiWorldStateUpdateAccumulator copy() {
     final BonsaiWorldStateUpdateAccumulator copy =
         new BonsaiWorldStateUpdateAccumulator(
             wrappedWorldView(),
@@ -63,37 +61,56 @@ public class BonsaiWorldStateUpdateAccumulator
 
   @Override
   protected BonsaiAccount copyAccount(
-      final BonsaiAccount toCopy, final PathBasedWorldView context, final boolean mutable) {
+      final BonsaiAccount toCopy, final BonsaiWorldView context, final boolean mutable) {
     return new BonsaiAccount(toCopy, context, mutable);
   }
 
   @Override
   protected BonsaiAccount createAccount(
-      final PathBasedWorldView context,
+      final BonsaiWorldView context,
       final Address address,
       final AccountValue stateTrieAccount,
       final boolean mutable) {
-    return new BonsaiAccount(context, address, stateTrieAccount, mutable, codeCache);
+    final StorageRootStrategy strategy = storageRootStrategy();
+    strategy.setStorageRoot(((PatriciaAccountValue) stateTrieAccount).getStorageRoot());
+    return new BonsaiAccount(
+        context,
+        address,
+        address.addressHash(),
+        stateTrieAccount.getNonce(),
+        stateTrieAccount.getBalance(),
+        strategy,
+        stateTrieAccount.getCodeHash(),
+        mutable,
+        codeCache);
   }
 
   @Override
   protected BonsaiAccount createAccount(
-      final PathBasedWorldView context,
+      final BonsaiWorldView context,
       final Address address,
       final Hash addressHash,
       final long nonce,
       final Wei balance,
-      final Hash storageRoot,
+      final StorageRootStrategy storageRootStrategy,
       final Hash codeHash,
       final boolean mutable) {
     return new BonsaiAccount(
-        context, address, addressHash, nonce, balance, storageRoot, codeHash, mutable, codeCache);
+        context,
+        address,
+        addressHash,
+        nonce,
+        balance,
+        storageRootStrategy,
+        codeHash,
+        mutable,
+        codeCache);
   }
 
   @Override
   protected BonsaiAccount createAccount(
-      final PathBasedWorldView context, final UpdateTrackingAccount<BonsaiAccount> tracked) {
-    return new BonsaiAccount(context, tracked, codeCache);
+      final BonsaiWorldView context, final UpdateTrackingAccount<BonsaiAccount> tracked) {
+    return new BonsaiAccount(context, tracked, storageRootStrategy(), codeCache);
   }
 
   @Override
@@ -103,7 +120,7 @@ public class BonsaiWorldStateUpdateAccumulator
   }
 
   @Override
-  public PathBasedCodeCache codeCache() {
+  public BonsaiCodeCache codeCache() {
     return codeCache;
   }
 }

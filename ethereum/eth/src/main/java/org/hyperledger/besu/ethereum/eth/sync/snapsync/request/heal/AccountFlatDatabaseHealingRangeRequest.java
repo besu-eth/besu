@@ -19,6 +19,7 @@ import static org.hyperledger.besu.ethereum.trie.RangeManager.MAX_RANGE;
 import static org.hyperledger.besu.ethereum.trie.RangeManager.MIN_RANGE;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.PatriciaAccountValue;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.RequestType;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
@@ -32,7 +33,6 @@ import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
 import org.hyperledger.besu.ethereum.trie.RangeStorageEntriesCollector;
 import org.hyperledger.besu.ethereum.trie.TrieIterator;
-import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
@@ -105,8 +105,8 @@ public class AccountFlatDatabaseHealingRangeRequest extends SnapDataRequest {
               if (((SnapWorldDownloadState) downloadState)
                   .getAccountsHealingList()
                   .contains(CompactEncoding.bytesToPath(account.getKey()))) {
-                final PmtStateTrieAccountValue accountValue =
-                    PmtStateTrieAccountValue.readFrom(RLP.input(account.getValue()));
+                final PatriciaAccountValue accountValue =
+                    PatriciaAccountValue.readFrom(RLP.input(account.getValue()));
                 childRequests.add(
                     createStorageFlatHealingRangeRequest(
                         getRootHash(),

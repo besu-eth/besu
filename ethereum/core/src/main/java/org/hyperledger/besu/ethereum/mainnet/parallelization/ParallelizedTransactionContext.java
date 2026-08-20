@@ -16,18 +16,18 @@ package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 
 import java.util.Objects;
 
 public final class ParallelizedTransactionContext {
-  private final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator;
+  private final BonsaiWorldStateUpdateAccumulator transactionAccumulator;
   private final TransactionProcessingResult transactionProcessingResult;
   private final boolean isMiningBeneficiaryTouchedPreRewardByTransaction;
   private final Wei miningBeneficiaryReward;
 
   public ParallelizedTransactionContext(
-      final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator,
+      final BonsaiWorldStateUpdateAccumulator transactionAccumulator,
       final TransactionProcessingResult transactionProcessingResult,
       final boolean isMiningBeneficiaryTouchedPreRewardByTransaction,
       final Wei miningBeneficiaryReward) {
@@ -38,7 +38,7 @@ public final class ParallelizedTransactionContext {
     this.miningBeneficiaryReward = miningBeneficiaryReward;
   }
 
-  public PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator() {
+  public BonsaiWorldStateUpdateAccumulator transactionAccumulator() {
     return transactionAccumulator;
   }
 
@@ -93,13 +93,13 @@ public final class ParallelizedTransactionContext {
   }
 
   public static class Builder {
-    private PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator;
+    private BonsaiWorldStateUpdateAccumulator transactionAccumulator;
     private TransactionProcessingResult transactionProcessingResult;
     private boolean isMiningBeneficiaryTouchedPreRewardByTransaction;
     private Wei miningBeneficiaryReward = Wei.ZERO;
 
     public Builder transactionAccumulator(
-        final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator) {
+        final BonsaiWorldStateUpdateAccumulator transactionAccumulator) {
       this.transactionAccumulator = transactionAccumulator;
       return this;
     }

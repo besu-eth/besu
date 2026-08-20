@@ -19,8 +19,6 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedLayeredWorldStateKeyValueStorage;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.StorageSubscriber;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
@@ -31,13 +29,12 @@ import org.hyperledger.besu.services.kvstore.LayeredKeyValueStorage;
 
 import java.util.Optional;
 import java.util.function.Function;
-import java.util.function.Supplier;
 
 import org.apache.tuweni.bytes.Bytes;
 
 @SuppressWarnings("DoNotReturnNullOptionals")
 public class BonsaiWorldStateLayerStorage extends BonsaiSnapshotWorldStateKeyValueStorage
-    implements PathBasedLayeredWorldStateKeyValueStorage, StorageSubscriber {
+    implements StorageSubscriber {
 
   public BonsaiWorldStateLayerStorage(final BonsaiWorldStateKeyValueStorage parent) {
     this(
@@ -93,9 +90,7 @@ public class BonsaiWorldStateLayerStorage extends BonsaiSnapshotWorldStateKeyVal
 
   @Override
   public Optional<Bytes> getStorageValueByStorageSlotKey(
-      final Supplier<Optional<Hash>> storageRootSupplier,
-      final Hash accountHash,
-      final StorageSlotKey storageSlotKey) {
+      final Hash accountHash, final StorageSlotKey storageSlotKey) {
 
     if (isClosedGet()) {
       return Optional.empty();
@@ -116,7 +111,7 @@ public class BonsaiWorldStateLayerStorage extends BonsaiSnapshotWorldStateKeyVal
                     getFlatDbStrategy()
                         .getFlatStorageValueByStorageSlotKey(
                             this::getWorldStateRootHash,
-                            storageRootSupplier,
+                            () -> getAccount(accountHash),
                             (location, hash) ->
                                 getAccountStorageTrieNode(accountHash, location, hash),
                             accountHash,
@@ -138,7 +133,6 @@ public class BonsaiWorldStateLayerStorage extends BonsaiSnapshotWorldStateKeyVal
   }
 
   /** Merge this layer to a storage transaction. */
-  @Override
   public void mergeTo(final SegmentedKeyValueStorageTransaction transaction) {
     getComposedWorldStateStorage().mergeTo(transaction);
   }

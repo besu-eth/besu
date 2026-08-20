@@ -21,6 +21,7 @@ import static org.hyperledger.besu.ethereum.trie.RangeManager.MAX_RANGE;
 import static org.hyperledger.besu.ethereum.trie.RangeManager.MIN_RANGE;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.PatriciaAccountValue;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedAccountRangeTracker;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedStorageRangeTracker;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
@@ -32,7 +33,6 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.v2.SnapV2Bytecode
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.v2.SnapV2StorageRangeRequest;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
-import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
@@ -203,8 +203,8 @@ public class SnapV2PersistDataStep {
         .subMap(rangeStart, true, coveredEnd, true)
         .forEach(
             (accountHash, accountData) -> {
-              final PmtStateTrieAccountValue accountValue =
-                  PmtStateTrieAccountValue.readFrom(RLP.input(accountData));
+              final PatriciaAccountValue accountValue =
+                  PatriciaAccountValue.readFrom(RLP.input(accountData));
               if (accountValue.getStorageRoot().equals(Hash.EMPTY_TRIE_HASH)) {
                 storageRangeTracker.registerSlotRange(accountHash, MIN_RANGE, MAX_RANGE);
               }

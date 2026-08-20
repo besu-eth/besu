@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.PatriciaAccountValue;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
@@ -31,7 +32,6 @@ import org.hyperledger.besu.ethereum.core.BlockchainSetupUtil;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.rlp.RLP;
-import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
@@ -193,11 +193,11 @@ class EthGetProofTest {
             Function.identity());
 
     // Retrieve the account from the trie and decode it if present
-    Optional<PmtStateTrieAccountValue> accountInTrie =
+    Optional<PatriciaAccountValue> accountInTrie =
         trie.get(Bytes32.wrap(address.addressHash().getBytes()))
             .map(
                 rlp -> {
-                  return PmtStateTrieAccountValue.readFrom(RLP.input(rlp));
+                  return PatriciaAccountValue.readFrom(RLP.input(rlp));
                 });
     final Hash storageRoot =
         Hash.fromHexString("0xbe3d75a1729be157e79c3b77f00206db4d54e3ea14375a015451c88ec067c790");
@@ -206,7 +206,7 @@ class EthGetProofTest {
     assertThat(accountInTrie).isPresent();
     assertThat(accountInTrie)
         .contains(
-            new PmtStateTrieAccountValue(
+            new PatriciaAccountValue(
                 1L, // account nonce
                 Wei.fromHexString("0x01"), // account balance
                 storageRoot,
@@ -268,11 +268,11 @@ class EthGetProofTest {
             Function.identity());
 
     // Retrieve the account from the trie and decode it if present
-    Optional<PmtStateTrieAccountValue> accountInTrie =
+    Optional<PatriciaAccountValue> accountInTrie =
         trie.get(Bytes32.wrap(address.addressHash().getBytes()))
             .map(
                 rlp -> {
-                  return PmtStateTrieAccountValue.readFrom(RLP.input(rlp));
+                  return PatriciaAccountValue.readFrom(RLP.input(rlp));
                 });
     // Validate that the account is empty
     assertThat(accountInTrie).isEmpty();

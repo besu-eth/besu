@@ -35,8 +35,8 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.S
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.BalStateRootCommitter;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.DefaultStateRootCommitter;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
@@ -278,8 +278,7 @@ class BalStateRootCalculatorTest {
                     WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(chainHeadHeader))
                 .orElseThrow();
     try {
-      final BonsaiWorldStateUpdateAccumulator accumulator =
-          (BonsaiWorldStateUpdateAccumulator) worldState.updater();
+      final BonsaiWorldStateUpdateAccumulator accumulator = worldState.updater();
       accumulatorConsumer.accept(accumulator);
       accumulator.commit();
       return new DefaultStateRootCommitter().compute(worldState, null, accumulator).root();

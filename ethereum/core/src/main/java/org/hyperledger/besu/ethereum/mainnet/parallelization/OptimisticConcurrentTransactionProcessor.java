@@ -25,8 +25,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTra
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
@@ -99,8 +98,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       ws.disableCacheMerkleTrieLoader();
       final ParallelizedTransactionContext.Builder contextBuilder =
           new ParallelizedTransactionContext.Builder();
-      final PathBasedWorldStateUpdateAccumulator<?> roundWorldStateUpdater =
-          (PathBasedWorldStateUpdateAccumulator<?>) ws.updater();
+      final BonsaiWorldStateUpdateAccumulator roundWorldStateUpdater = ws.updater();
       final WorldUpdater transactionUpdater = roundWorldStateUpdater.updater();
       final Optional<AccessLocationTracker> transactionLocationTracker =
           blockAccessListBuilder.map(
@@ -206,10 +204,9 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
         return Optional.empty();
       }
 
-      final PathBasedWorldState pathBasedWorldState = (PathBasedWorldState) worldState;
-      final PathBasedWorldStateUpdateAccumulator blockAccumulator =
-          (PathBasedWorldStateUpdateAccumulator) pathBasedWorldState.updater();
-      final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator =
+      final BonsaiWorldState pathBasedWorldState = (BonsaiWorldState) worldState;
+      final BonsaiWorldStateUpdateAccumulator blockAccumulator = pathBasedWorldState.updater();
+      final BonsaiWorldStateUpdateAccumulator transactionAccumulator =
           parallelizedTransactionContext.transactionAccumulator();
       final TransactionProcessingResult transactionProcessingResult =
           parallelizedTransactionContext.transactionProcessingResult();

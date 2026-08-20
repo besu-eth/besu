@@ -30,10 +30,9 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOv
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.prefetch.BalPrefetcher;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
@@ -172,7 +171,7 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
       final ParallelizedTransactionContext.Builder ctxBuilder =
           new ParallelizedTransactionContext.Builder();
 
-      final PathBasedWorldStateUpdateAccumulator<?> blockUpdater = ws.getAccumulator();
+      final BonsaiWorldStateUpdateAccumulator blockUpdater = ws.getAccumulator();
       final WorldUpdater txUpdater = blockUpdater.updater();
       final Optional<AccessLocationTracker> txTracker =
           blockAccessListBuilder.map(
@@ -220,9 +219,8 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
           return Optional.empty();
         }
 
-        final PathBasedWorldState pathWs = (PathBasedWorldState) worldState;
-        final PathBasedWorldStateUpdateAccumulator blockAccumulator =
-            (PathBasedWorldStateUpdateAccumulator) pathWs.updater();
+        final BonsaiWorldState pathWs = (BonsaiWorldState) worldState;
+        final BonsaiWorldStateUpdateAccumulator blockAccumulator = pathWs.updater();
 
         final TransactionProcessingResult result = ctx.transactionProcessingResult();
         final Optional<PartialBlockAccessView> maybePartialBlockAccessView =

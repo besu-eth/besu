@@ -21,8 +21,6 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.trie.NodeLoader;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.CodeStorageStrategy;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.FlatDbStrategy;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
@@ -58,12 +56,14 @@ public abstract class BonsaiFlatDbStrategy extends FlatDbStrategy {
       SegmentedKeyValueStorage storage);
 
   /*
-   * Retrieves the storage value for the given account hash and storage slot key, using the world state root hash supplier, storage root supplier, and node loader.
+   * Retrieves the storage value for the given account hash and storage slot key, using the world state
+   * root hash supplier, the account-bytes supplier (used by partial strategies to decode the
+   * account's MPT storage root), and a raw node loader (the strategy is responsible for any
+   * accountHash key prefixing).
    */
-
   public abstract Optional<Bytes> getFlatStorageValueByStorageSlotKey(
       Supplier<Optional<Bytes>> worldStateRootHashSupplier,
-      Supplier<Optional<Hash>> storageRootSupplier,
+      Supplier<Optional<Bytes>> accountSupplier,
       NodeLoader nodeLoader,
       Hash accountHash,
       StorageSlotKey storageSlotKey,
