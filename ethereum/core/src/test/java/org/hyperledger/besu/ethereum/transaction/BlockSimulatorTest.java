@@ -44,6 +44,7 @@ import org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.MiningBeneficiaryCalculator;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.PreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
@@ -71,6 +72,7 @@ import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -146,6 +148,25 @@ public class BlockSimulatorTest {
 
   @Test
   public void shouldStopWhenTransactionSimulationIsInvalid() {
+    assertInvalidTransactionMapsToError(
+        TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE,
+        BlockStateCallError.UPFRONT_COST_EXCEEDS_BALANCE);
+  }
+
+  @Test
+  public void shouldSurfaceNonceTooLowFromTransactionSimulation() {
+    assertInvalidTransactionMapsToError(
+        TransactionInvalidReason.NONCE_TOO_LOW, BlockStateCallError.NONCE_TOO_LOW);
+  }
+
+  @Test
+  public void shouldSurfaceNonceTooHighFromTransactionSimulation() {
+    assertInvalidTransactionMapsToError(
+        TransactionInvalidReason.NONCE_TOO_HIGH, BlockStateCallError.NONCE_TOO_HIGH);
+  }
+
+  private void assertInvalidTransactionMapsToError(
+      final TransactionInvalidReason invalidReason, final BlockStateCallError expectedError) {
     when(worldStateArchive.getWorldState(withBlockHeaderAndNoUpdateNodeHead(blockHeader)))
         .thenReturn(Optional.of(mutableWorldState));
     when(mutableWorldState.updater()).thenReturn(updater);
@@ -159,9 +180,7 @@ public class BlockSimulatorTest {
     when(transactionSimulatorResult.getInvalidReason())
         .thenReturn(Optional.of("Invalid Transaction"));
     when(transactionSimulatorResult.getValidationResult())
-        .thenReturn(
-            ValidationResult.invalid(
-                TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE, "Invalid Transaction"));
+        .thenReturn(ValidationResult.invalid(invalidReason, "Invalid Transaction"));
     when(transactionSimulator.processWithWorldUpdater(
             any(), any(), any(), any(), any(), any(), any(), anyLong(), any(), any(), any(), any(),
             any()))
@@ -174,7 +193,7 @@ public class BlockSimulatorTest {
                 blockSimulator.process(
                     blockHeader, createSimulationParameter(blockStateCall), mutableWorldState));
 
-    assertThat(exception.getError()).isEqualTo(BlockStateCallError.UPFRONT_COST_EXCEEDS_BALANCE);
+    assertThat(exception.getError()).isEqualTo(expectedError);
     assertEquals("Invalid Transaction", exception.getMessage());
   }
 
@@ -459,6 +478,154 @@ public class BlockSimulatorTest {
 
     assertThat(exception.getError()).isEqualTo(BlockStateCallError.BLOCK_GAS_LIMIT_EXCEEDED);
     assertThat(exception.getError().getCode()).isEqualTo(-38015);
+  }
+
+  @Test
+  public void
+      shouldCapAutoFilledGasToTransactionGasLimitCapWhenEnforcingConsensusAndBlockLimitIsHigher() {
+    // Regression: BlockSimulatorServiceImpl (e.g. Linea state recovery plugin) uses rpcGasCap=0
+    // and enforceConsensusGasLimitCaps=true. On Osaka, txGasLimitCap (EIP-7825) = 16,777,216
+    // while blockGasLimit can be 30M. Without a fix, the auto-filled gasLimit passed to
+    // processWithWorldUpdater is blockGasLimit (30M), and the consensus-strict validator then
+    // rejects it with EXCEEDS_TRANSACTION_GAS_LIMIT. The gasLimit must be bounded by
+    // txGasLimitCap when enforceConsensusGasLimitCaps=true.
+    final long blockGasLimit = 30_000_000L;
+    final long txGasLimitCap = 16_777_216L;
+
+    GasLimitCalculator gasLimitCalculator = mock(GasLimitCalculator.class);
+    when(protocolSpec.getGasLimitCalculator()).thenReturn(gasLimitCalculator);
+    when(gasLimitCalculator.nextGasLimit(anyLong(), anyLong(), anyLong()))
+        .thenReturn(blockGasLimit);
+    when(gasLimitCalculator.computeExcessBlobGas(anyLong(), anyLong(), anyLong())).thenReturn(0L);
+    when(gasLimitCalculator.transactionGasLimitCap()).thenReturn(txGasLimitCap);
+
+    when(mutableWorldState.updater()).thenReturn(updater);
+
+    CallParameter callParameter = mock(CallParameter.class);
+    when(callParameter.getGas()).thenReturn(OptionalLong.empty());
+    BlockStateCall blockStateCall = new BlockStateCall(List.of(callParameter), null, null);
+
+    // transactionSimulator.calculateSimulationGasCap() is also mocked; stub it to return the
+    // realistic uncapped value (blockGasLimit) so the captured gasLimit reflects the bug.
+    when(transactionSimulator.calculateSimulationGasCap(any(), any(), anyLong()))
+        .thenReturn(blockGasLimit);
+
+    ArgumentCaptor<Long> gasCaptor = ArgumentCaptor.forClass(Long.class);
+    when(transactionSimulator.processWithWorldUpdater(
+            any(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any(),
+            gasCaptor.capture(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any()))
+        .thenReturn(Optional.empty());
+
+    BlockSimulationParameter parameter =
+        new BlockSimulationParameter.BlockSimulationParameterBuilder()
+            .blockStateCalls(List.of(blockStateCall))
+            .validation(true)
+            .enforceConsensusGasLimitCaps(true)
+            .build();
+
+    assertThrows(
+        BlockStateCallException.class,
+        () -> blockSimulator.process(blockHeader, parameter, mutableWorldState));
+
+    assertThat(gasCaptor.getValue())
+        .as("auto-filled gasLimit must not exceed txGasLimitCap when enforcing consensus")
+        .isLessThanOrEqualTo(txGasLimitCap);
+  }
+
+  @Test
+  public void shouldEnforceConsensusGasLimitCapsWhenFlagIsTrue() {
+    // enforceConsensusGasLimitCaps=true is the path used by BlockSimulatorServiceImpl (e.g. Linea
+    // state recovery plugin). It must pass CONSENSUS_STRICT_VALIDATION_PARAMS so that EIP-7825 /
+    // EIP-8037 transaction gas limit caps are enforced during block-building simulation.
+    when(mutableWorldState.updater()).thenReturn(updater);
+
+    CallParameter callParameter = mock(CallParameter.class);
+    when(callParameter.getGas()).thenReturn(OptionalLong.empty());
+    BlockStateCall blockStateCall = new BlockStateCall(List.of(callParameter), null, null);
+
+    ArgumentCaptor<TransactionValidationParams> paramsCaptor =
+        ArgumentCaptor.forClass(TransactionValidationParams.class);
+    when(transactionSimulator.processWithWorldUpdater(
+            any(),
+            any(),
+            paramsCaptor.capture(),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any()))
+        .thenReturn(Optional.empty());
+
+    BlockSimulationParameter parameter =
+        new BlockSimulationParameter.BlockSimulationParameterBuilder()
+            .blockStateCalls(List.of(blockStateCall))
+            .validation(true)
+            .enforceConsensusGasLimitCaps(true)
+            .build();
+
+    assertThrows(
+        BlockStateCallException.class,
+        () -> blockSimulator.process(blockHeader, parameter, mutableWorldState));
+
+    assertThat(paramsCaptor.getValue().isAllowExceedingGasLimit()).isFalse();
+  }
+
+  @Test
+  public void shouldNotEnforceConsensusGasLimitCapsWhenFlagIsFalse() {
+    // enforceConsensusGasLimitCaps=false is the eth_simulateV1 path. EIP-7825 / EIP-8037 caps
+    // must NOT apply so that callers can simulate transactions with gas above the cap.
+    when(mutableWorldState.updater()).thenReturn(updater);
+
+    CallParameter callParameter = mock(CallParameter.class);
+    when(callParameter.getGas()).thenReturn(OptionalLong.empty());
+    BlockStateCall blockStateCall = new BlockStateCall(List.of(callParameter), null, null);
+
+    ArgumentCaptor<TransactionValidationParams> paramsCaptor =
+        ArgumentCaptor.forClass(TransactionValidationParams.class);
+    when(transactionSimulator.processWithWorldUpdater(
+            any(),
+            any(),
+            paramsCaptor.capture(),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any()))
+        .thenReturn(Optional.empty());
+
+    BlockSimulationParameter parameter =
+        new BlockSimulationParameter.BlockSimulationParameterBuilder()
+            .blockStateCalls(List.of(blockStateCall))
+            .validation(true)
+            .enforceConsensusGasLimitCaps(false)
+            .build();
+
+    assertThrows(
+        BlockStateCallException.class,
+        () -> blockSimulator.process(blockHeader, parameter, mutableWorldState));
+
+    assertThat(paramsCaptor.getValue().isAllowExceedingGasLimit()).isTrue();
   }
 
   private BlockSimulationParameter createSimulationParameter(final BlockStateCall blockStateCall) {

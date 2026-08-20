@@ -73,17 +73,6 @@ public class BonsaiFlatDbStrategyProvider extends FlatDbStrategyProvider {
     loadFlatDbStrategy(composedWorldStateStorage); // force reload of flat db reader strategy
   }
 
-  public void downgradeToPartialFlatDbMode(
-      final SegmentedKeyValueStorage composedWorldStateStorage) {
-    final SegmentedKeyValueStorageTransaction transaction =
-        composedWorldStateStorage.startTransaction();
-    LOG.info("setting FlatDbStrategy to PARTIAL");
-    transaction.put(
-        TRIE_BRANCH_STORAGE, FLAT_DB_MODE, FlatDbMode.PARTIAL.getVersion().toArrayUnsafe());
-    transaction.commit();
-    loadFlatDbStrategy(composedWorldStateStorage); // force reload of flat db reader strategy
-  }
-
   @Override
   protected FlatDbStrategy createFlatDbStrategy(
       final FlatDbMode flatDbMode,

@@ -27,6 +27,8 @@ import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFlatDbStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFlatDbStrategyProvider;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiTrieNodeStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.TrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.cache.FlatDbCacheManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.cache.VersionedFlatDbCacheManager;
@@ -62,6 +64,7 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
   protected final BonsaiFlatDbStrategyProvider flatDbStrategyProvider;
   protected final FlatDbCacheManager cacheManager;
   private volatile long cacheVersion;
+  protected volatile TrieNodeStrategy trieNodeStrategy;
 
   public BonsaiWorldStateKeyValueStorage(
       final StorageProvider provider,
@@ -90,6 +93,7 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
 
     this.cacheManager = cacheManager;
     this.cacheVersion = cacheManager.getCurrentVersion();
+    this.trieNodeStrategy = new BonsaiTrieNodeStrategy();
   }
 
   public BonsaiWorldStateKeyValueStorage(
@@ -98,10 +102,27 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
       final KeyValueStorage trieLogStorage,
       final FlatDbCacheManager cacheManager,
       final long cacheVersion) {
+    this(
+        flatDbStrategyProvider,
+        composedWorldStateStorage,
+        trieLogStorage,
+        cacheManager,
+        cacheVersion,
+        new BonsaiTrieNodeStrategy());
+  }
+
+  public BonsaiWorldStateKeyValueStorage(
+      final BonsaiFlatDbStrategyProvider flatDbStrategyProvider,
+      final SegmentedKeyValueStorage composedWorldStateStorage,
+      final KeyValueStorage trieLogStorage,
+      final FlatDbCacheManager cacheManager,
+      final long cacheVersion,
+      final TrieNodeStrategy trieNodeStrategy) {
     super(composedWorldStateStorage, trieLogStorage);
     this.flatDbStrategyProvider = flatDbStrategyProvider;
     this.cacheManager = cacheManager;
     this.cacheVersion = cacheVersion;
+    this.trieNodeStrategy = trieNodeStrategy;
   }
 
   private static FlatDbCacheManager createCacheManager(
@@ -195,9 +216,8 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
     if (nodeHash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
       return Optional.of(MerkleTrie.EMPTY_TRIE_NODE);
     }
-    return composedWorldStateStorage
-        .get(TRIE_BRANCH_STORAGE, location.toArrayUnsafe())
-        .map(Bytes::wrap)
+    return trieNodeStrategy
+        .getFlatAccountTrieNode(location, nodeHash, composedWorldStateStorage)
         .filter(b -> Hash.hash(b).getBytes().equals(nodeHash));
   }
 
@@ -206,11 +226,8 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
     if (nodeHash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
       return Optional.of(MerkleTrie.EMPTY_TRIE_NODE);
     }
-    return composedWorldStateStorage
-        .get(
-            TRIE_BRANCH_STORAGE,
-            Bytes.concatenate(accountHash.getBytes(), location).toArrayUnsafe())
-        .map(Bytes::wrap)
+    return trieNodeStrategy
+        .getFlatStorageTrieNode(accountHash, location, nodeHash, composedWorldStateStorage)
         .filter(b -> Hash.hash(b).getBytes().equals(nodeHash));
   }
 
@@ -244,12 +261,6 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
         });
   }
 
-  public void downgradeToPartialFlatDbMode() {
-    flatDbStrategyProvider.downgradeToPartialFlatDbMode(composedWorldStateStorage);
-    cacheManager.clear(ACCOUNT_INFO_STATE);
-    cacheManager.clear(ACCOUNT_STORAGE_STORAGE);
-  }
-
   @Override
   public void clear() {
     super.clear();
@@ -277,7 +288,8 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
         composedWorldStateStorage.startTransaction(),
         trieLogStorage.startTransaction(),
         getFlatDbStrategy(),
-        composedWorldStateStorage);
+        composedWorldStateStorage,
+        trieNodeStrategy);
   }
 
   public long getCacheSize(final SegmentIdentifier segment) {
@@ -301,6 +313,18 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
     return cacheVersion;
   }
 
+  public BonsaiFlatDbStrategyProvider getFlatDbStrategyProvider() {
+    return flatDbStrategyProvider;
+  }
+
+  public TrieNodeStrategy getTrieNodeStrategy() {
+    return trieNodeStrategy;
+  }
+
+  public void setTrieNodeStrategy(final TrieNodeStrategy strategy) {
+    this.trieNodeStrategy = strategy;
+  }
+
   /** Base updater that writes directly to storage without cache management. */
   public static class Updater implements PathBasedWorldStateKeyValueStorage.Updater {
 
@@ -308,17 +332,20 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
     protected final KeyValueStorageTransaction trieLogStorageTransaction;
     protected final FlatDbStrategy flatDbStrategy;
     protected final SegmentedKeyValueStorage worldStorage;
+    protected final TrieNodeStrategy trieNodeStrategy;
 
     public Updater(
         final SegmentedKeyValueStorageTransaction composedWorldStateTransaction,
         final KeyValueStorageTransaction trieLogStorageTransaction,
         final FlatDbStrategy flatDbStrategy,
-        final SegmentedKeyValueStorage worldStorage) {
+        final SegmentedKeyValueStorage worldStorage,
+        final TrieNodeStrategy trieNodeStrategy) {
 
       this.composedWorldStateTransaction = composedWorldStateTransaction;
       this.trieLogStorageTransaction = trieLogStorageTransaction;
       this.flatDbStrategy = flatDbStrategy;
       this.worldStorage = worldStorage;
+      this.trieNodeStrategy = trieNodeStrategy;
     }
 
     public Updater removeCode(final Hash accountHash, final Hash codeHash) {
@@ -371,13 +398,14 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
       if (nodeHash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
         return this;
       }
-      composedWorldStateTransaction.put(
-          TRIE_BRANCH_STORAGE, location.toArrayUnsafe(), node.toArrayUnsafe());
+      trieNodeStrategy.putFlatAccountTrieNode(
+          worldStorage, composedWorldStateTransaction, location, nodeHash, node);
       return this;
     }
 
     public Updater removeAccountStateTrieNode(final Bytes location) {
-      composedWorldStateTransaction.remove(TRIE_BRANCH_STORAGE, location.toArrayUnsafe());
+      trieNodeStrategy.removeFlatAccountStateTrieNode(
+          worldStorage, composedWorldStateTransaction, location);
       return this;
     }
 
@@ -386,10 +414,8 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
       if (nodeHash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
         return this;
       }
-      composedWorldStateTransaction.put(
-          TRIE_BRANCH_STORAGE,
-          Bytes.concatenate(accountHash.getBytes(), location).toArrayUnsafe(),
-          node.toArrayUnsafe());
+      trieNodeStrategy.putFlatStorageTrieNode(
+          worldStorage, composedWorldStateTransaction, accountHash, location, nodeHash, node);
       return this;
     }
 
@@ -457,8 +483,14 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
         final SegmentedKeyValueStorageTransaction composedWorldStateTransaction,
         final KeyValueStorageTransaction trieLogStorageTransaction,
         final FlatDbStrategy flatDbStrategy,
-        final SegmentedKeyValueStorage worldStorage) {
-      super(composedWorldStateTransaction, trieLogStorageTransaction, flatDbStrategy, worldStorage);
+        final SegmentedKeyValueStorage worldStorage,
+        final TrieNodeStrategy trieNodeStrategy) {
+      super(
+          composedWorldStateTransaction,
+          trieLogStorageTransaction,
+          flatDbStrategy,
+          worldStorage,
+          trieNodeStrategy);
     }
 
     @Override

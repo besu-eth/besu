@@ -38,6 +38,7 @@ import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ConstructorArgumentsBuilder;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ForkchoiceStateV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttributesV1;
@@ -49,7 +50,10 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.ForkchoiceUpda
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
+import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
 import java.util.Optional;
@@ -70,7 +74,7 @@ import org.mockito.quality.Strictness;
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
-  protected static final Consumer<BlockHeaderTestFixture> NO_OP = bhb -> {};
+  protected static final Consumer<BlockHeaderTestFixture> NO_OP = _ -> {};
   protected EngineForkchoiceUpdatedV1<?> method;
 
   protected static final Vertx vertx = Vertx.vertx();
@@ -88,13 +92,16 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
   @Mock protected MergeMiningCoordinator mergeCoordinator;
   @Mock protected MutableBlockchain blockchain;
   @Mock protected EngineCallListener engineCallListener;
+  @Mock protected WorldStateArchive worldStateArchive;
 
   @Override
   @BeforeEach
   public void before() {
     super.before();
+    when(worldStateArchive.isWorldStateAvailable(any(), any())).thenReturn(true);
     when(protocolContext.safeConsensusContext(any())).thenReturn(Optional.of(mergeContext));
     when(protocolContext.getBlockchain()).thenReturn(blockchain);
+    when(protocolContext.getWorldStateArchive()).thenReturn(worldStateArchive);
     when(protocolSchedule.getForNextBlockHeader(any(), anyLong())).thenReturn(protocolSpec);
     when(mergeCoordinator.preparePayload(any())).thenReturn(new PayloadIdentifier(1337L));
     createMethod();
@@ -103,11 +110,16 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
   /** Returns the method factory for the version under test. Overridden by each subclass. */
   protected EngineForkchoiceUpdatedV1<?> createMethodInstance() {
     return new EngineForkchoiceUpdatedV1<>(
-        protocolSchedule,
-        protocolContext,
-        vertx,
-        engineCallListener,
-        mergeCoordinator,
+        new ConstructorArgumentsBuilder()
+            .protocolSchedule(protocolSchedule)
+            .protocolContext(protocolContext)
+            .vertx(vertx)
+            .engineCallListener(engineCallListener)
+            .mergeCoordinator(mergeCoordinator)
+            .ethPeers(mock(EthPeers.class))
+            .metricsSystem(new NoOpMetricsSystem())
+            .maxRequestBlocks(0)
+            .build(),
         null,
         SHANGHAI);
   }
@@ -189,15 +201,25 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
   }
 
   @Test
-  public void shouldReturnSyncingIfMissingNewHead() {
+  public void shouldReturnSyncingOnHeadBlockNotFound() {
     assertSuccessWithPayloadForForkchoiceResult(
         mockFcuParam, Optional.empty(), mock(ForkchoiceResult.class), SYNCING);
   }
 
   @Test
-  public void shouldReturnSyncingOnHeadNotFound() {
+  public void shouldReturnSyncingOnHeadWorldStateNotFound() {
+    // block for head hash exists, but world state does not
+    final BlockHeader mockHeader = blockHeaderBuilder.buildHeader();
+    when(mergeCoordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO))
+        .thenReturn(Optional.of(mockHeader));
+    when(worldStateArchive.isWorldStateAvailable(
+            eq(mockHeader.getStateRoot()), eq(mockHeader.getHash())))
+        .thenReturn(false);
     assertSuccessWithPayloadForForkchoiceResult(
-        mockFcuParam, Optional.empty(), mock(ForkchoiceResult.class), SYNCING);
+        new ForkchoiceStateV1(mockHeader.getHash(), Hash.ZERO, Hash.ZERO),
+        Optional.empty(),
+        mock(ForkchoiceResult.class),
+        SYNCING);
   }
 
   @Test

@@ -72,6 +72,11 @@ public abstract class AbstractDebugOperationTracer implements OperationTracer {
     this.recordChildCallGas = recordChildCallGas;
   }
 
+  public static boolean isSyntheticEmptyCodeStop(
+      final boolean virtualOperation, final String opcode, final int codeSize) {
+    return virtualOperation && "STOP".equals(opcode) && codeSize == 0;
+  }
+
   @Override
   public void tracePreExecution(final MessageFrame frame) {
     final Operation currentOperation = frame.getCurrentOperation();

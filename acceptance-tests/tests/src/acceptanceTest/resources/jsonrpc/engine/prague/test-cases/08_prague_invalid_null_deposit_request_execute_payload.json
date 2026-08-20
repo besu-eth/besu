@@ -34,7 +34,7 @@
     "error" : {
       "code" : -32602,
       "message" : "Invalid execution requests params",
-      "data" : "Missing execution requests field"
+      "data" : "Missing required json rpc parameter at index 3"
     }
   },
   "statusCode": 200

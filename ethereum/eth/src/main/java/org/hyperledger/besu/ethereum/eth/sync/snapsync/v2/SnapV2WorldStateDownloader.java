@@ -74,6 +74,7 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
   private volatile WorldStateHealFinishedListener worldStateHealFinishedListener;
   private volatile SnapV2PivotCatchupListener pivotCatchupListener;
   private final SnapV2BlockAccessListApplier blockAccessListApplier;
+  private final SnapV2ReorgHealer reorgHealer;
   private long lastNoPeerLogMillis;
 
   public SnapV2WorldStateDownloader(
@@ -105,6 +106,13 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
     this.blockAccessListApplier =
         new SnapV2BlockAccessListApplier(
             worldStateStorageCoordinator, blockchain, protocolSchedule);
+    this.reorgHealer =
+        new SnapV2ReorgHealer(
+            blockchain,
+            worldStateStorageCoordinator,
+            protocolSchedule,
+            SnapV2ReorgStateFetcher.fromEthContext(
+                ethContext, metricsSystem, worldStateStorageCoordinator));
 
     metricsSystem.createIntegerGauge(
         BesuMetricCategory.SYNCHRONIZER,
@@ -172,7 +180,14 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
       final SnapSyncMetricsManager snapsyncMetricsManager =
           new SnapSyncMetricsManager(metricsSystem, ethContext);
       final DynamicPivotBlockSelector pivotBlockSelector =
-          new DynamicPivotBlockSelector(ethContext, fastSyncActions, snapSyncState, null);
+          new DynamicPivotBlockSelector(
+              ethContext,
+              fastSyncActions,
+              snapSyncState,
+              null,
+              snapSyncConfiguration.getPivotBlockCheckIntervalMillis());
+      final long storagePipelineInFlightCapacity =
+          (long) snapSyncConfiguration.getStorageCountPerRequest() * maxOutstandingRequests;
       final SnapV2WorldDownloadState newDownloadState =
           new SnapV2WorldDownloadState(
               worldStateStorageCoordinator,
@@ -187,8 +202,10 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
               worldStateHealFinishedListener,
               pivotCatchupListener,
               blockAccessListApplier,
+              reorgHealer,
               blockchain,
-              ethContext);
+              ethContext,
+              storagePipelineInFlightCapacity);
 
       final Map<Bytes32, Bytes32> ranges = RangeManager.generateAllRanges(16);
       snapsyncMetricsManager.initRange(ranges);

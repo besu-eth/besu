@@ -242,7 +242,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
     final StateRootCommitter stateRootCommitter =
         protocolSpec
             .getStateRootCommitterFactory()
-            .forBlock(protocolContext, blockHeader, blockAccessList)
+            .forBlock(protocolContext, blockHeader, blockAccessList, worldState.isStorageFrozen())
             .timed(blockProcessingMetrics.stateRootCalculationTimer());
 
     final Optional<BlockAccessListBuilder> blockAccessListBuilder =
@@ -462,7 +462,16 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
           worldState.updater().updater());
 
       final var optionalRequestsHash = blockHeader.getRequestsHash();
-      if (maybeRequests.isPresent() && optionalRequestsHash.isPresent()) {
+      if (maybeRequests.isPresent()) {
+        if (optionalRequestsHash.isEmpty()) {
+          final String errorMessage =
+              "Block has execution requests but header is missing the requestsHash field";
+          LOG.error(errorMessage);
+          if (worldState instanceof BonsaiWorldState) {
+            ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
+          }
+          return new BlockProcessingResult(Optional.empty(), errorMessage);
+        }
         final List<Request> requests = maybeRequests.get();
         final Hash headerRequestsHash = optionalRequestsHash.get();
         Hash calculatedRequestHash = BodyValidation.requestsHash(requests);

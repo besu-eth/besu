@@ -42,6 +42,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.InProcessRpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.ipc.JsonRpcIpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration;
+import org.hyperledger.besu.ethereum.api.pluginadapter.RpcEndpointServiceImpl;
 import org.hyperledger.besu.ethereum.blockcreation.NoopMiningCoordinator;
 import org.hyperledger.besu.ethereum.chain.DefaultBlockchain;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
@@ -61,16 +62,15 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.SubProtocolConfiguration;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
+import org.hyperledger.besu.ethereum.permissioning.pluginadapter.PermissioningServiceImpl;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
-import org.hyperledger.besu.metrics.ObservableMetricsSystem;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
 import org.hyperledger.besu.nat.NatMethod;
 import org.hyperledger.besu.plugin.data.EnodeURL;
 import org.hyperledger.besu.services.BesuPluginContextImpl;
-import org.hyperledger.besu.services.PermissioningServiceImpl;
-import org.hyperledger.besu.services.RpcEndpointServiceImpl;
 import org.hyperledger.besu.services.TransactionValidatorServiceImpl;
 
 import java.math.BigInteger;
@@ -158,7 +158,7 @@ public final class RunnerBuilderTest {
             .discoveryEnabled(false)
             .besuController(besuController)
             .ethNetworkConfig(mock(EthNetworkConfig.class))
-            .metricsSystem(mock(ObservableMetricsSystem.class))
+            .metricsSystem(new NoOpMetricsSystem())
             .jsonRpcConfiguration(mock(JsonRpcConfiguration.class))
             .permissioningService(mock(PermissioningServiceImpl.class))
             .graphQLConfiguration(mock(GraphQLConfiguration.class))
@@ -210,7 +210,7 @@ public final class RunnerBuilderTest {
             .natMethod(NatMethod.NONE)
             .besuController(besuController)
             .ethNetworkConfig(mock(EthNetworkConfig.class))
-            .metricsSystem(mock(ObservableMetricsSystem.class))
+            .metricsSystem(new NoOpMetricsSystem())
             .permissioningService(mock(PermissioningServiceImpl.class))
             .jsonRpcConfiguration(mock(JsonRpcConfiguration.class))
             .graphQLConfiguration(mock(GraphQLConfiguration.class))
@@ -270,7 +270,7 @@ public final class RunnerBuilderTest {
             .natMethod(NatMethod.NONE)
             .besuController(besuController)
             .ethNetworkConfig(mockMainnet)
-            .metricsSystem(mock(ObservableMetricsSystem.class))
+            .metricsSystem(new NoOpMetricsSystem())
             .permissioningService(mock(PermissioningServiceImpl.class))
             .jsonRpcConfiguration(jrpc)
             .engineJsonRpcConfiguration(engine)
@@ -315,7 +315,7 @@ public final class RunnerBuilderTest {
             .natMethod(NatMethod.NONE)
             .besuController(besuController)
             .ethNetworkConfig(mockMainnet)
-            .metricsSystem(mock(ObservableMetricsSystem.class))
+            .metricsSystem(new NoOpMetricsSystem())
             .permissioningService(mock(PermissioningServiceImpl.class))
             .jsonRpcConfiguration(JsonRpcConfiguration.createDefault())
             .engineJsonRpcConfiguration(engineConf)
@@ -359,7 +359,7 @@ public final class RunnerBuilderTest {
             .natMethod(NatMethod.NONE)
             .besuController(besuController)
             .ethNetworkConfig(mockMainnet)
-            .metricsSystem(mock(ObservableMetricsSystem.class))
+            .metricsSystem(new NoOpMetricsSystem())
             .permissioningService(mock(PermissioningServiceImpl.class))
             .jsonRpcConfiguration(JsonRpcConfiguration.createDefault())
             .engineJsonRpcConfiguration(engineConf)
@@ -405,7 +405,7 @@ public final class RunnerBuilderTest {
             .natMethod(NatMethod.NONE)
             .besuController(besuController)
             .ethNetworkConfig(mockMainnet)
-            .metricsSystem(mock(ObservableMetricsSystem.class))
+            .metricsSystem(new NoOpMetricsSystem())
             .permissioningService(mock(PermissioningServiceImpl.class))
             .jsonRpcConfiguration(defaultRpcConfig)
             .graphQLConfiguration(mock(GraphQLConfiguration.class))

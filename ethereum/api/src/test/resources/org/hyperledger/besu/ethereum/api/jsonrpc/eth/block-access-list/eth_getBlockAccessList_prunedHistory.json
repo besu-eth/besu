@@ -1,0 +1,19 @@
+{
+  "request": {
+    "id": 5,
+    "jsonrpc": "2.0",
+    "method": "eth_getBlockAccessList",
+    "params": [
+      "0x0"
+    ]
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 5,
+    "error": {
+      "code": 4444,
+      "message": "Pruned history unavailable"
+    }
+  },
+  "statusCode": 200
+}

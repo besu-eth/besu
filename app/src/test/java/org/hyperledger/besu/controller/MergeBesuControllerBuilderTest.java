@@ -46,6 +46,8 @@ import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.Checkpoint;
+import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.ImmutableCheckpoint;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
@@ -351,6 +353,27 @@ public class MergeBesuControllerBuilderTest {
   }
 
   @Test
+  public void checkpointOverrideIsReflectedInSyncState() {
+    final Checkpoint override =
+        ImmutableCheckpoint.builder()
+            .blockHash(
+                Hash.fromHexString(
+                    "0x0000000000000000000000000000000000000000000000000000000000000001"))
+            .blockNumber(1234L)
+            .totalDifficulty(Difficulty.of(9999L))
+            .build();
+
+    final Optional<Checkpoint> checkpoint =
+        visitWithMockConfigs(new MergeBesuControllerBuilder())
+            .checkpoint(Optional.of(override))
+            .build()
+            .getSyncState()
+            .getCheckpoint();
+
+    assertThat(checkpoint).contains(override);
+  }
+
+  @Test
   public void assertConfiguredBlock() {
     final Blockchain mockChain = mock(Blockchain.class);
     when(mockChain.getBlockHeader(anyLong())).thenReturn(Optional.of(mock(BlockHeader.class)));
@@ -361,6 +384,39 @@ public class MergeBesuControllerBuilderTest {
             this.besuControllerBuilder.createProtocolSchedule());
     assertThat(mergeContext).isNotNull();
     assertThat(mergeContext.getTerminalPoWBlock()).isPresent();
+  }
+
+  @Test
+  public void hoodiShapedGenesisIsPostMergeAtGenesis() {
+    // difficulty 0x01 with TTD 0: genesis already meets the terminal condition.
+    when(genesisConfig.getDifficulty()).thenReturn("0x01");
+    when(genesisConfigOptions.getTerminalTotalDifficulty()).thenReturn(Optional.of(UInt256.ZERO));
+
+    final Blockchain mockChain = mock(Blockchain.class);
+    when(mockChain.getBlockHeader(anyLong())).thenReturn(Optional.of(mock(BlockHeader.class)));
+
+    final MergeContext mergeContext =
+        besuControllerBuilder.createConsensusContext(
+            mockChain,
+            mock(WorldStateArchive.class),
+            this.besuControllerBuilder.createProtocolSchedule());
+
+    assertThat(mergeContext.isPostMergeAtGenesis()).isTrue();
+  }
+
+  @Test
+  public void genesisDifficultyBelowTerminalTotalDifficultyIsNotPostMergeAtGenesis() {
+    // Uses the setup defaults: difficulty 0x00, TTD 100.
+    final Blockchain mockChain = mock(Blockchain.class);
+    when(mockChain.getBlockHeader(anyLong())).thenReturn(Optional.of(mock(BlockHeader.class)));
+
+    final MergeContext mergeContext =
+        besuControllerBuilder.createConsensusContext(
+            mockChain,
+            mock(WorldStateArchive.class),
+            this.besuControllerBuilder.createProtocolSchedule());
+
+    assertThat(mergeContext.isPostMergeAtGenesis()).isFalse();
   }
 
   @Test

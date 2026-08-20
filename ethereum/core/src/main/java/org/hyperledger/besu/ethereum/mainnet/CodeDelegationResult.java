@@ -23,6 +23,7 @@ public class CodeDelegationResult {
   private final Set<Address> accessedDelegatorAddresses = new HashSet<>(Address.SIZE);
   private long alreadyExistingDelegators = 0L;
   private long authBaseRefundCount = 0L;
+  private long invalidAuthorizations = 0L;
 
   public void addAccessedDelegatorAddress(final Address address) {
     accessedDelegatorAddresses.add(address);
@@ -51,5 +52,17 @@ public class CodeDelegationResult {
    */
   public long authBaseRefundCount() {
     return authBaseRefundCount;
+  }
+
+  public void incrementInvalidAuthorization() {
+    invalidAuthorizations += 1;
+  }
+
+  /**
+   * Invalid authorizations grow no state, so each refunds its full worst-case intrinsic charge:
+   * NEW_ACCOUNT + AUTH_BASE state gas plus the regular ACCOUNT_WRITE.
+   */
+  public long invalidAuthorizations() {
+    return invalidAuthorizations;
   }
 }

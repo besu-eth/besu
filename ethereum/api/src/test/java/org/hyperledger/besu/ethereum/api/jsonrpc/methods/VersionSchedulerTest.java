@@ -25,10 +25,14 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ConstructorArgumentsBuilder;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.ConstructorArguments;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineCallListener;
 import org.hyperledger.besu.ethereum.api.jsonrpc.methods.ExecutionEngineJsonRpcMethods.VersionScheduler;
+import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.util.List;
 import java.util.Optional;
@@ -39,10 +43,17 @@ import org.junit.jupiter.api.Test;
 class VersionSchedulerTest {
 
   private final ProtocolSchedule protocolSchedule = mock(ProtocolSchedule.class);
-  private final ProtocolContext protocolContext = mock(ProtocolContext.class);
-  private final Vertx vertx = mock(Vertx.class);
-  private final EngineCallListener engineCallListener = mock(EngineCallListener.class);
-  private final MergeMiningCoordinator mergeCoordinator = mock(MergeMiningCoordinator.class);
+  private final ConstructorArguments constructorArguments =
+      new ConstructorArgumentsBuilder()
+          .protocolSchedule(protocolSchedule)
+          .protocolContext(mock(ProtocolContext.class))
+          .vertx(mock(Vertx.class))
+          .engineCallListener(mock(EngineCallListener.class))
+          .mergeCoordinator(mock(MergeMiningCoordinator.class))
+          .ethPeers(mock(EthPeers.class))
+          .metricsSystem(new NoOpMetricsSystem())
+          .maxRequestBlocks(0)
+          .build();
 
   private final RecordingFactory v1 = new RecordingFactory();
   private final RecordingFactory v2 = new RecordingFactory();
@@ -92,11 +103,7 @@ class VersionSchedulerTest {
 
     for (final RecordingFactory factory : List.of(v1, v2, v3, v4)) {
       assertThat(factory.invocations).isOne();
-      assertThat(factory.protocolSchedule).isSameAs(protocolSchedule);
-      assertThat(factory.protocolContext).isSameAs(protocolContext);
-      assertThat(factory.vertx).isSameAs(vertx);
-      assertThat(factory.engineCallListener).isSameAs(engineCallListener);
-      assertThat(factory.mergeCoordinator).isSameAs(mergeCoordinator);
+      assertThat(factory.constructorArguments).isSameAs(constructorArguments);
     }
   }
 
@@ -110,17 +117,61 @@ class VersionSchedulerTest {
             VersionScheduler.startsFromBeginningUntil(v1, SHANGHAI)
                 .thenFrom(CANCUN, v3, alsoFromCancun)
                 .thenFrom(AMSTERDAM, v4)
-                .build(
-                    protocolSchedule,
-                    protocolContext,
-                    vertx,
-                    engineCallListener,
-                    mergeCoordinator));
+                .build(constructorArguments));
 
     assertThat(builtMethods)
         .containsExactly(v1.instance, v3.instance, alsoFromCancun.instance, v4.instance);
     v3.assertForkWindow(CANCUN, AMSTERDAM);
     alsoFromCancun.assertForkWindow(CANCUN, AMSTERDAM);
+  }
+
+  @Test
+  void alwaysActiveVersionsAreBuiltRegardlessOfScheduledMilestones() {
+    when(protocolSchedule.milestoneFor(any())).thenReturn(Optional.empty());
+
+    final List<ExecutionEngineJsonRpcMethod> builtMethods =
+        List.copyOf(VersionScheduler.alwaysActive(v1, v2).build(constructorArguments));
+
+    assertThat(builtMethods).containsExactly(v1.instance, v2.instance);
+    v1.assertForkWindow(null, null);
+    v2.assertForkWindow(null, null);
+  }
+
+  @Test
+  void alwaysActivePassesBuildArgumentsToEveryFactory() {
+    when(protocolSchedule.milestoneFor(any())).thenReturn(Optional.of(0L));
+
+    VersionScheduler.alwaysActive(v1, v2).build(constructorArguments);
+
+    for (final RecordingFactory factory : List.of(v1, v2)) {
+      assertThat(factory.invocations).isOne();
+      assertThat(factory.constructorArguments).isSameAs(constructorArguments);
+    }
+  }
+
+  @Test
+  void alwaysActiveCanBeExtendedWithAForkGatedVersion() {
+    when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.empty());
+
+    final List<ExecutionEngineJsonRpcMethod> builtMethods =
+        List.copyOf(
+            VersionScheduler.alwaysActive(v1, v2)
+                .thenFrom(AMSTERDAM, v3)
+                .build(constructorArguments));
+
+    assertThat(builtMethods).containsExactly(v1.instance, v2.instance);
+    assertThat(v3.invocations).isZero();
+
+    when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.of(0L));
+
+    final List<ExecutionEngineJsonRpcMethod> builtMethodsAfterAmsterdam =
+        List.copyOf(
+            VersionScheduler.alwaysActive(v1, v2)
+                .thenFrom(AMSTERDAM, v4)
+                .build(constructorArguments));
+
+    assertThat(builtMethodsAfterAmsterdam).containsExactly(v1.instance, v2.instance, v4.instance);
+    v4.assertForkWindow(AMSTERDAM, null);
   }
 
   private List<ExecutionEngineJsonRpcMethod> schedule() {
@@ -129,35 +180,23 @@ class VersionSchedulerTest {
             .thenAlsoFromBeginning(v2)
             .thenFrom(CANCUN, v3)
             .thenFrom(AMSTERDAM, v4)
-            .build(protocolSchedule, protocolContext, vertx, engineCallListener, mergeCoordinator));
+            .build(constructorArguments));
   }
 
   private static final class RecordingFactory implements VersionScheduler.EngineMethodFactory {
     final ExecutionEngineJsonRpcMethod instance = mock(ExecutionEngineJsonRpcMethod.class);
     int invocations;
-    ProtocolSchedule protocolSchedule;
-    ProtocolContext protocolContext;
-    Vertx vertx;
-    EngineCallListener engineCallListener;
-    MergeMiningCoordinator mergeCoordinator;
+    ConstructorArguments constructorArguments;
     HardforkId minFork;
     HardforkId maxFork;
 
     @Override
     public ExecutionEngineJsonRpcMethod create(
-        final ProtocolSchedule protocolSchedule,
-        final ProtocolContext protocolContext,
-        final Vertx vertx,
-        final EngineCallListener engineCallListener,
-        final MergeMiningCoordinator mergeCoordinator,
+        final ConstructorArguments constructorArguments,
         final HardforkId minFork,
         final HardforkId maxFork) {
       invocations++;
-      this.protocolSchedule = protocolSchedule;
-      this.protocolContext = protocolContext;
-      this.vertx = vertx;
-      this.engineCallListener = engineCallListener;
-      this.mergeCoordinator = mergeCoordinator;
+      this.constructorArguments = constructorArguments;
       this.minFork = minFork;
       this.maxFork = maxFork;
       return instance;

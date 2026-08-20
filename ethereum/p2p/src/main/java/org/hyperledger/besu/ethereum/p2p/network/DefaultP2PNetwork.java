@@ -37,6 +37,7 @@ import org.hyperledger.besu.ethereum.p2p.peers.PeerPrivileges;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissionsDenylist;
 import org.hyperledger.besu.ethereum.p2p.rlpx.ConnectCallback;
+import org.hyperledger.besu.ethereum.p2p.rlpx.ConnectSource;
 import org.hyperledger.besu.ethereum.p2p.rlpx.DisconnectCallback;
 import org.hyperledger.besu.ethereum.p2p.rlpx.MessageCallback;
 import org.hyperledger.besu.ethereum.p2p.rlpx.RlpxAgent;
@@ -49,6 +50,7 @@ import org.hyperledger.besu.nat.NatService;
 import org.hyperledger.besu.nat.core.NatManager;
 import org.hyperledger.besu.nat.core.domain.NatServiceType;
 import org.hyperledger.besu.nat.core.domain.NetworkProtocol;
+import org.hyperledger.besu.nat.docker.DockerNatManager;
 import org.hyperledger.besu.nat.upnp.UpnpNatManager;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
@@ -123,6 +125,9 @@ import org.slf4j.LoggerFactory;
 public class DefaultP2PNetwork implements P2PNetwork {
 
   private static final Logger LOG = LoggerFactory.getLogger(DefaultP2PNetwork.class);
+
+  // Tolerates failed attempts without capping to exactly the open slot count.
+  private static final int CANDIDATE_OVERPROVISION_FACTOR = 3;
 
   private final ScheduledExecutorService peerConnectionScheduler =
       Executors.newSingleThreadScheduledExecutor();
@@ -266,7 +271,7 @@ public class DefaultP2PNetwork implements P2PNetwork {
       throw e;
     }
 
-    final Consumer<? super NatManager> natAction =
+    final Consumer<? super NatManager> upnpNatAction =
         natManager -> {
           final UpnpNatManager upnpNatManager = (UpnpNatManager) natManager;
           upnpNatManager.requestPortForward(
@@ -275,8 +280,19 @@ public class DefaultP2PNetwork implements P2PNetwork {
               listeningPort, NetworkProtocol.TCP, NatServiceType.RLPX);
         };
 
-    natService.ifNatEnvironment(NatMethod.UPNP, natAction);
-    natService.ifNatEnvironment(NatMethod.UPNPP2PONLY, natAction);
+    natService.ifNatEnvironment(NatMethod.UPNP, upnpNatAction);
+    natService.ifNatEnvironment(NatMethod.UPNPP2PONLY, upnpNatAction);
+
+    // Docker can't introspect its own port mappings, so unlike UPnP's active port-forward
+    // request above, this only records the real post-bind ports for admin_nodeInfo to report -
+    // it requests nothing from the container runtime.
+    natService.ifNatEnvironment(
+        NatMethod.DOCKER,
+        natManager -> {
+          final DockerNatManager dockerNatManager = (DockerNatManager) natManager;
+          dockerNatManager.updatePort(NatServiceType.DISCOVERY, NetworkProtocol.UDP, discoveryPort);
+          dockerNatManager.updatePort(NatServiceType.RLPX, NetworkProtocol.TCP, listeningPort);
+        });
 
     setLocalNode(address, listeningPort, discoveryPort);
 
@@ -346,7 +362,7 @@ public class DefaultP2PNetwork implements P2PNetwork {
     }
     final boolean wasAdded = maintainedPeers.add(peer);
     peerDiscoveryAgent.addPeer(peer);
-    rlpxAgent.connect(peer);
+    rlpxAgent.connect(peer, ConnectSource.ADMIN);
     return wasAdded;
   }
 
@@ -399,18 +415,24 @@ public class DefaultP2PNetwork implements P2PNetwork {
     maintainedPeers
         .streamPeers()
         .filter(p -> !doNotConnectTo.contains(p.getId()))
-        .forEach(rlpxAgent::connect);
+        .forEach(p -> rlpxAgent.connect(p, ConnectSource.MAINTAIN));
   }
 
   @VisibleForTesting
   void attemptPeerConnections() {
+    if (rlpxAgent.getConnectionCount() >= rlpxAgent.getMaxPeers()) {
+      LOG.trace("Skipping connection attempts to discovered peers - already at max peers.");
+      return;
+    }
     LOG.trace("Initiating connections to discovered peers.");
-    final Stream<DiscoveryPeer> toTry =
-        streamDiscoveredPeers()
-            .filter(DiscoveryPeer::isReadyForConnections)
-            .filter(peerDiscoveryAgent::checkForkId)
-            .sorted(Comparator.comparing(DiscoveryPeer::getLastAttemptedConnection));
-    toTry.forEach(rlpxAgent::connect);
+    final int openSlots = rlpxAgent.getMaxPeers() - rlpxAgent.getConnectionCount();
+    streamDiscoveredPeers()
+        .filter(DiscoveryPeer::isReadyForConnections)
+        .filter(peerDiscoveryAgent::checkForkId)
+        .filter(p -> !rlpxAgent.isConnectingOrConnected(p.getId()))
+        .sorted(Comparator.comparing(DiscoveryPeer::getLastAttemptedConnection))
+        .limit((long) openSlots * CANDIDATE_OVERPROVISION_FACTOR)
+        .forEach(p -> rlpxAgent.connect(p, ConnectSource.MAINTAIN));
   }
 
   @Override
@@ -430,7 +452,7 @@ public class DefaultP2PNetwork implements P2PNetwork {
 
   @Override
   public CompletableFuture<PeerConnection> connect(final Peer peer) {
-    return rlpxAgent.connect(peer);
+    return rlpxAgent.connect(peer, ConnectSource.ADMIN);
   }
 
   @Override

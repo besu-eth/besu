@@ -36,6 +36,8 @@ public class NodePermissioningController {
 
   public NodePermissioningController(final List<NodeConnectionPermissioningProvider> providers) {
     this.providers = providers;
+    localConfigController()
+        .ifPresent(c -> c.subscribeToListUpdatedEvent(evt -> notifyPermissionsUpdated()));
   }
 
   public boolean isPermitted(final EnodeURLImpl sourceEnode, final EnodeURLImpl destinationEnode) {
@@ -76,10 +78,13 @@ public class NodePermissioningController {
 
   public void setInsufficientPeersPermissioningProvider(
       final ContextualNodePermissioningProvider insufficientPeersPermissioningProvider) {
-    insufficientPeersPermissioningProvider.subscribeToUpdates(
-        () -> permissioningUpdateSubscribers.forEach(Runnable::run));
+    insufficientPeersPermissioningProvider.subscribeToUpdates(this::notifyPermissionsUpdated);
     this.insufficientPeersPermissioningProvider =
         Optional.of(insufficientPeersPermissioningProvider);
+  }
+
+  private void notifyPermissionsUpdated() {
+    permissioningUpdateSubscribers.forEach(Runnable::run);
   }
 
   public List<NodeConnectionPermissioningProvider> getProviders() {

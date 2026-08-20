@@ -310,10 +310,7 @@ public class DebugTraceBlockStreamer {
       writeBytes(TX_GAS_PREFIX);
       writeLong(transaction.getGasLimit() - result.getGasRemaining());
       writeBytes(result.isSuccessful() ? TX_FAILED_FALSE_RV : TX_FAILED_TRUE_RV);
-      final Bytes output = result.getOutput();
-      if (!output.isEmpty()) {
-        writeAscii(output.toHexString());
-      }
+      writeAscii(result.getOutput().toHexString());
       writeBytes(TX_CLOSE);
     } catch (IOException e) {
       throw new UncheckedIOException(e);

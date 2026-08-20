@@ -62,6 +62,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.pending.
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.pending.PendingTransactionSubscriptionService;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.syncing.SyncingSubscriptionService;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.transactionreceipts.TransactionReceiptsSubscriptionService;
+import org.hyperledger.besu.ethereum.api.pluginadapter.RpcEndpointServiceImpl;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
@@ -105,6 +106,7 @@ import org.hyperledger.besu.ethereum.permissioning.account.AccountPermissioningC
 import org.hyperledger.besu.ethereum.permissioning.node.InsufficientPeersPermissioningProvider;
 import org.hyperledger.besu.ethereum.permissioning.node.NodePermissioningController;
 import org.hyperledger.besu.ethereum.permissioning.node.PeerPermissionsAdapter;
+import org.hyperledger.besu.ethereum.permissioning.pluginadapter.PermissioningServiceImpl;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethstats.EthStatsService;
@@ -122,8 +124,6 @@ import org.hyperledger.besu.plugin.BesuPlugin;
 import org.hyperledger.besu.plugin.data.EnodeURL;
 import org.hyperledger.besu.plugin.services.HealthCheckService;
 import org.hyperledger.besu.services.BesuPluginContextImpl;
-import org.hyperledger.besu.services.PermissioningServiceImpl;
-import org.hyperledger.besu.services.RpcEndpointServiceImpl;
 import org.hyperledger.besu.services.TransactionValidatorServiceImpl;
 import org.hyperledger.besu.util.BesuVersionUtils;
 import org.hyperledger.besu.util.NetworkUtility;
@@ -167,10 +167,12 @@ public class RunnerBuilder {
   private final Collection<Bytes> bannedNodeIds = new ArrayList<>();
   private boolean p2pEnabled = true;
   private boolean discoveryEnabled;
-  private DiscoveryMode discoveryMode = DiscoveryMode.BOTH;
+  private DiscoveryMode discoveryMode = DiscoveryMode.getDefault();
   private String p2pAdvertisedHost;
   private String p2pListenInterface = NetworkUtility.INADDR_ANY;
   private int p2pListenPort;
+  private Integer p2pDiscoveryListenPort;
+  private Integer p2pDiscoveryListenPortIpv6;
   private Optional<String> p2pAdvertisedHostIpv6 = Optional.empty();
   private Optional<String> p2pListenInterfaceIpv6 = Optional.empty();
   private int p2pListenPortIpv6 = EnodeURLImpl.DEFAULT_LISTENING_PORT_IPV6;
@@ -315,6 +317,28 @@ public class RunnerBuilder {
    */
   public RunnerBuilder p2pListenPort(final int p2pListenPort) {
     this.p2pListenPort = p2pListenPort;
+    return this;
+  }
+
+  /**
+   * Add UDP discovery listen port. Defaults to p2pListenPort when not set.
+   *
+   * @param p2pDiscoveryListenPort the UDP discovery port
+   * @return the runner builder
+   */
+  public RunnerBuilder p2pDiscoveryListenPort(final Integer p2pDiscoveryListenPort) {
+    this.p2pDiscoveryListenPort = p2pDiscoveryListenPort;
+    return this;
+  }
+
+  /**
+   * Add IPv6 UDP discovery listen port. Defaults to p2pListenPortIpv6 when not set.
+   *
+   * @param p2pDiscoveryListenPortIpv6 the IPv6 UDP discovery port
+   * @return the runner builder
+   */
+  public RunnerBuilder p2pDiscoveryListenPortIpv6(final Integer p2pDiscoveryListenPortIpv6) {
+    this.p2pDiscoveryListenPortIpv6 = p2pDiscoveryListenPortIpv6;
     return this;
   }
 
@@ -674,15 +698,19 @@ public class RunnerBuilder {
 
     Preconditions.checkNotNull(besuController);
 
+    final int effectiveDiscoveryPort =
+        p2pDiscoveryListenPort != null ? p2pDiscoveryListenPort : p2pListenPort;
     final DiscoveryConfiguration discoveryConfiguration =
         DiscoveryConfiguration.create()
             .setBindHost(p2pListenInterface)
-            .setBindPort(p2pListenPort)
+            .setBindPort(effectiveDiscoveryPort)
             .setAdvertisedHost(p2pAdvertisedHost);
     p2pListenInterfaceIpv6.ifPresent(
         iface -> {
+          final int effectiveDiscoveryPortIpv6 =
+              p2pDiscoveryListenPortIpv6 != null ? p2pDiscoveryListenPortIpv6 : p2pListenPortIpv6;
           discoveryConfiguration.setBindHostIpv6(p2pListenInterfaceIpv6);
-          discoveryConfiguration.setBindPortIpv6(p2pListenPortIpv6);
+          discoveryConfiguration.setBindPortIpv6(effectiveDiscoveryPortIpv6);
           discoveryConfiguration.setAdvertisedHostIpv6(p2pAdvertisedHostIpv6);
         });
     discoveryConfiguration.setPreferIpv6Outbound(preferIpv6Outbound);
@@ -859,6 +887,8 @@ public class RunnerBuilder {
         new FilterManagerBuilder()
             .blockchainQueries(blockchainQueries)
             .transactionPool(transactionPool)
+            .maxFilterCount(apiConfiguration.getMaxFilterCount())
+            .filterTimeout(apiConfiguration.getFilterTimeout())
             .build();
     vertx.deployVerticle(filterManager);
 
@@ -929,7 +959,7 @@ public class RunnerBuilder {
     }
 
     final SubscriptionManager subscriptionManager =
-        createSubscriptionManager(vertx, transactionPool, blockchainQueries);
+        createSubscriptionManager(vertx, transactionPool, webSocketConfiguration);
 
     if (webSocketConfiguration.isEnabled()
         || (jsonRpcIpcConfiguration != null && jsonRpcIpcConfiguration.isEnabled())) {
@@ -1297,8 +1327,7 @@ public class RunnerBuilder {
       case UPNP:
         return Optional.of(new UpnpNatManager());
       case DOCKER:
-        return Optional.of(
-            new DockerNatManager(p2pAdvertisedHost, p2pListenPort, jsonRpcConfiguration.getPort()));
+        return Optional.of(new DockerNatManager(p2pAdvertisedHost, jsonRpcConfiguration.getPort()));
       case NONE:
       default:
         return Optional.empty();
@@ -1404,9 +1433,9 @@ public class RunnerBuilder {
   private SubscriptionManager createSubscriptionManager(
       final Vertx vertx,
       final TransactionPool transactionPool,
-      final BlockchainQueries blockchainQueries) {
+      final WebSocketConfiguration webSocketConfiguration) {
     final SubscriptionManager subscriptionManager =
-        new SubscriptionManager(metricsSystem, blockchainQueries.getBlockchain());
+        new SubscriptionManager(metricsSystem, webSocketConfiguration);
     final PendingTransactionSubscriptionService pendingTransactions =
         new PendingTransactionSubscriptionService(subscriptionManager);
     final PendingTransactionDroppedSubscriptionService pendingTransactionsRemoved =
@@ -1519,8 +1548,11 @@ public class RunnerBuilder {
 
   private HealthService.HealthCheck adaptProvider(
       final HealthCheckService.HealthCheckProvider provider) {
-    return healthServiceParams ->
-        new HealthService.HealthCheckResult(
-            provider.isHealthy(healthServiceParams::getParam), new JsonObject());
+    return healthServiceParams -> {
+      final HealthCheckService.HealthCheckResult result =
+          provider.check(healthServiceParams::getParam);
+      return new HealthService.HealthCheckResult(
+          result.isHealthy(), new JsonObject(result.getDetails()));
+    };
   }
 }

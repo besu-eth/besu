@@ -39,20 +39,41 @@ import org.apache.tuweni.units.bigints.UInt256;
  */
 public class RangeManager {
 
-  public static final Bytes32 MIN_RANGE = Bytes32.wrap(Hash.wrap(Bytes32.ZERO).getBytes());
+  public static final Bytes32 MIN_RANGE = Bytes32.ZERO;
   public static final Bytes32 MAX_RANGE =
-      Bytes32.wrap(
-          Hash.fromHexString("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
-              .getBytes());
+      Bytes32.fromHexString("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+
+  public static final BigInteger MAX_RANGE_BIG_INTEGER = MAX_RANGE.toUnsignedBigInteger();
+
+  /**
+   * Upper bound on the number of sub-ranges {@link #getRangeCount} will ever return, preventing an
+   * unbounded (or, after {@code int} truncation, negative) split count from a peer that returns a
+   * partial range whose largest key has many leading zero bits.
+   */
+  public static final int MAX_RANGE_COUNT = 16;
 
   private RangeManager() {}
 
   public static int getRangeCount(
       final Bytes32 min, final Bytes32 max, final NavigableMap<Bytes32, Bytes> items) {
     if (min.equals(MIN_RANGE) && max.equals(MAX_RANGE)) {
-      return MAX_RANGE
-          .toUnsignedBigInteger()
-          .divide(items.lastKey().toUnsignedBigInteger().subtract(min.toUnsignedBigInteger()))
+      // items may be empty (findNewBeginElementInRange can report a missing element from proofs
+      // alone), so guard before dereferencing lastKey().
+      if (items.isEmpty()) {
+        return 1;
+      }
+      final BigInteger lastKey = items.lastKey().toUnsignedBigInteger();
+      if (lastKey.signum() == 0) {
+        // A largest key of zero would make the division throw; degrade to a single follow-up range.
+        return 1;
+      }
+      // Clamp with BigInteger arithmetic before narrowing: the raw quotient can far exceed
+      // Integer.MAX_VALUE for a tiny divisor, and BigInteger.intValue() would silently truncate it
+      // to a huge or negative int. Bounding it to [1, MAX_RANGE_COUNT] keeps it safely narrowable.
+      return MAX_RANGE_BIG_INTEGER
+          .divide(lastKey)
+          .max(BigInteger.ONE)
+          .min(BigInteger.valueOf(MAX_RANGE_COUNT))
           .intValue();
     }
     return 1;
@@ -62,8 +83,7 @@ public class RangeManager {
     if (sizeRange == 1) {
       return Map.ofEntries(Map.entry(MIN_RANGE, MAX_RANGE));
     }
-    return generateRanges(
-        MIN_RANGE.toUnsignedBigInteger(), MAX_RANGE.toUnsignedBigInteger(), sizeRange);
+    return generateRanges(BigInteger.ZERO, MAX_RANGE_BIG_INTEGER, sizeRange);
   }
 
   /**
@@ -251,5 +271,15 @@ public class RangeManager {
       throw new IllegalArgumentException("Hash overflow: " + key);
     }
     return next;
+  }
+
+  /**
+   * Returns the next 32-byte key after {@code key}, or {@link Optional#empty()} if {@code key} was
+   * the maximum value (overflow). Unlike {@link #nextKey(Bytes32)}, this never throws — callers
+   * paginating trie entries use the empty result to terminate the loop.
+   */
+  public static Optional<Bytes32> incrementBytes32(final Bytes32 value) {
+    final UInt256 incremented = UInt256.fromBytes(value).add(UInt256.ONE);
+    return incremented.isZero() ? Optional.empty() : Optional.of(incremented);
   }
 }
