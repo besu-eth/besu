@@ -50,6 +50,9 @@ public abstract class ApiConfiguration {
   /** The default duration a JSON-RPC filter stays active without being polled. */
   public static final Duration DEFAULT_FILTER_TIMEOUT = Duration.ofMinutes(2);
 
+  /** The default maximum block range for log filter queries. */
+  public static final long DEFAULT_MAX_LOGS_RANGE = 5000L;
+
   /** Constructs a new ApiConfiguration with default values. */
   protected ApiConfiguration() {}
 
@@ -113,7 +116,7 @@ public abstract class ApiConfiguration {
    */
   @Value.Default
   public Long getMaxLogsRange() {
-    return 5000L;
+    return DEFAULT_MAX_LOGS_RANGE;
   }
 
   /**
