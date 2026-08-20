@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE_ARCHIVE;
 
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
+import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage.NearestKeyValue;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 
 import java.util.Objects;
@@ -25,33 +26,77 @@ import java.util.Optional;
 import org.apache.tuweni.bytes.Bytes;
 
 /**
- * Stores historical trie node values in the archive store, keyed by a combination of the natural
+ * Stores historical trie node entries in the archive store, keyed by a combination of the natural
  * key and the block number at which the value was valid. For a given natural key and target block,
- * returns the latest value at or before that block.
+ * returns the latest entry at or before that block.
+ *
+ * <p>Wire format per stored value: {@code [counter: 1 unsigned byte] ‖ [ArchiveTrieNodeCodec
+ * entry]}. This class owns only storage mechanics — the FULL-vs-DIFF decision and counter
+ * management live in {@link ArchiveTrieNodeStrategy}, and entry encoding lives in {@link
+ * ArchiveTrieNodeCodec}.
  */
 public final class ArchiveNodeHistoryStore {
 
   private final SegmentedKeyValueStorage storage;
 
+  /**
+   * Creates a store backed by the given segmented key-value storage.
+   *
+   * @param storage the storage to read and write archive trie-node history through
+   */
   public ArchiveNodeHistoryStore(final SegmentedKeyValueStorage storage) {
     this.storage = Objects.requireNonNull(storage, "storage must not be null");
   }
 
-  public void put(
-      final SegmentedKeyValueStorageTransaction tx,
-      final Bytes naturalKey,
-      final long block,
-      final Bytes nodeRlp) {
-    final Bytes key = ArchiveNodeKey.historyKey(naturalKey, block);
-    tx.put(TRIE_BRANCH_STORAGE_ARCHIVE, key.toArrayUnsafe(), nodeRlp.toArrayUnsafe());
+  /**
+   * Builds the stored wire value: {@code [counter: 1 byte] ‖ codecEntry}.
+   *
+   * @param counter distance since the last FULL entry for this natural key (0 = this entry is FULL)
+   * @param codecEntry the {@link ArchiveTrieNodeCodec} entry bytes to store
+   * @return the wire-format bytes to pass to {@link #putEncoded}
+   * @throws IllegalArgumentException if {@code counter} does not fit in an unsigned byte (0-255)
+   */
+  public static Bytes encodeStoredValue(final int counter, final Bytes codecEntry) {
+    if (counter < 0 || counter > 255) {
+      throw new IllegalArgumentException("counter must fit in 1 unsigned byte: " + counter);
+    }
+    return Bytes.concatenate(Bytes.of((byte) counter), codecEntry);
   }
 
-  public Optional<Bytes> getLatestBefore(final Bytes naturalKey, final long block) {
+  /**
+   * Writes a pre-built history entry.
+   *
+   * @param tx the transaction to write through
+   * @param historyKey the key, which must come from {@link ArchiveNodeKey#historyKey}
+   * @param storedValue the value, which must come from {@link #encodeStoredValue}
+   */
+  public void putEncoded(
+      final SegmentedKeyValueStorageTransaction tx,
+      final Bytes historyKey,
+      final Bytes storedValue) {
+    tx.put(TRIE_BRANCH_STORAGE_ARCHIVE, historyKey.toArrayUnsafe(), storedValue.toArrayUnsafe());
+  }
+
+  /**
+   * Returns the latest history entry at or before {@code block} for the given natural key, if one
+   * exists.
+   *
+   * @param naturalKey the node's natural key, from {@link ArchiveNodeKey#account} or {@link
+   *     ArchiveNodeKey#storage}
+   * @param block the target block; the returned entry's block is at or before this
+   * @return the matching entry, or empty if none exists at or before {@code block}
+   */
+  public Optional<HistoryEntry> getLatestBefore(final Bytes naturalKey, final long block) {
     final Bytes seekKey = ArchiveNodeKey.historyKey(naturalKey, block);
     return storage
         .getNearestBefore(TRIE_BRANCH_STORAGE_ARCHIVE, seekKey)
         .filter(nearest -> naturalKeyMatches(naturalKey, nearest.key()))
-        .flatMap(nearest -> nearest.value().map(Bytes::wrap));
+        .flatMap(this::decodeNearest);
+  }
+
+  private Optional<HistoryEntry> decodeNearest(final NearestKeyValue nearest) {
+    final long block = ArchiveNodeKey.blockFromHistoryKey(nearest.key());
+    return nearest.wrapBytes().map(storedValue -> decodeStoredValue(storedValue, block));
   }
 
   /**
@@ -59,8 +104,30 @@ public final class ArchiveNodeHistoryStore {
    * This is used to filter out history keys that are for different natural keys when searching for
    * the latest value before a given block.
    */
-  private static boolean naturalKeyMatches(final Bytes naturalKey, final Bytes foundKey) {
-    return foundKey.size() >= naturalKey.size() + 8
+  private boolean naturalKeyMatches(final Bytes naturalKey, final Bytes foundKey) {
+    return foundKey.size() >= naturalKey.size() + ArchiveNodeKey.BLOCK_SUFFIX_BYTES
         && ArchiveNodeKey.naturalKeyFromHistoryKey(foundKey).equals(naturalKey);
   }
+
+  private HistoryEntry decodeStoredValue(final Bytes storedValue, final long block) {
+    if (storedValue.isEmpty()) {
+      throw new IllegalArgumentException("stored value must be at least 1 byte (counter prefix)");
+    }
+    final int counter = Byte.toUnsignedInt(storedValue.get(0));
+    final Bytes rawEntryBytes = storedValue.slice(1);
+    return new HistoryEntry(
+        counter, ArchiveTrieNodeCodec.decode(rawEntryBytes), rawEntryBytes, block);
+  }
+
+  /**
+   * Decoded, typed view of a stored history entry.
+   *
+   * @param counter distance since the last FULL entry for this natural key (0 = this entry is FULL)
+   * @param codecEntry the decoded codec entry
+   * @param rawEntryBytes the codec entry bytes, unmodified — fed back into {@link
+   *     ArchiveTrieNodeCodec#reconstruct} without re-encoding
+   * @param block the block number this entry was written at
+   */
+  public record HistoryEntry(
+      int counter, ArchiveTrieNodeEntry codecEntry, Bytes rawEntryBytes, long block) {}
 }

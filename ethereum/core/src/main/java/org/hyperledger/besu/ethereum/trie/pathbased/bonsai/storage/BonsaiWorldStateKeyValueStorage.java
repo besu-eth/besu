@@ -125,6 +125,16 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
     this.trieNodeStrategy = trieNodeStrategy;
   }
 
+  public BonsaiWorldStateKeyValueStorage withTrieNodeStrategy(final TrieNodeStrategy strategy) {
+    return new BonsaiWorldStateKeyValueStorage(
+        flatDbStrategyProvider,
+        composedWorldStateStorage,
+        trieLogStorage,
+        cacheManager,
+        cacheVersion,
+        strategy);
+  }
+
   private static FlatDbCacheManager createCacheManager(
       final DataStorageConfiguration dataStorageConfiguration, final MetricsSystem metricsSystem) {
     if (dataStorageConfiguration
@@ -444,24 +454,28 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
 
     @Override
     public void commit() {
+      trieNodeStrategy.onBeforeCommit(worldStorage, composedWorldStateTransaction);
       trieLogStorageTransaction.commit();
       composedWorldStateTransaction.commit();
     }
 
     @Override
     public void commitTrieLogOnly() {
+      trieNodeStrategy.onRollback(composedWorldStateTransaction);
       trieLogStorageTransaction.commit();
       composedWorldStateTransaction.close();
     }
 
     @Override
     public void commitComposedOnly() {
+      trieNodeStrategy.onBeforeCommit(worldStorage, composedWorldStateTransaction);
       composedWorldStateTransaction.commit();
       trieLogStorageTransaction.close();
     }
 
     @Override
     public void rollback() {
+      trieNodeStrategy.onRollback(composedWorldStateTransaction);
       composedWorldStateTransaction.rollback();
       trieLogStorageTransaction.rollback();
     }

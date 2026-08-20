@@ -18,6 +18,9 @@ import org.apache.tuweni.bytes.Bytes;
 
 /** Utility class for constructing natural keys and history keys for archive trie nodes. */
 public final class ArchiveNodeKey {
+
+  public static final int BLOCK_SUFFIX_BYTES = 8;
+
   private ArchiveNodeKey() {}
 
   /**
@@ -57,21 +60,30 @@ public final class ArchiveNodeKey {
     return Bytes.concatenate(naturalKey, Bytes.ofUnsignedLong(block));
   }
 
-  /** Extracts the block number from the last 8 bytes of a history key. */
+  /** Extracts the block number from the bytes of a history key. */
   public static long blockFromHistoryKey(final Bytes historyKey) {
-    if (historyKey.size() < 8) {
+    if (historyKey.size() < BLOCK_SUFFIX_BYTES) {
       throw new IllegalArgumentException(
-          "historyKey too short: expected >= 8 bytes, got " + historyKey.size());
+          "historyKey too short: expected >= "
+              + BLOCK_SUFFIX_BYTES
+              + " bytes, got "
+              + historyKey.size());
     }
-    return historyKey.getLong(historyKey.size() - 8);
+    return historyKey.getLong(historyKey.size() - BLOCK_SUFFIX_BYTES);
   }
 
-  /** Extracts the natural key (everything but the last 8 bytes) from a history key. */
+  /**
+   * Extracts the natural key (everything but the last {@value #BLOCK_SUFFIX_BYTES} bytes) from a
+   * history key.
+   */
   public static Bytes naturalKeyFromHistoryKey(final Bytes historyKey) {
-    if (historyKey.size() < 8) {
+    if (historyKey.size() < BLOCK_SUFFIX_BYTES) {
       throw new IllegalArgumentException(
-          "historyKey too short: expected >= 8 bytes, got " + historyKey.size());
+          "historyKey too short: expected >= "
+              + BLOCK_SUFFIX_BYTES
+              + " bytes, got "
+              + historyKey.size());
     }
-    return historyKey.slice(0, historyKey.size() - 8);
+    return historyKey.slice(0, historyKey.size() - BLOCK_SUFFIX_BYTES);
   }
 }

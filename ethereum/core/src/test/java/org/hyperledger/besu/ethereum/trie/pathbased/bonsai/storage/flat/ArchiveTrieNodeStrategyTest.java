@@ -23,12 +23,14 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveCoverageTracker;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeKey;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveTrieNodeCapture;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveTrieNodeStrategy;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
 
 import java.util.List;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -41,6 +43,7 @@ class ArchiveTrieNodeStrategyTest {
   private SegmentedKeyValueStorage storage;
   private ArchiveNodeHistoryStore historyStore;
   private ArchiveCoverageTracker coverageTracker;
+  private ArchiveTrieNodeCapture capture;
 
   @BeforeEach
   void setUp() {
@@ -49,11 +52,12 @@ class ArchiveTrieNodeStrategyTest {
             List.of(TRIE_BRANCH_STORAGE, TRIE_BRANCH_STORAGE_ARCHIVE));
     historyStore = new ArchiveNodeHistoryStore(storage);
     coverageTracker = new ArchiveCoverageTracker(storage);
+    capture =
+        new ArchiveTrieNodeCapture(historyStore, coverageTracker, Executors.newFixedThreadPool(2));
   }
 
   private ArchiveTrieNodeStrategy strategyWithGate(final boolean gateOpen) {
-    return new ArchiveTrieNodeStrategy(
-        new BonsaiTrieNodeStrategy(), historyStore, coverageTracker, () -> gateOpen);
+    return new ArchiveTrieNodeStrategy(new BonsaiTrieNodeStrategy(), capture, () -> gateOpen);
   }
 
   private static Bytes32 hash(final Bytes value) {
@@ -63,6 +67,7 @@ class ArchiveTrieNodeStrategyTest {
   private void put(final ArchiveTrieNodeStrategy strategy, final Bytes location, final Bytes node) {
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
     strategy.putFlatAccountTrieNode(storage, tx, location, hash(node), node);
+    strategy.onBeforeCommit(storage, tx);
     tx.commit();
   }
 
@@ -82,46 +87,47 @@ class ArchiveTrieNodeStrategyTest {
 
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
     strategy.putFlatAccountTrieNode(storage, tx, location, hash(node), node);
+    strategy.onBeforeCommit(storage, tx);
     tx.commit();
 
-    assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location), 0L)).contains(node);
+    assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location), 0L)).isPresent();
     assertThat(coverageTracker.hasArchiveBlock(0L)).isTrue();
   }
 
   @Test
-  void gateLatchesClosedOnFirstFalse() {
+  void gateDeterminesArchivingPerBlock() {
+    // Gate is checked per-block: open→archives, closed→skips, open again→archives.
     final AtomicBoolean gate = new AtomicBoolean(true);
     final ArchiveTrieNodeStrategy strategy =
-        new ArchiveTrieNodeStrategy(
-            new BonsaiTrieNodeStrategy(), historyStore, coverageTracker, gate::get);
+        new ArchiveTrieNodeStrategy(new BonsaiTrieNodeStrategy(), capture, gate::get);
 
     final Bytes locationA = Bytes.of(0x0a);
     final Bytes locationB = Bytes.of(0x0b);
     final Bytes locationC = Bytes.of(0x0c);
 
-    // Block 1: gate open — should archive.
+    // Block 1: gate open — archives.
     setStoredBlockNumber(0L);
     put(strategy, locationA, Bytes.fromHexString("0xaaaa"));
 
-    // Block 2: gate closes — latch triggers, nothing archived.
+    // Block 2: gate closes — not archived.
     gate.set(false);
     setStoredBlockNumber(1L);
     put(strategy, locationB, Bytes.fromHexString("0xbbbb"));
 
-    // Block 3: gate re-opens but latch is already set — nothing archived.
+    // Block 3: gate re-opens — archives again (no latch).
     gate.set(true);
     setStoredBlockNumber(2L);
     put(strategy, locationC, Bytes.fromHexString("0xcccc"));
 
     assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(locationA), 1L))
-        .as("block 1 archived before latch")
+        .as("block 1 archived (gate open)")
         .isPresent();
     assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(locationB), 2L))
-        .as("block 2 not archived — gate was false")
+        .as("block 2 not archived (gate closed)")
         .isEmpty();
     assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(locationC), 3L))
-        .as("block 3 not archived — gate was latched")
-        .isEmpty();
+        .as("block 3 archived (gate reopened)")
+        .isPresent();
   }
 
   @Test
@@ -133,7 +139,7 @@ class ArchiveTrieNodeStrategyTest {
 
     put(strategy, location, node);
 
-    assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location), 0L)).contains(node);
+    assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location), 0L)).isPresent();
   }
 
   @Test
@@ -148,14 +154,13 @@ class ArchiveTrieNodeStrategyTest {
 
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
     strategy.putFlatAccountTrieNode(storage, tx, location, hash(node), node);
+    strategy.onBeforeCommit(storage, tx);
     tx.commit();
 
     assertThat(storage.get(TRIE_BRANCH_STORAGE, location.toArrayUnsafe())).isPresent();
     assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location), 6L)).isEmpty();
     assertThat(coverageTracker.hasArchiveBlock(6L)).isFalse();
   }
-
-  // --- gap 1: putFlatStorageTrieNode ---
 
   @Test
   void archivesStorageTrieNodeWhenGateOpen() {
@@ -166,12 +171,13 @@ class ArchiveTrieNodeStrategyTest {
 
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
     strategy.putFlatStorageTrieNode(storage, tx, accountHash, location, hash(node), node);
+    strategy.onBeforeCommit(storage, tx);
     tx.commit();
 
     assertThat(
             historyStore.getLatestBefore(
                 ArchiveNodeKey.storage(accountHash.getBytes(), location), 0L))
-        .contains(node);
+        .isPresent();
     assertThat(coverageTracker.hasArchiveBlock(0L)).isTrue();
   }
 
@@ -185,6 +191,7 @@ class ArchiveTrieNodeStrategyTest {
 
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
     strategy.putFlatStorageTrieNode(storage, tx, accountHash, location, hash(node), node);
+    strategy.onBeforeCommit(storage, tx);
     tx.commit();
 
     assertThat(
@@ -205,10 +212,11 @@ class ArchiveTrieNodeStrategyTest {
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
     strategy.putFlatAccountTrieNode(storage, tx, location1, hash(node1), node1);
     strategy.putFlatAccountTrieNode(storage, tx, location2, hash(node2), node2);
+    strategy.onBeforeCommit(storage, tx);
     tx.commit();
 
-    assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location1), 0L)).contains(node1);
-    assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location2), 0L)).contains(node2);
+    assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location1), 0L)).isPresent();
+    assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location2), 0L)).isPresent();
     assertThat(coverageTracker.hasArchiveBlock(0L)).isTrue();
   }
 
@@ -232,6 +240,7 @@ class ArchiveTrieNodeStrategyTest {
 
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
     strategy.putFlatStorageTrieNode(storage, tx, accountHash, location, hash(node), node);
+    strategy.onBeforeCommit(storage, tx);
     tx.commit();
 
     assertThat(strategy.getFlatStorageTrieNode(accountHash, location, hash(node), storage))
@@ -246,6 +255,7 @@ class ArchiveTrieNodeStrategyTest {
 
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
     strategy.removeFlatAccountStateTrieNode(storage, tx, location);
+    strategy.onBeforeCommit(storage, tx);
     tx.commit();
 
     assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location), 6L)).isEmpty();

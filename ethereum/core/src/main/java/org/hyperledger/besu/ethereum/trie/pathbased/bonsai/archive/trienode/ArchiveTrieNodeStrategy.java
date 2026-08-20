@@ -24,7 +24,6 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTran
 
 import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -32,64 +31,46 @@ import org.apache.tuweni.bytes.Bytes32;
 
 /**
  * A {@link TrieNodeStrategy} that archives every trie-node write into {@code
- * TRIE_BRANCH_STORAGE_ARCHIVE} so that historical {@code eth_getProof} requests can be served
- * without replaying trie-log diffs.
+ * TRIE_BRANCH_STORAGE_ARCHIVE} so historical {@code eth_getProof} requests don't need trie-log
+ * replay.
  *
- * <p>Each put is delegated to the wrapped {@code base} strategy first (live flat DB), then, if the
- * archive gate is open, the full bare-RLP node is written into the archive column family in the
- * same transaction under an {@link ArchiveNodeKey} that encodes the block number. Progress is
- * recorded atomically in the same transaction on the first archive write per transaction.
+ * <p>Each put delegates to {@code base} (live flat DB) first, then — if the archive gate is open —
+ * reads the prior node value from storage (where it is typically hot in the top few in-memory
+ * layers) and enqueues a capture request via {@link ArchiveTrieNodeCapture}. Workers compute the
+ * history entry ({@link ArchiveNodeHistoryStore#getLatestBefore} + encode FULL/DIFF) off the import
+ * thread. Results are joined and applied to the transaction in {@link #onBeforeCommit}, which runs
+ * immediately before commit.
  *
- * <p>The gate returns {@code true} while the node is behind the network head ({@code
- * !syncState.isInSync()}) and {@code false} once at the head, preventing live blocks within the
- * reorg window from entering the archive. Block 0 (genesis) is always archived.
+ * <p>Reading the prior node on the calling thread — rather than inside a worker — avoids disk I/O
+ * in the common case (the prior value is hot in the in-memory layered chain) and eliminates any
+ * need for worker threads to access the layered storage. An archiving gap — gate closed then
+ * reopened, or a restart — forces the next block to write FULL, since the newest archive entry no
+ * longer matches the flat DB.
  */
 public class ArchiveTrieNodeStrategy implements TrieNodeStrategy {
 
   private final TrieNodeStrategy base;
-  private final ArchiveNodeHistoryStore historyStore;
-  private final ArchiveCoverageTracker coverageTracker;
   private final BooleanSupplier archiveGate;
-
-  // Tracks the last transaction that recorded progress so that record() is called at most once per
-  // transaction rather than once per trie-node write.
-  private SegmentedKeyValueStorageTransaction lastRecordedTx;
+  private final ArchiveTrieNodeCapture capture;
 
   public ArchiveTrieNodeStrategy(
       final TrieNodeStrategy base,
-      final ArchiveNodeHistoryStore historyStore,
-      final ArchiveCoverageTracker coverageTracker,
-      final BooleanSupplier gate) {
+      final ArchiveTrieNodeCapture capture,
+      final BooleanSupplier archiveGate) {
     this.base = Objects.requireNonNull(base);
-    this.historyStore = Objects.requireNonNull(historyStore);
-    this.coverageTracker = Objects.requireNonNull(coverageTracker);
-    // Latch: once the gate returns false it stays false and never reopens.
-    final AtomicBoolean latched = new AtomicBoolean(false);
-    this.archiveGate =
-        () -> {
-          final boolean open = !latched.get() && gate.getAsBoolean();
-          if (!open) latched.set(true);
-          return open;
-        };
+    this.capture = Objects.requireNonNull(capture);
+    this.archiveGate = Objects.requireNonNull(archiveGate);
   }
 
-  private boolean shouldArchive(final long block) {
-    return block == 0L || archiveGate.getAsBoolean();
-  }
-
-  private long currentBlockNumber(final SegmentedKeyValueStorage storage) {
+  private static long readBlockNumber(final SegmentedKeyValueStorage storage) {
     return storage
         .get(TRIE_BRANCH_STORAGE, WORLD_BLOCK_NUMBER_KEY)
         .map(b -> Bytes.wrap(b).toLong() + 1L)
         .orElse(0L);
   }
 
-  private void maybeRecordProgress(
-      final SegmentedKeyValueStorageTransaction transaction, final long block) {
-    if (lastRecordedTx != transaction) {
-      coverageTracker.record(transaction, block);
-      lastRecordedTx = transaction;
-    }
+  private boolean shouldCaptureBlock(final long block) {
+    return block == 0L || archiveGate.getAsBoolean();
   }
 
   @Override
@@ -114,11 +95,22 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy {
       final Bytes location,
       final Bytes32 nodeHash,
       final Bytes node) {
+    final long block = readBlockNumber(storage);
     base.putFlatAccountTrieNode(storage, transaction, location, nodeHash, node);
-    final long block = currentBlockNumber(storage);
-    if (shouldArchive(block)) {
-      historyStore.put(transaction, ArchiveNodeKey.account(location), block, node);
-      maybeRecordProgress(transaction, block);
+    if (shouldCaptureBlock(block)) {
+      final Bytes prior =
+          block == 0L
+              ? null
+              : base.getFlatAccountTrieNode(location, nodeHash, storage).orElse(null);
+      capture.enqueue(
+          ArchiveNodeKey.account(location),
+          location,
+          block,
+          null,
+          nodeHash,
+          node,
+          prior,
+          transaction);
     }
   }
 
@@ -130,12 +122,22 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy {
       final Bytes location,
       final Bytes32 nodeHash,
       final Bytes node) {
+    final long block = readBlockNumber(storage);
     base.putFlatStorageTrieNode(storage, transaction, accountHash, location, nodeHash, node);
-    final long block = currentBlockNumber(storage);
-    if (shouldArchive(block)) {
-      historyStore.put(
-          transaction, ArchiveNodeKey.storage(accountHash.getBytes(), location), block, node);
-      maybeRecordProgress(transaction, block);
+    if (shouldCaptureBlock(block)) {
+      final Bytes prior =
+          block == 0L
+              ? null
+              : base.getFlatStorageTrieNode(accountHash, location, nodeHash, storage).orElse(null);
+      capture.enqueue(
+          ArchiveNodeKey.storage(accountHash.getBytes(), location),
+          location,
+          block,
+          accountHash,
+          nodeHash,
+          node,
+          prior,
+          transaction);
     }
   }
 
@@ -144,6 +146,37 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy {
       final SegmentedKeyValueStorage storage,
       final SegmentedKeyValueStorageTransaction transaction,
       final Bytes location) {
+    final long block = readBlockNumber(storage);
     base.removeFlatAccountStateTrieNode(storage, transaction, location);
+    if (shouldCaptureBlock(block)) {
+      final Bytes prior =
+          block == 0L
+              ? null
+              : base.getFlatAccountTrieNode(location, Bytes32.ZERO, storage).orElse(null);
+      if (prior != null) {
+        // Removing a node that doesn't exist is a no-op for the archive.
+        capture.enqueue(
+            ArchiveNodeKey.account(location),
+            location,
+            block,
+            null,
+            Bytes32.ZERO,
+            null,
+            prior,
+            transaction);
+      }
+    }
+  }
+
+  @Override
+  public void onBeforeCommit(
+      final SegmentedKeyValueStorage storage,
+      final SegmentedKeyValueStorageTransaction transaction) {
+    capture.onBeforeCommit(transaction);
+  }
+
+  @Override
+  public void onRollback(final SegmentedKeyValueStorageTransaction transaction) {
+    capture.onRollback(transaction);
   }
 }
