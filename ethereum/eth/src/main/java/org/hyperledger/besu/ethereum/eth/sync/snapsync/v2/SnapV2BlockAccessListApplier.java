@@ -20,6 +20,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.BalStats;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedAccountRangeTracker;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedStorageRangeTracker;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldStateDownloaderException;
@@ -89,32 +90,38 @@ public class SnapV2BlockAccessListApplier {
     final WorldStateKeyValueStorage.Updater updater = worldStateStorageCoordinator.updater();
     final MerkleTrie<Bytes, Bytes> accountTrie = openAccountTrie();
 
-    final Map<Hash, PerAccountChanges> changes =
+    final CollectedChanges collected =
         collectAccountChanges(fromBlock, toBlock, accountRangeTracker);
-    if (changes.isEmpty()) {
+    if (collected.changes().isEmpty()) {
       LOG.info("No persisted accounts affected by BALs in blocks [{}, {}]", fromBlock, toBlock);
-      return new BatchState(accountTrie, updater);
+      return new BatchState(accountTrie, updater, new BalStats(collected.blocksApplied(), 0, 0, 0));
     }
 
     final BalApplicationStats stats =
         stageAccountChanges(
-            changes, accountTrie, updater, storageRangeTracker, accountRangeTracker);
+            collected.changes(), accountTrie, updater, storageRangeTracker, accountRangeTracker);
 
     LOG.info(
-        "Applied snap/2 BALs: {} accounts, {} storage slots, {} storage roots updated",
+        "Applied snap/2 BALs: {} blocks, {} accounts, {} storage slots, {} storage roots updated",
+        collected.blocksApplied(),
         stats.accounts,
         stats.storageSlots,
         stats.storageRoots);
 
-    return new BatchState(accountTrie, updater);
+    return new BatchState(
+        accountTrie,
+        updater,
+        new BalStats(
+            collected.blocksApplied(), stats.accounts, stats.storageSlots, stats.storageRoots));
   }
 
-  private Map<Hash, PerAccountChanges> collectAccountChanges(
+  private CollectedChanges collectAccountChanges(
       final long fromBlock,
       final long toBlock,
       final DownloadedAccountRangeTracker accountRangeTracker) {
 
     final Map<Hash, PerAccountChanges> changesByHash = new LinkedHashMap<>();
+    int blocksApplied = 0;
 
     for (long blockNumber = fromBlock; blockNumber <= toBlock; blockNumber++) {
       final BlockHeader blockHeader = loadBlockHeader(blockNumber);
@@ -131,6 +138,8 @@ public class SnapV2BlockAccessListApplier {
         continue;
       }
 
+      blocksApplied++;
+
       for (final BlockAccessListChanges.AccountFinalChanges afc :
           BlockAccessListChanges.latestChanges(bal)) {
         final Hash accountHash = afc.address().addressHash();
@@ -144,7 +153,7 @@ public class SnapV2BlockAccessListApplier {
       }
     }
 
-    return changesByHash;
+    return new CollectedChanges(changesByHash, blocksApplied);
   }
 
   public Set<Hash> collectPendingStorageAffected(
@@ -740,8 +749,12 @@ public class SnapV2BlockAccessListApplier {
 
   private record BalApplicationStats(int accounts, int storageSlots, int storageRoots) {}
 
+  private record CollectedChanges(Map<Hash, PerAccountChanges> changes, int blocksApplied) {}
+
   record BatchState(
-      MerkleTrie<Bytes, Bytes> accountTrie, WorldStateKeyValueStorage.Updater updater) {
+      MerkleTrie<Bytes, Bytes> accountTrie,
+      WorldStateKeyValueStorage.Updater updater,
+      BalStats stats) {
     void commit() {
       stageAccountTrieChanges(accountTrie, updater);
       updater.commit();
