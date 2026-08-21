@@ -52,10 +52,11 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
 
   private final SegmentedKeyValueStorage parent;
 
+  /** Set to true when {@link #close()} is called on this layer. */
+  private volatile boolean selfClosed = false;
+
   /**
-   * Cached result of parent.isClosed(). The closed state transitions from false to true exactly
-   * once per process lifetime and never back, so caching the first true result is safe and converts
-   * the O(N) parent-chain walk into an O(1) check.
+   * Cached result of a prior {@link #isClosed()} returning true. Once true, never transitions back.
    */
   private volatile boolean closedCache = false;
 
@@ -365,14 +366,22 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
   }
 
   @Override
+  public void close() {
+    selfClosed = true;
+  }
+
+  @Override
   public boolean isClosed() {
     if (closedCache) {
       return true;
     }
-    if (parent.isClosed()) {
+    if (selfClosed) {
       closedCache = true;
       return true;
     }
+    // Do not recurse into the parent chain: open layers are always open regardless of parent state.
+    // If a parent is closed, reads will throw at the parent level when they reach it.
+    // Recursing here is O(depth) per get() call and dominates CPU at large chain depths.
     return false;
   }
 
