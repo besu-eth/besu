@@ -29,6 +29,7 @@ import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import java.util.Collection;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -94,7 +95,7 @@ public class IbftExtraDataCodec extends BftExtraDataCodec {
     return new IbftLegacyExtraData(vanityData, seals, proposerSeal, validators);
   }
 
-  private static SECPSignature parseProposerSeal(final RLPInput rlpInput) {
+  private static @Nullable SECPSignature parseProposerSeal(final RLPInput rlpInput) {
     final Bytes data = rlpInput.readBytes();
     return data.isZero() ? null : SIGNATURE_ALGORITHM.decodeSignature(data);
   }
