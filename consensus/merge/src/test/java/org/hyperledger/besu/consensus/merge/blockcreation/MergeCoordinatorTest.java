@@ -77,7 +77,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.BaseFeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
 import org.hyperledger.besu.plugin.data.AddedBlockContext.EventType;
@@ -162,7 +162,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
 
   private final ProtocolSchedule protocolSchedule = spy(getMergeProtocolSchedule());
   private final GenesisState genesisState =
-      GenesisState.fromConfig(getPosGenesisConfig(), protocolSchedule, new PathBasedCodeCache());
+      GenesisState.fromConfig(getPosGenesisConfig(), protocolSchedule, new BonsaiCodeCache());
 
   private final WorldStateArchive worldStateArchive = createInMemoryWorldStateArchive();
 
@@ -1214,7 +1214,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     WorldStateArchive failingArchive = mock(WorldStateArchive.class);
     when(failingArchive.getWorldState(
             any(
-                org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams
+                org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.WorldStateQueryParams
                     .class)))
         .thenReturn(Optional.empty());
 

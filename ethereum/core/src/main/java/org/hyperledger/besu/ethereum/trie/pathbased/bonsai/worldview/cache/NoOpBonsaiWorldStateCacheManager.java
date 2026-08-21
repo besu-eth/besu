@@ -15,10 +15,10 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.cache;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateConfig;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 
@@ -30,7 +30,7 @@ public class NoOpBonsaiWorldStateCacheManager extends BonsaiWorldStateCacheManag
   public NoOpBonsaiWorldStateCacheManager(
       final BonsaiWorldStateKeyValueStorage bonsaiWorldStateKeyValueStorage,
       final EvmConfiguration evmConfiguration,
-      final PathBasedCodeCache codeCache) {
+      final BonsaiCodeCache codeCache) {
     super(
         null,
         bonsaiWorldStateKeyValueStorage,
@@ -43,7 +43,7 @@ public class NoOpBonsaiWorldStateCacheManager extends BonsaiWorldStateCacheManag
   public synchronized void addCachedLayer(
       final BlockHeader blockHeader,
       final Hash worldStateRootHash,
-      final PathBasedWorldState forWorldState) {
+      final BonsaiWorldState forWorldState) {
     // no cache
   }
 
@@ -53,17 +53,17 @@ public class NoOpBonsaiWorldStateCacheManager extends BonsaiWorldStateCacheManag
   }
 
   @Override
-  public Optional<PathBasedWorldState> getWorldState(final Hash blockHash) {
+  public Optional<BonsaiWorldState> getWorldState(final Hash blockHash) {
     return Optional.empty();
   }
 
   @Override
-  public Optional<PathBasedWorldState> getNearestWorldState(final BlockHeader blockHeader) {
+  public Optional<BonsaiWorldState> getNearestWorldState(final BlockHeader blockHeader) {
     return Optional.empty();
   }
 
   @Override
-  public Optional<PathBasedWorldState> getHeadWorldState(
+  public Optional<BonsaiWorldState> getHeadWorldState(
       final Function<Hash, Optional<BlockHeader>> hashBlockHeaderFunction) {
     return Optional.empty();
   }

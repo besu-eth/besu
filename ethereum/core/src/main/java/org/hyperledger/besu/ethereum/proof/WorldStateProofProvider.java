@@ -16,13 +16,13 @@ package org.hyperledger.besu.ethereum.proof;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.PatriciaAccountValue;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.InnerNodeDiscoveryManager;
 import org.hyperledger.besu.ethereum.trie.InnerNodeDiscoveryManager.InnerNode;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.Proof;
-import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.patricia.RemoveVisitor;
 import org.hyperledger.besu.ethereum.trie.patricia.SimpleMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
@@ -75,7 +75,7 @@ public class WorldStateProofProvider {
       return accountProof
           .getValue()
           .map(RLP::input)
-          .map(PmtStateTrieAccountValue::readFrom)
+          .map(PatriciaAccountValue::readFrom)
           .map(
               account -> {
                 final SortedMap<UInt256, Proof<Bytes>> storageProofs =
@@ -88,7 +88,7 @@ public class WorldStateProofProvider {
 
   private SortedMap<UInt256, Proof<Bytes>> getStorageProofs(
       final Hash accountHash,
-      final PmtStateTrieAccountValue account,
+      final PatriciaAccountValue account,
       final List<UInt256> accountStorageKeys) {
     final MerkleTrie<Bytes32, Bytes> storageTrie =
         newAccountStorageTrie(accountHash, Bytes32.wrap(account.getStorageRoot().getBytes()));

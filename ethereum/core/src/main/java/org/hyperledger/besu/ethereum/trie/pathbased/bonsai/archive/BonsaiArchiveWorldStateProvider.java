@@ -14,38 +14,26 @@
  */
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive;
 
-import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
-import org.hyperledger.besu.ethereum.proof.WorldStateProof;
-import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveCoverageTracker;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveHistoryReader;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateConfig;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
-import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.plugin.ServiceManager;
-import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
-import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
-import java.util.List;
 import java.util.Optional;
-import java.util.function.Function;
 import java.util.function.LongSupplier;
 
-import org.apache.tuweni.units.bigints.UInt256;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -54,12 +42,9 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
   private static final Logger LOG = LoggerFactory.getLogger(BonsaiArchiveWorldStateProvider.class);
 
   private final BonsaiWorldStateKeyValueStorage archiveReadStorage;
-  private final PathBasedCodeCache codeCache;
+  private final BonsaiCodeCache codeCache;
   private final WorldStateConfig archiveWorldStateConfig;
   private volatile LongSupplier archiveMigrationProgressSupplier = () -> -1L;
-
-  private final ArchiveCoverageTracker archiveCoverageTracker;
-  private final ArchiveHistoryReader archiveHistoryReader;
 
   public BonsaiArchiveWorldStateProvider(
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
@@ -68,7 +53,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
       final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader,
       final ServiceManager pluginContext,
       final EvmConfiguration evmConfiguration,
-      final PathBasedCodeCache codeCache,
+      final BonsaiCodeCache codeCache,
       final MetricsSystem metricsSystem) {
     this(
         worldStateKeyValueStorage,
@@ -89,7 +74,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
       final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader,
       final ServiceManager pluginContext,
       final EvmConfiguration evmConfiguration,
-      final PathBasedCodeCache codeCache,
+      final BonsaiCodeCache codeCache,
       final MetricsSystem metricsSystem,
       final Optional<Long> amsterdamMilestone) {
     super(
@@ -114,11 +99,6 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
             worldStateKeyValueStorage.getTrieLogStorage(),
             worldStateKeyValueStorage.getCacheManager(),
             worldStateKeyValueStorage.getCurrentVersion());
-    final SegmentedKeyValueStorage liveStorage =
-        worldStateKeyValueStorage.getComposedWorldStateStorage();
-    final ArchiveNodeHistoryStore archiveHistoryStore = new ArchiveNodeHistoryStore(liveStorage);
-    this.archiveCoverageTracker = new ArchiveCoverageTracker(liveStorage);
-    this.archiveHistoryReader = new ArchiveHistoryReader(archiveHistoryStore);
   }
 
   @Override
@@ -163,38 +143,10 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
         && archiveMigrationProgressSupplier.getAsLong() >= queryBlock;
   }
 
-  @Override
-  public <U> Optional<U> getAccountProof(
-      final BlockHeader blockHeader,
-      final Address accountAddress,
-      final List<UInt256> accountStorageKeys,
-      final Function<Optional<WorldStateProof>, ? extends Optional<U>> mapper) {
-    final long blockNumber = blockHeader.getNumber();
-    if (!archiveCoverageTracker.hasArchiveBlock(blockNumber)) {
-      return super.getAccountProof(blockHeader, accountAddress, accountStorageKeys, mapper);
-    }
-    try {
-      final WorldStateStorageCoordinator coordinator =
-          new BonsaiArchiveWorldStateStorageCoordinator(
-              archiveReadStorage, archiveHistoryReader, blockNumber);
-      final WorldStateProofProvider proofProvider = new WorldStateProofProvider(coordinator);
-      return mapper.apply(
-          proofProvider.getAccountProof(
-              blockHeader.getStateRoot(), accountAddress, accountStorageKeys));
-    } catch (final Exception ex) {
-      LOG.error(
-          "failed archive proof query for block {} ({})",
-          blockHeader.getNumber(),
-          blockHeader.getBlockHash().toShortLogString(),
-          ex);
-      return Optional.empty();
-    }
-  }
-
   // Archive-specific rollback behaviour. There is no trie-log roll forward/backward, we just roll
   // back the state root, block hash and block number
   protected Optional<MutableWorldState> rollMutableArchiveStateToBlockHash(
-      final PathBasedWorldState mutableState, final Hash blockHash) {
+      final BonsaiWorldState mutableState, final Hash blockHash) {
     LOG.trace(
         "Rolling mutable archive world state to block hash {}", blockHash.getBytes().toHexString());
     try {

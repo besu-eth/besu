@@ -14,7 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.mainnet.staterootcommitter;
 
-import static org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldView.encodeTrieValue;
+import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldView.encodeTrieValue;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
@@ -24,11 +24,11 @@ import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.PatriciaStorageRootStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedValue;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.preload.StorageConsumingMap;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.StorageConsumingMap;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
@@ -69,16 +69,14 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
       final MutableWorldState mutableWorldState,
       final BlockHeader blockHeader,
       final WorldUpdater worldUpdater) {
-    final PathBasedWorldStateUpdateAccumulator<?> accumulator =
-        (PathBasedWorldStateUpdateAccumulator<?>)
+    final BonsaiWorldStateUpdateAccumulator accumulator =
+        (BonsaiWorldStateUpdateAccumulator)
             Objects.requireNonNull(
                 worldUpdater, "Path-based state root committers require a non-null WorldUpdater");
     final BonsaiWorldState bonsai = (BonsaiWorldState) mutableWorldState;
     final List<StateRootComputations.UpdaterWrite> writes = new ArrayList<>();
     final Hash root =
-        new DefaultComputation(
-                bonsai, (BonsaiWorldStateUpdateAccumulator) accumulator, addressHasher)
-            .executeInto(writes);
+        new DefaultComputation(bonsai, accumulator, addressHasher).executeInto(writes);
     return StateRootComputations.pathBased(root, writes);
   }
 
@@ -120,7 +118,7 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
       final MerkleTrie<Bytes, Bytes> accountTrie = bonsai.createAccountStateTrie();
 
       // Step 1: launch storage trie updates concurrently for every touched account.
-      for (final Map.Entry<Address, StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>>>
+      for (final Map.Entry<Address, StorageConsumingMap<StorageSlotKey, BonsaiValue<UInt256>>>
           storageAccountUpdate : worldStateUpdater.getStorageToUpdate().entrySet()) {
         final Address address = storageAccountUpdate.getKey();
         if (worldStateUpdater.getAccountsToUpdate().containsKey(address)) {
@@ -133,10 +131,10 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
       }
 
       // Step 2: remove deleted accounts directly; defer updates to join storage futures inline.
-      for (final Map.Entry<Address, PathBasedValue<BonsaiAccount>> accountUpdate :
+      for (final Map.Entry<Address, BonsaiValue<BonsaiAccount>> accountUpdate :
           worldStateUpdater.getAccountsToUpdate().entrySet()) {
         final Address address = accountUpdate.getKey();
-        final PathBasedValue<BonsaiAccount> accountValue = accountUpdate.getValue();
+        final BonsaiValue<BonsaiAccount> accountValue = accountUpdate.getValue();
         final Hash addressHash = addressHasher.apply(bonsai, address);
         try {
           if (accountValue.getUpdated() == null) {
@@ -167,7 +165,7 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
     private Optional<Bytes> resolveUpdatedAccount(
         final Address address,
         final Hash addressHash,
-        final PathBasedValue<BonsaiAccount> accountValue) {
+        final BonsaiValue<BonsaiAccount> accountValue) {
       final BonsaiAccount updatedAccount = accountValue.getUpdated();
       final CompletableFuture<Hash> storageFuture = storageFutures.get(address);
       if (storageFuture != null) {
@@ -182,7 +180,7 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
 
     private Hash updateStorageTrie(
         final Address updatedAddress,
-        final StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>> storageUpdates) {
+        final StorageConsumingMap<StorageSlotKey, BonsaiValue<UInt256>> storageUpdates) {
 
       final boolean accountDeleted =
           worldStateUpdater.getAccountsToUpdate().get(updatedAddress).getUpdated() == null;
@@ -201,7 +199,7 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
       final MerkleTrie<Bytes, Bytes> storageTrie =
           bonsai.createStorageTrie(updatedAddressHash, storageRoot);
 
-      for (final Map.Entry<StorageSlotKey, PathBasedValue<UInt256>> storageUpdate :
+      for (final Map.Entry<StorageSlotKey, BonsaiValue<UInt256>> storageUpdate :
           storageUpdates.entrySet()) {
         final Hash slotHash = storageUpdate.getKey().getSlotHash();
         final UInt256 updatedStorage = storageUpdate.getValue().getUpdated();
@@ -238,7 +236,13 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
                 .getAccount(address.addressHash())
                 .map(
                     bytes ->
-                        BonsaiAccount.fromRLP(bonsai, address, bytes, true, bonsai.codeCache()))
+                        BonsaiAccount.fromFlatBytes(
+                            bonsai,
+                            address,
+                            bytes,
+                            true,
+                            bonsai.codeCache(),
+                            new PatriciaStorageRootStrategy(Hash.EMPTY_TRIE_HASH)))
                 .orElse(null);
         if (oldAccount == null) {
           continue;
@@ -247,7 +251,7 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
         final MerkleTrie<Bytes, Bytes> storageTrie =
             bonsai.createStorageTrie(addressHash, oldAccount.getStorageRoot());
         try {
-          StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>> storageToDelete = null;
+          StorageConsumingMap<StorageSlotKey, BonsaiValue<UInt256>> storageToDelete = null;
           Bytes32 nextKeyHash = Bytes32.ZERO;
           while (true) {
             final Map<Bytes32, Bytes> entriesToDelete = storageTrie.entriesFrom(nextKeyHash, 256);
@@ -274,8 +278,7 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
                   UInt256.fromBytes(Bytes32.leftPad(RLP.decodeValue(slot.getValue())));
               sink.removeStorageValueBySlotHash(addressHash, storageSlotKey.getSlotHash());
               storageToDelete
-                  .computeIfAbsent(
-                      storageSlotKey, key -> new PathBasedValue<>(slotValue, null, true))
+                  .computeIfAbsent(storageSlotKey, key -> new BonsaiValue<>(slotValue, null, true))
                   .setPrior(slotValue);
               lastKeyHash = slot.getKey();
             }
@@ -297,7 +300,7 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
     }
 
     private void collectCodeWrites() {
-      for (final Map.Entry<Address, PathBasedValue<Bytes>> codeUpdate :
+      for (final Map.Entry<Address, BonsaiValue<Bytes>> codeUpdate :
           worldStateUpdater.getCodeToUpdate().entrySet()) {
         final Bytes updatedCode = codeUpdate.getValue().getUpdated();
         final Hash accountHash = codeUpdate.getKey().addressHash();

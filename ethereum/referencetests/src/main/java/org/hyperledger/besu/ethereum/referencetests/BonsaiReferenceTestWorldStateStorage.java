@@ -17,11 +17,12 @@ package org.hyperledger.besu.ethereum.referencetests;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.PatriciaStorageRootStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiPreImageProxy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateLayerStorage;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldView;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldView;
 import org.hyperledger.besu.evm.account.AccountStorageEntry;
 import org.hyperledger.besu.evm.worldstate.WorldState;
 
@@ -66,7 +67,7 @@ public class BonsaiReferenceTestWorldStateStorage extends BonsaiWorldStateLayerS
   }
 
   public Stream<WorldState.StreamableAccount> streamAccounts(
-      final PathBasedWorldView context, final Bytes32 startKeyHash, final int limit) {
+      final BonsaiWorldView context, final Bytes32 startKeyHash, final int limit) {
     return streamFlatAccounts(startKeyHash, UInt256.MAX_VALUE, limit)
         .entrySet()
         // map back to addresses using preImage provider:
@@ -76,15 +77,17 @@ public class BonsaiReferenceTestWorldStateStorage extends BonsaiWorldStateLayerS
                 preImageProxy
                     .getAccountTrieKeyPreimage(entry.getKey())
                     .map(
-                        address ->
-                            new WorldState.StreamableAccount(
-                                Optional.of(address),
-                                BonsaiAccount.fromRLP(
-                                    context,
-                                    address,
-                                    entry.getValue(),
-                                    false,
-                                    new PathBasedCodeCache()))))
+                        address -> {
+                          final BonsaiAccount decoded =
+                              BonsaiAccount.fromFlatBytes(
+                                  context,
+                                  address,
+                                  entry.getValue(),
+                                  false,
+                                  new BonsaiCodeCache(),
+                                  new PatriciaStorageRootStrategy(Hash.EMPTY_TRIE_HASH));
+                          return new WorldState.StreamableAccount(Optional.of(address), decoded);
+                        }))
         .filter(Optional::isPresent)
         .map(Optional::get)
         .filter(acct -> context.updater().getAccount(acct.getAddress().orElse(null)) != null)

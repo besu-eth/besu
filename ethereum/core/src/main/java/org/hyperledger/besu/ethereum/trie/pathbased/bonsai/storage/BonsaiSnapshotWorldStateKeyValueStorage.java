@@ -16,15 +16,12 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedSnapshotWorldStateKeyValueStorage;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.StorageSubscriber;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SnappableKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SnappedKeyValueStorage;
 
 import java.util.Optional;
-import java.util.function.Supplier;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -32,7 +29,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class BonsaiSnapshotWorldStateKeyValueStorage extends BonsaiWorldStateKeyValueStorage
-    implements PathBasedSnapshotWorldStateKeyValueStorage, StorageSubscriber {
+    implements StorageSubscriber {
 
   protected final BonsaiWorldStateKeyValueStorage parentWorldStateStorage;
   private static final Logger LOG =
@@ -146,16 +143,6 @@ public class BonsaiSnapshotWorldStateKeyValueStorage extends BonsaiWorldStateKey
   }
 
   @Override
-  public Optional<Bytes> getStorageValueByStorageSlotKey(
-      final Supplier<Optional<Hash>> storageRootSupplier,
-      final Hash accountHash,
-      final StorageSlotKey storageSlotKey) {
-    return isClosedGet()
-        ? Optional.empty()
-        : super.getStorageValueByStorageSlotKey(storageRootSupplier, accountHash, storageSlotKey);
-  }
-
-  @Override
   public boolean isWorldStateAvailable(final Bytes32 rootHash, final Hash blockHash) {
     return !isClosedGet() && super.isWorldStateAvailable(rootHash, blockHash);
   }
@@ -237,7 +224,6 @@ public class BonsaiSnapshotWorldStateKeyValueStorage extends BonsaiWorldStateKey
     }
   }
 
-  @Override
   public BonsaiWorldStateKeyValueStorage getParentWorldStateStorage() {
     return parentWorldStateStorage;
   }

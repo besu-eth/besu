@@ -33,13 +33,6 @@ public interface AccountValue {
   Wei getBalance();
 
   /**
-   * The hash of the root of the storage trie associated with this account.
-   *
-   * @return the hash of the root node of the storage trie.
-   */
-  Hash getStorageRoot();
-
-  /**
    * The hash of the EVM bytecode associated with this account.
    *
    * @return the hash of the account code (which may be {@link Hash#EMPTY}).

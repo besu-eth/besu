@@ -14,10 +14,11 @@
  */
 package org.hyperledger.besu.ethereum.mainnet.staterootcommitter;
 
-import static org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldView.encodeTrieValue;
+import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldView.encodeTrieValue;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.PatriciaAccountValue;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
@@ -26,10 +27,9 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOv
 import org.hyperledger.besu.ethereum.mainnet.parallelization.BlockProcessingExecutors;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
-import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
@@ -295,8 +295,8 @@ public final class BalStateRootCommitter implements StateRootCommitter {
         final BlockAccessList.AccountChanges changes,
         final Optional<Bytes> maybeRlp) {
 
-      final PmtStateTrieAccountValue priorAccount =
-          maybeRlp.map(rlp -> PmtStateTrieAccountValue.readFrom(RLP.input(rlp))).orElse(null);
+      final PatriciaAccountValue priorAccount =
+          maybeRlp.map(rlp -> PatriciaAccountValue.readFrom(RLP.input(rlp))).orElse(null);
 
       final long newNonce;
       if (changes.nonceChanges().isEmpty()) {
@@ -343,8 +343,8 @@ public final class BalStateRootCommitter implements StateRootCommitter {
       }
       storageRoots.put(address, newStorageRoot);
 
-      final PmtStateTrieAccountValue updatedAccount =
-          new PmtStateTrieAccountValue(newNonce, newBalance, newStorageRoot, newCodeHash);
+      final PatriciaAccountValue updatedAccount =
+          new PatriciaAccountValue(newNonce, newBalance, newStorageRoot, newCodeHash);
       if (isAccountEmpty(updatedAccount)) {
         sink.removeAccountInfoState(accountHash);
         return Optional.empty();
@@ -394,11 +394,11 @@ public final class BalStateRootCommitter implements StateRootCommitter {
       return worldState
           .getWorldStateStorage()
           .getAccount(address.addressHash())
-          .map(rlp -> PmtStateTrieAccountValue.readFrom(RLP.input(rlp)).getStorageRoot())
+          .map(rlp -> PatriciaAccountValue.readFrom(RLP.input(rlp)).getStorageRoot())
           .orElse(Hash.EMPTY_TRIE_HASH);
     }
 
-    private boolean isAccountEmpty(final PmtStateTrieAccountValue account) {
+    private boolean isAccountEmpty(final PatriciaAccountValue account) {
       return account.getNonce() == 0
           && account.getBalance().isZero()
           && Hash.EMPTY_TRIE_HASH.equals(account.getStorageRoot())

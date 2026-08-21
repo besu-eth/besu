@@ -20,10 +20,9 @@ import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedValue;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.preload.StorageConsumingMap;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.StorageConsumingMap;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
@@ -55,14 +54,13 @@ public enum TrieDisabledStateRootCommitter implements StateRootCommitter {
       final MutableWorldState mutableWorldState,
       final BlockHeader blockHeader,
       final WorldUpdater worldUpdater) {
-    final PathBasedWorldStateUpdateAccumulator<?> accumulator =
-        (PathBasedWorldStateUpdateAccumulator<?>)
+    final BonsaiWorldStateUpdateAccumulator accumulator =
+        (BonsaiWorldStateUpdateAccumulator)
             Objects.requireNonNull(
-                worldUpdater, "Path-based state root committers require a non-null WorldUpdater");
+                worldUpdater, "Bonsai state root committers require a non-null WorldUpdater");
     final BonsaiWorldState bonsai = (BonsaiWorldState) mutableWorldState;
     final List<StateRootComputations.UpdaterWrite> writes = new ArrayList<>();
-    new FlatComputation(bonsai, (BonsaiWorldStateUpdateAccumulator) accumulator)
-        .executeInto(writes);
+    new FlatComputation(bonsai, accumulator).executeInto(writes);
     final Hash root =
         blockHeader != null
             ? blockHeader.getStateRoot()
@@ -96,9 +94,9 @@ public enum TrieDisabledStateRootCommitter implements StateRootCommitter {
     }
 
     private void collectAccountWrites() {
-      for (final Map.Entry<Address, PathBasedValue<BonsaiAccount>> accountUpdate :
+      for (final Map.Entry<Address, BonsaiValue<BonsaiAccount>> accountUpdate :
           worldStateUpdater.getAccountsToUpdate().entrySet()) {
-        final PathBasedValue<BonsaiAccount> accountValue = accountUpdate.getValue();
+        final BonsaiValue<BonsaiAccount> accountValue = accountUpdate.getValue();
         final Hash addressHash = accountUpdate.getKey().addressHash();
         if (accountValue.getUpdated() == null) {
           sink.removeAccountInfoState(addressHash);
@@ -109,7 +107,7 @@ public enum TrieDisabledStateRootCommitter implements StateRootCommitter {
     }
 
     private void collectStorageWrites() {
-      for (final Map.Entry<Address, StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>>>
+      for (final Map.Entry<Address, StorageConsumingMap<StorageSlotKey, BonsaiValue<UInt256>>>
           storageAccountUpdate : worldStateUpdater.getStorageToUpdate().entrySet()) {
         final Address address = storageAccountUpdate.getKey();
         if (!worldStateUpdater.getAccountsToUpdate().containsKey(address)) {
@@ -121,7 +119,7 @@ public enum TrieDisabledStateRootCommitter implements StateRootCommitter {
           continue;
         }
         final Hash updatedAddressHash = address.addressHash();
-        for (final Map.Entry<StorageSlotKey, PathBasedValue<UInt256>> storageUpdate :
+        for (final Map.Entry<StorageSlotKey, BonsaiValue<UInt256>> storageUpdate :
             storageAccountUpdate.getValue().entrySet()) {
           if (storageUpdate.getValue().isUnchanged()) {
             continue;
@@ -138,7 +136,7 @@ public enum TrieDisabledStateRootCommitter implements StateRootCommitter {
     }
 
     private void collectCodeWrites() {
-      for (final Map.Entry<Address, PathBasedValue<Bytes>> codeUpdate :
+      for (final Map.Entry<Address, BonsaiValue<Bytes>> codeUpdate :
           worldStateUpdater.getCodeToUpdate().entrySet()) {
         final Bytes updatedCode = codeUpdate.getValue().getUpdated();
         final Hash accountHash = codeUpdate.getKey().addressHash();

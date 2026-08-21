@@ -14,7 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
-import static org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig.createStatefulConfigWithTrie;
+import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateConfig.createStatefulConfigWithTrie;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -44,14 +44,14 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.NoOpTrieLogManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.NoOpBonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.cache.NoOpBonsaiWorldStateCacheManager;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.NoOpTrieLogManager;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.account.Account;
@@ -129,11 +129,11 @@ class BalTransactionProcessorUnitTest {
             storage,
             new NoOpBonsaiCachedMerkleTrieLoader(),
             new NoOpBonsaiWorldStateCacheManager(
-                storage, EvmConfiguration.DEFAULT, new PathBasedCodeCache()),
+                storage, EvmConfiguration.DEFAULT, new BonsaiCodeCache()),
             new NoOpTrieLogManager(),
             EvmConfiguration.DEFAULT,
             createStatefulConfigWithTrie(),
-            new PathBasedCodeCache());
+            new BonsaiCodeCache());
     blockAccessListOverlay.ifPresent(worldState::applyBlockAccessListOverlay);
     return worldState;
   }
@@ -380,18 +380,18 @@ class BalTransactionProcessorUnitTest {
           UInt256.valueOf(11), account.getStorageValue(slotOneKey), "Slot one should be applied");
       assertEquals(UInt256.ZERO, account.getStorageValue(slotTwoKey), "Null slot clears to zero");
 
-      final PathBasedWorldStateUpdateAccumulator<?> accumulator = env.worldState().updater();
+      final BonsaiWorldStateUpdateAccumulator accumulator = env.worldState().updater();
       assertNotNull(
           accumulator.getAccountsToUpdate().get(writeAddress),
           "Write account should be in accountsToUpdate");
       assertEquals(
           UInt256.valueOf(5),
           accumulator.getStorageToUpdate().get(writeAddress).get(slotOne).getPrior(),
-          "Slot one prior should be imported as PathBasedValue");
+          "Slot one prior should be imported as BonsaiValue");
       assertEquals(
           UInt256.valueOf(99),
           accumulator.getStorageToUpdate().get(writeAddress).get(slotTwo).getPrior(),
-          "Slot two prior should be imported as PathBasedValue");
+          "Slot two prior should be imported as BonsaiValue");
       assertNull(
           env.worldState().updater().get(readOnlyAddress),
           "Read-only partial BAL entries should not create account writes");

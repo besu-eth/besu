@@ -15,7 +15,7 @@
 package org.hyperledger.besu.ethereum.eth.sync.snapsync.v2;
 
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
+import org.hyperledger.besu.datatypes.PatriciaAccountValue;
 
 import java.util.Map;
 import java.util.Optional;
@@ -35,7 +35,7 @@ import org.apache.tuweni.units.bigints.UInt256;
  * @param codeByHash canonical code, fetched for restored accounts whose code was never downloaded
  */
 public record FetchedReorgState(
-    Map<Hash, Optional<PmtStateTrieAccountValue>> accounts,
+    Map<Hash, Optional<PatriciaAccountValue>> accounts,
     Map<Hash, Map<Hash, Optional<UInt256>>> slotsByAccount,
     Map<Hash, Bytes> codeByHash) {
 

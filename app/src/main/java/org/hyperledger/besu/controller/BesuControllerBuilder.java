@@ -93,14 +93,14 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.BonsaiFlatDbT
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveCoverageTracker;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveTrieNodeStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiTrieNodeStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.CodeHashCodeStorageStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogManager;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogPruner;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.CodeHashCodeStorageStrategy;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogManager;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogPruner;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration;
@@ -243,7 +243,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   protected boolean isLegacyBftProtocolEncodingEnabled = false;
 
   /** The global code cache */
-  protected PathBasedCodeCache codeCache;
+  protected BonsaiCodeCache codeCache;
 
   /** The effective checkpoint to sync to (CLI override or genesis). */
   protected Optional<Checkpoint> checkpoint = Optional.empty();
@@ -665,8 +665,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
     checkNotNull(dataStorageConfiguration, "Missing data storage configuration");
     checkNotNull(besuComponent, "Must supply a BesuComponent");
 
-    this.codeCache =
-        besuComponent.map(BesuComponent::getCodeCache).orElse(new PathBasedCodeCache());
+    this.codeCache = besuComponent.map(BesuComponent::getCodeCache).orElse(new BonsaiCodeCache());
     this.codeCache.setupMetricsSystem(metricsSystem);
 
     prepForBuild();
@@ -1058,7 +1057,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   private GenesisState getGenesisState(
       final Optional<BlockHeader> maybeGenesisBlockHeader,
       final ProtocolSchedule protocolSchedule,
-      final PathBasedCodeCache codeCache) {
+      final BonsaiCodeCache codeCache) {
     final Optional<Hash> maybeGenesisStateRoot =
         genesisStateHashCacheEnabled
             ? maybeGenesisBlockHeader.map(BlockHeader::getStateRoot)

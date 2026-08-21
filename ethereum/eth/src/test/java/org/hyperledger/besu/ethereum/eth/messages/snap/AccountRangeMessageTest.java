@@ -17,13 +17,13 @@ package org.hyperledger.besu.ethereum.eth.messages.snap;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.PatriciaAccountValue;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
-import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 
 import java.math.BigInteger;
 import java.util.ArrayList;
@@ -40,8 +40,8 @@ public final class AccountRangeMessageTest {
   @Test
   public void roundTripTest() {
     final Map<Bytes32, Bytes> keys = new HashMap<>();
-    final PmtStateTrieAccountValue accountValue =
-        new PmtStateTrieAccountValue(1L, Wei.of(2L), Hash.EMPTY_TRIE_HASH, Hash.EMPTY);
+    final PatriciaAccountValue accountValue =
+        new PatriciaAccountValue(1L, Wei.of(2L), Hash.EMPTY_TRIE_HASH, Hash.EMPTY);
     keys.put(Bytes32.leftPad(Bytes.of(1)), RLP.encode(accountValue::writeTo));
 
     final List<Bytes> proofs = new ArrayList<>();
@@ -62,8 +62,8 @@ public final class AccountRangeMessageTest {
   @Test
   public void createUsesSlimEncodingOnWire() {
     // Create an account with empty storage and code (the common case)
-    final PmtStateTrieAccountValue emptyAccount =
-        new PmtStateTrieAccountValue(1L, Wei.of(2L), Hash.EMPTY_TRIE_HASH, Hash.EMPTY);
+    final PatriciaAccountValue emptyAccount =
+        new PatriciaAccountValue(1L, Wei.of(2L), Hash.EMPTY_TRIE_HASH, Hash.EMPTY);
     final Map<Bytes32, Bytes> accounts = new HashMap<>();
     accounts.put(Bytes32.leftPad(Bytes.of(1)), RLP.encode(emptyAccount::writeTo));
 
@@ -82,8 +82,8 @@ public final class AccountRangeMessageTest {
     // Create an account with non-empty storage root and code hash
     final Hash storageRoot = Hash.wrap(Bytes32.leftPad(Bytes.fromHexString("0xdeadbeef")));
     final Hash codeHash = Hash.wrap(Bytes32.leftPad(Bytes.fromHexString("0xcafebabe")));
-    final PmtStateTrieAccountValue account =
-        new PmtStateTrieAccountValue(5L, Wei.of(100L), storageRoot, codeHash);
+    final PatriciaAccountValue account =
+        new PatriciaAccountValue(5L, Wei.of(100L), storageRoot, codeHash);
     final Map<Bytes32, Bytes> accounts = new HashMap<>();
     accounts.put(Bytes32.leftPad(Bytes.of(1)), RLP.encode(account::writeTo));
 
@@ -104,8 +104,8 @@ public final class AccountRangeMessageTest {
     Wei balance = Wei.of(2L);
 
     // Create a StateTrieAccountValue with the given nonce and balance
-    final PmtStateTrieAccountValue accountValue =
-        new PmtStateTrieAccountValue(nonce, balance, Hash.EMPTY_TRIE_HASH, Hash.EMPTY);
+    final PatriciaAccountValue accountValue =
+        new PatriciaAccountValue(nonce, balance, Hash.EMPTY_TRIE_HASH, Hash.EMPTY);
 
     // Encode the account value to RLP
     final BytesValueRLPOutput rlpOut = new BytesValueRLPOutput();
@@ -143,8 +143,8 @@ public final class AccountRangeMessageTest {
     Wei balance = Wei.of(2L);
 
     // Create a StateTrieAccountValue with the given nonce and balance
-    final PmtStateTrieAccountValue accountValue =
-        new PmtStateTrieAccountValue(nonce, balance, Hash.EMPTY_TRIE_HASH, Hash.EMPTY);
+    final PatriciaAccountValue accountValue =
+        new PatriciaAccountValue(nonce, balance, Hash.EMPTY_TRIE_HASH, Hash.EMPTY);
 
     // Encode the account value to RLP
     final BytesValueRLPOutput rlpOut = new BytesValueRLPOutput();
@@ -174,8 +174,8 @@ public final class AccountRangeMessageTest {
   @Test
   public void wrapRoundTripTest() {
     final Map<Bytes32, Bytes> keys = new HashMap<>();
-    final PmtStateTrieAccountValue accountValue =
-        new PmtStateTrieAccountValue(1L, Wei.of(2L), Hash.EMPTY_TRIE_HASH, Hash.EMPTY);
+    final PatriciaAccountValue accountValue =
+        new PatriciaAccountValue(1L, Wei.of(2L), Hash.EMPTY_TRIE_HASH, Hash.EMPTY);
     keys.put(Bytes32.leftPad(Bytes.of(1)), RLP.encode(accountValue::writeTo));
 
     final List<Bytes> proofs = new ArrayList<>();
@@ -195,8 +195,8 @@ public final class AccountRangeMessageTest {
   @Test
   public void wrapRoundTripWithRequestIdZero() {
     final Map<Bytes32, Bytes> keys = new HashMap<>();
-    final PmtStateTrieAccountValue accountValue =
-        new PmtStateTrieAccountValue(1L, Wei.of(2L), Hash.EMPTY_TRIE_HASH, Hash.EMPTY);
+    final PatriciaAccountValue accountValue =
+        new PatriciaAccountValue(1L, Wei.of(2L), Hash.EMPTY_TRIE_HASH, Hash.EMPTY);
     keys.put(Bytes32.leftPad(Bytes.of(1)), RLP.encode(accountValue::writeTo));
 
     final List<Bytes> proofs = new ArrayList<>();

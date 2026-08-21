@@ -15,13 +15,13 @@
 package org.hyperledger.besu.ethereum.eth.sync.snapsync.v2;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.PatriciaAccountValue;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedAccountRangeTracker;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedStorageRangeTracker;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
-import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 
 import java.util.ArrayList;
@@ -261,12 +261,12 @@ public class SnapV2ReorgHealer {
   private CompletableFuture<FetchedReorgState> fetchMissingSlotsAndCodes(
       final ReorgPlan plan,
       final BlockHeader newPivot,
-      final Map<Hash, Optional<PmtStateTrieAccountValue>> accounts) {
+      final Map<Hash, Optional<PatriciaAccountValue>> accounts) {
 
     final Map<Hash, Map<Hash, Optional<UInt256>>> slotsByAccount = new ConcurrentHashMap<>();
     final List<CompletableFuture<Void>> slotFutures = new ArrayList<>();
 
-    for (final Map.Entry<Hash, Optional<PmtStateTrieAccountValue>> entry : accounts.entrySet()) {
+    for (final Map.Entry<Hash, Optional<PatriciaAccountValue>> entry : accounts.entrySet()) {
       if (entry.getValue().isEmpty()) {
         continue;
       }
@@ -292,9 +292,9 @@ public class SnapV2ReorgHealer {
   }
 
   private Set<Hash> collectMissingCodeHashes(
-      final Map<Hash, Optional<PmtStateTrieAccountValue>> accounts) {
+      final Map<Hash, Optional<PatriciaAccountValue>> accounts) {
     final Set<Hash> missing = new HashSet<>();
-    for (final Map.Entry<Hash, Optional<PmtStateTrieAccountValue>> entry : accounts.entrySet()) {
+    for (final Map.Entry<Hash, Optional<PatriciaAccountValue>> entry : accounts.entrySet()) {
       if (entry.getValue().isEmpty()) {
         continue;
       }

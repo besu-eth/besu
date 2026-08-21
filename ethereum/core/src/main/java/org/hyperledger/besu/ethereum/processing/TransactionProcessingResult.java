@@ -18,7 +18,7 @@ import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 
 import java.util.List;
@@ -64,7 +64,7 @@ public class TransactionProcessingResult
   private final ValidationResult<TransactionInvalidReason> validationResult;
   private final Optional<Bytes> revertReason;
 
-  public PathBasedWorldStateUpdateAccumulator<?> accumulator;
+  public BonsaiWorldStateUpdateAccumulator accumulator;
   private final Optional<ExceptionalHaltReason> exceptionalHaltReason;
   private final Optional<PartialBlockAccessView> partialBlockAccessView;
 
