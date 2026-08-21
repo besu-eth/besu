@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Breaking Changes
+- `RpcMethod` no longer declares `eth_coinbase`, `miner_start`, `miner_stop`, and the four `perm_*Whitelist` names, whose implementations were removed earlier. Calling one now returns `Method not found` instead of `Method not enabled`, and `--rpc-http-api-methods-no-auth`/`--rpc-ws-api-methods-no-auth` reject them. [#11120](https://github.com/besu-eth/besu/pull/11120)
 - `--network=dev` is no longer supported; use `ephemery` or Kurtosis for local devnets. [#10836](https://github.com/besu-eth/besu/pull/10836)
 - Plugin API: `HealthCheckProvider` now returns `HealthCheckResult` (status + details map) instead of `boolean` [#10687](https://github.com/besu-eth/besu/issues/10687)
 - The experimental `--Xmax-tracked-seen-txs-per-peer` alias is removed (deprecated since 26.4.0). Use `--Xmax-tracked-seen-txs` instead. [#11018](https://github.com/besu-eth/besu/pull/11018)
