@@ -18,8 +18,10 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.atMostOnce;
+import static org.mockito.AdditionalMatchers.aryEq;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -340,7 +342,51 @@ public class LayeredKeyValueStorageTest {
 
     // The root mock should have been queried at most once across both top-level calls because the
     // intermediate layers cache the result and short-circuit before reaching the root
-    verify(parentStorage, atMostOnce()).isClosed();
+    verify(parentStorage, times(1)).isClosed();
+  }
+
+  @Test
+  void deepChainGetCallsIsClosedOnlyOnce() throws Exception {
+    int depth = 500;
+    byte[] key = {42};
+    byte[] value = {99};
+    when(parentStorage.isClosed()).thenReturn(false);
+    when(parentStorage.get(segmentId, key)).thenReturn(Optional.of(value));
+
+    // Build a 500-deep chain on top of the mock parent.
+    LayeredKeyValueStorage top = layeredKeyValueStorage; // depth 1, wraps parentStorage
+    for (int i = 1; i < depth; i++) {
+      top = new LayeredKeyValueStorage(top);
+    }
+
+    Optional<byte[]> result = top.get(segmentId, key);
+    assertTrue(result.isPresent());
+    assertArrayEquals(value, result.get());
+
+    // With the old code this would be called 500 times (once per level).
+    verify(parentStorage, times(1)).isClosed();
+  }
+
+  @Test
+  void deepChainGetBytesVariantCallsIsClosedOnlyOnce() throws Exception {
+    int depth = 500;
+    Bytes key = Bytes.of(42);
+    byte[] value = {99};
+    when(parentStorage.isClosed()).thenReturn(false);
+    when(parentStorage.get(eq(segmentId), aryEq(key.toArrayUnsafe())))
+        .thenReturn(Optional.of(value));
+
+    LayeredKeyValueStorage top = layeredKeyValueStorage;
+    for (int i = 1; i < depth; i++) {
+      top = new LayeredKeyValueStorage(top);
+    }
+
+    Optional<Bytes> result = top.get(segmentId, key, null);
+    assertTrue(result.isPresent());
+    assertArrayEquals(value, result.get().toArrayUnsafe());
+
+    // With the old code this would be called 500 times (once per level).
+    verify(parentStorage, times(1)).isClosed();
   }
 
   /**

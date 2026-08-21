@@ -91,16 +91,14 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
   public Optional<byte[]> get(final SegmentIdentifier segmentId, final byte[] key)
       throws StorageException {
     throwIfClosed();
-
-    final Lock lock = rwLock.readLock();
-    lock.lock();
-    try {
-      final Bytes wrapKey = Bytes.wrap(key);
-      final Optional<byte[]> foundKey =
-          hashValueStore.computeIfAbsent(segmentId, __ -> newSegmentMap()).get(wrapKey);
-      return foundKey == null ? parent.get(segmentId, key) : foundKey;
-    } finally {
-      lock.unlock();
+    final Bytes wrapKey = Bytes.wrap(key);
+    LayeredKeyValueStorage cur = this;
+    while (true) {
+      final Optional<byte[]> found = cur.getLocal(segmentId, wrapKey);
+      if (found != null) return found;
+      if (!(cur.parent instanceof LayeredKeyValueStorage next))
+        return cur.parent.get(segmentId, key);
+      cur = next;
     }
   }
 
@@ -119,23 +117,24 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
       final Bytes key,
       final Function<SegmentedKeyValueStorage, Optional<Bytes>> cacheGetFunction) {
     throwIfClosed();
+    LayeredKeyValueStorage cur = this;
+    while (true) {
+      final Optional<byte[]> found = cur.getLocal(segmentId, key);
+      if (found != null) return found.map(Bytes::wrap);
+      if (!(cur.parent instanceof LayeredKeyValueStorage next))
+        return cacheGetFunction != null
+            ? cacheGetFunction.apply(cur.parent)
+            : cur.parent.get(segmentId, key.toArrayUnsafe()).map(Bytes::wrap);
+      cur = next;
+    }
+  }
 
+  private Optional<byte[]> getLocal(final SegmentIdentifier segmentId, final Bytes key) {
     final Lock lock = rwLock.readLock();
     lock.lock();
     try {
-      final Optional<byte[]> foundKey =
-          hashValueStore.computeIfAbsent(segmentId, __ -> newSegmentMap()).get(key);
-
-      if (foundKey == null) {
-        if (parent instanceof LayeredKeyValueStorage layered) {
-          return layered.get(segmentId, key, cacheGetFunction);
-        }
-        if (cacheGetFunction != null) {
-          return cacheGetFunction.apply(parent);
-        }
-        return parent.get(segmentId, key.toArrayUnsafe()).map(Bytes::wrap);
-      }
-      return foundKey.map(Bytes::wrap);
+      final NavigableMap<Bytes, Optional<byte[]>> segment = hashValueStore.get(segmentId);
+      return segment == null ? null : segment.get(key);
     } finally {
       lock.unlock();
     }
@@ -366,13 +365,13 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
 
   @Override
   public boolean isClosed() {
-    if (closedCache) {
-      return true;
+    if (closedCache) return true;
+    SegmentedKeyValueStorage cur = parent;
+    while (cur instanceof LayeredKeyValueStorage layered) {
+      if (layered.closedCache) return closedCache = true;
+      cur = layered.parent;
     }
-    if (parent.isClosed()) {
-      closedCache = true;
-      return true;
-    }
+    if (cur.isClosed()) return closedCache = true;
     return false;
   }
 
