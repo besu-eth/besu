@@ -31,7 +31,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.transaction.PreCloseStateHandler;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
-import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
 
 import java.util.Set;
 
@@ -71,7 +71,7 @@ public class TraceCall extends AbstractTraceCall {
   @Override
   protected PreCloseStateHandler<Object> getSimulatorResultHandler(
       final JsonRpcRequestContext requestContext,
-      final DebugOperationTracer tracer,
+      final OperationTracer tracer,
       final ProtocolSpec protocolSpec) {
     return (mutableWorldState, maybeSimulatorResult) ->
         maybeSimulatorResult.map(

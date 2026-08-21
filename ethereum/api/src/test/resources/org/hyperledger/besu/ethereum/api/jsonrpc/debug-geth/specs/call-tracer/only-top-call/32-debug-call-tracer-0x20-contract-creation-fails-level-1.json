@@ -1,0 +1,35 @@
+{
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "debug_traceBlockByNumber",
+    "params": [
+      "0x20",
+      {
+        "tracer": "callTracer",
+        "tracerConfig": {
+          "onlyTopCall": true
+        }
+      }
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": [
+      {
+        "txHash": "0x0e16c0618a3d9f747fdf54a7229e9e745f75651a77551d09914223d3db5751e1",
+        "result": {
+          "from": "0xfe3b557e8fb62b89f4916b721be55ceb828dbd73",
+          "gas": "0x11fa1",
+          "gasUsed": "0x11e62",
+          "to": "0x0180000000000000000000000000000000000000",
+          "input": "0x000000000000000000000000000000000000000000000000000000000000ea60",
+          "value": "0x0",
+          "type": "CALL"
+        }
+      }
+    ]
+  },
+  "statusCode": 200
+}
