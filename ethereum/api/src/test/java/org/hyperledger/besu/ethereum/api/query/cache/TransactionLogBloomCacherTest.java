@@ -139,6 +139,25 @@ public class TransactionLogBloomCacherTest {
   }
 
   @Test
+  public void shouldNotRemoveSegmentsWhileCachingIsInProgress() throws IOException {
+    final File logBloom = Files.createFile(cacheDir.resolve("logBloom-0.cache")).toFile();
+    createLogBloomCache(logBloom);
+
+    transactionLogBloomCacher.getCachingStatus().cachingCount.incrementAndGet();
+    try {
+      assertThat(transactionLogBloomCacher.removeSegments(0L, (long) BLOCKS_PER_BLOOM_CACHE))
+          .isFalse();
+      assertThat(logBloom).exists();
+    } finally {
+      transactionLogBloomCacher.getCachingStatus().cachingCount.decrementAndGet();
+    }
+
+    assertThat(transactionLogBloomCacher.removeSegments(0L, (long) BLOCKS_PER_BLOOM_CACHE))
+        .isTrue();
+    assertThat(logBloom).doesNotExist();
+  }
+
+  @Test
   public void shouldUpdateCacheWhenBlockAdded() throws IOException {
     final File logBloom = Files.createFile(cacheDir.resolve("logBloom-0.cache")).toFile();
 
