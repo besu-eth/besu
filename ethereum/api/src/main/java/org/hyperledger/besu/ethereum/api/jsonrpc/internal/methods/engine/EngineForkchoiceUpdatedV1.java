@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
+import static com.google.common.base.Preconditions.checkNotNull;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.SYNCING;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.VALID;
@@ -74,7 +75,8 @@ public sealed class EngineForkchoiceUpdatedV1<PA extends PayloadAttributesV1>
       final HardforkId minSupportedFork,
       final HardforkId firstUnsupportedFork) {
     super(constructorArguments, minSupportedFork, firstUnsupportedFork);
-    this.mergeCoordinator = constructorArguments.mergeCoordinator();
+    this.mergeCoordinator =
+        checkNotNull(constructorArguments.mergeCoordinator(), "mergeCoordinator must not be null");
   }
 
   @Override
