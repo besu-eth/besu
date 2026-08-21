@@ -68,7 +68,7 @@ public class AccountTrieNodeHealingRequest extends TrieNodeHealingRequest {
     applyForStrategy(
         updater,
         onBonsai -> {
-          onBonsai.putAccountStateTrieNode(getLocation(), getNodeHash(), data);
+          onBonsai.putTrieNode(Optional.empty(), getLocation(), getNodeHash(), data);
         },
         onForest -> {
           onForest.putAccountStateTrieNode(getNodeHash(), data);

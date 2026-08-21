@@ -12,7 +12,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat;
+package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode;
 
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 
@@ -44,51 +44,21 @@ public class BonsaiTrieNodeStrategy implements TrieNodeStrategy {
   }
 
   @Override
-  public Optional<Bytes> getFlatAccountTrieNode(
+  public Optional<Bytes> getTrieNode(
       final Bytes location, final Bytes32 nodeHash, final SegmentedKeyValueStorage storage) {
     return storage.get(trieSegment, location.toArrayUnsafe()).map(Bytes::wrap);
   }
 
   @Override
-  public Optional<Bytes> getFlatStorageTrieNode(
-      final Hash accountHash,
-      final Bytes location,
-      final Bytes32 nodeHash,
-      final SegmentedKeyValueStorage storage) {
-    return storage
-        .get(trieSegment, Bytes.concatenate(accountHash.getBytes(), location).toArrayUnsafe())
-        .map(Bytes::wrap);
-  }
-
-  @Override
-  public void putFlatAccountTrieNode(
+  public void putTrieNode(
       final SegmentedKeyValueStorage storage,
       final SegmentedKeyValueStorageTransaction transaction,
+      final Optional<Hash> accountHash,
       final Bytes location,
       final Bytes32 nodeHash,
       final Bytes node) {
-    transaction.put(trieSegment, location.toArrayUnsafe(), node.toArrayUnsafe());
-  }
-
-  @Override
-  public void putFlatStorageTrieNode(
-      final SegmentedKeyValueStorage storage,
-      final SegmentedKeyValueStorageTransaction transaction,
-      final Hash accountHash,
-      final Bytes location,
-      final Bytes32 nodeHash,
-      final Bytes node) {
-    transaction.put(
-        trieSegment,
-        Bytes.concatenate(accountHash.getBytes(), location).toArrayUnsafe(),
-        node.toArrayUnsafe());
-  }
-
-  @Override
-  public void removeFlatAccountStateTrieNode(
-      final SegmentedKeyValueStorage storage,
-      final SegmentedKeyValueStorageTransaction transaction,
-      final Bytes location) {
-    transaction.remove(trieSegment, location.toArrayUnsafe());
+    final Bytes key =
+        accountHash.map(hash -> Bytes.concatenate(hash.getBytes(), location)).orElse(location);
+    transaction.put(trieSegment, key.toArrayUnsafe(), node.toArrayUnsafe());
   }
 }

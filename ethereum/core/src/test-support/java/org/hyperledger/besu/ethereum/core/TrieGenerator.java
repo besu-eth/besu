@@ -27,6 +27,7 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -65,8 +66,8 @@ public class TrieGenerator {
             applyForStrategy(
                 updater,
                 onBonsai -> {
-                  onBonsai.putAccountStorageTrieNode(
-                      accounts.get(accountIndex), location, hash, value);
+                  onBonsai.putTrieNode(
+                      Optional.of(accounts.get(accountIndex)), location, hash, value);
                 },
                 onForest -> {
                   onForest.putAccountStorageTrieNode(hash, value);
@@ -83,7 +84,8 @@ public class TrieGenerator {
             onBonsai.putAccountInfoState(
                 accounts.get(accountIndex), RLP.encode(accountValue::writeTo));
             accountStateTrie.commit(
-                (location, hash, value) -> onBonsai.putAccountStateTrieNode(location, hash, value));
+                (location, hash, value) ->
+                    onBonsai.putTrieNode(Optional.empty(), location, hash, value));
             onBonsai.putCode(accounts.get(accountIndex), codeHash, code);
           },
           onForest -> {

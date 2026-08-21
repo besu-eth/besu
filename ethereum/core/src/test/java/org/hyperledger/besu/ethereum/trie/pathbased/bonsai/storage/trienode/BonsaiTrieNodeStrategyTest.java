@@ -12,7 +12,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat;
+package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -23,6 +23,7 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTran
 import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -42,24 +43,11 @@ class BonsaiTrieNodeStrategyTest {
     final Bytes location = Bytes.of(0x0e);
     final Bytes node = Bytes.of(0xAA, 0xBB);
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    strategy.putFlatAccountTrieNode(storage, tx, location, hash(node), node);
+    strategy.putTrieNode(storage, tx, Optional.empty(), location, hash(node), node);
     tx.commit();
-    assertThat(strategy.getFlatAccountTrieNode(location, hash(node), storage)).contains(node);
+    assertThat(strategy.getTrieNode(location, hash(node), storage)).contains(node);
     // on-disk key is the bare location (format-compatible with legacy bonsai)
     assertThat(storage.get(KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE, location.toArrayUnsafe()))
         .isPresent();
-  }
-
-  @Test
-  void removeDeletesNode() {
-    final Bytes location = Bytes.of(0x0e);
-    final Bytes node = Bytes.of(0xAA);
-    SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    strategy.putFlatAccountTrieNode(storage, tx, location, hash(node), node);
-    tx.commit();
-    tx = storage.startTransaction();
-    strategy.removeFlatAccountStateTrieNode(storage, tx, location);
-    tx.commit();
-    assertThat(strategy.getFlatAccountTrieNode(location, null, storage)).isEmpty();
   }
 }

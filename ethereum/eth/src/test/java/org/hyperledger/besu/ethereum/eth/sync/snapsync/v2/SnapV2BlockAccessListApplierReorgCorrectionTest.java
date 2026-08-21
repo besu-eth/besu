@@ -232,8 +232,8 @@ class SnapV2BlockAccessListApplierReorgCorrectionTest {
     applyForStrategy(
         updater,
         bonsai -> {
-          bonsai.putAccountStorageTrieNode(accountHash, Bytes.EMPTY, rootHash, rootRlp);
-          bonsai.putAccountStorageTrieNode(accountHash, Bytes.of((byte) 0), leafHash, leafRlp);
+          bonsai.putTrieNode(Optional.of(accountHash), Bytes.EMPTY, rootHash, rootRlp);
+          bonsai.putTrieNode(Optional.of(accountHash), Bytes.of((byte) 0), leafHash, leafRlp);
           // child at nibble 1 deliberately NOT persisted
         },
         forest -> {});

@@ -667,7 +667,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
                   if (!pathIter.hasNext()) {
                     // single path: compact-encoded account trie node
                     final Bytes location = CompactEncoding.decode(firstPath);
-                    var optStorage = storage.getTrieNodeUnsafe(location);
+                    var optStorage = storage.getTrieNode(location);
                     if (optStorage.isEmpty() && location.isEmpty()) {
                       optStorage = Optional.of(MerkleTrie.EMPTY_TRIE_NODE);
                     }
@@ -689,7 +689,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
                       final Bytes path = pathIter.next();
                       final Bytes location = CompactEncoding.decode(path);
                       var optStorage =
-                          storage.getTrieNodeUnsafe(Bytes.concatenate(accountPrefix, location));
+                          storage.getTrieNode(Bytes.concatenate(accountPrefix, location));
                       if (optStorage.isEmpty() && location.isEmpty()) {
                         optStorage = Optional.of(MerkleTrie.EMPTY_TRIE_NODE);
                       }
@@ -824,7 +824,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
   Hash getAccountStorageRoot(
       final Bytes32 accountHash, final BonsaiWorldStateKeyValueStorage storage) {
     return storage
-        .getTrieNodeUnsafe(Bytes.concatenate(accountHash, Bytes.EMPTY))
+        .getTrieNode(Bytes.concatenate(accountHash, Bytes.EMPTY))
         .map(Hash::hash)
         .orElse(Hash.EMPTY_TRIE_HASH);
   }

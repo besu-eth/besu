@@ -127,7 +127,7 @@ public class AccountRangeDataRequest extends SnapDataRequest {
           applyForStrategy(
               updater,
               onBonsai -> {
-                onBonsai.putAccountStateTrieNode(location, hash, value);
+                onBonsai.putTrieNode(Optional.empty(), location, hash, value);
               },
               onForest -> {
                 onForest.putAccountStateTrieNode(hash, value);

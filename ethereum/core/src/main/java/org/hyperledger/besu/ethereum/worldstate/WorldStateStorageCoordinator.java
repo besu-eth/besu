@@ -47,20 +47,20 @@ public class WorldStateStorageCoordinator {
 
   public Optional<Bytes> getTrieNodeUnsafe(final Bytes key) {
     return applyForStrategy(
-        bonsai -> bonsai.getTrieNodeUnsafe(key),
+        bonsai -> bonsai.getTrieNode(key),
         forest -> forest.getAccountStateTrieNode(Bytes32.wrap(key)));
   }
 
   public Optional<Bytes> getAccountStateTrieNode(final Bytes location, final Bytes32 nodeHash) {
     return applyForStrategy(
-        bonsai -> bonsai.getAccountStateTrieNode(location, nodeHash),
+        bonsai -> bonsai.getTrieNode(location, nodeHash),
         forest -> forest.getAccountStateTrieNode(nodeHash));
   }
 
   public Optional<Bytes> getAccountStorageTrieNode(
       final Hash accountHash, final Bytes location, final Bytes32 nodeHash) {
     return applyForStrategy(
-        bonsai -> bonsai.getAccountStorageTrieNode(accountHash, location, nodeHash),
+        bonsai -> bonsai.getTrieNode(Bytes.concatenate(accountHash.getBytes(), location), nodeHash),
         forest -> forest.getAccountStorageTrieNode(nodeHash));
   }
 

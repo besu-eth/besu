@@ -284,7 +284,7 @@ public final class BalStateRootCommitter implements StateRootCommitter {
       // Step 3: commit the account trie.
       sink.commitTrie(
           accountTrie,
-          (location, hash, value) -> u -> u.putAccountStateTrieNode(location, hash, value));
+          (location, hash, value) -> u -> u.putTrieNode(Optional.empty(), location, hash, value));
       return new BackgroundResult(
           Hash.wrap(accountTrie.getRootHash()), new ArrayList<>(writes), storageRoots);
     }
@@ -386,7 +386,7 @@ public final class BalStateRootCommitter implements StateRootCommitter {
       sink.commitTrie(
           storageTrie,
           (location, nodeHash, value) ->
-              u -> u.putAccountStorageTrieNode(accountHash, location, nodeHash, value));
+              u -> u.putTrieNode(Optional.of(accountHash), location, nodeHash, value));
       return Hash.wrap(storageTrie.getRootHash());
     }
 

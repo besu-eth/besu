@@ -43,6 +43,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -89,7 +90,7 @@ public class SnapV2AccountRangeRequest extends SnapV2DataRequest {
         (location, hash, value) -> {
           applyForStrategy(
               updater,
-              onBonsai -> onBonsai.putAccountStateTrieNode(location, hash, value),
+              onBonsai -> onBonsai.putTrieNode(Optional.empty(), location, hash, value),
               onForest -> onForest.putAccountStateTrieNode(hash, value));
           nbNodesSaved.getAndIncrement();
         };

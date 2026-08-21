@@ -12,7 +12,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat;
+package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
@@ -20,15 +20,13 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage.WORLD_BLOCK_NUMBER_KEY;
 
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveCoverageTracker;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeKey;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveTrieNodeStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.BonsaiTrieNodeStrategy;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -62,7 +60,7 @@ class ArchiveTrieNodeStrategyTest {
 
   private void put(final ArchiveTrieNodeStrategy strategy, final Bytes location, final Bytes node) {
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    strategy.putFlatAccountTrieNode(storage, tx, location, hash(node), node);
+    strategy.putTrieNode(storage, tx, Optional.empty(), location, hash(node), node);
     tx.commit();
   }
 
@@ -81,7 +79,7 @@ class ArchiveTrieNodeStrategyTest {
     final Bytes node = Bytes.fromHexString("0xdeadbeef");
 
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    strategy.putFlatAccountTrieNode(storage, tx, location, hash(node), node);
+    strategy.putTrieNode(storage, tx, Optional.empty(), location, hash(node), node);
     tx.commit();
 
     assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location), 0L)).contains(node);
@@ -147,7 +145,7 @@ class ArchiveTrieNodeStrategyTest {
     final Bytes node = Bytes.fromHexString("0xcafe");
 
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    strategy.putFlatAccountTrieNode(storage, tx, location, hash(node), node);
+    strategy.putTrieNode(storage, tx, Optional.empty(), location, hash(node), node);
     tx.commit();
 
     assertThat(storage.get(TRIE_BRANCH_STORAGE, location.toArrayUnsafe())).isPresent();
@@ -155,7 +153,7 @@ class ArchiveTrieNodeStrategyTest {
     assertThat(coverageTracker.hasArchiveBlock(6L)).isFalse();
   }
 
-  // --- gap 1: putFlatStorageTrieNode ---
+  // --- gap 1: putTrieNode (storage) ---
 
   @Test
   void archivesStorageTrieNodeWhenGateOpen() {
@@ -165,7 +163,7 @@ class ArchiveTrieNodeStrategyTest {
     final Bytes node = Bytes.fromHexString("0xcafe");
 
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    strategy.putFlatStorageTrieNode(storage, tx, accountHash, location, hash(node), node);
+    strategy.putTrieNode(storage, tx, Optional.of(accountHash), location, hash(node), node);
     tx.commit();
 
     assertThat(
@@ -184,7 +182,7 @@ class ArchiveTrieNodeStrategyTest {
     final Bytes node = Bytes.fromHexString("0xcafe");
 
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    strategy.putFlatStorageTrieNode(storage, tx, accountHash, location, hash(node), node);
+    strategy.putTrieNode(storage, tx, Optional.of(accountHash), location, hash(node), node);
     tx.commit();
 
     assertThat(
@@ -203,8 +201,8 @@ class ArchiveTrieNodeStrategyTest {
     final Bytes node2 = Bytes.fromHexString("0x2222");
 
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    strategy.putFlatAccountTrieNode(storage, tx, location1, hash(node1), node1);
-    strategy.putFlatAccountTrieNode(storage, tx, location2, hash(node2), node2);
+    strategy.putTrieNode(storage, tx, Optional.empty(), location1, hash(node1), node1);
+    strategy.putTrieNode(storage, tx, Optional.empty(), location2, hash(node2), node2);
     tx.commit();
 
     assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location1), 0L)).contains(node1);
@@ -220,7 +218,7 @@ class ArchiveTrieNodeStrategyTest {
 
     put(strategy, location, node);
 
-    assertThat(strategy.getFlatAccountTrieNode(location, hash(node), storage)).contains(node);
+    assertThat(strategy.getTrieNode(location, hash(node), storage)).contains(node);
   }
 
   @Test
@@ -231,24 +229,10 @@ class ArchiveTrieNodeStrategyTest {
     final Bytes node = Bytes.fromHexString("0xabcd");
 
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    strategy.putFlatStorageTrieNode(storage, tx, accountHash, location, hash(node), node);
+    strategy.putTrieNode(storage, tx, Optional.of(accountHash), location, hash(node), node);
     tx.commit();
 
-    assertThat(strategy.getFlatStorageTrieNode(accountHash, location, hash(node), storage))
-        .contains(node);
-  }
-
-  @Test
-  void removeDoesNotWriteToArchive() {
-    setStoredBlockNumber(5L);
-    final ArchiveTrieNodeStrategy strategy = strategyWithGate(true);
-    final Bytes location = Bytes.of(0x0e);
-
-    final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    strategy.removeFlatAccountStateTrieNode(storage, tx, location);
-    tx.commit();
-
-    assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location), 6L)).isEmpty();
-    assertThat(coverageTracker.hasArchiveBlock(6L)).isFalse();
+    final Bytes storageKey = Bytes.concatenate(accountHash.getBytes(), location);
+    assertThat(strategy.getTrieNode(storageKey, hash(node), storage)).contains(node);
   }
 }

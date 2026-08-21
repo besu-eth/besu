@@ -18,7 +18,7 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage.WORLD_BLOCK_NUMBER_KEY;
 
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.TrieNodeStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeStrategy;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 
@@ -93,57 +93,28 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy {
   }
 
   @Override
-  public Optional<Bytes> getFlatAccountTrieNode(
+  public Optional<Bytes> getTrieNode(
       final Bytes location, final Bytes32 nodeHash, final SegmentedKeyValueStorage storage) {
-    return base.getFlatAccountTrieNode(location, nodeHash, storage);
+    return base.getTrieNode(location, nodeHash, storage);
   }
 
   @Override
-  public Optional<Bytes> getFlatStorageTrieNode(
-      final Hash accountHash,
-      final Bytes location,
-      final Bytes32 nodeHash,
-      final SegmentedKeyValueStorage storage) {
-    return base.getFlatStorageTrieNode(accountHash, location, nodeHash, storage);
-  }
-
-  @Override
-  public void putFlatAccountTrieNode(
+  public void putTrieNode(
       final SegmentedKeyValueStorage storage,
       final SegmentedKeyValueStorageTransaction transaction,
+      final Optional<Hash> accountHash,
       final Bytes location,
       final Bytes32 nodeHash,
       final Bytes node) {
-    base.putFlatAccountTrieNode(storage, transaction, location, nodeHash, node);
+    base.putTrieNode(storage, transaction, accountHash, location, nodeHash, node);
     final long block = currentBlockNumber(storage);
     if (shouldArchive(block)) {
-      historyStore.put(transaction, ArchiveNodeKey.account(location), block, node);
+      final Bytes naturalKey =
+          accountHash
+              .map(hash -> ArchiveNodeKey.storage(hash.getBytes(), location))
+              .orElseGet(() -> ArchiveNodeKey.account(location));
+      historyStore.put(transaction, naturalKey, block, node);
       maybeRecordProgress(transaction, block);
     }
-  }
-
-  @Override
-  public void putFlatStorageTrieNode(
-      final SegmentedKeyValueStorage storage,
-      final SegmentedKeyValueStorageTransaction transaction,
-      final Hash accountHash,
-      final Bytes location,
-      final Bytes32 nodeHash,
-      final Bytes node) {
-    base.putFlatStorageTrieNode(storage, transaction, accountHash, location, nodeHash, node);
-    final long block = currentBlockNumber(storage);
-    if (shouldArchive(block)) {
-      historyStore.put(
-          transaction, ArchiveNodeKey.storage(accountHash.getBytes(), location), block, node);
-      maybeRecordProgress(transaction, block);
-    }
-  }
-
-  @Override
-  public void removeFlatAccountStateTrieNode(
-      final SegmentedKeyValueStorage storage,
-      final SegmentedKeyValueStorageTransaction transaction,
-      final Bytes location) {
-    base.removeFlatAccountStateTrieNode(storage, transaction, location);
   }
 }

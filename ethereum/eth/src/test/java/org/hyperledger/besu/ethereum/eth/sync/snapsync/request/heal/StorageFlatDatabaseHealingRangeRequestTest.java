@@ -108,7 +108,8 @@ class StorageFlatDatabaseHealingRangeRequestTest {
     final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
         new StoredMerklePatriciaTrie<>(
             (location, hash) ->
-                worldStateKeyValueStorage.getAccountStorageTrieNode(account0Hash, location, hash),
+                worldStateKeyValueStorage.getTrieNode(
+                    Bytes.concatenate(account0Hash.getBytes(), location), hash),
             Bytes32.wrap(account0StorageRoot.getBytes()),
             b -> b,
             b -> b);
@@ -167,7 +168,8 @@ class StorageFlatDatabaseHealingRangeRequestTest {
     final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
         new StoredMerklePatriciaTrie<>(
             (location, hash) ->
-                worldStateKeyValueStorage.getAccountStorageTrieNode(account0Hash, location, hash),
+                worldStateKeyValueStorage.getTrieNode(
+                    Bytes.concatenate(account0Hash.getBytes(), location), hash),
             Bytes32.wrap(account0StorageRoot.getBytes()),
             b -> b,
             b -> b);
@@ -212,7 +214,8 @@ class StorageFlatDatabaseHealingRangeRequestTest {
     final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
         new StoredMerklePatriciaTrie<>(
             (location, hash) ->
-                worldStateKeyValueStorage.getAccountStorageTrieNode(account0Hash, location, hash),
+                worldStateKeyValueStorage.getTrieNode(
+                    Bytes.concatenate(account0Hash.getBytes(), location), hash),
             Bytes32.wrap(account0StorageRoot.getBytes()),
             b -> b,
             b -> b);
@@ -269,7 +272,8 @@ class StorageFlatDatabaseHealingRangeRequestTest {
     final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
         new StoredMerklePatriciaTrie<>(
             (location, hash) ->
-                worldStateKeyValueStorage.getAccountStorageTrieNode(account0Hash, location, hash),
+                worldStateKeyValueStorage.getTrieNode(
+                    Bytes.concatenate(account0Hash.getBytes(), location), hash),
             Bytes32.wrap(account0StorageRoot.getBytes()),
             b -> b,
             b -> b);

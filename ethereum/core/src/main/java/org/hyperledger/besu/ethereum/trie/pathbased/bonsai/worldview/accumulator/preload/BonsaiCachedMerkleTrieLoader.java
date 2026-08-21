@@ -141,7 +141,7 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
       return Optional.of(MerkleTrie.EMPTY_TRIE_NODE);
     } else {
       return Optional.ofNullable(accountNodes.getIfPresent(nodeHash))
-          .or(() -> worldStateKeyValueStorage.getAccountStateTrieNode(location, nodeHash));
+          .or(() -> worldStateKeyValueStorage.getTrieNode(location, nodeHash));
     }
   }
 
@@ -156,8 +156,8 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
       return Optional.ofNullable(storageNodes.getIfPresent(nodeHash))
           .or(
               () ->
-                  worldStateKeyValueStorage.getAccountStorageTrieNode(
-                      accountHash, location, nodeHash));
+                  worldStateKeyValueStorage.getTrieNode(
+                      Bytes.concatenate(accountHash.getBytes(), location), nodeHash));
     }
   }
 }

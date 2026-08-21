@@ -129,7 +129,8 @@ public class BonsaiPartialFlatDbStrategy extends BonsaiFlatDbStrategy {
             .map(Bytes::wrap);
     if (response.isEmpty()) {
       // Decode the account's MPT storage root from the raw account bytes, then traverse the
-      // per-account storage trie via the node loader, which prefixes accountHash internally.
+      // per-account storage trie. The node loader is raw (no key prefixing); this strategy
+      // prefixes accountHash, which is the MPT storage-trie key convention.
       final Optional<Hash> storageRoot =
           accountSupplier
               .get()
@@ -139,9 +140,13 @@ public class BonsaiPartialFlatDbStrategy extends BonsaiFlatDbStrategy {
                           .getStorageRoot());
       final Optional<Bytes> worldStateRootHash = worldStateRootHashSupplier.get();
       if (storageRoot.isPresent() && worldStateRootHash.isPresent()) {
+        final NodeLoader prefixedLoader =
+            (location, hash) ->
+                nodeLoader.getNode(Bytes.concatenate(accountHash.getBytes(), location), hash);
         response =
             new StoredMerklePatriciaTrie<>(
-                    new StoredNodeFactory<>(nodeLoader, Function.identity(), Function.identity()),
+                    new StoredNodeFactory<>(
+                        prefixedLoader, Function.identity(), Function.identity()),
                     Bytes32.wrap(storageRoot.get().getBytes()))
                 .get(storageSlotKey.getSlotHash().getBytes())
                 .map(bytes -> Bytes32.leftPad(RLP.decodeValue(bytes)));

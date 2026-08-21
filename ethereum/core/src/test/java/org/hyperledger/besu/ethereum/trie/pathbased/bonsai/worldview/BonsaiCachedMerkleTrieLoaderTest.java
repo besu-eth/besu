@@ -105,7 +105,8 @@ class BonsaiCachedMerkleTrieLoaderTest {
     final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
         new StoredMerklePatriciaTrie<>(
             (Bytes location, Bytes32 hash) ->
-                inMemoryWorldState.getAccountStorageTrieNode(hashAccountZero, location, hash),
+                inMemoryWorldState.getTrieNode(
+                    Bytes.concatenate(hashAccountZero.getBytes(), location), hash),
             Bytes32.wrap(stateTrieAccountValue.getStorageRoot().getBytes()),
             Function.identity(),
             Function.identity());
@@ -166,7 +167,8 @@ class BonsaiCachedMerkleTrieLoaderTest {
     final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
         new StoredMerklePatriciaTrie<>(
             (Bytes location, Bytes32 hash) ->
-                inMemoryWorldState.getAccountStorageTrieNode(hashAccountZero, location, hash),
+                inMemoryWorldState.getTrieNode(
+                    Bytes.concatenate(hashAccountZero.getBytes(), location), hash),
             Bytes32.wrap(stateTrieAccountValue.getStorageRoot().getBytes()),
             Function.identity(),
             Function.identity());

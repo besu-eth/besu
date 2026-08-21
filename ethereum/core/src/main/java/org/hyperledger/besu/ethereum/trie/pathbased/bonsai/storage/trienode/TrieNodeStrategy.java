@@ -12,7 +12,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat;
+package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
@@ -27,32 +27,25 @@ import org.apache.tuweni.bytes.Bytes32;
  * Defines the strategy for storing and retrieving trie nodes in a flat key-value storage.
  * Implementations of this interface can define different strategies for how trie nodes are stored
  * and retrieved, such as using different key formats or storage segments.
+ *
+ * <p>Reads are keyed purely by {@code location}: callers are responsible for prefixing the account
+ * hash into {@code location} when reading a storage-trie node (see {@link
+ * org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage#getTrieNode}).
+ *
+ * <p>Writes take the account hash as an {@link Optional} ({@link Optional#empty()} for an
+ * account-trie node, present for a storage-trie node) rather than a pre-concatenated location,
+ * because implementations (e.g. the archive strategy) may need the raw account hash to index the
+ * node separately from the live key.
  */
 public interface TrieNodeStrategy {
 
-  Optional<Bytes> getFlatAccountTrieNode(
-      Bytes location, Bytes32 nodeHash, SegmentedKeyValueStorage storage);
+  Optional<Bytes> getTrieNode(Bytes location, Bytes32 nodeHash, SegmentedKeyValueStorage storage);
 
-  Optional<Bytes> getFlatStorageTrieNode(
-      Hash accountHash, Bytes location, Bytes32 nodeHash, SegmentedKeyValueStorage storage);
-
-  void putFlatAccountTrieNode(
+  void putTrieNode(
       SegmentedKeyValueStorage storage,
       SegmentedKeyValueStorageTransaction transaction,
+      Optional<Hash> accountHash,
       Bytes location,
       Bytes32 nodeHash,
       Bytes node);
-
-  void putFlatStorageTrieNode(
-      SegmentedKeyValueStorage storage,
-      SegmentedKeyValueStorageTransaction transaction,
-      Hash accountHash,
-      Bytes location,
-      Bytes32 nodeHash,
-      Bytes node);
-
-  void removeFlatAccountStateTrieNode(
-      SegmentedKeyValueStorage storage,
-      SegmentedKeyValueStorageTransaction transaction,
-      Bytes location);
 }

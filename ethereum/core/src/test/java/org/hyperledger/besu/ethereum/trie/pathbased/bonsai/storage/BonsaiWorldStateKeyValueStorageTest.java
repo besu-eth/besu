@@ -121,7 +121,7 @@ public class BonsaiWorldStateKeyValueStorageTest {
   @MethodSource("flatDbMode")
   void getAccountStateTrieNode_returnsEmptyNode(final FlatDbMode flatDbMode) {
     setUp(flatDbMode);
-    assertThat(storage.getAccountStateTrieNode(Bytes.EMPTY, MerkleTrie.EMPTY_TRIE_NODE_HASH))
+    assertThat(storage.getTrieNode(Bytes.EMPTY, MerkleTrie.EMPTY_TRIE_NODE_HASH))
         .contains(MerkleTrie.EMPTY_TRIE_NODE);
   }
 
@@ -130,8 +130,9 @@ public class BonsaiWorldStateKeyValueStorageTest {
   void getAccountStorageTrieNode_returnsEmptyNode(final FlatDbMode flatDbMode) {
     setUp(flatDbMode);
     assertThat(
-            storage.getAccountStorageTrieNode(
-                Hash.EMPTY, Bytes.EMPTY, MerkleTrie.EMPTY_TRIE_NODE_HASH))
+            storage.getTrieNode(
+                Bytes.concatenate(Hash.EMPTY.getBytes(), Bytes.EMPTY),
+                MerkleTrie.EMPTY_TRIE_NODE_HASH))
         .contains(MerkleTrie.EMPTY_TRIE_NODE);
   }
 
@@ -167,17 +168,21 @@ public class BonsaiWorldStateKeyValueStorageTest {
     setUp(flatDbMode);
     storage
         .updater()
-        .putAccountStateTrieNode(
+        .putTrieNode(
+            Optional.empty(),
             Bytes.EMPTY,
             Bytes32.wrap(Hash.hash(MerkleTrie.EMPTY_TRIE_NODE).getBytes()),
             MerkleTrie.EMPTY_TRIE_NODE)
-        .putAccountStateTrieNode(
-            Bytes.EMPTY, Bytes32.wrap(Hash.hash(Bytes.EMPTY).getBytes()), Bytes.EMPTY)
+        .putTrieNode(
+            Optional.empty(),
+            Bytes.EMPTY,
+            Bytes32.wrap(Hash.hash(Bytes.EMPTY).getBytes()),
+            Bytes.EMPTY)
         .commit();
 
-    assertThat(storage.getAccountStateTrieNode(Bytes.EMPTY, MerkleTrie.EMPTY_TRIE_NODE_HASH))
+    assertThat(storage.getTrieNode(Bytes.EMPTY, MerkleTrie.EMPTY_TRIE_NODE_HASH))
         .contains(MerkleTrie.EMPTY_TRIE_NODE);
-    assertThat(storage.getAccountStateTrieNode(Bytes.EMPTY, Bytes32.wrap(Hash.EMPTY.getBytes())))
+    assertThat(storage.getTrieNode(Bytes.EMPTY, Bytes32.wrap(Hash.EMPTY.getBytes())))
         .contains(Bytes.EMPTY);
   }
 
@@ -190,10 +195,10 @@ public class BonsaiWorldStateKeyValueStorageTest {
 
     storage
         .updater()
-        .putAccountStateTrieNode(location, Bytes32.wrap(Hash.hash(bytes).getBytes()), bytes)
+        .putTrieNode(Optional.empty(), location, Bytes32.wrap(Hash.hash(bytes).getBytes()), bytes)
         .commit();
 
-    assertThat(storage.getAccountStateTrieNode(location, Bytes32.wrap(Hash.hash(bytes).getBytes())))
+    assertThat(storage.getTrieNode(location, Bytes32.wrap(Hash.hash(bytes).getBytes())))
         .contains(bytes);
   }
 
@@ -201,27 +206,28 @@ public class BonsaiWorldStateKeyValueStorageTest {
   @MethodSource("flatDbMode")
   void getAccountStorageTrieNode_saveAndGetSpecialValues(final FlatDbMode flatDbMode) {
     setUp(flatDbMode);
+    final Bytes storageLocation = Bytes.concatenate(Hash.EMPTY.getBytes(), Bytes.EMPTY);
 
     storage
         .updater()
-        .putAccountStorageTrieNode(
-            Hash.EMPTY,
-            Bytes.EMPTY,
+        .putTrieNode(
+            Optional.empty(),
+            storageLocation,
             Bytes32.wrap(Hash.hash(MerkleTrie.EMPTY_TRIE_NODE).getBytes()),
             MerkleTrie.EMPTY_TRIE_NODE)
-        .putAccountStorageTrieNode(
-            Hash.EMPTY, Bytes.EMPTY, Bytes32.wrap(Hash.hash(Bytes.EMPTY).getBytes()), Bytes.EMPTY)
+        .putTrieNode(
+            Optional.empty(),
+            storageLocation,
+            Bytes32.wrap(Hash.hash(Bytes.EMPTY).getBytes()),
+            Bytes.EMPTY)
         .commit();
 
     assertThat(
-            storage.getAccountStorageTrieNode(
-                Hash.EMPTY,
-                Bytes.EMPTY,
-                Bytes32.wrap(Hash.hash(MerkleTrie.EMPTY_TRIE_NODE).getBytes())))
+            storage.getTrieNode(
+                storageLocation, Bytes32.wrap(Hash.hash(MerkleTrie.EMPTY_TRIE_NODE).getBytes())))
         .contains(MerkleTrie.EMPTY_TRIE_NODE);
     assertThat(
-            storage.getAccountStorageTrieNode(
-                Hash.EMPTY, Bytes.EMPTY, Bytes32.wrap(Hash.hash(Bytes.EMPTY).getBytes())))
+            storage.getTrieNode(storageLocation, Bytes32.wrap(Hash.hash(Bytes.EMPTY).getBytes())))
         .contains(Bytes.EMPTY);
   }
 
@@ -232,16 +238,15 @@ public class BonsaiWorldStateKeyValueStorageTest {
     final Hash accountHash = Address.fromHexString("0x1").addressHash();
     final Bytes location = Bytes.fromHexString("0x01");
     final Bytes bytes = Bytes.fromHexString("0x123456");
+    final Bytes storageLocation = Bytes.concatenate(accountHash.getBytes(), location);
 
     storage
         .updater()
-        .putAccountStorageTrieNode(
-            accountHash, location, Bytes32.wrap(Hash.hash(bytes).getBytes()), bytes)
+        .putTrieNode(
+            Optional.empty(), storageLocation, Bytes32.wrap(Hash.hash(bytes).getBytes()), bytes)
         .commit();
 
-    assertThat(
-            storage.getAccountStorageTrieNode(
-                accountHash, location, Bytes32.wrap(Hash.hash(bytes).getBytes())))
+    assertThat(storage.getTrieNode(storageLocation, Bytes32.wrap(Hash.hash(bytes).getBytes())))
         .contains(bytes);
   }
 
@@ -276,7 +281,7 @@ public class BonsaiWorldStateKeyValueStorageTest {
 
     assertThat(storage.getAccount(Hash.wrap(accounts.firstKey()))).isEmpty();
 
-    verify(storage, times(0)).getAccountStateTrieNode(any(), eq(trie.getRootHash()));
+    verify(storage, times(0)).getTrieNode(any(), eq(trie.getRootHash()));
   }
 
   @ParameterizedTest
@@ -308,7 +313,7 @@ public class BonsaiWorldStateKeyValueStorageTest {
     assertThat(storage.getAccount(Hash.wrap(accounts.firstKey())))
         .contains(accounts.firstEntry().getValue());
 
-    verify(storage, times(1)).getAccountStateTrieNode(any(), eq(trie.getRootHash()));
+    verify(storage, times(1)).getTrieNode(any(), eq(trie.getRootHash()));
   }
 
   @ParameterizedTest
@@ -332,7 +337,8 @@ public class BonsaiWorldStateKeyValueStorageTest {
     final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
         new StoredMerklePatriciaTrie<>(
             (Bytes location, Bytes32 hash) ->
-                storage.getAccountStorageTrieNode(Hash.wrap(accounts.firstKey()), location, hash),
+                storage.getTrieNode(
+                    Bytes.concatenate(Hash.wrap(accounts.firstKey()).getBytes(), location), hash),
             Bytes32.wrap(stateTrieAccountValue.getStorageRoot().getBytes()),
             b -> b,
             b -> b);
@@ -361,9 +367,7 @@ public class BonsaiWorldStateKeyValueStorageTest {
         .map(Bytes::toShortHexString)
         .contains(slots.firstEntry().getValue().toShortHexString());
 
-    verify(storage, times(2))
-        .getAccountStorageTrieNode(
-            eq(Hash.wrap(accounts.firstKey())), any(), eq(storageTrie.getRootHash()));
+    verify(storage, times(2)).getTrieNode(any(), eq(storageTrie.getRootHash()));
   }
 
   @ParameterizedTest

@@ -152,7 +152,7 @@ public class SnapServerTest {
     storageCoordinator = new WorldStateStorageCoordinator(inMemoryStorage);
     storageTrie =
         new StoredMerklePatriciaTrie<>(
-            inMemoryStorage::getAccountStateTrieNode, Function.identity(), Function.identity());
+            inMemoryStorage::getTrieNode, Function.identity(), Function.identity());
     proofProvider = new WorldStateProofProvider(storageCoordinator);
 
     spyProvider =
@@ -863,7 +863,7 @@ public class SnapServerTest {
       final Hash acctHash, final int slotKeyGap, final BonsaiWorldStateKeyValueStorage storage) {
     MerkleTrie<Bytes32, Bytes> trie =
         new StoredMerklePatriciaTrie<>(
-            (loc, hash) -> storage.getAccountStorageTrieNode(acctHash, loc, hash),
+            (loc, hash) -> storage.getTrieNode(Bytes.concatenate(acctHash.getBytes(), loc), hash),
             Bytes32.wrap(Hash.EMPTY_TRIE_HASH.getBytes()),
             a -> a,
             a -> a);
@@ -894,8 +894,7 @@ public class SnapServerTest {
                   mockBytes32);
             });
     trie.commit(
-        (location, key, value) ->
-            updater.putAccountStorageTrieNode(acctHash, location, key, value));
+        (location, key, value) -> updater.putTrieNode(Optional.of(acctHash), location, key, value));
     updater.commit();
     return new SnapTestAccount(
         acctHash,
@@ -912,7 +911,8 @@ public class SnapServerTest {
       updater.putAccountInfoState(account.addressHash(), account.accountRLP());
       storageTrie.put(account.addressHash().getBytes(), account.accountRLP());
     }
-    storageTrie.commit(updater::putAccountStateTrieNode);
+    storageTrie.commit(
+        (location, hash, value) -> updater.putTrieNode(Optional.empty(), location, hash, value));
     updater.commit();
     inMemoryStorage
         .getWorldStateBlockNumber()

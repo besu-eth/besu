@@ -28,9 +28,9 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.FlatDbC
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.VersionedFlatDbCacheManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFlatDbStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFlatDbStrategyProvider;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.FlatDbStrategy;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.TrieNodeStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.BonsaiTrieNodeStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeStrategy;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.evm.account.AccountStorageEntry;
@@ -340,7 +340,7 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
             getFlatDbStrategy()
                 .getFlatAccount(
                     this::getWorldStateRootHash,
-                    this::getAccountStateTrieNode,
+                    this::getTrieNode,
                     accountHash,
                     composedWorldStateStorage));
   }
@@ -358,7 +358,7 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
                 .getFlatStorageValueByStorageSlotKey(
                     this::getWorldStateRootHash,
                     () -> getAccount(accountHash),
-                    (location, hash) -> getAccountStorageTrieNode(accountHash, location, hash),
+                    this::getTrieNode,
                     accountHash,
                     storageSlotKey,
                     composedWorldStateStorage));
@@ -379,7 +379,7 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
                 .getFlatStorageValueByStorageSlotKey(
                     this::getWorldStateRootHash,
                     accountSupplier,
-                    (location, hash) -> getAccountStorageTrieNode(accountHash, location, hash),
+                    this::getTrieNode,
                     accountHash,
                     storageSlotKey,
                     composedWorldStateStorage));
@@ -392,28 +392,23 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
     return getFlatDbStrategy().getFlatCode(codeHash, accountHash, composedWorldStateStorage);
   }
 
-  public Optional<Bytes> getAccountStateTrieNode(final Bytes location, final Bytes32 nodeHash) {
+  /**
+   * Reads a trie node at the given location via the configured {@link TrieNodeStrategy}. For a
+   * storage-trie node, {@code location} must already be prefixed with the account hash (see {@link
+   * org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState#getStorageTrieNode}).
+   */
+  public Optional<Bytes> getTrieNode(final Bytes location, final Bytes32 nodeHash) {
     if (nodeHash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
       return Optional.of(MerkleTrie.EMPTY_TRIE_NODE);
     }
     return trieNodeStrategy
-        .getFlatAccountTrieNode(location, nodeHash, composedWorldStateStorage)
-        .filter(b -> Hash.hash(b).getBytes().equals(nodeHash));
-  }
-
-  public Optional<Bytes> getAccountStorageTrieNode(
-      final Hash accountHash, final Bytes location, final Bytes32 nodeHash) {
-    if (nodeHash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
-      return Optional.of(MerkleTrie.EMPTY_TRIE_NODE);
-    }
-    return trieNodeStrategy
-        .getFlatStorageTrieNode(accountHash, location, nodeHash, composedWorldStateStorage)
+        .getTrieNode(location, nodeHash, composedWorldStateStorage)
         .filter(b -> Hash.hash(b).getBytes().equals(nodeHash));
   }
 
   /** Unsafe raw read by fully-qualified key, with no node-hash verification. */
-  public Optional<Bytes> getTrieNodeUnsafe(final Bytes key) {
-    return composedWorldStateStorage.get(TRIE_BRANCH_STORAGE, key.toArrayUnsafe()).map(Bytes::wrap);
+  public Optional<Bytes> getTrieNode(final Bytes key) {
+    return trieNodeStrategy.getTrieNode(key, null, composedWorldStateStorage);
   }
 
   public NavigableMap<Bytes32, Bytes> streamFlatAccounts(
@@ -596,28 +591,20 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
 
     // --- Trie nodes ---
 
-    public Updater putAccountStateTrieNode(
-        final Bytes location, final Bytes32 nodeHash, final Bytes node) {
+    /**
+     * Writes a trie node via the configured {@link TrieNodeStrategy}. {@code accountHash} is {@link
+     * Optional#empty()} for an account-trie node, or the owning account's hash for a storage-trie
+     * node (see {@link TrieNodeStrategy#putTrieNode}).
+     */
+    public synchronized Updater putTrieNode(
+        final Optional<Hash> accountHash,
+        final Bytes location,
+        final Bytes32 nodeHash,
+        final Bytes node) {
       if (nodeHash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
         return this;
       }
-      trieNodeStrategy.putFlatAccountTrieNode(
-          worldStorage, composedWorldStateTransaction, location, nodeHash, node);
-      return this;
-    }
-
-    public Updater removeAccountStateTrieNode(final Bytes location) {
-      trieNodeStrategy.removeFlatAccountStateTrieNode(
-          worldStorage, composedWorldStateTransaction, location);
-      return this;
-    }
-
-    public synchronized Updater putAccountStorageTrieNode(
-        final Hash accountHash, final Bytes location, final Bytes32 nodeHash, final Bytes node) {
-      if (nodeHash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
-        return this;
-      }
-      trieNodeStrategy.putFlatStorageTrieNode(
+      trieNodeStrategy.putTrieNode(
           worldStorage, composedWorldStateTransaction, accountHash, location, nodeHash, node);
       return this;
     }
