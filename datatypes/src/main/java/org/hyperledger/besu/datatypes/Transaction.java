@@ -282,4 +282,22 @@ public interface Transaction {
    * @return the size of the code delegation list
    */
   int codeDelegationListSize();
+
+  /**
+   * Returns the frames for EIP-8141 frame transactions.
+   *
+   * @return optional list of frames
+   */
+  default Optional<List<FrameTransactionFrame>> getFrames() {
+    return Optional.empty();
+  }
+
+  /**
+   * Returns the signatures for EIP-8141 frame transactions.
+   *
+   * @return optional list of frame transaction signatures
+   */
+  default Optional<List<FrameTransactionSignature>> getFrameSignatures() {
+    return Optional.empty();
+  }
 }

@@ -33,15 +33,13 @@ public class TransactionEncoder {
   }
 
   private static final ImmutableMap<TransactionType, Encoder> TYPED_TRANSACTION_ENCODERS =
-      ImmutableMap.of(
-          TransactionType.ACCESS_LIST,
-          AccessListTransactionEncoder::encode,
-          TransactionType.EIP1559,
-          EIP1559TransactionEncoder::encode,
-          TransactionType.BLOB,
-          BlobTransactionEncoder::encode,
-          TransactionType.DELEGATE_CODE,
-          CodeDelegationTransactionEncoder::encode);
+      ImmutableMap.<TransactionType, Encoder>builder()
+          .put(TransactionType.ACCESS_LIST, AccessListTransactionEncoder::encode)
+          .put(TransactionType.EIP1559, EIP1559TransactionEncoder::encode)
+          .put(TransactionType.BLOB, BlobTransactionEncoder::encode)
+          .put(TransactionType.DELEGATE_CODE, CodeDelegationTransactionEncoder::encode)
+          .put(TransactionType.FRAME, FrameTransactionEncoder::encode)
+          .build();
 
   private static final ImmutableMap<TransactionType, Encoder> POOLED_TRANSACTION_ENCODERS =
       ImmutableMap.of(TransactionType.BLOB, BlobPooledTransactionEncoder::encode);
