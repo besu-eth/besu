@@ -178,6 +178,42 @@ public class JsonRpcHttpServiceRpcApisTest {
   }
 
   @Test
+  public void requestWithRemovedMethodShouldReturnMethodNotFound() throws Exception {
+    service =
+        createJsonRpcHttpServiceWithRpcApis(
+            RpcApis.ETH.name(), RpcApis.MINER.name(), RpcApis.PERM.name());
+    final String id = "123";
+    final List<String> removedMethods =
+        List.of(
+            "eth_coinbase",
+            "miner_start",
+            "miner_stop",
+            "perm_addAccountsToWhitelist",
+            "perm_addNodesToWhitelist",
+            "perm_getAccountsWhitelist",
+            "perm_getNodesWhitelist");
+
+    for (final String removedMethod : removedMethods) {
+      final RequestBody body =
+          RequestBody.create(
+              "{\"jsonrpc\":\"2.0\",\"id\":"
+                  + Json.encode(id)
+                  + ",\"method\":\""
+                  + removedMethod
+                  + "\"}",
+              JSON);
+
+      try (final Response resp = client.newCall(buildRequest(body)).execute()) {
+        assertThat(resp.code()).isEqualTo(200);
+        final JsonObject json = new JsonObject(resp.body().string());
+        final RpcErrorType expectedError = RpcErrorType.METHOD_NOT_FOUND;
+        testHelper.assertValidJsonRpcError(
+            json, id, expectedError.getCode(), expectedError.getMessage());
+      }
+    }
+  }
+
+  @Test
   public void requestWithNetMethodShouldSucceedWhenNetApiAndOtherIsEnabled() throws Exception {
     service = createJsonRpcHttpServiceWithRpcApis(RpcApis.NET.name(), RpcApis.WEB3.name());
     final String id = "123";
