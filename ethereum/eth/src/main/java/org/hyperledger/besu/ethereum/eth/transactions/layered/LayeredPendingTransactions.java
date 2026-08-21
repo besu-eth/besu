@@ -28,6 +28,7 @@ import static org.hyperledger.besu.ethereum.eth.transactions.layered.LayeredRemo
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
@@ -40,12 +41,16 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionAddedResult;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.AccountState;
+import org.hyperledger.besu.evm.worldstate.WorldState;
 import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
 
 import java.util.ArrayDeque;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -60,14 +65,17 @@ import org.slf4j.MarkerFactory;
 public class LayeredPendingTransactions implements PendingTransactions {
   private static final Logger LOG = LoggerFactory.getLogger(LayeredPendingTransactions.class);
   private static final Marker INVALID_TX_REMOVED = MarkerFactory.getMarker("INVALID_TX_REMOVED");
+  private final WorldStateArchive worldStateArchive;
   private final TransactionPoolConfiguration poolConfig;
   private final AbstractPrioritizedTransactions prioritizedTransactions;
   private final EthScheduler ethScheduler;
 
   public LayeredPendingTransactions(
+      final ProtocolContext protocolContext,
       final TransactionPoolConfiguration poolConfig,
       final AbstractPrioritizedTransactions prioritizedTransactions,
       final EthScheduler ethScheduler) {
+    this.worldStateArchive = protocolContext.getWorldStateArchive();
     this.poolConfig = poolConfig;
     this.prioritizedTransactions = prioritizedTransactions;
     this.ethScheduler = ethScheduler;
@@ -406,7 +414,7 @@ public class LayeredPendingTransactions implements PendingTransactions {
         .addArgument(blockHeader::toLogString)
         .log();
 
-    final var maxConfirmedNonceBySender = maxNonceBySender(confirmedTransactions);
+    final var maxConfirmedNonceBySender = maxNonceBySender(blockHeader, confirmedTransactions);
 
     synchronized (this) {
       try {
@@ -425,26 +433,73 @@ public class LayeredPendingTransactions implements PendingTransactions {
     }
   }
 
-  private Map<Address, Long> maxNonceBySender(final List<Transaction> confirmedTransactions) {
-    record SenderNonce(Address sender, long nonce) {}
+  private Map<Address, Long> maxNonceBySender(
+      final BlockHeader blockHeader, final List<Transaction> confirmedTransactions) {
 
+    final Map<Address, Long> maxConfirmedNonceBySender =
+        new HashMap<>(maxNonceBySenderOnly(confirmedTransactions));
+
+    final List<Transaction> codeDelegationTxs =
+        confirmedTransactions.stream().filter(tx -> tx.getType().supportsDelegateCode()).toList();
+
+    if (!codeDelegationTxs.isEmpty()) {
+      // CodeDelegation txs are present. Execution can skip individual authorization tuples while
+      // the outer transaction stays valid; a skipped tuple does NOT increment the authority nonce.
+      // Read the actual post-block authority nonce from the world state as of the just-added block.
+      final var maybeWorldState =
+          worldStateArchive.getWorldState(
+              WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(blockHeader));
+      if (maybeWorldState.isPresent()) {
+        try (final WorldState worldState = maybeWorldState.get()) {
+          codeDelegationTxs.forEach(
+              transaction ->
+                  transaction
+                      .getCodeDelegationList()
+                      .get()
+                      .forEach(
+                          cd ->
+                              cd.authorizer()
+                                  .ifPresent(
+                                      address -> {
+                                        final Account account = worldState.get(address);
+                                        // An applied tuple increments the authority nonce by one,
+                                        // so the tuple is confirmed only when the post-block nonce
+                                        // is exactly one past its declared nonce. A skipped tuple
+                                        // leaves the nonce unchanged (or the account absent), so it
+                                        // is ignored and never purges the authority's pending txs.
+                                        if (account != null
+                                            && account.getNonce() - 1 == cd.nonce()) {
+                                          maxConfirmedNonceBySender.merge(
+                                              address, cd.nonce(), Math::max);
+                                        }
+                                      })));
+        } catch (final Exception e) {
+          LOG.error(
+              "Error reading world state at {} to reconcile code-delegation authority nonces.",
+              blockHeader.toLogString(),
+              e);
+        }
+      } else {
+        // The world state as of the confirmed block may not be reconstructable (for example, it is
+        // already several blocks behind head). Reconcile with the confirmed sender nonce only,
+        // rather than reading authority nonce from a different block; this can under-purge but
+        // never over-purges a still-valid pending transaction.
+        LOG.atDebug()
+            .setMessage(
+                "World state at {} unavailable, reconciling with confirmed sender nonce only")
+            .addArgument(blockHeader::toLogString)
+            .log();
+      }
+    }
+    return maxConfirmedNonceBySender;
+  }
+
+  private static Map<Address, Long> maxNonceBySenderOnly(
+      final List<Transaction> confirmedTransactions) {
     return confirmedTransactions.stream()
-        .<SenderNonce>mapMulti(
-            (transaction, consumer) -> {
-              // always consider the sender
-              consumer.accept(new SenderNonce(transaction.getSender(), transaction.getNonce()));
-
-              // and if a code delegation tx also the authorities
-              if (transaction.getType().supportsDelegateCode()) {
-                transaction.getCodeDelegationList().get().stream()
-                    .map(cd -> cd.authorizer().map(address -> new SenderNonce(address, cd.nonce())))
-                    .filter(Optional::isPresent)
-                    .map(Optional::get)
-                    .forEach(consumer);
-              }
-            })
         .collect(
-            groupingBy(SenderNonce::sender, mapping(SenderNonce::nonce, reducing(0L, Math::max))));
+            groupingBy(
+                Transaction::getSender, mapping(Transaction::getNonce, reducing(0L, Math::max))));
   }
 
   @Override

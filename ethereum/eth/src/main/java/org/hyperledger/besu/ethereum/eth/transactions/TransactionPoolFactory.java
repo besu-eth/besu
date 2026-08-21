@@ -382,6 +382,6 @@ public class TransactionPoolFactory {
     }
 
     return new LayeredPendingTransactions(
-        transactionPoolConfiguration, pendingTransactionsSorter, ethScheduler);
+        protocolContext, transactionPoolConfiguration, pendingTransactionsSorter, ethScheduler);
   }
 }
