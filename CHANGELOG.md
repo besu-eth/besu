@@ -91,6 +91,7 @@
 - Fix `ibft_*` and `qbft_*` JSON-RPC methods returning `Method not enabled` on IBFT2->QBFT migration networks (genesis containing both `ibft2` and `qbft` sections). [#10679](https://github.com/besu-eth/besu/issues/10679)
 - Fix `admin_nodeInfo` reporting wrong RLPx/discovery ephemeral ports under `--nat-method=DOCKER`, due to a swapped NAT port mapping and a stale pre-bind snapshot. [#10860](https://github.com/besu-eth/besu/pull/10860)
 - Recover from restart during flatDB heal sync step [#10883](https://github.com/besu-eth/besu/pull/10883)
+- Reject EIP-7702 code-delegation (type 0x04) transactions with an empty `authorization_list`, which is invalid per the spec. Such transactions are now rejected at build/decode time, and peers that send them (in a transactions broadcast or in a block-bodies response) are disconnected with `BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED`. [#10853](https://github.com/besu-eth/besu/pull/10853)
 
 ### Additions and Improvements
 - Add `--checkpoint=<hash>:<number>:<totalDifficulty>` CLI option to anchor sync to a trusted checkpoint, overriding any checkpoint configured in the genesis file. The option is only used by snap sync and is ignored (with a warning) in FULL sync-mode.

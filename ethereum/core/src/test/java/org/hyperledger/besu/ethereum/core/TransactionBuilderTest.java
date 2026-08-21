@@ -110,14 +110,15 @@ class TransactionBuilderTest {
   }
 
   @Test
-  void emptyCodeDelegationListIsInvalid() {
+  void zeroCodeDelegationAuthorizationIsInvalid() {
     TransactionTestFixture ttf =
         new TransactionTestFixture()
             .type(TransactionType.DELEGATE_CODE)
             .chainId(Optional.of(BigInteger.ONE))
+            .codeDelegations(List.of())
             .maxFeePerGas(Optional.of(Wei.of(5)))
             .maxPriorityFeePerGas(Optional.of(Wei.of(5)))
-            .codeDelegations(List.of());
+            .maxFeePerBlobGas(Optional.of(Wei.of(5)));
     try {
       ttf.createTransaction(senderKeys);
       fail();
