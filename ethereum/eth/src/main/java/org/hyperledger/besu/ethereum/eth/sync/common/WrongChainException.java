@@ -16,13 +16,27 @@
 package org.hyperledger.besu.ethereum.eth.sync.common;
 
 /**
- * Signals that the backward header download has encountered a chain whose genesis differs from the
- * locally-stored genesis. Thrown by {@code BackwardHeaderDriver} when anchor recovery walks down to
- * the genesis floor without finding a matching canonical ancestor.
+ * Signals that the pivot does not descend from the chain we trust, so no amount of downloading from
+ * the current pivot can produce a valid chain. Thrown when:
  *
- * <p>Recognised by {@code SnapSyncChainDownloader.shouldRetry} as non-retryable: the overall sync
- * future completes exceptionally and the operator is expected to intervene rather than letting the
- * downloader loop on the wrong chain.
+ * <ul>
+ *   <li>{@code BackwardHeaderDriver} reaches the floor block — genesis, or the trusted checkpoint —
+ *       without the downloaded headers linking to it, either at the anchor boundary or after anchor
+ *       recovery walked below it;
+ *   <li>the header downloaded at the trusted checkpoint height does not match the checkpoint,
+ *       either during the walk ({@code BackwardHeaderDriver.verifyCheckpointLinkage}) or afterwards
+ *       ({@code SnapSyncChainDownloader.verifyCheckpointHeaderMatches});
+ *   <li>a rolled-back pivot has no stored header below it to restart Stage 1 from ({@code
+ *       SnapSyncChainDownloader.stage1RestartAnchor}).
+ * </ul>
+ *
+ * <p>Recognised by {@code SnapSyncChainDownloader.shouldRetry} as non-retryable, so the cycle is
+ * not retried from the saved state; the failure propagates instead to {@code
+ * SnapSyncDownloader.handleFailure}, which re-pivots to a fresh block. A genuinely wrong chain — a
+ * mis-configured checkpoint hash, say — therefore shows up as repeated re-pivots rather than as a
+ * hard stop. Because re-pivoting cannot recover from that, {@code handleFailure} escalates to a
+ * throttled WARN naming the checkpoint as the likely cause once the re-pivots stop looking like a
+ * transient reorg.
  */
 public class WrongChainException extends RuntimeException {
 

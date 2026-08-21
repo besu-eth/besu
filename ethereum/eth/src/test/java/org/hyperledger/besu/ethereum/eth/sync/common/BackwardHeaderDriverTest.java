@@ -32,7 +32,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -52,6 +58,14 @@ public class BackwardHeaderDriverTest {
   private static List<Block> blocks;
   private static BlockHeader anchorHeader;
   private static BlockHeader pivotHeader;
+
+  /** Runs the source side of the pipeline so the two-thread rendezvous can be exercised. */
+  private final ExecutorService sourceThread = Executors.newSingleThreadExecutor();
+
+  @AfterEach
+  public void tearDown() {
+    sourceThread.shutdownNow();
+  }
 
   @BeforeAll
   public static void setUp() {
@@ -237,7 +251,7 @@ public class BackwardHeaderDriverTest {
     }
     assertThatThrownBy(() -> driver.accept(batch2))
         .isInstanceOf(WrongChainException.class)
-        .hasMessageContaining("genesis");
+        .hasMessageContaining("floor");
   }
 
   @Test
@@ -341,10 +355,32 @@ public class BackwardHeaderDriverTest {
   }
 
   @Test
-  public void recoveryWalkingBelowTheCheckpointStopsWithCheckpointReorgException() {
+  public void mismatchWhenAnchorIsTheCheckpointThrowsWrongChainExceptionForRepivot() {
+    // headers-to-checkpoint-only mode: the header download anchor IS the trusted checkpoint (both
+    // at block 50). The pivot sits directly above it (block 51) but does NOT link to the
+    // checkpoint. There is no room below the checkpoint to recover, so the driver throws a
+    // WrongChainException, which re-pivots (rather than entering recovery).
+    final BlockDataGenerator otherGenerator = new BlockDataGenerator(99);
+    final BlockHeader checkpointAt50 = blocks.get(50).getHeader();
+    final BlockHeader wrongPivotAt51 = otherGenerator.blockSequence(52).get(51).getHeader();
+    assertThat(wrongPivotAt51.getParentHash()).isNotEqualTo(checkpointAt50.getHash());
+
+    // anchor == checkpoint == block 50; the boundary is resolved eagerly in the constructor
+    // because pivot == anchor + 1.
+    assertThatThrownBy(
+            () ->
+                new BackwardHeaderDriver(
+                    BATCH_SIZE, checkpointAt50, wrongPivotAt51, checkpointAt50, blockchain))
+        .isInstanceOf(WrongChainException.class)
+        .hasMessageContaining("floor");
+  }
+
+  @Test
+  public void recoveryWalkingBelowTheCheckpointStopsWithWrongChainException() {
     // Same scenario, but the trusted checkpoint sits at block 48 — above the only reconnection
-    // point (block 46). Recovery must not reconnect below the checkpoint, so it fails fatally
-    // instead of matching at block 46.
+    // point (block 46). Recovery must not reconnect below the checkpoint. Reaching the checkpoint
+    // without a match means the pivot does not descend from the checkpoint and throws a
+    // WrongChainException (which re-pivots).
     final BlockDataGenerator otherGenerator = new BlockDataGenerator(99);
     final BlockHeader reorgedAnchor = otherGenerator.blockSequence(51).get(50).getHeader();
     final BlockHeader checkpointAt48 = blocks.get(48).getHeader();
@@ -361,8 +397,120 @@ public class BackwardHeaderDriverTest {
     driver.accept(getHeadersRange(99, 51));
 
     assertThatThrownBy(() -> driver.accept(getHeadersRange(50, 47)))
-        .isInstanceOf(CheckpointReorgException.class);
+        .isInstanceOf(WrongChainException.class);
     assertThat(driver.getMatchedAncestor()).isEmpty();
+  }
+
+  @Test
+  public void mismatchAtCheckpointHeightDuringFullWalkIsDetectedEarly() {
+    // All-headers mode with a checkpoint: anchor = genesis (block 0), pivot = block 100, and the
+    // trusted checkpoint sits at block 50 but with a hash that differs from the downloaded chain's
+    // block 50. The downloaded chain (canonical `blocks`) is internally consistent, so the walk
+    // proceeds until it crosses the checkpoint height, where the linkage check fires and reports a
+    // WrongChainException — long before the walk would have reached genesis.
+    final BlockDataGenerator otherGenerator = new BlockDataGenerator(99);
+    final BlockHeader mismatchedCheckpointAt50 =
+        otherGenerator.blockSequence(51).get(50).getHeader();
+    assertThat(mismatchedCheckpointAt50.getHash())
+        .isNotEqualTo(blocks.get(50).getHeader().getHash());
+
+    final BackwardHeaderDriver driver =
+        new BackwardHeaderDriver(
+            BATCH_SIZE, anchorHeader, pivotHeader, mismatchedCheckpointAt50, blockchain);
+
+    // First batch [99..51] is entirely above the checkpoint height — no check yet.
+    driver.accept(getHeadersRange(99, 51));
+
+    // The batch [50..47] crosses the checkpoint height (50). The downloaded header there does not
+    // match the trusted checkpoint, so the walk stops early instead of continuing to genesis.
+    assertThatThrownBy(() -> driver.accept(getHeadersRange(50, 47)))
+        .isInstanceOf(WrongChainException.class)
+        .hasMessageContaining("checkpoint");
+    assertThat(driver.getMatchedAncestor()).isEmpty();
+  }
+
+  @Test
+  public void matchingCheckpointDuringFullWalkLetsTheWalkContinueToTheAnchor() {
+    // Companion to mismatchAtCheckpointHeightDuringFullWalkIsDetectedEarly: all-headers mode with a
+    // checkpoint that DOES match the downloaded chain. Crossing the checkpoint height must verify
+    // the linkage and then carry on walking to the anchor instead of stopping.
+    final BlockHeader matchingCheckpointAt50 = blocks.get(50).getHeader();
+
+    final BackwardHeaderDriver driver =
+        new BackwardHeaderDriver(
+            BATCH_SIZE, anchorHeader, pivotHeader, matchingCheckpointAt50, blockchain);
+
+    driver.accept(getHeadersRange(99, 51));
+    // Crosses the checkpoint height (50); the header there matches the trusted checkpoint.
+    driver.accept(getHeadersRange(50, 47));
+    // The walk continues below the checkpoint, down to the anchor at genesis.
+    driver.accept(getHeadersRange(46, 1));
+
+    // Anchor linkage matched: Stage 1 is complete without recovery, and every batch was stored.
+    assertThat(driver.hasNext()).isFalse();
+    assertThat(driver.getMatchedAncestor()).isEmpty();
+    verify(blockchain, times(4)).storeBlockHeaders(any());
+  }
+
+  @Test
+  public void hasNextParksAtTheBoundaryUntilTheImportSideStopsTheWalk() throws Exception {
+    // In production the iterator and the consumer run on different pipeline threads: once the
+    // source has emitted everything down to the anchor, hasNext() parks until accept() decides
+    // whether to stop or extend. Exercise that hand-off across threads.
+    final BlockHeader anchorAt50 = blocks.get(50).getHeader();
+    final BackwardHeaderDriver driver =
+        new BackwardHeaderDriver(BATCH_SIZE, anchorAt50, pivotHeader, anchorHeader, blockchain);
+
+    drainPhaseOneEmissions(driver, 51);
+
+    final Future<Boolean> parked = sourceThread.submit(driver::hasNext);
+    assertThatThrownBy(() -> parked.get(200, TimeUnit.MILLISECONDS))
+        .as("hasNext() must park until the import side decides")
+        .isInstanceOf(TimeoutException.class);
+
+    // Boundary batch links to the anchor → the import side stops the walk.
+    driver.accept(getHeadersRange(99, 51));
+
+    assertThat(parked.get(5, TimeUnit.SECONDS)).isFalse();
+    assertThat(driver.getMatchedAncestor()).isEmpty();
+  }
+
+  @Test
+  public void hasNextParksAtTheBoundaryUntilTheImportSideExtendsTheWalk() throws Exception {
+    // Same hand-off, but the anchor was reorged off our chain, so the import side extends the walk
+    // and the parked source thread must be released with "keep going" rather than staying blocked.
+    final BlockDataGenerator otherGenerator = new BlockDataGenerator(99);
+    final BlockHeader reorgedAnchorAt50 = otherGenerator.blockSequence(51).get(50).getHeader();
+    assertThat(reorgedAnchorAt50.getHash()).isNotEqualTo(blocks.get(50).getHeader().getHash());
+    lenient().when(blockchain.getBlockHeader(anyLong())).thenReturn(Optional.empty());
+
+    final BackwardHeaderDriver driver =
+        new BackwardHeaderDriver(
+            BATCH_SIZE, reorgedAnchorAt50, pivotHeader, anchorHeader, blockchain);
+
+    drainPhaseOneEmissions(driver, 51);
+
+    final Future<Boolean> parked = sourceThread.submit(driver::hasNext);
+    assertThatThrownBy(() -> parked.get(200, TimeUnit.MILLISECONDS))
+        .isInstanceOf(TimeoutException.class);
+
+    // Boundary batch does not link to the anchor → recovery starts and one extra batch is granted.
+    driver.accept(getHeadersRange(99, 51));
+
+    assertThat(parked.get(5, TimeUnit.SECONDS)).isTrue();
+    // The released source emits the first recovery block, just below the original anchor.
+    assertThat(driver.next()).isEqualTo(50L);
+  }
+
+  /** Consumes every Phase 1 emission, leaving the iterator parked at the anchor boundary. */
+  private void drainPhaseOneEmissions(
+      final BackwardHeaderDriver driver, final long lowestHeaderToImport) {
+    for (long block = pivotHeader.getNumber() - 1;
+        block >= lowestHeaderToImport;
+        block -= BATCH_SIZE) {
+      assertThat(driver.hasNext()).isTrue();
+      assertThat(driver.next()).isEqualTo(block);
+    }
   }
 
   @Test

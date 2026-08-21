@@ -1584,7 +1584,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     validateRpcOptionsParams();
     validateRpcWsOptions();
     validateChainDataPruningParams();
-    resolveAndValidateCheckpoint();
+    validateAndResolveCheckpointRelatedConfig();
     validateTransactionPoolOptions();
     validateDataStorageOptions();
     validateGraphQlOptions();
@@ -2967,28 +2967,38 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     }
   }
 
-  private void resolveAndValidateCheckpoint() {
+  private void validateAndResolveCheckpointRelatedConfig() {
     if (checkpointOverride != null) {
       checkpoint = Optional.of(checkpointOverride);
-      return;
+    } else {
+
+      final GenesisConfigOptions genesisConfigOptions = readGenesisConfigOptions();
+      final CheckpointConfigOptions checkpointConfigOptions =
+          genesisConfigOptions.getCheckpointOptions();
+
+      if (checkpointConfigOptions == CheckpointConfigOptions.DEFAULT) {
+        checkpoint = Optional.empty();
+      } else {
+        if (!checkpointConfigOptions.isValid()) {
+          throw new InvalidConfigurationException(
+              "The checkpoint block configured in the genesis file is not valid.");
+        }
+        try {
+          checkpoint = Checkpoint.fromConfig(checkpointConfigOptions);
+        } catch (final IllegalArgumentException e) {
+          throw new InvalidConfigurationException(
+              "The checkpoint block configured in the genesis file is not valid: "
+                  + e.getMessage());
+        }
+      }
     }
 
-    final GenesisConfigOptions genesisConfigOptions = readGenesisConfigOptions();
-    final CheckpointConfigOptions checkpointConfigOptions =
-        genesisConfigOptions.getCheckpointOptions();
-
-    if (checkpointConfigOptions == CheckpointConfigOptions.DEFAULT) {
-      return;
-    }
-    if (!checkpointConfigOptions.isValid()) {
-      throw new InvalidConfigurationException(
-          "The checkpoint block configured in the genesis file is not valid.");
-    }
-    try {
-      checkpoint = Checkpoint.fromConfig(checkpointConfigOptions);
-    } catch (final IllegalArgumentException e) {
-      throw new InvalidConfigurationException(
-          "The checkpoint block configured in the genesis file is not valid: " + e.getMessage());
+    if (unstableSynchronizerOptions.isSnapSyncHeadersToCheckpointOnly() && checkpoint.isEmpty()) {
+      throw new ParameterException(
+          this.commandLine,
+          "--snapsync-synchronizer-skip-pre-checkpoint-headers-enabled requires a trusted "
+              + "checkpoint, but none is configured. Provide one with --checkpoint or a checkpoint "
+              + "section in the genesis file.");
     }
   }
 

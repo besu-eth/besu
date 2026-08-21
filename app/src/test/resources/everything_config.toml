@@ -263,6 +263,7 @@ plugins-verification-mode="none"
 # snapsync
 snapsync-synchronizer-transaction-indexing-enabled=true
 snapsync-synchronizer-pre-checkpoint-headers-only-enabled=true
+snapsync-synchronizer-skip-pre-checkpoint-headers-enabled=false
 
 # history expiry
 history-expiry-prune=false
