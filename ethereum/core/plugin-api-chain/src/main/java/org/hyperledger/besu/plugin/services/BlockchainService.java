@@ -28,7 +28,10 @@ import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
 
-/** A service that plugins can use to query blocks by number */
+/**
+ * A service for reading the blockchain: blocks, headers, receipts, transactions, the chain id and
+ * fork identity. It also stores blocks and sets the safe and finalized block.
+ */
 @Unstable
 public interface BlockchainService extends BesuService {
   /**
@@ -137,7 +140,7 @@ public interface BlockchainService extends BesuService {
   /**
    * Set the safe block for non-PoS networks
    *
-   * @param blockHash Hash of the finalized block
+   * @param blockHash Hash of the safe block
    * @throws IllegalArgumentException if the block hash is not on the chain
    * @throws UnsupportedOperationException if the network is a PoS network
    */
