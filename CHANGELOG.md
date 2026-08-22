@@ -92,6 +92,8 @@
 - Fix `ibft_*` and `qbft_*` JSON-RPC methods returning `Method not enabled` on IBFT2->QBFT migration networks (genesis containing both `ibft2` and `qbft` sections). [#10679](https://github.com/besu-eth/besu/issues/10679)
 - Fix `admin_nodeInfo` reporting wrong RLPx/discovery ephemeral ports under `--nat-method=DOCKER`, due to a swapped NAT port mapping and a stale pre-bind snapshot. [#10860](https://github.com/besu-eth/besu/pull/10860)
 - Recover from restart during flatDB heal sync step [#10883](https://github.com/besu-eth/besu/pull/10883)
+- Fix QBFT/IBFT2 block-reward transitions (`config.transitions.qbft`/`ibft2`, specified as raw `"block": N` values) being silently misclassified as TIMESTAMP milestones instead of BLOCK_NUMBER when the genesis' only EVM milestone is timestamp-based (e.g. `"shanghaiTime": 0`, the norm for modern private networks). This caused every transition to be compared against the block's wall-clock Unix timestamp instead of its height, so the highest-numbered transition's reward always won regardless of chain height. Fixes [#10878](https://github.com/besu-eth/besu/issues/10878)
+- Move to a new BFT round and select a new proposer for a block if transactions arrive at a non-proposing node after blockperiodseconds but before emptyblockperiodseconds [#11031](https://github.com/besu-eth/besu/pull/11031) 
 - Fix txpool incorrectly evicting authority pending transactions when EIP-7702 delegation tuples are skipped during block execution
 
 ### Additions and Improvements

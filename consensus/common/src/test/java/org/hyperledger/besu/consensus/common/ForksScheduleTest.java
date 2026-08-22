@@ -116,6 +116,50 @@ public class ForksScheduleTest {
   }
 
   @Test
+  public void bftTransitionsAreBlockNumberedWhenOnlyBaseMilestoneIsTimestamp() {
+    // Regression test for https://github.com/besu-eth/besu/issues/10878.
+    //
+    // A genesis whose only EVM milestone is timestamp-based (e.g. "shanghaiTime": 0, the norm
+    // for any modern private network) has no BLOCK_NUMBER/TIMESTAMP boundary to disambiguate
+    // against, so BFT block-reward transitions specified as raw "block": N values must be
+    // treated as BLOCK_NUMBER, not silently reclassified as TIMESTAMP milestones (which would
+    // compare them against the block's wall-clock Unix timestamp instead of its height).
+    final ForkSpec<BftConfigOptions> genesisForkSpec =
+        new ForkSpec<>(0, JsonBftConfigOptions.DEFAULT);
+    final ForkSpec<BftConfigOptions> forkSpec21 = createForkSpec(21, 21);
+    final ForkSpec<BftConfigOptions> forkSpec91 = createForkSpec(91, 91);
+    final ForkSpec<BftConfigOptions> forkSpec201 = createForkSpec(201, 201);
+    final ForkSpec<BftConfigOptions> forkSpec250 = createForkSpec(250, 250);
+
+    final ForksSchedule<BftConfigOptions> schedule =
+        new ForksSchedule<>(
+            List.of(genesisForkSpec, forkSpec21, forkSpec91, forkSpec201, forkSpec250));
+
+    final GenesisConfigOptions genesisMilestones = mock(GenesisConfigOptions.class);
+    when(genesisMilestones.getShanghaiTime()).thenReturn(OptionalLong.of(0));
+
+    // Create a protocol schedule based on the genesis config, which applies types (block or
+    // timestamp) to all of the forks
+    createProtocolSchedule(schedule, genesisMilestones);
+
+    // A real block's wall-clock Unix timestamp (~10 digits) is always far larger than any
+    // configured transition's raw block value. Before the fix, every transition was
+    // misclassified as TIMESTAMP, so the largest-numbered transition (250) would incorrectly
+    // win regardless of the queried block number.
+    final long realWallClockTimestamp = 1_753_000_000L;
+
+    assertThat(schedule.getFork(0, realWallClockTimestamp)).isEqualTo(genesisForkSpec);
+    assertThat(schedule.getFork(20, realWallClockTimestamp)).isEqualTo(genesisForkSpec);
+    assertThat(schedule.getFork(21, realWallClockTimestamp)).isEqualTo(forkSpec21);
+    assertThat(schedule.getFork(90, realWallClockTimestamp)).isEqualTo(forkSpec21);
+    assertThat(schedule.getFork(91, realWallClockTimestamp)).isEqualTo(forkSpec91);
+    assertThat(schedule.getFork(200, realWallClockTimestamp)).isEqualTo(forkSpec91);
+    assertThat(schedule.getFork(201, realWallClockTimestamp)).isEqualTo(forkSpec201);
+    assertThat(schedule.getFork(249, realWallClockTimestamp)).isEqualTo(forkSpec201);
+    assertThat(schedule.getFork(250, realWallClockTimestamp)).isEqualTo(forkSpec250);
+  }
+
+  @Test
   public void fallbackReturnsSmallestForkNotLargest() {
     // Regression test for https://github.com/besu-eth/besu/issues/10878.
     //
