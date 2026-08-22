@@ -38,27 +38,36 @@ import java.util.Locale;
 import java.util.OptionalLong;
 
 import org.openjdk.jmh.infra.BenchmarkParams;
+import org.openjdk.jmh.infra.IterationParams;
 import org.openjdk.jmh.profile.ExternalProfiler;
+import org.openjdk.jmh.profile.InternalProfiler;
 import org.openjdk.jmh.profile.ProfilerException;
 import org.openjdk.jmh.results.AggregationPolicy;
 import org.openjdk.jmh.results.BenchmarkResult;
+import org.openjdk.jmh.results.IterationResult;
 import org.openjdk.jmh.results.Result;
 import org.openjdk.jmh.results.ScalarResult;
+import org.openjdk.jmh.runner.IterationType;
 
 /**
- * JMH {@link ExternalProfiler} that publishes two secondary metrics per benchmark trial: {@code
- * gas} (the EVM gas cost derived from Besu's own {@link GasCalculator}) and {@code mgas_per_s}
- * (throughput in MGas/s, computed as {@code gas × 1e3 / ns_per_op}).
+ * JMH {@link InternalProfiler} that publishes the benchmark's gas throughput as a secondary metric
+ * named {@code mgas_per_s} in MGas/s, derived from each measurement iteration's primary score and the gas
+ * cost computed with Besu's own {@link GasCalculator}.
  *
  * <p>Run with: {@code ./gradlew :ethereum:core:jmh -PgasProfiler=true}
  *
  * <p>To specify the EVM fork (defaults to OSAKA): {@code ./gradlew :ethereum:core:jmh
  * -PgasProfiler=true -PgasProfilerFork=CANCUN}
  */
-public class GasProfiler implements ExternalProfiler {
+public class GasProfiler implements InternalProfiler, ExternalProfiler {
 
   private final GasCalculator gasCalculator;
   private final String fork;
+
+  // Field seen by the InternalProfiler - ExternalProfiler side never sees the field as it runs in another JVM instance.
+  // Lazily populates the gas cost only once, then only computes gas related results if it is optionally available.
+  @SuppressWarnings("OptionalUsedAsFieldOrParameterType")
+  private OptionalLong trialGasCost;
 
   public GasProfiler() throws ProfilerException {
     this("");
@@ -97,7 +106,31 @@ public class GasProfiler implements ExternalProfiler {
 
   @Override
   public String getDescription() {
-    return "Emits 'gas' and 'mgas_per_s' secondary metrics using " + fork + " gas rules";
+    return "Emits per-benchmark 'mgas_per_s' as secondary metric using " + fork + " gas rules";
+  }
+
+  @Override
+  @SuppressWarnings("OptionalAssignedToNull")
+  public void beforeIteration(
+      final BenchmarkParams benchmarkParams, final IterationParams iterationParams) {
+    if (trialGasCost == null) {
+      trialGasCost = GasFormulas.compute(benchmarkParams, gasCalculator);
+    }
+  }
+
+  @Override
+  public Collection<? extends Result<?>> afterIteration(
+      final BenchmarkParams benchmarkParams,
+      final IterationParams iterationParams,
+      final IterationResult result) {
+    if (iterationParams.getType() != IterationType.MEASUREMENT || trialGasCost.isEmpty()) {
+      return Collections.emptyList();
+    }
+    final double nsPerOp =
+        result.getPrimaryResult().getScore() * benchmarkParams.getTimeUnit().toNanos(1);
+    return List.of(
+        new ScalarResult(
+            "mgas_per_s", 1000 * trialGasCost.getAsLong() / nsPerOp, "MGas/s", AggregationPolicy.AVG));
   }
 
   @Override
@@ -111,35 +144,25 @@ public class GasProfiler implements ExternalProfiler {
   }
 
   @Override
-  public void beforeTrial(final BenchmarkParams params) {
-    System.out.printf("[GasProfiler] fork=%s%n", fork);
+  public void beforeTrial(final BenchmarkParams benchmarkParams) {
+    final OptionalLong gasCost = GasFormulas.compute(benchmarkParams, gasCalculator);
+    System.out.printf(
+        "\n# GasProfiler: fork=%s%s%n",
+        fork, gasCost.isPresent() ? ", gasCost=" + gasCost.getAsLong() : "");
   }
 
   @Override
-  public Collection<? extends Result<?>> afterTrial(
-      final BenchmarkResult br, final long pid, final File stdOut, final File stdErr) {
-    final OptionalLong gas = GasFormulas.compute(br.getParams(), gasCalculator);
-    if (gas.isEmpty()) {
-      return Collections.emptyList();
-    }
-    final double gasValue = (double) gas.getAsLong();
-    final double primaryScore = br.getPrimaryResult().getScore();
-    if (Double.isFinite(primaryScore) && primaryScore > 0) {
-      return List.of(
-          new ScalarResult("gas", gasValue, "gas", AggregationPolicy.AVG),
-          new ScalarResult(
-              "mgas_per_s", gasValue * 1e3 / primaryScore, "MGas/s", AggregationPolicy.AVG));
-    }
-    return List.of(new ScalarResult("gas", gasValue, "gas", AggregationPolicy.AVG));
+  public Collection<? extends Result<?>> afterTrial(final BenchmarkResult br, final long pid, final File stdOut, final File stdErr) {
+    return Collections.emptyList();
   }
 
   @Override
   public boolean allowPrintOut() {
-    return true;
+    return false;
   }
 
   @Override
   public boolean allowPrintErr() {
-    return true;
+    return false;
   }
 }
