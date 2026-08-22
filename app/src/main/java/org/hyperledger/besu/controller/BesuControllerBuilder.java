@@ -90,8 +90,12 @@ import org.hyperledger.besu.ethereum.trie.forest.ForestWorldStateArchive;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.BonsaiArchiveFlatDbStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.BonsaiArchiveWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.BonsaiFlatDbToArchiveMigrator;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveCoverageTracker;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.CodeHashCodeStorageStrategy;
@@ -107,6 +111,7 @@ import org.hyperledger.besu.metrics.ObservableMetricsSystem;
 import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.services.permissioning.NodeMessagePermissioningProvider;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
+import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.WorldStatePreimageStorage;
 import org.hyperledger.besu.services.BesuPluginContextImpl;
@@ -124,6 +129,7 @@ import java.util.Optional;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 import org.slf4j.Logger;
@@ -720,6 +726,36 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             bonsaiCachedMerkleTrieLoader,
             protocolSchedule);
 
+    // Install the archive strategy before the genesis write so block 0 is captured. syncState does
+    // not exist yet, so the gate reads it lazily via archiveSyncStateRef
+    final AtomicReference<SyncState> archiveSyncStateRef = new AtomicReference<>();
+    if (DataStorageFormat.X_BONSAI_ARCHIVE.equals(dataStorageConfiguration.getDataStorageFormat())
+        && dataStorageConfiguration
+            .getPathBasedExtraStorageConfiguration()
+            .getUnstable()
+            .getBonsaiArchiveStateProofsEnabled()) {
+      final BonsaiWorldStateKeyValueStorage keyValueStorage =
+          worldStateStorageCoordinator.getStrategy(BonsaiWorldStateKeyValueStorage.class);
+      final SegmentedKeyValueStorage liveStorage = keyValueStorage.getComposedWorldStateStorage();
+      final ArchiveTrieNodeStrategy archiveTrieNodeStrategy =
+          new ArchiveTrieNodeStrategy(
+              new BonsaiTrieNodeStrategy(),
+              new ArchiveNodeHistoryStore(liveStorage),
+              new ArchiveCoverageTracker(liveStorage),
+              // Archive only while behind the head so reorg-window blocks are skipped; also keep
+              // archiving with no peers — a failed download can leave us peerless and still behind.
+              () -> {
+                final SyncState archiveSyncState = archiveSyncStateRef.get();
+                return !archiveSyncState.isInSync(
+                        dataStorageConfiguration
+                            .getPathBasedExtraStorageConfiguration()
+                            .getMaxLayersToLoad())
+                    || archiveSyncState.getBestPeerChainHead().isEmpty();
+              });
+      keyValueStorage.setTrieNodeStrategy(archiveTrieNodeStrategy);
+      LOG.info("Bonsai archive proofs enabled (--Xbonsai-archive-state-proofs-enabled)");
+    }
+
     if (maybeStoredGenesisBlockHash.isEmpty()) {
       genesisState.writeStateTo(worldStateArchive.getWorldState());
     }
@@ -781,6 +817,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
     final boolean hasInitialSyncPhase = fullSyncDisabled && p2pEnabled;
     final SyncState syncState =
         new SyncState(blockchain, ethPeers, hasInitialSyncPhase, checkpoint);
+    archiveSyncStateRef.set(syncState);
 
     protocolContext
         .safeConsensusContext(MergeContext.class)
@@ -1388,7 +1425,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             snapMessages,
             ethScheduler,
             protocolContext,
-            synchronizer));
+            synchronizer,
+            metricsSystem));
   }
 
   WorldStateArchive createWorldStateArchive(

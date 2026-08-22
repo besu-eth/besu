@@ -2747,6 +2747,46 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
+  public void bonsaiArchiveStateProofsShouldBeDisabledByDefault() {
+    final TestBesuCommand besuCommand = parseCommand();
+    assertThat(
+            besuCommand
+                .dataStorageOptions
+                .toDomainObject()
+                .getPathBasedExtraStorageConfiguration()
+                .getUnstable()
+                .getBonsaiArchiveStateProofsEnabled())
+        .isFalse();
+  }
+
+  @Test
+  public void bonsaiArchiveStateProofsEnabledOptionShouldWorkWithoutValue() {
+    final TestBesuCommand besuCommand = parseCommand("--Xbonsai-archive-state-proofs-enabled");
+    assertThat(
+            besuCommand
+                .dataStorageOptions
+                .toDomainObject()
+                .getPathBasedExtraStorageConfiguration()
+                .getUnstable()
+                .getBonsaiArchiveStateProofsEnabled())
+        .isTrue();
+  }
+
+  @Test
+  public void bonsaiArchiveStateProofsEnabledOptionShouldWorkWithExplicitValue() {
+    final TestBesuCommand besuCommand =
+        parseCommand("--Xbonsai-archive-state-proofs-enabled", "true");
+    assertThat(
+            besuCommand
+                .dataStorageOptions
+                .toDomainObject()
+                .getPathBasedExtraStorageConfiguration()
+                .getUnstable()
+                .getBonsaiArchiveStateProofsEnabled())
+        .isTrue();
+  }
+
+  @Test
   public void cacheLastBlocksOptionShouldWork() {
     int numberOfBlocksToCache = 512;
     parseCommand("--cache-last-blocks", String.valueOf(numberOfBlocksToCache));
