@@ -2,8 +2,8 @@ name: acceptance-tests-timing-reports-update
 
 # Runs on every merge to main. Grabs the per-runner acceptance test XML results from the just-merged
 # PR's latest successful CI run and consolidates them into a single 'acceptance-tests-timing-reports'
-# artifact on main. 
-# That artifact is the timing baseline that acceptance-tests.yml downloads on every PR to split 
+# artifact on main.
+# That artifact is the timing baseline that acceptance-tests.yml downloads on every PR to split
 # tests across parallel runners by historical duration. The data is always one merge behind — a PR's
 # own results only feed the *next* PR's split.
 
