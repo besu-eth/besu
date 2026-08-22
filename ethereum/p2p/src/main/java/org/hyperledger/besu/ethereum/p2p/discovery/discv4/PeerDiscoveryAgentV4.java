@@ -38,7 +38,10 @@ import org.hyperledger.besu.ethereum.p2p.peers.Peer;
 import org.hyperledger.besu.ethereum.p2p.peers.PeerId;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions;
 import org.hyperledger.besu.ethereum.p2p.rlpx.RlpxAgent;
+import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
+import org.hyperledger.besu.plugin.services.metrics.Counter;
+import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 import org.hyperledger.besu.util.NetworkUtility;
 
 import java.net.InetSocketAddress;
@@ -48,6 +51,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -71,6 +76,15 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
   // clients ignore that, so we add in a little extra padding. Also used by NettyTransport to
   // drop oversized datagrams before copying them off the channel's buffer.
   public static final int MAX_PACKET_SIZE_BYTES = 1600;
+
+  /**
+   * Maximum inbound packets in the decode and dispatch stages at once. Sized by latency rather than
+   * memory: a full gate adds ~130-260 ms at the ~1-2k packets/s the decode thread sustains.
+   */
+  public static final int MAX_INFLIGHT_INBOUND_PACKETS = 256;
+
+  private static final long SATURATION_LOG_INTERVAL_MS = 300_000L;
+
   protected final List<DiscoveryPeerV4> bootstrapPeers;
   private final List<PeerRequirement> peerRequirements = new CopyOnWriteArrayList<>();
   private final PeerPermissions peerPermissions;
@@ -116,6 +130,13 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
   // No corresponding start gate at this level — see start() for rationale.
   protected final AtomicBoolean stopGate = new AtomicBoolean(false);
 
+  // Permits held by packets currently in the decode + dispatch stages.
+  private final AtomicInteger inflightInboundPackets = new AtomicInteger();
+  private final AtomicLong lastSaturationLogMs = new AtomicLong();
+  private final LabelledMetric<Counter> droppedPackets;
+  private final Counter admissionDropCounter;
+  private final Counter stoppedDropCounter;
+
   protected PeerDiscoveryAgentV4(
       final NodeKey nodeKey,
       final DiscoveryConfiguration config,
@@ -129,6 +150,19 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
       final PacketSerializer packetSerializer,
       final PacketDeserializer packetDeserializer) {
     this.metricsSystem = metricsSystem;
+    this.droppedPackets =
+        metricsSystem.createLabelledCounter(
+            BesuMetricCategory.NETWORK,
+            "discovery_packets_dropped_total",
+            "Total number of inbound DiscV4 packets dropped before being handled",
+            "reason");
+    this.admissionDropCounter = droppedPackets.labels("admission_limit");
+    this.stoppedDropCounter = droppedPackets.labels("stopped");
+    metricsSystem.createIntegerGauge(
+        BesuMetricCategory.NETWORK,
+        "discovery_inflight_inbound_packets_current",
+        "Current number of inbound DiscV4 packets in the decode and dispatch stages",
+        inflightInboundPackets::get);
     checkArgument(nodeKey != null, "nodeKey cannot be null");
     checkArgument(config != null, "provided configuration cannot be null");
 
@@ -152,6 +186,10 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
     this.transport = transport;
     this.packetSerializer = packetSerializer;
     this.packetDeserializer = packetDeserializer;
+  }
+
+  protected Counter droppedPacketCounter(final String reason) {
+    return droppedPackets.labels(reason);
   }
 
   protected abstract TimerUtil createTimer();
@@ -204,42 +242,68 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
     // After stop() is called, the transport may still deliver queued packets. Drop them quietly
     // instead of letting workerExecutor.submit throw RejectedExecutionException.
     if (stopGate.get()) {
+      stoppedDropCounter.inc();
       return;
     }
     if (!validatePacketSize(data.size())) {
       LOG.trace("Discarding over-sized packet. Actual size (bytes): {}", data.size());
       return;
     }
+    // Ingress is the only place dropping is free: an undelivered UDP datagram is indistinguishable
+    // from network loss, and DiscV4 peers retry.
+    if (inflightInboundPackets.incrementAndGet() > MAX_INFLIGHT_INBOUND_PACKETS) {
+      inflightInboundPackets.decrementAndGet();
+      admissionDropCounter.inc();
+      logSaturation();
+      return;
+    }
     decodeExecutor
         .<Packet>execute(() -> packetDeserializer.decode(data))
         .whenCompleteAsync(
             (packet, err) -> {
-              if (stopGate.get()) {
-                // stop() was called after this decode was already queued; drop the late
-                // completion instead of forwarding it into a PeerDiscoveryController that may
-                // already be stopped.
-                return;
-              }
-              if (err == null) {
-                final Endpoint endpoint =
-                    new Endpoint(sender.getHostString(), sender.getPort(), Optional.empty());
-                try {
-                  handleIncomingPacket(endpoint, packet);
-                } catch (final RuntimeException e) {
-                  LOG.error("Encountered error while handling packet", e);
+              try {
+                if (stopGate.get()) {
+                  // stop() was called after this decode was already queued; drop the late
+                  // completion instead of forwarding it into a PeerDiscoveryController that may
+                  // already be stopped.
+                  return;
                 }
-              } else {
-                if (err instanceof PeerDiscoveryPacketDecodingException
-                    || err instanceof DecodeException
-                    || err instanceof EndOfRLPException) {
-                  LOG.trace(
-                      "Discarding invalid peer discovery packet: {}, {}", err.getMessage(), err);
+                if (err == null) {
+                  final Endpoint endpoint =
+                      new Endpoint(sender.getHostString(), sender.getPort(), Optional.empty());
+                  try {
+                    handleIncomingPacket(endpoint, packet);
+                  } catch (final RuntimeException e) {
+                    LOG.error("Encountered error while handling packet", e);
+                  }
                 } else {
-                  LOG.error("Encountered error while handling packet", err);
+                  if (err instanceof PeerDiscoveryPacketDecodingException
+                      || err instanceof DecodeException
+                      || err instanceof EndOfRLPException) {
+                    LOG.trace(
+                        "Discarding invalid peer discovery packet: {}, {}", err.getMessage(), err);
+                  } else {
+                    LOG.error("Encountered error while handling packet", err);
+                  }
                 }
+              } finally {
+                // Must cover every exit: a leaked permit permanently shrinks capacity.
+                inflightInboundPackets.decrementAndGet();
               }
             },
             dispatchExecutor);
+  }
+
+  /** Rate-limited so that a packet flood cannot become a log flood. */
+  private void logSaturation() {
+    final long now = System.currentTimeMillis();
+    final long last = lastSaturationLogMs.get();
+    if (now - last >= SATURATION_LOG_INTERVAL_MS && lastSaturationLogMs.compareAndSet(last, now)) {
+      LOG.warn(
+          "Dropping inbound discovery packets: {} already in flight. See the"
+              + " discovery_packets_dropped_total metric.",
+          MAX_INFLIGHT_INBOUND_PACKETS);
+    }
   }
 
   @Override

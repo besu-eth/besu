@@ -21,7 +21,7 @@ import org.hyperledger.besu.plugin.services.BesuService;
 
 import org.apache.tuweni.bytes.Bytes;
 
-/** RLP Serialiaztion/Deserialization service. */
+/** RLP serialization and deserialization service. */
 public interface RlpConverterService extends BesuService {
 
   /**
