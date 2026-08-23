@@ -219,10 +219,6 @@ public class MessageFrame {
   private Code createdCode = null;
   private final boolean isStatic;
 
-  // EIP-8037: an already-alive CREATE/CREATE2 target adds no leaf, so its NEW_ACCOUNT state gas
-  // is refunded on success.
-  private boolean createTargetWasAlive = false;
-
   // EIP-8037: state gas drawn from gasRemaining once the reservoir ran dry. Frame-local, so
   // refunds and failures can unwind it separately.
   private long stateGasSpilled = 0L;
@@ -1264,26 +1260,6 @@ public class MessageFrame {
    */
   public Address getContractAddress() {
     return contract;
-  }
-
-  /**
-   * Records whether the CREATE/CREATE2 spawned from this frame targets an already-alive (existing,
-   * non-empty) address.
-   *
-   * @param wasAlive true if the create target was already alive
-   */
-  public void setCreateTargetWasAlive(final boolean wasAlive) {
-    this.createTargetWasAlive = wasAlive;
-  }
-
-  /**
-   * Whether the most recent CREATE/CREATE2 targeted an already-alive address, in which case no leaf
-   * is added and its NEW_ACCOUNT state gas is refunded.
-   *
-   * @return true if the create target was already alive
-   */
-  public boolean wasCreateTargetAlive() {
-    return createTargetWasAlive;
   }
 
   /**
