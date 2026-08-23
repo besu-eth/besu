@@ -51,6 +51,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.cache.NoOpB
 import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.NoOpTrieLogManager;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.account.Account;
@@ -323,8 +324,8 @@ class BalTransactionProcessorUnitTest {
       writeAccount.withPostBalance(postBalance);
       writeAccount.withNonceChange(nonce);
       writeAccount.withNewCode(code);
-      writeAccount.addStorageChange(slotOne, UInt256.valueOf(11));
-      writeAccount.addStorageChange(slotTwo, null);
+      writeAccount.addStorageChange(slotOne, UInt256.valueOf(5), UInt256.valueOf(11));
+      writeAccount.addStorageChange(slotTwo, UInt256.valueOf(99), null);
       partialBuilder.getOrCreateAccountBuilder(readOnlyAddress).addStorageRead(readOnlySlot);
       final PartialBlockAccessView partialBlockAccessView = partialBuilder.build();
 
@@ -378,9 +379,82 @@ class BalTransactionProcessorUnitTest {
       assertEquals(
           UInt256.valueOf(11), account.getStorageValue(slotOneKey), "Slot one should be applied");
       assertEquals(UInt256.ZERO, account.getStorageValue(slotTwoKey), "Null slot clears to zero");
+
+      final PathBasedWorldStateUpdateAccumulator<?> accumulator = env.worldState().updater();
+      assertNotNull(
+          accumulator.getAccountsToUpdate().get(writeAddress),
+          "Write account should be in accountsToUpdate");
+      assertEquals(
+          UInt256.valueOf(5),
+          accumulator.getStorageToUpdate().get(writeAddress).get(slotOne).getPrior(),
+          "Slot one prior should be imported as PathBasedValue");
+      assertEquals(
+          UInt256.valueOf(99),
+          accumulator.getStorageToUpdate().get(writeAddress).get(slotTwo).getPrior(),
+          "Slot two prior should be imported as PathBasedValue");
       assertNull(
           env.worldState().updater().get(readOnlyAddress),
           "Read-only partial BAL entries should not create account writes");
+    }
+
+    @Test
+    @DisplayName("Clears accounts made empty by partial BAL view writes")
+    void clearsAccountsMadeEmptyByPartialBalWrites() {
+      final TestEnvironment env = createTestEnvironment();
+      final BlockAccessList blockAccessList = mockEmptyBlockAccessList();
+      final Transaction transaction = mockTransaction();
+      final Address accountAddress =
+          Address.fromHexString("0x1000000000000000000000000000000000000003");
+
+      final WorldUpdater preStateUpdater = env.worldState().updater();
+      preStateUpdater.createAccount(accountAddress, 0L, Wei.ONE);
+      preStateUpdater.commit();
+
+      final PartialBlockAccessView.PartialBlockAccessViewBuilder partialBuilder =
+          new PartialBlockAccessView.PartialBlockAccessViewBuilder().withTxIndex(0);
+      partialBuilder.getOrCreateAccountBuilder(accountAddress).withPostBalance(Wei.ZERO);
+      final PartialBlockAccessView partialBlockAccessView = partialBuilder.build();
+
+      when(transactionProcessor.processTransaction(
+              any(), any(), any(), any(), any(), any(), any(), any(), any()))
+          .thenReturn(
+              TransactionProcessingResult.successful(
+                  Collections.emptyList(),
+                  0,
+                  0,
+                  Bytes.EMPTY,
+                  Optional.of(partialBlockAccessView),
+                  ValidationResult.valid()));
+      when(transactionProcessor.getClearEmptyAccounts()).thenReturn(true);
+
+      final BalConcurrentTransactionProcessor processor =
+          new BalConcurrentTransactionProcessor(
+              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          Collections.singletonList(transaction),
+          MINING_BENEFICIARY,
+          EMPTY_BLOCK_HASH_LOOKUP,
+          BLOB_GAS_PRICE,
+          sameThreadExecutor,
+          Optional.empty(),
+          env.maybeParentHeader());
+
+      final Optional<TransactionProcessingResult> result =
+          processor.getProcessingResult(
+              env.worldState(),
+              MINING_BENEFICIARY,
+              transaction,
+              0,
+              Optional.empty(),
+              Optional.empty());
+
+      assertTrue(result.isPresent(), "Expected processing result to be present");
+      assertNull(
+          env.worldState().updater().get(accountAddress),
+          "Account zeroed by partial BAL writes should be cleared from the block accumulator");
     }
   }
 
@@ -536,8 +610,8 @@ class BalTransactionProcessorUnitTest {
       a0.withPostBalance(tx0Balance);
       a0.withNonceChange(tx0Nonce);
       a0.withNewCode(tx0Code);
-      a0.addStorageChange(slot1, tx0Slot1Value);
-      a0.addStorageChange(slot2, tx0Slot2Value);
+      a0.addStorageChange(slot1, null, tx0Slot1Value);
+      a0.addStorageChange(slot2, null, tx0Slot2Value);
       balBuilder.apply(p0.build());
 
       final PartialBlockAccessView.PartialBlockAccessViewBuilder p1 =
@@ -547,8 +621,8 @@ class BalTransactionProcessorUnitTest {
       a1.withPostBalance(tx1Balance);
       a1.withNonceChange(tx1Nonce);
       a1.withNewCode(tx1Code);
-      a1.addStorageChange(slot1, tx1Slot1Value);
-      a1.addStorageChange(slot2, null);
+      a1.addStorageChange(slot1, null, tx1Slot1Value);
+      a1.addStorageChange(slot2, null, null);
       balBuilder.apply(p1.build());
 
       final PartialBlockAccessView.PartialBlockAccessViewBuilder p2 =
@@ -558,7 +632,7 @@ class BalTransactionProcessorUnitTest {
       a2.withPostBalance(tx2Balance);
       a2.withNonceChange(tx2Nonce);
       a2.withNewCode(tx2Code);
-      a2.addStorageChange(slot1, tx2Slot1Value);
+      a2.addStorageChange(slot1, null, tx2Slot1Value);
       balBuilder.apply(p2.build());
 
       final BlockAccessList blockAccessList = balBuilder.build();

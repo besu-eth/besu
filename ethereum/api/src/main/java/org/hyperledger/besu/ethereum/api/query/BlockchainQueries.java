@@ -978,7 +978,6 @@ public class BlockchainQueries {
         }
       }
     } catch (final IOException e) {
-      e.printStackTrace(System.out);
       LOG.error("Error reading cached log blooms", e);
     }
     return results;
