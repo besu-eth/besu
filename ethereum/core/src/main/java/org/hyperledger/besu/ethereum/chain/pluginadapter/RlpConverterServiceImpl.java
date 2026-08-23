@@ -12,7 +12,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.services;
+package org.hyperledger.besu.ethereum.chain.pluginadapter;
 
 import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptDecoder;

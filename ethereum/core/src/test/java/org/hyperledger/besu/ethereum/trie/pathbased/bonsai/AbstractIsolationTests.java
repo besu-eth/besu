@@ -137,19 +137,7 @@ public abstract class AbstractIsolationTests {
 
   protected SenderBalanceChecker senderBalanceChecker = new SenderBalanceChecker.NoOpChecker();
 
-  protected final PendingTransactions sorter =
-      new LayeredPendingTransactions(
-          poolConfiguration,
-          new GasPricePrioritizedTransactions(
-              poolConfiguration,
-              ethScheduler,
-              new EndLayer(txPoolMetrics),
-              txPoolMetrics,
-              transactionReplacementTester,
-              new BlobCache(),
-              MiningConfiguration.newDefault(),
-              senderBalanceChecker),
-          ethScheduler);
+  protected PendingTransactions sorter;
 
   protected final List<GenesisAccount> accounts =
       GenesisConfig.fromResource("/dev.json")
@@ -188,6 +176,22 @@ public abstract class AbstractIsolationTests {
             .build();
     ethContext = mock(EthContext.class, RETURNS_DEEP_STUBS);
     when(ethContext.getEthPeers().subscribeConnect(any())).thenReturn(1L);
+
+    sorter =
+        new LayeredPendingTransactions(
+            protocolContext,
+            poolConfiguration,
+            new GasPricePrioritizedTransactions(
+                poolConfiguration,
+                ethScheduler,
+                new EndLayer(txPoolMetrics),
+                txPoolMetrics,
+                transactionReplacementTester,
+                new BlobCache(),
+                MiningConfiguration.newDefault(),
+                senderBalanceChecker),
+            ethScheduler);
+
     transactionPool =
         new TransactionPool(
             () -> sorter,
