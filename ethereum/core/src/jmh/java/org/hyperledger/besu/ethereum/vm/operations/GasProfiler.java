@@ -51,8 +51,8 @@ import org.openjdk.jmh.runner.IterationType;
 
 /**
  * JMH {@link InternalProfiler} that publishes the benchmark's gas throughput as a secondary metric
- * named {@code mgas_per_s} in MGas/s, derived from each measurement iteration's primary score and the gas
- * cost computed with Besu's own {@link GasCalculator}.
+ * named {@code mgas_per_s} in MGas/s, derived from each measurement iteration's primary score and
+ * the gas cost computed with Besu's own {@link GasCalculator}.
  *
  * <p>Run with: {@code ./gradlew :ethereum:core:jmh -PgasProfiler=true}
  *
@@ -64,8 +64,10 @@ public class GasProfiler implements InternalProfiler, ExternalProfiler {
   private final GasCalculator gasCalculator;
   private final String fork;
 
-  // Field seen by the InternalProfiler - ExternalProfiler side never sees the field as it runs in another JVM instance.
-  // Lazily populates the gas cost only once, then only computes gas related results if it is optionally available.
+  // Field seen by the InternalProfiler - ExternalProfiler side never sees the field as it runs in
+  // another JVM instance.
+  // Lazily populates the gas cost only once, then only computes gas related results if it is
+  // optionally available.
   @SuppressWarnings("OptionalUsedAsFieldOrParameterType")
   private OptionalLong trialGasCost;
 
@@ -130,7 +132,10 @@ public class GasProfiler implements InternalProfiler, ExternalProfiler {
         result.getPrimaryResult().getScore() * benchmarkParams.getTimeUnit().toNanos(1);
     return List.of(
         new ScalarResult(
-            "mgas_per_s", 1000 * trialGasCost.getAsLong() / nsPerOp, "MGas/s", AggregationPolicy.AVG));
+            "mgas_per_s",
+            1000 * trialGasCost.getAsLong() / nsPerOp,
+            "MGas/s",
+            AggregationPolicy.AVG));
   }
 
   @Override
@@ -152,7 +157,8 @@ public class GasProfiler implements InternalProfiler, ExternalProfiler {
   }
 
   @Override
-  public Collection<? extends Result<?>> afterTrial(final BenchmarkResult br, final long pid, final File stdOut, final File stdErr) {
+  public Collection<? extends Result<?>> afterTrial(
+      final BenchmarkResult br, final long pid, final File stdOut, final File stdErr) {
     return Collections.emptyList();
   }
 
