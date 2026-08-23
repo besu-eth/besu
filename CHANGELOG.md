@@ -69,6 +69,7 @@
 
 ### Bug fixes
 - Bound the DiscV4 inbound packet pipeline with an admission gate (256 in-flight packets) and a bounded crypto executor queue, preventing a UDP flood from exhausting memory.
+- Cap the number of snap/1-2 GET_* requests concurrently scheduled for processing on a snap-serving node, both per-peer (--Xsnapsync-server-max-concurrent-requests-per-peer, default 8) and globally (--Xsnapsync-server-max-concurrent-requests, default 200). [#11101](https://github.com/besu-eth/besu/pull/11101)
 - Cap the QBFT/IBFT round change number to prevent unbounded memory growth from malformed round-change messages.
 - Cap pre-STATUS RLPx connections and close them on eviction to prevent resource exhaustion.
 - Improve logging for malformed discv4 UDP packets.
