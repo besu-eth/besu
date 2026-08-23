@@ -90,6 +90,25 @@ class StateTestSubCommandTest {
   }
 
   @Test
+  void jsonOutputContainsOnlyJsonLines() throws Exception {
+    final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    final EvmToolCommand parentCommand =
+        new EvmToolCommand(System.in, new PrintWriter(baos, true, UTF_8));
+    new CommandLine(parentCommand).parseArgs("--json", "--notime");
+    final StateTestSubCommand stateTestSubCommand = new StateTestSubCommand(parentCommand);
+    new CommandLine(stateTestSubCommand)
+        .parseArgs(StateTestSubCommandTest.class.getResource("access-list.json").getPath());
+
+    stateTestSubCommand.run();
+
+    final String output = baos.toString(UTF_8);
+    for (final String line : output.lines().filter(value -> !value.isBlank()).toList()) {
+      assertThat(JsonUtils.createObjectMapper().readTree(line)).isNotNull();
+    }
+    assertThat(output).contains("\"test\":\"accessList\"").doesNotContain("State test summary:");
+  }
+
+  @Test
   void missingFileIsReportedRatherThanReadAsAListOfFilenamesFromStdin() {
     // An empty file list means "read filenames from stdin", so dropping an unresolvable path here
     // would leave the command blocked on stdin.
