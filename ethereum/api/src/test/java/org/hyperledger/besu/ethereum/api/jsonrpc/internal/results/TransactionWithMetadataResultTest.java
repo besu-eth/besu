@@ -65,9 +65,11 @@ public class TransactionWithMetadataResultTest {
                 transaction, 0L, Optional.of(Wei.of(7L)), Hash.ZERO, 0, 0L));
     assertThat(tcr.getMaxFeePerGas()).isNotEmpty();
     assertThat(tcr.getMaxPriorityFeePerGas()).isNotEmpty();
-    assertThat(tcr.getGasPrice()).isNotEmpty();
-    assertThat(tcr.getGasPrice())
-        .isEqualTo(Quantity.create(transaction.getEffectiveGasPrice(Optional.of(Wei.of(7L)))));
+    assertThat(tcr.getGasPrice()).isNull();
+
+    final ObjectMapper objectMapper = new ObjectMapper();
+    final JsonNode transactionCompleteResultJson = objectMapper.valueToTree(tcr);
+    assertThat(transactionCompleteResultJson.has("gasPrice")).isFalse();
   }
 
   @Test

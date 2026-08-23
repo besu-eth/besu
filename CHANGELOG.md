@@ -23,6 +23,7 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
+- Omit `gasPrice` from JSON-RPC transaction results for EIP-1559 fee-market transactions instead of populating it from `effectiveGasPrice` or `maxFeePerGas`. [#11058](https://github.com/besu-eth/besu/issues/11058)
 - Fix `debug_getRawTransaction` returning bare RLP payload (missing EIP-2718 type-byte prefix) for typed transactions, causing `keccak256(raw) != txHash`. Fix `debug_getRawReceipts` double-wrapping typed receipts in an outer RLP byte-string instead of returning the raw `type || rlp(payload)` wire encoding. [#11083](https://github.com/besu-eth/besu/pull/11083)
 - Port clash detection during Besu start now treats TCP and UDP ports separately. [#10904](https://github.com/besu-eth/besu/issues/10904)
 - BFT (QBFT/IBFT) networks configured with Paris or a later execution fork no longer use the PoS transaction selection timeout. The protocol spec inherited `isPoS=true` from the mainnet fork definitions, so `--poa-block-txs-selection-max-time` was ignored and transaction selection ran for the full `--block-txs-selection-max-time` (5000 ms by default), inflating block times on short block-period networks. [#11005](https://github.com/besu-eth/besu/issues/11005)
