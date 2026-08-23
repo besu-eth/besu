@@ -624,8 +624,6 @@ class OptimisticTransactionProcessorUnitTest {
           "Expected BAL view to be present");
     }
   }
-<<<<<<< HEAD
-=======
 
   @Nested
   @DisplayName("EIP-158 empty fee-recipient cleanup")
@@ -757,5 +755,4 @@ class OptimisticTransactionProcessorUnitTest {
       processor.abort();
     }
   }
->>>>>>> b0ff92bfe2 (fix(parallel): abort speculative futures on block-budget abort (#73))
 }
