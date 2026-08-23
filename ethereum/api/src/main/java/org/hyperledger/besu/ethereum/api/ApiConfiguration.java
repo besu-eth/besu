@@ -50,8 +50,6 @@ public abstract class ApiConfiguration {
   /** The default duration a JSON-RPC filter stays active without being polled. */
   public static final Duration DEFAULT_FILTER_TIMEOUT = Duration.ofMinutes(2);
 
-<<<<<<< HEAD
-=======
   /**
    * Default maximum number of EVM steps captured per debug_trace* / trace_call request. Prevents
    * unbounded heap growth when a caller uses enableMemory + an infinite-loop contract. Set to 0 to
@@ -62,7 +60,6 @@ public abstract class ApiConfiguration {
   /** The default maximum block range for log filter queries. */
   public static final long DEFAULT_MAX_LOGS_RANGE = 5000L;
 
->>>>>>> fa6ef9b526 (Fixes: GHSA-4776-8c3f-fx7g Added server side limit for steps in debug_traceCall (#53))
   /** Constructs a new ApiConfiguration with default values. */
   protected ApiConfiguration() {}
 
