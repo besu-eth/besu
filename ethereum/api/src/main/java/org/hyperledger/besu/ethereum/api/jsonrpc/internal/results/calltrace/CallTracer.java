@@ -260,12 +260,6 @@ public class CallTracer implements OperationTracer {
     rootBuilder.gasUsed(tx.getGasLimit() - result.getGasRemaining());
     if (!result.isSuccessful()) {
       applyRootError(tx, result);
-      if (result.getExceptionalHaltReason().isPresent()) {
-        // Whole-transaction exceptional halts happen before any nested call tree can be
-        // trusted; only the root's own summary/error is reported, matching the legacy
-        // converter behaviour.
-        rootBuilder.calls(null);
-      }
     }
     return rootBuilder.build();
   }
@@ -298,7 +292,9 @@ public class CallTracer implements OperationTracer {
     if (output != null && !output.isEmpty()) {
       b.output(output.toHexString());
     }
-    if (node.isPrecompile) {
+    if (node.isPrecompile
+        && (frame.getExceptionalHaltReason().isPresent()
+            || frame.getState() != MessageFrame.State.COMPLETED_FAILED)) {
       return;
     }
 

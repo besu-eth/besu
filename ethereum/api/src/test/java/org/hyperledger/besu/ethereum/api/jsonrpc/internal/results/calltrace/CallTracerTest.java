@@ -70,6 +70,39 @@ class CallTracerTest {
     assertThat(precompileNode.getGasUsed()).isEqualTo("0xbb8"); // 3000
   }
 
+  @Test
+  @DisplayName("reports a reverting precompile as failed")
+  void precompileRevertReportsFailure() {
+    final CallTracer tracer = new CallTracer(false);
+    final MessageFrame root = frame(Address.fromHexString("0x00"), Address.fromHexString("0x01"));
+    final Transaction tx = mockTransaction();
+    tracer.traceStartTransaction(null, tx);
+    tracer.traceContextEnter(root);
+
+    final Bytes revertData =
+        Bytes.fromHexString(
+            "0x08c379a0"
+                + "0000000000000000000000000000000000000000000000000000000000000020"
+                + "0000000000000000000000000000000000000000000000000000000000000006"
+                + "726561736f6e0000000000000000000000000000000000000000000000000000");
+    final MessageFrame precompileFrame =
+        frame(Address.fromHexString("0x00"), Address.fromHexString("0x04"));
+    when(precompileFrame.getRemainingGas()).thenReturn(12_345L, 12_345L, 9_345L);
+    when(precompileFrame.getState()).thenReturn(MessageFrame.State.COMPLETED_FAILED);
+    when(precompileFrame.getRevertReason()).thenReturn(Optional.of(revertData));
+
+    tracer.traceContextEnter(precompileFrame);
+    tracer.tracePrecompileCall(precompileFrame, 3_000L, revertData);
+    tracer.traceContextExit(precompileFrame);
+    tracer.traceContextExit(root);
+
+    final CallTracerResult result = tracer.buildResult(tx, mockResult(21_000L, true));
+    final CallTracerResult precompileNode = result.getCalls().get(0);
+    assertThat(precompileNode.getError()).isEqualTo("execution reverted");
+    assertThat(precompileNode.getOutput()).isEqualTo(revertData.toHexString());
+    assertThat(precompileNode.getRevertReason()).isEqualTo("reason");
+  }
+
   private static MessageFrame frame(final Address sender, final Address ownAddress) {
     final MessageFrame frame = mock(MessageFrame.class);
     when(frame.getDepth()).thenReturn(0);
