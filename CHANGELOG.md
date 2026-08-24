@@ -50,6 +50,7 @@
 - Extract the Plugin API chain module. The blockchain query, RLP conversion and block-view contracts (`BlockchainService`, `RlpConverterService` and the `BlockContext`, `AddedBlockContext`, `PropagatedBlockContext`, `BadBlockCause` and `LogWithMetadata` data interfaces) now live in a new `besu-plugin-api-chain` artifact, re-exported by `besu-plugin-api` so existing consumers are unaffected. [#11110](https://github.com/besu-eth/besu/pull/11110)
 - Add `--p2p-discovery-port` and `--p2p-discovery-port-ipv6` flags to configure a separate UDP port for devp2p peer discovery, independent of the TCP p2p port. Specify `0` to request an ephemeral port from the OS. [#10718](https://github.com/besu-eth/besu/pull/10718)
 - Pending peer request iteration: `streamAvailablePeers()` scan replaced with an allocation-free capacity check. Reduces lock contention and GC pressure under a backlog of pending peer requests. [#10900](https://github.com/besu-eth/besu/pull/10900)
+- Add `--include-bals` option to `besu blocks export`, writing a `<to>.bals` sidecar with BALs for each exported block. [#11042](https://github.com/besu-eth/besu/pull/11042)
 
 ## 26.8.0
 
