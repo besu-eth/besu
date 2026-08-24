@@ -39,6 +39,7 @@
 - Fix txpool incorrectly evicting authority pending transactions when EIP-7702 delegation tuples are skipped during block execution
 
 ### Additions and Improvements
+- Implement native `callTracer` execution tracing, reducing memory use for `debug_trace*`. [#11077](https://github.com/besu-eth/besu/pull/11077)
 - Align Kotlin runtime dependencies to 2.4.0 to support plugins compiled against the Kotlin 2.4 API. [#10983](https://github.com/besu-eth/besu/pull/10983)
 - Upgrade log4j to 2.25.5 [#11075](https://github.com/besu-eth/besu/pull/11075)
 - Upgrade netty dependency to 4.2.17.Final [#11078](https://github.com/besu-eth/besu/pull/11078)
