@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -40,7 +41,6 @@ import org.hyperledger.besu.evm.tracing.OperationTracer;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -224,62 +224,14 @@ class DebugTraceTransactionStepFactoryTest {
   }
 
   @Test
-  @DisplayName("should create async function for OPCODE_TRACER")
-  void shouldCreateAsyncFunctionForOpcodeTracer() throws Exception {
-    // Given
-    Function<TransactionTrace, CompletableFuture<DebugTraceTransactionResult>> asyncFunction =
-        DebugTraceTransactionStepFactory.createAsync(
-            new TraceOptions(TracerType.OPCODE_TRACER, null, null), mockProtocolSpec, null);
+  @DisplayName("requires CallTracer for CALL_TRACER")
+  void requiresCallTracerForCallTracer() {
+    final TraceOptions traceOptions = new TraceOptions(TracerType.CALL_TRACER, null, null);
 
-    // When
-    CompletableFuture<DebugTraceTransactionResult> future =
-        asyncFunction.apply(mockTransactionTrace);
-    DebugTraceTransactionResult result = future.get();
-
-    // Then
-    assertThat(future).isNotNull();
-    assertThat(future.isDone()).isTrue();
-    assertThat(result).isNotNull();
-    assertThat(result.getTxHash()).isEqualTo(EXPECTED_HASH);
-    assertThat(result.getResult()).isInstanceOf(OpCodeLoggerTracerResult.class);
-  }
-
-  @ParameterizedTest
-  @EnumSource(TracerType.class)
-  @DisplayName("should create non-null async function for all tracer types")
-  void shouldCreateNonNullAsyncFunctionForAllTracerTypes(final TracerType tracerType) {
-    // When
-    TraceOptions traceOptions = new TraceOptions(tracerType, null, null);
-    Function<TransactionTrace, CompletableFuture<DebugTraceTransactionResult>> asyncFunction =
-        DebugTraceTransactionStepFactory.createAsync(
-            traceOptions, mockProtocolSpec, tracerFor(tracerType));
-
-    // Then
-    assertThat(asyncFunction).isNotNull();
-  }
-
-  @ParameterizedTest
-  @EnumSource(TracerType.class)
-  @DisplayName("should return completed future with non-null result for all tracer types")
-  void shouldReturnCompletedFutureWithNonNullResultForAllTracerTypes(final TracerType tracerType)
-      throws Exception {
-    // Given
-    TraceOptions traceOptions = new TraceOptions(tracerType, null, null);
-    Function<TransactionTrace, CompletableFuture<DebugTraceTransactionResult>> asyncFunction =
-        DebugTraceTransactionStepFactory.createAsync(
-            traceOptions, mockProtocolSpec, tracerFor(tracerType));
-
-    // When
-    CompletableFuture<DebugTraceTransactionResult> future =
-        asyncFunction.apply(mockTransactionTrace);
-    DebugTraceTransactionResult result = future.get();
-
-    // Then
-    assertThat(future).isNotNull();
-    assertThat(future.isDone()).isTrue();
-    assertThat(result).isNotNull();
-    assertThat(result.getTxHash()).isEqualTo(EXPECTED_HASH);
-    assertThat(result.getResult()).isNotNull();
+    assertThatThrownBy(
+            () -> DebugTraceTransactionStepFactory.create(traceOptions, mockProtocolSpec, null))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("CALL_TRACER requires CallTracer");
   }
 
   @Test
@@ -338,25 +290,5 @@ class DebugTraceTransactionStepFactoryTest {
     assertThat(callResult.getCalls()).isNullOrEmpty();
     org.mockito.Mockito.verify(nestedFrame, org.mockito.Mockito.atLeastOnce()).getDepth();
     org.mockito.Mockito.verifyNoMoreInteractions(nestedFrame);
-  }
-
-  @Test
-  @DisplayName("should produce same result type as synchronous version")
-  void shouldProduceSameResultTypeAsSynchronousVersion() throws Exception {
-    // Given
-    TracerType tracerType = TracerType.OPCODE_TRACER;
-    TraceOptions traceOptions = new TraceOptions(tracerType, null, null);
-    Function<TransactionTrace, DebugTraceTransactionResult> syncFunction =
-        DebugTraceTransactionStepFactory.create(traceOptions, mockProtocolSpec, null);
-    Function<TransactionTrace, CompletableFuture<DebugTraceTransactionResult>> asyncFunction =
-        DebugTraceTransactionStepFactory.createAsync(traceOptions, mockProtocolSpec, null);
-
-    // When
-    DebugTraceTransactionResult syncResult = syncFunction.apply(mockTransactionTrace);
-    DebugTraceTransactionResult asyncResult = asyncFunction.apply(mockTransactionTrace).get();
-
-    // Then
-    assertThat(asyncResult.getTxHash()).isEqualTo(syncResult.getTxHash());
-    assertThat(asyncResult.getResult().getClass()).isEqualTo(syncResult.getResult().getClass());
   }
 }

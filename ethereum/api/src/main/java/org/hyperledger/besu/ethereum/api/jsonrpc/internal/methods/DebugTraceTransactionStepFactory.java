@@ -27,19 +27,11 @@ import org.hyperledger.besu.ethereum.debug.TracerType;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 
-import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 
 import com.fasterxml.jackson.annotation.JsonGetter;
 
-/**
- * Factory for creating transaction steps for various tracers.
- *
- * <p>This factory provides methods to create functions that process a {@link TransactionTrace} and
- * return a {@link DebugTraceTransactionResult} with the appropriate tracer result based on the
- * specified tracer type. Both synchronous and asynchronous processing options are available through
- * the {@code create} and {@code createAsync} methods respectively.
- */
+/** Creates transaction result functions for debug tracers. */
 public class DebugTraceTransactionStepFactory {
 
   /**
@@ -67,13 +59,7 @@ public class DebugTraceTransactionStepFactory {
             var result = new OpCodeLoggerTracerResult(transactionTrace);
             return new DebugTraceTransactionResult(transactionTrace, result);
           };
-      case CALL_TRACER ->
-          transactionTrace -> {
-            var result =
-                ((CallTracer) tracer)
-                    .buildResult(transactionTrace.getTransaction(), transactionTrace.getResult());
-            return new DebugTraceTransactionResult(transactionTrace, result);
-          };
+      case CALL_TRACER -> createCallTracerResultFunction(tracer);
       case FLAT_CALL_TRACER ->
           transactionTrace -> {
             // TODO: Implement flatCallTracer logic and wire it here
@@ -102,25 +88,16 @@ public class DebugTraceTransactionStepFactory {
     };
   }
 
-  /**
-   * Creates an asynchronous function that processes a {@link TransactionTrace} and returns a {@link
-   * DebugTraceTransactionResult} with the appropriate tracer result based on the specified tracer
-   * type.
-   *
-   * @param traceOptions the options of tracer to use for processing the transaction trace
-   * @param protocolSpec the protocol spec for the block being traced
-   * @param tracer the operation tracer used to produce the {@link TransactionTrace}
-   * @return an asynchronous function that processes a {@link TransactionTrace} and returns a {@link
-   *     DebugTraceTransactionResult} with the appropriate tracer result
-   */
-  public static Function<TransactionTrace, CompletableFuture<DebugTraceTransactionResult>>
-      createAsync(
-          final TraceOptions traceOptions,
-          final ProtocolSpec protocolSpec,
-          final OperationTracer tracer) {
+  private static Function<TransactionTrace, DebugTraceTransactionResult>
+      createCallTracerResultFunction(final OperationTracer tracer) {
+    if (!(tracer instanceof CallTracer callTracer)) {
+      throw new IllegalArgumentException("CALL_TRACER requires CallTracer");
+    }
     return transactionTrace ->
-        CompletableFuture.supplyAsync(
-            () -> create(traceOptions, protocolSpec, tracer).apply(transactionTrace));
+        new DebugTraceTransactionResult(
+            transactionTrace,
+            callTracer.buildResult(
+                transactionTrace.getTransaction(), transactionTrace.getResult()));
   }
 
   public static class UnimplementedTracerResult {

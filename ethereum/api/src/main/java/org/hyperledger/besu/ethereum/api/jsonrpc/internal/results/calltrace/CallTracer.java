@@ -45,9 +45,7 @@ import org.apache.tuweni.bytes.Bytes;
  * tree, gas accounting, inputs/outputs and error/revert information are read directly - no
  * opcode-level stack, memory or storage trace is ever allocated.
  *
- * <p>CALL/CREATE attempts that never spawn a child frame (soft failures such as insufficient
- * balance/max depth, and hard failures such as insufficient gas or stack underflow) are detected in
- * {@link #tracePostExecution} and represented as synthetic leaf nodes, mirroring geth's callTracer.
+ * <p>Failed CALL/CREATE attempts with valid operands become synthetic leaves for Geth parity.
  */
 public class CallTracer implements OperationTracer {
 
@@ -333,6 +331,10 @@ public class CallTracer implements OperationTracer {
       // Entered a real child frame; traceContextEnter/traceContextExit handle it.
       return;
     }
+    if (result.getHaltReason() == ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS) {
+      // Operand validation failed before a child call was attempted.
+      return;
+    }
     final boolean isCreate = isCreateType(opcode);
     final CallTracerResult.Builder cb = CallTracerResult.builder().type(opcode);
     cb.from(stack.isEmpty() ? null : stack.peek().ownAddress.getBytes().toHexString());
@@ -438,7 +440,7 @@ public class CallTracer implements OperationTracer {
     pendingTo = null;
     pendingInOffset = 0L;
     pendingInLength = 0L;
-    pendingValid = frame.stackSize() >= 3;
+    pendingValid = frame.stackSize() >= (CREATE2.equals(opcode) ? 4 : 3);
     if (!pendingValid) {
       return;
     }
