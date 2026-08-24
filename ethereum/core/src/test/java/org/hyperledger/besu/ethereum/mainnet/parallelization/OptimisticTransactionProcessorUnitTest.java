@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig.createStatefulConfigWithTrie;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -58,6 +59,7 @@ import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -620,6 +622,59 @@ class OptimisticTransactionProcessorUnitTest {
       assertTrue(
           maybeResult.get().getPartialBlockAccessView().isPresent(),
           "Expected BAL view to be present");
+    }
+  }
+
+  @Nested
+  @DisplayName("abort() cleanup of speculative futures")
+  @MockitoSettings(strictness = Strictness.LENIENT)
+  class AbortTests {
+
+    @Test
+    @DisplayName("abort() before runAsyncBlock is a no-op")
+    void abortBeforeRunIsNoOp() {
+      processor.abort();
+      processor.abort();
+      assertThat(processor.futures).isNull();
+    }
+
+    @Test
+    @DisplayName("abort() cancels and nulls all pending futures")
+    void abortCancelsAndNullsFutures() {
+      final Transaction tx1 = mockTransaction();
+      final Transaction tx2 = mockTransaction();
+      stubSuccessfulTransaction(Optional.empty());
+
+      // An executor that never runs submitted tasks, so the futures stay pending and abort()'s
+      // cancel(true) is observable (cancel on an already-completed future is a no-op).
+      final Executor noOpExecutor = runnable -> {};
+
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          List.of(tx1, tx2),
+          MINING_BENEFICIARY,
+          EMPTY_BLOCK_HASH_LOOKUP,
+          BLOB_GAS_PRICE,
+          noOpExecutor,
+          Optional.empty(),
+          env.maybeParentHeader());
+
+      // Capture the futures before abort() nulls the slots, then verify they were actually
+      // cancelled
+      final CompletableFuture<ParallelizedTransactionContext> future0 = processor.futures[0];
+      final CompletableFuture<ParallelizedTransactionContext> future1 = processor.futures[1];
+      assertThat(future0).isNotNull().isNotDone();
+      assertThat(future1).isNotNull().isNotDone();
+
+      processor.abort();
+
+      assertThat(processor.futures[0]).isNull();
+      assertThat(processor.futures[1]).isNull();
+      assertThat(future0).isCancelled();
+      assertThat(future1).isCancelled();
+
+      processor.abort();
     }
   }
 }
