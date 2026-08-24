@@ -5,7 +5,7 @@
     "jsonrpc": "2.0",
     "method": "testing_buildBlockV1",
     "params": [
-      "0xe4e54508f0865fe3ebc1b5ac710c1fd696b2a2ce797d4111120e0378c0b1cd81",
+      "0x097519c9962233872c2c8990334e787f3954cc13e325eeedc2dfd0d527e3435d",
       {
         "timestamp": "0x1",
         "prevRandao": "0x0000000000000000000000000000000000000000000000000000000000000000",

@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.eth.sync.state;
 
 import org.hyperledger.besu.consensus.merge.NewPayloadListener;
-import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.ChainHead;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -69,8 +68,6 @@ public class SyncState implements NewPayloadListener {
 
   private volatile long lastPayloadBlockNumber = 0L;
   private volatile boolean payloadReceived = false;
-
-  private Optional<Address> maybeAccountToRepair = Optional.empty();
 
   public SyncState(final Blockchain blockchain, final EthPeers ethPeers) {
     this(blockchain, ethPeers, false, Optional.empty());
@@ -370,14 +367,6 @@ public class SyncState implements NewPayloadListener {
 
   public void markResyncNeeded() {
     isResyncNeeded = true;
-  }
-
-  public Optional<Address> getAccountToRepair() {
-    return maybeAccountToRepair;
-  }
-
-  public void markAccountToRepair(final Optional<Address> address) {
-    maybeAccountToRepair = address;
   }
 
   public void markInitialSyncRestart() {

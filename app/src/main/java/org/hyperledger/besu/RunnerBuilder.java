@@ -148,7 +148,6 @@ import com.google.common.base.Strings;
 import graphql.GraphQL;
 import inet.ipaddr.IPAddress;
 import io.vertx.core.Vertx;
-import io.vertx.core.VertxOptions;
 import io.vertx.core.json.JsonObject;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -1040,7 +1039,8 @@ public class RunnerBuilder {
 
     Optional<GraphQLHttpService> graphQLHttpService = Optional.empty();
     if (graphQLConfiguration.isEnabled()) {
-      final GraphQLDataFetchers fetchers = new GraphQLDataFetchers(supportedCapabilities);
+      final GraphQLDataFetchers fetchers =
+          new GraphQLDataFetchers(supportedCapabilities, graphQLConfiguration.getMaxBlockRange());
       final Map<GraphQLContextType, Object> graphQlContextMap = new ConcurrentHashMap<>();
       graphQlContextMap.putIfAbsent(GraphQLContextType.BLOCKCHAIN_QUERIES, blockchainQueries);
       graphQlContextMap.putIfAbsent(GraphQLContextType.PROTOCOL_SCHEDULE, protocolSchedule);
@@ -1377,8 +1377,12 @@ public class RunnerBuilder {
       final RpcEndpointServiceImpl rpcEndpointServiceImpl,
       final TransactionSimulator transactionSimulator,
       final EthScheduler ethScheduler) {
-    // sync vertx for engine consensus API, to process requests in FIFO order;
-    final Vertx consensusEngineServer = Vertx.vertx(new VertxOptions().setWorkerPoolSize(1));
+    // vertx for the engine consensus API: engine methods execute concurrently on its worker
+    // pool, except engine_forkchoiceUpdated and engine_newPayload calls, which the Engine API
+    // spec requires to be processed in the order received — those run on a dedicated
+    // single-threaded executor (see OrderedExecutionJsonRpcMethod)
+    final Vertx consensusEngineServer =
+        Vertx.vertx(new io.vertx.core.VertxOptions().setWorkerPoolSize(1).setEventLoopPoolSize(1));
 
     final Map<String, JsonRpcMethod> methods =
         new JsonRpcMethodsFactory()

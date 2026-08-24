@@ -28,7 +28,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.OrderedExecutionJsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ForkchoiceStateV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttributesV1;
@@ -55,10 +55,14 @@ import org.slf4j.LoggerFactory;
  *
  * <p>Parameterized so that V2 can extend this class while narrowing the payload type.
  *
+ * <p>Extends {@link OrderedExecutionJsonRpcMethod} because the Engine API spec mandates that
+ * forkchoiceUpdated calls are processed in the order they have been received; this applies to the
+ * whole sealed V1-V4 hierarchy.
+ *
  * @param <PA> the payload-attributes type this version accepts
  */
 public sealed class EngineForkchoiceUpdatedV1<PA extends PayloadAttributesV1>
-    extends ExecutionEngineJsonRpcMethod permits EngineForkchoiceUpdatedV2 {
+    extends OrderedExecutionJsonRpcMethod permits EngineForkchoiceUpdatedV2 {
 
   private static final Logger LOG = LoggerFactory.getLogger(EngineForkchoiceUpdatedV1.class);
 
