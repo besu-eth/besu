@@ -28,6 +28,7 @@ import org.hyperledger.besu.ethereum.api.graphql.internal.pojoadapter.PendingSta
 import org.hyperledger.besu.ethereum.api.graphql.internal.pojoadapter.SyncStateAdapter;
 import org.hyperledger.besu.ethereum.api.graphql.internal.pojoadapter.TransactionAdapter;
 import org.hyperledger.besu.ethereum.api.graphql.internal.response.GraphQLError;
+import org.hyperledger.besu.ethereum.api.query.BackendQuery;
 import org.hyperledger.besu.ethereum.api.query.BlockWithMetadata;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.api.query.LogsQuery;
@@ -53,6 +54,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
+import java.util.function.Supplier;
 
 import com.google.common.base.Preconditions;
 import graphql.GraphQLContext;
@@ -77,7 +79,15 @@ import org.apache.tuweni.bytes.Bytes32;
  */
 public class GraphQLDataFetchers {
 
+  /**
+   * Default maximum number of blocks a single {@code blocks(from,to)} query may span, used when no
+   * explicit limit is supplied (e.g. by test call sites). Mirrors {@link
+   * GraphQLConfiguration#DEFAULT_MAX_BLOCK_RANGE}.
+   */
+  public static final long DEFAULT_MAX_BLOCK_RANGE = GraphQLConfiguration.DEFAULT_MAX_BLOCK_RANGE;
+
   private final Integer highestEthVersion;
+  private final long maxBlockRange;
 
   /**
    * Constructs a new GraphQLDataFetchers instance.
@@ -89,12 +99,26 @@ public class GraphQLDataFetchers {
    * @param supportedCapabilities a set of capabilities supported by the Ethereum node
    */
   public GraphQLDataFetchers(final Set<Capability> supportedCapabilities) {
+    this(supportedCapabilities, DEFAULT_MAX_BLOCK_RANGE);
+  }
+
+  /**
+   * Constructs a new GraphQLDataFetchers instance with an explicit cap on the span of a single
+   * {@code blocks(from,to)} range query.
+   *
+   * @param supportedCapabilities a set of capabilities supported by the Ethereum node
+   * @param maxBlockRange the maximum number of blocks a single {@code blocks(from,to)} query may
+   *     span; 0 means no limit
+   */
+  public GraphQLDataFetchers(
+      final Set<Capability> supportedCapabilities, final long maxBlockRange) {
     final OptionalInt version =
         supportedCapabilities.stream()
             .filter(cap -> EthProtocol.NAME.equals(cap.getName()))
             .mapToInt(Capability::getVersion)
             .max();
     highestEthVersion = version.isPresent() ? version.getAsInt() : null;
+    this.maxBlockRange = maxBlockRange;
   }
 
   /**
@@ -219,20 +243,42 @@ public class GraphQLDataFetchers {
     return dataFetchingEnvironment -> {
       final BlockchainQueries blockchainQuery =
           dataFetchingEnvironment.getGraphQlContext().get(GraphQLContextType.BLOCKCHAIN_QUERIES);
+      final Supplier<Boolean> isAlive =
+          dataFetchingEnvironment.getGraphQlContext().get(GraphQLContextType.IS_ALIVE_HANDLER);
 
-      final long from = dataFetchingEnvironment.getArgument("from");
-      final long to;
+      final long chainHeadBlockNumber = blockchainQuery.getBlockchain().getChainHeadBlockNumber();
+      long from;
+      if (dataFetchingEnvironment.containsArgument("from")) {
+        from = dataFetchingEnvironment.getArgument("from");
+      } else {
+        from = chainHeadBlockNumber;
+      }
+      long to;
       if (dataFetchingEnvironment.containsArgument("to")) {
         to = dataFetchingEnvironment.getArgument("to");
       } else {
-        to = blockchainQuery.latestBlock().map(block -> block.getHeader().getNumber()).orElse(0L);
+        to = chainHeadBlockNumber;
       }
-      if (from > to) {
+      if (from < 0 || from > to) {
         throw new GraphQLException(GraphQLError.INVALID_PARAMS);
       }
+      // Checked on the caller-supplied (pre-clamp) span so an attacker can't sidestep the cap by
+      // supplying a `to` far beyond the chain head, relying on the clamp below to shrink it first.
+      if (maxBlockRange > 0 && (to - from) > maxBlockRange) {
+        throw new GraphQLException(GraphQLError.INVALID_PARAMS);
+      }
+      // A supplied `to` beyond the chain head only ever shrinks the loop below, so clamping here
+      // (after the span check above) can only reduce work, never let more through.
+      to = Math.min(to, chainHeadBlockNumber);
 
       final List<NormalBlockAdapter> results = new ArrayList<>();
       for (long i = from; i <= to; i++) {
+        // IS_ALIVE_HANDLER is always populated for real HTTP requests (GraphQLHttpService), but
+        // any call site that builds a GraphQlContext without it (tests, future callers) should
+        // fail open here rather than NPE inside the loop.
+        if (isAlive != null) {
+          BackendQuery.stopIfExpired(isAlive);
+        }
         final Optional<BlockWithMetadata<TransactionWithMetadata, Hash>> block =
             blockchainQuery.blockByNumber(i);
         block.ifPresent(e -> results.add(new NormalBlockAdapter(e)));

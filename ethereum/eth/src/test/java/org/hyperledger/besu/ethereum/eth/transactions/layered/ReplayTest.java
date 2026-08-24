@@ -21,12 +21,14 @@ import static org.hyperledger.besu.ethereum.eth.transactions.layered.LayeredRemo
 import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.TX_EVALUATION_TOO_LONG;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -43,8 +45,10 @@ import org.hyperledger.besu.ethereum.mainnet.feemarket.BaseFeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 
 import java.io.BufferedReader;
@@ -81,7 +85,6 @@ public class ReplayTest {
   private final Map<Address, Wei> recordedSenderBalances = new HashMap<>();
   private final Address senderToLog =
       Address.fromHexString("0xf7445f4b8a07921bf882175470dc8f7221c53996");
-
   private BlockHeader currBlockHeader;
 
   /**
@@ -152,8 +155,15 @@ public class ReplayTest {
 
           final AbstractPrioritizedTransactions prioritizedTransactions =
               createLayers(poolConfig, txPoolMetrics, baseFeeMarket);
+
+          final WorldStateArchive worldStateArchive = mock(WorldStateArchive.class);
+
+          final ProtocolContext protocolContext = mock(ProtocolContext.class);
+          when(protocolContext.getWorldStateArchive()).thenReturn(worldStateArchive);
+
           final LayeredPendingTransactions pendingTransactions =
-              new LayeredPendingTransactions(poolConfig, prioritizedTransactions, ethScheduler);
+              new LayeredPendingTransactions(
+                  protocolContext, poolConfig, prioritizedTransactions, ethScheduler);
 
           String line;
           while ((line = br.readLine()) != null) {
@@ -175,7 +185,8 @@ public class ReplayTest {
                   }
                   case "B" -> {
                     System.out.println("B:" + commaSplit[1]);
-                    processBlock(commaSplit, prioritizedTransactions, baseFeeMarket);
+                    processBlock(
+                        commaSplit, prioritizedTransactions, baseFeeMarket, worldStateArchive);
                     recordedSenderBalances.clear();
                   }
                   case "S" -> {
@@ -306,7 +317,8 @@ public class ReplayTest {
   private void processBlock(
       final String[] commaSplit,
       final AbstractPrioritizedTransactions prioritizedTransactions,
-      final FeeMarket feeMarket) {
+      final FeeMarket feeMarket,
+      final WorldStateArchive worldStateArchive) {
     final Bytes bytes = Bytes.fromHexString(commaSplit[commaSplit.length - 1]);
     final RLPInput rlpInput = new BytesValueRLPInput(bytes, false);
     final BlockHeader blockHeader =
@@ -344,6 +356,20 @@ public class ReplayTest {
           nonceRangeBySender.get(senderToLog),
           prioritizedTransactions.logSender(senderToLog));
     }
+
+    final MutableWorldState worldState = mock(MutableWorldState.class);
+    when(worldState.get(any(Address.class)))
+        .thenAnswer(
+            invocation -> {
+              final Account account = mock(Account.class);
+              final Address address = invocation.getArgument(0, Address.class);
+              final long confirmedNonce = maxNonceBySender.getOrDefault(address, -1L);
+              when(account.getNonce()).thenReturn(confirmedNonce + 1);
+              return account;
+            });
+    reset(worldStateArchive);
+    when(worldStateArchive.getWorldState()).thenReturn(worldState);
+
     prioritizedTransactions.blockAdded(feeMarket, blockHeader, maxNonceBySender);
     if (maxNonceBySender.containsKey(senderToLog) || nonceRangeBySender.containsKey(senderToLog)) {
       LOG.warn("After {}", prioritizedTransactions.logSender(senderToLog));

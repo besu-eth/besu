@@ -96,10 +96,9 @@ public class TxValues {
   }
 
   /**
-   * Creates a new TxValues for the initial (depth-0) frame of a transaction. Intrinsic EIP-8037
-   * charges that should be in effect at frame entry are passed in via {@code initialStateGasUsed}
-   * and {@code initialStateGasReservoir} so the frame is constructed with its final values and no
-   * post-hoc setters / undo-mark advances are required.
+   * Creates a new TxValues for the initial (depth-0) frame of a transaction. The EIP-8037 state-gas
+   * reservoir it starts with is passed in via {@code initialStateGasReservoir} so the frame is
+   * constructed with its final value and no post-hoc setter is required.
    *
    * @param blockHashLookup block hash lookup function
    * @param maxStackSize maximum stack size
@@ -110,7 +109,6 @@ public class TxValues {
    * @param blockValues the block values
    * @param miningBeneficiary the mining beneficiary
    * @param versionedHashes optional versioned hashes
-   * @param initialStateGasUsed cumulative state gas charged at frame entry (intrinsic state gas)
    * @param initialStateGasReservoir state-gas reservoir balance at frame entry
    * @return a new TxValues instance
    */
@@ -124,7 +122,6 @@ public class TxValues {
       final BlockValues blockValues,
       final Address miningBeneficiary,
       final Optional<List<VersionedHash>> versionedHashes,
-      final long initialStateGasUsed,
       final long initialStateGasReservoir) {
     // TreeBasedTable/TreeSet (sorted by each key's natural ordering) are used instead of
     // HashBasedTable/HashSet: Address and Bytes32 hash with a grindable base-31 hash and never
@@ -146,7 +143,7 @@ public class TxValues {
         UndoSet.of(new TreeSet<>()),
         UndoSet.of(new TreeSet<>()),
         new UndoScalar<>(0L),
-        new UndoScalar<>(initialStateGasUsed),
+        new UndoScalar<>(0L),
         new UndoScalar<>(initialStateGasReservoir));
   }
 
