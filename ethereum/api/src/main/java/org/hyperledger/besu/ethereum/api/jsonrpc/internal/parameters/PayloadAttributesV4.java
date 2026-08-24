@@ -20,6 +20,7 @@ import java.util.List;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import org.apache.tuweni.units.bigints.UInt64;
 
 public final class PayloadAttributesV4 extends PayloadAttributesV3 {
 
@@ -36,8 +37,25 @@ public final class PayloadAttributesV4 extends PayloadAttributesV3 {
       @JsonProperty("slotNumber") final String slotNumber,
       @JsonProperty("targetGasLimit") final String targetGasLimit) {
     super(timestamp, prevRandao, suggestedFeeRecipient, withdrawals, parentBeaconBlockRoot);
-    this.slotNumber = slotNumber != null ? Long.decode(slotNumber) : null;
+    this.slotNumber = parseSlotNumber(slotNumber);
     this.targetGasLimit = targetGasLimit != null ? Long.decode(targetGasLimit) : null;
+  }
+
+  /**
+   * Parses the uint64 QUANTITY {@code slotNumber}, matching how {@code engine_newPayload} reads the
+   * same field: the whole range is accepted, with the top half carried as a negative long ({@link
+   * Long#decode} would throw above {@link Long#MAX_VALUE}). A missing or malformed value yields
+   * {@code null}, which the caller reports as the more specific "Invalid slotNumber".
+   */
+  private static Long parseSlotNumber(final String slotNumber) {
+    if (slotNumber == null) {
+      return null;
+    }
+    try {
+      return UInt64.fromHexString(slotNumber).toBytes().toLong();
+    } catch (final IllegalArgumentException e) {
+      return null;
+    }
   }
 
   public Long getSlotNumber() {

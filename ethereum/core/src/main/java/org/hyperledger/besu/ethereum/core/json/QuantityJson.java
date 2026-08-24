@@ -68,6 +68,32 @@ public final class QuantityJson {
     }
   }
 
+  /**
+   * Deserializes a QUANTITY covering the whole {@code uint64} range into a Java {@code long} using
+   * unsigned semantics, so values above {@link Long#MAX_VALUE} wrap to negative longs rather than
+   * being rejected. Engine API QUANTITY fields are {@code uint64}, so a value of e.g. {@code
+   * 0xffffffffffffffff} is syntactically valid and must be answered by block validation rather than
+   * by an "invalid params" error.
+   */
+  public static class UnsignedLongDeserializer extends StdDeserializer<Long> {
+
+    public UnsignedLongDeserializer() {
+      this(null);
+    }
+
+    public UnsignedLongDeserializer(final Class<?> vc) {
+      super(vc);
+    }
+
+    @Override
+    public Long deserialize(final JsonParser jsonParser, final DeserializationContext context)
+        throws IOException {
+      return UInt64.fromHexString(jsonParser.getCodec().readValue(jsonParser, String.class))
+          .toBytes()
+          .toLong();
+    }
+  }
+
   public static class GasDeserializer extends StdDeserializer<Long> {
 
     public GasDeserializer() {
