@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig.createStatefulConfigWithTrie;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -622,6 +623,84 @@ class OptimisticTransactionProcessorUnitTest {
       assertTrue(
           maybeResult.get().getPartialBlockAccessView().isPresent(),
           "Expected BAL view to be present");
+    }
+  }
+
+  @Nested
+  @DisplayName("EIP-158 empty fee-recipient cleanup")
+  class EmptyMiningBeneficiaryTests {
+
+    /**
+     * The serial path calls {@code getOrCreate(miningBeneficiary)}, credits the tip, then runs
+     * {@code clearAccountsThatAreEmpty()}. When the tip is zero and EIP-158 cleanup is active the
+     * net effect is that the fee recipient is left absent. The parallel merge must reach the same
+     * state, otherwise a block whose fee recipient was deleted by an earlier transaction and whose
+     * later transaction pays a zero tip yields a different account set, and so a different state
+     * root, than every other client.
+     */
+    @Test
+    @DisplayName("Zero reward with EIP-158 active does not materialize the fee recipient")
+    void zeroRewardDoesNotMaterializeEmptyMiningBeneficiary() {
+      final Transaction transaction = mockTransaction();
+      stubSuccessfulTransaction(Optional.empty());
+      when(collisionDetector.hasCollision(any(), any(), any(), any())).thenReturn(false);
+      when(transactionProcessor.getClearEmptyAccounts()).thenReturn(true);
+
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          Collections.singletonList(transaction),
+          MINING_BENEFICIARY,
+          EMPTY_BLOCK_HASH_LOOKUP,
+          BLOB_GAS_PRICE,
+          sameThreadExecutor,
+          Optional.empty(),
+          env.maybeParentHeader());
+
+      final Optional<TransactionProcessingResult> result =
+          processor.getProcessingResult(
+              env.worldState(),
+              MINING_BENEFICIARY,
+              transaction,
+              0,
+              Optional.empty(),
+              Optional.empty());
+
+      assertTrue(result.isPresent(), "Expected result to be applied");
+      assertNull(
+          env.worldState().updater().get(MINING_BENEFICIARY),
+          "an unrewarded fee recipient must not be left behind as an empty account");
+    }
+
+    /**
+     * The mirror case: before EIP-158 empty accounts are legitimate, and the serial path leaves the
+     * zero-tip fee recipient in place. The parallel path must keep doing so.
+     */
+    @Test
+    @DisplayName("Zero reward without EIP-158 still materializes the fee recipient")
+    void zeroRewardStillMaterializesBeneficiaryWhenEmptyAccountsAreKept() {
+      final Transaction transaction = mockTransaction();
+      stubSuccessfulTransaction(Optional.empty());
+      when(collisionDetector.hasCollision(any(), any(), any(), any())).thenReturn(false);
+      when(transactionProcessor.getClearEmptyAccounts()).thenReturn(false);
+
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          Collections.singletonList(transaction),
+          MINING_BENEFICIARY,
+          EMPTY_BLOCK_HASH_LOOKUP,
+          BLOB_GAS_PRICE,
+          sameThreadExecutor,
+          Optional.empty(),
+          env.maybeParentHeader());
+
+      processor.getProcessingResult(
+          env.worldState(), MINING_BENEFICIARY, transaction, 0, Optional.empty(), Optional.empty());
+
+      assertNotNull(
+          env.worldState().updater().get(MINING_BENEFICIARY),
+          "pre-EIP-158 the zero-tip fee recipient is still created, matching the serial path");
     }
   }
 
