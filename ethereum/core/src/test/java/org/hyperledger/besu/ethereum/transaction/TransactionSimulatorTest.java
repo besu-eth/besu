@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.transaction;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.ethereum.mainnet.feemarket.BlobFeeMarket.MIN_BLOB_GASPRICE;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
 import static org.hyperledger.besu.evm.tracing.OperationTracer.NO_TRACING;
 import static org.mockito.ArgumentMatchers.any;
@@ -868,6 +869,42 @@ public class TransactionSimulatorTest extends TrustedSetupClassLoaderExtension {
         uncappedTransactionSimulator.process(callParameter, 1L);
 
     assertThat(result.get().isSuccessful()).isFalse();
+    verifyTransactionWasProcessed(expectedTransaction);
+  }
+
+  @Test
+  public void shouldSetMaxFeePerBlobGasToMinBlobGaspriceWhenExceedingBalanceAllowed() {
+    final CallParameter callParameter = blobTransactionCallParameter();
+    mockBlockchainAndWorldState(callParameter);
+
+    final Transaction expectedTransaction =
+        Transaction.builder()
+            .type(TransactionType.BLOB)
+            .chainId(callParameter.getChainId().orElseThrow())
+            .nonce(callParameter.getNonce().orElseThrow())
+            .gasLimit(callParameter.getGas().orElseThrow())
+            .maxFeePerGas(Wei.ZERO)
+            .maxPriorityFeePerGas(Wei.ZERO)
+            .to(callParameter.getTo().orElseThrow())
+            .sender(callParameter.getSender().orElseThrow())
+            .value(callParameter.getValue().orElseThrow())
+            .payload(callParameter.getPayload().orElseThrow())
+            .maxFeePerBlobGas(MIN_BLOB_GASPRICE)
+            .versionedHashes(callParameter.getBlobVersionedHashes().orElseThrow())
+            .signature(FAKE_SIGNATURE)
+            .build();
+
+    mockProcessorStatusForTransaction(expectedTransaction, Status.SUCCESSFUL);
+
+    final Optional<TransactionSimulatorResult> result =
+        uncappedTransactionSimulator.process(
+            callParameter,
+            ImmutableTransactionValidationParams.builder().isAllowExceedingBalance(true).build(),
+            NO_TRACING,
+            1L);
+
+    assertThat(result).isPresent();
+    assertThat(result.get().isSuccessful()).isTrue();
     verifyTransactionWasProcessed(expectedTransaction);
   }
 
