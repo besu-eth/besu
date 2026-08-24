@@ -25,6 +25,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BlobGas;
 import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.GasLimitCalculator;
@@ -330,18 +331,18 @@ public class EthGetTransactionReceiptTest {
 
     assertThat(result.getType()).isEqualTo("0x3");
     assertThat(result.getBlobGasUsed()).isEqualTo("0x20000");
+    assertThat(result.getBlobGasPrice()).isEqualTo("0x1");
   }
 
   @Test
   public void shouldReturnRemovedTrueWhenBlockIsNotOnCanonicalChain() {
     when(blockchainQueries.headBlockNumber()).thenReturn(1L);
 
-    final org.hyperledger.besu.datatypes.Log log =
-        new org.hyperledger.besu.datatypes.Log(
-            org.hyperledger.besu.datatypes.Address.fromHexString(
-                "0x0000000000000000000000000000000000000003"),
-            org.apache.tuweni.bytes.Bytes.fromHexString("0x1234"),
-            java.util.Collections.emptyList());
+    final Log log =
+        new Log(
+            Address.fromHexString("0x0000000000000000000000000000000000000003"),
+            Bytes.fromHexString("0x1234"),
+            Collections.emptyList());
     final TransactionReceipt receiptWithLogs =
         new TransactionReceipt(1, 12, List.of(log), Optional.empty());
     final TransactionReceiptWithMetadata transactionReceiptWithMetadata =
@@ -377,12 +378,11 @@ public class EthGetTransactionReceiptTest {
   public void shouldReturnRemovedFalseWhenBlockIsOnCanonicalChain() {
     when(blockchainQueries.headBlockNumber()).thenReturn(1L);
 
-    final org.hyperledger.besu.datatypes.Log log =
-        new org.hyperledger.besu.datatypes.Log(
-            org.hyperledger.besu.datatypes.Address.fromHexString(
-                "0x0000000000000000000000000000000000000003"),
-            org.apache.tuweni.bytes.Bytes.fromHexString("0x1234"),
-            java.util.Collections.emptyList());
+    final Log log =
+        new Log(
+            Address.fromHexString("0x0000000000000000000000000000000000000003"),
+            Bytes.fromHexString("0x1234"),
+            Collections.emptyList());
     final TransactionReceipt receiptWithLogs =
         new TransactionReceipt(1, 12, List.of(log), Optional.empty());
     final TransactionReceiptWithMetadata transactionReceiptWithMetadata =
