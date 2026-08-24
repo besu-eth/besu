@@ -36,6 +36,32 @@ public abstract class ParallelBlockTransactionProcessor {
 
   protected CompletableFuture<ParallelizedTransactionContext>[] futures;
 
+  /**
+   * Set once block processing no longer has any use for the speculative results.
+   *
+   * <p>Read from the executor threads, written from the block processing thread, hence volatile.
+   */
+  private volatile boolean abandoned;
+
+  /**
+   * Abandons the speculative executions dispatched by {@link #runAsyncBlock} that have not started
+   * yet.
+   *
+   * <p>Block processing routinely stops before the last transaction: a transaction is invalid, the
+   * block gas budget is exhausted, the state root does not match. Every result still queued at that
+   * point is unusable, but the tasks stay runnable and keep every core busy long after the block
+   * has been rejected. Since a block is rejected on attacker-supplied data, that turns one invalid
+   * block into sustained CPU exhaustion.
+   *
+   * <p>Cancelling the futures would not help: {@link CompletableFuture#cancel} does not interrupt a
+   * task that is already running and does not remove it from the executor queue. Tasks are
+   * therefore made to check this flag and return early instead. Executions already in flight are
+   * left to finish, so at most one transaction per executor thread still runs to completion.
+   */
+  public void abandonPendingExecutions() {
+    abandoned = true;
+  }
+
   protected CompletableFuture<ParallelizedTransactionContext> removeFuture(final int txIndex) {
     final CompletableFuture<ParallelizedTransactionContext> future = futures[txIndex];
     futures[txIndex] = null;
@@ -54,6 +80,7 @@ public abstract class ParallelBlockTransactionProcessor {
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
       final Optional<BlockHeader> maybeParentHeader) {
 
+    abandoned = false;
     futures = new CompletableFuture[transactions.size()];
 
     for (int i = 0; i < transactions.size(); i++) {
@@ -63,16 +90,20 @@ public abstract class ParallelBlockTransactionProcessor {
       futures[i] =
           CompletableFuture.supplyAsync(
               () ->
-                  runTransaction(
-                      protocolContext,
-                      blockHeader,
-                      txIndex,
-                      transaction,
-                      miningBeneficiary,
-                      blockHashLookup,
-                      blobGasPrice,
-                      blockAccessListBuilder,
-                      maybeParentHeader),
+                  abandoned
+                      // A null context means "no speculative result for this transaction", which
+                      // getProcessingResult already handles by executing it on the block thread.
+                      ? null
+                      : runTransaction(
+                          protocolContext,
+                          blockHeader,
+                          txIndex,
+                          transaction,
+                          miningBeneficiary,
+                          blockHashLookup,
+                          blobGasPrice,
+                          blockAccessListBuilder,
+                          maybeParentHeader),
               executor);
     }
   }

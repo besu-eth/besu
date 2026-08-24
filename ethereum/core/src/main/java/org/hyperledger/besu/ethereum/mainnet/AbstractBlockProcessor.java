@@ -250,6 +250,10 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
             .getBlockAccessListFactory()
             .map(BlockAccessListFactory::newBlockAccessListBuilder);
 
+    // Declared outside the try so that the finally block can abandon any speculative work still
+    // outstanding, on every exit path including the early returns for an invalid block.
+    Optional<PreprocessingContext> preProcessingContext = Optional.empty();
+
     try {
       final Optional<AccessLocationTracker> preExecutionAccessLocationTracker =
           blockAccessListBuilder.map(
@@ -279,7 +283,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                               calculateExcessBlobGasForParent(protocolSpec, parentHeader)))
               .orElse(Wei.ZERO);
 
-      final Optional<PreprocessingContext> preProcessingContext =
+      preProcessingContext =
           preprocessingBlockFunction.run(
               protocolContext,
               blockHeader,
@@ -567,6 +571,9 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
           parallelizedTxFound ? Optional.of(nbParallelTx) : Optional.empty());
     } finally {
       stateRootCommitter.cancel();
+      // Processing is over, so any speculative execution still queued can no longer contribute a
+      // usable result. Left alone it would keep the CPU busy well past this point.
+      preProcessingContext.ifPresent(ctx -> ctx.processor().abandonPendingExecutions());
     }
   }
 
