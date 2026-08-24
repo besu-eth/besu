@@ -85,6 +85,7 @@
 - Added a configurable range cap (--graphql-max-blocks-range, default 5000) for GraphQL blocks(from, to) range queries; queries exceeding the cap are cancelled.
 - Bound secp256k1 signature r and s values to [1, n) on signature recovery, fixing a consensus divergence with EIP-7702 code delegations.
 - Reject RLP-wrapped typed transactions in block-body opaque decoding, preventing a potential consensus divergence.
+- Add a server-side cap on EVM steps captured per debug_traceCall, debug_traceTransaction, and related trace methods to prevent unbounded execution.
 - Fix optimistic parallel execution materialising an empty account for an unrewarded fee recipient, causing incorrect EIP-158 account deletion.
 - Remove `System.out`/`System.err` logging from `P256VerifyPrecompiledContract` and `BlockchainQueries` — these could leak sensitive data to stdout/stderr in production.
 - EIP-1459 DNS discovery now rejoins TXT records split across multiple `<character-string>`s. Records longer than 255 bytes were truncated, so Besu silently discarded most of every tree, resolving 832 of 3000 nodes from the mainnet tree. [#10985](https://github.com/besu-eth/besu/pull/10985)
