@@ -91,6 +91,7 @@ public class ProtocolSpecBuilder {
   private BlobSchedule blobSchedule = new BlobSchedule.NoBlobSchedule();
   private BadBlockManager badBlockManager;
   private boolean isPoS = false;
+  private boolean slotNumberRequired = false;
   private Duration slotDuration;
   private boolean isReplayProtectionSupported = false;
   private TransactionPoolPreProcessor transactionPoolPreProcessor;
@@ -291,6 +292,11 @@ public class ProtocolSpecBuilder {
     return this;
   }
 
+  public ProtocolSpecBuilder slotNumberRequired(final boolean slotNumberRequired) {
+    this.slotNumberRequired = slotNumberRequired;
+    return this;
+  }
+
   public ProtocolSpecBuilder isPoS(final boolean isPoS) {
     this.isPoS = isPoS;
     return this;
@@ -456,6 +462,7 @@ public class ProtocolSpecBuilder {
         Optional.ofNullable(requestProcessorCoordinator),
         preExecutionProcessor,
         isPoS,
+        slotNumberRequired,
         slotDuration,
         isReplayProtectionSupported,
         Optional.ofNullable(transactionPoolPreProcessor),

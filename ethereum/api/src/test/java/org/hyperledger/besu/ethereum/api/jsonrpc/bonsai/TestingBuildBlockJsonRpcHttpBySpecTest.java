@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
+import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
 import java.math.BigInteger;
@@ -50,7 +51,11 @@ public class TestingBuildBlockJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpB
   @Override
   protected void doSetup() throws Exception {
     blockchainSetupUtil = getBlockchainSetupUtil(DataStorageFormat.BONSAI);
-    blockchainSetupUtil.importAllBlocks();
+    // Header validation is skipped, as in every other by-spec test: the canned Amsterdam chain
+    // was produced by Besu's own block creator, which leaves the EIP-7843 slotNumber unset, and
+    // what this test covers is the testing_buildBlockV1 response rather than the fixture's
+    // header validity.
+    blockchainSetupUtil.importAllBlocks(HeaderValidationMode.NONE, HeaderValidationMode.NONE);
     startService();
   }
 

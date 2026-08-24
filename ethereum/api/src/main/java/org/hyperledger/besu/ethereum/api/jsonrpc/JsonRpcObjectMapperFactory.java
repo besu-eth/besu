@@ -32,6 +32,8 @@ public final class JsonRpcObjectMapperFactory {
   private static final ObjectMapper PARAMETER_MAPPER = createParameterMapper();
   private static final ObjectMapper PARAMETER_MAPPER_IGNORING_UNKNOWN_NULLS =
       createParameterMapperIgnoringUnknownNulls();
+  private static final ObjectMapper PARAMETER_MAPPER_IGNORING_UNKNOWN_EMPTIES =
+      createParameterMapperIgnoringUnknownEmpties();
   private static final ObjectMapper RESPONSE_MAPPER = createResponseMapper();
 
   private JsonRpcObjectMapperFactory() {}
@@ -52,6 +54,10 @@ public final class JsonRpcObjectMapperFactory {
     return getParameterMapper().copy().addHandler(new IgnoreNullUnknownHandler());
   }
 
+  private static ObjectMapper createParameterMapperIgnoringUnknownEmpties() {
+    return getParameterMapper().copy().addHandler(new IgnoreEmptyUnknownHandler());
+  }
+
   private static ObjectMapper createResponseMapper() {
     return getBaseMapper().copy();
   }
@@ -66,6 +72,10 @@ public final class JsonRpcObjectMapperFactory {
 
   public static ObjectMapper getParameterMapperIgnoringUnknownNulls() {
     return PARAMETER_MAPPER_IGNORING_UNKNOWN_NULLS;
+  }
+
+  public static ObjectMapper getParameterMapperIgnoringUnknownEmpties() {
+    return PARAMETER_MAPPER_IGNORING_UNKNOWN_EMPTIES;
   }
 
   public static ObjectMapper getResponseMapper() {
@@ -86,6 +96,46 @@ public final class JsonRpcObjectMapperFactory {
       }
       p.skipChildren();
       return true;
+    }
+  }
+
+  /**
+   * Like {@link IgnoreNullUnknownHandler} but also drops an unknown property whose value is the
+   * empty byte string ({@code ""} or {@code "0x"}). An unknown property holding any other value
+   * still fails deserialization.
+   *
+   * <p>This is only for the engine API execution payload, where a field a payload version does not
+   * know yet (e.g. {@code blockAccessList} on {@code engine_newPayloadV4}) conveys nothing when it
+   * is empty: the payload then has to be judged on its own merits - normally an INVALID block hash
+   * - instead of being rejected as invalid params. A non-empty value, including the empty-RLP-list
+   * {@code 0xc0}, is a real attempt to set the field and is still rejected.
+   */
+  private static class IgnoreEmptyUnknownHandler extends DeserializationProblemHandler {
+    @Override
+    public boolean handleUnknownProperty(
+        final DeserializationContext ctxt,
+        final JsonParser p,
+        final JsonDeserializer<?> deserializer,
+        final Object beanOrClass,
+        final String propertyName)
+        throws IOException {
+      if (!isValueless(p)) {
+        return false;
+      }
+      p.skipChildren();
+      return true;
+    }
+
+    private boolean isValueless(final JsonParser p) throws IOException {
+      final JsonToken token = p.currentToken();
+      if (token == JsonToken.VALUE_NULL) {
+        return true;
+      }
+      if (token != JsonToken.VALUE_STRING) {
+        return false;
+      }
+      final String value = p.getText();
+      return value.isEmpty() || "0x".equalsIgnoreCase(value);
     }
   }
 }

@@ -83,6 +83,7 @@ public class ProtocolSpec {
   private final Optional<RequestProcessorCoordinator> requestProcessorCoordinator;
   private final PreExecutionProcessor preExecutionProcessor;
   private final boolean isPoS;
+  private final boolean slotNumberRequired;
   private final Duration slotDuration;
   private final boolean isReplayProtectionSupported;
   private final Optional<TransactionPoolPreProcessor> transactionPoolPreProcessor;
@@ -121,6 +122,8 @@ public class ProtocolSpec {
    * @param requestProcessorCoordinator the request processor to use
    * @param preExecutionProcessor the blockHash processor to use
    * @param isPoS indicates whether the current spec is PoS
+   * @param slotNumberRequired whether block headers of this fork must carry the EIP-7843 slot
+   *     number
    * @param slotDuration the slot duration
    * @param isReplayProtectionSupported indicates whether the current spec supports replay
    *     protection
@@ -155,6 +158,7 @@ public class ProtocolSpec {
       final Optional<RequestProcessorCoordinator> requestProcessorCoordinator,
       final PreExecutionProcessor preExecutionProcessor,
       final boolean isPoS,
+      final boolean slotNumberRequired,
       final Duration slotDuration,
       final boolean isReplayProtectionSupported,
       final Optional<TransactionPoolPreProcessor> transactionPoolPreProcessor,
@@ -189,6 +193,7 @@ public class ProtocolSpec {
     this.requestProcessorCoordinator = requestProcessorCoordinator;
     this.preExecutionProcessor = preExecutionProcessor;
     this.isPoS = isPoS;
+    this.slotNumberRequired = slotNumberRequired;
     this.slotDuration = slotDuration;
     this.isReplayProtectionSupported = isReplayProtectionSupported;
     this.transactionPoolPreProcessor = transactionPoolPreProcessor;
@@ -400,6 +405,17 @@ public class ProtocolSpec {
    *
    * @return true if the network is running Proof of Stake
    */
+  /**
+   * Whether headers of this fork must carry the EIP-7843 {@code slotNumber} field. Block creation
+   * uses this to emit a slot number even when the caller has none to supply, so that a locally
+   * built header is not rejected by this fork's own header validation.
+   *
+   * @return true from Amsterdam onwards
+   */
+  public boolean isSlotNumberRequired() {
+    return slotNumberRequired;
+  }
+
   public boolean isPoS() {
     return isPoS;
   }
