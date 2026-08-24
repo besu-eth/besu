@@ -27,9 +27,10 @@ import org.apache.tuweni.bytes.Bytes32;
  * ArchiveReadTrieNodeStrategy} for historical proof requests. The coverage check is done before
  * instantiation so {@code isWorldStateAvailable} always returns {@code true} here.
  */
-public final class BonsaiArchiveWorldStateStorageCoordinator extends WorldStateStorageCoordinator {
+public final class BonsaiArchiveReadWorldStateStorageCoordinator
+    extends WorldStateStorageCoordinator {
 
-  public BonsaiArchiveWorldStateStorageCoordinator(
+  public BonsaiArchiveReadWorldStateStorageCoordinator(
       final BonsaiWorldStateKeyValueStorage keyValueStorage,
       final ArchiveHistoryReader historyReader,
       final long targetBlock) {

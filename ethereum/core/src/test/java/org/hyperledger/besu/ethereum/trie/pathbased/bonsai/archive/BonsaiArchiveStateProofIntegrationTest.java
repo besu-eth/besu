@@ -38,11 +38,6 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-/**
- * Integration test for the archive write path (ArchiveTrieNodeStrategy) combined with the archive
- * read path (ArchiveReadTrieNodeStrategy, as would be used by
- * BonsaiArchiveWorldStateStorageCoordinator). Does NOT require a real block-processing stack.
- */
 class BonsaiArchiveStateProofIntegrationTest {
 
   private SegmentedKeyValueStorage storage;

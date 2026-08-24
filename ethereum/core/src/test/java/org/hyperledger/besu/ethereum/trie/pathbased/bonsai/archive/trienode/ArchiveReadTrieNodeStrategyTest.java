@@ -75,8 +75,6 @@ class ArchiveReadTrieNodeStrategyTest {
 
   @Test
   void hashFilteringIsDelegatedToOuterLayer() {
-    // The strategy returns the raw node regardless of nodeHash; BonsaiWorldStateKeyValueStorage
-    // is responsible for hash validation (consistent with BonsaiTrieNodeStrategy contract).
     final Bytes location = Bytes.of(0x0e);
     final Bytes node = Bytes.fromHexString("0x1122");
     final Bytes32 wrongHash = keccak(Bytes.fromHexString("0xfeed"));
