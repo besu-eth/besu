@@ -173,23 +173,20 @@ class AmsterdamGasCalculatorTest {
   }
 
   @Test
-  void eip2780AuthorizationIntrinsicReservesAccountWrite() {
-    // EIP-2780: ACCOUNT_WRITE (8,000) + REGULAR_PER_AUTH_BASE_COST (7,816) = 15,816 is reserved
-    // per authorization at the intrinsic phase.
-    assertThat(amsterdamGasCalculator.delegateCodeGasCost(1)).isEqualTo(15_816L);
-    assertThat(amsterdamGasCalculator.delegateCodeGasCost(3)).isEqualTo(47_448L);
+  void eip2780AuthorizationIntrinsicChargesOnlyTheStateIndependentBase() {
+    // EIP-2780: the intrinsic charges only REGULAR_PER_AUTH_BASE_COST (7,816) per authorization;
+    // ACCOUNT_WRITE is charged at the top frame on the authority's pre-state.
+    assertThat(amsterdamGasCalculator.delegateCodeGasCost(1)).isEqualTo(7_816L);
+    assertThat(amsterdamGasCalculator.delegateCodeGasCost(3)).isEqualTo(23_448L);
 
-    // A zero-value 7702 transaction with one authorization: 15,000 + 15,816 = 30,816.
+    // A zero-value 7702 transaction with one authorization: 15,000 + 7,816 = 22,816.
     final Transaction tx = transactionWith(RECIPIENT, Wei.ZERO, Bytes.EMPTY, 1);
-    assertThat(amsterdamGasCalculator.transactionIntrinsicRegularGas(tx)).isEqualTo(30_816L);
+    assertThat(amsterdamGasCalculator.transactionIntrinsicRegularGas(tx)).isEqualTo(22_816L);
   }
 
   @Test
-  void eip2780AuthorityWriteIsRefundedWhenNoAccountGrows() {
-    // The worst-case ACCOUNT_WRITE reserved per authorization is refunded for authorities that
-    // already existed (and for invalid authorizations, which the processor folds into that count).
-    assertThat(amsterdamGasCalculator.calculateDelegateCodeGasRefund(0)).isZero();
-    assertThat(amsterdamGasCalculator.calculateDelegateCodeGasRefund(2)).isEqualTo(16_000L);
+  void eip2780AccountWriteGasCostIsExposedForTheTopFrameAuthorizationCharge() {
+    assertThat(amsterdamGasCalculator.getAccountWriteGasCost()).isEqualTo(8_000L);
   }
 
   private Transaction transactionWith(
