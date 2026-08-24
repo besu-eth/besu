@@ -24,9 +24,11 @@ import static org.hyperledger.besu.datatypes.TransactionType.EIP1559;
 import static org.hyperledger.besu.datatypes.TransactionType.FRONTIER;
 import static org.hyperledger.besu.ethereum.core.TransactionTestFixture.createSignedCodeDelegation;
 import static org.hyperledger.besu.ethereum.eth.transactions.layered.LayeredRemovalReason.PoolRemovalReason.INVALIDATED;
-import static org.hyperledger.besu.ethereum.eth.transactions.layered.LayersTest.AuthorityAndNonce.NO_DELEGATIONS;
-import static org.hyperledger.besu.ethereum.eth.transactions.layered.LayersTest.AuthorityAndNonce.delegation;
-import static org.hyperledger.besu.ethereum.eth.transactions.layered.LayersTest.AuthorityAndNonce.toCodeDelegations;
+import static org.hyperledger.besu.ethereum.eth.transactions.layered.LayersTest.InputDelegation.NO_INPUT_DELEGATIONS;
+import static org.hyperledger.besu.ethereum.eth.transactions.layered.LayersTest.InputDelegation.delegations;
+import static org.hyperledger.besu.ethereum.eth.transactions.layered.LayersTest.InputDelegation.invalid;
+import static org.hyperledger.besu.ethereum.eth.transactions.layered.LayersTest.InputDelegation.toCodeDelegations;
+import static org.hyperledger.besu.ethereum.eth.transactions.layered.LayersTest.InputDelegation.valid;
 import static org.hyperledger.besu.ethereum.eth.transactions.layered.LayersTest.Sender.S1;
 import static org.hyperledger.besu.ethereum.eth.transactions.layered.LayersTest.Sender.S2;
 import static org.hyperledger.besu.ethereum.eth.transactions.layered.LayersTest.Sender.S3;
@@ -43,8 +45,10 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.CodeDelegation;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -57,7 +61,10 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfigurati
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolReplacementHandler;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.account.Account;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 
 import java.math.BigInteger;
@@ -73,7 +80,6 @@ import java.util.NavigableMap;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.TreeMap;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.params.ParameterizedTest;
@@ -1342,14 +1348,14 @@ public class LayersTest extends BaseTransactionPoolTest {
     return Stream.of(
         Arguments.of(
             new Scenario("code delegation tx only")
-                .addForSender(S1, delegation(S2, 0), 0)
+                .addForSender(S1, delegations(valid(S2, 0)), 0)
                 .expectedPrioritizedForSender(S1, 0)
                 .confirmedForSenders(S1, 0)
                 .expectedPrioritizedForSenders()),
         Arguments.of(
             new Scenario("confirmed delegation over plain tx")
                 .addForSender(S2, 0)
-                .addForSender(S1, delegation(S2, 0), 0)
+                .addForSender(S1, delegations(valid(S2, 0)), 0)
                 .expectedPrioritizedForSenders(S2, 0, S1, 0)
                 .confirmedForSenders(S1, 0)
                 // confirming the code delegation tx updates the nonce for S2, so his conflicting
@@ -1358,35 +1364,43 @@ public class LayersTest extends BaseTransactionPoolTest {
         Arguments.of(
             new Scenario("confirmed plain tx over delegation")
                 .addForSender(S2, 0)
-                .addForSender(S1, delegation(S2, 0), 0)
+                .addForSender(S1, delegations(valid(S2, 0)), 0)
                 .expectedPrioritizedForSenders(S2, 0, S1, 0)
                 .confirmedForSenders(S2, 0)
                 // verify the code delegation for S2 is still there, of course that delegation will
-                // fail,
-                // but is it not possible to remove it from the list
+                // fail, but is it not possible to remove it from the list
                 .expectedPrioritizedForSender(S1, 0)),
         Arguments.of(
             new Scenario("self code delegation")
-                .addForSender(S1, delegation(S1, 1), 0)
+                .addForSender(S1, delegations(valid(S1, 1)), 0)
                 .expectedPrioritizedForSender(S1, 0)
                 .confirmedForSenders(S1, 0)
                 .expectedPrioritizedForSenders()),
         Arguments.of(
             new Scenario("self code delegation and plain tx")
-                .addForSender(S1, delegation(S1, 1), 0)
+                .addForSender(S1, delegations(valid(S1, 1)), 0)
                 .addForSender(S1, 1)
                 .expectedPrioritizedForSender(S1, 0, 1)
                 .confirmedForSenders(S1, 0)
                 .expectedPrioritizedForSenders()),
         Arguments.of(
             new Scenario("self code delegation and plain tx in sparse")
-                .addForSender(S1, delegation(S1, 1), 0)
+                .addForSender(S1, delegations(valid(S1, 1)), 0)
                 .addForSender(S1, 2)
                 .expectedPrioritizedForSender(S1, 0)
                 .expectedSparseForSender(S1, 2)
                 .confirmedForSenders(S1, 0)
                 .expectedPrioritizedForSender(S1, 2)
-                .expectedSparseForSenders()));
+                .expectedSparseForSenders()),
+        Arguments.of(
+            new Scenario("skipped future-nonce delegation does not confirm authority nonce")
+                .addForSender(S2, 0)
+                .addForSender(S1, delegations(invalid(S2, 0)), 0)
+                .expectedPrioritizedForSenders(S2, 0, S1, 0)
+                .confirmedForSenders(S1, 0)
+                // since S2 code delegation is invalid, the nonce of S2 is not touched, so its plain
+                // tx is still in the pool
+                .expectedPrioritizedForSender(S2, 0)));
   }
 
   static Stream<Arguments> providerSenderBalance() {
@@ -1454,6 +1468,8 @@ public class LayersTest extends BaseTransactionPoolTest {
   private static BlockHeader mockBlockHeader() {
     final BlockHeader blockHeader = mock(BlockHeader.class);
     when(blockHeader.getBaseFee()).thenReturn(Optional.of(BASE_FEE));
+    when(blockHeader.getBlockHash()).thenReturn(Hash.ZERO);
+    when(blockHeader.getStateRoot()).thenReturn(Hash.EMPTY_TRIE_HASH);
     return blockHeader;
   }
 
@@ -1470,6 +1486,7 @@ public class LayersTest extends BaseTransactionPoolTest {
   static class Scenario extends BaseTransactionPoolTest implements Runnable {
 
     final String description;
+    final WorldStateArchive worldStateArchive = mock(WorldStateArchive.class);
     final TransactionPoolConfiguration poolConfig;
     final EvictCollectorLayer dropped;
     final SparseTransactions sparse;
@@ -1492,7 +1509,7 @@ public class LayersTest extends BaseTransactionPoolTest {
 
     final EnumSet<Sender> sendersWithReorg = EnumSet.noneOf(Sender.class);
 
-    final EnumMap<Sender, NavigableMap<Long, PendingTransaction>> liveTxsBySender =
+    final EnumMap<Sender, NavigableMap<Long, LiveTransactionMetadata>> liveTxsBySender =
         new EnumMap<>(Sender.class);
 
     {
@@ -1550,7 +1567,11 @@ public class LayersTest extends BaseTransactionPoolTest {
               MiningConfiguration.newDefault().setMinTransactionGasPrice(MIN_GAS_PRICE),
               senderBalanceChecker);
 
-      this.pending = new LayeredPendingTransactions(poolConfig, this.prio, ethScheduler);
+      final ProtocolContext protocolContext = mock(ProtocolContext.class);
+      when(protocolContext.getWorldStateArchive()).thenReturn(worldStateArchive);
+
+      this.pending =
+          new LayeredPendingTransactions(protocolContext, poolConfig, this.prio, ethScheduler);
 
       this.pending.subscribePendingTransactions(notificationsChecker::collectAddNotification);
       this.pending.subscribeDroppedTransactions(
@@ -1567,27 +1588,27 @@ public class LayersTest extends BaseTransactionPoolTest {
     }
 
     public Scenario addForSender(final Sender sender, final long... nonce) {
-      return addForSender(sender, EIP1559, NO_DELEGATIONS, nonce);
+      return addForSender(sender, EIP1559, NO_INPUT_DELEGATIONS, nonce);
     }
 
     public Scenario addForSender(
         final Sender sender, final TransactionType type, final long... nonce) {
-      internalAddForSender(sender, type, NO_DELEGATIONS, nonce);
+      internalAddForSender(sender, type, NO_INPUT_DELEGATIONS, nonce);
       actions.add(notificationsChecker::assertExpectedNotifications);
       return this;
     }
 
     public Scenario addForSender(
-        final Sender sender, final AuthorityAndNonce[] authorityAndNonces, final long... nonce) {
-      return addForSender(sender, DELEGATE_CODE, authorityAndNonces, nonce);
+        final Sender sender, final InputDelegation[] inputDelegations, final long... nonce) {
+      return addForSender(sender, DELEGATE_CODE, inputDelegations, nonce);
     }
 
     public Scenario addForSender(
         final Sender sender,
         final TransactionType type,
-        final AuthorityAndNonce[] authorityAndNonces,
+        final InputDelegation[] inputDelegations,
         final long... nonce) {
-      internalAddForSender(sender, type, authorityAndNonces, nonce);
+      internalAddForSender(sender, type, inputDelegations, nonce);
       actions.add(notificationsChecker::assertExpectedNotifications);
       return this;
     }
@@ -1595,30 +1616,34 @@ public class LayersTest extends BaseTransactionPoolTest {
     private void internalAddForSender(
         final Sender sender,
         final TransactionType type,
-        final AuthorityAndNonce[] authorityAndNonces,
+        final InputDelegation[] inputDelegations,
         final long... nonce) {
       actions.add(
           () -> {
             Arrays.stream(nonce)
                 .forEach(
                     n -> {
-                      final var pendingTx = create(sender, type, authorityAndNonces, n);
+                      final var txMetadata = create(sender, type, inputDelegations, n);
                       final Account mockSender = mock(Account.class);
                       when(mockSender.getNonce()).thenReturn(nonceBySender.get(sender));
-                      pending.addTransaction(pendingTx, Optional.of(mockSender));
-                      notificationsChecker.addExpectedAddNotification(pendingTx);
+                      pending.addTransaction(
+                          txMetadata.pendingTransaction(), Optional.of(mockSender));
+                      notificationsChecker.addExpectedAddNotification(
+                          txMetadata.pendingTransaction());
                     });
 
             // reorg case
             if (sendersWithReorg.contains(sender)) {
               // reorg is removing and re-adding all sender txs, so assert notifications accordingly
-              final var currentPendingTxs =
+              final var currentPendingTxsMetadata =
                   liveTxsBySender.get(sender).tailMap(nonce[nonce.length - 1], false).values();
-              currentPendingTxs.forEach(
-                  pt -> {
-                    notificationsChecker.addExpectedAddNotification(pt);
-                    notificationsChecker.addExpectedDropNotification(pt);
-                  });
+              currentPendingTxsMetadata.stream()
+                  .map(LiveTransactionMetadata::pendingTransaction)
+                  .forEach(
+                      pt -> {
+                        notificationsChecker.addExpectedAddNotification(pt);
+                        notificationsChecker.addExpectedDropNotification(pt);
+                      });
               sendersWithReorg.remove(sender);
             }
 
@@ -1630,12 +1655,16 @@ public class LayersTest extends BaseTransactionPoolTest {
               // larger nonce, so assert notifications accordingly
               final var reconciledPendingTxs =
                   liveTxsBySender.get(sender).tailMap(nonce[nonce.length - 1], false).values();
-              txsRemovedByReconciliation.forEach(notificationsChecker::addExpectedDropNotification);
-              reconciledPendingTxs.forEach(
-                  pt -> {
-                    notificationsChecker.addExpectedDropNotification(pt);
-                    notificationsChecker.addExpectedAddNotification(pt);
-                  });
+              txsRemovedByReconciliation.stream()
+                  .map(LiveTransactionMetadata::pendingTransaction)
+                  .forEach(notificationsChecker::addExpectedDropNotification);
+              reconciledPendingTxs.stream()
+                  .map(LiveTransactionMetadata::pendingTransaction)
+                  .forEach(
+                      pt -> {
+                        notificationsChecker.addExpectedDropNotification(pt);
+                        notificationsChecker.addExpectedAddNotification(pt);
+                      });
               txsRemovedByReconciliation.clear();
             }
 
@@ -1647,19 +1676,18 @@ public class LayersTest extends BaseTransactionPoolTest {
       // handle dropped tx due to layer or pool full
       final var droppedTxs = dropped.getEvictedTransactions();
       droppedTxs.forEach(notificationsChecker::addExpectedDropNotification);
-      droppedTxs.stream()
-          .forEach(
-              pt -> {
-                liveTxsBySender.get(Sender.getByAddress(pt.getSender())).remove(pt.getNonce());
-                droppedTxsBySender.get(Sender.getByAddress(pt.getSender())).put(pt.getNonce(), pt);
-              });
+      droppedTxs.forEach(
+          pt -> {
+            liveTxsBySender.get(Sender.getByAddress(pt.getSender())).remove(pt.getNonce());
+            droppedTxsBySender.get(Sender.getByAddress(pt.getSender())).put(pt.getNonce(), pt);
+          });
     }
 
     public Scenario addForSenders(final Object... args) {
       for (int i = 0; i < args.length; i = i + 2) {
         final Sender sender = (Sender) args[i];
         final long nonce = (int) args[i + 1];
-        internalAddForSender(sender, EIP1559, NO_DELEGATIONS, nonce);
+        internalAddForSender(sender, EIP1559, NO_INPUT_DELEGATIONS, nonce);
       }
       actions.add(notificationsChecker::assertExpectedNotifications);
       return this;
@@ -1671,31 +1699,32 @@ public class LayersTest extends BaseTransactionPoolTest {
       return this;
     }
 
-    private Scenario internalReplaceForSender(final Sender sender, final long... nonce) {
+    private void internalReplaceForSender(final Sender sender, final long... nonce) {
       actions.add(
-          () -> {
-            Arrays.stream(nonce)
-                .forEach(
-                    n -> {
-                      final var maybeExistingTx = getMaybe(sender, n);
-                      maybeExistingTx.ifPresentOrElse(
-                          existingTx -> {
-                            final var pendingTx = replace(sender, existingTx);
-                            final Account mockSender = mock(Account.class);
-                            when(mockSender.getNonce()).thenReturn(nonceBySender.get(sender));
-                            pending.addTransaction(pendingTx, Optional.of(mockSender));
-                            notificationsChecker.addExpectedAddNotification(pendingTx);
-                            notificationsChecker.addExpectedDropNotification(existingTx);
-                          },
-                          () ->
-                              fail(
-                                  "Could not replace non-existing transaction with nonce "
-                                      + n
-                                      + " for sender "
-                                      + sender.name()));
-                    });
-          });
-      return this;
+          () ->
+              Arrays.stream(nonce)
+                  .forEach(
+                      n -> {
+                        final var maybeExistingTx = getMaybe(sender, n);
+                        maybeExistingTx.ifPresentOrElse(
+                            existingTxMetadata -> {
+                              final var newTxMetadata = replace(sender, existingTxMetadata);
+                              final Account mockSender = mock(Account.class);
+                              when(mockSender.getNonce()).thenReturn(nonceBySender.get(sender));
+                              pending.addTransaction(
+                                  newTxMetadata.pendingTransaction(), Optional.of(mockSender));
+                              notificationsChecker.addExpectedAddNotification(
+                                  newTxMetadata.pendingTransaction());
+                              notificationsChecker.addExpectedDropNotification(
+                                  existingTxMetadata.pendingTransaction());
+                            },
+                            () ->
+                                fail(
+                                    "Could not replace non-existing transaction with nonce "
+                                        + n
+                                        + " for sender "
+                                        + sender.name()));
+                      }));
     }
 
     public Scenario replaceForSenders(final Object... args) {
@@ -1712,60 +1741,95 @@ public class LayersTest extends BaseTransactionPoolTest {
       actions.add(
           () -> {
             final Map<Sender, Long> maxConfirmedNonceBySender = new HashMap<>();
+            final List<Transaction> confirmedTxs = new ArrayList<>();
             for (int i = 0; i < args.length; i = i + 2) {
               final Sender sender = (Sender) args[i];
               final long nonce = (int) args[i + 1];
               maxConfirmedNonceBySender.put(sender, nonce);
-              nonceBySender.put(sender, nonce + 1);
+              final long prevNonce = nonceBySender.put(sender, nonce + 1);
 
-              // if the confirmed tx contains delegations then update the confirmed nonce
-              // accordingly
-              getMaybe(sender, nonce)
-                  .ifPresent(
-                      confirmedTx ->
-                          confirmedTx
-                              .getTransaction()
-                              .getCodeDelegationList()
-                              .ifPresent(
-                                  codeDelegations ->
-                                      codeDelegations.forEach(
-                                          cd -> {
-                                            final var authority =
-                                                Sender.getByAddress(cd.authorizer().get());
-                                            maxConfirmedNonceBySender.compute(
-                                                authority,
-                                                (unused, currentMax) ->
-                                                    currentMax == null
-                                                        ? cd.nonce()
-                                                        : Math.max(currentMax, cd.nonce()));
-                                            nonceBySender.compute(
-                                                authority,
-                                                (unused, currentNonce) ->
-                                                    currentNonce == null
-                                                        ? cd.nonce() + 1
-                                                        : Math.max(currentNonce, cd.nonce()) + 1);
-                                          })));
+              for (long n = prevNonce; n <= nonce; n++) {
+                final long confirmedNonce = n;
+                getMaybe(sender, n)
+                    .ifPresentOrElse(
+                        txMetadata -> {
+                          confirmedTxs.add(txMetadata.pendingTransaction().getTransaction());
+
+                          // if the confirmed tx contains delegations, then update the confirmed
+                          // nonce accordingly
+                          Arrays.stream(txMetadata.inputDelegations())
+                              // only consider valid delegations for nonce bump
+                              .filter(InputDelegation::valid)
+                              .forEach(
+                                  id -> {
+                                    final var authority = id.sender();
+
+                                    maxConfirmedNonceBySender.compute(
+                                        authority,
+                                        (unused, currentMax) ->
+                                            currentMax == null
+                                                ? id.nonce()
+                                                : Math.max(currentMax, id.nonce()));
+                                    nonceBySender.compute(
+                                        authority,
+                                        (unused, currentNonce) ->
+                                            currentNonce == null
+                                                ? id.nonce() + 1
+                                                : Math.max(currentNonce, id.nonce() + 1));
+                                  });
+                        },
+                        // a confirmed tx not seen by our txpool, just create one on the fly
+                        () ->
+                            confirmedTxs.add(
+                                createFrontierPendingTransaction(sender, confirmedNonce)
+                                    .getTransaction()));
+              }
             }
 
-            maxConfirmedNonceBySender.entrySet().stream()
-                .forEach(
-                    san -> {
-                      final var sender = san.getKey();
-                      final var nonce = san.getValue();
-                      for (final var pendingTx : getAll(sender)) {
-                        if (pendingTx.getNonce() <= nonce) {
-                          notificationsChecker.addExpectedDropNotification(
-                              liveTxsBySender.get(sender).remove(pendingTx.getNonce()));
-                        }
-                      }
-                    });
+            maxConfirmedNonceBySender.forEach(
+                (sender, nonce) -> {
+                  for (final var txMedatadata : getAll(sender)) {
+                    if (txMedatadata.pendingTransaction().getNonce() <= nonce) {
+                      notificationsChecker.addExpectedDropNotification(
+                          liveTxsBySender
+                              .get(sender)
+                              .remove(txMedatadata.pendingTransaction().getNonce())
+                              .pendingTransaction());
+                    }
+                  }
+                });
 
-            prio.blockAdded(
-                FeeMarket.london(0L),
-                mockBlockHeader(),
-                maxConfirmedNonceBySender.entrySet().stream()
-                    .collect(
-                        Collectors.toMap(entry -> entry.getKey().address, Map.Entry::getValue)));
+            // prepare the world state to return the updated nonce for the confirmed txs
+            final MutableWorldState worldState = mock(MutableWorldState.class);
+            when(worldState.get(any(Address.class)))
+                .thenAnswer(
+                    invocation ->
+                        nonceBySender.entrySet().stream()
+                            .filter(
+                                e ->
+                                    e.getKey()
+                                        .address
+                                        .equals(invocation.getArgument(0, Address.class)))
+                            .map(Map.Entry::getValue)
+                            .findAny()
+                            .map(
+                                n -> {
+                                  if (n == 0) {
+                                    return null;
+                                  }
+                                  final Account account = mock(Account.class);
+                                  when(account.getNonce()).thenReturn(n);
+                                  return account;
+                                })
+                            .orElseThrow());
+
+            reset(worldStateArchive);
+            when(worldStateArchive.getWorldState(any(WorldStateQueryParams.class)))
+                .thenReturn(Optional.of(worldState));
+
+            pending.manageBlockAdded(
+                mockBlockHeader(), confirmedTxs, List.of(), FeeMarket.london(0L));
+
             notificationsChecker.assertExpectedNotifications();
           });
       return this;
@@ -1789,10 +1853,10 @@ public class LayersTest extends BaseTransactionPoolTest {
       return this;
     }
 
-    private PendingTransaction create(
+    private LiveTransactionMetadata create(
         final Sender sender,
         final TransactionType type,
-        final AuthorityAndNonce[] authorityAndNonces,
+        final InputDelegation[] inputDelegations,
         final long nonce) {
       if (liveTxsBySender.get(sender).containsKey(nonce)) {
         fail(
@@ -1804,31 +1868,38 @@ public class LayersTest extends BaseTransactionPoolTest {
             case ACCESS_LIST -> createAccessListPendingTransaction(sender, nonce);
             case EIP1559 -> createEIP1559PendingTransaction(sender, nonce);
             case BLOB -> createBlobPendingTransaction(sender, nonce);
-            case DELEGATE_CODE ->
-                createEIP7702PendingTransaction(sender, nonce, authorityAndNonces);
+            case DELEGATE_CODE -> createEIP7702PendingTransaction(sender, nonce, inputDelegations);
           };
-      liveTxsBySender.get(sender).put(nonce, newPendingTx);
-      return newPendingTx;
+      final LiveTransactionMetadata liveTransactionMetadata =
+          new LiveTransactionMetadata(newPendingTx, inputDelegations);
+      liveTxsBySender.get(sender).put(nonce, liveTransactionMetadata);
+      return liveTransactionMetadata;
     }
 
-    private PendingTransaction replace(final Sender sender, final PendingTransaction pendingTx) {
+    private LiveTransactionMetadata replace(
+        final Sender sender, final LiveTransactionMetadata txMetadata) {
       final var replaceTx =
           createRemotePendingTransaction(
-              createTransactionReplacement(pendingTx.getTransaction(), sender.key),
+              createTransactionReplacement(
+                  txMetadata.pendingTransaction().getTransaction(), sender.key),
               sender.hasPriority);
-      liveTxsBySender.get(sender).replace(pendingTx.getNonce(), replaceTx);
-      return replaceTx;
+      final LiveTransactionMetadata replaceTxMetadata =
+          new LiveTransactionMetadata(replaceTx, txMetadata.inputDelegations());
+      liveTxsBySender
+          .get(sender)
+          .replace(txMetadata.pendingTransaction().getNonce(), replaceTxMetadata);
+      return replaceTxMetadata;
     }
 
-    private Optional<PendingTransaction> getMaybe(final Sender sender, final long nonce) {
+    private Optional<LiveTransactionMetadata> getMaybe(final Sender sender, final long nonce) {
       return Optional.ofNullable(liveTxsBySender.get(sender).get(nonce));
     }
 
-    private PendingTransaction get(final Sender sender, final long nonce) {
+    private LiveTransactionMetadata get(final Sender sender, final long nonce) {
       return getMaybe(sender, nonce).get();
     }
 
-    private List<PendingTransaction> getAll(final Sender sender) {
+    private List<LiveTransactionMetadata> getAll(final Sender sender) {
       return List.copyOf(liveTxsBySender.get(sender).values());
     }
 
@@ -1859,10 +1930,10 @@ public class LayersTest extends BaseTransactionPoolTest {
     }
 
     private PendingTransaction createEIP7702PendingTransaction(
-        final Sender sender, final long nonce, final AuthorityAndNonce[] authorityAndNonces) {
+        final Sender sender, final long nonce, final InputDelegation[] inputDelegations) {
       return createRemotePendingTransaction(
           createEIP7702Transaction(
-              nonce, sender.key, sender.gasFeeMultiplier, toCodeDelegations(authorityAndNonces)),
+              nonce, sender.key, sender.gasFeeMultiplier, toCodeDelegations(inputDelegations)),
           sender.hasPriority);
     }
 
@@ -2030,19 +2101,22 @@ public class LayersTest extends BaseTransactionPoolTest {
     private List<PendingTransaction> expectedForSenders(
         final Sender sender1, final long nonce1, final Sender sender2, final Object... args) {
       final List<PendingTransaction> expected = new ArrayList<>();
-      expected.add(get(sender1, nonce1));
+      expected.add(get(sender1, nonce1).pendingTransaction());
       final List<Object> sendersAndNonce = new ArrayList<>(Arrays.asList(args));
-      sendersAndNonce.add(0, sender2);
+      sendersAndNonce.addFirst(sender2);
       for (int i = 0; i < sendersAndNonce.size(); i = i + 2) {
         final Sender sender = (Sender) sendersAndNonce.get(i);
         final long nonce = (int) sendersAndNonce.get(i + 1);
-        expected.add(get(sender, nonce));
+        expected.add(get(sender, nonce).pendingTransaction());
       }
       return Collections.unmodifiableList(expected);
     }
 
     private List<PendingTransaction> expectedForSender(final Sender sender, final long... nonce) {
-      return Arrays.stream(nonce).mapToObj(n -> get(sender, n)).toList();
+      return Arrays.stream(nonce)
+          .mapToObj(n -> get(sender, n))
+          .map(LiveTransactionMetadata::pendingTransaction)
+          .toList();
     }
 
     private List<PendingTransaction> droppedForSender(final Sender sender, final long... nonce) {
@@ -2066,16 +2140,19 @@ public class LayersTest extends BaseTransactionPoolTest {
             Arrays.stream(nonce)
                 .forEach(
                     n -> {
-                      final var maybeLiveTx = getMaybe(sender, n);
-                      final var pendingTx =
-                          maybeLiveTx.orElseGet(() -> create(sender, EIP1559, NO_DELEGATIONS, n));
-                      prio.remove(pendingTx, INVALIDATED);
-                      maybeLiveTx.ifPresent(
-                          liveTx -> {
-                            notificationsChecker.addExpectedDropNotification(liveTx);
-                            liveTxsBySender.get(sender).remove(liveTx.getNonce());
-                            droppedTxsBySender.get(sender).put(liveTx.getNonce(), liveTx);
-                          });
+                      final var maybeLiveTxMetadata = getMaybe(sender, n);
+                      final var txMetadata =
+                          maybeLiveTxMetadata.orElseGet(
+                              () -> create(sender, EIP1559, NO_INPUT_DELEGATIONS, n));
+                      prio.remove(txMetadata.pendingTransaction(), INVALIDATED);
+                      maybeLiveTxMetadata
+                          .map(LiveTransactionMetadata::pendingTransaction)
+                          .ifPresent(
+                              pt -> {
+                                notificationsChecker.addExpectedDropNotification(pt);
+                                liveTxsBySender.get(sender).remove(pt.getNonce());
+                                droppedTxsBySender.get(sender).put(pt.getNonce(), pt);
+                              });
                     });
             handleDropped();
             notificationsChecker.assertExpectedNotifications();
@@ -2109,7 +2186,7 @@ public class LayersTest extends BaseTransactionPoolTest {
             for (int i = 0; i < args.length; i = i + 2) {
               final Sender sender = (Sender) args[i];
               final long nonce = (int) args[i + 1];
-              expectedSelected.add(get(sender, nonce));
+              expectedSelected.add(get(sender, nonce).pendingTransaction());
             }
 
             assertThat(prio.getBySender().stream().flatMap(List::stream).toList())
@@ -2218,20 +2295,31 @@ public class LayersTest extends BaseTransactionPoolTest {
     }
   }
 
-  record AuthorityAndNonce(Sender sender, long nonce) {
-    static final AuthorityAndNonce[] NO_DELEGATIONS = new AuthorityAndNonce[0];
+  record InputDelegation(Sender sender, long nonce, boolean valid) {
+    static final InputDelegation[] NO_INPUT_DELEGATIONS = new InputDelegation[0];
 
-    static AuthorityAndNonce[] delegation(final Sender sender, final long nonce) {
-      return new AuthorityAndNonce[] {new AuthorityAndNonce(sender, nonce)};
+    static InputDelegation[] delegations(final InputDelegation... inputDelegations) {
+      return inputDelegations;
     }
 
-    static CodeDelegation toCodeDelegation(final AuthorityAndNonce authorityAndNonce) {
+    static InputDelegation valid(final Sender sender, final long nonce) {
+      return new InputDelegation(sender, nonce, true);
+    }
+
+    static InputDelegation invalid(final Sender sender, final long nonce) {
+      return new InputDelegation(sender, nonce, false);
+    }
+
+    static CodeDelegation toCodeDelegation(final InputDelegation inputDelegation) {
       return createSignedCodeDelegation(
-          BigInteger.ZERO, Address.ZERO, authorityAndNonce.nonce, authorityAndNonce.sender.key);
+          BigInteger.ZERO, Address.ZERO, inputDelegation.nonce, inputDelegation.sender.key);
     }
 
-    static List<CodeDelegation> toCodeDelegations(final AuthorityAndNonce[] authorityAndNonces) {
-      return Arrays.stream(authorityAndNonces).map(AuthorityAndNonce::toCodeDelegation).toList();
+    static List<CodeDelegation> toCodeDelegations(final InputDelegation... inputDelegations) {
+      return Arrays.stream(inputDelegations).map(InputDelegation::toCodeDelegation).toList();
     }
   }
+
+  record LiveTransactionMetadata(
+      PendingTransaction pendingTransaction, InputDelegation[] inputDelegations) {}
 }
