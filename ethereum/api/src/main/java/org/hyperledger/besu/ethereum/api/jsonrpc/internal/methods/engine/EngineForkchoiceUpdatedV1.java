@@ -27,9 +27,10 @@ import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcRequestException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.OrderedExecutionJsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ForkchoiceStateV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ForkchoiceUpdatedRequestParametersV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttributesV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
@@ -53,6 +54,13 @@ import org.slf4j.LoggerFactory;
  * the full FCU implementation; later versions extend and override specific hooks to introduce their
  * own concepts without modifying this class.
  *
+ * <p>Parameter parsing follows the same shape as {@code engine_newPayload}'s {@code
+ * NewPayloadRequestParametersV*} hierarchy: {@link #readRequestParameters(JsonRpcRequestContext)}
+ * is called once per request and decorates the previous version's params object with any new fields
+ * a version adds (see {@link EngineForkchoiceUpdatedV4} for the {@code custodyColumns} example), so
+ * {@link #syncResponse(JsonRpcRequestContext)} works off one typed object instead of reading {@code
+ * requestContext} directly.
+ *
  * <p>Parameterized so that V2 can extend this class while narrowing the payload type.
  *
  * <p>Extends {@link OrderedExecutionJsonRpcMethod} because the Engine API spec mandates that
@@ -60,8 +68,11 @@ import org.slf4j.LoggerFactory;
  * whole sealed V1-V4 hierarchy.
  *
  * @param <PA> the payload-attributes type this version accepts
+ * @param <FRP> the request-parameters type this version reads
  */
-public sealed class EngineForkchoiceUpdatedV1<PA extends PayloadAttributesV1>
+public sealed class EngineForkchoiceUpdatedV1<
+        PA extends PayloadAttributesV1,
+        FRP extends ForkchoiceUpdatedRequestParametersV1<? extends PA>>
     extends OrderedExecutionJsonRpcMethod permits EngineForkchoiceUpdatedV2 {
 
   private static final Logger LOG = LoggerFactory.getLogger(EngineForkchoiceUpdatedV1.class);
@@ -97,29 +108,17 @@ public sealed class EngineForkchoiceUpdatedV1<PA extends PayloadAttributesV1>
 
     final Object requestId = requestContext.getRequest().getId();
 
-    final ForkchoiceStateV1 forkChoice;
+    final FRP requestParameters;
     try {
-      forkChoice = requestContext.getRequiredParameter(0, ForkchoiceStateV1.class);
-    } catch (JsonRpcParameter.JsonRpcParameterException e) {
-      throw new InvalidJsonRpcParameters(
-          "Invalid forkchoice state parameter (index 0)",
-          RpcErrorType.INVALID_ENGINE_FORKCHOICE_UPDATED_PARAMS,
-          e);
+      requestParameters = readRequestParameters(requestContext);
+    } catch (final InvalidRequestParametersException e) {
+      return new JsonRpcErrorResponse(requestId, e.getRpcErrorType());
     }
 
-    logger().debug("Forkchoice parameters {}", forkChoice);
+    applyUnverifiedRequestParameters(requestParameters);
 
-    final Optional<PA> maybePayloadAttributes;
-    try {
-      maybePayloadAttributes =
-          requestContext.getOptionalParameter(
-              1, getPayloadAttributesClass(), FAIL_ON_UNKNOWN_BUT_NULL);
-    } catch (JsonRpcParameter.JsonRpcParameterException e) {
-      logger().debug("Invalid payload attributes parameter", e);
-      return new JsonRpcErrorResponse(requestId, getInvalidPayloadAttributesError());
-    }
-
-    logger().debug("Payload attributes {}", maybePayloadAttributes);
+    final ForkchoiceStateV1 forkChoice = requestParameters.forkchoiceState();
+    final Optional<? extends PA> maybePayloadAttributes = requestParameters.payloadAttributes();
 
     // Structural parameter check (-32602) — must happen before any FCU processing.
     final ValidationResult<RpcErrorType> structResult = validateForkchoiceStateParams(forkChoice);
@@ -272,6 +271,48 @@ public sealed class EngineForkchoiceUpdatedV1<PA extends PayloadAttributesV1>
             payloadId));
   }
 
+  /**
+   * Reads and decodes this version's request parameters. Each version overrides this to call {@code
+   * super.readRequestParameters(...)} and decorate the result with its own additional parameter(s),
+   * mirroring {@code EngineNewPayloadVN.readRequestParameters(...)}.
+   */
+  @SuppressWarnings("unchecked")
+  protected FRP readRequestParameters(final JsonRpcRequestContext requestContext) {
+    final ForkchoiceStateV1 forkChoice;
+    try {
+      forkChoice = requestContext.getRequiredParameter(0, ForkchoiceStateV1.class);
+    } catch (JsonRpcParameter.JsonRpcParameterException e) {
+      throw new InvalidRequestParametersException(
+          "Invalid forkchoice state parameter (index 0)",
+          RpcErrorType.INVALID_ENGINE_FORKCHOICE_UPDATED_PARAMS,
+          e);
+    }
+
+    logger().debug("Forkchoice parameters {}", forkChoice);
+
+    final Optional<PA> maybePayloadAttributes;
+    try {
+      maybePayloadAttributes =
+          requestContext.getOptionalParameter(
+              1, getPayloadAttributesClass(), FAIL_ON_UNKNOWN_BUT_NULL);
+    } catch (JsonRpcParameter.JsonRpcParameterException e) {
+      throw new InvalidRequestParametersException(
+          "Invalid payload attributes parameter (index 1)", getInvalidPayloadAttributesError(), e);
+    }
+
+    logger().debug("Payload attributes {}", maybePayloadAttributes);
+
+    return (FRP) new ForkchoiceUpdatedRequestParametersV1<>(forkChoice, maybePayloadAttributes);
+  }
+
+  /**
+   * Applies any side effect a version's additional request parameter(s) require, called once right
+   * after a successful {@link #readRequestParameters(JsonRpcRequestContext)} but before any FCU
+   * processing and any other kind of functional validation. Default: no-op. See {@link
+   * EngineForkchoiceUpdatedV4} for the {@code custodyColumns} override.
+   */
+  protected void applyUnverifiedRequestParameters(final FRP requestParameters) {}
+
   /** Validates version-specific payload attributes field requirements. */
   protected ValidationResult<RpcErrorType> validatePayloadAttributes(
       final BlockHeader newHead, final PA attrs) {
@@ -394,5 +435,16 @@ public sealed class EngineForkchoiceUpdatedV1<PA extends PayloadAttributesV1>
             forkChoice.getHeadBlockHash().toShortLogString(),
             forkChoice.getSafeBlockHash().toShortLogString(),
             forkChoice.getFinalizedBlockHash().toShortLogString());
+  }
+
+  protected static class InvalidRequestParametersException extends InvalidJsonRpcRequestException {
+    InvalidRequestParametersException(final String message, final RpcErrorType rpcErrorType) {
+      super(message, rpcErrorType);
+    }
+
+    InvalidRequestParametersException(
+        final String message, final RpcErrorType rpcErrorType, final Throwable cause) {
+      super(message, rpcErrorType, cause);
+    }
   }
 }
