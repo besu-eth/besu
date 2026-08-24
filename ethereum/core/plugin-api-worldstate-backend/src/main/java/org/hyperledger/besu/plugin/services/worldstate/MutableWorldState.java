@@ -33,9 +33,9 @@ public interface MutableWorldState extends WorldState, MutableWorldView {
   /**
    * Persist accumulated changes to underlying storage.
    *
-   * @param blockHeader If persisting for an imported block, the block hash of the world state this
-   *     represents. If this does not represent a forward transition from one block to the next
-   *     `null` should be passed in.
+   * @param blockHeader If persisting for an imported block, the block header of the world state
+   *     this represents. If this does not represent a forward transition from one block to the next
+   *     {@code null} should be passed in.
    * @param committer An implementation of {@link StateRootCommitter} responsible for recomputing
    *     the state root and committing the state changes to storage.
    */

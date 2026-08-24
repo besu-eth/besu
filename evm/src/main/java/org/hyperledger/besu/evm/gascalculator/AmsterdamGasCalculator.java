@@ -120,9 +120,10 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
   private static final long TRANSFER_LOG_COST = 1_756L;
 
   /**
-   * EIP-2780: regular gas per EIP-7702 authorization, in addition to {@link #ACCOUNT_WRITE}:
+   * EIP-2780: state-independent regular gas per EIP-7702 authorization, charged in intrinsic gas:
    * AUTH_TUPLE_BYTES(101) * TX_DATA_TOKEN_FLOOR(16) + ECRECOVER(3000) + COLD_ACCOUNT_ACCESS(3000) +
-   * 2 * WARM_ACCESS(100) = 7,816.
+   * 2 * WARM_ACCESS(100) = 7,816. The state-dependent {@link #ACCOUNT_WRITE} is charged at the top
+   * frame instead.
    */
   private static final long REGULAR_PER_AUTH_BASE_COST =
       101L * 16L + 3_000L + COLD_ACCOUNT_ACCESS + 2L * 100L;
@@ -386,16 +387,15 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
 
   @Override
   public long delegateCodeGasCost(final int delegateCodeListLength) {
-    // EIP-2780: the per-authority ACCOUNT_WRITE is reserved worst-case here instead of charged at
-    // runtime, so it is part of the validity check and refunded afterwards where nothing grew.
-    return (ACCOUNT_WRITE + REGULAR_PER_AUTH_BASE_COST) * delegateCodeListLength;
+    // EIP-2780: only the state-independent part is intrinsic. ACCOUNT_WRITE, NEW_ACCOUNT and
+    // AUTH_BASE are charged at the top frame against the authority's pre-transaction state, so
+    // nothing worst-case is reserved and there is no refund to override.
+    return REGULAR_PER_AUTH_BASE_COST * delegateCodeListLength;
   }
 
   @Override
-  public long calculateDelegateCodeGasRefund(final long alreadyExistingAccounts) {
-    // EIP-7702: refund the worst-case ACCOUNT_WRITE for authorizations that grew no account —
-    // authority already existed, or the authorization was invalid.
-    return ACCOUNT_WRITE * alreadyExistingAccounts;
+  public long getAccountWriteGasCost() {
+    return ACCOUNT_WRITE;
   }
 
   @Override
