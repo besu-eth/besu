@@ -20,11 +20,10 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.WORLD_BLOCK_NUMBER_KEY;
 
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.trie.NodeLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveCoverageTracker;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveHistoryReader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveProofNodeLoader;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveReadTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiTrieNodeStrategy;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
@@ -32,12 +31,18 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTran
 import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+/**
+ * Integration test for the archive write path (ArchiveTrieNodeStrategy) combined with the archive
+ * read path (ArchiveReadTrieNodeStrategy, as would be used by
+ * BonsaiArchiveWorldStateStorageCoordinator). Does NOT require a real block-processing stack.
+ */
 class BonsaiArchiveStateProofIntegrationTest {
 
   private SegmentedKeyValueStorage storage;
@@ -62,8 +67,20 @@ class BonsaiArchiveStateProofIntegrationTest {
     return Bytes32.wrap(Hash.hash(value).getBytes());
   }
 
+  private Optional<Bytes> readAccountNode(
+      final long block, final Bytes location, final Bytes32 nodeHash) {
+    return new ArchiveReadTrieNodeStrategy(block, historyReader)
+        .getFlatAccountTrieNode(location, nodeHash, storage);
+  }
+
+  private Optional<Bytes> readStorageNode(
+      final Hash accountHash, final long block, final Bytes location, final Bytes32 nodeHash) {
+    return new ArchiveReadTrieNodeStrategy(block, historyReader)
+        .getFlatStorageTrieNode(accountHash, location, nodeHash, storage);
+  }
+
   @Test
-  void archivedNodeIsRetrievableViaProofLoader() {
+  void archivedNodeIsRetrievableViaReadStrategy() {
     final Bytes location = Bytes.of(0x0e);
     final Bytes node = Bytes.fromHexString("0xdeadbeef01");
 
@@ -72,8 +89,7 @@ class BonsaiArchiveStateProofIntegrationTest {
     archiveStrategy.putFlatAccountTrieNode(storage, tx, location, hash(node), node);
     tx.commit();
 
-    final NodeLoader loader = ArchiveProofNodeLoader.forAccount(historyReader, 0L);
-    assertThat(loader.getNode(location, hash(node))).contains(node);
+    assertThat(readAccountNode(0L, location, hash(node))).contains(node);
   }
 
   @Test
@@ -100,11 +116,8 @@ class BonsaiArchiveStateProofIntegrationTest {
         storage, tx1, location, hash(nodeAtBlock1), nodeAtBlock1);
     tx1.commit();
 
-    final NodeLoader loader0 = ArchiveProofNodeLoader.forAccount(historyReader, 0L);
-    assertThat(loader0.getNode(location, hash(nodeAtBlock0))).contains(nodeAtBlock0);
-
-    final NodeLoader loader1 = ArchiveProofNodeLoader.forAccount(historyReader, 1L);
-    assertThat(loader1.getNode(location, hash(nodeAtBlock1))).contains(nodeAtBlock1);
+    assertThat(readAccountNode(0L, location, hash(nodeAtBlock0))).contains(nodeAtBlock0);
+    assertThat(readAccountNode(1L, location, hash(nodeAtBlock1))).contains(nodeAtBlock1);
   }
 
   @Test
@@ -122,12 +135,11 @@ class BonsaiArchiveStateProofIntegrationTest {
   }
 
   @Test
-  void proofLoaderReturnsEmptyForUnarchivedBlock() {
+  void readStrategyReturnsEmptyForUnarchivedBlock() {
     // Nothing written to storage
     final Bytes location = Bytes.of(0x0f);
     final Bytes phantomNode = Bytes.fromHexString("0x9999");
-    final NodeLoader loader = ArchiveProofNodeLoader.forAccount(historyReader, 5L);
-    assertThat(loader.getNode(location, hash(phantomNode))).isEmpty();
+    assertThat(readAccountNode(5L, location, hash(phantomNode))).isEmpty();
   }
 
   @Test
@@ -143,12 +155,11 @@ class BonsaiArchiveStateProofIntegrationTest {
     archiveStrategy.putFlatStorageTrieNode(storage, tx, accountHash, location, hash(node), node);
     tx.commit();
 
-    final NodeLoader loader = ArchiveProofNodeLoader.forStorage(accountHash, historyReader, 0L);
-    assertThat(loader.getNode(location, hash(node))).contains(node);
+    assertThat(readStorageNode(accountHash, 0L, location, hash(node))).contains(node);
   }
 
   @Test
-  void accountTrieLoaderIgnoresStorageTrieEntries() {
+  void accountTrieReaderIgnoresStorageTrieEntries() {
     final Hash accountHash =
         Hash.wrap(
             Bytes32.fromHexString(
@@ -162,8 +173,7 @@ class BonsaiArchiveStateProofIntegrationTest {
         storage, tx, accountHash, storageLocation, hash(storageNode), storageNode);
     tx.commit();
 
-    // Account-trie loader must not return anything for the same location
-    final NodeLoader accountLoader = ArchiveProofNodeLoader.forAccount(historyReader, 0L);
-    assertThat(accountLoader.getNode(storageLocation, hash(storageNode))).isEmpty();
+    // Account-trie reader must not return anything for the same location
+    assertThat(readAccountNode(0L, storageLocation, hash(storageNode))).isEmpty();
   }
 }
