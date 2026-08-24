@@ -19,9 +19,10 @@ import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 import org.hyperledger.besu.plugin.services.metrics.OperationTimer;
 
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * This class manages the synchronization duration metrics for the Hyperledger Besu project. It
@@ -40,10 +41,10 @@ public class SyncDurationMetrics {
 
   private final LabelledMetric<OperationTimer> timer;
 
-  private final Map<String, OperationTimer.TimingContext> timers = new ConcurrentHashMap<>();
+  private final Map<String, OperationTimer.TimingContext> timers = new HashMap<>();
 
   /** Phases whose duration has already been observed, and which must not be measured again. */
-  private final Set<String> recordedLabels = ConcurrentHashMap.newKeySet();
+  private final Set<String> recordedLabels = new HashSet<>();
 
   /**
    * Creates a new {@link SyncDurationMetrics} instance.

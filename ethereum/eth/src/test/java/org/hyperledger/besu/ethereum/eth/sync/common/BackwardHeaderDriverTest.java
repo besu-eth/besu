@@ -215,6 +215,24 @@ public class BackwardHeaderDriverTest {
   }
 
   @Test
+  public void shouldRejectPivotAtOrBelowCheckpointWhenAnchorIsBelowCheckpoint() {
+    // With the anchor below the checkpoint, verifyCheckpointLinkage relies on the walk starting
+    // above the checkpoint: the batch crossing the checkpoint height must contain it. A pivot at
+    // or below the checkpoint would silently skip that verification. Such a pivot is rejected
+    // upstream (SnapSyncDownloader waits for a higher pivot), so constructing a driver with one
+    // is a programming error and must fail fast.
+    final BlockHeader checkpointAt60 = blocks.get(60).getHeader();
+    final BlockHeader pivotAt50 = blocks.get(50).getHeader();
+
+    assertThatThrownBy(
+            () ->
+                new BackwardHeaderDriver(
+                    BATCH_SIZE, anchorHeader, pivotAt50, checkpointAt60, blockchain))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("above the checkpoint");
+  }
+
+  @Test
   public void shouldThrowWrongChainExceptionWhenRecoveryWalksToGenesisWithMismatchedParent() {
     // Pivot at wrong-chain block 100, anchor at default-chain block 50 (the anchor hash does
     // not match wrong-chain's block 50). Recovery walks down to block 1 via two batches. At

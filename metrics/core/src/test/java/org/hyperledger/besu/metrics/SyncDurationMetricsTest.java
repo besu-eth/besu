@@ -15,9 +15,19 @@
 package org.hyperledger.besu.metrics;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.metrics.SyncDurationMetrics.Labels;
 import org.hyperledger.besu.metrics.prometheus.PrometheusMetricsSystem;
+import org.hyperledger.besu.plugin.services.MetricsSystem;
+import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
+import org.hyperledger.besu.plugin.services.metrics.MetricCategory;
+import org.hyperledger.besu.plugin.services.metrics.OperationTimer;
 
 import java.util.Optional;
 
@@ -79,17 +89,27 @@ class SyncDurationMetricsTest {
   }
 
   @Test
-  void restartingARunningPhaseKeepsTheOriginalStartTime() throws InterruptedException {
-    syncDurationMetrics.startTimer(Labels.CHAIN_DOWNLOAD_DURATION);
-    Thread.sleep(50);
-    // A re-pivot creates a new chain downloader which starts the timer again while the previous
-    // measurement is still running: the elapsed time so far must not be discarded.
-    syncDurationMetrics.startTimer(Labels.CHAIN_DOWNLOAD_DURATION);
-    syncDurationMetrics.stopTimer(Labels.CHAIN_DOWNLOAD_DURATION);
+  @SuppressWarnings("unchecked")
+  void restartingARunningPhaseKeepsTheOriginalStartTime() {
+    final MetricsSystem mockedMetricsSystem = mock(MetricsSystem.class);
+    final LabelledMetric<OperationTimer> labelledTimer = mock(LabelledMetric.class);
+    final OperationTimer operationTimer = mock(OperationTimer.class);
+    final OperationTimer.TimingContext timingContext = mock(OperationTimer.TimingContext.class);
+    when(mockedMetricsSystem.createSimpleLabelledTimer(
+            any(MetricCategory.class), anyString(), anyString(), any(String[].class)))
+        .thenReturn(labelledTimer);
+    when(labelledTimer.labels(Labels.CHAIN_DOWNLOAD_DURATION.name())).thenReturn(operationTimer);
+    when(operationTimer.startTimer()).thenReturn(timingContext);
+    final SyncDurationMetrics metrics = new SyncDurationMetrics(mockedMetricsSystem);
 
-    assertThat(observationCount(Labels.CHAIN_DOWNLOAD_DURATION)).hasValue(1L);
-    assertThat(observationSum(Labels.CHAIN_DOWNLOAD_DURATION))
-        .hasValueSatisfying(sum -> assertThat(sum).isGreaterThanOrEqualTo(0.04));
+    metrics.startTimer(Labels.CHAIN_DOWNLOAD_DURATION);
+    // A re-pivot creates a new chain downloader which starts the timer again while the previous
+    // measurement is still running: the original timing context (and its start time) must be kept.
+    metrics.startTimer(Labels.CHAIN_DOWNLOAD_DURATION);
+    metrics.stopTimer(Labels.CHAIN_DOWNLOAD_DURATION);
+
+    verify(operationTimer, times(1)).startTimer();
+    verify(timingContext, times(1)).stopTimer();
   }
 
   @Test
@@ -116,14 +136,5 @@ class SyncDurationMetricsTest {
 
   private Optional<Long> observationCount(final Labels label) {
     return observationValue(label, "count").filter(count -> count > 0);
-  }
-
-  private Optional<Double> observationSum(final Labels label) {
-    return metricsSystem
-        .streamObservations()
-        .filter(observation -> observation.labels().contains(label.name()))
-        .filter(observation -> observation.labels().contains("sum"))
-        .map(observation -> ((Number) observation.value()).doubleValue())
-        .findFirst();
   }
 }

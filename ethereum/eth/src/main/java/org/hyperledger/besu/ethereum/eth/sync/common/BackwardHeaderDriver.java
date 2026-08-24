@@ -106,6 +106,14 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
 
     this.checkpointLinkageToBeVerified = checkpointFloorNumber >= lowestHeaderToImport;
 
+    checkArgument(
+        !checkpointLinkageToBeVerified || pivotNumber > checkpointFloorNumber,
+        "BackwardHeaderDriver requires pivot (%s) to be above the checkpoint (%s) when the anchor"
+            + " (%s) is below the checkpoint",
+        pivotNumber,
+        checkpointFloorNumber,
+        anchorNumber);
+
     this.currentBlock = new AtomicLong(pivotNumber - 1);
 
     this.lowestImportedHeader = pivotHeader;
@@ -217,7 +225,8 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
 
     blockchainStorage.storeBlockHeaders(blockHeaders);
 
-    // Check the checkpoint linkage when downloading all headers to genesis.
+    // Verify the checkpoint linkage once the walk crosses the checkpoint height. Only armed when
+    // the Stage-1 anchor sits below the trusted checkpoint.
     if (checkpointLinkageToBeVerified && lowestImportedHeaderNumber <= checkpointFloorNumber) {
       checkpointLinkageToBeVerified = false;
       verifyCheckpointLinkage(blockHeaders);
