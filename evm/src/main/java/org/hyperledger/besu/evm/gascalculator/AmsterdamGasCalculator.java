@@ -76,9 +76,8 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
   /**
    * Per-address cost of a transaction access list entry: the cold access it prepays, less the warm
    * access the entry still pays on its first touch, so prepaying is gas-neutral.
-   * COLD_ACCOUNT_ACCESS - WARM_STORAGE_READ_COST
    */
-  private static final long ACCESS_LIST_ADDRESS_COST = 2_900L;
+  private static final long ACCESS_LIST_ADDRESS_COST = COLD_ACCOUNT_ACCESS - WARM_STORAGE_READ_COST;
 
   /** Per-storage-key access list cost. See {@link #ACCESS_LIST_ADDRESS_COST}. */
   private static final long ACCESS_LIST_STORAGE_KEY_COST =
