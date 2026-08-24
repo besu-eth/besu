@@ -70,6 +70,7 @@
 
 ### Bug fixes
 - Bound the DiscV4 inbound packet pipeline with an admission gate (256 in-flight packets) and a bounded crypto executor queue, preventing a UDP flood from exhausting memory.
+- Cap the number of snap/1-2 GET_* requests concurrently scheduled for processing on a snap-serving node, both per-peer (--Xsnapsync-server-max-concurrent-requests-per-peer, default 8) and globally (--Xsnapsync-server-max-concurrent-requests, default 200). [#11101](https://github.com/besu-eth/besu/pull/11101)
 - Cap the QBFT/IBFT round change number to prevent unbounded memory growth from malformed round-change messages.
 - Cap pre-STATUS RLPx connections and close them on eviction to prevent resource exhaustion.
 - Improve logging for malformed discv4 UDP packets.
@@ -92,6 +93,7 @@
 - Fix `ibft_*` and `qbft_*` JSON-RPC methods returning `Method not enabled` on IBFT2->QBFT migration networks (genesis containing both `ibft2` and `qbft` sections). [#10679](https://github.com/besu-eth/besu/issues/10679)
 - Fix `admin_nodeInfo` reporting wrong RLPx/discovery ephemeral ports under `--nat-method=DOCKER`, due to a swapped NAT port mapping and a stale pre-bind snapshot. [#10860](https://github.com/besu-eth/besu/pull/10860)
 - Recover from restart during flatDB heal sync step [#10883](https://github.com/besu-eth/besu/pull/10883)
+- Fix txpool incorrectly evicting authority pending transactions when EIP-7702 delegation tuples are skipped during block execution
 
 ### Additions and Improvements
 - Add `--checkpoint=<hash>:<number>:<totalDifficulty>` CLI option to anchor sync to a trusted checkpoint, overriding any checkpoint configured in the genesis file. The option is only used by snap sync and is ignored (with a warning) in FULL sync-mode.
