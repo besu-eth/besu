@@ -451,6 +451,9 @@ public class LayeredPendingTransactions implements PendingTransactions {
             worldStateArchive.getWorldState(
                 WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(blockHeader));
         if (maybeWorldState.isPresent()) {
+          // Accumulate into a separate map so a mid-traversal exception leaves
+          // maxConfirmedNonceBySender unmodified (clean sender-only fallback).
+          final Map<Address, Long> authorityNonces = new HashMap<>();
           try (final WorldState worldState = maybeWorldState.get()) {
             codeDelegationTxs.forEach(
                 transaction ->
@@ -468,16 +471,16 @@ public class LayeredPendingTransactions implements PendingTransactions {
                                           // nonce
                                           // is exactly one past its declared nonce. A skipped tuple
                                           // leaves the nonce unchanged (or the account absent), so
-                                          // it
-                                          // is ignored and never purges the authority's pending
+                                          // it is ignored and never purges the authority's pending
                                           // txs.
                                           if (account != null
                                               && account.getNonce() - 1 == cd.nonce()) {
-                                            maxConfirmedNonceBySender.merge(
-                                                address, cd.nonce(), Math::max);
+                                            authorityNonces.merge(address, cd.nonce(), Math::max);
                                           }
                                         })));
           }
+          authorityNonces.forEach(
+              (address, nonce) -> maxConfirmedNonceBySender.merge(address, nonce, Math::max));
         } else {
           // The world state as of the confirmed block may not be reconstructable (for example, it
           // is
