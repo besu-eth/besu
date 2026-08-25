@@ -23,7 +23,7 @@ import org.hyperledger.besu.ethereum.eth.sync.ChainDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.TrailingPeerRequirements;
 import org.hyperledger.besu.ethereum.eth.sync.common.NoSyncRequiredException;
 import org.hyperledger.besu.ethereum.eth.sync.common.NoSyncRequiredState;
-import org.hyperledger.besu.ethereum.eth.sync.common.PivotBelowCheckpointException;
+import org.hyperledger.besu.ethereum.eth.sync.common.PivotAtOrBelowCheckpointException;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncActions;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotUpdateListener;
 import org.hyperledger.besu.ethereum.eth.sync.common.SyncException;
@@ -127,6 +127,9 @@ public class SnapSyncDownloader implements SnapSyncController {
       LOG.debug("Sync error ({}), re-pivoting.", syncEx.getError());
       return start(new SnapSyncProcessState());
     } else if (rootCause instanceof WrongChainException) {
+      // A genuinely wrong chain — a mis-configured checkpoint hash, say — shows up as repeated
+      // re-pivots rather than a hard stop. Re-pivoting cannot recover from that, so escalate to a
+      // throttled WARN once the re-pivots stop looking like a transient reorg.
       final int rePivots = consecutiveWrongChainRePivots.incrementAndGet();
       LOG.atDebug()
           .setMessage(
@@ -147,7 +150,10 @@ public class SnapSyncDownloader implements SnapSyncController {
             WRONG_CHAIN_LOG_DELAY_SECONDS);
       }
       return start(new SnapSyncProcessState());
-    } else if (rootCause instanceof PivotBelowCheckpointException) {
+    } else if (rootCause instanceof PivotAtOrBelowCheckpointException) {
+      // Recoverable by waiting: re-pivot after a delay rather than immediately, because the pivot
+      // selector reuses its previous pivot until the chain head has advanced far enough, so an
+      // immediate retry would spin on the same block.
       LOG.debug("{} Waiting before selecting a new pivot.", rootCause.getMessage());
       return fastSyncActions.scheduleFutureTask(
           () -> start(new SnapSyncProcessState()), FAST_SYNC_RETRY_DELAY);
@@ -246,7 +252,7 @@ public class SnapSyncDownloader implements SnapSyncController {
    * @param currentState the sync state holding the resolved pivot block header
    * @return the failure to propagate, or empty when the pivot is usable
    */
-  private Optional<PivotBelowCheckpointException> checkPivotIsAboveCheckpoint(
+  private Optional<PivotAtOrBelowCheckpointException> checkPivotIsAboveCheckpoint(
       final SnapSyncProcessState currentState) {
     if (checkpointBlockNumber.isEmpty()) {
       return Optional.empty();
@@ -266,7 +272,7 @@ public class SnapSyncDownloader implements SnapSyncController {
                       pivot.getNumber(), checkpointNumber, FAST_SYNC_RETRY_DELAY.toSeconds()),
                   shouldLogPivotBelowCheckpoint,
                   PIVOT_BELOW_CHECKPOINT_LOG_DELAY_SECONDS);
-              return new PivotBelowCheckpointException(
+              return new PivotAtOrBelowCheckpointException(
                   "Pivot block "
                       + pivot.getNumber()
                       + " is at or below the trusted checkpoint "
@@ -295,7 +301,7 @@ public class SnapSyncDownloader implements SnapSyncController {
       // Unlike a genesis pivot, a pivot at or below the trusted checkpoint is not a "nothing to do"
       // case: the operator asked us to sync from the checkpoint, so we wait for the consensus
       // client to catch up.
-      final Optional<PivotBelowCheckpointException> belowCheckpoint =
+      final Optional<PivotAtOrBelowCheckpointException> belowCheckpoint =
           checkPivotIsAboveCheckpoint(currentState);
       if (belowCheckpoint.isPresent()) {
         return CompletableFuture.failedFuture(belowCheckpoint.get());

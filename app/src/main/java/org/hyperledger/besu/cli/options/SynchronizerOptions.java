@@ -460,7 +460,7 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
       arity = "0..1",
       fallbackValue = "true",
       description =
-          "During SNAP sync, download headers only down to the trusted checkpoint instead of all "
+          "During SNAP sync, download headers only back to the trusted checkpoint instead of all "
               + "the way to genesis. Requires a checkpoint (from the genesis file or --checkpoint). "
               + "Pre-checkpoint headers (before the checkpoint) will not be stored. (default: ${DEFAULT-VALUE})")
   private Boolean snapSyncHeadersToCheckpointOnly =

@@ -25,8 +25,8 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * This class manages the synchronization duration metrics for the Hyperledger Besu project. It
- * provides methods to start and stop timers for various synchronization phases.
+ * This class manages the synchronization duration metrics. It provides methods to start and stop
+ * timers for various synchronization phases.
  *
  * <p>Every phase is measured at most once per process: the first completed measurement of a phase
  * is recorded and any later attempt to start that phase's timer again is ignored. Sync phases are

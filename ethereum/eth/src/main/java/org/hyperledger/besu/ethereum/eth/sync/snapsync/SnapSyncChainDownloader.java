@@ -475,6 +475,8 @@ public class SnapSyncChainDownloader
    */
   private Optional<Throwable> shouldRetry(final Throwable error) {
     final Throwable cause = error instanceof CompletionException ? error.getCause() : error;
+    // A wrong chain cannot be fixed by retrying this cycle from the saved state: the failure
+    // propagates to SnapSyncDownloader.handleFailure, which re-pivots to a fresh block.
     if (cause instanceof CancellationException || cause instanceof WrongChainException) {
       return Optional.of(cause);
     }
