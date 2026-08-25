@@ -123,6 +123,18 @@ class ArchiveReadTrieNodeStrategyTest {
   }
 
   @Test
+  void putFlatStorageTrieNodeThrows() {
+    final ArchiveReadTrieNodeStrategy strategy = new ArchiveReadTrieNodeStrategy(0L, historyReader);
+    final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
+    assertThatThrownBy(
+            () ->
+                strategy.putFlatStorageTrieNode(
+                    storage, tx, Hash.EMPTY, Bytes.of(0x01), Bytes32.ZERO, Bytes.of(0x00)))
+        .isInstanceOf(UnsupportedOperationException.class);
+    tx.rollback();
+  }
+
+  @Test
   void removeFlatAccountStateTrieNodeThrows() {
     final ArchiveReadTrieNodeStrategy strategy = new ArchiveReadTrieNodeStrategy(0L, historyReader);
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
