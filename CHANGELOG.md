@@ -36,10 +36,11 @@
 - Fix wrong Bonsai storage root for same-block selfdestruct+recreate with unchanged slot values. [#10979](https://github.com/besu-eth/besu/pull/10979)
 - `eth_simulateV1` no longer applies EIP-7825's transaction gas limit cap to simulation gas, fixing incorrect block/transaction hashes on Osaka [#10885](https://github.com/besu-eth/besu/pull/10885)
 - Move to a new BFT round and select a new proposer for a block if transactions arrive at a non-proposing node after blockperiodseconds but before emptyblockperiodseconds [#11031](https://github.com/besu-eth/besu/pull/11031) 
-- Fix txpool incorrectly evicting authority pending transactions when EIP-7702 delegation tuples are skipped during block execution
+- Complete QBFT votes in a reasonable time when `empyblockperiodseconds` is set by treating QBFT votes as "non empty blocks" [#11111](https://github.com/besu-eth/besu/pull/11111)
 
 ### Additions and Improvements
 - Implement native `callTracer` execution tracing, reducing memory use for `debug_trace*`. [#11077](https://github.com/besu-eth/besu/pull/11077)
+- Add JMH `GasProfiler` that emits `mgas_per_s` as a secondary metric on each benchmark iteration using Besu's own `GasCalculator`. Enable with `-PgasProfiler=true`; override the EVM fork with `-PgasProfilerFork=<fork>` (defaults to Osaka). [#10807](https://github.com/besu-eth/besu/pull/10807)
 - Align Kotlin runtime dependencies to 2.4.0 to support plugins compiled against the Kotlin 2.4 API. [#10983](https://github.com/besu-eth/besu/pull/10983)
 - Upgrade log4j to 2.25.5 [#11075](https://github.com/besu-eth/besu/pull/11075)
 - Upgrade netty dependency to 4.2.17.Final [#11078](https://github.com/besu-eth/besu/pull/11078)
@@ -49,8 +50,12 @@
 - Extract the Plugin API sync module. The synchronization contracts (`SynchronizationService` and the `SyncStatus` data view) now live in a new `besu-plugin-api-sync` artifact, re-exported by `besu-plugin-api` so existing consumers are unaffected. [#11052](https://github.com/besu-eth/besu/pull/11052)
 - Extract the Plugin API rpc module. The RPC endpoint and health check contracts (`RpcEndpointService`, `HealthCheckService`, the `PluginRpcRequest` / `PluginRpcResponse` / `RpcResponse` / `RpcResponseType` request and response types, `RpcMethodError` and `PluginRpcEndpointException`) now live in a new `besu-plugin-api-rpc` artifact, re-exported by `besu-plugin-api` so existing consumers are unaffected. Also adds an `org.hyperledger.besu.plugin.rpc.RpcConfiguration` service exposing the configured RPC HTTP host, port and timeout. [#11070](https://github.com/besu-eth/besu/pull/11070)
 - Extract the Plugin API chain module. The blockchain query, RLP conversion and block-view contracts (`BlockchainService`, `RlpConverterService` and the `BlockContext`, `AddedBlockContext`, `PropagatedBlockContext`, `BadBlockCause` and `LogWithMetadata` data interfaces) now live in a new `besu-plugin-api-chain` artifact, re-exported by `besu-plugin-api` so existing consumers are unaffected. [#11110](https://github.com/besu-eth/besu/pull/11110)
+- Extract the Plugin API worldstate module. The world state observation contracts (`WorldStateService`, `TrieLogService` and the `TrieLog`, `TrieLogAccumulator`, `TrieLogEvent`, `TrieLogFactory` and `TrieLogProvider` trie-log contracts) now live in a new `besu-plugin-api-worldstate` artifact, re-exported by `besu-plugin-api` so existing consumers are unaffected. [#11117](https://github.com/besu-eth/besu/pull/11117)
+- Extract the Plugin API worldstate-backend module. The world state backend contracts (`MutableWorldState`, `StateRootCommitter`, `StateRootComputation`, `WorldStateKeyValueStorage` and `WorldStatePreimageStorage`) now live in a new `besu-plugin-api-worldstate-backend` artifact, re-exported by `besu-plugin-api` so existing consumers are unaffected. [#11118](https://github.com/besu-eth/besu/pull/11118)
 - Add `--p2p-discovery-port` and `--p2p-discovery-port-ipv6` flags to configure a separate UDP port for devp2p peer discovery, independent of the TCP p2p port. Specify `0` to request an ephemeral port from the OS. [#10718](https://github.com/besu-eth/besu/pull/10718)
 - Pending peer request iteration: `streamAvailablePeers()` scan replaced with an allocation-free capacity check. Reduces lock contention and GC pressure under a backlog of pending peer requests. [#10900](https://github.com/besu-eth/besu/pull/10900)
+- Engine API methods now execute concurrently, with only `engine_forkchoiceUpdated` and `engine_newPayload` calls processed serially in arrival order as the Engine API spec mandates. Previously all engine calls were serialized on a single thread, so light requests like `engine_getBlobsV2` could queue behind a block import and exceed the consensus client's timeout. [#11053](https://github.com/besu-eth/besu/pull/11053)
+- Add a server-side cap on EVM steps captured per debug_traceCallMany to prevent unbounded execution [#11142](https://github.com/besu-eth/besu/pull/11142)
 
 ## 26.8.0
 
@@ -71,15 +76,17 @@
 - Removed the legacy `PANTHEON_` environment variable prefix for configuration options, everyone should already use the `BESU_` prefix at this time.
 
 ### Bug fixes
+- Abort pending speculative transaction futures when the block-budget is exhausted in parallel block production.
 - Bound the DiscV4 inbound packet pipeline with an admission gate (256 in-flight packets) and a bounded crypto executor queue, preventing a UDP flood from exhausting memory.
 - Cap the number of snap/1-2 GET_* requests concurrently scheduled for processing on a snap-serving node, both per-peer (--Xsnapsync-server-max-concurrent-requests-per-peer, default 8) and globally (--Xsnapsync-server-max-concurrent-requests, default 200). [#11101](https://github.com/besu-eth/besu/pull/11101)
 - Cap the QBFT/IBFT round change number to prevent unbounded memory growth from malformed round-change messages.
-- Cap pre-STATUS RLPx connections and close them on eviction to prevent resource exhaustion.
 - Improve logging for malformed discv4 UDP packets.
 - Bound the snap sync storage sub-range split count to prevent unbounded memory growth under a malformed snap response.
 - Added a configurable range cap (--graphql-max-blocks-range, default 5000) for GraphQL blocks(from, to) range queries; queries exceeding the cap are cancelled.
 - Bound secp256k1 signature r and s values to [1, n) on signature recovery, fixing a consensus divergence with EIP-7702 code delegations.
-- Reject RLP-wrapped typed transactions in block-body opaque decoding, preventing a potential consensus divergence.
+- Add a server-side cap on EVM steps captured per debug_traceCall, debug_traceTransaction, and related trace methods to prevent unbounded execution [#11100](https://github.com/besu-eth/besu/pull/11100)
+- Apply --rpc-max-logs-range to eth_getFilterLogs and eth_newFilter to prevent unbounded log queries.
+- Fix optimistic parallel execution materialising an empty account for an unrewarded fee recipient, causing incorrect EIP-158 account deletion.
 - Remove `System.out`/`System.err` logging from `P256VerifyPrecompiledContract` and `BlockchainQueries` — these could leak sensitive data to stdout/stderr in production.
 - EIP-1459 DNS discovery now rejoins TXT records split across multiple `<character-string>`s. Records longer than 255 bytes were truncated, so Besu silently discarded most of every tree, resolving 832 of 3000 nodes from the mainnet tree. [#10985](https://github.com/besu-eth/besu/pull/10985)
 - Queue backward-sync targets received before peer readiness and retry when a peer connects. [#10843](https://github.com/besu-eth/besu/pull/10843)
@@ -95,6 +102,9 @@
 - Fix `ibft_*` and `qbft_*` JSON-RPC methods returning `Method not enabled` on IBFT2->QBFT migration networks (genesis containing both `ibft2` and `qbft` sections). [#10679](https://github.com/besu-eth/besu/issues/10679)
 - Fix `admin_nodeInfo` reporting wrong RLPx/discovery ephemeral ports under `--nat-method=DOCKER`, due to a swapped NAT port mapping and a stale pre-bind snapshot. [#10860](https://github.com/besu-eth/besu/pull/10860)
 - Recover from restart during flatDB heal sync step [#10883](https://github.com/besu-eth/besu/pull/10883)
+- Cap pre-STATUS RLPx connections and close them on eviction to prevent resource exhaustion.
+- Fix txpool incorrectly evicting authority pending transactions when EIP-7702 delegation tuples are skipped during block execution
+- Reject RLP-wrapped typed transactions in block-body opaque decoding, preventing a potential consensus divergence.
 
 ### Additions and Improvements
 - Add `--checkpoint=<hash>:<number>:<totalDifficulty>` CLI option to anchor sync to a trusted checkpoint, overriding any checkpoint configured in the genesis file. The option is only used by snap sync and is ignored (with a warning) in FULL sync-mode.

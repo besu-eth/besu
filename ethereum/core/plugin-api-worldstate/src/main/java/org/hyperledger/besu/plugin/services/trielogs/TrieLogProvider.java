@@ -52,8 +52,8 @@ public interface TrieLogProvider {
   /**
    * Returns the TrieLog layer for the given block number.
    *
-   * @param blockNumber the block hash
-   * @return the TrieLog layer for the given block hash
+   * @param blockNumber the block number
+   * @return the TrieLog layer for the given block number
    * @param <T> the type of the TrieLog
    */
   <T extends TrieLog.LogTuple<?>> Optional<TrieLog> getTrieLogLayer(final long blockNumber);

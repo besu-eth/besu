@@ -140,12 +140,10 @@ abstract class AbstractBlockProcessorTest {
     final GasCalculator gasCalculator = mock(GasCalculator.class);
     final StateGasCostCalculator stateGasCalc = mock(StateGasCostCalculator.class);
     when(gasCalculator.stateGasCostCalculator()).thenReturn(stateGasCalc);
-    when(gasCalculator.transactionIntrinsicRegularGas(tx)).thenReturn(0L);
-    when(stateGasCalc.transactionIntrinsicStateGas(tx)).thenReturn(0L);
     when(stateGasCalc.transactionRegularGasLimit()).thenReturn(Long.MAX_VALUE);
     when(protocolSpec.getGasCalculator()).thenReturn(gasCalculator);
 
-    // Regular=60k, State=40k. Per-dimension: worstCaseRegular = min(MAX, 50k - 0) = 50k.
+    // Regular=60k, State=40k. Per-dimension: worstCaseRegular = min(MAX, 50k) = 50k.
     // regularAvailable = 100k - 60k = 40k. 50k > 40k → fails AMSTERDAM per-dimension check.
     when(protocolSpec.getBlockGasAccountingStrategy())
         .thenReturn(BlockGasAccountingStrategy.AMSTERDAM);

@@ -14,11 +14,6 @@
  */
 package org.hyperledger.besu.evm.gascalculator;
 
-import static org.hyperledger.besu.evm.internal.Words.clampedAdd;
-import static org.hyperledger.besu.evm.internal.Words.clampedMultiply;
-
-import org.hyperledger.besu.datatypes.Transaction;
-
 /**
  * Strategy interface for EIP-8037 state-creation gas cost calculations.
  *
@@ -43,7 +38,7 @@ public interface StateGasCostCalculator {
 
   /**
    * Returns the state gas for creating a new contract account (120 * cpsb). Charged for the
-   * CREATE/CREATE2 opcodes and for the intrinsic charge of a contract-creation transaction.
+   * CREATE/CREATE2 opcodes and at the top frame of a contract-creation transaction.
    *
    * @return the state gas for a new contract
    */
@@ -116,25 +111,6 @@ public interface StateGasCostCalculator {
    */
   default boolean isActive() {
     return false;
-  }
-
-  /**
-   * Computes the intrinsic state gas for a transaction. This is the worst-case state gas charged
-   * upfront (assuming all delegation targets are new accounts). Existing-account refunds are
-   * applied later during processing.
-   *
-   * @param transaction the transaction
-   * @return the intrinsic state gas
-   */
-  default long transactionIntrinsicStateGas(final Transaction transaction) {
-    long stateGas = transaction.isContractCreation() ? newContractStateGas() : 0L;
-    final long codeDelegationCount = transaction.codeDelegationListSize();
-    if (codeDelegationCount > 0) {
-      // Worst case: all delegators are new accounts → (120 + 23) * cpsb each
-      final long perDelegation = clampedAdd(emptyAccountDelegationStateGas(), authBaseStateGas());
-      stateGas = clampedAdd(stateGas, clampedMultiply(perDelegation, codeDelegationCount));
-    }
-    return stateGas;
   }
 
   /** A no-op implementation that returns 0 for all state gas costs. */

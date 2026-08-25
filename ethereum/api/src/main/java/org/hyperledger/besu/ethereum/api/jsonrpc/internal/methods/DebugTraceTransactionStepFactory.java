@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.tracing.diff.S
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
 import org.hyperledger.besu.ethereum.debug.TracerType;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 
 import java.util.function.Function;
@@ -56,7 +57,9 @@ public class DebugTraceTransactionStepFactory {
       case OPCODE_TRACER ->
           transactionTrace -> {
             // default - struct/opcode logger tracer
-            var result = new OpCodeLoggerTracerResult(transactionTrace);
+            final boolean truncated =
+                tracer instanceof DebugOperationTracer debugTracer && debugTracer.isLimitReached();
+            var result = new OpCodeLoggerTracerResult(transactionTrace, truncated);
             return new DebugTraceTransactionResult(transactionTrace, result);
           };
       case CALL_TRACER -> createCallTracerResultFunction(tracer);
