@@ -69,11 +69,9 @@ public final class QuantityJson {
   }
 
   /**
-   * Deserializes a QUANTITY covering the whole {@code uint64} range into a Java {@code long} using
-   * unsigned semantics, so values above {@link Long#MAX_VALUE} wrap to negative longs rather than
-   * being rejected. Engine API QUANTITY fields are {@code uint64}, so a value of e.g. {@code
-   * 0xffffffffffffffff} is syntactically valid and must be answered by block validation rather than
-   * by an "invalid params" error.
+   * Engine API QUANTITYs are {@code uint64}, so {@code 0xffffffffffffffff} is syntactically valid
+   * and must be answered by block validation rather than an "invalid params" error. Values above
+   * {@link Long#MAX_VALUE} are carried as negative longs instead of being rejected.
    */
   public static class UnsignedLongDeserializer extends StdDeserializer<Long> {
 

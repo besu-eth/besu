@@ -178,8 +178,8 @@ class JsonRpcParameterTest {
 
   @Test
   void failOnUnknownButNull_fails_whenUnknownPropertyIsEmptyByteString() {
-    // Only FAIL_ON_UNKNOWN_BUT_EMPTY tolerates an empty value; the null-only configuration that
-    // the rest of the JSON-RPC surface uses must keep rejecting it.
+    // The empty-tolerant behaviour is scoped to engine payloads; the rest of the JSON-RPC surface
+    // must keep rejecting it.
     final Map<String, Object> raw = new LinkedHashMap<>();
     raw.put("known", "value");
     raw.put("unknown", "0x");
@@ -196,9 +196,8 @@ class JsonRpcParameterTest {
 
   @Test
   void failOnUnknownButEmpty_succeeds_whenUnknownPropertyIsEmptyByteString() throws Exception {
-    // An unknown property holding an empty byte string carries no information, so it is dropped
-    // like an explicit null. engine_newPayloadV4 relies on this for a "blockAccessList": "0x"
-    // that a pre-Amsterdam payload should be judged on its block hash rather than rejected for.
+    // An empty unknown property carries no information, so it is dropped like an explicit null.
+    // engine_newPayloadV4 relies on this to judge a "blockAccessList": "0x" on its block hash.
     for (final String empty : new String[] {"0x", "0X", ""}) {
       final Map<String, Object> raw = new LinkedHashMap<>();
       raw.put("known", "value");
@@ -244,8 +243,8 @@ class JsonRpcParameterTest {
 
   @Test
   void failOnUnknownButEmpty_fails_whenUnknownPropertyIsZeroQuantity() {
-    // "0x0" is a value, and a pre-fork payload carrying e.g. "slotNumber": "0x0" must be
-    // rejected as invalid params rather than silently ignored.
+    // "0x0" is a value, so a pre-fork payload carrying e.g. "slotNumber": "0x0" must still be
+    // rejected rather than silently ignored.
     final Map<String, Object> raw = new LinkedHashMap<>();
     raw.put("known", "value");
     raw.put("unknown", "0x0");

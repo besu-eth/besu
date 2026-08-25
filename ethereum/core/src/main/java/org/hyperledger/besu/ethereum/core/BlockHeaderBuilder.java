@@ -272,10 +272,9 @@ public class BlockHeaderBuilder {
         .baseFee(baseFee)
         .prevRandao(prevRandao)
         .parentBeaconBlockRoot(parentBeaconBlockRoot)
-        // From Amsterdam (EIP-7843) the header must carry a slot number, so callers with no beacon
-        // slot to supply - PoA and PoW mining, engine_preparePayloadDebug, testing_buildBlockV1 -
-        // get 0 rather than an absent field, which this fork's own header validation would reject.
-        // Before Amsterdam the field must stay absent or the block hash changes.
+        // From Amsterdam (EIP-7843) an absent slot number fails our own header validation, so
+        // callers with no beacon slot to supply get 0. Before Amsterdam it must stay absent, or
+        // the block hash changes.
         .slotNumber(
             maybeSlotNumber.orElseGet(() -> protocolSpec.isSlotNumberRequired() ? 0L : null));
   }

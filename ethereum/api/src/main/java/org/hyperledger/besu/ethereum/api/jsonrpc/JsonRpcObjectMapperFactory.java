@@ -100,15 +100,10 @@ public final class JsonRpcObjectMapperFactory {
   }
 
   /**
-   * Like {@link IgnoreNullUnknownHandler} but also drops an unknown property whose value is the
-   * empty byte string ({@code ""} or {@code "0x"}). An unknown property holding any other value
-   * still fails deserialization.
-   *
-   * <p>This is only for the engine API execution payload, where a field a payload version does not
-   * know yet (e.g. {@code blockAccessList} on {@code engine_newPayloadV4}) conveys nothing when it
-   * is empty: the payload then has to be judged on its own merits - normally an INVALID block hash
-   * - instead of being rejected as invalid params. A non-empty value, including the empty-RLP-list
-   * {@code 0xc0}, is a real attempt to set the field and is still rejected.
+   * An empty unknown property states nothing, so an engine payload carrying one (e.g. {@code
+   * blockAccessList} on {@code engine_newPayloadV4}) is left for block validation to judge rather
+   * than rejected as invalid params. A non-empty value, {@code 0xc0} included, is a real attempt to
+   * set the field and still fails.
    */
   private static class IgnoreEmptyUnknownHandler extends DeserializationProblemHandler {
     @Override

@@ -21,11 +21,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Ensures that a block header carries the {@code slotNumber} field once EIP-7843 is active. The
- * field is the last one in the header RLP, so a header that omits it still decodes cleanly - only
- * this presence check distinguishes it from a well-formed one. As with {@code requestsHash}, a
- * header missing the field is invalid regardless of its block body, so the check is independent of
- * the parent header.
+ * Ensures a block header carries the EIP-7843 {@code slotNumber}. Being the last field in the
+ * header RLP, an omitted one still decodes cleanly, so only this check catches it. Detached, as a
+ * header missing the field is invalid whatever its parent or body.
  */
 public class SlotNumberPresentValidationRule implements DetachedBlockHeaderValidationRule {
 

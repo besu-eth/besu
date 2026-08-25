@@ -40,10 +40,7 @@ public class JsonRpcParameter {
   private static final ObjectMapper mapperFailOnUnknownButNull =
       JsonRpcObjectMapperFactory.getParameterMapperIgnoringUnknownNulls();
 
-  /**
-   * Like mapperFailOnUnknownButNull but additionally drops an unknown property whose value is the
-   * empty byte string ({@code ""} or {@code "0x"}). Reserved for the engine API execution payload.
-   */
+  /** As mapperFailOnUnknownButNull, but empty unknown properties are dropped too. */
   private static final ObjectMapper mapperFailOnUnknownButEmpty =
       JsonRpcObjectMapperFactory.getParameterMapperIgnoringUnknownEmpties();
 
@@ -245,11 +242,9 @@ public class JsonRpcParameter {
      */
     FAIL_ON_UNKNOWN_BUT_NULL(mapperFailOnUnknownButNull),
     /**
-     * Like {@link #FAIL_ON_UNKNOWN_BUT_NULL} but an unknown property whose value is the empty byte
-     * string ({@code ""} or {@code "0x"}) is also dropped. Only the engine API execution payload
-     * uses this: a field an older payload version does not know (e.g. {@code blockAccessList} on
-     * {@code engine_newPayloadV4}) conveys nothing when empty, so the payload must be judged on its
-     * own merits instead of being rejected as invalid params.
+     * As {@link #FAIL_ON_UNKNOWN_BUT_NULL}, but empty unknown properties are dropped too. For
+     * engine payloads, where an empty unknown field states nothing and so must be judged by block
+     * validation rather than rejected as invalid params.
      */
     FAIL_ON_UNKNOWN_BUT_EMPTY(mapperFailOnUnknownButEmpty);
 

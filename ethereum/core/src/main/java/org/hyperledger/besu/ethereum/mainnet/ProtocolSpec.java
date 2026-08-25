@@ -406,9 +406,8 @@ public class ProtocolSpec {
    * @return true if the network is running Proof of Stake
    */
   /**
-   * Whether headers of this fork must carry the EIP-7843 {@code slotNumber} field. Block creation
-   * uses this to emit a slot number even when the caller has none to supply, so that a locally
-   * built header is not rejected by this fork's own header validation.
+   * Whether headers of this fork must carry the EIP-7843 {@code slotNumber}. Block creation
+   * consults it so a locally built header is not rejected by this fork's own validation.
    *
    * @return true from Amsterdam onwards
    */

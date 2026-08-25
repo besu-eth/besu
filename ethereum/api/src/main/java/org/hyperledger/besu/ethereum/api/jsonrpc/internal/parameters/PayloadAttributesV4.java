@@ -42,10 +42,9 @@ public final class PayloadAttributesV4 extends PayloadAttributesV3 {
   }
 
   /**
-   * Parses the uint64 QUANTITY {@code slotNumber}, matching how {@code engine_newPayload} reads the
-   * same field: the whole range is accepted, with the top half carried as a negative long ({@link
-   * Long#decode} would throw above {@link Long#MAX_VALUE}). A missing or malformed value yields
-   * {@code null}, which the caller reports as the more specific "Invalid slotNumber".
+   * The whole uint64 range is legal here, as in {@code engine_newPayload} ({@link Long#decode}
+   * would throw above {@link Long#MAX_VALUE}). Null on a missing or malformed value, which the
+   * caller reports as the more specific "Invalid slotNumber".
    */
   private static Long parseSlotNumber(final String slotNumber) {
     if (slotNumber == null) {

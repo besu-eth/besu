@@ -23,9 +23,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 /**
- * Engine API QUANTITY fields are {@code uint64}, so the whole range must deserialize. Besu carries
- * them as Java longs with unsigned semantics: values above {@link Long#MAX_VALUE} wrap to negative
- * longs instead of being rejected as invalid params.
+ * Engine API QUANTITYs are {@code uint64}, so the whole range must deserialize rather than be
+ * rejected as invalid params. Besu carries them as longs with unsigned semantics.
  */
 class ExecutionPayloadQuantityTest {
 

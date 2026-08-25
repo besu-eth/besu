@@ -62,10 +62,9 @@ public final class BlockAccessListDecoder {
                           changeIn.leaveList();
                           return new StorageChange(txIndex, newVal);
                         });
-                // An empty change list is well-formed RLP, so it is not rejected here: the
-                // EIP-7928 "at least one storage change" constraint is a validity rule enforced
-                // by MainnetBlockAccessListValidator, which marks the block INVALID rather than
-                // failing the engine_newPayload parameter decode.
+                // An empty change list is well-formed RLP. The EIP-7928 "at least one storage
+                // change" rule is left to MainnetBlockAccessListValidator, so the block comes back
+                // INVALID instead of engine_newPayload failing on invalid params.
                 scIn.leaveList();
                 return new SlotChanges(slot, changes);
               });

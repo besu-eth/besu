@@ -140,9 +140,9 @@ public class AccessListTransactionEncoderTest {
 
   @Test
   void shouldDecodeSlotChangesWithoutStorageChanges() {
-    // An empty change list is well-formed RLP: it decodes, and the EIP-7928 "at least one storage
-    // change" constraint is enforced later by MainnetBlockAccessListValidator so that the block is
-    // reported INVALID rather than as an engine_newPayload parameter error.
+    // An empty change list is well-formed RLP. The EIP-7928 "at least one storage change" rule is
+    // left to MainnetBlockAccessListValidator, so the block is reported INVALID rather than as an
+    // engine_newPayload parameter error.
     final Address address = Address.fromHexString("0x00000000219ab540356cbb839cbe05303d7705fa");
     final StorageSlotKey slotKey = new StorageSlotKey(Wei.ONE.toUInt256());
     final BlockAccessList invalidAccessList =

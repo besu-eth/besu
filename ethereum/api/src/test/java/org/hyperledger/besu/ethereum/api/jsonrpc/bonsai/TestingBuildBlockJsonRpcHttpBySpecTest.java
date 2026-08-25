@@ -52,9 +52,7 @@ public class TestingBuildBlockJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpB
   protected void doSetup() throws Exception {
     blockchainSetupUtil = getBlockchainSetupUtil(DataStorageFormat.BONSAI);
     // Header validation is skipped, as in every other by-spec test: the canned Amsterdam chain
-    // was produced by Besu's own block creator, which leaves the EIP-7843 slotNumber unset, and
-    // what this test covers is the testing_buildBlockV1 response rather than the fixture's
-    // header validity.
+    // predates the EIP-7843 slotNumber, and what is under test is the response, not the fixture.
     blockchainSetupUtil.importAllBlocks(HeaderValidationMode.NONE, HeaderValidationMode.NONE);
     startService();
   }
