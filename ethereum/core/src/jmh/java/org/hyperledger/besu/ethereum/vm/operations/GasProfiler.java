@@ -140,7 +140,8 @@ public class GasProfiler implements InternalProfiler, ExternalProfiler {
             "mgas_per_s",
             1000 * trialGasCost.getAsLong() / nsPerOp,
             "MGas/s",
-            AggregationPolicy.AVG));
+            AggregationPolicy.AVG),
+        new ScalarResult("gas", trialGasCost.getAsLong(), "gas", AggregationPolicy.AVG));
   }
 
   @Override

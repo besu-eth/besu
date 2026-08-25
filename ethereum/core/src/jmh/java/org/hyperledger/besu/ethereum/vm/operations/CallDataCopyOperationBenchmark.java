@@ -93,18 +93,7 @@ public class CallDataCopyOperationBenchmark implements GasCostBenchmark {
     index = 0;
   }
 
-  @Benchmark
-  public void baseline() {
-    frame.pushStackItem(sizePool[index]);
-    frame.pushStackItem(srcOffsetPool[index]);
-    frame.pushStackItem(destOffsetPool[index]);
-
-    frame.popStackItem();
-    frame.popStackItem();
-    frame.popStackItem();
-    index = (index + 1) % SAMPLE_SIZE;
-  }
-
+  @Override
   @Benchmark
   public void executeOperation(final Blackhole blackhole) {
     frame.pushStackItem(sizePool[index]);
