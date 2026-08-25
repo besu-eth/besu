@@ -38,7 +38,7 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-class BonsaiArchiveWorldStateStorageCoordinatorTest {
+class BonsaiArchiveReadWorldStateStorageCoordinatorTest {
 
   private SegmentedKeyValueStorage archiveStorage;
   private ArchiveHistoryReader historyReader;
@@ -79,8 +79,8 @@ class BonsaiArchiveWorldStateStorageCoordinatorTest {
 
   @Test
   void isWorldStateAvailableAlwaysReturnsTrue() {
-    final BonsaiArchiveWorldStateStorageCoordinator coordinator =
-        new BonsaiArchiveWorldStateStorageCoordinator(keyValueStorage, historyReader, 0L);
+    final BonsaiArchiveReadWorldStateStorageCoordinator coordinator =
+        new BonsaiArchiveReadWorldStateStorageCoordinator(keyValueStorage, historyReader, 0L);
     assertThat(coordinator.isWorldStateAvailable(Bytes32.ZERO, Hash.ZERO)).isTrue();
     assertThat(coordinator.isWorldStateAvailable(hash(Bytes.of(1)), Hash.ZERO)).isTrue();
   }
@@ -91,8 +91,8 @@ class BonsaiArchiveWorldStateStorageCoordinatorTest {
     final Bytes node = Bytes.fromHexString("0xdeadbeef");
     writeAccountNode(location, node, 5L);
 
-    final BonsaiArchiveWorldStateStorageCoordinator coordinator =
-        new BonsaiArchiveWorldStateStorageCoordinator(keyValueStorage, historyReader, 5L);
+    final BonsaiArchiveReadWorldStateStorageCoordinator coordinator =
+        new BonsaiArchiveReadWorldStateStorageCoordinator(keyValueStorage, historyReader, 5L);
     assertThat(coordinator.getAccountStateTrieNode(location, hash(node))).contains(node);
   }
 
@@ -103,8 +103,8 @@ class BonsaiArchiveWorldStateStorageCoordinatorTest {
     writeAccountNode(location, node, 5L);
 
     // Querying block 4: node was archived at 5, so no entry exists at or before 4
-    final BonsaiArchiveWorldStateStorageCoordinator coordinator =
-        new BonsaiArchiveWorldStateStorageCoordinator(keyValueStorage, historyReader, 4L);
+    final BonsaiArchiveReadWorldStateStorageCoordinator coordinator =
+        new BonsaiArchiveReadWorldStateStorageCoordinator(keyValueStorage, historyReader, 4L);
     assertThat(coordinator.getAccountStateTrieNode(location, hash(node))).isEmpty();
   }
 
@@ -114,16 +114,16 @@ class BonsaiArchiveWorldStateStorageCoordinatorTest {
     final Bytes node = Bytes.fromHexString("0xaabb");
     writeAccountNode(location, node, 3L);
 
-    final BonsaiArchiveWorldStateStorageCoordinator coordinator =
-        new BonsaiArchiveWorldStateStorageCoordinator(keyValueStorage, historyReader, 3L);
+    final BonsaiArchiveReadWorldStateStorageCoordinator coordinator =
+        new BonsaiArchiveReadWorldStateStorageCoordinator(keyValueStorage, historyReader, 3L);
     assertThat(coordinator.getAccountStateTrieNode(location, hash(Bytes.fromHexString("0xccdd"))))
         .isEmpty();
   }
 
   @Test
   void getAccountStateTrieNodeReturnsEmptyTrieNodeForEmptyHash() {
-    final BonsaiArchiveWorldStateStorageCoordinator coordinator =
-        new BonsaiArchiveWorldStateStorageCoordinator(keyValueStorage, historyReader, 0L);
+    final BonsaiArchiveReadWorldStateStorageCoordinator coordinator =
+        new BonsaiArchiveReadWorldStateStorageCoordinator(keyValueStorage, historyReader, 0L);
     assertThat(coordinator.getAccountStateTrieNode(Bytes.EMPTY, MerkleTrie.EMPTY_TRIE_NODE_HASH))
         .contains(MerkleTrie.EMPTY_TRIE_NODE);
   }
@@ -138,8 +138,8 @@ class BonsaiArchiveWorldStateStorageCoordinatorTest {
     final Bytes node = Bytes.fromHexString("0xffee");
     writeStorageNode(accountHash, location, node, 7L);
 
-    final BonsaiArchiveWorldStateStorageCoordinator coordinator =
-        new BonsaiArchiveWorldStateStorageCoordinator(keyValueStorage, historyReader, 7L);
+    final BonsaiArchiveReadWorldStateStorageCoordinator coordinator =
+        new BonsaiArchiveReadWorldStateStorageCoordinator(keyValueStorage, historyReader, 7L);
     assertThat(coordinator.getAccountStorageTrieNode(accountHash, location, hash(node)))
         .contains(node);
   }
@@ -155,8 +155,8 @@ class BonsaiArchiveWorldStateStorageCoordinatorTest {
     writeStorageNode(accountHash, location, node, 2L);
 
     // Account-trie coordinator must not return anything for the same location
-    final BonsaiArchiveWorldStateStorageCoordinator coordinator =
-        new BonsaiArchiveWorldStateStorageCoordinator(keyValueStorage, historyReader, 2L);
+    final BonsaiArchiveReadWorldStateStorageCoordinator coordinator =
+        new BonsaiArchiveReadWorldStateStorageCoordinator(keyValueStorage, historyReader, 2L);
     assertThat(coordinator.getAccountStateTrieNode(location, hash(node))).isEmpty();
   }
 }

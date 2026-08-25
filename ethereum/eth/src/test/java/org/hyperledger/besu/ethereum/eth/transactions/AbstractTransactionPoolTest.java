@@ -64,6 +64,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Stream;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledIf;
 import org.junit.jupiter.api.condition.EnabledIf;
@@ -80,6 +81,16 @@ import org.mockito.junit.jupiter.MockitoSettings;
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = LENIENT)
 public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoolTestBase {
+
+  @Test
+  public void blobCustodyColumnsStartsEmptyAndRoundTripsAfterUpdate() {
+    assertThat(transactionPool.getBlobCustodyColumns()).isEmpty();
+
+    final Bytes custodyColumns = Bytes.repeat((byte) 0xAB, 16);
+    transactionPool.updateBlobCustodyColumns(custodyColumns);
+
+    assertThat(transactionPool.getBlobCustodyColumns()).contains(custodyColumns);
+  }
 
   @ParameterizedTest
   @ValueSource(booleans = {true, false})

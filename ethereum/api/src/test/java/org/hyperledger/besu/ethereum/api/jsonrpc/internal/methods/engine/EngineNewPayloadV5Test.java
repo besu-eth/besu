@@ -72,6 +72,7 @@ public class EngineNewPayloadV5Test extends EngineNewPayloadV4Test {
             .mergeCoordinator(mergeCoordinator)
             .ethPeers(ethPeers)
             .metricsSystem(new NoOpMetricsSystem())
+            .transactionPool(transactionPool)
             .maxRequestBlocks(0)
             .build(),
         AMSTERDAM,

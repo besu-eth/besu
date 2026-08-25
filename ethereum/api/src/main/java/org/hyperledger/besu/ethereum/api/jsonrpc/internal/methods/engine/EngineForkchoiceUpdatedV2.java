@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 import org.hyperledger.besu.consensus.merge.blockcreation.PreparePayloadArgsBuilder;
 import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ForkchoiceUpdatedRequestParametersV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttributesV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -36,8 +37,10 @@ import org.slf4j.LoggerFactory;
  *
  * <p>Parameterized so that V3 can extend this class while narrowing the payload type.
  */
-public sealed class EngineForkchoiceUpdatedV2<PA extends PayloadAttributesV2>
-    extends EngineForkchoiceUpdatedV1<PA> permits EngineForkchoiceUpdatedV3 {
+public sealed class EngineForkchoiceUpdatedV2<
+        PA extends PayloadAttributesV2,
+        FRP extends ForkchoiceUpdatedRequestParametersV1<? extends PA>>
+    extends EngineForkchoiceUpdatedV1<PA, FRP> permits EngineForkchoiceUpdatedV3 {
 
   private static final Logger LOG = LoggerFactory.getLogger(EngineForkchoiceUpdatedV2.class);
 

@@ -125,6 +125,16 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
     this.trieNodeStrategy = trieNodeStrategy;
   }
 
+  public BonsaiWorldStateKeyValueStorage withTrieNodeStrategy(final TrieNodeStrategy strategy) {
+    return new BonsaiWorldStateKeyValueStorage(
+        flatDbStrategyProvider,
+        composedWorldStateStorage,
+        trieLogStorage,
+        cacheManager,
+        cacheVersion,
+        strategy);
+  }
+
   private static FlatDbCacheManager createCacheManager(
       final DataStorageConfiguration dataStorageConfiguration, final MetricsSystem metricsSystem) {
     if (dataStorageConfiguration

@@ -77,6 +77,23 @@ public abstract class ParallelBlockTransactionProcessor {
     }
   }
 
+  /**
+   * Cancels every still-pending speculative future and nulls its slot. Already-consumed slots are
+   * null, so on the success path this is a no-op.
+   */
+  public void abort() {
+    if (futures == null) {
+      return;
+    }
+    for (int i = 0; i < futures.length; i++) {
+      final CompletableFuture<ParallelizedTransactionContext> future = futures[i];
+      if (future != null) {
+        future.cancel(true);
+        futures[i] = null;
+      }
+    }
+  }
+
   /** World state at the parent block. Call only when the parent header is known to be present. */
   protected Optional<BonsaiWorldState> getWorldState(
       final ProtocolContext protocolContext, final BlockHeader parentHeader) {

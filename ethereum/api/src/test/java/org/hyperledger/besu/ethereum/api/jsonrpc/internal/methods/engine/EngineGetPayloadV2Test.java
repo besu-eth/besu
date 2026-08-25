@@ -56,6 +56,7 @@ public class EngineGetPayloadV2Test extends EngineGetPayloadV1Test {
             .mergeCoordinator(mergeMiningCoordinator)
             .ethPeers(ethPeers)
             .metricsSystem(metricsSystem)
+            .transactionPool(transactionPool)
             .maxRequestBlocks(0)
             .build(),
         null,

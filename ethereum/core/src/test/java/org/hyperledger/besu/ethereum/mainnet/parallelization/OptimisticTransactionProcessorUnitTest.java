@@ -14,7 +14,9 @@
  */
 package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig.createStatefulConfigWithTrie;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -58,6 +60,7 @@ import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -620,6 +623,137 @@ class OptimisticTransactionProcessorUnitTest {
       assertTrue(
           maybeResult.get().getPartialBlockAccessView().isPresent(),
           "Expected BAL view to be present");
+    }
+  }
+
+  @Nested
+  @DisplayName("EIP-158 empty fee-recipient cleanup")
+  class EmptyMiningBeneficiaryTests {
+
+    /**
+     * The serial path calls {@code getOrCreate(miningBeneficiary)}, credits the tip, then runs
+     * {@code clearAccountsThatAreEmpty()}. When the tip is zero and EIP-158 cleanup is active the
+     * net effect is that the fee recipient is left absent. The parallel merge must reach the same
+     * state, otherwise a block whose fee recipient was deleted by an earlier transaction and whose
+     * later transaction pays a zero tip yields a different account set, and so a different state
+     * root, than every other client.
+     */
+    @Test
+    @DisplayName("Zero reward with EIP-158 active does not materialize the fee recipient")
+    void zeroRewardDoesNotMaterializeEmptyMiningBeneficiary() {
+      final Transaction transaction = mockTransaction();
+      stubSuccessfulTransaction(Optional.empty());
+      when(collisionDetector.hasCollision(any(), any(), any(), any())).thenReturn(false);
+      when(transactionProcessor.getClearEmptyAccounts()).thenReturn(true);
+
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          Collections.singletonList(transaction),
+          MINING_BENEFICIARY,
+          EMPTY_BLOCK_HASH_LOOKUP,
+          BLOB_GAS_PRICE,
+          sameThreadExecutor,
+          Optional.empty(),
+          env.maybeParentHeader());
+
+      final Optional<TransactionProcessingResult> result =
+          processor.getProcessingResult(
+              env.worldState(),
+              MINING_BENEFICIARY,
+              transaction,
+              0,
+              Optional.empty(),
+              Optional.empty());
+
+      assertTrue(result.isPresent(), "Expected result to be applied");
+      assertNull(
+          env.worldState().updater().get(MINING_BENEFICIARY),
+          "an unrewarded fee recipient must not be left behind as an empty account");
+    }
+
+    /**
+     * The mirror case: before EIP-158 empty accounts are legitimate, and the serial path leaves the
+     * zero-tip fee recipient in place. The parallel path must keep doing so.
+     */
+    @Test
+    @DisplayName("Zero reward without EIP-158 still materializes the fee recipient")
+    void zeroRewardStillMaterializesBeneficiaryWhenEmptyAccountsAreKept() {
+      final Transaction transaction = mockTransaction();
+      stubSuccessfulTransaction(Optional.empty());
+      when(collisionDetector.hasCollision(any(), any(), any(), any())).thenReturn(false);
+      when(transactionProcessor.getClearEmptyAccounts()).thenReturn(false);
+
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          Collections.singletonList(transaction),
+          MINING_BENEFICIARY,
+          EMPTY_BLOCK_HASH_LOOKUP,
+          BLOB_GAS_PRICE,
+          sameThreadExecutor,
+          Optional.empty(),
+          env.maybeParentHeader());
+
+      processor.getProcessingResult(
+          env.worldState(), MINING_BENEFICIARY, transaction, 0, Optional.empty(), Optional.empty());
+
+      assertNotNull(
+          env.worldState().updater().get(MINING_BENEFICIARY),
+          "pre-EIP-158 the zero-tip fee recipient is still created, matching the serial path");
+    }
+  }
+
+  @Nested
+  @DisplayName("abort() cleanup of speculative futures")
+  @MockitoSettings(strictness = Strictness.LENIENT)
+  class AbortTests {
+
+    @Test
+    @DisplayName("abort() before runAsyncBlock is a no-op")
+    void abortBeforeRunIsNoOp() {
+      processor.abort();
+      processor.abort();
+      assertThat(processor.futures).isNull();
+    }
+
+    @Test
+    @DisplayName("abort() cancels and nulls all pending futures")
+    void abortCancelsAndNullsFutures() {
+      final Transaction tx1 = mockTransaction();
+      final Transaction tx2 = mockTransaction();
+      stubSuccessfulTransaction(Optional.empty());
+
+      // An executor that never runs submitted tasks, so the futures stay pending and abort()'s
+      // cancel(true) is observable (cancel on an already-completed future is a no-op).
+      final Executor noOpExecutor = runnable -> {};
+
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          List.of(tx1, tx2),
+          MINING_BENEFICIARY,
+          EMPTY_BLOCK_HASH_LOOKUP,
+          BLOB_GAS_PRICE,
+          noOpExecutor,
+          Optional.empty(),
+          env.maybeParentHeader());
+
+      // Capture the futures before abort() nulls the slots, then verify they were actually
+      // cancelled
+      final CompletableFuture<ParallelizedTransactionContext> future0 = processor.futures[0];
+      final CompletableFuture<ParallelizedTransactionContext> future1 = processor.futures[1];
+      assertThat(future0).isNotNull().isNotDone();
+      assertThat(future1).isNotNull().isNotDone();
+
+      processor.abort();
+
+      assertThat(processor.futures[0]).isNull();
+      assertThat(processor.futures[1]).isNull();
+      assertThat(future0).isCancelled();
+      assertThat(future1).isCancelled();
+
+      processor.abort();
     }
   }
 }

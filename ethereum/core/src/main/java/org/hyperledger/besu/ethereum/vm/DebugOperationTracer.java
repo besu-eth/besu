@@ -331,6 +331,10 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
     return traceFrames;
   }
 
+  public boolean isLimitReached() {
+    return limitReached;
+  }
+
   public void reset() {
     traceFrames = new ArrayList<>();
     lastFrame = null;
