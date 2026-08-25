@@ -28,6 +28,12 @@ tasks.named('compileTestJava', JavaCompile).configure {
   }
 }
 
+tasks.named('compileJmhJava', JavaCompile).configure {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.OFF)
+  }
+}
+
 jar {
   archiveBaseName = calculateArtifactId(project)
   manifest {
