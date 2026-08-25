@@ -250,6 +250,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
             .getBlockAccessListFactory()
             .map(BlockAccessListFactory::newBlockAccessListBuilder);
 
+    Optional<PreprocessingContext> preProcessingContext = Optional.empty();
     try {
       final Optional<AccessLocationTracker> preExecutionAccessLocationTracker =
           blockAccessListBuilder.map(
@@ -279,7 +280,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                               calculateExcessBlobGasForParent(protocolSpec, parentHeader)))
               .orElse(Wei.ZERO);
 
-      final Optional<PreprocessingContext> preProcessingContext =
+      preProcessingContext =
           preprocessingBlockFunction.run(
               protocolContext,
               blockHeader,
@@ -567,6 +568,15 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
           parallelizedTxFound ? Optional.of(nbParallelTx) : Optional.empty());
     } finally {
       stateRootCommitter.cancel();
+      preProcessingContext.ifPresent(
+          ctx -> {
+            try {
+              // Cancel any speculative futures not yet consumed by the main loop.
+              ctx.processor().abort();
+            } catch (final Exception e) {
+              LOG.debug("Error aborting parallel transaction preprocessing futures", e);
+            }
+          });
     }
   }
 

@@ -16,49 +16,31 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveHistoryReader;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveProofNodeLoader;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveReadTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 
-import java.util.Optional;
-
-import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
 /**
- * A {@link WorldStateStorageCoordinator} that routes account-trie and storage-trie node reads
- * through {@link ArchiveProofNodeLoader}. The coverage check is done before instantiation so {@code
- * isWorldStateAvailable} always returns {@code true} here.
+ * A {@link WorldStateStorageCoordinator} that routes all trie-node reads through {@link
+ * ArchiveReadTrieNodeStrategy} for historical proof requests. The coverage check is done before
+ * instantiation so {@code isWorldStateAvailable} always returns {@code true} here.
  */
-public final class BonsaiArchiveWorldStateStorageCoordinator extends WorldStateStorageCoordinator {
+public final class BonsaiArchiveReadWorldStateStorageCoordinator
+    extends WorldStateStorageCoordinator {
 
-  private final ArchiveHistoryReader historyReader;
-  private final long targetBlock;
-
-  public BonsaiArchiveWorldStateStorageCoordinator(
+  public BonsaiArchiveReadWorldStateStorageCoordinator(
       final BonsaiWorldStateKeyValueStorage keyValueStorage,
       final ArchiveHistoryReader historyReader,
       final long targetBlock) {
-    super(keyValueStorage);
-    this.historyReader = historyReader;
-    this.targetBlock = targetBlock;
+    super(
+        keyValueStorage.withTrieNodeStrategy(
+            new ArchiveReadTrieNodeStrategy(targetBlock, historyReader)));
   }
 
   @Override
   public boolean isWorldStateAvailable(final Bytes32 nodeHash, final Hash blockHash) {
     return true; // coverage pre-checked in getAccountProof before instantiation
-  }
-
-  @Override
-  public Optional<Bytes> getAccountStateTrieNode(final Bytes location, final Bytes32 nodeHash) {
-    return ArchiveProofNodeLoader.forAccount(historyReader, targetBlock)
-        .getNode(location, nodeHash);
-  }
-
-  @Override
-  public Optional<Bytes> getAccountStorageTrieNode(
-      final Hash accountHash, final Bytes location, final Bytes32 nodeHash) {
-    return ArchiveProofNodeLoader.forStorage(accountHash, historyReader, targetBlock)
-        .getNode(location, nodeHash);
   }
 }

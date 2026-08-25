@@ -886,6 +886,7 @@ public class RunnerBuilder {
         new FilterManagerBuilder()
             .blockchainQueries(blockchainQueries)
             .transactionPool(transactionPool)
+            .maxLogRange(apiConfiguration.getMaxLogsRange())
             .maxFilterCount(apiConfiguration.getMaxFilterCount())
             .filterTimeout(apiConfiguration.getFilterTimeout())
             .build();

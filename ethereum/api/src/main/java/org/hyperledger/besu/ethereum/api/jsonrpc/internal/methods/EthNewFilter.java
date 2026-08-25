@@ -25,13 +25,21 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorR
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
+import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 
 public class EthNewFilter implements JsonRpcMethod {
 
   private final FilterManager filterManager;
+  private final BlockchainQueries blockchainQueries;
+  private final long maxLogRange;
 
-  public EthNewFilter(final FilterManager filterManager) {
+  public EthNewFilter(
+      final FilterManager filterManager,
+      final BlockchainQueries blockchainQueries,
+      final long maxLogRange) {
     this.filterManager = filterManager;
+    this.blockchainQueries = blockchainQueries;
+    this.maxLogRange = maxLogRange;
   }
 
   @Override
@@ -52,6 +60,19 @@ public class EthNewFilter implements JsonRpcMethod {
     if (!filter.isValid()) {
       return new JsonRpcErrorResponse(
           requestContext.getRequest().getId(), RpcErrorType.INVALID_FILTER_PARAMS);
+    }
+
+    if (maxLogRange > 0) {
+      final long headBlockNumber = blockchainQueries.headBlockNumber();
+      final long fromBlockNumber =
+          filter.getFromBlock().getBlockNumber(blockchainQueries).orElse(headBlockNumber);
+      final long toBlockNumber =
+          filter.getToBlock().getBlockNumber(blockchainQueries).orElse(headBlockNumber);
+      FilterParameter.validateBlockRange(fromBlockNumber, toBlockNumber, headBlockNumber);
+      if (toBlockNumber - fromBlockNumber > maxLogRange) {
+        return new JsonRpcErrorResponse(
+            requestContext.getRequest().getId(), RpcErrorType.EXCEEDS_RPC_MAX_BLOCK_RANGE);
+      }
     }
 
     final String logFilterId;
