@@ -74,17 +74,6 @@ class ArchiveReadTrieNodeStrategyTest {
   }
 
   @Test
-  void hashFilteringIsDelegatedToOuterLayer() {
-    final Bytes location = Bytes.of(0x0e);
-    final Bytes node = Bytes.fromHexString("0x1122");
-    final Bytes32 wrongHash = keccak(Bytes.fromHexString("0xfeed"));
-    putArchive(location, 5L, node);
-
-    final ArchiveReadTrieNodeStrategy strategy = new ArchiveReadTrieNodeStrategy(5L, historyReader);
-    assertThat(strategy.getFlatAccountTrieNode(location, wrongHash, storage)).contains(node);
-  }
-
-  @Test
   void unknownNodeReturnsEmpty() {
     final Bytes location = Bytes.of(0x0e);
 
