@@ -111,7 +111,7 @@ public abstract class AbstractTraceCall extends AbstractTraceByBlock {
    * limit is 0 (operator opt-out), the caller's value is used as-is. If the caller supplies 0
    * (unlimited), the server ceiling is applied. Otherwise the minimum of the two is used.
    */
-  private TraceOptions applyServerStepLimit(final TraceOptions traceOptions) {
+  protected TraceOptions applyServerStepLimit(final TraceOptions traceOptions) {
     if (serverStepLimit <= 0) {
       return traceOptions;
     }
