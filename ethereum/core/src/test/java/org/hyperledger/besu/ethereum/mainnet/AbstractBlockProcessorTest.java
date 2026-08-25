@@ -38,7 +38,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.FrontierPreExecutionProcessor;
-import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.DefaultStateRootCommitterFactory;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitterFactory;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestBlockchain;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestWorldState;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
@@ -77,7 +77,7 @@ abstract class AbstractBlockProcessorTest {
         .thenReturn(new FrontierPreExecutionProcessor());
     lenient()
         .when(protocolSpec.getStateRootCommitterFactory())
-        .thenReturn(new DefaultStateRootCommitterFactory());
+        .thenReturn(new StateRootCommitterFactory(BalConfiguration.DISABLED));
     blockProcessor =
         new TestBlockProcessor(
             transactionProcessor,
@@ -140,12 +140,10 @@ abstract class AbstractBlockProcessorTest {
     final GasCalculator gasCalculator = mock(GasCalculator.class);
     final StateGasCostCalculator stateGasCalc = mock(StateGasCostCalculator.class);
     when(gasCalculator.stateGasCostCalculator()).thenReturn(stateGasCalc);
-    when(gasCalculator.transactionIntrinsicRegularGas(tx)).thenReturn(0L);
-    when(stateGasCalc.transactionIntrinsicStateGas(tx)).thenReturn(0L);
     when(stateGasCalc.transactionRegularGasLimit()).thenReturn(Long.MAX_VALUE);
     when(protocolSpec.getGasCalculator()).thenReturn(gasCalculator);
 
-    // Regular=60k, State=40k. Per-dimension: worstCaseRegular = min(MAX, 50k - 0) = 50k.
+    // Regular=60k, State=40k. Per-dimension: worstCaseRegular = min(MAX, 50k) = 50k.
     // regularAvailable = 100k - 60k = 40k. 50k > 40k → fails AMSTERDAM per-dimension check.
     when(protocolSpec.getBlockGasAccountingStrategy())
         .thenReturn(BlockGasAccountingStrategy.AMSTERDAM);

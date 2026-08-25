@@ -53,6 +53,7 @@ import org.hyperledger.besu.ethereum.core.BlockWithReceipts;
 import org.hyperledger.besu.ethereum.core.Request;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
@@ -92,6 +93,7 @@ public class EngineGetPayloadV1Test extends AbstractScheduledApiTest {
   @Mock protected MergeMiningCoordinator mergeMiningCoordinator;
   @Mock protected EngineCallListener engineCallListener;
   @Mock protected EthPeers ethPeers;
+  @Mock protected TransactionPool transactionPool;
   protected static final NoOpMetricsSystem metricsSystem = new NoOpMetricsSystem();
 
   @BeforeEach
@@ -122,6 +124,7 @@ public class EngineGetPayloadV1Test extends AbstractScheduledApiTest {
             .mergeCoordinator(mergeMiningCoordinator)
             .ethPeers(ethPeers)
             .metricsSystem(metricsSystem)
+            .transactionPool(transactionPool)
             .maxRequestBlocks(0)
             .build(),
         null,

@@ -38,6 +38,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineF
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineGetBlobsV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineGetBlobsV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineGetBlobsV3;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineGetBlobsV4;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineGetClientVersionV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineGetPayloadBodiesByHashV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineGetPayloadBodiesByHashV2;
@@ -125,6 +126,7 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
             .engineCallListener(engineQosTimer)
             .ethPeers(ethPeers)
             .metricsSystem(metricsSystem)
+            .transactionPool(transactionPool)
             .maxRequestBlocks(GET_PAYLOAD_BODIES_MAX_REQUEST_SIZE);
 
     if (mergeCoordinator.isPresent()) {
@@ -164,6 +166,17 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
                 metricsSystem));
         executionEngineApisSupported.add(
             new EngineGetBlobsV3(
+                consensusEngineServer,
+                protocolContext,
+                protocolSchedule,
+                engineQosTimer,
+                transactionPool,
+                metricsSystem));
+      }
+
+      if (protocolSchedule.milestoneFor(AMSTERDAM).isPresent()) {
+        executionEngineApisSupported.add(
+            new EngineGetBlobsV4(
                 consensusEngineServer,
                 protocolContext,
                 protocolSchedule,

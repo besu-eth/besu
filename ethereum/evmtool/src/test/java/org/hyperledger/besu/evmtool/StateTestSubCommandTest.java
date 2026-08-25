@@ -44,6 +44,77 @@ class StateTestSubCommandTest {
   }
 
   @Test
+  void testNameMatchesSubstringsAndPatterns() {
+    // Same semantics as block-test: a substring, or a whole-id regex once the expression carries a
+    // wildcard.
+    assertThat(runWithArgs("--test-name", "accessList", "access-list.json")).contains("\"d\"");
+    assertThat(runWithArgs("--test-name", "accessLis", "access-list.json")).contains("\"d\"");
+    assertThat(runWithArgs("--test-name", "*ccess?ist", "access-list.json")).contains("\"d\"");
+  }
+
+  @Test
+  void aTestNameThatMatchesNothingIsAnErrorRatherThanAnEmptyPass() {
+    final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    final StateTestSubCommand stateTestSubCommand =
+        new StateTestSubCommand(new EvmToolCommand(System.in, new PrintWriter(baos, true, UTF_8)));
+    new CommandLine(stateTestSubCommand)
+        .parseArgs(
+            "--test-name",
+            "noSuchTest",
+            StateTestSubCommandTest.class.getResource("access-list.json").getPath());
+    stateTestSubCommand.run();
+    assertThat(stateTestSubCommand.getExitCode()).isEqualTo(1);
+    assertThat(baos.toString(UTF_8))
+        .contains("No state test was executed matching --test-name 'noSuchTest'");
+  }
+
+  @Test
+  void anEmptyRunIsAnErrorEvenWithoutAFilter() {
+    // Not gated on --test-name, so a fixture tree that did not materialise also fails the run.
+    final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    final StateTestSubCommand stateTestSubCommand =
+        new StateTestSubCommand(
+            new EvmToolCommand(
+                new ByteArrayInputStream(new byte[0]), new PrintWriter(baos, true, UTF_8)));
+    stateTestSubCommand.run();
+    assertThat(stateTestSubCommand.getExitCode()).isEqualTo(1);
+    assertThat(baos.toString(UTF_8)).contains("No state test was executed.");
+  }
+
+  @Test
+  void summaryOnlySuppressesThePerTestLineForPassingTests() {
+    assertThat(runWithArgs("access-list.json")).contains("\"pass\":true");
+    assertThat(runWithArgs("--summary-only", "access-list.json"))
+        .doesNotContain("\"pass\":true")
+        .contains("State test summary: ");
+  }
+
+  @Test
+  void missingFileIsReportedRatherThanReadAsAListOfFilenamesFromStdin() {
+    // An empty file list means "read filenames from stdin", so dropping an unresolvable path here
+    // would leave the command blocked on stdin.
+    final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    final StateTestSubCommand stateTestSubCommand =
+        new StateTestSubCommand(new EvmToolCommand(System.in, new PrintWriter(baos, true, UTF_8)));
+    new CommandLine(stateTestSubCommand).parseArgs("./file-does-not-exist.json");
+    stateTestSubCommand.run();
+    assertThat(stateTestSubCommand.getExitCode()).isEqualTo(1);
+  }
+
+  private String runWithArgs(final String... args) {
+    final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    final EvmToolCommand parentCommand =
+        new EvmToolCommand(System.in, new PrintWriter(baos, true, UTF_8));
+    final StateTestSubCommand stateTestSubCommand = new StateTestSubCommand(parentCommand);
+    final String[] resolved = args.clone();
+    resolved[resolved.length - 1] =
+        StateTestSubCommandTest.class.getResource(resolved[resolved.length - 1]).getPath();
+    new CommandLine(stateTestSubCommand).parseArgs(resolved);
+    stateTestSubCommand.run();
+    return baos.toString(UTF_8);
+  }
+
+  @Test
   void shouldWorkWithValidStateTest() {
     final ByteArrayOutputStream baos = new ByteArrayOutputStream();
     EvmToolCommand parentCommand =
@@ -130,6 +201,8 @@ class StateTestSubCommandTest {
         new StateTestSubCommand(new EvmToolCommand(bais, new PrintWriter(baos, true, UTF_8)));
     stateTestSubCommand.run();
     assertThat(baos.toString(UTF_8)).contains("File content error: ");
+    // A fixture that could not be parsed has to fail the run.
+    assertThat(stateTestSubCommand.getExitCode()).isEqualTo(1);
   }
 
   @Test
