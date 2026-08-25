@@ -405,6 +405,10 @@ public class ProtocolSpec {
    *
    * @return true if the network is running Proof of Stake
    */
+  public boolean isPoS() {
+    return isPoS;
+  }
+
   /**
    * Whether headers of this fork must carry the EIP-7843 {@code slotNumber}. Block creation
    * consults it so a locally built header is not rejected by this fork's own validation.
@@ -413,10 +417,6 @@ public class ProtocolSpec {
    */
   public boolean isSlotNumberRequired() {
     return slotNumberRequired;
-  }
-
-  public boolean isPoS() {
-    return isPoS;
   }
 
   public Duration getSlotDuration() {
