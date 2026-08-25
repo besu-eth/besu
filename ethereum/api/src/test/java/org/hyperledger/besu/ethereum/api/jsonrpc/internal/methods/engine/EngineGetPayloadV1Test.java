@@ -145,6 +145,7 @@ public class EngineGetPayloadV1Test extends AbstractScheduledApiTest {
             .engineCallListener(engineCallListener)
             .ethPeers(ethPeers)
             .metricsSystem(metricsSystem)
+            .transactionPool(transactionPool)
             .maxRequestBlocks(0)
             .build();
 

@@ -142,6 +142,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
             .engineCallListener(engineCallListener)
             .ethPeers(mock(EthPeers.class))
             .metricsSystem(new NoOpMetricsSystem())
+            .transactionPool(transactionPool)
             .maxRequestBlocks(0)
             .build();
 

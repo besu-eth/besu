@@ -159,6 +159,7 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
             .engineCallListener(engineCallListener)
             .ethPeers(ethPeers)
             .metricsSystem(new NoOpMetricsSystem())
+            .transactionPool(transactionPool)
             .maxRequestBlocks(0)
             .build();
 

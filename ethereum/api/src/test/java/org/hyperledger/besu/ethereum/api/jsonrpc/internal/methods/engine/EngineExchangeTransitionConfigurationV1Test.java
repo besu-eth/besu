@@ -46,6 +46,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.ParsedExtraData;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
@@ -80,6 +81,7 @@ public class EngineExchangeTransitionConfigurationV1Test extends AbstractSchedul
   @Mock private BlockHeader blockHeader;
   @Mock private MergeMiningCoordinator mergeCoordinator;
   @Mock private EthPeers ethPeers;
+  @Mock private TransactionPool transactionPool;
 
   @BeforeEach
   public void setUp() {
@@ -98,6 +100,7 @@ public class EngineExchangeTransitionConfigurationV1Test extends AbstractSchedul
                 .mergeCoordinator(mergeCoordinator)
                 .ethPeers(ethPeers)
                 .metricsSystem(new NoOpMetricsSystem())
+                .transactionPool(transactionPool)
                 .maxRequestBlocks(0)
                 .build(),
             null,

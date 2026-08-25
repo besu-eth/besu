@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.ethereum.ProtocolContext;
@@ -25,6 +26,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcRespon
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineGetClientVersionResultV1;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
@@ -33,7 +35,6 @@ import java.util.List;
 import io.vertx.core.Vertx;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 
 class EngineGetClientVersionV1Test {
 
@@ -50,13 +51,14 @@ class EngineGetClientVersionV1Test {
     getClientVersion =
         new EngineGetClientVersionV1(
             new ConstructorArgumentsBuilder()
-                .protocolSchedule(Mockito.mock(ProtocolSchedule.class))
-                .protocolContext(Mockito.mock(ProtocolContext.class))
-                .vertx(Mockito.mock(Vertx.class))
-                .engineCallListener(Mockito.mock(EngineCallListener.class))
-                .mergeCoordinator(Mockito.mock(MergeMiningCoordinator.class))
-                .ethPeers(Mockito.mock(EthPeers.class))
+                .protocolSchedule(mock(ProtocolSchedule.class))
+                .protocolContext(mock(ProtocolContext.class))
+                .vertx(mock(Vertx.class))
+                .engineCallListener(mock(EngineCallListener.class))
+                .mergeCoordinator(mock(MergeMiningCoordinator.class))
+                .ethPeers(mock(EthPeers.class))
                 .metricsSystem(new NoOpMetricsSystem())
+                .transactionPool(mock(TransactionPool.class))
                 .maxRequestBlocks(0)
                 .build(),
             CLIENT_VERSION,
