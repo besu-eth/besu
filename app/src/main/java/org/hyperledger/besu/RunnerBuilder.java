@@ -1379,11 +1379,10 @@ public class RunnerBuilder {
       final TransactionSimulator transactionSimulator,
       final EthScheduler ethScheduler) {
     // vertx for the engine consensus API: engine methods execute concurrently on its worker
-    // pool, except engine_forkchoiceUpdated and engine_newPayload calls, which the Engine API
-    // spec requires to be processed in the order received — those run on a dedicated
-    // single-threaded executor (see OrderedExecutionJsonRpcMethod)
-    final Vertx consensusEngineServer =
-        Vertx.vertx(new io.vertx.core.VertxOptions().setWorkerPoolSize(1).setEventLoopPoolSize(1));
+    // pool (sized in EngineJsonRpcService), except engine_forkchoiceUpdated and engine_newPayload
+    // calls, which the Engine API spec requires to be processed in the order received — those run
+    // on a dedicated single-threaded executor (see OrderedExecutionJsonRpcMethod)
+    final Vertx consensusEngineServer = EngineJsonRpcService.createEngineVertx();
 
     final Map<String, JsonRpcMethod> methods =
         new JsonRpcMethodsFactory()

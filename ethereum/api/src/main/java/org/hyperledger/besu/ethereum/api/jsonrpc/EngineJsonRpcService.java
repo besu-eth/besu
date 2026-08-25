@@ -76,6 +76,7 @@ import io.opentelemetry.extension.trace.propagation.JaegerPropagator;
 import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
 import io.vertx.core.VertxException;
+import io.vertx.core.VertxOptions;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.http.ClientAuth;
 import io.vertx.core.http.HttpConnection;
@@ -106,6 +107,27 @@ public class EngineJsonRpcService {
   private static final String SPAN_CONTEXT = "span_context";
   private static final InetSocketAddress EMPTY_SOCKET_ADDRESS = new InetSocketAddress("0.0.0.0", 0);
   private static final String APPLICATION_JSON = "application/json";
+
+  /**
+   * A single event loop, so every engine request is read on the same thread and therefore observed
+   * in a well-defined arrival order.
+   */
+  private static final int ENGINE_EVENT_LOOP_POOL_SIZE = 1;
+
+  /**
+   * Engine requests are dispatched to this pool by {@code blockingHandler}, so its size is the
+   * number of engine calls that can be in flight at once.
+   *
+   * <p>It must be greater than one. A single {@code engine_newPayload} can occupy its thread for
+   * seconds — importing a large block, or rejecting a deliberately expensive invalid one — and with
+   * a pool of one that head-of-line blocks every other engine call, including the {@code
+   * engine_getPayload} the consensus client has to receive inside its slot deadline to propose.
+   * {@link
+   * org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.OrderedExecutionJsonRpcMethod} hands
+   * the work to its own single-threaded executor but keeps blocking the dispatching thread until it
+   * finishes, so an in-flight ordered call costs a slot here for its whole duration.
+   */
+  private static final int ENGINE_WORKER_POOL_SIZE = 10;
 
   private static final TextMapPropagator traceFormats =
       TextMapPropagator.composite(
@@ -151,6 +173,22 @@ public class EngineJsonRpcService {
   private final HealthService readinessService;
 
   private final MetricsSystem metricsSystem;
+
+  /**
+   * Creates the Vertx instance that backs the engine consensus API.
+   *
+   * <p>The engine API gets its own Vertx rather than sharing the main JSON-RPC one so that public
+   * RPC traffic can never delay consensus calls. See {@link #ENGINE_EVENT_LOOP_POOL_SIZE} and
+   * {@link #ENGINE_WORKER_POOL_SIZE} for why those pools are sized the way they are.
+   *
+   * @return a new Vertx instance configured for the engine consensus API
+   */
+  public static Vertx createEngineVertx() {
+    return Vertx.vertx(
+        new VertxOptions()
+            .setEventLoopPoolSize(ENGINE_EVENT_LOOP_POOL_SIZE)
+            .setWorkerPoolSize(ENGINE_WORKER_POOL_SIZE));
+  }
 
   /**
    * Construct a EngineJsonRpcService to handle either http or websocket clients

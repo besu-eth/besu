@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.EngineJsonRpcService;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineCallListener;
@@ -31,14 +32,15 @@ import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
@@ -119,11 +121,80 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
     assertThat(maxActive.get()).isEqualTo(1);
   }
 
+  @Test
+  public void slowOrderedCallDoesNotBlockUnorderedCallOnTheEngineWorkerPool() throws Exception {
+    // The other tests in this class invoke response() from their own thread pool, which bypasses
+    // the Vertx worker pool the engine HTTP route actually dispatches on. This one goes through
+    // that pool, on a Vertx configured exactly as the running node configures it, because the
+    // pool's size is what decides whether a long engine_newPayload can hold up the
+    // engine_getPayload a proposer is waiting for.
+    final Vertx engineVertx = EngineJsonRpcService.createEngineVertx();
+    try {
+      final CountDownLatch orderedStarted = new CountDownLatch(1);
+      final CountDownLatch releaseOrdered = new CountDownLatch(1);
+
+      final OrderedStubEngineMethod slowOrderedMethod =
+          new OrderedStubEngineMethod(
+              engineVertx,
+              protocolSchedule,
+              protocolContext,
+              engineCallListener,
+              mergeCoordinator,
+              ethPeers,
+              transactionPool,
+              req -> {
+                orderedStarted.countDown();
+                try {
+                  releaseOrdered.await(10, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                  Thread.currentThread().interrupt();
+                }
+                return new JsonRpcSuccessResponse(req.getRequest().getId());
+              });
+      final UnorderedStubEngineMethod lightMethod =
+          new UnorderedStubEngineMethod(
+              engineVertx,
+              protocolContext,
+              engineCallListener,
+              req -> new JsonRpcSuccessResponse(req.getRequest().getId()));
+
+      final Future<JsonRpcResponse> slowCall = dispatchOnWorkerPool(engineVertx, slowOrderedMethod);
+      assertThat(orderedStarted.await(10, TimeUnit.SECONDS)).isTrue();
+
+      // the slow call is still in flight and holding a worker thread; the light one must not
+      // have to wait for it
+      final JsonRpcResponse lightResponse =
+          dispatchOnWorkerPool(engineVertx, lightMethod)
+              .toCompletionStage()
+              .toCompletableFuture()
+              .get(10, TimeUnit.SECONDS);
+      assertThat(lightResponse.getType()).isEqualTo(RpcResponseType.SUCCESS);
+
+      releaseOrdered.countDown();
+      assertThat(slowCall.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS))
+          .matches(resp -> resp.getType() == RpcResponseType.SUCCESS);
+    } finally {
+      engineVertx.close().toCompletionStage().toCompletableFuture().join();
+    }
+  }
+
+  /** Mirrors how the engine HTTP route dispatches a request: an unordered blocking handler. */
+  private Future<JsonRpcResponse> dispatchOnWorkerPool(
+      final Vertx engineVertx, final JsonRpcMethod method) {
+    return engineVertx.executeBlocking(
+        promise ->
+            promise.complete(
+                method.response(
+                    new JsonRpcRequestContext(
+                        new JsonRpcRequest("2.0", method.getName(), new Object[0])))),
+        false);
+  }
+
   private List<JsonRpcResponse> callConcurrently(final JsonRpcMethod method, final int callers)
       throws Exception {
     final ExecutorService pool = Executors.newFixedThreadPool(callers);
     try {
-      final List<Future<JsonRpcResponse>> futures = new ArrayList<>();
+      final List<java.util.concurrent.Future<JsonRpcResponse>> futures = new ArrayList<>();
       for (int i = 0; i < callers; i++) {
         futures.add(
             pool.submit(
@@ -133,7 +204,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
                             new JsonRpcRequest("2.0", method.getName(), new Object[0])))));
       }
       final List<JsonRpcResponse> responses = new ArrayList<>(callers);
-      for (final Future<JsonRpcResponse> future : futures) {
+      for (final java.util.concurrent.Future<JsonRpcResponse> future : futures) {
         responses.add(future.get(30, TimeUnit.SECONDS));
       }
       return responses;
@@ -146,6 +217,14 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
     private final Function<JsonRpcRequestContext, JsonRpcResponse> body;
 
     UnorderedStubEngineMethod(
+        final ProtocolContext protocolContext,
+        final EngineCallListener engineCallListener,
+        final Function<JsonRpcRequestContext, JsonRpcResponse> body) {
+      this(vertx, protocolContext, engineCallListener, body);
+    }
+
+    UnorderedStubEngineMethod(
+        final Vertx vertx,
         final ProtocolContext protocolContext,
         final EngineCallListener engineCallListener,
         final Function<JsonRpcRequestContext, JsonRpcResponse> body) {
@@ -168,6 +247,26 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
     private final Function<JsonRpcRequestContext, JsonRpcResponse> body;
 
     OrderedStubEngineMethod(
+        final ProtocolSchedule protocolSchedule,
+        final ProtocolContext protocolContext,
+        final EngineCallListener engineCallListener,
+        final MergeMiningCoordinator mergeCoordinator,
+        final EthPeers ethPeers,
+        final TransactionPool transactionPool,
+        final Function<JsonRpcRequestContext, JsonRpcResponse> body) {
+      this(
+          vertx,
+          protocolSchedule,
+          protocolContext,
+          engineCallListener,
+          mergeCoordinator,
+          ethPeers,
+          transactionPool,
+          body);
+    }
+
+    OrderedStubEngineMethod(
+        final Vertx vertx,
         final ProtocolSchedule protocolSchedule,
         final ProtocolContext protocolContext,
         final EngineCallListener engineCallListener,

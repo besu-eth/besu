@@ -23,6 +23,7 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
+- The engine API worker pool is no longer limited to a single thread, so a long-running `engine_newPayload` can no longer head-of-line block the `engine_getPayload` a proposer is waiting for. Engine methods were already intended to run concurrently, but the pool they are dispatched on had room for exactly one call at a time. [#11148](https://github.com/besu-eth/besu/pull/11148)
 - `admin_generateLogBloomCache` now clamps both block bounds to the chain head. [#11135](https://github.com/besu-eth/besu/pull/11135)
 - `eth_getTransactionByBlockHashAndIndex` reported a malformed block hash at parameter 0 as `Invalid transaction hash params`; it now reports `Invalid block hash params`. [#11119](https://github.com/besu-eth/besu/pull/11119)
 - Fix `debug_getRawTransaction` returning bare RLP payload (missing EIP-2718 type-byte prefix) for typed transactions, causing `keccak256(raw) != txHash`. Fix `debug_getRawReceipts` double-wrapping typed receipts in an outer RLP byte-string instead of returning the raw `type || rlp(payload)` wire encoding. [#11083](https://github.com/besu-eth/besu/pull/11083)
