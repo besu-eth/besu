@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineC
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
@@ -58,6 +59,8 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
   @Mock private MergeMiningCoordinator mergeCoordinator;
 
   @Mock private EthPeers ethPeers;
+
+  @Mock private TransactionPool transactionPool;
 
   @AfterAll
   public static void tearDown() {
@@ -98,6 +101,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
             engineCallListener,
             mergeCoordinator,
             ethPeers,
+            transactionPool,
             req -> {
               maxActive.accumulateAndGet(active.incrementAndGet(), Math::max);
               try {
@@ -169,6 +173,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
         final EngineCallListener engineCallListener,
         final MergeMiningCoordinator mergeCoordinator,
         final EthPeers ethPeers,
+        final TransactionPool transactionPool,
         final Function<JsonRpcRequestContext, JsonRpcResponse> body) {
       super(
           new ConstructorArgumentsBuilder()
@@ -179,6 +184,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
               .mergeCoordinator(mergeCoordinator)
               .ethPeers(ethPeers)
               .metricsSystem(new NoOpMetricsSystem())
+              .transactionPool(transactionPool)
               .maxRequestBlocks(0)
               .build(),
           null,
