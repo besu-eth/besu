@@ -175,6 +175,9 @@ public class ReferenceTestProtocolSchedules {
                         genesisStub.clone().cancunTime(0).pragueTime(15000), evmConfiguration)),
                 Map.entry(
                     "Prague", createSchedule(genesisStub.clone().pragueTime(0), evmConfiguration)),
+                // Forks left without an activation time are folded into the first configured
+                // milestone, so each entry only needs to give times to the forks that have to be
+                // told apart (the fork under test and, for transitions, the one it starts from).
                 Map.entry(
                     "PragueToOsakaAtTime15k",
                     createSchedule(
@@ -221,7 +224,6 @@ public class ReferenceTestProtocolSchedules {
                     createSchedule(
                         genesisStub
                             .clone()
-                            .cancunTime(0)
                             .pragueTime(0)
                             .osakaTime(0)
                             .bpo1Time(0)
