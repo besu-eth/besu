@@ -54,14 +54,7 @@ public class DebugTraceTransactionStepFactory {
       final OperationTracer tracer) {
     TracerType tracerType = traceOptions.tracerType();
     return switch (tracerType) {
-      case OPCODE_TRACER ->
-          transactionTrace -> {
-            // default - struct/opcode logger tracer
-            final boolean truncated =
-                tracer instanceof DebugOperationTracer debugTracer && debugTracer.isLimitReached();
-            var result = new OpCodeLoggerTracerResult(transactionTrace, truncated);
-            return new DebugTraceTransactionResult(transactionTrace, result);
-          };
+      case OPCODE_TRACER -> createDebugTraceResultFunction(tracer);
       case CALL_TRACER -> createCallTracerResultFunction(tracer);
       case FLAT_CALL_TRACER ->
           transactionTrace -> {
@@ -88,6 +81,17 @@ public class DebugTraceTransactionStepFactory {
             var result = FourByteTracerResultConverter.convert(transactionTrace, protocolSpec);
             return new DebugTraceTransactionResult(transactionTrace, result);
           };
+    };
+  }
+
+  private static Function<TransactionTrace, DebugTraceTransactionResult>
+      createDebugTraceResultFunction(final OperationTracer tracer) {
+    if (!(tracer instanceof DebugOperationTracer debugTracer)) {
+      throw new IllegalArgumentException("OPCODE_TRACER requires DebugOperationTracer");
+    }
+    return transactionTrace -> {
+      var result = new OpCodeLoggerTracerResult(transactionTrace, debugTracer.isLimitReached());
+      return new DebugTraceTransactionResult(transactionTrace, result);
     };
   }
 

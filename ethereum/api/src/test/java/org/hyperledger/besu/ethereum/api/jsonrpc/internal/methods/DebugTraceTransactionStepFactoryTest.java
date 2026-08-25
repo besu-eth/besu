@@ -33,6 +33,7 @@ import org.hyperledger.besu.ethereum.debug.TraceOptions;
 import org.hyperledger.besu.ethereum.debug.TracerType;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
+import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.precompile.PrecompileContractRegistry;
@@ -101,6 +102,11 @@ class DebugTraceTransactionStepFactoryTest {
    * {@link #setUp()}.
    */
   private OperationTracer tracerFor(final TracerType tracerType) {
+    if (tracerType == TracerType.OPCODE_TRACER) {
+      final DebugOperationTracer tracer = mock(DebugOperationTracer.class);
+      when(tracer.isLimitReached()).thenReturn(false);
+      return tracer;
+    }
     if (tracerType != TracerType.CALL_TRACER) {
       return null;
     }
@@ -232,6 +238,17 @@ class DebugTraceTransactionStepFactoryTest {
             () -> DebugTraceTransactionStepFactory.create(traceOptions, mockProtocolSpec, null))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessage("CALL_TRACER requires CallTracer");
+  }
+
+  @Test
+  @DisplayName("requires DebugOperationTracer for OPCODE_TRACER")
+  void requiresDebugOperationTracerForOpcodeTracer() {
+    final TraceOptions traceOptions = new TraceOptions(TracerType.OPCODE_TRACER, null, null);
+
+    assertThatThrownBy(
+            () -> DebugTraceTransactionStepFactory.create(traceOptions, mockProtocolSpec, null))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("OPCODE_TRACER requires DebugOperationTracer");
   }
 
   @Test
