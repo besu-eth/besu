@@ -953,7 +953,7 @@ subprojects {
       }
       var gasProfiler = _strCmdArg('gasProfiler')
       if (gasProfiler != null && gasProfiler.toBoolean()) {
-        if (asyncProfiler == null) profilers = []
+        if (asyncProfiler == null && profilers == null) profilers = []
         var gasProfilerFork = _strCmdArg('gasProfilerFork')
         profilers.add('org.hyperledger.besu.ethereum.vm.operations.GasProfiler' + (gasProfilerFork != null ? ':' + gasProfilerFork : ''))
       }
