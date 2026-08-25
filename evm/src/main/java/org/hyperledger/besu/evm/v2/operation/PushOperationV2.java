@@ -70,7 +70,7 @@ public class PushOperationV2 extends AbstractFixedCostOperationV2 {
     // Slow-path - when push is truncated and zeros need to be appended
     if (end > code.length) {
       final int remainingSize = Math.max(0, code.length - start);
-      pushValue = pushValue.shl0(Math.max(0, (pushSize - remainingSize) * 8));
+      pushValue = pushValue.shiftLeft(Math.max(0, (pushSize - remainingSize) * 8));
     }
 
     final long[] stack = frame.stackDataV2();
