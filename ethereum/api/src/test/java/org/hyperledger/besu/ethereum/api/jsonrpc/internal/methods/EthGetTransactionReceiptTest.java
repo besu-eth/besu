@@ -25,6 +25,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BlobGas;
 import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.GasLimitCalculator;
@@ -334,6 +335,86 @@ public class EthGetTransactionReceiptTest {
     assertThat(result.getType()).isEqualTo("0x3");
     assertThat(result.getBlobGasUsed()).isEqualTo("0x20000");
     assertThat(result.getBlobGasPrice()).isEqualTo("0x1");
+  }
+
+  @Test
+  public void shouldReturnRemovedTrueWhenBlockIsNotOnCanonicalChain() {
+    when(blockchainQueries.headBlockNumber()).thenReturn(1L);
+
+    final Log log =
+        new Log(
+            Address.fromHexString("0x0000000000000000000000000000000000000003"),
+            Bytes.fromHexString("0x1234"),
+            Collections.emptyList());
+    final TransactionReceipt receiptWithLogs =
+        new TransactionReceipt(1, 12, List.of(log), Optional.empty());
+    final TransactionReceiptWithMetadata transactionReceiptWithMetadata =
+        TransactionReceiptWithMetadata.create(
+            receiptWithLogs,
+            transaction,
+            hash,
+            1,
+            2,
+            Optional.empty(),
+            blockHash,
+            1234,
+            4,
+            Optional.empty(),
+            Optional.empty(),
+            0,
+            true); // removed = true
+
+    when(blockchainQueries.transactionReceiptByTransactionHash(receiptHash, protocolSchedule))
+        .thenReturn(Optional.of(transactionReceiptWithMetadata));
+    when(protocolSchedule.getByBlockHeader(blockHeader(1))).thenReturn(rootTransactionTypeSpec);
+
+    final JsonRpcSuccessResponse response =
+        (JsonRpcSuccessResponse) ethGetTransactionReceipt.response(request);
+    final TransactionReceiptStatusResult result =
+        (TransactionReceiptStatusResult) response.getResult();
+
+    assertThat(result.getLogs()).hasSize(1);
+    assertThat(result.getLogs().get(0).isRemoved()).isTrue();
+  }
+
+  @Test
+  public void shouldReturnRemovedFalseWhenBlockIsOnCanonicalChain() {
+    when(blockchainQueries.headBlockNumber()).thenReturn(1L);
+
+    final Log log =
+        new Log(
+            Address.fromHexString("0x0000000000000000000000000000000000000003"),
+            Bytes.fromHexString("0x1234"),
+            Collections.emptyList());
+    final TransactionReceipt receiptWithLogs =
+        new TransactionReceipt(1, 12, List.of(log), Optional.empty());
+    final TransactionReceiptWithMetadata transactionReceiptWithMetadata =
+        TransactionReceiptWithMetadata.create(
+            receiptWithLogs,
+            transaction,
+            hash,
+            1,
+            2,
+            Optional.empty(),
+            blockHash,
+            1234,
+            4,
+            Optional.empty(),
+            Optional.empty(),
+            0,
+            false); // removed = false
+
+    when(blockchainQueries.transactionReceiptByTransactionHash(receiptHash, protocolSchedule))
+        .thenReturn(Optional.of(transactionReceiptWithMetadata));
+    when(protocolSchedule.getByBlockHeader(blockHeader(1))).thenReturn(rootTransactionTypeSpec);
+
+    final JsonRpcSuccessResponse response =
+        (JsonRpcSuccessResponse) ethGetTransactionReceipt.response(request);
+    final TransactionReceiptStatusResult result =
+        (TransactionReceiptStatusResult) response.getResult();
+
+    assertThat(result.getLogs()).hasSize(1);
+    assertThat(result.getLogs().get(0).isRemoved()).isFalse();
   }
 
   private void mockBlockWithBlobTransaction(final Hash blockHash, final long blockNumber) {
