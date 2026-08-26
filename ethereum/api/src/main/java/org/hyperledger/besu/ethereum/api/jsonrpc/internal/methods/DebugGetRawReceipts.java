@@ -29,12 +29,10 @@ import org.hyperledger.besu.ethereum.rlp.RLP;
 
 import java.util.List;
 
-import com.google.common.base.Suppliers;
-
 public class DebugGetRawReceipts extends AbstractBlockParameterOrBlockHashMethod {
 
   public DebugGetRawReceipts(final BlockchainQueries blockchain) {
-    super(Suppliers.ofInstance(blockchain));
+    super(blockchain);
   }
 
   @Override
@@ -55,6 +53,9 @@ public class DebugGetRawReceipts extends AbstractBlockParameterOrBlockHashMethod
 
   @Override
   protected Object resultByBlockHash(final JsonRpcRequestContext request, final Hash blockHash) {
+    if (Hash.EMPTY.getBytes().equals(blockHash.getBytes())) {
+      return null;
+    }
     return getBlockchainQueries()
         .getBlockchain()
         .getTxReceipts(blockHash)
