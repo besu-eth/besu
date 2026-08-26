@@ -47,12 +47,15 @@ public class DebugGetRawReceipts extends AbstractBlockParameterOrBlockHashMethod
       return request.getRequiredParameter(0, BlockParameterOrBlockHash.class);
     } catch (JsonRpcParameterException e) {
       throw new InvalidJsonRpcParameters(
-          "Invalid block parameter (index 0)", RpcErrorType.INVALID_BLOCK_PARAMS, e);
+          "Invalid block or block hash parameter (index 0)", RpcErrorType.INVALID_BLOCK_PARAMS, e);
     }
   }
 
   @Override
   protected Object resultByBlockHash(final JsonRpcRequestContext request, final Hash blockHash) {
+    if (Hash.EMPTY.equals(blockHash)) {
+      return null;
+    }
     return getBlockchainQueries()
         .getBlockchain()
         .getTxReceipts(blockHash)

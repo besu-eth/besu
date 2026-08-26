@@ -73,8 +73,8 @@ public class DebugGetRawReceiptsTest {
 
   @Test
   public void returnsNullForFutureBlock() {
-    // headBlockNumber() defaults to 0, so any positive block number is treated as future
     final long futureBlockNumber = 1000L;
+    when(blockchainQueries.headBlockNumber()).thenReturn(42L);
 
     final JsonRpcRequestContext request =
         new JsonRpcRequestContext(
