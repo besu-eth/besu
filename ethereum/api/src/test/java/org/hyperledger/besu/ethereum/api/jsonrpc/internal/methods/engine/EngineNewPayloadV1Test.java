@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static java.util.Collections.emptyList;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SHANGHAI;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.ACCEPTED;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID;
@@ -146,6 +147,25 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
 
   private void createMethod() {
     this.method = createMethodInstance();
+  }
+
+  @Test
+  public void shouldFailFastWhenMergeCoordinatorIsNull() {
+    var constructorArguments =
+        new ConstructorArgumentsBuilder()
+            .protocolSchedule(protocolSchedule)
+            .protocolContext(protocolContext)
+            .vertx(vertx)
+            .engineCallListener(engineCallListener)
+            .ethPeers(ethPeers)
+            .metricsSystem(new NoOpMetricsSystem())
+            .transactionPool(transactionPool)
+            .maxRequestBlocks(0)
+            .build();
+
+    assertThatThrownBy(() -> new EngineNewPayloadV1<>(constructorArguments, null, SHANGHAI))
+        .isInstanceOf(NullPointerException.class)
+        .hasMessageContaining("mergeCoordinator must not be null");
   }
 
   protected long getMinSupportedTimestamp() {
