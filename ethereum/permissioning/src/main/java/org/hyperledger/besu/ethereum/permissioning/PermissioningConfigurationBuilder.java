@@ -18,10 +18,12 @@ import org.hyperledger.besu.ethereum.p2p.peers.EnodeDnsConfiguration;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 import org.apache.tuweni.toml.TomlArray;
 import org.apache.tuweni.toml.TomlParseResult;
+import org.jspecify.annotations.Nullable;
 
 public class PermissioningConfigurationBuilder {
 
@@ -31,9 +33,9 @@ public class PermissioningConfigurationBuilder {
   public static LocalPermissioningConfiguration permissioningConfiguration(
       final boolean nodePermissioningEnabled,
       final EnodeDnsConfiguration enodeDnsConfiguration,
-      final String nodePermissioningConfigFilepath,
+      final @Nullable String nodePermissioningConfigFilepath,
       final boolean accountPermissioningEnabled,
-      final String accountPermissioningConfigFilepath)
+      final @Nullable String accountPermissioningConfigFilepath)
       throws Exception {
 
     final LocalPermissioningConfiguration permissioningConfiguration =
@@ -52,15 +54,15 @@ public class PermissioningConfigurationBuilder {
   private static LocalPermissioningConfiguration loadNodePermissioning(
       final LocalPermissioningConfiguration permissioningConfiguration,
       final boolean localConfigNodePermissioningEnabled,
-      final String nodePermissioningConfigFilepath)
+      final @Nullable String nodePermissioningConfigFilepath)
       throws Exception {
 
     if (localConfigNodePermissioningEnabled) {
-      final TomlParseResult nodePermissioningToml = readToml(nodePermissioningConfigFilepath);
+      final String configFilepath = Objects.requireNonNull(nodePermissioningConfigFilepath);
+      final TomlParseResult nodePermissioningToml = readToml(configFilepath);
       final TomlArray nodeAllowlistTomlArray = getArray(nodePermissioningToml, NODES_ALLOWLIST_KEY);
 
-      permissioningConfiguration.setNodePermissioningConfigFilePath(
-          nodePermissioningConfigFilepath);
+      permissioningConfiguration.setNodePermissioningConfigFilePath(configFilepath);
 
       if (nodeAllowlistTomlArray != null) {
         List<EnodeURLImpl> nodesAllowlistToml =
@@ -74,9 +76,7 @@ public class PermissioningConfigurationBuilder {
         permissioningConfiguration.setNodeAllowlist(nodesAllowlistToml);
       } else {
         throw new Exception(
-            NODES_ALLOWLIST_KEY
-                + " config option missing in TOML config file "
-                + nodePermissioningConfigFilepath);
+            NODES_ALLOWLIST_KEY + " config option missing in TOML config file " + configFilepath);
       }
     }
     return permissioningConfiguration;
@@ -85,16 +85,16 @@ public class PermissioningConfigurationBuilder {
   private static LocalPermissioningConfiguration loadAccountPermissioning(
       final LocalPermissioningConfiguration permissioningConfiguration,
       final boolean localConfigAccountPermissioningEnabled,
-      final String accountPermissioningConfigFilepath)
+      final @Nullable String accountPermissioningConfigFilepath)
       throws Exception {
 
     if (localConfigAccountPermissioningEnabled) {
-      final TomlParseResult accountPermissioningToml = readToml(accountPermissioningConfigFilepath);
+      final String configFilepath = Objects.requireNonNull(accountPermissioningConfigFilepath);
+      final TomlParseResult accountPermissioningToml = readToml(configFilepath);
       final TomlArray accountAllowlistTomlArray =
           getArray(accountPermissioningToml, ACCOUNTS_ALLOWLIST_KEY);
 
-      permissioningConfiguration.setAccountPermissioningConfigFilePath(
-          accountPermissioningConfigFilepath);
+      permissioningConfiguration.setAccountPermissioningConfigFilePath(configFilepath);
 
       if (accountAllowlistTomlArray != null) {
         List<String> accountsAllowlistToml =
@@ -115,7 +115,7 @@ public class PermissioningConfigurationBuilder {
         throw new Exception(
             ACCOUNTS_ALLOWLIST_KEY
                 + " config option missing in TOML config file "
-                + accountPermissioningConfigFilepath);
+                + configFilepath);
       }
     }
 
