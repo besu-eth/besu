@@ -14,8 +14,6 @@
  */
 package org.hyperledger.besu.plugin.services.storage.rocksdb;
 
-import static java.util.Objects.requireNonNull;
-
 import org.hyperledger.besu.plugin.BesuPlugin;
 import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.services.PicoCLIOptions;
@@ -161,7 +159,11 @@ public class RocksDBPlugin implements BesuPlugin {
   }
 
   private void createFactoriesAndRegisterWithStorageService() {
-    requireNonNull(context)
+    final ServiceManager serviceManager = context;
+    if (serviceManager == null) {
+      throw new IllegalStateException("RocksDB plugin must be registered before it can be started");
+    }
+    serviceManager
         .getService(StorageService.class)
         .ifPresentOrElse(
             this::createAndRegister,

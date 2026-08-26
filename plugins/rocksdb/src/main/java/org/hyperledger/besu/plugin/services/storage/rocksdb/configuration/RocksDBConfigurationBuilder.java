@@ -183,7 +183,7 @@ public class RocksDBConfigurationBuilder {
    */
   public RocksDBConfiguration build() {
     return new RocksDBConfiguration(
-        requireNonNull(databaseDir),
+        requireNonNull(databaseDir, "RocksDB database directory is required"),
         maxOpenFiles,
         backgroundThreadCount,
         cacheCapacity,
