@@ -50,6 +50,16 @@ public abstract class ApiConfiguration {
   /** The default duration a JSON-RPC filter stays active without being polled. */
   public static final Duration DEFAULT_FILTER_TIMEOUT = Duration.ofMinutes(2);
 
+  /**
+   * Default maximum number of EVM steps captured per debug_trace* / trace_call request. Prevents
+   * unbounded heap growth when a caller uses enableMemory + an infinite-loop contract. Set to 0 to
+   * disable the cap (operator opt-out).
+   */
+  public static final long DEFAULT_DEBUG_TRACE_STEP_LIMIT = 1_000_000L;
+
+  /** The default maximum block range for log filter queries. */
+  public static final long DEFAULT_MAX_LOGS_RANGE = 5000L;
+
   /** Constructs a new ApiConfiguration with default values. */
   protected ApiConfiguration() {}
 
@@ -113,7 +123,7 @@ public abstract class ApiConfiguration {
    */
   @Value.Default
   public Long getMaxLogsRange() {
-    return 5000L;
+    return DEFAULT_MAX_LOGS_RANGE;
   }
 
   /**
@@ -187,5 +197,16 @@ public abstract class ApiConfiguration {
   @Value.Default
   public Duration getFilterTimeout() {
     return DEFAULT_FILTER_TIMEOUT;
+  }
+
+  /**
+   * Returns the server-side step cap for debug_trace* and trace_call requests. The caller may
+   * specify a lower limit, but never a higher one. Zero means uncapped (operator opt-out).
+   *
+   * @return the maximum number of EVM steps to capture, or 0 for unlimited
+   */
+  @Value.Default
+  public Long getDebugTraceStepLimit() {
+    return DEFAULT_DEBUG_TRACE_STEP_LIMIT;
   }
 }

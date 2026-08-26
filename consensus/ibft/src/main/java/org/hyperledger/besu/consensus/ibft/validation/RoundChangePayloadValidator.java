@@ -32,6 +32,9 @@ public class RoundChangePayloadValidator {
 
   private static final Logger LOG = LoggerFactory.getLogger(RoundChangePayloadValidator.class);
 
+  /** maximum allowed round */
+  public static final int MAX_ALLOWED_ROUND = 1000;
+
   private final MessageValidatorForHeightFactory messageValidatorFactory;
   private final Collection<Address> validators;
   private final long minimumPrepareMessages;
@@ -75,6 +78,13 @@ public class RoundChangePayloadValidator {
 
     if (targetRound.getSequenceNumber() != chainHeight) {
       LOG.info("Invalid RoundChange message, not valid for local chain height.");
+      return false;
+    }
+
+    final int roundNumber = targetRound.getRoundNumber();
+    if (roundNumber <= 0 || roundNumber > MAX_ALLOWED_ROUND) {
+      LOG.info(
+          "Invalid RoundChange message, round number out of range [1, {}].", MAX_ALLOWED_ROUND);
       return false;
     }
 
