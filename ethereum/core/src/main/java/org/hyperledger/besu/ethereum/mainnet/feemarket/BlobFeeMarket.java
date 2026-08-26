@@ -26,6 +26,7 @@ import org.slf4j.LoggerFactory;
 public class BlobFeeMarket extends LondonFeeMarket {
   private static final Logger LOG = LoggerFactory.getLogger(BlobFeeMarket.class);
   protected static final BigInteger BLOB_GAS_PRICE = BigInteger.ONE;
+  public static final Wei MIN_BLOB_GASPRICE = Wei.ONE;
 
   private final BigInteger baseFeeUpdateFraction;
 

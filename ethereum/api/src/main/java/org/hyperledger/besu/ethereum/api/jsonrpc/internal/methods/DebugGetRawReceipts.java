@@ -68,7 +68,14 @@ public class DebugGetRawReceipts extends AbstractBlockParameterMethod {
                 RLP.encode(
                         output ->
                             TransactionReceiptEncoder.writeTo(
-                                receipt, output, TransactionReceiptEncodingConfiguration.DEFAULT))
+                                receipt,
+                                output,
+                                // TRIE_ROOT has withOpaqueBytes=false: writeLegacyReceipt writes
+                                // the type byte inline, so typed receipts encode as
+                                // type||rlp(payload)
+                                // rather than the double-wrapped rlp(type||rlp(payload)) from
+                                // DEFAULT.
+                                TransactionReceiptEncodingConfiguration.TRIE_ROOT))
                     .toHexString())
         .toArray(String[]::new);
   }

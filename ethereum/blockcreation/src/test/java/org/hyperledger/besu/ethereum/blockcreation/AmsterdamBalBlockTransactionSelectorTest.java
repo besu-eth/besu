@@ -433,7 +433,7 @@ class AmsterdamBalBlockTransactionSelectorTest {
         new PartialBlockAccessView.PartialBlockAccessViewBuilder().withTxIndex(txIndex);
     builder
         .getOrCreateAccountBuilder(addr)
-        .addStorageChange(new StorageSlotKey(UInt256.ONE), UInt256.ZERO);
+        .addStorageChange(new StorageSlotKey(UInt256.ONE), null, UInt256.ZERO);
     return builder.build();
   }
 }

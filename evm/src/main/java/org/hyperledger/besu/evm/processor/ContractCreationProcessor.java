@@ -184,8 +184,8 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
     if (firstValidationFailure.isPresent()) {
       // EIP-8037: on code deposit validation failure (e.g. oversized code), trigger an
       // exceptional halt. handleStateGasHalt refunds execution-time state gas to the reservoir;
-      // intrinsic state gas was baked into the frame's stateGasUsed at construction (with no
-      // undo entries) so it survives the rollback.
+      // the transaction's top-frame preparation charges survive, since MainnetTransactionProcessor
+      // put them beyond the undo mark before execution started.
       frame.setExceptionalHaltReason(firstValidationFailure);
       frame.setState(MessageFrame.State.EXCEPTIONAL_HALT);
       operationTracer.traceAccountCreationResult(frame, firstValidationFailure);
@@ -219,9 +219,9 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
         evm.getGasCalculator().stateGasCostCalculator().codeDepositStateGas(contractCode.size()))) {
       LOG.trace("Contract creation error: insufficient state gas for code deposit");
       // EIP-8037: code deposit OOG is an exceptional halt. handleStateGasHalt refunds the
-      // execution-time state gas (including any spillover) to the reservoir; intrinsic state gas
-      // is preserved because it was baked into the frame's stateGasUsed at construction with no
-      // undo entries.
+      // execution-time state gas (including any spillover) to the reservoir; the transaction's
+      // top-frame preparation charges are preserved, since MainnetTransactionProcessor put them
+      // beyond the undo mark before execution started.
       frame.setExceptionalHaltReason(Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
       frame.setState(MessageFrame.State.EXCEPTIONAL_HALT);
       operationTracer.traceAccountCreationResult(
