@@ -233,10 +233,15 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
               protocolSchedule,
               ethScheduler);
 
-      // When no targetGasLimit is provided, default to the parent's gas limit so that the
-      // node's mining configuration target does not cause an unexpected adjustment.
+      // When no targetGasLimit is provided, default to the genesis gas limit. This causes the
+      // gas limit calculator to apply its normal clamping logic (adjust toward genesis) rather
+      // than locking the gas limit at the parent value. Matches go-ethereum behaviour, which
+      // targets its configured GasCeil (default 45 M) — any target below the parent's current
+      // gas limit produces the same one-step decrement.
+      final long genesisGasLimit =
+          protocolContext.getBlockchain().getGenesisBlock().getHeader().getGasLimit();
       final long effectiveTargetGasLimit =
-          targetGasLimit != null ? targetGasLimit : parentHeader.getGasLimit();
+          targetGasLimit != null ? targetGasLimit : genesisGasLimit;
 
       final BlockCreationResult result =
           blockCreator.createBlock(
