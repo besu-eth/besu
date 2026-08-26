@@ -163,26 +163,26 @@ public class BlockGasAccountingStrategyTest {
   @Test
   public void defaultStrategy_hasBlockCapacityChecksRegularGasOnly() {
     final long blockGasLimit = 100_000L;
-    // Regular used: 60k, remaining regular = 40k. The 1D (FRONTIER) check ignores state gas and the
-    // intrinsic / per-tx-cap parameters, looking only at the regular-gas headroom.
+    // Regular used: 60k, remaining regular = 40k. The 1D (FRONTIER) check ignores state gas and
+    // the per-tx cap, looking only at the regular-gas headroom.
     assertThat(
             BlockGasAccountingStrategy.FRONTIER.hasBlockCapacity(
-                40_000L, 0L, 0L, Long.MAX_VALUE, 60_000L, 0L, blockGasLimit))
+                40_000L, Long.MAX_VALUE, 60_000L, 0L, blockGasLimit))
         .isTrue();
     // txGasLimit=40001 > remaining_regular=40k, exceeds regular capacity
     assertThat(
             BlockGasAccountingStrategy.FRONTIER.hasBlockCapacity(
-                40_001L, 0L, 0L, Long.MAX_VALUE, 60_000L, 0L, blockGasLimit))
+                40_001L, Long.MAX_VALUE, 60_000L, 0L, blockGasLimit))
         .isFalse();
     // High state gas is irrelevant for the 1D check.
     assertThat(
             BlockGasAccountingStrategy.FRONTIER.hasBlockCapacity(
-                40_000L, 0L, 0L, Long.MAX_VALUE, 60_000L, 90_000L, blockGasLimit))
+                40_000L, Long.MAX_VALUE, 60_000L, 90_000L, blockGasLimit))
         .isTrue();
     // Over-committed regular gas caps remaining at zero, never negative.
     assertThat(
             BlockGasAccountingStrategy.FRONTIER.hasBlockCapacity(
-                1L, 0L, 0L, Long.MAX_VALUE, 120_000L, 0L, blockGasLimit))
+                1L, Long.MAX_VALUE, 120_000L, 0L, blockGasLimit))
         .isFalse();
   }
 
@@ -190,29 +190,29 @@ public class BlockGasAccountingStrategyTest {
   public void amsterdamStrategy_hasBlockCapacityChecksBothDimensions() {
     final long blockGasLimit = 100_000L;
     final long txMaxGasLimit = Long.MAX_VALUE;
-    // Regular used 60k (40k left), state used 50k (50k left). With no intrinsic split, worst-case
-    // regular and state consumption both equal txGasLimit. txGasLimit=40k fits both dimensions.
+    // Regular used 60k (40k left), state used 50k (50k left). Worst-case regular and state
+    // consumption both equal txGasLimit. txGasLimit=40k fits both dimensions.
     assertThat(
             BlockGasAccountingStrategy.AMSTERDAM.hasBlockCapacity(
-                40_000L, 0L, 0L, txMaxGasLimit, 60_000L, 50_000L, blockGasLimit))
+                40_000L, txMaxGasLimit, 60_000L, 50_000L, blockGasLimit))
         .isTrue();
     // txGasLimit=40001 exceeds the 40k regular headroom.
     assertThat(
             BlockGasAccountingStrategy.AMSTERDAM.hasBlockCapacity(
-                40_001L, 0L, 0L, txMaxGasLimit, 60_000L, 50_000L, blockGasLimit))
+                40_001L, txMaxGasLimit, 60_000L, 50_000L, blockGasLimit))
         .isFalse();
     // State dimension can be the binding constraint: regular headroom 90k, state headroom 30k,
     // worst-case state = txGasLimit = 35k > 30k → rejected even though regular fits.
     assertThat(
             BlockGasAccountingStrategy.AMSTERDAM.hasBlockCapacity(
-                35_000L, 0L, 0L, txMaxGasLimit, 10_000L, 70_000L, blockGasLimit))
+                35_000L, txMaxGasLimit, 10_000L, 70_000L, blockGasLimit))
         .isFalse();
     // TX_MAX_GAS_LIMIT caps worst-case regular consumption: regular headroom 40k, txGasLimit 50k
     // but
     // capped at txMaxGasLimit=40k so regular fits; state headroom 100k easily fits worst-case 50k.
     assertThat(
             BlockGasAccountingStrategy.AMSTERDAM.hasBlockCapacity(
-                50_000L, 0L, 0L, 40_000L, 60_000L, 0L, blockGasLimit))
+                50_000L, 40_000L, 60_000L, 0L, blockGasLimit))
         .isTrue();
   }
 }

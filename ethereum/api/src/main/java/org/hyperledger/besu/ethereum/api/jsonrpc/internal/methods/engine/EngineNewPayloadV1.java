@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
+import static com.google.common.base.Preconditions.checkNotNull;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.ACCEPTED;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID_BLOCK_HASH;
@@ -30,7 +31,7 @@ import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcRequestException;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.OrderedExecutionJsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV1;
@@ -61,15 +62,21 @@ import java.util.Objects;
 import java.util.Optional;
 
 import com.fasterxml.jackson.databind.JsonMappingException;
-import com.google.common.base.Preconditions;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Extends {@link OrderedExecutionJsonRpcMethod} so that {@code engine_newPayload} calls (and those
+ * of the whole sealed V1-V5 hierarchy) are processed in the order they have been received,
+ * consistent with {@code engine_forkchoiceUpdated}: both affect canonical chain state and a
+ * newPayload racing ahead of (or behind) an FCU for the same or a related block could otherwise be
+ * observed out of order.
+ */
 public sealed class EngineNewPayloadV1<
         EP extends ExecutionPayloadV1, NPRP extends NewPayloadRequestParametersV1<? extends EP>>
-    extends ExecutionEngineJsonRpcMethod permits EngineNewPayloadV2 {
+    extends OrderedExecutionJsonRpcMethod permits EngineNewPayloadV2 {
 
   private static final Logger LOG = LoggerFactory.getLogger(EngineNewPayloadV1.class);
   private static final Hash OMMERS_HASH_CONSTANT = Hash.EMPTY_LIST_HASH;
@@ -89,7 +96,8 @@ public sealed class EngineNewPayloadV1<
       final HardforkId minSupportedFork,
       final HardforkId firstUnsupportedFork) {
     super(constructorArguments, minSupportedFork, firstUnsupportedFork);
-    this.mergeCoordinator = constructorArguments.mergeCoordinator();
+    this.mergeCoordinator =
+        checkNotNull(constructorArguments.mergeCoordinator(), "mergeCoordinator must not be null");
     this.ethPeers = constructorArguments.ethPeers();
 
     constructorArguments
@@ -586,7 +594,7 @@ public sealed class EngineNewPayloadV1<
     }
 
     @NonNull ExecutionPayloadV1 getPayloadParameter() {
-      Preconditions.checkNotNull(payloadParameter, "Payload parameter not present");
+      checkNotNull(payloadParameter, "Payload parameter not present");
       return payloadParameter;
     }
 

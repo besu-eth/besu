@@ -108,6 +108,7 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
             .mergeCoordinator(mergeCoordinator)
             .ethPeers(ethPeers)
             .metricsSystem(new NoOpMetricsSystem())
+            .transactionPool(transactionPool)
             .maxRequestBlocks(0)
             .build(),
         CANCUN,

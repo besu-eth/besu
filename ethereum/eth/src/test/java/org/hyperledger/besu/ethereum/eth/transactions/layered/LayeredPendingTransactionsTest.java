@@ -29,6 +29,7 @@ import static org.hyperledger.besu.ethereum.eth.transactions.layered.LayeredRemo
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.GAS_PRICE_BELOW_CURRENT_BASE_FEE;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE;
 import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.SELECTED;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -38,6 +39,7 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -52,6 +54,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfigurati
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolReplacementHandler;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
 
@@ -83,6 +86,7 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
       mock(PendingTransactionAddedListener.class);
   protected final PendingTransactionDroppedListener droppedListener =
       mock(PendingTransactionDroppedListener.class);
+  private final WorldStateArchive worldStateArchive = mock(WorldStateArchive.class);
 
   private final TransactionPoolConfiguration poolConf =
       ImmutableTransactionPoolConfiguration.builder()
@@ -118,6 +122,12 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
     final BlockHeader blockHeader = mock(BlockHeader.class);
     when(blockHeader.getBaseFee()).thenReturn(Optional.of(DEFAULT_BASE_FEE));
     return blockHeader;
+  }
+
+  private ProtocolContext mockProtocolContext() {
+    final ProtocolContext protocolContext = mock(ProtocolContext.class);
+    when(protocolContext.getWorldStateArchive()).thenReturn(worldStateArchive);
+    return protocolContext;
   }
 
   private CreatedLayers createLayers(final TransactionPoolConfiguration poolConfig) {
@@ -173,16 +183,22 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
     senderLimitedLayers = createLayers(senderLimitedConfig);
     smallLayers = createLayers(smallPoolConfig);
 
+    final ProtocolContext protocolContext = mockProtocolContext();
+
     pendingTransactions =
-        new LayeredPendingTransactions(poolConf, layers.prioritizedTransactions, ethScheduler);
+        new LayeredPendingTransactions(
+            protocolContext, poolConf, layers.prioritizedTransactions, ethScheduler);
 
     senderLimitedTransactions =
         new LayeredPendingTransactions(
-            senderLimitedConfig, senderLimitedLayers.prioritizedTransactions, ethScheduler);
+            protocolContext,
+            senderLimitedConfig,
+            senderLimitedLayers.prioritizedTransactions,
+            ethScheduler);
 
     smallPendingTransactions =
         new LayeredPendingTransactions(
-            smallPoolConfig, smallLayers.prioritizedTransactions, ethScheduler);
+            protocolContext, smallPoolConfig, smallLayers.prioritizedTransactions, ethScheduler);
   }
 
   @Test
@@ -892,6 +908,34 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
     final PendingTransactions.Status status = pendingTransactions.getStatus();
     assertThat(status.pendingCount()).isEqualTo(3);
     assertThat(status.queuedCount()).isZero();
+  }
+
+  @Test
+  public void shouldUnderPurgeIfWorldStateNotAvailableWhenCheckingConfirmedCodeDelegations() {
+    // sender1 adds one tx and one code delegation to the pool, both have the same nonce
+    final Transaction tx1 = createEIP1559Transaction(0, KEYS1, 1);
+    final Transaction eip7702Tx =
+        createEIP7702Transaction(0, KEYS2, 1, List.of(CODE_DELEGATION_SENDER_1));
+
+    pendingTransactions.addTransaction(createRemotePendingTransaction(eip7702Tx), Optional.empty());
+    pendingTransactions.addTransaction(createRemotePendingTransaction(tx1), Optional.empty());
+
+    assertThat(pendingTransactions.getStatus().pendingCount()).isEqualTo(2);
+
+    // now let's pretend a block is imported with only the EIP-7702 tx confirmed
+    // and that the world state is not available for that block
+    when(worldStateArchive.getWorldState(any())).thenReturn(Optional.empty());
+
+    final BlockHeader mockBlockHeader = mockBlockHeader();
+    when(mockBlockHeader.getStateRoot()).thenReturn(Hash.ZERO);
+    pendingTransactions.manageBlockAdded(
+        mockBlockHeader, List.of(eip7702Tx), List.of(), FeeMarket.london(0L));
+
+    // since without the world state we cannot check the nonce of the code delegation, the txpool
+    // under-purge and tx1 should still be present in the pool even if its nonce is now invalid
+    assertThat(pendingTransactions.getPendingTransactions())
+        .map(PendingTransaction::getTransaction)
+        .containsExactly(tx1);
   }
 
   private TransactionAndAccount[] populateCache(final int numTxs, final long startingNonce) {

@@ -101,6 +101,12 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
   private static final String SNAP_FLAT_STORAGE_HEALED_COUNT_PER_REQUEST_FLAG =
       "--Xsnapsync-synchronizer-flat-slot-healed-count-per-request";
 
+  private static final String SNAP_SERVER_MAX_CONCURRENT_REQUESTS_PER_PEER_FLAG =
+      "--Xsnapsync-server-max-concurrent-requests-per-peer";
+
+  private static final String SNAP_SERVER_MAX_CONCURRENT_REQUESTS_FLAG =
+      "--Xsnapsync-server-max-concurrent-requests";
+
   private static final String CHECKPOINT_POST_MERGE_FLAG = "--Xcheckpoint-post-merge-enabled";
 
   private static final String SNAP_SYNC_SAVE_PRE_CHECKPOINT_HEADERS_ONLY_FLAG =
@@ -388,6 +394,24 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
           "Enable advertising the snap/2 protocol capability. (default: ${DEFAULT-VALUE})")
   private Boolean snap2Enabled = SnapSyncConfiguration.DEFAULT_SNAP2_ENABLED;
 
+  @CommandLine.Option(
+      names = SNAP_SERVER_MAX_CONCURRENT_REQUESTS_PER_PEER_FLAG,
+      hidden = true,
+      paramLabel = "<INTEGER>",
+      description =
+          "Maximum number of snap sync GET_* requests from a single peer that may be concurrently scheduled for processing. 0 specifies no limit (default: ${DEFAULT-VALUE})")
+  private int snapsyncServerMaxConcurrentRequestsPerPeer =
+      SnapSyncConfiguration.DEFAULT_MAX_CONCURRENT_SNAP_REQUESTS_PER_PEER;
+
+  @CommandLine.Option(
+      names = SNAP_SERVER_MAX_CONCURRENT_REQUESTS_FLAG,
+      hidden = true,
+      paramLabel = "<INTEGER>",
+      description =
+          "Maximum total number of snap sync GET_* requests, across all peers, that may be concurrently scheduled for processing. 0 specifies no limit (default: ${DEFAULT-VALUE})")
+  private int snapsyncServerMaxConcurrentRequests =
+      SnapSyncConfiguration.DEFAULT_MAX_CONCURRENT_SNAP_REQUESTS_GLOBAL;
+
   @SuppressWarnings("unused")
   @CommandLine.Option(
       names = {CHECKPOINT_POST_MERGE_FLAG},
@@ -516,6 +540,10 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
         config.getSnapSyncConfiguration().getLocalFlatStorageCountToHealPerRequest();
     options.snapsyncServerEnabled = config.getSnapSyncConfiguration().isSnapServerEnabled();
     options.snap2Enabled = config.getSnapSyncConfiguration().isSnap2Enabled();
+    options.snapsyncServerMaxConcurrentRequestsPerPeer =
+        config.getSnapSyncConfiguration().getMaxConcurrentSnapRequestsPerPeer();
+    options.snapsyncServerMaxConcurrentRequests =
+        config.getSnapSyncConfiguration().getMaxConcurrentSnapRequestsGlobal();
     options.snapTransactionIndexingEnabled =
         config.getSnapSyncConfiguration().isSnapSyncTransactionIndexingEnabled();
     options.era1ImportPrepipelineEnabled = config.era1ImportPrepipelineEnabled();
@@ -560,6 +588,8 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
             .localFlatStorageCountToHealPerRequest(snapsyncFlatStorageHealedCountPerRequest)
             .isSnapServerEnabled(snapsyncServerEnabled)
             .isSnap2Enabled(snap2Enabled)
+            .maxConcurrentSnapRequestsPerPeer(snapsyncServerMaxConcurrentRequestsPerPeer)
+            .maxConcurrentSnapRequestsGlobal(snapsyncServerMaxConcurrentRequests)
             .isSnapSyncTransactionIndexingEnabled(snapTransactionIndexingEnabled)
             .build());
     builder.receiptsDownloadStepTimeoutMillis(receiptsDownloadStepTimeoutMillis);
@@ -633,6 +663,10 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
             OptionParser.format(snapsyncServerEnabled),
             SNAP2_ENABLED_FLAG,
             OptionParser.format(snap2Enabled),
+            SNAP_SERVER_MAX_CONCURRENT_REQUESTS_PER_PEER_FLAG,
+            OptionParser.format(snapsyncServerMaxConcurrentRequestsPerPeer),
+            SNAP_SERVER_MAX_CONCURRENT_REQUESTS_FLAG,
+            OptionParser.format(snapsyncServerMaxConcurrentRequests),
             SNAP_TRANSACTION_INDEXING_ENABLED_FLAG,
             OptionParser.format(snapTransactionIndexingEnabled),
             ERA1_IMPORT_PREPIPELINE_ENABLED_FLAG,

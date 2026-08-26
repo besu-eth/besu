@@ -106,7 +106,14 @@ public class TransactionDecoder {
   /**
    * Decodes a transaction from opaque bytes. The method first determines the transaction type from
    * the bytes. If the type is present, it delegates the decoding process to the appropriate decoder
-   * for that type. If the type is not present, it decodes the bytes as an RLP input.
+   * for that type.
+   *
+   * <p>If the type is not present and the context is {@link EncodingContext#BLOCK_BODY}, the bytes
+   * are rejected rather than decoded as generic RLP. Per EIP-2718, a block body's transaction bytes
+   * have no surrounding RLP container to unwrap, so tolerating an extra RLP string-length wrapper
+   * here would let a maliciously wrapped typed transaction decode identically to, and therefore
+   * hash identically to, its canonical unwrapped form -- diverging from clients that correctly
+   * reject the wrapped encoding.
    *
    * @param opaqueBytes the opaque bytes
    * @param context the encoding context
@@ -120,10 +127,12 @@ public class TransactionDecoder {
     var transactionType = getTransactionType(opaqueBytes);
     if (transactionType.isPresent()) {
       return decodeTransaction(opaqueBytes, transactionType.get(), context);
-    } else {
-      // If the transaction type is not present, decode the opaque bytes as RLP
-      return decodeRLP(RLP.input(opaqueBytes), context);
     }
+    if (context == EncodingContext.BLOCK_BODY) {
+      throw new IllegalArgumentException(
+          "RLP-wrapped typed transaction rejected in block body context");
+    }
+    return decodeRLP(RLP.input(opaqueBytes), context);
   }
 
   /**
