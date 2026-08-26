@@ -53,8 +53,10 @@ import org.junit.jupiter.api.Timeout;
  */
 class ExecutionEngineConcurrencySafetyTest {
 
-  // A shared real Vertx instance; the serialization guarantee comes from OrderedExecutionJsonRpcMethod's
-  // internal createSharedWorkerExecutor("engine-ordered-execution", 1), not from the Vertx pool size.
+  // A shared real Vertx instance; the serialization guarantee comes from
+  // OrderedExecutionJsonRpcMethod's
+  // internal createSharedWorkerExecutor("engine-ordered-execution", 1), not from the Vertx pool
+  // size.
   private static final Vertx vertx = Vertx.vertx(new VertxOptions());
 
   @AfterAll
@@ -77,7 +79,14 @@ class ExecutionEngineConcurrencySafetyTest {
         final long workMillis) {
       super(
           new ExecutionEngineJsonRpcMethod.ConstructorArguments(
-              null, protocolContext, vertx, mock(EngineCallListener.class), null, null, null, null,
+              null,
+              protocolContext,
+              vertx,
+              mock(EngineCallListener.class),
+              null,
+              null,
+              null,
+              null,
               0),
           null,
           null);
