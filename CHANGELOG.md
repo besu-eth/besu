@@ -46,6 +46,7 @@
 - Align Kotlin runtime dependencies to 2.4.0 to support plugins compiled against the Kotlin 2.4 API. [#10983](https://github.com/besu-eth/besu/pull/10983)
 - Upgrade log4j to 2.25.5 [#11075](https://github.com/besu-eth/besu/pull/11075)
 - Upgrade netty dependency to 4.2.17.Final [#11078](https://github.com/besu-eth/besu/pull/11078)
+- Upgrade to vertx 5.1.6, along with the tuweni (2.7.2 → 2.8.0) and `io.consensys.protocols:discovery` (26.6.0 → 26.8.0) dependencies it required, and the JUnit BOM (5.13.4 → 5.14.4). [#11015](https://github.com/besu-eth/besu/pull/11015)
 - Extract the Plugin API storage module. The key-value storage contracts (`StorageService`, the `KeyValueStorageFactory` SPI with its store, transaction and snapshot interfaces, `SegmentIdentifier`, the data storage configuration views and `StorageException`) now live in a new `besu-plugin-api-storage` artifact, re-exported by `besu-plugin-api` so existing consumers are unaffected. Also adds an `org.hyperledger.besu.plugin.storage.StorageConfiguration` service exposing the storage path and data storage configuration. [#10984](https://github.com/besu-eth/besu/pull/10984)
 - Extract the Plugin API p2p module. The peer-to-peer networking contracts (`P2PService` and the `Peer`, `PeerConnection`, `PeerInfo`, `Capability` and `Message` data views) now live in a new `besu-plugin-api-p2p` artifact, re-exported by `besu-plugin-api` so existing consumers are unaffected. [#10995](https://github.com/besu-eth/besu/pull/10995)
 - Extract the Plugin API txpool module. The transaction pool contracts (`TransactionPoolService`, `TransactionPoolValidatorService` and the `PluginTransactionPoolValidator` / `PluginTransactionPoolValidatorFactory` validation SPI) now live in a new `besu-plugin-api-txpool` artifact, re-exported by `besu-plugin-api` so existing consumers are unaffected. [#11007](https://github.com/besu-eth/besu/pull/11007)
@@ -110,7 +111,6 @@
 - Reject RLP-wrapped typed transactions in block-body opaque decoding, preventing a potential consensus divergence.
 
 ### Additions and Improvements
-- Upgrade to vertx 5.1.6, along with the tuweni (2.7.2 → 2.8.0) and `io.consensys.protocols:discovery` (26.6.0 → 26.8.0) dependencies it required, and the JUnit BOM (5.13.4 → 5.14.4). [#11015](https://github.com/besu-eth/besu/pull/11015)
 - Align Kotlin runtime dependencies to 2.4.0 to support plugins compiled against the Kotlin 2.4 API. [#10983](https://github.com/besu-eth/besu/pull/10983)
 - Upgrade log4j to 2.25.5 [#11075](https://github.com/besu-eth/besu/pull/11075)
 - Upgrade netty dependency to 4.2.17.Final [#11078](https://github.com/besu-eth/besu/pull/11078)
