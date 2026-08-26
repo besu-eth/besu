@@ -21,8 +21,9 @@ import org.hyperledger.besu.plugin.data.ProcessableBlockHeader;
 import com.google.common.base.Stopwatch;
 
 /**
- * This interface defines the context for evaluating a transaction. It provides methods to get the
- * pending transaction, the evaluation timer, and the transaction gas price.
+ * The context in which a candidate transaction is evaluated for block inclusion: the pending block
+ * header, the pending transaction, the evaluation timer, the transaction gas price, the minimum gas
+ * price for inclusion, and whether the evaluation has been cancelled.
  */
 public interface TransactionEvaluationContext {
 

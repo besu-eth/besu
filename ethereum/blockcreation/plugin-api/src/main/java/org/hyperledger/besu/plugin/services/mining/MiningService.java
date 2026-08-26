@@ -16,7 +16,13 @@ package org.hyperledger.besu.plugin.services.mining;
 
 import org.hyperledger.besu.plugin.services.BesuService;
 
-/** The MiningService interface provides methods to start and stop the mining process. */
+/**
+ * The MiningService interface provides methods to start and stop the mining process.
+ *
+ * @deprecated no known plugin uses this service, so it is scheduled for removal from the plugin
+ *     API. It will be removed in a future release.
+ */
+@Deprecated(forRemoval = true)
 public interface MiningService extends BesuService {
 
   /** Starts the mining process. */
