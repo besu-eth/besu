@@ -28,7 +28,6 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -80,7 +79,12 @@ public class InMemoryStoragePlugin implements BesuPlugin {
   }
 
   private void createFactoriesAndRegisterWithStorageService() {
-    Objects.requireNonNull(context)
+    final ServiceManager serviceManager = context;
+    if (serviceManager == null) {
+      throw new IllegalStateException(
+          "In-memory storage plugin must be registered before it can be started");
+    }
+    serviceManager
         .getService(StorageService.class)
         .ifPresentOrElse(
             this::createAndRegister,

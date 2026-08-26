@@ -30,7 +30,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
-import java.util.Objects;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Spliterators;
 import java.util.concurrent.ConcurrentHashMap;
@@ -483,7 +483,10 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
 
     @Override
     public E next() {
-      E oldNext = Objects.requireNonNull(next);
+      final E oldNext = next;
+      if (oldNext == null) {
+        throw new NoSuchElementException();
+      }
       next = iterator.hasNext() ? iterator.next() : null;
       return oldNext;
     }
