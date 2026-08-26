@@ -18,9 +18,7 @@ import org.hyperledger.besu.ethereum.blockcreation.txselection.BlockSelectionCon
 import org.hyperledger.besu.ethereum.blockcreation.txselection.TransactionEvaluationContext;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.BlockGasAccountingStrategy;
-import org.hyperledger.besu.ethereum.mainnet.TransactionIntrinsicGas;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
-import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
 import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
 import org.hyperledger.besu.plugin.services.txselection.SelectorsStateManager;
@@ -34,16 +32,15 @@ import org.slf4j.LoggerFactory;
  * block and determines the selection result accordingly.
  *
  * <p>For EIP-8037 multidimensional gas, this selector tracks both regular and state gas dimensions.
- * Pre-processing checks that the transaction's gasLimit fits within the remaining regular gas
- * capacity. State gas is only validated at the block level via max(regular, state) after
- * transaction execution.
+ * Pre-processing bounds both dimensions by the transaction's gasLimit, since either one could
+ * consume the whole limit. Post-processing then re-checks the block against max(regular, state)
+ * once execution has revealed the actual split.
  */
 public class BlockSizeTransactionSelector extends AbstractStatefulTransactionSelector<GasState> {
   private static final Logger LOG = LoggerFactory.getLogger(BlockSizeTransactionSelector.class);
 
   private final long blockGasLimit;
   private final BlockGasAccountingStrategy gasAccountingStrategy;
-  private final GasCalculator gasCalculator;
   private final StateGasCostCalculator stateGasCostCalculator;
 
   public BlockSizeTransactionSelector(
@@ -51,8 +48,7 @@ public class BlockSizeTransactionSelector extends AbstractStatefulTransactionSel
     super(context, selectorsStateManager, GasState.ZERO, GasState::duplicate);
     this.blockGasLimit = context.pendingBlockHeader().getGasLimit();
     this.gasAccountingStrategy = context.protocolSpec().getBlockGasAccountingStrategy();
-    this.gasCalculator = context.gasCalculator();
-    this.stateGasCostCalculator = gasCalculator.stateGasCostCalculator();
+    this.stateGasCostCalculator = context.gasCalculator().stateGasCostCalculator();
   }
 
   /**
@@ -90,7 +86,8 @@ public class BlockSizeTransactionSelector extends AbstractStatefulTransactionSel
     final long txRegularGasUsed =
         gasAccountingStrategy.calculateTransactionRegularGas(
             evaluationContext.getTransaction(), processingResult);
-    // EIP-8037: block accounting uses the worst-case immutable intrinsic_state_gas.
+    // EIP-8037: the state dimension is the state gas the transaction actually consumed, which is
+    // only known now that it has executed.
     final long stateGasUsed = processingResult.getStateGasUsed();
 
     final GasState state = getWorkingState();
@@ -117,9 +114,9 @@ public class BlockSizeTransactionSelector extends AbstractStatefulTransactionSel
   }
 
   /**
-   * Checks if the transaction is too large for the block using the gas accounting strategy. For
-   * both 1D and 2D gas, this checks regular gas capacity only. State gas is validated at the block
-   * level via max(regular, state) after transaction execution.
+   * Checks if the transaction is too large for the block using the gas accounting strategy. For 1D
+   * gas this checks the regular gas dimension only; for 2D gas (EIP-8037) it bounds both dimensions
+   * by the transaction's gas limit, since either one could consume the whole limit.
    *
    * <p>The post-processing check verifies that gas metered (max of regular, state) stays within the
    * block gas limit after processing reveals the actual regular/state gas split.
@@ -129,11 +126,8 @@ public class BlockSizeTransactionSelector extends AbstractStatefulTransactionSel
    * @return True if the transaction is too large for the block, false otherwise.
    */
   private boolean transactionTooLargeForBlock(final Transaction transaction, final GasState state) {
-    final var intrinsic = TransactionIntrinsicGas.of(transaction, gasCalculator);
     return !gasAccountingStrategy.hasBlockCapacity(
         transaction.getGasLimit(),
-        intrinsic.regularGas(),
-        intrinsic.stateGas(),
         stateGasCostCalculator.transactionRegularGasLimit(),
         state.regularGas(),
         state.stateGas(),

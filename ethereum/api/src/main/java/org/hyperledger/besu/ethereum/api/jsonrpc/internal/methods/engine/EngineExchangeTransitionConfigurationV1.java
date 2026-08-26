@@ -17,46 +17,48 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod.ENGINE_EXCHANGE_TRANSITION_CONFIGURATION;
 
 import org.hyperledger.besu.consensus.merge.MergeContext;
+import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcObjectMapperFactory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EngineExchangeTransitionConfigurationParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.TransitionConfigurationV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineExchangeTransitionConfigurationResult;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Difficulty;
+import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 
 import java.util.Optional;
-import java.util.function.Supplier;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.base.Suppliers;
-import io.vertx.core.Vertx;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class EngineExchangeTransitionConfiguration extends ExecutionEngineJsonRpcMethod {
+public class EngineExchangeTransitionConfigurationV1 extends ExecutionEngineJsonRpcMethod {
   private static final Logger LOG =
-      LoggerFactory.getLogger(EngineExchangeTransitionConfiguration.class);
+      LoggerFactory.getLogger(EngineExchangeTransitionConfigurationV1.class);
 
   // use (2^256 - 2^10) if engine is enabled in the absence of a TTD configuration
   static final Difficulty FALLBACK_TTD_DEFAULT =
       Difficulty.fromHexString(
           "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc00");
 
-  private static final Supplier<ObjectMapper> mapperSupplier = Suppliers.memoize(ObjectMapper::new);
+  // Besu-aware mapper: TransitionConfigurationV1 exposes Difficulty/Hash directly, which a plain
+  // ObjectMapper cannot serialize.
+  private static final ObjectMapper mapper = JsonRpcObjectMapperFactory.getResponseMapper();
 
-  public EngineExchangeTransitionConfiguration(
-      final Vertx vertx,
-      final ProtocolContext protocolContext,
-      final EngineCallListener engineCallListener) {
-    super(vertx, protocolContext, engineCallListener);
+  public EngineExchangeTransitionConfigurationV1(
+      final ConstructorArguments constructorArguments,
+      final HardforkId minSupportedFork,
+      final HardforkId firstUnsupportedFork) {
+    super(constructorArguments, minSupportedFork, firstUnsupportedFork);
   }
 
   @Override
@@ -68,11 +70,10 @@ public class EngineExchangeTransitionConfiguration extends ExecutionEngineJsonRp
   public JsonRpcResponse syncResponse(final JsonRpcRequestContext requestContext) {
     engineCallListener.executionEngineCalled();
 
-    final EngineExchangeTransitionConfigurationParameter remoteTransitionConfiguration;
+    final TransitionConfigurationV1 remoteTransitionConfiguration;
     try {
       remoteTransitionConfiguration =
-          requestContext.getRequiredParameter(
-              0, EngineExchangeTransitionConfigurationParameter.class);
+          requestContext.getRequiredParameter(0, TransitionConfigurationV1.class);
     } catch (JsonRpcParameterException e) {
       throw new InvalidJsonRpcParameters(
           "Invalid engine exchange transition configuration parameters (index 0)",
@@ -86,12 +87,18 @@ public class EngineExchangeTransitionConfiguration extends ExecutionEngineJsonRp
         .addArgument(
             () -> {
               try {
-                return mapperSupplier.get().writeValueAsString(remoteTransitionConfiguration);
+                return mapper.writeValueAsString(remoteTransitionConfiguration);
               } catch (JsonProcessingException e) {
                 throw new RuntimeException(e);
               }
             })
         .log();
+
+    final long timestamp = protocolContext.getBlockchain().getChainHeadHeader().getTimestamp();
+    final ValidationResult<RpcErrorType> forkValidationResult = validateForkSupported(timestamp);
+    if (!forkValidationResult.isValid()) {
+      return new JsonRpcErrorResponse(reqId, forkValidationResult);
+    }
 
     final Optional<BlockHeader> maybeTerminalPoWBlockHeader =
         mergeContextOptional.flatMap(MergeContext::getTerminalPoWBlock);
@@ -99,7 +106,7 @@ public class EngineExchangeTransitionConfiguration extends ExecutionEngineJsonRp
     final EngineExchangeTransitionConfigurationResult localTransitionConfiguration =
         new EngineExchangeTransitionConfigurationResult(
             mergeContextOptional
-                .map(c -> c.getTerminalTotalDifficulty())
+                .map(MergeContext::getTerminalTotalDifficulty)
                 .orElse(FALLBACK_TTD_DEFAULT),
             maybeTerminalPoWBlockHeader.map(BlockHeader::getHash).orElse(Hash.ZERO),
             maybeTerminalPoWBlockHeader.map(BlockHeader::getNumber).orElse(0L));
