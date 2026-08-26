@@ -45,30 +45,25 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 /**
- * Verifies the concurrency/ordering guarantee that engine_* methods get from {@link
- * ExecutionEngineJsonRpcMethod#response}'s nested {@code executeBlocking(ordered=true)} call: with
- * a single-worker-thread Vertx instance -- the same configuration production uses (see {@code
- * RunnerBuilder#jsonRpcMethods}, which builds {@code consensusEngineServer} with {@code new
- * VertxOptions().setWorkerPoolSize(1)}) -- at most one engine_* call body can ever be executing at
- * once, whether calls land on the same method instance or two different ones sharing the Vertx
- * instance. See the class-level discussion in ExecutionEngineJsonRpcMethod for why engine_* calls
- * must not execute concurrently with one another.
+ * Verifies the concurrency/ordering guarantee that {@link OrderedExecutionJsonRpcMethod} provides
+ * via its internal single-threaded {@code WorkerExecutor}: at most one engine_* call body can ever
+ * be executing at once, whether calls land on the same method instance or two different ones
+ * sharing the same Vertx instance. This covers {@code engine_forkchoiceUpdated} and {@code
+ * engine_newPayload}, which the Engine API spec requires to be processed serially in arrival order.
  */
 class ExecutionEngineConcurrencySafetyTest {
 
-  // A single shared, real Vertx instance -- mirrors production's consensusEngineServer, where one
-  // single-worker-thread syncVertx is injected into every ExecutionEngineJsonRpcMethod subclass
-  // instance. A default (multi-threaded) Vertx.vertx() here would let same-/cross-method calls
-  // genuinely overlap, defeating the purpose of this test.
-  private static final Vertx vertx = Vertx.vertx(new VertxOptions().setWorkerPoolSize(1));
+  // A shared real Vertx instance; the serialization guarantee comes from OrderedExecutionJsonRpcMethod's
+  // internal createSharedWorkerExecutor("engine-ordered-execution", 1), not from the Vertx pool size.
+  private static final Vertx vertx = Vertx.vertx(new VertxOptions());
 
   @AfterAll
   static void closeVertx() {
     vertx.close();
   }
 
-  /** Minimal concrete engine method whose body records concurrency and completion order. */
-  private static final class RecordingEngineMethod extends ExecutionEngineJsonRpcMethod {
+  /** Minimal concrete ordered engine method whose body records concurrency and completion order. */
+  private static final class RecordingEngineMethod extends OrderedExecutionJsonRpcMethod {
     private final String name;
     private final long workMillis;
     private final AtomicInteger inFlight = new AtomicInteger();
@@ -80,7 +75,12 @@ class ExecutionEngineConcurrencySafetyTest {
         final ProtocolContext protocolContext,
         final String name,
         final long workMillis) {
-      super(vertx, protocolContext, mock(EngineCallListener.class));
+      super(
+          new ExecutionEngineJsonRpcMethod.ConstructorArguments(
+              null, protocolContext, vertx, mock(EngineCallListener.class), null, null, null, null,
+              0),
+          null,
+          null);
       this.name = name;
       this.workMillis = workMillis;
     }
@@ -136,7 +136,8 @@ class ExecutionEngineConcurrencySafetyTest {
     assertThat(method.maxObservedConcurrency.get())
         .as(
             "engine_test calls dispatched concurrently to a single method instance must still be "
-                + "serialized by the single-worker-thread Vertx instance; completion order was: %s",
+                + "serialized by OrderedExecutionJsonRpcMethod's single-thread WorkerExecutor; "
+                + "completion order was: %s",
             completionOrder)
         .isEqualTo(1);
   }
