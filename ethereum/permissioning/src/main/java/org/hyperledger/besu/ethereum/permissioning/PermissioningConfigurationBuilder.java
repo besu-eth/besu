@@ -58,7 +58,10 @@ public class PermissioningConfigurationBuilder {
       throws Exception {
 
     if (localConfigNodePermissioningEnabled) {
-      final String configFilepath = Objects.requireNonNull(nodePermissioningConfigFilepath);
+      final String configFilepath =
+          Objects.requireNonNull(
+              nodePermissioningConfigFilepath,
+              "Node permissioning config file path is required when node permissioning is enabled");
       final TomlParseResult nodePermissioningToml = readToml(configFilepath);
       final TomlArray nodeAllowlistTomlArray = getArray(nodePermissioningToml, NODES_ALLOWLIST_KEY);
 
@@ -89,7 +92,10 @@ public class PermissioningConfigurationBuilder {
       throws Exception {
 
     if (localConfigAccountPermissioningEnabled) {
-      final String configFilepath = Objects.requireNonNull(accountPermissioningConfigFilepath);
+      final String configFilepath =
+          Objects.requireNonNull(
+              accountPermissioningConfigFilepath,
+              "Account permissioning config file path is required when account permissioning is enabled");
       final TomlParseResult accountPermissioningToml = readToml(configFilepath);
       final TomlArray accountAllowlistTomlArray =
           getArray(accountPermissioningToml, ACCOUNTS_ALLOWLIST_KEY);
