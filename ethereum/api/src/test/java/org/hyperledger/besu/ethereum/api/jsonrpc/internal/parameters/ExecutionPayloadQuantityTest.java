@@ -19,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcObjectMapperFactory;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
@@ -82,6 +83,8 @@ class ExecutionPayloadQuantityTest {
             () ->
                 mapper.readValue(
                     "{\"slotNumber\":\"0x1ffffffffffffffff\"}", ExecutionPayloadV4.class))
-        .isInstanceOf(Exception.class);
+        .isInstanceOf(JsonProcessingException.class)
+        .rootCause()
+        .isInstanceOf(IllegalArgumentException.class);
   }
 }
