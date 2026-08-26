@@ -233,6 +233,11 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
               protocolSchedule,
               ethScheduler);
 
+      // When no targetGasLimit is provided, default to the parent's gas limit so that the
+      // node's mining configuration target does not cause an unexpected adjustment.
+      final long effectiveTargetGasLimit =
+          targetGasLimit != null ? targetGasLimit : parentHeader.getGasLimit();
+
       final BlockCreationResult result =
           blockCreator.createBlock(
               maybeTransactions,
@@ -241,7 +246,7 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
               Optional.of(withdrawals),
               Optional.ofNullable(parentBeaconBlockRoot),
               Optional.ofNullable(slotNumber),
-              Optional.ofNullable(targetGasLimit),
+              Optional.of(effectiveTargetGasLimit),
               parentHeader);
 
       // When transactions are explicitly provided, return an error if any were not applied.
