@@ -65,7 +65,7 @@ class MergeBlockCreator extends AbstractBlockCreator {
   }
 
   /**
-   * Create block and return block creation result.
+   * Create block with inclusion list support (EIP-7805).
    *
    * @param maybeTransactions the maybe transactions
    * @param random the random
@@ -74,6 +74,8 @@ class MergeBlockCreator extends AbstractBlockCreator {
    * @param parentBeaconBlockRoot optional root hash of the parent beacon block
    * @param slotNumber optional slot number (EIP-7843)
    * @param targetGasLimit optional CL-supplied target gas limit for this payload
+   * @param parentHeader the parent header
+   * @param inclusionListTransactions optional inclusion list transactions to prioritize
    * @return the block creation result
    */
   public BlockCreationResult createBlock(
@@ -84,7 +86,8 @@ class MergeBlockCreator extends AbstractBlockCreator {
       final Optional<Bytes32> parentBeaconBlockRoot,
       final Optional<Long> slotNumber,
       final Optional<Long> targetGasLimit,
-      final BlockHeader parentHeader) {
+      final BlockHeader parentHeader,
+      final List<Transaction> inclusionListTransactions) {
 
     return createBlock(
         maybeTransactions,
@@ -96,7 +99,8 @@ class MergeBlockCreator extends AbstractBlockCreator {
         targetGasLimit,
         timestamp,
         false,
-        parentHeader);
+        parentHeader,
+        inclusionListTransactions);
   }
 
   @Override

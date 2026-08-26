@@ -193,8 +193,8 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
     final ForkchoiceUpdatedResultV1 forkchoiceResult =
         (ForkchoiceUpdatedResultV1) ((JsonRpcSuccessResponse) response).getResult();
     assertThat(forkchoiceResult.getPayloadStatus().getStatus()).isEqualTo(INVALID);
-    assertThat(forkchoiceResult.getPayloadStatus().getLatestValidHashAsString())
-        .isEqualTo(validParent.getHash().toHexString());
+    assertThat(forkchoiceResult.getPayloadStatus().getLatestValidHash())
+        .isEqualTo(validParent.getHash());
     final String error = forkchoiceResult.getPayloadStatus().getError();
     assertThat(error).contains(descendantHeader.getHash().toString());
     assertThat(error).containsIgnoringCase("invalid");
@@ -231,8 +231,7 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
     final ForkchoiceUpdatedResultV1 forkchoiceResult =
         (ForkchoiceUpdatedResultV1) ((JsonRpcSuccessResponse) response).getResult();
     assertThat(forkchoiceResult.getPayloadStatus().getStatus()).isEqualTo(INVALID);
-    assertThat(forkchoiceResult.getPayloadStatus().getLatestValidHashAsString())
-        .isEqualTo(Hash.ZERO.toHexString());
+    assertThat(forkchoiceResult.getPayloadStatus().getLatestValidHash()).isEqualTo(Hash.ZERO);
     final String error = forkchoiceResult.getPayloadStatus().getError();
     assertThat(error).contains(descendantHeader.getHash().toString());
     assertThat(error).containsIgnoringCase("invalid");

@@ -357,6 +357,11 @@ public class LayeredPendingTransactions implements PendingTransactions {
   }
 
   @Override
+  public List<PendingTransaction> getInclusionListPendingTransactions() {
+    return prioritizedTransactions.getInclusionList();
+  }
+
+  @Override
   public synchronized SenderPendingTransactionsData getPendingTransactionsFor(
       final Address sender) {
     return new SenderPendingTransactionsData(
