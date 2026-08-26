@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
+import static com.google.common.base.Preconditions.checkNotNull;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.ACCEPTED;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID_BLOCK_HASH;
@@ -61,7 +62,6 @@ import java.util.Objects;
 import java.util.Optional;
 
 import com.fasterxml.jackson.databind.JsonMappingException;
-import com.google.common.base.Preconditions;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -96,7 +96,8 @@ public sealed class EngineNewPayloadV1<
       final HardforkId minSupportedFork,
       final HardforkId firstUnsupportedFork) {
     super(constructorArguments, minSupportedFork, firstUnsupportedFork);
-    this.mergeCoordinator = constructorArguments.mergeCoordinator();
+    this.mergeCoordinator =
+        checkNotNull(constructorArguments.mergeCoordinator(), "mergeCoordinator must not be null");
     this.ethPeers = constructorArguments.ethPeers();
 
     constructorArguments
@@ -593,7 +594,7 @@ public sealed class EngineNewPayloadV1<
     }
 
     @NonNull ExecutionPayloadV1 getPayloadParameter() {
-      Preconditions.checkNotNull(payloadParameter, "Payload parameter not present");
+      checkNotNull(payloadParameter, "Payload parameter not present");
       return payloadParameter;
     }
 

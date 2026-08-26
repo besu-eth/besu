@@ -23,6 +23,7 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
+- `admin_generateLogBloomCache` now clamps both block bounds to the chain head. [#11135](https://github.com/besu-eth/besu/pull/11135)
 - `eth_getTransactionByBlockHashAndIndex` reported a malformed block hash at parameter 0 as `Invalid transaction hash params`; it now reports `Invalid block hash params`. [#11119](https://github.com/besu-eth/besu/pull/11119)
 - Fix `debug_getRawTransaction` returning bare RLP payload (missing EIP-2718 type-byte prefix) for typed transactions, causing `keccak256(raw) != txHash`. Fix `debug_getRawReceipts` double-wrapping typed receipts in an outer RLP byte-string instead of returning the raw `type || rlp(payload)` wire encoding. [#11083](https://github.com/besu-eth/besu/pull/11083)
 - Port clash detection during Besu start now treats TCP and UDP ports separately. [#10904](https://github.com/besu-eth/besu/issues/10904)
@@ -55,6 +56,7 @@
 - Pending peer request iteration: `streamAvailablePeers()` scan replaced with an allocation-free capacity check. Reduces lock contention and GC pressure under a backlog of pending peer requests. [#10900](https://github.com/besu-eth/besu/pull/10900)
 - Engine API methods now execute concurrently, with only `engine_forkchoiceUpdated` and `engine_newPayload` calls processed serially in arrival order as the Engine API spec mandates. Previously all engine calls were serialized on a single thread, so light requests like `engine_getBlobsV2` could queue behind a block import and exceed the consensus client's timeout. [#11053](https://github.com/besu-eth/besu/pull/11053)
 - Add a server-side cap on EVM steps captured per debug_traceCallMany to prevent unbounded execution [#11142](https://github.com/besu-eth/besu/pull/11142)
+- Add EIP-8070 Engine API surface: `engine_getBlobsV4` and custodyColumns [#11141](https://github.com/besu-eth/besu/pull/11141)
 
 ## 26.8.0
 

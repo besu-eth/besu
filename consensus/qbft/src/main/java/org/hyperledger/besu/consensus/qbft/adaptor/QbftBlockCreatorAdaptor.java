@@ -21,12 +21,14 @@ import org.hyperledger.besu.consensus.qbft.core.types.QbftBlock;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockCreator;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockHeader;
 import org.hyperledger.besu.crypto.SECPSignature;
+import org.hyperledger.besu.ethereum.blockcreation.BlockCreationTiming;
 import org.hyperledger.besu.ethereum.blockcreation.BlockCreator;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
 
 import java.util.Collection;
+import java.util.Optional;
 
 /** Adaptor class to allow a {@link BlockCreator} to be used as a {@link QbftBlockCreator}. */
 public class QbftBlockCreatorAdaptor implements QbftBlockCreator {
@@ -53,7 +55,9 @@ public class QbftBlockCreatorAdaptor implements QbftBlockCreator {
         besuBlockCreator.createBlock(
             headerTimeStampSeconds, AdaptorUtil.toBesuBlockHeader(parentHeader));
     return new BlockCreationResult(
-        new QbftBlockAdaptor(blockResult.getBlock()), blockResult.getBlockAccessList());
+        new QbftBlockAdaptor(
+            blockResult.getBlock(), Optional.of(blockResult.getBlockCreationTimings())),
+        blockResult.getBlockAccessList());
   }
 
   @Override
@@ -78,6 +82,10 @@ public class QbftBlockCreatorAdaptor implements QbftBlockCreator {
             .blockHeaderFunctions(BftBlockHeaderFunctions.forOnchainBlock(bftExtraDataCodec))
             .buildBlockHeader();
     final Block sealedBesuBlock = new Block(sealedHeader, besuBlock.getBody());
-    return new QbftBlockAdaptor(sealedBesuBlock);
+    final Optional<BlockCreationTiming> timing =
+        block instanceof QbftBlockAdaptor adaptor
+            ? adaptor.getBlockCreationTiming()
+            : Optional.empty();
+    return new QbftBlockAdaptor(sealedBesuBlock, timing);
   }
 }

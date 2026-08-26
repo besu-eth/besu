@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorR
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
@@ -35,6 +36,7 @@ import java.util.function.Supplier;
 import com.fasterxml.jackson.databind.JsonMappingException;
 import io.vertx.core.Vertx;
 import org.immutables.value.Value;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -47,9 +49,8 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
     INVALID_BLOCK_HASH;
   }
 
-  // Fields used by migrated series (currently engine_forkchoiceUpdatedV*, engine_newPayloadV*,
-  // engine_getPayloadV* and engine_getPayloadBodiesBy*
-  // — see the package README's migration status table). Not-yet-migrated series keep using the
+  // Fields used by migrated series (every engine_* series except engine_getBlobsV* — see the
+  // package README's migration status table). Not-yet-migrated series keep using the
   // TRANSITIONAL SHIM constructors below instead of this record.
   @Value.Builder
   public record ConstructorArguments(
@@ -57,9 +58,12 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
       ProtocolContext protocolContext,
       Vertx vertx,
       EngineCallListener engineCallListener,
-      MergeMiningCoordinator mergeCoordinator,
+      // Nullable for engine_exchangeTransitionConfigurationV1 that is constructed even when
+      // no merge-compatible mining coordinator is present, and it never reads this field.
+      @Nullable MergeMiningCoordinator mergeCoordinator,
       EthPeers ethPeers,
       MetricsSystem metricsSystem,
+      TransactionPool transactionPool,
       int maxRequestBlocks) {}
 
   private static final Logger LOG = LoggerFactory.getLogger(ExecutionEngineJsonRpcMethod.class);
