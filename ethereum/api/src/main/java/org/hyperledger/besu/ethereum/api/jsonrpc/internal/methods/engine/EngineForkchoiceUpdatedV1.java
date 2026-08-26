@@ -39,6 +39,8 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcRespon
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.ForkchoiceUpdatedResultV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadPostExecutionValidationResultV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadStatusV1;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 
@@ -130,15 +132,7 @@ public sealed class EngineForkchoiceUpdatedV1<
 
     if (mergeCoordinator.isBadBlock(forkChoice.getHeadBlockHash())) {
       logFCU(INVALID, forkChoice);
-      return new JsonRpcSuccessResponse(
-          requestId,
-          new ForkchoiceUpdatedResultV1(
-              INVALID,
-              mergeCoordinator
-                  .getLatestValidHashOfBadBlock(forkChoice.getHeadBlockHash())
-                  .orElse(Hash.ZERO),
-              null,
-              Optional.of(forkChoice.getHeadBlockHash() + " is an invalid block")));
+      return new JsonRpcSuccessResponse(requestId, creteInvalidBlockResult(forkChoice));
     }
 
     // this event is used to inform initial sync about chain progress
@@ -186,7 +180,9 @@ public sealed class EngineForkchoiceUpdatedV1<
     if (mergeCoordinator.isAncestorOfFinalized(newHead)) {
       logFCU(VALID, forkChoice);
       return new JsonRpcSuccessResponse(
-          requestId, new ForkchoiceUpdatedResultV1(VALID, forkChoice.getHeadBlockHash()));
+          requestId,
+          creteValidResult(
+              forkChoice.getHeadBlockHash(), null, PayloadPostExecutionValidationResultV1.SUCCESS));
     }
 
     // 3. If forkchoiceState.headBlockHash references a PoW block, client software
@@ -233,8 +229,11 @@ public sealed class EngineForkchoiceUpdatedV1<
       return handleNonValidForkchoiceUpdate(requestId, forkchoiceResult);
     }
 
+    final PayloadPostExecutionValidationResultV1 postExecutionResult =
+        validatePostExecution(newHead);
+
     PayloadIdentifier payloadId = null;
-    if (maybePayloadAttributes.isPresent()) {
+    if (postExecutionResult.isSuccess() && maybePayloadAttributes.isPresent()) {
       final PA attrs = maybePayloadAttributes.get();
 
       // Version-specific payload field checks.
@@ -267,10 +266,37 @@ public sealed class EngineForkchoiceUpdatedV1<
     logFCU(VALID, forkChoice);
     return new JsonRpcSuccessResponse(
         requestId,
-        new ForkchoiceUpdatedResultV1(
-            VALID,
+        creteValidResult(
             forkchoiceResult.getNewHead().map(BlockHeader::getHash).orElse(null),
-            payloadId));
+            payloadId,
+            postExecutionResult));
+  }
+
+  /**
+   * Extension point for version-specific validation that requires a successfully processed block
+   * (e.g. inclusion list satisfaction, EIP-7805). Returns a response to short-circuit with if
+   * validation fails.
+   */
+  protected PayloadPostExecutionValidationResultV1 validatePostExecution(
+      final BlockHeader newHead) {
+    return PayloadPostExecutionValidationResultV1.SUCCESS;
+  }
+
+  protected ForkchoiceUpdatedResultV1 creteValidResult(
+      final Hash lastValid,
+      final PayloadIdentifier payloadId,
+      final PayloadPostExecutionValidationResultV1 postExecutionResult) {
+    return new ForkchoiceUpdatedResultV1(new PayloadStatusV1(VALID, lastValid), payloadId);
+  }
+
+  protected ForkchoiceUpdatedResultV1 creteInvalidBlockResult(final ForkchoiceStateV1 forkChoice) {
+    return new ForkchoiceUpdatedResultV1(
+        new PayloadStatusV1(
+            INVALID,
+            mergeCoordinator
+                .getLatestValidHashOfBadBlock(forkChoice.getHeadBlockHash())
+                .orElse(Hash.ZERO),
+            forkChoice.getHeadBlockHash() + " is an invalid block"));
   }
 
   /**
@@ -407,13 +433,18 @@ public sealed class EngineForkchoiceUpdatedV1<
     if (result.getStatus() == ForkchoiceResult.Status.INVALID) {
       return new JsonRpcSuccessResponse(
           requestId,
-          new ForkchoiceUpdatedResultV1(
-              INVALID, latestValid.orElse(null), null, result.getErrorMessage()));
+          creteNonValidForkchoiceUpdateResult(
+              latestValid.orElse(null), result.getErrorMessage().orElse(null)));
     }
     throw new AssertionError(
         "Unexpected ForkchoiceResult.Status: "
             + result.getStatus()
             + " (updateForkChoiceWithoutLegacySkip should not emit IGNORE_UPDATE_TO_OLD_HEAD)");
+  }
+
+  protected ForkchoiceUpdatedResultV1 creteNonValidForkchoiceUpdateResult(
+      final Hash latestValid, final String errorMessage) {
+    return new ForkchoiceUpdatedResultV1(new PayloadStatusV1(INVALID, latestValid, errorMessage));
   }
 
   private JsonRpcResponse syncingResponse(
@@ -425,8 +456,11 @@ public sealed class EngineForkchoiceUpdatedV1<
             forkChoice.getHeadBlockHash(),
             forkChoice.getSafeBlockHash(),
             forkChoice.getFinalizedBlockHash());
-    return new JsonRpcSuccessResponse(
-        requestId, new ForkchoiceUpdatedResultV1(SYNCING, null, null, Optional.empty()));
+    return new JsonRpcSuccessResponse(requestId, creteSyncingResult());
+  }
+
+  protected ForkchoiceUpdatedResultV1 creteSyncingResult() {
+    return new ForkchoiceUpdatedResultV1(new PayloadStatusV1(SYNCING));
   }
 
   private void logFCU(final EngineStatus status, final ForkchoiceStateV1 forkChoice) {

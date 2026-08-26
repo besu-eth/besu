@@ -25,10 +25,12 @@ import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
+import org.hyperledger.besu.ethereum.eth.transactions.inclusionlist.InclusionListConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.BaseFeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 
 import java.util.Comparator;
+import java.util.List;
 import java.util.Optional;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
@@ -83,6 +85,12 @@ public class BaseFeePrioritizedTransactions extends AbstractPrioritizedTransacti
         .thenComparing(Comparator.comparing(PendingTransaction::getNonce).reversed())
         .thenComparing(PendingTransaction::getSequence)
         .compare(pt1, pt2);
+  }
+
+  @Override
+  List<PendingTransaction> getInclusionList() {
+    return inclusionListTransactionSelector.selectTransactions(
+        getBySender(), InclusionListConfiguration.MAX_BYTES_PER_INCLUSION_LIST);
   }
 
   /**

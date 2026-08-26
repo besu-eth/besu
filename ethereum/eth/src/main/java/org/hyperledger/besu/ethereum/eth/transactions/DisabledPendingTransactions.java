@@ -81,6 +81,11 @@ public class DisabledPendingTransactions implements PendingTransactions {
   }
 
   @Override
+  public List<PendingTransaction> getInclusionListPendingTransactions() {
+    return List.of();
+  }
+
+  @Override
   public SenderPendingTransactionsData getPendingTransactionsFor(final Address sender) {
     return SenderPendingTransactionsData.empty(sender);
   }

@@ -18,8 +18,8 @@ import org.hyperledger.besu.ethereum.core.Request;
 
 import java.util.List;
 
-public final class NewPayloadRequestParametersV3<EP extends ExecutionPayloadV3>
-    extends NewPayloadRequestParametersV2<EP> {
+public sealed class NewPayloadRequestParametersV3<EP extends ExecutionPayloadV3>
+    extends NewPayloadRequestParametersV2<EP> permits NewPayloadRequestParametersV4 {
   private final List<Request> executionRequests;
 
   public NewPayloadRequestParametersV3(

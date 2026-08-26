@@ -46,7 +46,7 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
     INVALID,
     SYNCING,
     ACCEPTED,
-    INVALID_BLOCK_HASH;
+    INVALID_BLOCK_HASH
   }
 
   // Fields used by migrated series (every engine_* series except engine_getBlobsV* — see the

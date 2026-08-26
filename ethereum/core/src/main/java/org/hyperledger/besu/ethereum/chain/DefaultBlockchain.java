@@ -562,6 +562,11 @@ public class DefaultBlockchain implements MutableBlockchain {
   }
 
   @Override
+  public Optional<List<String>> getInclusionListHexTransactions(final Hash blockHash) {
+    return blockchainStorage.getInclusionListHexTransactions(blockHash);
+  }
+
+  @Override
   public Comparator<BlockHeader> getBlockChoiceRule() {
     return blockChoiceRule;
   }
@@ -1052,6 +1057,14 @@ public class DefaultBlockchain implements MutableBlockchain {
   public void setSafeBlock(final Hash blockHash) {
     final var updater = blockchainStorage.updater();
     updater.setSafeBlock(blockHash);
+    updater.commit();
+  }
+
+  @Override
+  public void storeInclusionListTransactions(
+      final Hash blockHash, final List<String> hexTransactions) {
+    final var updater = blockchainStorage.updater();
+    updater.putInclusionListTransactions(blockHash, hexTransactions);
     updater.commit();
   }
 

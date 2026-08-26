@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.methods;
 
 import static com.google.common.base.Preconditions.checkState;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BOGOTA;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.OSAKA;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PRAGUE;
@@ -35,11 +36,13 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineF
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineForkchoiceUpdatedV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineForkchoiceUpdatedV3;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineForkchoiceUpdatedV4;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineForkchoiceUpdatedV5;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineGetBlobsV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineGetBlobsV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineGetBlobsV3;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineGetBlobsV4;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineGetClientVersionV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineGetInclusionListV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineGetPayloadBodiesByHashV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineGetPayloadBodiesByHashV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineGetPayloadBodiesByRangeV1;
@@ -55,10 +58,12 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineN
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineNewPayloadV3;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineNewPayloadV4;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineNewPayloadV5;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineNewPayloadV6;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineQosTimer;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
+import org.hyperledger.besu.ethereum.eth.transactions.inclusionlist.InclusionListConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
@@ -95,7 +100,8 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
       final String clientVersion,
       final String commit,
       final TransactionPool transactionPool,
-      final MetricsSystem metricsSystem) {
+      final MetricsSystem metricsSystem,
+      final InclusionListConfiguration inclusionListConfiguration) {
     this.mergeCoordinator =
         Optional.ofNullable(miningCoordinator)
             .filter(MiningCoordinator::isCompatibleWithEngineApi)
@@ -185,6 +191,16 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
                 metricsSystem));
       }
 
+      if (protocolSchedule.milestoneFor(BOGOTA).isPresent()) {
+        executionEngineApisSupported.add(
+            new EngineGetInclusionListV1(
+                consensusEngineServer,
+                protocolContext,
+                engineQosTimer,
+                transactionPool,
+                metricsSystem));
+      }
+
       return mapOf(executionEngineApisSupported);
     } else {
       // engine_exchangeTransitionConfigurationV1 is registered when no merge-compatible mining
@@ -214,6 +230,7 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
         .thenAlsoFromBeginning(EngineForkchoiceUpdatedV2::new)
         .thenFrom(CANCUN, EngineForkchoiceUpdatedV3::new)
         .thenFrom(AMSTERDAM, EngineForkchoiceUpdatedV4::new)
+        .thenFrom(BOGOTA, EngineForkchoiceUpdatedV5::new)
         .build(constructorArguments);
   }
 
@@ -225,6 +242,7 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
         .thenFrom(CANCUN, EngineNewPayloadV3::new)
         .thenFrom(PRAGUE, EngineNewPayloadV4::new)
         .thenFrom(AMSTERDAM, EngineNewPayloadV5::new)
+        .thenFrom(BOGOTA, EngineNewPayloadV6::new)
         .build(constructorArguments);
   }
 
