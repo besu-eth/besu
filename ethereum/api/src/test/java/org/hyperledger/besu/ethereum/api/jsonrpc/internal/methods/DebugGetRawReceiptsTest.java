@@ -26,6 +26,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSucces
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 
 import java.util.Collections;
@@ -54,8 +55,10 @@ public class DebugGetRawReceiptsTest {
 
   @Test
   public void returnsNullForMissingBlock() {
-    final long missingBlockNumber = 999_999_999L;
+    final long missingBlockNumber = 999L;
+    when(blockchainQueries.headBlockNumber()).thenReturn(9999L);
     when(blockchainQueries.getBlockHashByNumber(missingBlockNumber)).thenReturn(Optional.empty());
+    when(blockchain.getTxReceipts(Hash.EMPTY)).thenReturn(Optional.empty());
 
     final JsonRpcRequestContext request =
         new JsonRpcRequestContext(
@@ -70,8 +73,8 @@ public class DebugGetRawReceiptsTest {
 
   @Test
   public void returnsNullForFutureBlock() {
-    final long futureBlockNumber = Long.MAX_VALUE;
-    when(blockchainQueries.getBlockHashByNumber(futureBlockNumber)).thenReturn(Optional.empty());
+    // headBlockNumber() defaults to 0, so any positive block number is treated as future
+    final long futureBlockNumber = 1000L;
 
     final JsonRpcRequestContext request =
         new JsonRpcRequestContext(
@@ -88,8 +91,9 @@ public class DebugGetRawReceiptsTest {
   public void returnsEmptyArrayForBlockWithNoReceipts() {
     final long blockNumber = 42L;
     final Hash blockHash = Hash.fromHexStringLenient("0x1234");
+    when(blockchainQueries.headBlockNumber()).thenReturn(9999L);
     when(blockchainQueries.getBlockHashByNumber(blockNumber)).thenReturn(Optional.of(blockHash));
-    when(blockchain.getTxReceipts(blockHash)).thenReturn(Optional.of(java.util.List.of()));
+    when(blockchain.getTxReceipts(blockHash)).thenReturn(Optional.of(List.of()));
 
     final JsonRpcRequestContext request =
         new JsonRpcRequestContext(
@@ -97,6 +101,24 @@ public class DebugGetRawReceiptsTest {
                 "2.0",
                 "debug_getRawReceipts",
                 new Object[] {"0x" + Long.toHexString(blockNumber)}));
+
+    final JsonRpcSuccessResponse response = (JsonRpcSuccessResponse) method.response(request);
+    assertThat((String[]) response.getResult()).isEmpty();
+  }
+
+  @Test
+  public void returnsReceiptsWhenCalledWithBlockHash() {
+    final Hash blockHash =
+        Hash.fromHexString("0xb8a651cb280e169015aef5235a141cb2d905058d1ff9bba788b7ad2c729c9837");
+    final BlockHeader blockHeader = mock(BlockHeader.class);
+    when(blockHeader.getBlockHash()).thenReturn(blockHash);
+    when(blockchainQueries.getBlockHeaderByHash(blockHash)).thenReturn(Optional.of(blockHeader));
+    when(blockchain.getTxReceipts(blockHash)).thenReturn(Optional.of(List.of()));
+
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest(
+                "2.0", "debug_getRawReceipts", new Object[] {blockHash.toHexString()}));
 
     final JsonRpcSuccessResponse response = (JsonRpcSuccessResponse) method.response(request);
     assertThat((String[]) response.getResult()).isEmpty();
@@ -117,6 +139,7 @@ public class DebugGetRawReceiptsTest {
             Collections.singletonList(new BlockDataGenerator().log()),
             Optional.empty());
 
+    when(blockchainQueries.headBlockNumber()).thenReturn(9999L);
     when(blockchainQueries.getBlockHashByNumber(blockNumber)).thenReturn(Optional.of(blockHash));
     when(blockchain.getTxReceipts(blockHash)).thenReturn(Optional.of(List.of(receipt)));
 
