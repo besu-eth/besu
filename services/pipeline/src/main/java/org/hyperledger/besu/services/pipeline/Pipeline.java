@@ -22,7 +22,6 @@ import org.hyperledger.besu.util.log.LogUtil;
 
 import java.util.Collection;
 import java.util.List;
-import java.util.Objects;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -160,6 +159,8 @@ public class Pipeline<I> {
    * <p>A best effort is made to halt all processing by the pipeline immediately by interrupting
    * each execution thread and pipes connecting each stage will no longer accept or provide further
    * items.
+   *
+   * @throws IllegalStateException if the pipeline has not been started
    */
   public void abort() {
     final CancellationException exception = new CancellationException("Pipeline aborted");
@@ -214,10 +215,14 @@ public class Pipeline<I> {
   }
 
   private synchronized void abort(final Throwable error) {
+    final List<Future<?>> runningFutures = futures;
+    if (runningFutures == null) {
+      throw new IllegalStateException("Pipeline must be started before it can be aborted");
+    }
     if (completing.compareAndSet(false, true)) {
       inputPipe.abort();
       pipes.forEach(Pipe::abort);
-      Objects.requireNonNull(futures).forEach(future -> future.cancel(true));
+      runningFutures.forEach(future -> future.cancel(true));
       overallFuture.completeExceptionally(error);
     }
   }
