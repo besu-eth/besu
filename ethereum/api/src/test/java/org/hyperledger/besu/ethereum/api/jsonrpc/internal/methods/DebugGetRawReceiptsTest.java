@@ -58,7 +58,6 @@ public class DebugGetRawReceiptsTest {
     final long missingBlockNumber = 999L;
     when(blockchainQueries.headBlockNumber()).thenReturn(9999L);
     when(blockchainQueries.getBlockHashByNumber(missingBlockNumber)).thenReturn(Optional.empty());
-    when(blockchain.getTxReceipts(Hash.EMPTY)).thenReturn(Optional.empty());
 
     final JsonRpcRequestContext request =
         new JsonRpcRequestContext(
