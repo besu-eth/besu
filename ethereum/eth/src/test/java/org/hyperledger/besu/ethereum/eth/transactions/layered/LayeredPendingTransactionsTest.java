@@ -938,6 +938,32 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
         .containsExactly(tx1);
   }
 
+  @Test
+  public void shouldUnderPurgeIfWorldStateThrowsWhenCheckingConfirmedCodeDelegations() {
+    final Transaction tx1 = createEIP1559Transaction(0, KEYS1, 1);
+    final Transaction eip7702Tx =
+        createEIP7702Transaction(0, KEYS2, 1, List.of(CODE_DELEGATION_SENDER_1));
+
+    pendingTransactions.addTransaction(createRemotePendingTransaction(eip7702Tx), Optional.empty());
+    pendingTransactions.addTransaction(createRemotePendingTransaction(tx1), Optional.empty());
+
+    assertThat(pendingTransactions.getStatus().pendingCount()).isEqualTo(2);
+
+    when(worldStateArchive.getWorldState(any()))
+        .thenThrow(new RuntimeException("simulated world state failure"));
+
+    final BlockHeader mockBlockHeader = mockBlockHeader();
+    when(mockBlockHeader.getStateRoot()).thenReturn(Hash.ZERO);
+    pendingTransactions.manageBlockAdded(
+        mockBlockHeader, List.of(eip7702Tx), List.of(), FeeMarket.london(0L));
+
+    // getWorldState() threw before authority nonces could be checked; pool under-purges
+    // but manageBlockAdded must still complete — tx1 remains (sender-only reconciliation)
+    assertThat(pendingTransactions.getPendingTransactions())
+        .map(PendingTransaction::getTransaction)
+        .containsExactly(tx1);
+  }
+
   private TransactionAndAccount[] populateCache(final int numTxs, final long startingNonce) {
     return populateCache(numTxs, KEYS1, startingNonce, OptionalLong.empty());
   }
