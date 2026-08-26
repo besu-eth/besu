@@ -40,6 +40,7 @@ dependencies {
   api project(':ethereum:api:plugin-api')
   api project(':ethereum:core:plugin-api-chain')
   api project(':ethereum:core:plugin-api-worldstate-backend')
+  api project(':ethereum:core:plugin-api-execution')
   api project(':datatypes')
   api 'org.apache.commons:commons-lang3'
   api 'io.consensys.tuweni:tuweni-bytes'
@@ -78,7 +79,8 @@ tasks.register('checkAPICompatibility', me.champeau.gradle.japicmp.JapicmpTask) 
     project(':ethereum:eth:plugin-api-sync').tasks.named('jar'),
     project(':ethereum:api:plugin-api').tasks.named('jar'),
     project(':ethereum:core:plugin-api-chain').tasks.named('jar'),
-    project(':ethereum:core:plugin-api-worldstate-backend').tasks.named('jar'))
+    project(':ethereum:core:plugin-api-worldstate-backend').tasks.named('jar'),
+    project(':ethereum:core:plugin-api-execution').tasks.named('jar'))
   newClasspath.from(sourceSets.main.runtimeClasspath)
 
   packageIncludes = [

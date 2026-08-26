@@ -48,8 +48,8 @@ public interface TraceService extends BesuService {
    *
    * @param fromBlockNumber the beginning of the range (inclusive)
    * @param toBlockNumber the end of the range (inclusive)
-   * @param beforeTracing Function which performs an operation on a MutableWorldState before tracing
-   * @param afterTracing Function which performs an operation on a MutableWorldState after tracing
+   * @param beforeTracing consumer invoked with the world updater of each block before it is traced
+   * @param afterTracing consumer invoked with the world updater of each block after it is traced
    * @param tracer an instance of OperationTracer
    */
   void trace(
