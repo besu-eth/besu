@@ -81,7 +81,7 @@ public class InclusionListValidator {
                             + newBlockHeader.toLogString()))) {
 
       LOG.atInfo()
-          .setMessage("Strict IL validation: {} IL txs, gasLeft={}")
+          .setMessage("IL validation: {} IL txs, gasLeft={}")
           .addArgument(inclusionListTransactions.size())
           .addArgument(blockGasLeft)
           .log();
@@ -106,9 +106,10 @@ public class InclusionListValidator {
               .addArgument(tx::toTraceLog)
               .log();
 
-          // Skip blob txs they are not allowed
+          // Fail on blob txs, they are not allowed
           if (tx.getType().supportsBlob()) {
-            continue;
+            return InclusionListValidationResult.unsatisfied(
+                "Blob transactions not allowed in inclusion list");
           }
 
           // Step 2: Skip if T.gas > gas_left (block has no room for this transaction)
