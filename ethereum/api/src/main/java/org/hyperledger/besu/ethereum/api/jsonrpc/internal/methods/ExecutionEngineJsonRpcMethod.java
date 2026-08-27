@@ -49,9 +49,9 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
     INVALID_BLOCK_HASH;
   }
 
-  // Fields used by migrated series (every engine_* series except engine_getBlobsV* — see the
-  // package README's migration status table). Not-yet-migrated series keep using the
-  // TRANSITIONAL SHIM constructors below instead of this record.
+  // Fields used by migrated series — now every engine_* series, see the package README's
+  // migration status table. The TRANSITIONAL SHIM constructors below have no callers left and are
+  // removed in the cleanup PR that closes this stack.
   @Value.Builder
   public record ConstructorArguments(
       ProtocolSchedule protocolSchedule,

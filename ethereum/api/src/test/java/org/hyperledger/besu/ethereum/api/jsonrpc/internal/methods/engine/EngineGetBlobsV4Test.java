@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.hyperledger.besu.datatypes.BlobType.KZG_CELL_PROOFS;
 import static org.hyperledger.besu.datatypes.BlobType.KZG_PROOF;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineTestSupport.fromErrorResp;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -28,6 +29,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.merge.MergeContext;
+import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
@@ -35,6 +37,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ConstructorArgumentsBuilder;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
@@ -44,6 +47,7 @@ import org.hyperledger.besu.ethereum.core.BlobTestFixture;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.kzg.BlobProofBundle;
 import org.hyperledger.besu.ethereum.core.kzg.CKZG4844Helper;
+import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.metrics.ObservableMetricsSystem;
@@ -113,12 +117,19 @@ public class EngineGetBlobsV4Test extends AbstractScheduledApiTest {
 
     method =
         new EngineGetBlobsV4(
-            mock(Vertx.class),
-            protocolContext,
-            protocolSchedule,
-            mock(EngineCallListener.class),
-            transactionPool,
-            metricsSystem);
+            new ConstructorArgumentsBuilder()
+                .protocolSchedule(protocolSchedule)
+                .protocolContext(protocolContext)
+                .vertx(mock(Vertx.class))
+                .engineCallListener(mock(EngineCallListener.class))
+                .mergeCoordinator(mock(MergeMiningCoordinator.class))
+                .transactionPool(transactionPool)
+                .ethPeers(mock(EthPeers.class))
+                .metricsSystem(metricsSystem)
+                .maxRequestBlocks(0)
+                .build(),
+            AMSTERDAM,
+            null);
   }
 
   @Test
@@ -243,6 +254,23 @@ public class EngineGetBlobsV4Test extends AbstractScheduledApiTest {
 
     assertThat(exception).isNotNull();
     assertThat(exception.getRpcErrorType()).isEqualTo(RpcErrorType.INVALID_INDICES_BITARRAY_PARAMS);
+  }
+
+  @Test
+  void shouldFailWhenAmsterdamNotActive() {
+    when(blockHeader.getTimestamp()).thenReturn(amsterdamHardfork.milestone() - 1);
+    JsonRpcResponse response =
+        method.syncResponse(buildRequestContext(FULL_BITARRAY, new VersionedHash[0]));
+    assertThat(fromErrorResp(response).getCode())
+        .isEqualTo(RpcErrorType.UNSUPPORTED_FORK.getCode());
+  }
+
+  @Test
+  void shouldSucceedWhenAmsterdamActive() {
+    when(blockHeader.getTimestamp()).thenReturn(amsterdamHardfork.milestone());
+    JsonRpcResponse response =
+        method.syncResponse(buildRequestContext(FULL_BITARRAY, new VersionedHash[0]));
+    assertThat(response.getType()).isEqualTo(RpcResponseType.SUCCESS);
   }
 
   @Test
