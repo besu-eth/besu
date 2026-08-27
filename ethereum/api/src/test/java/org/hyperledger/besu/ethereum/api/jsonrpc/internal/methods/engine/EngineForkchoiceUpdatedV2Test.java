@@ -34,6 +34,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttr
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.ForkchoiceUpdatedResultV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
@@ -115,7 +116,7 @@ public class EngineForkchoiceUpdatedV2Test extends EngineForkchoiceUpdatedV1Test
 
   private PayloadAttributesV2 validPayloadAttributesForBlockV2(final BlockHeader head) {
     return new PayloadAttributesV2(
-        String.valueOf(head.getTimestamp() + 1),
+        Quantity.create(head.getTimestamp() + 1),
         Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
         Address.ECREC.toString(),
         emptyList());
@@ -124,7 +125,7 @@ public class EngineForkchoiceUpdatedV2Test extends EngineForkchoiceUpdatedV1Test
   @Override
   protected Object invalidTimestampPayloadAttributesForBlock(final BlockHeader head) {
     return new PayloadAttributesV2(
-        String.valueOf(head.getTimestamp()),
+        Quantity.create(head.getTimestamp()),
         Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
         Address.ECREC.toString(),
         emptyList());
@@ -168,7 +169,7 @@ public class EngineForkchoiceUpdatedV2Test extends EngineForkchoiceUpdatedV1Test
 
   protected Object payloadAttributesWithNullWithdrawalsForBlock(final BlockHeader head) {
     return new PayloadAttributesV2(
-        String.valueOf(head.getTimestamp() + 1),
+        Quantity.create(head.getTimestamp() + 1),
         Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
         Address.ECREC.toString(),
         null);

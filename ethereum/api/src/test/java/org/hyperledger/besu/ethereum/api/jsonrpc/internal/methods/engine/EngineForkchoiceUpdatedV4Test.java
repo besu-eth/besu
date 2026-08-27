@@ -33,6 +33,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorR
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
@@ -106,7 +107,7 @@ public class EngineForkchoiceUpdatedV4Test extends EngineForkchoiceUpdatedV3Test
   @Override
   protected Object validPayloadAttributesForBlock(final BlockHeader head) {
     return new PayloadAttributesV4(
-        String.valueOf(head.getTimestamp() + 1),
+        Quantity.create(head.getTimestamp() + 1),
         Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
         Address.ECREC.toString(),
         Collections.emptyList(),
@@ -118,7 +119,7 @@ public class EngineForkchoiceUpdatedV4Test extends EngineForkchoiceUpdatedV3Test
   @Override
   protected Object invalidTimestampPayloadAttributesForBlock(final BlockHeader head) {
     return new PayloadAttributesV4(
-        String.valueOf(head.getTimestamp()),
+        Quantity.create(head.getTimestamp()),
         Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
         Address.ECREC.toString(),
         Collections.emptyList(),
@@ -130,7 +131,7 @@ public class EngineForkchoiceUpdatedV4Test extends EngineForkchoiceUpdatedV3Test
   @Override
   protected Object payloadAttributesWithNullWithdrawalsForBlock(final BlockHeader head) {
     return new PayloadAttributesV4(
-        String.valueOf(head.getTimestamp() + 1),
+        Quantity.create(head.getTimestamp() + 1),
         Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
         Address.ECREC.toString(),
         null,
@@ -147,7 +148,7 @@ public class EngineForkchoiceUpdatedV4Test extends EngineForkchoiceUpdatedV3Test
 
     final PayloadAttributesV4 payloadWithNegativeSlot =
         new PayloadAttributesV4(
-            String.valueOf(mockHeader.getTimestamp() + 1),
+            Quantity.create(mockHeader.getTimestamp() + 1),
             Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
             Address.ECREC.toString(),
             Collections.emptyList(),
@@ -171,7 +172,7 @@ public class EngineForkchoiceUpdatedV4Test extends EngineForkchoiceUpdatedV3Test
 
     final PayloadAttributesV4 payloadWithZeroSlot =
         new PayloadAttributesV4(
-            String.valueOf(mockHeader.getTimestamp() + 1),
+            Quantity.create(mockHeader.getTimestamp() + 1),
             Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
             Address.ECREC.toString(),
             Collections.emptyList(),
@@ -193,7 +194,7 @@ public class EngineForkchoiceUpdatedV4Test extends EngineForkchoiceUpdatedV3Test
 
     final PayloadAttributesV4 payloadWithMissingTargetGasLimit =
         new PayloadAttributesV4(
-            String.valueOf(mockHeader.getTimestamp() + 1),
+            Quantity.create(mockHeader.getTimestamp() + 1),
             Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
             Address.ECREC.toString(),
             Collections.emptyList(),
@@ -218,7 +219,7 @@ public class EngineForkchoiceUpdatedV4Test extends EngineForkchoiceUpdatedV3Test
 
     final PayloadAttributesV4 attrs =
         new PayloadAttributesV4(
-            String.valueOf(mockHeader.getTimestamp() + 1),
+            Quantity.create(mockHeader.getTimestamp() + 1),
             Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
             Address.ECREC.toString(),
             Collections.emptyList(),
