@@ -20,7 +20,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV4;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV3;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -111,13 +110,11 @@ public final class EngineNewPayloadV5<
         final String jsonPath = maybeJsonPath.get();
 
         if (jsonPath.equals("blockAccessList")) {
-          return new JsonRpcErrorResponse(
+          return respondWithInvalid(
               reqId,
-              ValidationResult.invalid(
-                  RpcErrorType.INVALID_BLOCK_ACCESS_LIST_PARAMS,
-                  "Failed to decode block access list payload parameter ("
-                      + fieldEx.getOriginalMessage()
-                      + ")"));
+              "Failed to decode block access list payload parameter ("
+                  + fieldEx.getOriginalMessage()
+                  + ")");
         }
       }
     }
