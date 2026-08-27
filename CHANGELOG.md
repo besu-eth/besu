@@ -23,6 +23,9 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
+- `debug_getRawReceipts` now accepts a block hash as well as a block number or tag. [#11156](https://github.com/besu-eth/besu/pull/11156)
+- Support dynamic reorg tracking for transaction receipt logs in `eth_getTransactionReceipt` and `eth_getBlockReceipts` by populating the `removed` field. [#11076](https://github.com/besu-eth/besu/pull/11076)
+- `testing_buildBlockV1` now uses the genesis gas limit as the effective target when no `targetGasLimit` is specified, so the gas limit calculator applies a one-step decrement rather than holding the parent value. [#11166](https://github.com/besu-eth/besu/pull/11166)
 - Keep `evmtool state-test --json` stdout valid JSONL by omitting the human-readable final summary in that mode. [#11127](https://github.com/besu-eth/besu/issues/11127)
 - `admin_generateLogBloomCache` now clamps both block bounds to the chain head. [#11135](https://github.com/besu-eth/besu/pull/11135)
 - `eth_getTransactionByBlockHashAndIndex` reported a malformed block hash at parameter 0 as `Invalid transaction hash params`; it now reports `Invalid block hash params`. [#11119](https://github.com/besu-eth/besu/pull/11119)
