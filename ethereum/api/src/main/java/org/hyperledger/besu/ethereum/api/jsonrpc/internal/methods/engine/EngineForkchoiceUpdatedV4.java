@@ -163,7 +163,8 @@ public final class EngineForkchoiceUpdatedV4<
   }
 
   private ValidationResult<RpcErrorType> validatePayloadAttributesV4(final PA attrs) {
-    if (attrs.getSlotNumber() == null || attrs.getSlotNumber() < 0) {
+    // Any uint64 is a legal slot number, so only absence is rejected here.
+    if (attrs.getSlotNumber() == null) {
       return ValidationResult.invalid(
           RpcErrorType.INVALID_SLOT_NUMBER_PARAMS, "Invalid slotNumber");
     }

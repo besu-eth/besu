@@ -79,9 +79,7 @@ public class FilterManager extends AbstractVerticle {
   private void startFilterTimeoutTimer() {
     vertx.setPeriodic(
         FILTER_TIMEOUT_CHECK_TIMER,
-        timerId ->
-            vertx.executeBlocking(
-                future -> new FilterTimeoutMonitor(filterRepository).checkFilters(), result -> {}));
+        timerId -> new FilterTimeoutMonitor(filterRepository).checkFilters());
   }
 
   /**
