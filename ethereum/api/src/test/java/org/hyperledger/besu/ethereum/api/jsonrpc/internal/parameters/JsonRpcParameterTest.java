@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.Configuration.DEFAULT;
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.Configuration.FAIL_ON_UNKNOWN_BUT_EMPTY;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.Configuration.FAIL_ON_UNKNOWN_BUT_NULL;
 
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
@@ -173,6 +174,87 @@ class JsonRpcParameterTest {
 
     assertThat(result).isPresent();
     assertThat(result.get().known).isEqualTo("value");
+  }
+
+  @Test
+  void failOnUnknownButNull_fails_whenUnknownPropertyIsEmptyByteString() {
+    // The empty-tolerant behaviour is scoped to engine payloads; the rest of the JSON-RPC surface
+    // must keep rejecting it.
+    final Map<String, Object> raw = new LinkedHashMap<>();
+    raw.put("known", "value");
+    raw.put("unknown", "0x");
+
+    assertThatExceptionOfType(JsonRpcParameterException.class)
+        .isThrownBy(
+            () ->
+                parameterAccessor.optional(
+                    new Object[] {raw}, 0, KnownOnly.class, FAIL_ON_UNKNOWN_BUT_NULL))
+        .withMessageContaining("Invalid json rpc parameter at index 0");
+  }
+
+  // ---- FAIL_ON_UNKNOWN_BUT_EMPTY behaviour ----
+
+  @Test
+  void failOnUnknownButEmpty_succeeds_whenUnknownPropertyIsEmptyByteString() throws Exception {
+    // An empty unknown property carries no information, so it is dropped like an explicit null.
+    // engine_newPayloadV4 relies on this to judge a "blockAccessList": "0x" on its block hash.
+    for (final String empty : new String[] {"0x", "0X", ""}) {
+      final Map<String, Object> raw = new LinkedHashMap<>();
+      raw.put("known", "value");
+      raw.put("unknown", empty);
+
+      final Optional<KnownOnly> result =
+          parameterAccessor.optional(
+              new Object[] {raw}, 0, KnownOnly.class, FAIL_ON_UNKNOWN_BUT_EMPTY);
+
+      assertThat(result).isPresent();
+      assertThat(result.get().known).isEqualTo("value");
+    }
+  }
+
+  @Test
+  void failOnUnknownButEmpty_succeeds_whenUnknownPropertyIsNull() throws Exception {
+    final Map<String, Object> raw = new LinkedHashMap<>();
+    raw.put("known", "value");
+    raw.put("unknown", null);
+
+    final Optional<KnownOnly> result =
+        parameterAccessor.optional(
+            new Object[] {raw}, 0, KnownOnly.class, FAIL_ON_UNKNOWN_BUT_EMPTY);
+
+    assertThat(result).isPresent();
+    assertThat(result.get().known).isEqualTo("value");
+  }
+
+  @Test
+  void failOnUnknownButEmpty_fails_whenUnknownPropertyIsEmptyRlpList() {
+    // "0xc0" is a real (empty-list) RLP value, not an absent field, so it must still be rejected.
+    final Map<String, Object> raw = new LinkedHashMap<>();
+    raw.put("known", "value");
+    raw.put("unknown", "0xc0");
+
+    assertThatExceptionOfType(JsonRpcParameterException.class)
+        .isThrownBy(
+            () ->
+                parameterAccessor.optional(
+                    new Object[] {raw}, 0, KnownOnly.class, FAIL_ON_UNKNOWN_BUT_EMPTY))
+        .withMessageContaining("Invalid json rpc parameter at index 0");
+  }
+
+  @Test
+  void failOnUnknownButEmpty_fails_whenUnknownPropertyIsZeroQuantity() {
+    // "0x0" is a value, so a pre-fork payload carrying e.g. "slotNumber": "0x0" must still be
+    // rejected rather than silently ignored.
+    final Map<String, Object> raw = new LinkedHashMap<>();
+    raw.put("known", "value");
+    raw.put("unknown", "0x0");
+
+    assertThatExceptionOfType(JsonRpcParameterException.class)
+        .isThrownBy(
+            () ->
+                parameterAccessor.optional(
+                    new Object[] {raw}, 0, KnownOnly.class, FAIL_ON_UNKNOWN_BUT_EMPTY))
+        .withMessageContaining("Invalid json rpc parameter at index 0");
   }
 
   @Test
