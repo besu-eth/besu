@@ -21,10 +21,11 @@ import java.util.Optional;
 import org.apache.tuweni.bytes.Bytes;
 
 /**
- * TransactionSimulationResult
+ * The result of simulating a transaction: the transaction that was run and the outcome of
+ * processing it.
  *
- * @param transaction tx
- * @param result res
+ * @param transaction the simulated transaction
+ * @param result the processing result of the simulation
  */
 public record TransactionSimulationResult(
     Transaction transaction, TransactionProcessingResult result) {
@@ -32,7 +33,7 @@ public record TransactionSimulationResult(
   /**
    * Was the simulation successful?
    *
-   * @return boolean
+   * @return true if the transaction was processed successfully
    */
   public boolean isSuccessful() {
     return result.isSuccessful();
@@ -41,7 +42,7 @@ public record TransactionSimulationResult(
   /**
    * Was the transaction invalid?
    *
-   * @return invalid
+   * @return true if the transaction failed validation and was not executed
    */
   public boolean isInvalid() {
     return result.isInvalid();

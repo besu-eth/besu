@@ -69,7 +69,7 @@ public interface TransactionSimulationService extends BesuService {
 
   /**
    * Return a simulation of what could be current pending block, it can also be passed to {@link
-   * #simulate(Transaction, Optional, ProcessableBlockHeader, OperationTracer, boolean, boolean)}
+   * #simulate(Transaction, Optional, ProcessableBlockHeader, OperationTracer, EnumSet)}
    *
    * @return the simulated pending block header
    */
@@ -79,7 +79,7 @@ public interface TransactionSimulationService extends BesuService {
    * Simulate transaction execution at the block identified by the hash, with optional state
    * overrides that can be applied before the simulation.
    *
-   * @param transaction tx
+   * @param transaction the transaction to simulate
    * @param stateOverrides state overrides to apply to this simulation
    * @param blockHash hash of the block
    * @param operationTracer the tracer
@@ -105,7 +105,7 @@ public interface TransactionSimulationService extends BesuService {
    * Simulate transaction execution at the block identified by the hash, with optional state
    * overrides that can be applied before the simulation.
    *
-   * @param transaction tx
+   * @param transaction the transaction to simulate
    * @param stateOverrides state overrides to apply to this simulation
    * @param blockHash hash of the block
    * @param operationTracer the tracer
@@ -124,7 +124,7 @@ public interface TransactionSimulationService extends BesuService {
    * Simulate transaction execution at the block identified by the block header, with optional state
    * overrides that can be applied before the simulation.
    *
-   * @param transaction tx
+   * @param transaction the transaction to simulate
    * @param stateOverrides state overrides to apply to this simulation
    * @param processableBlockHeader block header to simulate on pending block
    * @param operationTracer the tracer
@@ -155,7 +155,7 @@ public interface TransactionSimulationService extends BesuService {
    * Simulate transaction execution at the block identified by the block header, with optional state
    * overrides that can be applied before the simulation.
    *
-   * @param transaction tx
+   * @param transaction the transaction to simulate
    * @param stateOverrides state overrides to apply to this simulation
    * @param processableBlockHeader block header to simulate on pending block
    * @param operationTracer the tracer
