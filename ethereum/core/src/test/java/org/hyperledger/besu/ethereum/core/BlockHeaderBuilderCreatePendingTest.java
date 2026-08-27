@@ -96,22 +96,10 @@ public class BlockHeaderBuilderCreatePendingTest {
     assertThat(observedTarget.get()).isEqualTo(PARENT_GAS_LIMIT);
   }
 
-  /**
-   * Regression tests for testing_buildBlockV1 gas limit bug (hive rpc-compat failure).
-   *
-   * <p>Block 54 in the hive rpc-compat chain has gasLimit 200,000,000. When testing_buildBlockV1
-   * builds block 55 with no explicit targetGasLimit it must produce a one-step decrement
-   * (199,804,689) to match go-ethereum behaviour. Geth targets its configured GasCeil (default
-   * 45M), which is below the parent, so the calculator applies: safeSubAtMost(200M) = 200M -
-   * (200M/1024 - 1) = 199,804,689.
-   *
-   * <p>Wrong fix: pass parentGasLimit as target → target == current → no adjustment → 200M. Correct
-   * fix: pass genesis gasLimit (100M) as target → safeSubAtMost(200M) = 199,804,689.
-   */
   @Test
   public void withParentGasLimitAsTarget_noAdjustmentOccurs() {
-    // Wrong approach: target == parent → calculator leaves gas limit unchanged.
-    final long parentGasLimit = 200_000_000L; // block-54 actual gas limit
+    // target == parent → calculator leaves gas limit unchanged.
+    final long parentGasLimit = 200_000_000L;
 
     final ProtocolSpec protocolSpec = realCalculatorProtocolSpec();
     final BlockHeader parent =
@@ -138,9 +126,9 @@ public class BlockHeaderBuilderCreatePendingTest {
 
   @Test
   public void withGenesisGasLimitAsTarget_oneStepDecrementMatchesGeth() {
-    // Correct fix: genesis (100M) < safeSubAtMost(200M) → calculator applies one-step decrement.
-    final long parentGasLimit = 200_000_000L; // block-54 actual gas limit
-    final long genesisGasLimit = 100_000_000L; // genesis gas limit used as target
+    // genesis (100M) < safeSubAtMost(200M) → calculator applies one-step decrement.
+    final long parentGasLimit = 200_000_000L;
+    final long genesisGasLimit = 100_000_000L;
     final long expectedGasLimit = 199_804_689L; // safeSubAtMost(200M) = 200M - (200M/1024 - 1)
 
     final ProtocolSpec protocolSpec = realCalculatorProtocolSpec();

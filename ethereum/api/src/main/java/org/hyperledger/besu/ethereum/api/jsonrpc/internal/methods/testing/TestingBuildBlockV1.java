@@ -67,7 +67,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * The testing_buildBlockV1 RPC method is a debugging and testing tool that simplifies the block
- * production process into a single call. It is intended to replace the multi-step workflow of
+ * production process into a single call. It is intended to replace the multistep workflow of
  * sending transactions, calling engine_forkchoiceUpdated with payloadAttributes, and then calling
  * engine_getPayload.
  *
@@ -234,10 +234,7 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
               ethScheduler);
 
       // When no targetGasLimit is provided, default to the genesis gas limit. This causes the
-      // gas limit calculator to apply its normal clamping logic (adjust toward genesis) rather
-      // than locking the gas limit at the parent value. Matches go-ethereum behaviour, which
-      // targets its configured GasCeil (default 45 M) — any target below the parent's current
-      // gas limit produces the same one-step decrement.
+      // gas limit calculator to adjust toward genesis.
       final long genesisGasLimit =
           protocolContext.getBlockchain().getGenesisBlock().getHeader().getGasLimit();
       final long effectiveTargetGasLimit =
