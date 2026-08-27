@@ -77,7 +77,7 @@ import org.hyperledger.besu.ethereum.mainnet.parallelization.MainnetParallelBloc
 import org.hyperledger.besu.ethereum.mainnet.requests.MainnetRequestsValidator;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestContractAddresses;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
-import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.BalStateRootCommitterFactory;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitterFactory;
 import org.hyperledger.besu.ethereum.mainnet.transactionpool.OsakaTransactionPoolPreProcessor;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.evm.MainnetEVMs;
@@ -1267,7 +1267,7 @@ public abstract class MainnetProtocolSpecs {
                         .build())
             .blockAccessListFactory(new BlockAccessListFactory())
             .blockAccessListValidatorBuilder(MainnetBlockAccessListValidator::create)
-            .stateRootCommitterFactory(new BalStateRootCommitterFactory(balConfiguration))
+            .stateRootCommitterFactory(new StateRootCommitterFactory(balConfiguration))
             // EIP-8037: Disable validation-time TX_MAX_GAS_LIMIT cap (enforced at runtime on
             // regular
             // gas)
@@ -1291,6 +1291,11 @@ public abstract class MainnetProtocolSpecs {
             // Amsterdam: Validator uses pre-refund gas_metered = max(regular, state) from
             // processing
             .blockGasUsedValidator(BlockGasUsedValidator.AMSTERDAM)
+            // EIP-7843: slotNumber is the last header field, so a header omitting it still
+            // decodes cleanly - only this rule rejects it.
+            .blockHeaderValidatorBuilder(
+                MainnetBlockHeaderValidator::slotNumberAwareBlockHeaderValidator)
+            .slotNumberRequired(true)
             .hardforkId(AMSTERDAM);
 
     // EIP-8282 introduces the builder deposit (0x03) and builder exit (0x04) system-contract

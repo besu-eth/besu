@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.vm.operations;
 
 import org.hyperledger.besu.crypto.Hash;
+import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
@@ -31,13 +32,20 @@ import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.Warmup;
+import org.openjdk.jmh.infra.BenchmarkParams;
 
 @State(Scope.Thread)
 @Warmup(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
 @Measurement(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
 @OutputTimeUnit(value = TimeUnit.NANOSECONDS)
 @BenchmarkMode(Mode.AverageTime)
-public class SHA256Benchmark {
+public class SHA256Benchmark implements GasCostBenchmark {
+
+  @Override
+  public long getGasCost(final BenchmarkParams params, final GasCalculator calc) {
+    final int size = Integer.parseInt(params.getParam("inputSize"));
+    return calc.sha256PrecompiledContractGasCost(Bytes.wrap(new byte[size]));
+  }
 
   @Param({"32", "64", "128", "256", "512", "1024", "2048", "4096"})
   private String inputSize;

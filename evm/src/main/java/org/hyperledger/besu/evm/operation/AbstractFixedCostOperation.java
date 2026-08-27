@@ -37,6 +37,15 @@ abstract class AbstractFixedCostOperation extends AbstractOperation {
   protected final long gasCost;
 
   /**
+   * Returns the fixed gas cost of this operation.
+   *
+   * @return the gas cost
+   */
+  public long getGasCost() {
+    return gasCost;
+  }
+
+  /**
    * Instantiates a new Abstract fixed cost operation.
    *
    * @param opcode the opcode

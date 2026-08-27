@@ -26,6 +26,7 @@ public class FilterManagerBuilder {
   private TransactionPool transactionPool;
   private FilterIdGenerator filterIdGenerator = new FilterIdGenerator();
   private FilterRepository filterRepository;
+  private long maxLogRange = ApiConfiguration.DEFAULT_MAX_LOGS_RANGE;
   private int maxFilterCount = ApiConfiguration.DEFAULT_MAX_FILTER_COUNT;
   private Duration filterTimeout = ApiConfiguration.DEFAULT_FILTER_TIMEOUT;
 
@@ -72,6 +73,11 @@ public class FilterManagerBuilder {
     return this;
   }
 
+  public FilterManagerBuilder maxLogRange(final long maxLogRange) {
+    this.maxLogRange = maxLogRange;
+    return this;
+  }
+
   public FilterManager build() {
     if (blockchainQueries == null) {
       throw new IllegalStateException("BlockchainQueries is required to build FilterManager");
@@ -85,6 +91,11 @@ public class FilterManagerBuilder {
         filterRepository != null ? filterRepository : new FilterRepository(maxFilterCount);
 
     return new FilterManager(
-        blockchainQueries, transactionPool, filterIdGenerator, repository, filterTimeout);
+        blockchainQueries,
+        transactionPool,
+        filterIdGenerator,
+        repository,
+        filterTimeout,
+        maxLogRange);
   }
 }

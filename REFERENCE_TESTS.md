@@ -112,6 +112,68 @@ ExecutionSpecDevnet{Blockchain,State}Test_{hardfork}_{eip_or_topic}_{batch_index
 
 The devnet fixtures are resolved from the same GitHub Ivy repository as stable fixtures. The dependency is declared separately via the `devnetTarConfig` configuration in `ethereum/referencetests/build.gradle`.
 
+## Fast State Test Runner (evmtool)
+
+The `referenceTests*` tasks above generate one JUnit test per fixture. The `evmtool` `state-test` subcommand instead consumes the `state_tests` fixtures directly, with no per-fixture code generation, so a whole fixture tree runs in seconds rather than needing a build.
+
+### Gradle task
+
+`stateTestsDevnet` reuses the same devnet fixture download and extract as `referenceTestsDevnet` (the `extractDevnetFixtures` task, so there is no separate download) and fails the build on any test failure.
+
+```bash
+./gradlew :ethereum:evmtool:stateTestsDevnet
+```
+
+| Property | Meaning |
+|----------|---------|
+| `-PstateTestWorkers=N` | Limit parallelism (the runner already defaults to all available cores) |
+| `-PstateTestPath=<subdir>` | Scope to a subdirectory, e.g. `for_amsterdam` |
+| `-PstateTestFilter=<substr>` | Only run tests whose node id matches; see [Filter syntax](#filter-syntax) |
+
+```bash
+./gradlew :ethereum:evmtool:stateTestsDevnet -PstateTestPath=for_amsterdam -PstateTestWorkers=8
+```
+
+### Filter syntax
+
+`--test-name` (and the `-PstateTestFilter` property) accepts two forms, and means the same thing in `state-test` and `block-test`:
+
+- No `*` or `?`: a case-insensitive substring match against the node id.
+- Contains `*` or `?`: a case-insensitive regex that must match the whole node id. `*` is rewritten to `.*`, `?` to any single character, and `.` is escaped to a literal (node ids contain `.py`). The rest is passed to `java.util.regex`, so alternation and character classes work.
+
+In the second form the `[`, `]`, `(` and `)` common in pytest node ids are regex metacharacters, not literals. Escape them to match literally:
+
+```bash
+# WRONG: '[' opens a character class -> rejected before any test runs
+$EVM state-test --test-name '*[fork_Amsterdam*' <fixtures>
+#   Invalid --test-name pattern '*[fork_Amsterdam*': Unclosed character class. …
+
+# RIGHT: escape it, or just use the substring form
+$EVM state-test --test-name '*\[fork_Amsterdam*' <fixtures>
+$EVM state-test --test-name 'fork_Amsterdam' <fixtures>
+```
+
+The pattern is compiled before any fixture is read, so a malformed expression fails immediately with exit 1 rather than running nothing. An empty run is an error too, whether or not a filter was given: a run that executed no test never reports success.
+
+### Running the evmtool binary directly
+
+```bash
+./gradlew :ethereum:evmtool:installDist
+EVM=./ethereum/evmtool/build/install/evmtool/bin/evmtool
+
+$EVM state-test <path-to>/state_tests/
+```
+
+A directory argument is expanded recursively and spread over one worker per available core. Pass `--workers N` to use fewer, for instance to keep the output of a multi-file run in a predictable order.
+
+Flags: `--workers N`, `--test-name <substr-or-regex>`, `--json-array` to emit machine-readable results (`[{name, pass, fork, stateRoot, error}]`), and `--summary-only` to suppress the per-test JSON line that external tooling parses (which remains the default). Under `--json-array` nothing but the array is printed, so the exit code is what reports an empty or failed run.
+
+`--workers`, `--test-name` and `--json-array` work the same way on `block-test`.
+
+The subcommand exits non-zero if any test fails, if no test ran at all, or if the `--test-name` pattern is malformed.
+
+> The gradle-extracted fixtures live at `ethereum/referencetests/build/execution-spec-devnet-tests/fixtures/state_tests/`, so you can point the binary there after running `referenceTestsDevnet` (or `extractDevnetFixtures`) once.
+
 ## Enabling JSON Tracing
 
 Besu supports detailed opcode-level JSON tracing. You can enable it using either a JVM system property or an environment variable.
