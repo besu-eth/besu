@@ -216,6 +216,15 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
     return engineCallListener;
   }
 
+  protected int getNumericVersion() {
+    final String name = getName();
+    final int vIndex = name.lastIndexOf('V');
+    if (vIndex < 0 || vIndex == name.length() - 1) {
+      throw new IllegalStateException("Cannot derive numeric version from method name: " + name);
+    }
+    return Integer.parseInt(name.substring(vIndex + 1));
+  }
+
   // TRANSITIONAL: not 'final' yet (restored in cleanup PR) so not-yet-migrated engine methods can
   // still override it; new methods inherit this implementation.
   protected ValidationResult<RpcErrorType> validateForkSupported(final long blockTimestamp) {

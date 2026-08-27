@@ -29,9 +29,9 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlobCellsAndProofsV1;
 import org.hyperledger.besu.ethereum.core.kzg.BlobProofBundle;
 import org.hyperledger.besu.ethereum.core.kzg.CKZG4844Helper;
+import org.hyperledger.besu.ethereum.core.kzg.KZGProof;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
-import org.hyperledger.besu.util.HexUtils;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -75,8 +75,7 @@ public class EngineGetBlobsV4 extends ExecutionEngineJsonRpcMethod {
     super(constructorArguments, minSupportedFork, firstUnsupportedFork);
     this.transactionPool = constructorArguments.transactionPool();
     this.getBlobsMetrics =
-        new GetBlobsMetrics(
-            constructorArguments.metricsSystem(), getName().charAt(getName().length() - 1));
+        new GetBlobsMetrics(constructorArguments.metricsSystem(), getNumericVersion());
   }
 
   @Override
@@ -195,16 +194,10 @@ public class EngineGetBlobsV4 extends ExecutionEngineJsonRpcMethod {
       return null;
     }
     final int cellSize = blobCells.size() / CKZG4844Helper.CELL_PROOFS_PER_BLOB;
-    final List<String> cells =
-        cellIndexes.stream()
-            .map(index -> blobCells.slice(index * cellSize, cellSize))
-            .map(cell -> HexUtils.toFastHex(cell, true))
-            .toList();
-    final List<String> proofs =
-        cellIndexes.stream()
-            .map(index -> bundle.getKzgProof().get(index))
-            .map(proof -> HexUtils.toFastHex(proof.getData(), true))
-            .toList();
+    final List<Bytes> cells =
+        cellIndexes.stream().map(index -> blobCells.slice(index * cellSize, cellSize)).toList();
+    final List<KZGProof> proofs =
+        cellIndexes.stream().map(index -> bundle.getKzgProof().get(index)).toList();
     return new BlobCellsAndProofsV1(cells, proofs);
   }
 }

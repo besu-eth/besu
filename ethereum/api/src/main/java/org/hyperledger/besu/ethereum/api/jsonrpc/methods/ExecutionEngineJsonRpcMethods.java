@@ -227,7 +227,7 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
       final ConstructorArguments constructorArguments) {
     // V2 and V3 both activate at Osaka and coexist from then on: V2 answers all-or-nothing, V3
     // answers partially, so neither supersedes the other.
-    return VersionScheduler.startsFromBeginningUntil(EngineGetBlobsV1::new, OSAKA)
+    return VersionScheduler.startsFrom(CANCUN, EngineGetBlobsV1::new)
         .thenFrom(OSAKA, EngineGetBlobsV2::new, EngineGetBlobsV3::new)
         .build(constructorArguments);
   }
@@ -266,7 +266,7 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
 
     static VersionScheduler startsFrom(final HardforkId from, final EngineMethodFactory factory) {
       final VersionScheduler vs = new VersionScheduler();
-      vs.readyMethods.add(new MethodVersionBuildData(factory, from, null));
+      vs.pendingMethods.add(new MethodVersionBuildData(factory, from, null));
       return vs;
     }
 

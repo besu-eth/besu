@@ -76,8 +76,7 @@ public sealed class EngineGetBlobsV1<BAP extends BlobAndProofV1>
     super(constructorArguments, minSupportedFork, firstUnsupportedFork);
     this.transactionPool = constructorArguments.transactionPool();
     this.getBlobsMetrics =
-        new GetBlobsMetrics(
-            constructorArguments.metricsSystem(), getName().charAt(getName().length() - 1));
+        new GetBlobsMetrics(constructorArguments.metricsSystem(), getNumericVersion());
   }
 
   @Override
@@ -173,7 +172,7 @@ public sealed class EngineGetBlobsV1<BAP extends BlobAndProofV1>
     getBlobsMetrics.increaseUnsupported(unsupportedBlobs);
     if (foundBlobs == versionedHashes.length) {
       getBlobsMetrics.increaseFull();
-    } else if (foundBlobs == 0) {
+    } else {
       getBlobsMetrics.increasePartial();
     }
 
