@@ -173,6 +173,7 @@ public enum RpcErrorType implements RpcMethodError {
   REPLAY_PROTECTED_SIGNATURES_NOT_SUPPORTED(-32000, "ChainId not supported"),
   REPLAY_PROTECTED_SIGNATURE_REQUIRED(-32000, "ChainId is required"),
   TX_FEECAP_EXCEEDED(-32000, "Transaction fee cap exceeded"),
+  EXCEEDS_MAX_TX_BYTES(-32000, "Transaction size exceeds the maximum allowed size"),
   REVERT_ERROR(
       3,
       "Execution reverted",

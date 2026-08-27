@@ -198,6 +198,7 @@ p2p-tx-feecap=2000000000000000000
 strict-tx-replay-protection-enabled=true
 tx-pool-no-local-priority=false
 tx-pool-priority-senders=["0xABC0000000000000000000000000000000001234","0xDEF0000000000000000000000000000000001234"]
+tx-pool-max-tx-bytes=131072
 tx-pool-enable-save-restore=true
 tx-pool-save-file="txpool.dump"
 ## Layered
