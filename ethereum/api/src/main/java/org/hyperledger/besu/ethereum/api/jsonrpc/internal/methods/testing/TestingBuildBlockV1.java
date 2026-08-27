@@ -57,6 +57,7 @@ import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -209,7 +210,10 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
     final Bytes32 parentBeaconBlockRoot = payloadAttributes.getParentBeaconBlockRoot();
     final Long timestamp = payloadAttributes.getTimestamp();
     final Long slotNumber = payloadAttributes.getSlotNumber();
-    final Long targetGasLimit = payloadAttributes.getTargetGasLimit();
+    final long targetGasLimit =
+        Objects.requireNonNullElseGet(
+            payloadAttributes.getTargetGasLimit(),
+            () -> protocolContext.getBlockchain().getGenesisBlock().getHeader().getGasLimit());
 
     try {
       final Address coinbase = payloadAttributes.getSuggestedFeeRecipient();
@@ -233,13 +237,6 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
               protocolSchedule,
               ethScheduler);
 
-      // When no targetGasLimit is provided, default to the genesis gas limit. This causes the
-      // gas limit calculator to adjust toward genesis.
-      final long genesisGasLimit =
-          protocolContext.getBlockchain().getGenesisBlock().getHeader().getGasLimit();
-      final long effectiveTargetGasLimit =
-          targetGasLimit != null ? targetGasLimit : genesisGasLimit;
-
       final BlockCreationResult result =
           blockCreator.createBlock(
               maybeTransactions,
@@ -248,7 +245,7 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
               Optional.of(withdrawals),
               Optional.ofNullable(parentBeaconBlockRoot),
               Optional.ofNullable(slotNumber),
-              Optional.of(effectiveTargetGasLimit),
+              Optional.of(targetGasLimit),
               parentHeader);
 
       // When transactions are explicitly provided, return an error if any were not applied.
