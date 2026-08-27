@@ -64,7 +64,7 @@ public sealed class ExecutionPayloadV3 extends ExecutionPayloadV2 permits Execut
   }
 
   @JsonSetter("blobGasUsed")
-  @JsonDeserialize(using = QuantityJson.LongDeserializer.class)
+  @JsonDeserialize(using = QuantityJson.UnsignedLongDeserializer.class)
   public void setBlobGasUsed(final Long blobGasUsed) {
     this.blobGasUsed = blobGasUsed;
   }

@@ -387,6 +387,39 @@ public class MergeBesuControllerBuilderTest {
   }
 
   @Test
+  public void hoodiShapedGenesisIsPostMergeAtGenesis() {
+    // difficulty 0x01 with TTD 0: genesis already meets the terminal condition.
+    when(genesisConfig.getDifficulty()).thenReturn("0x01");
+    when(genesisConfigOptions.getTerminalTotalDifficulty()).thenReturn(Optional.of(UInt256.ZERO));
+
+    final Blockchain mockChain = mock(Blockchain.class);
+    when(mockChain.getBlockHeader(anyLong())).thenReturn(Optional.of(mock(BlockHeader.class)));
+
+    final MergeContext mergeContext =
+        besuControllerBuilder.createConsensusContext(
+            mockChain,
+            mock(WorldStateArchive.class),
+            this.besuControllerBuilder.createProtocolSchedule());
+
+    assertThat(mergeContext.isPostMergeAtGenesis()).isTrue();
+  }
+
+  @Test
+  public void genesisDifficultyBelowTerminalTotalDifficultyIsNotPostMergeAtGenesis() {
+    // Uses the setup defaults: difficulty 0x00, TTD 100.
+    final Blockchain mockChain = mock(Blockchain.class);
+    when(mockChain.getBlockHeader(anyLong())).thenReturn(Optional.of(mock(BlockHeader.class)));
+
+    final MergeContext mergeContext =
+        besuControllerBuilder.createConsensusContext(
+            mockChain,
+            mock(WorldStateArchive.class),
+            this.besuControllerBuilder.createProtocolSchedule());
+
+    assertThat(mergeContext.isPostMergeAtGenesis()).isFalse();
+  }
+
+  @Test
   public void assertBuiltContextMonitorsTTD() {
     final GenesisState genesisState =
         GenesisState.fromConfig(

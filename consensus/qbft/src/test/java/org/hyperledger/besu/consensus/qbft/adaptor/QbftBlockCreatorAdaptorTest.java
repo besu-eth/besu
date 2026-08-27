@@ -26,6 +26,7 @@ import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockCreator;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockHeader;
 import org.hyperledger.besu.crypto.SECPSignature;
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.ethereum.blockcreation.BlockCreationTiming;
 import org.hyperledger.besu.ethereum.blockcreation.BlockCreator;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
@@ -53,8 +54,10 @@ class QbftBlockCreatorAdaptorTest {
     BlockHeader besuParentHeader = new BlockHeaderTestFixture().buildHeader();
     QbftBlockHeader parentHeader = new QbftBlockHeaderAdaptor(besuParentHeader);
 
+    BlockCreationTiming timing = new BlockCreationTiming();
     when(blockCreator.createBlock(10, besuParentHeader))
-        .thenReturn(new BlockCreator.BlockCreationResult(besuBlock, null, null, Optional.empty()));
+        .thenReturn(
+            new BlockCreator.BlockCreationResult(besuBlock, null, timing, Optional.empty()));
 
     QbftBlockCreatorAdaptor qbftBlockCreator =
         new QbftBlockCreatorAdaptor(blockCreator, qbftExtraDataCodec);
@@ -62,6 +65,7 @@ class QbftBlockCreatorAdaptorTest {
         qbftBlockCreator.createBlock(10, parentHeader);
     QbftBlock qbftBlock = qbftBlockCreationResult.block();
     assertThat(((QbftBlockAdaptor) qbftBlock).getBesuBlock()).isEqualTo(besuBlock);
+    assertThat(((QbftBlockAdaptor) qbftBlock).getBlockCreationTiming()).contains(timing);
   }
 
   @Test

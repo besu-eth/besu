@@ -43,7 +43,9 @@ p2p-host-ipv6="2001:db8::1"
 p2p-interface="0.0.0.0"
 p2p-interface-ipv6="::"
 p2p-port=1234
+p2p-discovery-port=1234
 p2p-port-ipv6=30404
+p2p-discovery-port-ipv6=30405
 p2p-ipv6-outbound-enabled=false
 max-peers=42
 remote-connections-limit-enabled=true
@@ -109,6 +111,7 @@ rpc-gas-cap = 50000000
 rpc-max-trace-filter-range=100
 rpc-max-active-filters=1000
 rpc-filter-timeout-seconds=60
+rpc-max-trace-steps=2000
 
 # GRAPHQL HTTP
 graphql-http-enabled=false
@@ -121,6 +124,7 @@ graphql-tls-keystore-password-file="none.passwd"
 graphql-mtls-enabled=false
 graphql-tls-truststore-file="none.pfx"
 graphql-tls-truststore-password-file="none.passwd"
+graphql-max-blocks-range=100
 
 # WebSockets API
 rpc-ws-enabled=false
@@ -172,7 +176,6 @@ metrics-push-prometheus-job="besu-everything"
 miner-extra-data="0x444F4E27542050414E4943202120484F444C2C20484F444C2C20484F444C2021"
 min-gas-price=1
 min-priority-fee=0
-min-block-occupancy-ratio=0.7
 block-txs-selection-max-time=5000
 poa-block-txs-selection-max-time=75
 plugin-block-txs-selection-max-time=50
@@ -191,6 +194,7 @@ tx-pool="layered"
 tx-pool-price-bump=13
 tx-pool-blob-price-bump=100
 rpc-tx-feecap=2000000000000000000
+p2p-tx-feecap=2000000000000000000
 strict-tx-replay-protection-enabled=true
 tx-pool-no-local-priority=false
 tx-pool-priority-senders=["0xABC0000000000000000000000000000000001234","0xDEF0000000000000000000000000000000001234"]

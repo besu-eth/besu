@@ -32,7 +32,10 @@ class SnapV2ReorgHealerCommonAncestorTest {
   private final ReorgBlockchainBuilder b = new ReorgBlockchainBuilder();
   private final SnapV2ReorgHealer healer =
       new SnapV2ReorgHealer(
-          b.blockchain(), unusedStorageCoordinator(), ReorgBlockchainBuilder.balEnabledSchedule());
+          b.blockchain(),
+          unusedStorageCoordinator(),
+          ReorgBlockchainBuilder.balEnabledSchedule(),
+          ReorgBlockchainBuilder.neverCalledFetcher());
 
   private static WorldStateStorageCoordinator unusedStorageCoordinator() {
     return null;

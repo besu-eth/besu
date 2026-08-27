@@ -55,7 +55,6 @@ dependencies {
   implementation 'io.consensys.tuweni:tuweni-rlp'
   implementation 'io.consensys.tuweni:tuweni-units'
   implementation 'org.apache.commons:commons-collections4'
-  implementation 'org.jetbrains.kotlin:kotlin-stdlib'
   implementation 'org.owasp.encoder:encoder'
   implementation 'org.xerial.snappy:snappy-java'
   implementation 'com.github.seancfoley:ipaddress'

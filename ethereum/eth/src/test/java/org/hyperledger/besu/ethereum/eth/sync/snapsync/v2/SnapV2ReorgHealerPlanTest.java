@@ -645,7 +645,8 @@ class SnapV2ReorgHealerPlanTest {
         new SnapV2ReorgHealer(
             b.blockchain(),
             unusedStorageCoordinator(),
-            ReorgBlockchainBuilder.balDisabledSchedule());
+            ReorgBlockchainBuilder.balDisabledSchedule(),
+            ReorgBlockchainBuilder.neverCalledFetcher());
 
     assertThatThrownBy(
             () ->
@@ -1437,12 +1438,18 @@ class SnapV2ReorgHealerPlanTest {
 
   private SnapV2ReorgHealer healer() {
     return new SnapV2ReorgHealer(
-        b.blockchain(), unusedStorageCoordinator(), ReorgBlockchainBuilder.balEnabledSchedule());
+        b.blockchain(),
+        unusedStorageCoordinator(),
+        ReorgBlockchainBuilder.balEnabledSchedule(),
+        ReorgBlockchainBuilder.neverCalledFetcher());
   }
 
   private static SnapV2ReorgHealer healerFor(final MutableBlockchain blockchain) {
     return new SnapV2ReorgHealer(
-        blockchain, unusedStorageCoordinator(), ReorgBlockchainBuilder.balEnabledSchedule());
+        blockchain,
+        unusedStorageCoordinator(),
+        ReorgBlockchainBuilder.balEnabledSchedule(),
+        ReorgBlockchainBuilder.neverCalledFetcher());
   }
 
   private static DownloadedStorageRangeTracker singleSlotRange(

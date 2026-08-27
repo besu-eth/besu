@@ -22,7 +22,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.datatypes.Address;
 
-import java.util.HashMap;
 import java.util.Map;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -71,21 +70,6 @@ public class JsonBftConfigOptionsTest {
   }
 
   @Test
-  public void shouldGetEmptyBlockPeriodFromDeprecatedConfigKey() {
-    final BftConfigOptions config = fromConfigOptions(singletonMap("xemptyblockperiodseconds", 60));
-    assertThat(config.getEmptyBlockPeriodSeconds()).isEqualTo(60);
-  }
-
-  @Test
-  public void shouldPreferNewEmptyBlockPeriodOverDeprecatedWhenBothSet() {
-    final Map<String, Object> options = new HashMap<>();
-    options.put("emptyblockperiodseconds", 60);
-    options.put("xemptyblockperiodseconds", 30);
-    final BftConfigOptions config = fromConfigOptions(options);
-    assertThat(config.getEmptyBlockPeriodSeconds()).isEqualTo(60);
-  }
-
-  @Test
   public void shouldFallbackToDefaultBlockPeriod() {
     final BftConfigOptions config = fromConfigOptions(emptyMap());
     assertThat(config.getBlockPeriodSeconds()).isEqualTo(EXPECTED_DEFAULT_BLOCK_PERIOD);
@@ -121,13 +105,6 @@ public class JsonBftConfigOptionsTest {
   public void shouldNotThrowOnNonPositiveEmptyBlockPeriod() {
     // can be 0 to be compatible with older versions
     final BftConfigOptions config = fromConfigOptions(singletonMap("emptyblockperiodseconds", 0));
-    assertThatCode(() -> config.getEmptyBlockPeriodSeconds()).doesNotThrowAnyException();
-  }
-
-  @Test
-  public void shouldNotThrowOnNonPositiveEmptyBlockPeriodForDeprecatedKey() {
-    // can be 0 to be compatible with older versions
-    final BftConfigOptions config = fromConfigOptions(singletonMap("xemptyblockperiodseconds", 0));
     assertThatCode(() -> config.getEmptyBlockPeriodSeconds()).doesNotThrowAnyException();
   }
 

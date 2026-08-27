@@ -29,7 +29,6 @@ import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldStateDownloader;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ScheduleBasedBlockHeaderFunctions;
-import org.hyperledger.besu.ethereum.trie.CompactEncoding;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.metrics.SyncDurationMetrics;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
@@ -107,14 +106,6 @@ public class SnapDownloaderFactory {
                         rlpInput, ScheduleBasedBlockHeaderFunctions.create(protocolSchedule)));
     if (syncState.isResyncNeeded()) {
       snapContext.clear();
-      if (!snap2Enabled) {
-        syncState
-            .getAccountToRepair()
-            .ifPresent(
-                address ->
-                    snapContext.addAccountToHealingList(
-                        CompactEncoding.bytesToPath(address.addressHash().getBytes())));
-      }
     } else if (chainSyncState == null
         && protocolContext.getBlockchain().getChainHeadBlockNumber()
             != BlockHeader.GENESIS_BLOCK_NUMBER) {
@@ -132,6 +123,12 @@ public class SnapDownloaderFactory {
         createSnapWorldStateDownloaderTaskCollection();
     final WorldStateDownloader snapWorldStateDownloader;
     if (snap2Enabled) {
+      if (!worldStateStorageCoordinator.getDataStorageFormat().isBonsaiFormat()) {
+        throw new IllegalStateException(
+            "Snap/2 synchronization requires a Bonsai data storage format, but "
+                + worldStateStorageCoordinator.getDataStorageFormat()
+                + " is configured");
+      }
       snapWorldStateDownloader =
           new SnapV2WorldStateDownloader(
               ethContext,

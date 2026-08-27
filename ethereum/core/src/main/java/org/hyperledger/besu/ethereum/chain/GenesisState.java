@@ -264,7 +264,14 @@ public final class GenesisState {
     return withNiceErrorMessage("extraData", genesis.getExtraData(), Bytes::fromHexString);
   }
 
-  private static Difficulty parseDifficulty(final GenesisConfig genesis) {
+  /**
+   * Parse the genesis block difficulty, reporting a malformed value against the field it came from.
+   *
+   * @param genesis A {@link GenesisConfig} describing the genesis block.
+   * @return the genesis block difficulty
+   * @throws IllegalArgumentException if the difficulty is missing or not a valid quantity
+   */
+  public static Difficulty parseDifficulty(final GenesisConfig genesis) {
     return withNiceErrorMessage("difficulty", genesis.getDifficulty(), Difficulty::fromHexString);
   }
 

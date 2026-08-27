@@ -50,9 +50,7 @@ public class EthGetTransactionByBlockHashAndIndex implements JsonRpcMethod {
       hash = requestContext.getRequiredParameter(0, Hash.class);
     } catch (JsonRpcParameterException e) {
       throw new InvalidJsonRpcParameters(
-          "Invalid transaction hash parameter (index 0)",
-          RpcErrorType.INVALID_TRANSACTION_HASH_PARAMS,
-          e);
+          "Invalid block hash parameter (index 0)", RpcErrorType.INVALID_BLOCK_HASH_PARAMS, e);
     }
     final int index;
     try {

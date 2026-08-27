@@ -72,6 +72,20 @@ public class CallTracerResultConverter {
    * @throws NullPointerException if transactionTrace or its components are null
    */
   public static CallTracerResult convert(final TransactionTrace transactionTrace) {
+    return convert(transactionTrace, false);
+  }
+
+  /**
+   * Converts a transaction trace to a call tracer result.
+   *
+   * @param transactionTrace The transaction trace to convert
+   * @param onlyTopCall When true, only the top-level call is reported and all nested calls are
+   *     omitted, per the execution-apis callTracer {@code onlyTopCall} option
+   * @return A call tracer result representing the transaction's call hierarchy
+   * @throws NullPointerException if transactionTrace or its components are null
+   */
+  public static CallTracerResult convert(
+      final TransactionTrace transactionTrace, final boolean onlyTopCall) {
     checkNotNull(
         transactionTrace, "CallTracerResultConverter requires a non-null TransactionTrace");
     checkNotNull(
@@ -84,11 +98,19 @@ public class CallTracerResultConverter {
       return createRootCallFromTransaction(transactionTrace);
     }
 
-    return buildCallHierarchyFromFrames(transactionTrace);
+    return buildCallHierarchyFromFrames(transactionTrace, onlyTopCall);
   }
 
-  private static CallTracerResult buildCallHierarchyFromFrames(final TransactionTrace trace) {
+  private static CallTracerResult buildCallHierarchyFromFrames(
+      final TransactionTrace trace, final boolean onlyTopCall) {
     final CallTracerResult.Builder rootBuilder = initializeRootBuilder(trace);
+
+    // onlyTopCall: report just the root frame and omit nested calls entirely. The root's own
+    // fields are fully set by initializeRootBuilder from the transaction and its result, so the
+    // frame walk (which only adds nested calls) can be skipped.
+    if (onlyTopCall) {
+      return rootBuilder.build();
+    }
 
     // Only process frames if transaction succeeded OR reverted (not exceptional halt)
     // Exceptional halts (stack underflow, out of gas, etc.) happen before execution really begins

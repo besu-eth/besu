@@ -18,6 +18,5 @@ Besu accepts security bugs at two email addresses:
 When sending information to either of these emails, please include a description of the flaw and any
 related information (for example, reproduction steps, version, and known active use).
 
-The process by which the LF Decentralized Trust Security Team handles security bugs is documented further in
-our [Defect Response page](https://wiki.hyperledger.org/display/SEC/Defect+Response) on our
-[wiki](https://wiki.hyperledger.org).
+The process by which the Besu and LF Decentralized Trust Security Teams handle security bugs is documented further in
+our [Security Policy](https://github.com/besu-eth/besu/wiki/Security-Policy).

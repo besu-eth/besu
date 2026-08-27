@@ -93,6 +93,7 @@ public interface TransactionPoolConfiguration {
   Percentage DEFAULT_PRICE_BUMP = Percentage.fromInt(10);
   Percentage DEFAULT_BLOB_PRICE_BUMP = Percentage.fromInt(100);
   Wei DEFAULT_RPC_TX_FEE_CAP = Wei.fromEth(1);
+  Wei DEFAULT_P2P_TX_FEE_CAP = Wei.MAX_WEI;
   boolean DEFAULT_NO_LOCAL_PRIORITY = false;
   boolean DEFAULT_ENABLE_SAVE_RESTORE = false;
   File DEFAULT_SAVE_FILE = new File(DEFAULT_SAVE_FILE_NAME);
@@ -143,6 +144,11 @@ public interface TransactionPoolConfiguration {
   @Value.Default
   default Wei getTxFeeCap() {
     return DEFAULT_RPC_TX_FEE_CAP;
+  }
+
+  @Value.Default
+  default Wei getP2pTxFeeCap() {
+    return DEFAULT_P2P_TX_FEE_CAP;
   }
 
   @Value.Default

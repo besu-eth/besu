@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.transaction;
 
+import static org.hyperledger.besu.ethereum.mainnet.feemarket.BlobFeeMarket.MIN_BLOB_GASPRICE;
 import static org.hyperledger.besu.ethereum.mainnet.feemarket.ExcessBlobGasCalculator.calculateExcessBlobGasForParent;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
 
@@ -377,7 +378,9 @@ public class TransactionSimulator {
         (protocolSpec, maybeParentHeader) -> {
           if (transactionValidationParams.isAllowExceedingBalance()
               && !transactionValidationParams.isPreserveCallerGasPricing()) {
-            return Wei.ZERO;
+            // Returning zero is spec-illegal even in no-fee simulation paths where baseFee
+            // is zeroed for caller convenience.
+            return MIN_BLOB_GASPRICE;
           }
           return protocolSpec
               .getFeeMarket()
@@ -535,26 +538,18 @@ public class TransactionSimulator {
         simulationGasCap = userProvidedGasLimit;
       }
     } else {
-      final long txGasLimitCap =
-          protocolSchedule
-              .getByBlockHeader(blockHeader)
-              .getGasLimitCalculator()
-              .transactionGasLimitCap();
       if (rpcGasCap > 0) {
-        simulationGasCap = Math.min(rpcGasCap, Math.min(txGasLimitCap, blockGasLimit));
+        simulationGasCap = Math.min(rpcGasCap, blockGasLimit);
         LOG.trace(
-            "No user provided gas limit, setting simulation gas cap to the value of min(rpc-gas-cap={},txGasLimitCap={},blockGasLimit={})={}",
+            "No user provided gas limit, setting simulation gas cap to the value of min(rpc-gas-cap={},blockGasLimit={})={}",
             rpcGasCap,
-            txGasLimitCap,
             blockGasLimit,
             simulationGasCap);
       } else {
-        simulationGasCap = Math.min(txGasLimitCap, blockGasLimit);
+        simulationGasCap = blockGasLimit;
         LOG.trace(
-            "No user provided gas limit and rpc-gas-cap options is not set, setting simulation gas cap to min(txGasLimitCap={},blockGasLimit={})={}",
-            txGasLimitCap,
-            blockGasLimit,
-            simulationGasCap);
+            "No user provided gas limit and rpc-gas-cap option is not set, setting simulation gas cap to block gas limit {}",
+            blockGasLimit);
       }
     }
     return simulationGasCap;
@@ -607,7 +602,9 @@ public class TransactionSimulator {
       gasPrice = Wei.ZERO;
       maxFeePerGas = Wei.ZERO;
       maxPriorityFeePerGas = Wei.ZERO;
-      maxFeePerBlobGas = Wei.ZERO;
+      // Must match blobGasPrice (MIN_BLOB_GASPRICE) so the fee-cap check passes; see
+      // blobGasPricePerGasSupplier above.
+      maxFeePerBlobGas = MIN_BLOB_GASPRICE;
     } else {
       if (noPricingParametersPresent) {
         // in case there are no gas price parameters,

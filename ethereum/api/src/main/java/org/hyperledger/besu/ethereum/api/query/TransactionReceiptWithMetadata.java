@@ -34,6 +34,7 @@ public class TransactionReceiptWithMetadata {
   private final Optional<Long> blobGasUsed;
   private final Optional<Wei> blobGasPrice;
   private final int logIndexOffset;
+  private final boolean removed;
 
   private TransactionReceiptWithMetadata(
       final TransactionReceipt receipt,
@@ -47,7 +48,8 @@ public class TransactionReceiptWithMetadata {
       final long blockNumber,
       final Optional<Long> blobGasUsed,
       final Optional<Wei> blobGasPrice,
-      final int logIndexOffset) {
+      final int logIndexOffset,
+      final boolean removed) {
     this.receipt = receipt;
     this.transactionHash = transactionHash;
     this.transactionIndex = transactionIndex;
@@ -60,6 +62,37 @@ public class TransactionReceiptWithMetadata {
     this.blobGasUsed = blobGasUsed;
     this.blobGasPrice = blobGasPrice;
     this.logIndexOffset = logIndexOffset;
+    this.removed = removed;
+  }
+
+  public static TransactionReceiptWithMetadata create(
+      final TransactionReceipt receipt,
+      final Transaction transaction,
+      final Hash transactionHash,
+      final int transactionIndex,
+      final long gasUsed,
+      final Optional<Wei> baseFee,
+      final Hash blockHash,
+      final long blockTimestamp,
+      final long blockNumber,
+      final Optional<Long> blobGasUsed,
+      final Optional<Wei> blobGasPrice,
+      final int logIndexOffset,
+      final boolean removed) {
+    return new TransactionReceiptWithMetadata(
+        receipt,
+        transaction,
+        transactionHash,
+        transactionIndex,
+        gasUsed,
+        baseFee,
+        blockHash,
+        blockTimestamp,
+        blockNumber,
+        blobGasUsed,
+        blobGasPrice,
+        logIndexOffset,
+        removed);
   }
 
   public static TransactionReceiptWithMetadata create(
@@ -87,7 +120,8 @@ public class TransactionReceiptWithMetadata {
         blockNumber,
         blobGasUsed,
         blobGasPrice,
-        logIndexOffset);
+        logIndexOffset,
+        false);
   }
 
   public TransactionReceipt getReceipt() {
@@ -138,5 +172,9 @@ public class TransactionReceiptWithMetadata {
 
   public int getLogIndexOffset() {
     return logIndexOffset;
+  }
+
+  public boolean isRemoved() {
+    return removed;
   }
 }

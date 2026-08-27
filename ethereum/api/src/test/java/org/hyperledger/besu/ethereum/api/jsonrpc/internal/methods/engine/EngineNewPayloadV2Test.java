@@ -66,6 +66,8 @@ public class EngineNewPayloadV2Test extends EngineNewPayloadV1Test {
             .mergeCoordinator(mergeCoordinator)
             .ethPeers(ethPeers)
             .metricsSystem(new NoOpMetricsSystem())
+            .transactionPool(transactionPool)
+            .maxRequestBlocks(0)
             .build(),
         null,
         CANCUN);
