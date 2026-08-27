@@ -25,6 +25,7 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
+- `eth_createAccessList` now includes accounts accessed via `BALANCE`, `EXTCODESIZE`, `EXTCODECOPY`, `EXTCODEHASH`, `SELFDESTRUCT` and call targets, matching other clients; previously accounts without storage accesses were omitted. [#11134](https://github.com/besu-eth/besu/issues/11134)
 - `debug_getRawReceipts` now accepts a block hash as well as a block number or tag. [#11156](https://github.com/besu-eth/besu/pull/11156)
 - Support dynamic reorg tracking for transaction receipt logs in `eth_getTransactionReceipt` and `eth_getBlockReceipts` by populating the `removed` field. [#11076](https://github.com/besu-eth/besu/pull/11076)
 - `testing_buildBlockV1` now uses the genesis gas limit as the effective target when no `targetGasLimit` is specified, so the gas limit calculator applies a one-step decrement rather than holding the parent value. [#11166](https://github.com/besu-eth/besu/pull/11166)

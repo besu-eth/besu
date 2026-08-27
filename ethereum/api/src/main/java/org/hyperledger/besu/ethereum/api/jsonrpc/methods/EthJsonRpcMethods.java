@@ -173,7 +173,7 @@ public class EthJsonRpcMethods extends ApiGroupJsonRpcMethods {
             new EthSendRawTransaction(transactionPool),
             new EthSendTransaction(),
             new EthEstimateGas(blockchainQueries, transactionSimulator, apiConfiguration),
-            new EthCreateAccessList(blockchainQueries, transactionSimulator),
+            new EthCreateAccessList(blockchainQueries, transactionSimulator, protocolSchedule),
             new EthCapabilities(blockchainQueries),
             new EthConfig(blockchainQueries, protocolSchedule, genesisConfigOptions),
             new EthProtocolVersion(supportedCapabilities),
