@@ -98,6 +98,7 @@ public enum RpcMethod {
   ETH_GET_LOGS("eth_getLogs"),
   ETH_GET_MAX_PRIORITY_FEE_PER_GAS("eth_maxPriorityFeePerGas"),
   ETH_GET_PROOF("eth_getProof"),
+  ETH_GET_RAW_TRANSACTION_BY_HASH("eth_getRawTransactionByHash"),
   ETH_GET_STORAGE_AT("eth_getStorageAt"),
   ETH_GET_STORAGE_VALUES("eth_getStorageValues"),
   ETH_GET_TRANSACTION_BY_BLOCK_HASH_AND_INDEX("eth_getTransactionByBlockHashAndIndex"),
