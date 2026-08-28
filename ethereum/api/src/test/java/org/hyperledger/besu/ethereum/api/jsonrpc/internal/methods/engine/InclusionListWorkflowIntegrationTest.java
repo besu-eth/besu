@@ -37,7 +37,6 @@ import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BlobGas;
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.RequestType;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.TransactionType;
@@ -213,7 +212,7 @@ public class InclusionListWorkflowIntegrationTest {
 
     when(transactionPool.getInclusionListPendingTransactions()).thenReturn(List.of(pt));
 
-    final JsonRpcResponse getILResponse = callGetInclusionList(parentHeader.getHash());
+    final JsonRpcResponse getILResponse = callGetInclusionList();
     assertThat(getILResponse.getType()).isEqualTo(RpcResponseType.SUCCESS);
 
     @SuppressWarnings("unchecked")
@@ -289,7 +288,7 @@ public class InclusionListWorkflowIntegrationTest {
 
     when(transactionPool.getInclusionListPendingTransactions()).thenReturn(List.of());
 
-    final JsonRpcResponse response = callGetInclusionList(parentHeader.getHash());
+    final JsonRpcResponse response = callGetInclusionList();
     assertThat(response.getType()).isEqualTo(RpcResponseType.SUCCESS);
 
     @SuppressWarnings("unchecked")
@@ -308,7 +307,8 @@ public class InclusionListWorkflowIntegrationTest {
 
     when(transactionPool.getInclusionListPendingTransactions()).thenReturn(List.of(pt));
 
-    callGetInclusionList(parentHeader.getHash());
+    var response = callGetInclusionList();
+    System.out.println(response);
     assertThat(metricsSystem.getCounterValue("engine_inclusion_list_transactions_generated"))
         .isGreaterThan(0);
     assertThat(metricsSystem.getCounterValue("engine_inclusion_list_selector_duration_ms"))
@@ -387,13 +387,11 @@ public class InclusionListWorkflowIntegrationTest {
         .createTransaction(KEYS);
   }
 
-  private JsonRpcResponse callGetInclusionList(final Hash parentHash) {
+  private JsonRpcResponse callGetInclusionList() {
     return getInclusionListMethod.response(
         new JsonRpcRequestContext(
             new JsonRpcRequest(
-                "2.0",
-                RpcMethod.ENGINE_GET_INCLUSION_LIST_V1.getMethodName(),
-                new Object[] {parentHash.toHexString()})));
+                "2.0", RpcMethod.ENGINE_GET_INCLUSION_LIST_V1.getMethodName(), new Object[0])));
   }
 
   private JsonRpcResponse callForkchoiceUpdated(
