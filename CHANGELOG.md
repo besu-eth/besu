@@ -22,6 +22,7 @@
   - `PluginTransactionSelectorFactory.create(final SelectorsStateManager selectorsStateManager)` is deprecated for removal
   - `PoaQueryService` and `BftQueryService` are deprecated and will be removed in a future release, with no replacement. They have no known usage
   - `MiningService` is deprecated for removal and will be removed in a future release, with no replacement. It has no known usage
+  - `PluginVersionsProvider`, `plugin.data.Request`, `plugin.data.Restriction`, `plugin.data.UnsignedPrivateMarkerTransaction` and `plugin.data.Signature` are deprecated for removal, with no replacement. None is reachable through any plugin service or data contract: the three privacy types were orphaned when private transaction support was removed, `Request` is implemented internally but never exposed, and `PluginVersionsProvider` is internal `--version` plumbing
 - `--Xbft-legacy-protocol-encoding` will be removed once Besu 25.x is no longer supported. [#10499](https://github.com/besu-eth/besu/pull/10499)
 - `--Xsnapsync-synchronizer-pivot-block-distance-before-caching` is deprecated and will be removed in a future release; the flag is now a silent no-op.
 - `--snapsync-synchronizer-pre-checkpoint-headers-only-enabled` is deprecated and will be removed in a future release; the flag is now a silent no-op.
