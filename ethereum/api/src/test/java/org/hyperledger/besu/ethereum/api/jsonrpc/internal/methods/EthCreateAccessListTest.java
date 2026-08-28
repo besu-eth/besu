@@ -36,16 +36,20 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.CreateAccessLi
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.transaction.CallParameter;
 import org.hyperledger.besu.ethereum.transaction.ImmutableCallParameter;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulatorResult;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.evm.precompile.PrecompileContractRegistry;
 import org.hyperledger.besu.evm.tracing.AccessListOperationTracer;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -77,6 +81,9 @@ public class EthCreateAccessListTest {
   @Mock private BlockchainQueries blockchainQueries;
   @Mock private TransactionSimulator transactionSimulator;
   @Mock private WorldStateArchive worldStateArchive;
+  @Mock private ProtocolSchedule protocolSchedule;
+  @Mock private ProtocolSpec protocolSpec;
+  @Mock private PrecompileContractRegistry precompileContractRegistry;
 
   @BeforeEach
   public void setUp() {
@@ -101,8 +108,11 @@ public class EthCreateAccessListTest {
     when(pendingBlockHeader.getNumber()).thenReturn(3L);
     when(transactionSimulator.simulatePendingBlockHeader()).thenReturn(pendingBlockHeader);
     when(worldStateArchive.isWorldStateAvailable(any(), any())).thenReturn(true);
+    when(protocolSchedule.getByBlockHeader(any())).thenReturn(protocolSpec);
+    when(protocolSpec.getPrecompileContractRegistry()).thenReturn(precompileContractRegistry);
+    when(precompileContractRegistry.getPrecompileAddresses()).thenReturn(Set.of());
 
-    method = new EthCreateAccessList(blockchainQueries, transactionSimulator);
+    method = new EthCreateAccessList(blockchainQueries, transactionSimulator, protocolSchedule);
   }
 
   @Test
@@ -387,6 +397,7 @@ public class EthCreateAccessListTest {
     try (final MockedStatic<AccessListOperationTracer> tracerMockedStatic =
         Mockito.mockStatic(AccessListOperationTracer.class)) {
       tracerMockedStatic.when(AccessListOperationTracer::create).thenReturn(tracer);
+      tracerMockedStatic.when(() -> AccessListOperationTracer.create(any())).thenReturn(tracer);
       return method.response(request);
     }
   }

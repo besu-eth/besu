@@ -15,28 +15,37 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import org.hyperledger.besu.datatypes.AccessListEntry;
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.CreateAccessListResult;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.transaction.CallParameter;
 import org.hyperledger.besu.ethereum.transaction.ImmutableCallParameter;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulatorResult;
 import org.hyperledger.besu.evm.tracing.AccessListOperationTracer;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 
 public class EthCreateAccessList extends AbstractEstimateGas {
 
+  private final ProtocolSchedule protocolSchedule;
+
   public EthCreateAccessList(
-      final BlockchainQueries blockchainQueries, final TransactionSimulator transactionSimulator) {
+      final BlockchainQueries blockchainQueries,
+      final TransactionSimulator transactionSimulator,
+      final ProtocolSchedule protocolSchedule) {
     super(blockchainQueries, transactionSimulator);
+    this.protocolSchedule = protocolSchedule;
   }
 
   @Override
@@ -53,7 +62,8 @@ public class EthCreateAccessList extends AbstractEstimateGas {
       final long gasLimitUpperBound,
       final long minTxCost) {
 
-    final AccessListOperationTracer tracer = AccessListOperationTracer.create();
+    final Set<Address> excludedAddresses = excludedAddresses(callParams, blockHeader);
+    final AccessListOperationTracer tracer = AccessListOperationTracer.create(excludedAddresses);
     if (attemptOptimisticSimulationWithMinimumBlockGasUsed(
         minTxCost, callParams, simulationFunction, tracer)) {
       return new CreateAccessListResult(tracer.getAccessList(), minTxCost);
@@ -66,11 +76,28 @@ public class EthCreateAccessList extends AbstractEstimateGas {
     if (shouldProcessWithAccessListOverride(callParams, tracer)) {
       final AccessListSimulatorResult result =
           processTransactionWithAccessListOverride(
-              callParams, gasLimitUpperBound, tracer.getAccessList(), simulationFunction);
+              callParams,
+              gasLimitUpperBound,
+              tracer.getAccessList(),
+              simulationFunction,
+              excludedAddresses);
       return createResponse(requestContext, result);
     } else {
       return createResponse(requestContext, new AccessListSimulatorResult(firstResult, tracer));
     }
+  }
+
+  private Set<Address> excludedAddresses(
+      final CallParameter callParams, final ProcessableBlockHeader blockHeader) {
+    final Set<Address> excluded = new HashSet<>();
+    callParams.getSender().ifPresent(excluded::add);
+    callParams.getTo().ifPresent(excluded::add);
+    excluded.addAll(
+        protocolSchedule
+            .getByBlockHeader(blockHeader)
+            .getPrecompileContractRegistry()
+            .getPrecompileAddresses());
+    return excluded;
   }
 
   private Object createResponse(
@@ -112,9 +139,10 @@ public class EthCreateAccessList extends AbstractEstimateGas {
       final CallParameter callParameter,
       final long gasLimit,
       final List<AccessListEntry> accessList,
-      final TransactionSimulationFunction simulationFunction) {
+      final TransactionSimulationFunction simulationFunction,
+      final Set<Address> excludedAddresses) {
 
-    final AccessListOperationTracer tracer = AccessListOperationTracer.create();
+    final AccessListOperationTracer tracer = AccessListOperationTracer.create(excludedAddresses);
     final CallParameter modifiedCallParameter =
         overrideAccessList(callParameter, gasLimit, accessList);
 
