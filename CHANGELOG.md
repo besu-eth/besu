@@ -23,6 +23,12 @@
   - `PluginTransactionSelectorFactory.create(final SelectorsStateManager selectorsStateManager)` is deprecated for removal
   - `PoaQueryService` and `BftQueryService` are deprecated and will be removed in a future release, with no replacement. They have no known usage
   - `MiningService` is deprecated for removal and will be removed in a future release, with no replacement. It has no known usage
+  - The plugin API is being reorganized into per-feature modules ([#10820](https://github.com/besu-eth/besu/issues/10820)). Nothing has changed for plugin authors yet: `besu-plugin-api` re-exports every module, so existing plugins compile and run unmodified. A future release will apply the breaking changes, batched into a single break with a migration guide:
+    - packages are renamed to match their module, for example `org.hyperledger.besu.plugin.services.storage` becomes `org.hyperledger.besu.plugin.storage`, with contracts plugins implement moving under an `spi` sub-package
+    - contracts that serve several unrelated audiences are split apart, and contracts that overlap are merged into one
+    - types and methods whose names no longer describe what they do are renamed, and a number of signatures change
+    - contracts and methods that are deprecated, superseded, or have no known usage are removed
+  - The plugin lifecycle is being redesigned. The phases a plugin goes through, the services available in each of them, and the way a plugin obtains those services are all expected to change, and the changes will not be source compatible.
   - `PluginVersionsProvider`, `plugin.data.Request`, `plugin.data.Restriction`, `plugin.data.UnsignedPrivateMarkerTransaction` and `plugin.data.Signature` are deprecated for removal, with no replacement. None is reachable through any plugin service or data contract: the three privacy types were orphaned when private transaction support was removed, `Request` is implemented internally but never exposed, and `PluginVersionsProvider` is internal `--version` plumbing
 - `--Xbft-legacy-protocol-encoding` will be removed once Besu 25.x is no longer supported. [#10499](https://github.com/besu-eth/besu/pull/10499)
 - `--Xsnapsync-synchronizer-pivot-block-distance-before-caching` is deprecated and will be removed in a future release; the flag is now a silent no-op.
