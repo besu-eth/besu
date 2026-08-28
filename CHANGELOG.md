@@ -14,6 +14,8 @@
 - Vert.x 5's `PoolMetrics` SPI drops the `rejected` callback, so the `vertx_worker_pool_rejected_total` metric no longer reports any value; remove any dashboard or alert that depends on it. [#11015](https://github.com/besu-eth/besu/pull/11015)
 - Vert.x 5's DNS client now filters resolved records by comparing an answer's owner name against the queried name case-sensitively, silently dropping non-matching records instead of returning them as Vert.x 4.x did. EIP-1459 DNS discovery could miss subtree/node TXT records from a server whose response doesn't echo the query name byte-for-byte (e.g. differing case). [#11015](https://github.com/besu-eth/besu/pull/11015)
 - Removed the custom `engine_preparePayload_debug` RPC methods, use the standard `testing_buildBlockV1` instead. [#11011](https://github.com/besu-eth/besu/pull/11011)
+- RPC changes to enhance compatibility with other ELs
+  - `eth_estimateGas` now returns the exact minimal gas limit for plain value transfers instead of a value up to `--estimate-gas-tolerance-ratio` above it, e.g. 15000 instead of 15159 for a zero-value transfer under EIP-2780 (Amsterdam), matching other ELs. [#11178](https://github.com/besu-eth/besu/pull/11178)
 
 ### Upcoming Breaking Changes
 - Plugin API
