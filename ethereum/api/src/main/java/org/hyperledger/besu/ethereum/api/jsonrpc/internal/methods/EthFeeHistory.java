@@ -180,13 +180,12 @@ public class EthFeeHistory implements JsonRpcMethod {
             : Optional.empty();
     final ProtocolSpec nextBlockProtocolSpec =
         protocolSchedule.getForNextBlockHeader(chainHeadHeader, chainHeadHeader.getTimestamp());
-    final Optional<List<Double>> sortedRewardPercentiles = maybeRewardPercentiles;
     final ResultCacheKey resultCacheKey =
         isLatestRequest
             ? new ResultCacheKey(
                 chainHeadHeader.getBlockHash(),
                 blockCount,
-                sortedRewardPercentiles,
+                maybeRewardPercentiles,
                 rewardBounds,
                 nextBlockProtocolSpec.getHardforkId())
             : null;
@@ -211,7 +210,7 @@ public class EthFeeHistory implements JsonRpcMethod {
     final List<Double> gasUsedRatios = getGasUsedRatios(blockHeaderRange);
     final List<Double> blobGasUsedRatios = getBlobGasUsedRatios(blockHeaderRange);
     final Optional<List<List<Wei>>> maybeRewards =
-        sortedRewardPercentiles.map(
+        maybeRewardPercentiles.map(
             percentiles ->
                 computeRewardsForRange(percentiles, blockHeaderRange, nextBaseFee, rewardBounds));
     final FeeHistory.FeeHistoryResult result =
@@ -233,12 +232,14 @@ public class EthFeeHistory implements JsonRpcMethod {
     if (percentiles.size() > MAXIMUM_QUERY_PERCENTILES) {
       return false;
     }
+    final List<Double> normalized = new ArrayList<>(percentiles.size());
     for (final Double percentile : percentiles) {
       if (percentile == null || percentile.isNaN() || percentile < 0 || percentile > 100) {
         return false;
       }
+      normalized.add(percentile == 0.0 ? 0.0 : percentile);
     }
-    return Comparators.isInStrictOrder(percentiles, Comparator.naturalOrder());
+    return Comparators.isInStrictOrder(normalized, Comparator.naturalOrder());
   }
 
   private List<List<Wei>> computeRewardsForRange(

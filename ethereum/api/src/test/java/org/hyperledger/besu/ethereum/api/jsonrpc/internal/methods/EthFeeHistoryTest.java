@@ -145,6 +145,10 @@ public class EthFeeHistoryTest {
             ((JsonRpcErrorResponse) feeHistoryRequest("0x1", "latest", Arrays.asList(Double.NaN)))
                 .getErrorType())
         .isEqualTo(RpcErrorType.INVALID_REWARD_PERCENTILES_PARAMS);
+    assertThat(
+            ((JsonRpcErrorResponse) feeHistoryRequest("0x1", "latest", new double[] {-0.0, 0.0}))
+                .getErrorType())
+        .isEqualTo(RpcErrorType.INVALID_REWARD_PERCENTILES_PARAMS);
     final List<Double> oversizeInvalid =
         IntStream.rangeClosed(1, 500).mapToObj(i -> 1.0).collect(Collectors.toList());
     assertThat(
