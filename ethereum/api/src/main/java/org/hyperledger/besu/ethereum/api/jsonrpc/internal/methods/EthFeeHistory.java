@@ -49,11 +49,13 @@ import org.hyperledger.besu.util.cache.MemoryBoundCache;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Comparators;
 import org.apache.tuweni.units.bigints.UInt256s;
 
 public class EthFeeHistory implements JsonRpcMethod {
@@ -69,6 +71,8 @@ public class EthFeeHistory implements JsonRpcMethod {
   private static final long PER_BLOCK_REWARDS_CACHE_MAX_BYTES = 32L * 1024 * 1024;
   private static final long RESULT_CACHE_MAX_BYTES = 16L * 1024 * 1024;
   private static final int MAXIMUM_QUERY_PERCENTILES = 100;
+  private static final String INVALID_REWARD_PERCENTILES_PARAMS_MSG =
+      "Invalid reward percentiles parameter (index 2)";
 
   record RewardCacheKey(Hash blockHash, List<Double> rewardPercentiles) {}
 
@@ -152,11 +156,12 @@ public class EthFeeHistory implements JsonRpcMethod {
       maybeRewardPercentiles = request.getOptionalParameter(2, Double[].class).map(Arrays::asList);
     } catch (JsonRpcParameterException e) {
       throw new InvalidJsonRpcParameters(
-          "Invalid reward percentiles parameter (index 2)",
-          RpcErrorType.INVALID_REWARD_PERCENTILES_PARAMS,
-          e);
+          INVALID_REWARD_PERCENTILES_PARAMS_MSG, RpcErrorType.INVALID_REWARD_PERCENTILES_PARAMS, e);
     }
-    maybeRewardPercentiles.ifPresent(this::validateRewardPercentiles);
+    if (maybeRewardPercentiles.isPresent()
+        && !areRewardPercentilesValid(maybeRewardPercentiles.get())) {
+      return new JsonRpcErrorResponse(requestId, RpcErrorType.INVALID_REWARD_PERCENTILES_PARAMS);
+    }
 
     final BlockHeader chainHeadHeader = blockchain.getChainHeadHeader();
     final long chainHeadBlockNumber = chainHeadHeader.getNumber();
@@ -175,8 +180,7 @@ public class EthFeeHistory implements JsonRpcMethod {
             : Optional.empty();
     final ProtocolSpec nextBlockProtocolSpec =
         protocolSchedule.getForNextBlockHeader(chainHeadHeader, chainHeadHeader.getTimestamp());
-    final Optional<List<Double>> sortedRewardPercentiles =
-        maybeRewardPercentiles.filter(list -> list.size() <= MAXIMUM_QUERY_PERCENTILES);
+    final Optional<List<Double>> sortedRewardPercentiles = maybeRewardPercentiles;
     final ResultCacheKey resultCacheKey =
         isLatestRequest
             ? new ResultCacheKey(
@@ -225,20 +229,16 @@ public class EthFeeHistory implements JsonRpcMethod {
     return new JsonRpcSuccessResponse(requestId, result);
   }
 
-  private void validateRewardPercentiles(final List<Double> percentiles) {
-    Double previous = null;
-    for (final Double percentile : percentiles) {
-      if (percentile == null
-          || percentile.isNaN()
-          || percentile < 0
-          || percentile > 100
-          || (previous != null && percentile <= previous)) {
-        throw new InvalidJsonRpcParameters(
-            "Invalid reward percentiles parameter (index 2)",
-            RpcErrorType.INVALID_REWARD_PERCENTILES_PARAMS);
-      }
-      previous = percentile;
+  private boolean areRewardPercentilesValid(final List<Double> percentiles) {
+    if (percentiles.size() > MAXIMUM_QUERY_PERCENTILES) {
+      return false;
     }
+    for (final Double percentile : percentiles) {
+      if (percentile == null || percentile.isNaN() || percentile < 0 || percentile > 100) {
+        return false;
+      }
+    }
+    return Comparators.isInStrictOrder(percentiles, Comparator.naturalOrder());
   }
 
   private List<List<Wei>> computeRewardsForRange(

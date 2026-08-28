@@ -14,6 +14,7 @@
 - Vert.x 5's `PoolMetrics` SPI drops the `rejected` callback, so the `vertx_worker_pool_rejected_total` metric no longer reports any value; remove any dashboard or alert that depends on it. [#11015](https://github.com/besu-eth/besu/pull/11015)
 - Vert.x 5's DNS client now filters resolved records by comparing an answer's owner name against the queried name case-sensitively, silently dropping non-matching records instead of returning them as Vert.x 4.x did. EIP-1459 DNS discovery could miss subtree/node TXT records from a server whose response doesn't echo the query name byte-for-byte (e.g. differing case). [#11015](https://github.com/besu-eth/besu/pull/11015)
 - Removed the custom `engine_preparePayload_debug` RPC methods, use the standard `testing_buildBlockV1` instead. [#11011](https://github.com/besu-eth/besu/pull/11011)
+- `eth_feeHistory` now rejects reward percentiles outside `[0, 100]`, not strictly increasing, or more than 100 values (`-32602`), instead of sorting unordered input or silently omitting `reward` for oversize lists. [#11055](https://github.com/besu-eth/besu/issues/11055)
 
 ### Upcoming Breaking Changes
 - Plugin API
@@ -25,7 +26,6 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
-- `eth_feeHistory` now rejects reward percentiles outside `[0, 100]` or not strictly increasing. [#11055](https://github.com/besu-eth/besu/issues/11055)
 - `debug_getRawReceipts` now accepts a block hash as well as a block number or tag. [#11156](https://github.com/besu-eth/besu/pull/11156)
 - Support dynamic reorg tracking for transaction receipt logs in `eth_getTransactionReceipt` and `eth_getBlockReceipts` by populating the `removed` field. [#11076](https://github.com/besu-eth/besu/pull/11076)
 - `testing_buildBlockV1` now uses the genesis gas limit as the effective target when no `targetGasLimit` is specified, so the gas limit calculator applies a one-step decrement rather than holding the parent value. [#11166](https://github.com/besu-eth/besu/pull/11166)

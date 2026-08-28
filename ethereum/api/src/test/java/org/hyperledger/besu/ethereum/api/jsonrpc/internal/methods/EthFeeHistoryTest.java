@@ -121,22 +121,36 @@ public class EthFeeHistoryTest {
 
   @Test
   public void shouldRejectInvalidRewardPercentiles() {
-    assertThatThrownBy(() -> feeHistoryRequest("0x1", "latest", new double[] {80, 20}))
-        .isInstanceOf(InvalidJsonRpcParameters.class)
-        .hasFieldOrPropertyWithValue(
-            "rpcErrorType", RpcErrorType.INVALID_REWARD_PERCENTILES_PARAMS);
-    assertThatThrownBy(() -> feeHistoryRequest("0x1", "latest", new double[] {20, 20}))
-        .isInstanceOf(InvalidJsonRpcParameters.class)
-        .hasFieldOrPropertyWithValue(
-            "rpcErrorType", RpcErrorType.INVALID_REWARD_PERCENTILES_PARAMS);
-    assertThatThrownBy(() -> feeHistoryRequest("0x1", "latest", new double[] {150}))
-        .isInstanceOf(InvalidJsonRpcParameters.class)
-        .hasFieldOrPropertyWithValue(
-            "rpcErrorType", RpcErrorType.INVALID_REWARD_PERCENTILES_PARAMS);
-    assertThatThrownBy(() -> feeHistoryRequest("0x1", "latest", new double[] {-5}))
-        .isInstanceOf(InvalidJsonRpcParameters.class)
-        .hasFieldOrPropertyWithValue(
-            "rpcErrorType", RpcErrorType.INVALID_REWARD_PERCENTILES_PARAMS);
+    assertThat(
+            ((JsonRpcErrorResponse) feeHistoryRequest("0x1", "latest", new double[] {80, 20}))
+                .getErrorType())
+        .isEqualTo(RpcErrorType.INVALID_REWARD_PERCENTILES_PARAMS);
+    assertThat(
+            ((JsonRpcErrorResponse) feeHistoryRequest("0x1", "latest", new double[] {20, 20}))
+                .getErrorType())
+        .isEqualTo(RpcErrorType.INVALID_REWARD_PERCENTILES_PARAMS);
+    assertThat(
+            ((JsonRpcErrorResponse) feeHistoryRequest("0x1", "latest", new double[] {150}))
+                .getErrorType())
+        .isEqualTo(RpcErrorType.INVALID_REWARD_PERCENTILES_PARAMS);
+    assertThat(
+            ((JsonRpcErrorResponse) feeHistoryRequest("0x1", "latest", new double[] {-5}))
+                .getErrorType())
+        .isEqualTo(RpcErrorType.INVALID_REWARD_PERCENTILES_PARAMS);
+    assertThat(
+            ((JsonRpcErrorResponse) feeHistoryRequest("0x1", "latest", Arrays.asList(10.0, null)))
+                .getErrorType())
+        .isEqualTo(RpcErrorType.INVALID_REWARD_PERCENTILES_PARAMS);
+    assertThat(
+            ((JsonRpcErrorResponse) feeHistoryRequest("0x1", "latest", Arrays.asList(Double.NaN)))
+                .getErrorType())
+        .isEqualTo(RpcErrorType.INVALID_REWARD_PERCENTILES_PARAMS);
+    final List<Double> oversizeInvalid =
+        IntStream.rangeClosed(1, 500).mapToObj(i -> 1.0).collect(Collectors.toList());
+    assertThat(
+            ((JsonRpcErrorResponse) feeHistoryRequest("0x1", "latest", oversizeInvalid))
+                .getErrorType())
+        .isEqualTo(RpcErrorType.INVALID_REWARD_PERCENTILES_PARAMS);
     feeHistoryRequest("0x1", "latest", new double[] {12.5, 80.3});
     feeHistoryRequest("0x1", "latest", new double[] {0, 100});
   }
@@ -498,12 +512,10 @@ public class EthFeeHistoryTest {
             .boxed()
             .collect(Collectors.toList());
 
-    // assert we return no percentiles for array sizes > 100
-    final FeeHistory.FeeHistoryResult result =
-        (FeeHistory.FeeHistoryResult)
-            ((JsonRpcSuccessResponse) feeHistoryRequest("0x1", "latest", oversizeRewardPercentiles))
-                .getResult();
-    assertThat(result.getReward()).isNull();
+    assertThat(
+            ((JsonRpcErrorResponse) feeHistoryRequest("0x1", "latest", oversizeRewardPercentiles))
+                .getErrorType())
+        .isEqualTo(RpcErrorType.INVALID_REWARD_PERCENTILES_PARAMS);
 
     // assert we will return percentiles for array sizes <= 100
     final FeeHistory.FeeHistoryResult resultOk =
