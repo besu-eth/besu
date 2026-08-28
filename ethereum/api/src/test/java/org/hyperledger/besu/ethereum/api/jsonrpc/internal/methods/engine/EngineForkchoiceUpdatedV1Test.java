@@ -48,6 +48,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcRespon
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.ForkchoiceUpdatedResultV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
@@ -77,6 +78,12 @@ import org.mockito.quality.Strictness;
 @MockitoSettings(strictness = Strictness.LENIENT)
 public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
   protected static final Consumer<BlockHeaderTestFixture> NO_OP = _ -> {};
+
+  /**
+   * uint64 {@code 0xfffffffffffffffe}: above {@code Long.MAX_VALUE}, so carried as a negative long.
+   */
+  protected static final long TIMESTAMP_ABOVE_LONG_MAX_VALUE = -2L;
+
   protected EngineForkchoiceUpdatedV1<?, ?> method;
 
   protected static final Vertx vertx = Vertx.vertx();
@@ -170,14 +177,14 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
 
   protected Object validPayloadAttributesForBlock(final BlockHeader head) {
     return new PayloadAttributesV1(
-        String.valueOf(head.getTimestamp() + 1),
+        Quantity.create(head.getTimestamp() + 1),
         Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
         "0x0000000000000000000000000000000000000001");
   }
 
   protected Object invalidTimestampPayloadAttributesForBlock(final BlockHeader head) {
     return new PayloadAttributesV1(
-        String.valueOf(head.getTimestamp()),
+        Quantity.create(head.getTimestamp()),
         Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
         "0x0000000000000000000000000000000000000001");
   }
@@ -498,6 +505,28 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
 
     assertInvalidForkchoiceState(resp, RpcErrorType.INVALID_PAYLOAD_ATTRIBUTES);
     verify(engineCallListener, times(1)).executionEngineCalled();
+  }
+
+  @Test
+  public void shouldHandlePayloadAttributesTimestampAboveLongMaxValue() {
+    // A head block at 0xfffffffffffffffe puts the payload attributes timestamp at
+    // 0xffffffffffffffff. Compared signed both are negative, so the attributes would be rejected as
+    // not newer than the head block, and from V2 on their withdrawals as pre-Shanghai.
+    final BlockHeader mockHeader =
+        setupValidForkchoiceUpdate(bhb -> bhb.timestamp(TIMESTAMP_ABOVE_LONG_MAX_VALUE));
+
+    final JsonRpcResponse resp =
+        resp(
+            new ForkchoiceStateV1(mockHeader.getBlockHash(), Hash.ZERO, Hash.ZERO),
+            Optional.of(validPayloadAttributesForBlock(mockHeader)));
+
+    if (getMaxSupportedTimestamp().isPresent()) {
+      // every version but the latest one rejects such a timestamp for being past its fork window,
+      // which it only gets to once the timestamp has parsed and passed the checks above
+      assertInvalidForkchoiceState(resp, RpcErrorType.UNSUPPORTED_FORK);
+    } else {
+      assertThat(resp).isInstanceOf(JsonRpcSuccessResponse.class);
+    }
   }
 
   @Test

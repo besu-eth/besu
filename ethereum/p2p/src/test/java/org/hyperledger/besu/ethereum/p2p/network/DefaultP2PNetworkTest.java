@@ -203,13 +203,20 @@ public final class DefaultP2PNetworkTest {
     final DefaultP2PNetwork network = network();
     final Peer peer = PeerTestHelper.createPeer();
 
+    // Stubbed before start(), which arms a 2s timer that runs checkMaintainedConnectionPeers() on
+    // the scheduler thread. That background call invokes rlpxAgent too, and Mockito tracks the
+    // invocation being stubbed per mock rather than per thread, so stubbing after start() can have
+    // its when(...)/thenReturn(...) pair torn apart by the timer on a slow enough run.
+    // thenAnswer() rather than thenReturn() because a Stream is single-use and the timer may
+    // consume one before this test does.
+    when(rlpxAgent.streamActiveConnections())
+        .thenAnswer(invocation -> Stream.of(MockPeerConnection.create(peer)));
+
     network.start();
 
     maintainedPeers.add(peer);
 
     // Don't connect to an already connected peer
-    when(rlpxAgent.streamActiveConnections())
-        .thenReturn(Stream.of(MockPeerConnection.create(peer)));
     network.checkMaintainedConnectionPeers();
     verify(rlpxAgent, times(0)).connect(peer, ConnectSource.MAINTAIN);
   }
