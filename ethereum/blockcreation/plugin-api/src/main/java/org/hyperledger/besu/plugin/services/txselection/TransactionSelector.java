@@ -16,6 +16,6 @@ package org.hyperledger.besu.plugin.services.txselection;
 
 import org.hyperledger.besu.plugin.Unstable;
 
-/** Interface for the transaction selector */
+/** Marker supertype of every transaction selector. */
 @Unstable
 public interface TransactionSelector {}

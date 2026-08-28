@@ -12,7 +12,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.services;
+package org.hyperledger.besu.ethereum.blockcreation.pluginadapter;
 
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.plugin.services.mining.MiningService;
@@ -21,6 +21,7 @@ import org.hyperledger.besu.plugin.services.mining.MiningService;
  * Implementation of the {@link MiningService} interface. This class provides methods to start and
  * stop the mining process using a {@link MiningCoordinator}.
  */
+@SuppressWarnings("removal") // MiningService is deprecated for removal; the adapter goes with it
 public class MiningServiceImpl implements MiningService {
 
   private final MiningCoordinator miningCoordinator;

@@ -16,7 +16,13 @@ package org.hyperledger.besu.plugin.services;
 
 import java.util.Map;
 
-/** The interface Plugin versions provider. */
+/**
+ * The interface Plugin versions provider.
+ *
+ * @deprecated This type is scheduled for removal from the plugin API in a future release, with no
+ *     replacement. It is used only internally to print plugin versions for {@code --version}.
+ */
+@Deprecated(forRemoval = true)
 public interface PluginVersionsProvider {
   /**
    * Gets plugin versions by name.

@@ -27,9 +27,9 @@ import java.util.stream.Collectors;
  * Manages the state of transaction selectors (including the plugin transaction selector {@link
  * PluginTransactionSelector}) during the block creation process. Some selectors have a state, for
  * example the amount of gas used by selected pending transactions so far, and changes made to the
- * state must be only commited after the evaluated pending transaction has been definitely selected
+ * state must be only committed after the evaluated pending transaction has been definitely selected
  * for inclusion, until that point it will be always possible to rollback the changes to the state
- * and return the previous commited state.
+ * and return the previous committed state.
  */
 @SuppressWarnings("rawtypes")
 public class SelectorsStateManager {
@@ -45,7 +45,7 @@ public class SelectorsStateManager {
   /**
    * Create, initialize and track the state for a selector.
    *
-   * <p>Call to this method must be performed before the block selection is stated with {@link
+   * <p>Call to this method must be performed before the block selection is started with {@link
    * #blockSelectionStarted()}, otherwise it fails.
    *
    * @param selector the selector
@@ -104,10 +104,10 @@ public class SelectorsStateManager {
   }
 
   /**
-   * Get the commited state for the specified selector
+   * Get the committed state for the specified selector
    *
    * @param selector the selector
-   * @return the commited state of the selector
+   * @return the committed state of the selector
    * @param <T> the type of the selector state
    */
   @SuppressWarnings("unchecked")
@@ -116,7 +116,7 @@ public class SelectorsStateManager {
   }
 
   /**
-   * Commit the current working state and prepare a new working state based on the just commited
+   * Commit the current working state and prepare a new working state based on the just committed
    * state
    */
   public void commit() {
@@ -126,7 +126,7 @@ public class SelectorsStateManager {
   }
 
   /**
-   * Discards the current working state and prepare a new working state based on the just commited
+   * Discards the current working state and prepare a new working state based on the just committed
    * state
    */
   public void rollback() {
@@ -149,7 +149,7 @@ public class SelectorsStateManager {
   @FunctionalInterface
   public interface StateDuplicator<T> extends UnaryOperator<T> {
     /**
-     * Duplicate the input objet
+     * Duplicate the input object
      *
      * @param t the input object to duplicate
      * @return a deep copy of the input object

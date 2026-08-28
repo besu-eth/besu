@@ -42,7 +42,7 @@ public interface BlockTransactionSelectionService {
 
   /**
    * Commit the changes applied by all the evaluated pending transactions since the previous commit.
-   * As part of this {@link PluginTransactionSelector} state of commited.
+   * The state of every {@link PluginTransactionSelector} is committed as part of this call.
    *
    * @return false only if a timeout occurred during the selection of the pending transaction,
    *     meaning that the pending transaction is not included in the current block
@@ -53,7 +53,7 @@ public interface BlockTransactionSelectionService {
    * Rollback the changes applied by all the evaluated pending transactions since the previous
    * commit.
    *
-   * <p>As part of this {@link PluginTransactionSelector} state of rolled back.
+   * <p>The state of every {@link PluginTransactionSelector} is rolled back as part of this call.
    */
   void rollback();
 }

@@ -17,6 +17,7 @@ dependencies {
   implementation project(':config')
   implementation project(':crypto:algorithms')
   implementation project(':datatypes')
+  implementation project(':ethereum:blockcreation:plugin-api')
   implementation project(':ethereum:core')
   implementation project(':ethereum:eth')
   implementation project(':evm')

@@ -51,7 +51,7 @@ public abstract class AbstractStatefulPluginTransactionSelector<S>
 
   /**
    * Set the working state for this selector. A working state contains changes that have not yet
-   * commited
+   * committed
    *
    * @param newState the new working state of this selector
    */
@@ -60,10 +60,10 @@ public abstract class AbstractStatefulPluginTransactionSelector<S>
   }
 
   /**
-   * Get the commited state for this selector. A commited state contains changes that have been
-   * commited
+   * Get the committed state for this selector. A committed state contains changes that have been
+   * committed
    *
-   * @return the commited state of this selector
+   * @return the committed state of this selector
    */
   protected S getCommitedState() {
     return selectorsStateManager.getSelectorCommittedState(this);
