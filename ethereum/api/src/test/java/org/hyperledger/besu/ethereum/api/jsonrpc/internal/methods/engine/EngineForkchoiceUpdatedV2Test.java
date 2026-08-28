@@ -105,8 +105,9 @@ public class EngineForkchoiceUpdatedV2Test extends EngineForkchoiceUpdatedV1Test
 
   @Override
   protected Object validPayloadAttributesForBlock(final BlockHeader head) {
-    // if called with a timestamp before, Shanghai should behave like V1
-    if (head.getTimestamp() < withdrawalsEnabledTimestamp) {
+    // if called with a timestamp before, Shanghai should behave like V1. The timestamp is a uint64
+    // carried in a long, so it must be compared unsigned.
+    if (Long.compareUnsigned(head.getTimestamp(), withdrawalsEnabledTimestamp) < 0) {
       when(protocolSpec.getWithdrawalsValidator())
           .thenReturn(new WithdrawalsValidator.ProhibitedWithdrawals());
       return super.validPayloadAttributesForBlock(head);

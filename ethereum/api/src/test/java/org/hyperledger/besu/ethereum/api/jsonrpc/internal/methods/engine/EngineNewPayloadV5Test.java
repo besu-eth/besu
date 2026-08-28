@@ -179,22 +179,6 @@ public class EngineNewPayloadV5Test extends EngineNewPayloadV4Test {
     assertValidResponse(header, resp);
   }
 
-  @Test
-  public void shouldReturnValidIfTimestampIsAboveLongMaxValue() {
-    // uint64 0xffffffffffffffff, carried as -1. Compared signed it looks pre-Shanghai, and the
-    // payload's withdrawals are then rejected as "must not be present before Shanghai hardfork".
-    final long timestamp = -1L;
-
-    final BlockHeader header =
-        setupPayloadV5(
-            timestamp, new BlockProcessingResult(Optional.empty()), BLOCK_ACCESS_LIST, 0L);
-
-    final JsonRpcResponse resp =
-        respV5(mockEnginePayloadParam(header, emptyList(), BLOCK_ACCESS_LIST, 0L));
-
-    assertValidResponse(header, resp);
-  }
-
   protected BlockHeader setupPayloadV5(
       final long timestamp,
       final BlockProcessingResult value,

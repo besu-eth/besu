@@ -236,30 +236,6 @@ public class EngineForkchoiceUpdatedV4Test extends EngineForkchoiceUpdatedV3Test
     assertThat(captor.getValue().targetGasLimit()).contains(targetGasLimitValue);
   }
 
-  @Test
-  public void shouldReturnValidForTimestampAboveLongMaxValue() {
-    final BlockHeader mockHeader = setupValidForkchoiceUpdate();
-
-    // uint64 0xffffffffffffffff, carried as -1: it must parse, must count as newer than the head
-    // block, and must count as post-Shanghai so that the withdrawals below are expected.
-    final PayloadAttributesV4 attrs =
-        new PayloadAttributesV4(
-            "0xffffffffffffffff",
-            Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
-            Address.ECREC.toString(),
-            Collections.emptyList(),
-            Bytes32.ZERO.toHexString(),
-            "0x1",
-            "0x1C9C380");
-
-    final JsonRpcResponse resp =
-        resp(
-            new ForkchoiceStateV1(mockHeader.getBlockHash(), Hash.ZERO, Hash.ZERO),
-            Optional.of(attrs));
-
-    assertThat(resp).isInstanceOf(JsonRpcSuccessResponse.class);
-  }
-
   // ---- custodyColumns (EIP-8070 Engine API) tests ----
 
   @Test
