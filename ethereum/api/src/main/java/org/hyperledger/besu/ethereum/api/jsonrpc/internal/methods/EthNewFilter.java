@@ -32,14 +32,17 @@ public class EthNewFilter implements JsonRpcMethod {
   private final FilterManager filterManager;
   private final BlockchainQueries blockchainQueries;
   private final long maxLogRange;
+  private final int maxFilterAddresses;
 
   public EthNewFilter(
       final FilterManager filterManager,
       final BlockchainQueries blockchainQueries,
-      final long maxLogRange) {
+      final long maxLogRange,
+      final int maxFilterAddresses) {
     this.filterManager = filterManager;
     this.blockchainQueries = blockchainQueries;
     this.maxLogRange = maxLogRange;
+    this.maxFilterAddresses = maxFilterAddresses;
   }
 
   @Override
@@ -60,6 +63,11 @@ public class EthNewFilter implements JsonRpcMethod {
     if (!filter.isValid()) {
       return new JsonRpcErrorResponse(
           requestContext.getRequest().getId(), RpcErrorType.INVALID_FILTER_PARAMS);
+    }
+
+    if (maxFilterAddresses > 0 && filter.getAddresses().size() > maxFilterAddresses) {
+      return new JsonRpcErrorResponse(
+          requestContext.getRequest().getId(), RpcErrorType.EXCEEDS_RPC_MAX_FILTER_ADDRESSES);
     }
 
     if (maxLogRange > 0) {

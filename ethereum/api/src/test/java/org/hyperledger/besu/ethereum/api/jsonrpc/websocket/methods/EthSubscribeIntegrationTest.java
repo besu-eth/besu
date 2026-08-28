@@ -72,7 +72,7 @@ public class EthSubscribeIntegrationTest {
     vertx = Vertx.vertx();
     testContext = new VertxTestContext();
     subscriptionManager = new SubscriptionManager(new NoOpMetricsSystem());
-    webSocketMethodsFactory = new WebSocketMethodsFactory(subscriptionManager, new HashMap<>());
+    webSocketMethodsFactory = new WebSocketMethodsFactory(subscriptionManager, new HashMap<>(), 0);
     webSocketMessageHandler =
         new WebSocketMessageHandler(
             vertx,

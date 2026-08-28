@@ -112,6 +112,7 @@ rpc-max-trace-filter-range=100
 rpc-max-active-filters=1000
 rpc-filter-timeout-seconds=60
 rpc-max-trace-steps=2000
+rpc-max-log-filter-addresses=500
 
 # GRAPHQL HTTP
 graphql-http-enabled=false
