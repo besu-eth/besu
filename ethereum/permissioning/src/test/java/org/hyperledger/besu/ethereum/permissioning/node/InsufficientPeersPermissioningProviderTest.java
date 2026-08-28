@@ -142,7 +142,7 @@ public class InsufficientPeersPermissioningProviderTest {
   }
 
   @Test
-  public void firesUpdateWhenDisconnectLastNonBootnode() {
+  public void firesUpdateWhenDisconnectLastDynamicPeer() {
     final Collection<EnodeURLImpl> bootnodes = Collections.singletonList(ENODE_2);
     // the same PeerConnection instances must be handed back on disconnect: that is what the p2p
     // layer does, and the provider tracks connections by identity
@@ -173,7 +173,7 @@ public class InsufficientPeersPermissioningProviderTest {
   }
 
   @Test
-  public void firesUpdateWhenNonBootnodeConnects() {
+  public void firesUpdateWhenDynamicPeerConnects() {
     final Collection<EnodeURLImpl> bootnodes = Arrays.asList(ENODE_2, ENODE_3);
     final Collection<PeerConnection> pcs = Collections.emptyList();
 
@@ -272,7 +272,7 @@ public class InsufficientPeersPermissioningProviderTest {
     verify(p2pNetwork).subscribeDisconnect(callbackCaptor.capture());
     final DisconnectCallback disconnectCallback = callbackCaptor.getValue();
 
-    // one real non-bootnode peer is connected, so the bootstrap exception must not apply
+    // one real dynamic peer is connected, so the bootstrap exception must not apply
     assertThat(provider.isPermitted(SELF_ENODE, ENODE_2)).isEmpty();
 
     // three connections that were rejected before ever being dispatched as connects
@@ -291,16 +291,16 @@ public class InsufficientPeersPermissioningProviderTest {
   /**
    * The other direction of the same asymmetry. A connection can be classified differently at
    * disconnect time than it was at connect time, because {@code EnodeURLImpl} resolves hostnames
-   * lazily and rewrites its own address. Re-testing {@code isNotABootnode} on disconnect then
-   * skipped the decrement for a connection that had been counted, so the tally drifted upward and
-   * the bootstrap exception stayed disarmed even with no peers left. Tracking by identity makes the
+   * lazily and rewrites its own address. Re-testing {@code isBootnode} on disconnect then skipped
+   * the decrement for a connection that had been counted, so the tally drifted upward and the
+   * bootstrap exception stayed disarmed even with no peers left. Tracking by identity makes the
    * disconnect independent of how the endpoint resolves the second time.
    */
   @Test
   public void reclassifiedConnectionStillDecrementsOnDisconnect() {
     final Collection<EnodeURLImpl> bootnodes = Collections.singletonList(ENODE_2);
 
-    // counted as a non-bootnode on connect, then resolves to the bootnode endpoint on disconnect
+    // counted as a dynamic peer on connect, then resolves to the bootnode endpoint on disconnect
     final PeerConnection reclassified = mock(PeerConnection.class);
     when(reclassified.getRemoteEnode()).thenReturn(ENODE_3, ENODE_2);
 
