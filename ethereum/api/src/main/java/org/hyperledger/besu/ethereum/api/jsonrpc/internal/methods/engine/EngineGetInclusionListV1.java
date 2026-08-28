@@ -20,7 +20,8 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
-import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
+import org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
@@ -76,8 +77,14 @@ public class EngineGetInclusionListV1 extends ExecutionEngineJsonRpcMethod {
         transactionPool.getInclusionListPendingTransactions();
     final long durationMs = Duration.ofNanos(System.nanoTime() - startTimeNanos).toMillis();
 
-    final List<Transaction> result =
-        selectedPendingTransactions.stream().map(PendingTransaction::getTransaction).toList();
+    final List<String> result =
+        selectedPendingTransactions.stream()
+            .map(PendingTransaction::getTransaction)
+            .map(
+                transaction ->
+                    TransactionEncoder.encodeOpaqueBytes(transaction, EncodingContext.BLOCK_BODY)
+                        .toHexString())
+            .toList();
 
     transactionsGeneratedCounter.inc(result.size());
     selectorDurationMsCounter.inc(durationMs);

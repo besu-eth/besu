@@ -37,6 +37,8 @@ import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
+import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
+import org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
@@ -115,7 +117,7 @@ public class EngineGetInclusionListV1Test {
     final JsonRpcResponse response = resp(KNOWN_PARENT_HASH);
     assertThat(response.getType()).isEqualTo(RpcResponseType.SUCCESS);
 
-    final List<Transaction> result = fromSuccessResp(response);
+    final List<String> result = fromSuccessResp(response);
     assertThat(result).isEmpty();
   }
 
@@ -133,8 +135,8 @@ public class EngineGetInclusionListV1Test {
     final JsonRpcResponse response = resp(KNOWN_PARENT_HASH);
     assertThat(response.getType()).isEqualTo(RpcResponseType.SUCCESS);
 
-    final List<Transaction> result = fromSuccessResp(response);
-    assertThat(result).contains(tx1, tx2);
+    final List<String> result = fromSuccessResp(response);
+    assertThat(result).containsExactly(encode(tx1), encode(tx2));
   }
 
   @Test
@@ -150,7 +152,7 @@ public class EngineGetInclusionListV1Test {
     final JsonRpcResponse response = resp(KNOWN_PARENT_HASH);
     assertThat(response.getType()).isEqualTo(RpcResponseType.SUCCESS);
 
-    final List<Transaction> result = fromSuccessResp(response);
+    final List<String> result = fromSuccessResp(response);
     assertThat(result).hasSize(1);
   }
 
@@ -191,6 +193,11 @@ public class EngineGetInclusionListV1Test {
         .isEqualTo(0);
   }
 
+  private static String encode(final Transaction transaction) {
+    return TransactionEncoder.encodeOpaqueBytes(transaction, EncodingContext.BLOCK_BODY)
+        .toHexString();
+  }
+
   private Transaction createLegacyTransaction(final long nonce, final Wei gasPrice) {
     return new TransactionTestFixture()
         .to(Optional.of(Address.ZERO))
@@ -212,7 +219,7 @@ public class EngineGetInclusionListV1Test {
   }
 
   @SuppressWarnings({"unchecked", "rawtypes"})
-  private List<Transaction> fromSuccessResp(final JsonRpcResponse resp) {
+  private List<String> fromSuccessResp(final JsonRpcResponse resp) {
     assertThat(resp.getType()).isEqualTo(RpcResponseType.SUCCESS);
     return Optional.of(resp)
         .map(JsonRpcSuccessResponse.class::cast)

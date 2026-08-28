@@ -217,21 +217,17 @@ public class InclusionListWorkflowIntegrationTest {
     assertThat(getILResponse.getType()).isEqualTo(RpcResponseType.SUCCESS);
 
     @SuppressWarnings("unchecked")
-    final List<Transaction> ilTxList =
-        (List<Transaction>) ((JsonRpcSuccessResponse) getILResponse).getResult();
-    assertThat(ilTxList).isNotEmpty();
+    final List<String> ilTxHexList =
+        (List<String>) ((JsonRpcSuccessResponse) getILResponse).getResult();
+    assertThat(ilTxHexList)
+        .containsExactly(
+            TransactionEncoder.encodeOpaqueBytes(tx, EncodingContext.BLOCK_BODY).toHexString());
     assertThat(metricsSystem.getCounterValue("engine_inclusion_list_transactions_generated"))
         .isGreaterThan(0);
 
     // Step 2: forkchoiceUpdatedV5 - initiate payload building with IL transactions
     final BlockHeader childHeader = createChildBlockHeader(parentHeader);
     setupValidForkchoiceUpdate(childHeader, parentHeader);
-
-    final List<String> ilTxHexList =
-        ilTxList.stream()
-            .map(t -> TransactionEncoder.encodeOpaqueBytes(t, EncodingContext.POOLED_TRANSACTION))
-            .map(Bytes::toHexString)
-            .toList();
 
     final PayloadAttributesV5 payloadAttrs =
         new PayloadAttributesV5(
