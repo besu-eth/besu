@@ -41,7 +41,7 @@ import io.vertx.core.http.HttpServer;
 import io.vertx.core.http.HttpServerOptions;
 import io.vertx.core.http.HttpServerRequest;
 import io.vertx.core.http.HttpServerResponse;
-import io.vertx.core.http.ServerWebSocket;
+import io.vertx.core.http.ServerWebSocketHandshake;
 import io.vertx.core.net.HostAndPort;
 import io.vertx.core.net.JksOptions;
 import io.vertx.core.net.PemKeyCertOptions;
@@ -181,19 +181,18 @@ public class WebSocketService {
     httpServer =
         vertx
             .createHttpServer(serverOptions)
-            .webSocketHandler(websocketHandler())
+            .webSocketHandshakeHandler(webSocketHandshakeHandler())
             .connectionHandler(connectionHandler())
-            .requestHandler(httpHandler())
-            .listen(startHandler(resultFuture));
+            .requestHandler(httpHandler());
+
+    httpServer.listen().onComplete(startHandler(resultFuture));
 
     return resultFuture;
   }
 
-  private Handler<ServerWebSocket> websocketHandler() {
-    return websocket -> {
-      final SocketAddress socketAddress = websocket.remoteAddress();
-      final String connectionId = websocket.textHandlerID();
-      final String token = getAuthToken(websocket);
+  private Handler<ServerWebSocketHandshake> webSocketHandshakeHandler() {
+    return handshake -> {
+      final String token = getAuthToken(handshake);
       if (token != null) {
         LOG.atTrace()
             .setMessage("Websocket authentication token {}")
@@ -202,47 +201,61 @@ public class WebSocketService {
       }
 
       if (!checkHostInAllowlist(
-          Optional.ofNullable(websocket.authority()).map(HostAndPort::host))) {
-        websocket.reject(403);
+          Optional.ofNullable(handshake.authority()).map(HostAndPort::host))) {
+        handshake.reject(403);
+        return;
       }
 
-      LOG.debug("Websocket Connected ({})", socketAddressAsString(socketAddress));
+      handshake
+          .accept()
+          .onSuccess(
+              websocket -> {
+                final SocketAddress socketAddress = websocket.remoteAddress();
+                final String connectionId = websocket.textHandlerID();
 
-      final Handler<Buffer> socketHandler =
-          buffer -> {
-            LOG.debug(
-                "Received Websocket request (binary frame) {} ({})",
-                buffer.toString(),
-                socketAddressAsString(socketAddress));
+                LOG.debug("Websocket Connected ({})", socketAddressAsString(socketAddress));
 
-            if (authenticationService.isPresent()) {
-              authenticationService
-                  .get()
-                  .authenticate(
-                      token, user -> websocketMessageHandler.handle(websocket, buffer, user));
-            } else {
-              websocketMessageHandler.handle(websocket, buffer, Optional.empty());
-            }
-          };
-      websocket.textMessageHandler(text -> socketHandler.handle(Buffer.buffer(text)));
-      websocket.binaryMessageHandler(socketHandler);
+                final Handler<Buffer> socketHandler =
+                    buffer -> {
+                      LOG.debug(
+                          "Received Websocket request (binary frame) {} ({})",
+                          buffer.toString(),
+                          socketAddressAsString(socketAddress));
 
-      websocket.closeHandler(
-          v -> {
-            LOG.debug("Websocket Disconnected ({})", socketAddressAsString(socketAddress));
-            vertx
-                .eventBus()
-                .publish(SubscriptionManager.EVENTBUS_REMOVE_SUBSCRIPTIONS_ADDRESS, connectionId);
-          });
+                      if (authenticationService.isPresent()) {
+                        authenticationService
+                            .get()
+                            .authenticate(
+                                token,
+                                user -> websocketMessageHandler.handle(websocket, buffer, user));
+                      } else {
+                        websocketMessageHandler.handle(websocket, buffer, Optional.empty());
+                      }
+                    };
+                websocket.textMessageHandler(text -> socketHandler.handle(Buffer.buffer(text)));
+                websocket.binaryMessageHandler(socketHandler);
 
-      websocket.exceptionHandler(
-          t -> {
-            LOG.debug(
-                "Unrecoverable error on Websocket: {} ({})",
-                t.getMessage(),
-                socketAddressAsString(socketAddress));
-            websocket.close();
-          });
+                websocket.closeHandler(
+                    v -> {
+                      LOG.debug(
+                          "Websocket Disconnected ({})", socketAddressAsString(socketAddress));
+                      vertx
+                          .eventBus()
+                          .publish(
+                              SubscriptionManager.EVENTBUS_REMOVE_SUBSCRIPTIONS_ADDRESS,
+                              connectionId);
+                    });
+
+                websocket.exceptionHandler(
+                    t -> {
+                      LOG.debug(
+                          "Unrecoverable error on Websocket: {} ({})",
+                          t.getMessage(),
+                          socketAddressAsString(socketAddress));
+                      websocket.close();
+                    });
+              })
+          .onFailure(t -> LOG.debug("Failed to accept websocket handshake", t));
     };
   }
 
@@ -328,15 +341,17 @@ public class WebSocketService {
 
     final CompletableFuture<?> resultFuture = new CompletableFuture<>();
 
-    httpServer.close(
-        res -> {
-          if (res.succeeded()) {
-            httpServer = null;
-            resultFuture.complete(null);
-          } else {
-            resultFuture.completeExceptionally(res.cause());
-          }
-        });
+    httpServer
+        .close()
+        .onComplete(
+            res -> {
+              if (res.succeeded()) {
+                httpServer = null;
+                resultFuture.complete(null);
+              } else {
+                resultFuture.completeExceptionally(res.cause());
+              }
+            });
 
     return resultFuture;
   }
@@ -352,9 +367,9 @@ public class WebSocketService {
     return String.format("host=%s, port=%d", socketAddress.host(), socketAddress.port());
   }
 
-  private String getAuthToken(final ServerWebSocket websocket) {
+  private String getAuthToken(final ServerWebSocketHandshake handshake) {
     return AuthenticationUtils.getJwtTokenFromAuthorizationHeaderValue(
-        websocket.headers().get("Authorization"));
+        handshake.headers().get("Authorization"));
   }
 
   private Handler<RoutingContext> checkAllowlistHostHeader() {

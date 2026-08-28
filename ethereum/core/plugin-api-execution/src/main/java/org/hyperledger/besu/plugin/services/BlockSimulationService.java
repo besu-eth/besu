@@ -33,7 +33,7 @@ public interface BlockSimulationService extends BesuService {
    * @param transactions the transactions to include in the block
    * @param blockOverrides the blockSimulationOverride of the block
    * @param stateOverrides state overrides of the block
-   * @return the block context
+   * @return the result of the simulation
    */
   PluginBlockSimulationResult simulate(
       long blockNumber,
@@ -50,7 +50,7 @@ public interface BlockSimulationService extends BesuService {
    * @param blockOverrides the blockSimulationOverride of the block
    * @param stateOverrides state overrides of the block
    * @param tracer the operation tracer to use during simulation
-   * @return the block context
+   * @return the result of the simulation
    */
   PluginBlockSimulationResult simulate(
       long blockNumber,

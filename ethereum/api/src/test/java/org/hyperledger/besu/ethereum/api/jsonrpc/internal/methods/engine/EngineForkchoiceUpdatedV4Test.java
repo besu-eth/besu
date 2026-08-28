@@ -18,11 +18,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ConstructorArgumentsBuilder;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ForkchoiceStateV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttributesV4;
@@ -38,6 +41,7 @@ import java.util.Collections;
 import java.util.Optional;
 import java.util.OptionalLong;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -48,7 +52,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 public class EngineForkchoiceUpdatedV4Test extends EngineForkchoiceUpdatedV3Test {
 
   @Override
-  protected EngineForkchoiceUpdatedV1<?> createMethodInstance() {
+  protected EngineForkchoiceUpdatedV1<?, ?> createMethodInstance() {
     // V4 has no upper bound (null maxFork = open-ended).
     return new EngineForkchoiceUpdatedV4<>(
         new ConstructorArgumentsBuilder()
@@ -59,10 +63,23 @@ public class EngineForkchoiceUpdatedV4Test extends EngineForkchoiceUpdatedV3Test
             .mergeCoordinator(mergeCoordinator)
             .ethPeers(mock(EthPeers.class))
             .metricsSystem(new NoOpMetricsSystem())
+            .transactionPool(transactionPool)
             .maxRequestBlocks(0)
             .build(),
         AMSTERDAM,
         null);
+  }
+
+  private JsonRpcResponse respWithCustodyColumns(
+      final ForkchoiceStateV1 forkchoiceParam,
+      final Optional<Object> payloadParam,
+      final Object custodyColumnsParam) {
+    return method.response(
+        new JsonRpcRequestContext(
+            new JsonRpcRequest(
+                "2.0",
+                getMethodName(),
+                new Object[] {forkchoiceParam, payloadParam.orElse(null), custodyColumnsParam})));
   }
 
   @Override
@@ -216,5 +233,52 @@ public class EngineForkchoiceUpdatedV4Test extends EngineForkchoiceUpdatedV3Test
         ArgumentCaptor.forClass(MergeMiningCoordinator.PreparePayloadArgs.class);
     verify(mergeCoordinator).preparePayload(captor.capture());
     assertThat(captor.getValue().targetGasLimit()).contains(targetGasLimitValue);
+  }
+
+  // ---- custodyColumns (EIP-8070 Engine API) tests ----
+
+  @Test
+  public void shouldPersistValidCustodyColumns() {
+    final BlockHeader mockHeader = setupValidForkchoiceUpdate();
+    final Bytes custodyColumns = Bytes.repeat((byte) 0xAB, 16);
+
+    final JsonRpcResponse resp =
+        respWithCustodyColumns(
+            new ForkchoiceStateV1(mockHeader.getBlockHash(), Hash.ZERO, Hash.ZERO),
+            Optional.empty(),
+            custodyColumns);
+
+    assertThat(resp).isInstanceOf(JsonRpcSuccessResponse.class);
+    verify(transactionPool).updateBlobCustodyColumns(custodyColumns);
+  }
+
+  @Test
+  public void shouldNotTouchTransactionPoolWhenCustodyColumnsOmitted() {
+    final BlockHeader mockHeader = setupValidForkchoiceUpdate();
+
+    final JsonRpcResponse resp =
+        resp(
+            new ForkchoiceStateV1(mockHeader.getBlockHash(), Hash.ZERO, Hash.ZERO),
+            Optional.empty());
+
+    assertThat(resp).isInstanceOf(JsonRpcSuccessResponse.class);
+    verifyNoInteractions(transactionPool);
+  }
+
+  @Test
+  public void shouldRejectWrongLengthCustodyColumnsBeforeTouchingForkchoice() {
+    final Bytes badCustodyColumns = Bytes.repeat((byte) 0xAB, 10);
+
+    final JsonRpcResponse resp =
+        respWithCustodyColumns(
+            new ForkchoiceStateV1(Hash.ZERO, Hash.ZERO, Hash.ZERO),
+            Optional.empty(),
+            badCustodyColumns);
+
+    assertThat(resp).isInstanceOf(JsonRpcErrorResponse.class);
+    assertThat(((JsonRpcErrorResponse) resp).getErrorType())
+        .isEqualTo(RpcErrorType.INVALID_CUSTODY_COLUMNS_PARAMS);
+    verifyNoInteractions(mergeCoordinator);
+    verifyNoInteractions(transactionPool);
   }
 }

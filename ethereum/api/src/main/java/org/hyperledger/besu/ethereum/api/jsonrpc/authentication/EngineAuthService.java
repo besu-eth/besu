@@ -153,8 +153,8 @@ public class EngineAuthService implements AuthenticationService {
 
     try {
       getJwtAuthProvider()
-          .authenticate(
-              new TokenCredentials(token),
+          .authenticate(new TokenCredentials(token))
+          .onComplete(
               r -> {
                 if (r.succeeded()) {
                   final long iat = r.result().attributes().getLong("iat");

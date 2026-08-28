@@ -38,7 +38,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 
@@ -127,6 +129,71 @@ public class TransactionLogBloomCacherTest {
               return null;
             });
     transactionLogBloomCacher = new TransactionLogBloomCacher(blockchain, cacheDir, scheduler);
+  }
+
+  /**
+   * The segment loop used to run from the start block all the way to the caller's stop block,
+   * opening a FileOutputStream per BLOCKS_PER_BLOOM_CACHE segment and leaving an empty cache file
+   * behind for every segment past the head. With a stop block of Long.MAX_VALUE -- which
+   * admin_generateLogBloomCache used to produce for `latest` -- that is roughly 9.2e13 segments,
+   * enough to exhaust the inodes on the cache filesystem. The stop block is now clamped to the
+   * chain head inside generateLogBloomCache, so no caller can trigger it.
+   *
+   * <p>The stop block here is deliberately a few segments past the head rather than Long.MAX_VALUE:
+   * it exercises exactly the same clamp, but a regression fails on the file count in milliseconds
+   * instead of filling the test machine's temp filesystem first. (Long.MAX_VALUE really does fill
+   * it -- that is how this was confirmed, and it cost a million inodes.) The bound handed to the
+   * cacher is covered separately by AdminGenerateLogBloomCacheTest.
+   *
+   * <p>The clamp is to head + 1, not to the head, because the segment loop treats the stop block as
+   * an exclusive bound. When the head sits exactly on a BLOCKS_PER_BLOOM_CACHE boundary, the
+   * segment that starts at the head holds the head block itself; clamping to the head would drop it
+   * and no file would be written at all.
+   */
+  @Test
+  public void shouldStillCacheTheSegmentStartingAtAChainHeadOnASegmentBoundary() {
+    // a segment start whose hex form has an even number of digits, which createBlock requires
+    final long chainHead = 11 * BLOCKS_PER_BLOOM_CACHE;
+    when(blockchain.getChainHeadBlockNumber()).thenReturn(chainHead);
+
+    final BlockHeader headHeader = createBlock(chainHead);
+    when(blockchain.getBlockHeader(anyLong()))
+        .thenAnswer(
+            invocation ->
+                invocation.getArgument(0, Long.class) == chainHead
+                    ? Optional.of(headHeader)
+                    : Optional.empty());
+
+    transactionLogBloomCacher.generateLogBloomCache(chainHead, Long.MAX_VALUE);
+
+    assertThat(cacheDir.toFile().list()).containsExactly("logBloom-11.cache");
+    assertThat(cacheDir.resolve("logBloom-11.cache").toFile().length())
+        .isEqualTo(BLOOM_BITS_LENGTH);
+  }
+
+  @Test
+  public void shouldClampStopBlockToChainHead() {
+    final long chainHead = 5L;
+    when(blockchain.getChainHeadBlockNumber()).thenReturn(chainHead);
+
+    // Build the headers first. createBlock() stubs the mock itself, so calling it from inside an
+    // Answer on that same mock recurses until the stack overflows.
+    final Map<Long, BlockHeader> headers = new HashMap<>();
+    for (long i = 0; i <= chainHead; i++) {
+      headers.put(i, createBlock(i));
+    }
+    when(blockchain.getBlockHeader(anyLong()))
+        .thenAnswer(
+            invocation -> Optional.ofNullable(headers.get(invocation.getArgument(0, Long.class))));
+
+    assertThat(cacheDir.toFile().list()).isEmpty();
+
+    transactionLogBloomCacher.generateLogBloomCache(0, chainHead + 5L * BLOCKS_PER_BLOOM_CACHE);
+
+    // one segment file covering blocks 0..chainHead, not one per segment past the head
+    assertThat(cacheDir.toFile().list()).hasSize(1);
+    assertThat(cacheDir.resolve("logBloom-0.cache").toFile().length())
+        .isEqualTo((long) BLOOM_BITS_LENGTH * (chainHead + 1));
   }
 
   @Test

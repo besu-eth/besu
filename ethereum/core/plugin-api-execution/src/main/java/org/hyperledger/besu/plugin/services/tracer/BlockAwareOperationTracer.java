@@ -24,7 +24,8 @@ import org.hyperledger.besu.plugin.data.ProcessableBlockHeader;
 /**
  * An extended operation tracer that can trace the start and end of a block.
  *
- * <p>In both methods, the block header and body are provided.
+ * <p>The block start hook receives the world view and the block header, plus the block body when an
+ * existing block is traced; the block end hook receives the block header and body.
  */
 public interface BlockAwareOperationTracer extends OperationTracer {
 

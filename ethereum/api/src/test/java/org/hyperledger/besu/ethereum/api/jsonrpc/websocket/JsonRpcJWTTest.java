@@ -54,6 +54,7 @@ import io.vertx.core.http.HttpClientRequest;
 import io.vertx.core.http.HttpHeaders;
 import io.vertx.core.http.HttpMethod;
 import io.vertx.core.http.WebSocket;
+import io.vertx.core.http.WebSocketClient;
 import io.vertx.core.http.WebSocketConnectOptions;
 import io.vertx.core.json.Json;
 import io.vertx.junit5.VertxExtension;
@@ -159,31 +160,39 @@ public class JsonRpcJWTTest {
     wsOpts.setHost(HOSTNAME);
     wsOpts.setURI("/");
 
-    httpClient.webSocket(
-        wsOpts,
-        connected -> {
-          if (connected.failed()) {
-            connected.cause().printStackTrace();
-          }
-          assertThat(connected.succeeded()).isTrue();
-          WebSocket ws = connected.result();
+    WebSocketClient webSocketClient = vertx.createWebSocketClient();
+    webSocketClient
+        .connect(wsOpts)
+        .onComplete(
+            connected -> {
+              if (connected.failed()) {
+                connected.cause().printStackTrace();
+              }
+              assertThat(connected.succeeded()).isTrue();
+              WebSocket ws = connected.result();
 
-          JsonRpcRequest req =
-              new JsonRpcRequest("2.0", "eth_subscribe", List.of("syncing").toArray());
-          ws.frameHandler(
-              resp -> {
-                assertThat(resp.isText()).isTrue();
-                MutableJsonRpcSuccessResponse messageReply =
-                    Json.decodeValue(resp.textData(), MutableJsonRpcSuccessResponse.class);
-                assertThat(messageReply.getResult()).isEqualTo("0x1");
-                testContext.completeNow();
-              });
-          ws.writeTextMessage(Json.encode(req));
-        });
+              JsonRpcRequest req =
+                  new JsonRpcRequest("2.0", "eth_subscribe", List.of("syncing").toArray());
+              ws.frameHandler(
+                  resp -> {
+                    assertThat(resp.isText()).isTrue();
+                    MutableJsonRpcSuccessResponse messageReply =
+                        Json.decodeValue(resp.textData(), MutableJsonRpcSuccessResponse.class);
+                    assertThat(messageReply.getResult()).isEqualTo("0x1");
+                    testContext.completeNow();
+                  });
+              ws.writeTextMessage(Json.encode(req));
+            });
 
-    testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    assertThat(testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        .as("test context should complete before the timeout")
+        .isTrue();
+    if (testContext.failed()) {
+      throw new AssertionError(testContext.causeOfFailure());
+    }
     engineJsonRpcService.stop();
     httpClient.close();
+    webSocketClient.close();
   }
 
   @Test
@@ -221,32 +230,40 @@ public class JsonRpcJWTTest {
         "Authorization", "Bearer " + ((EngineAuthService) jwtAuth.get()).createToken());
     wsOpts.addHeader(HttpHeaders.HOST, "anything");
 
-    httpClient.webSocket(
-        wsOpts,
-        connected -> {
-          if (connected.failed()) {
-            connected.cause().printStackTrace();
-          }
-          assertThat(connected.succeeded()).isTrue();
-          WebSocket ws = connected.result();
-          JsonRpcRequest req =
-              new JsonRpcRequest("1", "eth_subscribe", List.of("syncing").toArray());
-          ws.frameHandler(
-              resp -> {
-                assertThat(resp.isText()).isTrue();
-                System.out.println(resp.textData());
-                assertThat(resp.textData()).doesNotContain("error");
-                MutableJsonRpcSuccessResponse messageReply =
-                    Json.decodeValue(resp.textData(), MutableJsonRpcSuccessResponse.class);
-                assertThat(messageReply.getResult()).isEqualTo("0x1");
-                testContext.completeNow();
-              });
-          ws.writeTextMessage(Json.encode(req));
-        });
+    WebSocketClient webSocketClient = vertx.createWebSocketClient();
+    webSocketClient
+        .connect(wsOpts)
+        .onComplete(
+            connected -> {
+              if (connected.failed()) {
+                connected.cause().printStackTrace();
+              }
+              assertThat(connected.succeeded()).isTrue();
+              WebSocket ws = connected.result();
+              JsonRpcRequest req =
+                  new JsonRpcRequest("1", "eth_subscribe", List.of("syncing").toArray());
+              ws.frameHandler(
+                  resp -> {
+                    assertThat(resp.isText()).isTrue();
+                    System.out.println(resp.textData());
+                    assertThat(resp.textData()).doesNotContain("error");
+                    MutableJsonRpcSuccessResponse messageReply =
+                        Json.decodeValue(resp.textData(), MutableJsonRpcSuccessResponse.class);
+                    assertThat(messageReply.getResult()).isEqualTo("0x1");
+                    testContext.completeNow();
+                  });
+              ws.writeTextMessage(Json.encode(req));
+            });
 
-    testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    assertThat(testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        .as("test context should complete before the timeout")
+        .isTrue();
+    if (testContext.failed()) {
+      throw new AssertionError(testContext.causeOfFailure());
+    }
     engineJsonRpcService.stop();
     httpClient.close();
+    webSocketClient.close();
   }
 
   @Test
@@ -295,20 +312,28 @@ public class JsonRpcJWTTest {
         "Authorization", "Bearer " + ((EngineAuthService) jwtAuth.get()).createToken());
     wsOpts.addHeader(HttpHeaders.HOST, "bogushost");
 
-    httpClient.webSocket(
-        wsOpts,
-        connected -> {
-          if (connected.failed()) {
-            connected.cause().printStackTrace();
-          }
-          assertThat(connected.succeeded()).isFalse();
-          testContext.completeNow();
-        });
+    WebSocketClient webSocketClient = vertx.createWebSocketClient();
+    webSocketClient
+        .connect(wsOpts)
+        .onComplete(
+            connected -> {
+              if (connected.failed()) {
+                connected.cause().printStackTrace();
+              }
+              assertThat(connected.succeeded()).isFalse();
+              testContext.completeNow();
+            });
 
-    testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    assertThat(testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        .as("test context should complete before the timeout")
+        .isTrue();
+    if (testContext.failed()) {
+      throw new AssertionError(testContext.causeOfFailure());
+    }
     engineJsonRpcService.stop();
 
     httpClient.close();
+    webSocketClient.close();
   }
 
   @Test
@@ -354,24 +379,31 @@ public class JsonRpcJWTTest {
                 "Authorization", "Bearer " + ((EngineAuthService) jwtAuth.get()).createToken())
             .set(HttpHeaders.HOST, "bogushost");
 
-    httpClient.request(
-        HttpMethod.GET,
-        "/",
-        connected -> {
-          if (connected.failed()) {
-            connected.cause().printStackTrace();
-          }
-          HttpClientRequest request = connected.result();
-          request.headers().addAll(headers);
-          request.send(
-              response -> {
-                assertThat(response.result().statusCode()).isNotEqualTo(500);
-                assertThat(response.result().statusCode()).isEqualTo(403);
-                testContext.completeNow();
-              });
-        });
+    httpClient
+        .request(HttpMethod.GET, "/")
+        .onComplete(
+            connected -> {
+              if (connected.failed()) {
+                connected.cause().printStackTrace();
+              }
+              HttpClientRequest request = connected.result();
+              request.headers().addAll(headers);
+              request
+                  .send()
+                  .onComplete(
+                      response -> {
+                        assertThat(response.result().statusCode()).isNotEqualTo(500);
+                        assertThat(response.result().statusCode()).isEqualTo(403);
+                        testContext.completeNow();
+                      });
+            });
 
-    testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    assertThat(testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        .as("test context should complete before the timeout")
+        .isTrue();
+    if (testContext.failed()) {
+      throw new AssertionError(testContext.causeOfFailure());
+    }
     engineJsonRpcService.stop();
 
     httpClient.close();
@@ -410,18 +442,26 @@ public class JsonRpcJWTTest {
     wsOpts.setURI("/");
     wsOpts.addHeader("Authorization", "Bearer totallyunparseablenonsense");
 
-    httpClient.webSocket(
-        wsOpts,
-        connected -> {
-          if (connected.failed()) {
-            connected.cause().printStackTrace();
-          }
-          assertThat(connected.succeeded()).isFalse();
-          testContext.completeNow();
-        });
+    WebSocketClient webSocketClient = vertx.createWebSocketClient();
+    webSocketClient
+        .connect(wsOpts)
+        .onComplete(
+            connected -> {
+              if (connected.failed()) {
+                connected.cause().printStackTrace();
+              }
+              assertThat(connected.succeeded()).isFalse();
+              testContext.completeNow();
+            });
 
-    testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    assertThat(testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        .as("test context should complete before the timeout")
+        .isTrue();
+    if (testContext.failed()) {
+      throw new AssertionError(testContext.causeOfFailure());
+    }
     engineJsonRpcService.stop();
     httpClient.close();
+    webSocketClient.close();
   }
 }

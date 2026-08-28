@@ -28,7 +28,7 @@ public class PluginBlockSimulationResult {
   final Optional<TrieLog> trieLog;
 
   /**
-   * Constructs a new BlockSimulationResult instance.
+   * Constructs a new PluginBlockSimulationResult instance.
    *
    * @param blockHeader the block header
    * @param blockBody the block body
@@ -48,7 +48,7 @@ public class PluginBlockSimulationResult {
   }
 
   /**
-   * Constructs a new BlockSimulationResult instance with trielog.
+   * Constructs a new PluginBlockSimulationResult instance with a trie log.
    *
    * @param blockHeader the block header
    * @param blockBody the block body

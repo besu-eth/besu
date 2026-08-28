@@ -20,13 +20,17 @@ import org.hyperledger.besu.plugin.services.metrics.Counter;
 
 import io.vertx.core.spi.metrics.PoolMetrics;
 
-final class PoolMetricsAdapter implements PoolMetrics<Object> {
+// Vert.x 5's PoolMetrics<Q, T> brackets two phases: enqueue()/dequeue(Q) around queueing, and
+// begin()/end(T) around execution. There is no "rejected" callback in the new SPI (the old
+// vertx_worker_pool_rejected_total metric has no signal to feed it and is dropped), and end(T) no
+// longer carries a success flag -- the old adapter incremented completedCounter unconditionally
+// regardless of that flag anyway, so this preserves the same observable counter behavior.
+final class PoolMetricsAdapter implements PoolMetrics<Object, Object> {
 
-  private static final Object TASK_SUBMISSION_CONTEXT = new Object();
+  private static final Object TASK_CONTEXT = new Object();
 
   private final Counter submittedCounter;
   private final Counter completedCounter;
-  private final Counter rejectedCounter;
 
   public PoolMetricsAdapter(
       final MetricsSystem metricsSystem, final String poolType, final String poolName) {
@@ -49,31 +53,21 @@ final class PoolMetricsAdapter implements PoolMetrics<Object> {
                 "poolType",
                 "poolName")
             .labels(poolType, poolName);
-
-    rejectedCounter =
-        metricsSystem
-            .createLabelledCounter(
-                BesuMetricCategory.NETWORK,
-                "vertx_worker_pool_rejected_total",
-                "Total number of tasks rejected by the Vertx worker pool",
-                "poolType",
-                "poolName")
-            .labels(poolType, poolName);
   }
 
   @Override
-  public Object submitted() {
+  public Object enqueue() {
     submittedCounter.inc();
-    return TASK_SUBMISSION_CONTEXT;
+    return TASK_CONTEXT;
   }
 
   @Override
-  public void rejected(final Object o) {
-    rejectedCounter.inc();
+  public Object begin() {
+    return TASK_CONTEXT;
   }
 
   @Override
-  public void end(final Object o, final boolean succeeded) {
+  public void end(final Object o) {
     completedCounter.inc();
   }
 }

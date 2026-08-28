@@ -37,6 +37,7 @@ import io.vertx.ext.auth.authentication.UsernamePasswordCredentials;
 import io.vertx.ext.auth.authorization.PermissionBasedAuthorization;
 import io.vertx.ext.auth.jwt.JWTAuth;
 import io.vertx.ext.auth.jwt.JWTAuthOptions;
+import io.vertx.ext.auth.jwt.authorization.JWTAuthorization;
 import io.vertx.ext.web.RoutingContext;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -47,6 +48,11 @@ public class DefaultAuthenticationService implements AuthenticationService {
 
   public static final String USERNAME = "username";
   public static final String PASSWORD = "password";
+  // Vert.x 5 removed automatic "permissions" claim -> user.authorizations() population that
+  // JWTAuthProviderImpl used to perform internally (JWTAuthOptions#getPermissionsClaimKey is gone).
+  // isPermitted()'s PermissionBasedAuthorization#match(User) call needs authorizations() populated
+  // explicitly now, via the same claim key used when this class issues tokens in login() below.
+  private static final String PERMISSIONS_CLAIM_KEY = "permissions";
   private final JWTAuth jwtAuthProvider;
   @VisibleForTesting public final JWTAuthOptions jwtAuthOptions;
   private final Optional<AuthenticationProvider> credentialAuthProvider;
@@ -189,40 +195,41 @@ public class DefaultAuthenticationService implements AuthenticationService {
     authParams.put(PASSWORD, requestBody.getValue(PASSWORD));
     final Credentials credentials = new UsernamePasswordCredentials(authParams);
 
-    credentialAuthProvider.authenticate(
-        credentials,
-        r -> {
-          if (r.failed()) {
-            routingContext
-                .response()
-                .setStatusCode(HttpResponseStatus.UNAUTHORIZED.code())
-                .setStatusMessage(HttpResponseStatus.UNAUTHORIZED.reasonPhrase())
-                .end("Authentication failed: the username or password is incorrect.");
-          } else {
-            final User user = r.result();
+    credentialAuthProvider
+        .authenticate(credentials)
+        .onComplete(
+            r -> {
+              if (r.failed()) {
+                routingContext
+                    .response()
+                    .setStatusCode(HttpResponseStatus.UNAUTHORIZED.code())
+                    .setStatusMessage(HttpResponseStatus.UNAUTHORIZED.reasonPhrase())
+                    .end("Authentication failed: the username or password is incorrect.");
+              } else {
+                final User user = r.result();
 
-            final JWTOptions options =
-                new JWTOptions().setExpiresInMinutes(5).setAlgorithm("RS256");
-            final JsonObject jwtContents =
-                new JsonObject()
-                    .put("permissions", user.principal().getValue("permissions"))
-                    .put(USERNAME, user.principal().getValue(USERNAME));
-            final String privacyPublicKey = user.principal().getString("privacyPublicKey");
-            if (privacyPublicKey != null) {
-              jwtContents.put("privacyPublicKey", privacyPublicKey);
-            }
+                final JWTOptions options =
+                    new JWTOptions().setExpiresInMinutes(5).setAlgorithm("RS256");
+                final JsonObject jwtContents =
+                    new JsonObject()
+                        .put("permissions", user.principal().getValue("permissions"))
+                        .put(USERNAME, user.principal().getValue(USERNAME));
+                final String privacyPublicKey = user.principal().getString("privacyPublicKey");
+                if (privacyPublicKey != null) {
+                  jwtContents.put("privacyPublicKey", privacyPublicKey);
+                }
 
-            final String token = jwtAuthProvider.generateToken(jwtContents, options);
+                final String token = jwtAuthProvider.generateToken(jwtContents, options);
 
-            final JsonObject responseBody = new JsonObject().put("token", token);
-            final HttpServerResponse response = routingContext.response();
-            if (!response.closed()) {
-              response.setStatusCode(200);
-              response.putHeader("Content-Type", "application/json");
-              response.end(responseBody.encode());
-            }
-          }
-        });
+                final JsonObject responseBody = new JsonObject().put("token", token);
+                final HttpServerResponse response = routingContext.response();
+                if (!response.closed()) {
+                  response.setStatusCode(200);
+                  response.putHeader("Content-Type", "application/json");
+                  response.end(responseBody.encode());
+                }
+              }
+            });
   }
 
   @Override
@@ -234,13 +241,30 @@ public class DefaultAuthenticationService implements AuthenticationService {
   public void authenticate(final String token, final Handler<Optional<User>> handler) {
     try {
       getJwtAuthProvider()
-          .authenticate(
-              new TokenCredentials(new JsonObject().put("token", token)),
+          .authenticate(new TokenCredentials(token))
+          .onComplete(
               r -> {
                 if (r.succeeded()) {
-                  final Optional<User> user = Optional.ofNullable(r.result());
-                  validateExpiryExists(user);
-                  handler.handle(user);
+                  final User user = r.result();
+                  JWTAuthorization.create(PERMISSIONS_CLAIM_KEY)
+                      .getAuthorizations(user)
+                      .onComplete(
+                          ignored -> {
+                            final Optional<User> optionalUser = Optional.ofNullable(user);
+                            // Vert.x 5 runs this callback inside Future#onComplete, whose
+                            // FutureBase#signalComplete swallows any exception thrown here rather
+                            // than letting it propagate to the outer try/catch, so
+                            // validateExpiryExists must be guarded directly or a missing/invalid
+                            // expiry silently drops the handler callback instead of failing
+                            // authentication.
+                            try {
+                              validateExpiryExists(optionalUser);
+                              handler.handle(optionalUser);
+                            } catch (final Exception e) {
+                              LOG.debug("exception validating JWT ", e);
+                              handler.handle(Optional.empty());
+                            }
+                          });
                 } else {
                   LOG.debug("Invalid JWT token {}", r.cause().toString());
                   handler.handle(Optional.empty());
