@@ -351,6 +351,31 @@ public class PostMergeContextTest {
   }
 
   @Test
+  public void isSyncingReturnsFalseAtStartupBeforeTerminalDifficultyIsDetermined() {
+    // Regression test: a freshly started node with p2p enabled and no peers yet answered
+    // engine_newPayload with SYNCING for about a second, because reachedTerminalDifficulty is
+    // only set asynchronously once DefaultSynchronizer's downloader terminates. This is the
+    // state hive's consume-engine sims hit on the very first payload after the genesis FCU.
+    when(mockSyncState.isInitialSyncPhaseDone()).thenReturn(Boolean.TRUE);
+    // Not determined yet — the synchronizer has not finished starting up.
+    when(mockSyncState.hasReachedTerminalDifficulty()).thenReturn(Optional.empty());
+    // No peers, so SyncState reports in-sync (both the sync target and best peer are absent).
+    when(mockSyncState.isInSync()).thenReturn(Boolean.TRUE);
+
+    assertThat(postMergeContext.isSyncing()).isFalse();
+  }
+
+  @Test
+  public void isSyncingReturnsTrueWhenTerminalDifficultyIsKnownNotToBeReached() {
+    when(mockSyncState.isInitialSyncPhaseDone()).thenReturn(Boolean.TRUE);
+    when(mockSyncState.hasReachedTerminalDifficulty()).thenReturn(Optional.of(Boolean.FALSE));
+
+    // Short-circuits on the pre-TTD gate, so peer sync state is never consulted.
+    assertThat(postMergeContext.isSyncing()).isTrue();
+    verify(mockSyncState, never()).isInSync();
+  }
+
+  @Test
   public void fireNewPayloadEventDeliversToSubscribedListeners() {
     final List<BlockHeader> received = new ArrayList<>();
     postMergeContext.addNewPayloadListener(received::add);

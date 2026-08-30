@@ -75,6 +75,19 @@ public class IncrementalTimestampValidationTest {
   }
 
   @Test
+  public void validWhenTimestampAboveLongMaxValueIsMoreRecentThanParent() {
+    final IncrementalTimestampRule rule = new IncrementalTimestampRule();
+    final BlockHeader parentHeader = mock(BlockHeader.class);
+    when(parentHeader.getTimestamp()).thenReturn(System.currentTimeMillis());
+    final BlockHeader validHeader = mock(BlockHeader.class);
+    when(validHeader.getNumber()).thenReturn(1337L);
+    // uint64 0xffffffffffffffff, carried as -1
+    when(validHeader.getTimestamp()).thenReturn(-1L);
+
+    assertThat(rule.validate(validHeader, parentHeader, protocolContext)).isTrue();
+  }
+
+  @Test
   public void alwaysValidWhenTTDNotReached() {
     when(mergeContext.getTerminalTotalDifficulty()).thenReturn(Difficulty.of(2L));
 

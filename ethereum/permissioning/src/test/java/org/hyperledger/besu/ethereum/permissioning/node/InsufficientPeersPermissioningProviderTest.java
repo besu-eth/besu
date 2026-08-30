@@ -142,14 +142,15 @@ public class InsufficientPeersPermissioningProviderTest {
   }
 
   @Test
-  public void firesUpdateWhenDisconnectLastNonBootnode() {
+  public void firesUpdateWhenDisconnectLastDynamicPeer() {
     final Collection<EnodeURLImpl> bootnodes = Collections.singletonList(ENODE_2);
-    final Collection<PeerConnection> pcs =
-        Arrays.asList(
-            peerConnectionMatching(ENODE_2),
-            peerConnectionMatching(ENODE_3),
-            peerConnectionMatching(ENODE_4));
-    when(p2pNetwork.getPeers()).thenReturn(pcs);
+    // the same PeerConnection instances must be handed back on disconnect: that is what the p2p
+    // layer does, and the provider tracks connections by identity
+    final PeerConnection bootnodeConnection = peerConnectionMatching(ENODE_2);
+    final PeerConnection connection3 = peerConnectionMatching(ENODE_3);
+    final PeerConnection connection4 = peerConnectionMatching(ENODE_4);
+    when(p2pNetwork.getPeers())
+        .thenReturn(Arrays.asList(bootnodeConnection, connection3, connection4));
 
     final InsufficientPeersPermissioningProvider provider =
         new InsufficientPeersPermissioningProvider(p2pNetwork, bootnodes);
@@ -163,16 +164,16 @@ public class InsufficientPeersPermissioningProviderTest {
 
     provider.subscribeToUpdates(updatePermsCallback);
 
-    disconnectCallback.onDisconnect(peerConnectionMatching(ENODE_3), null, true);
+    disconnectCallback.onDisconnect(connection3, null, true);
     verify(updatePermsCallback, times(0)).run();
-    disconnectCallback.onDisconnect(peerConnectionMatching(ENODE_4), null, true);
+    disconnectCallback.onDisconnect(connection4, null, true);
     verify(updatePermsCallback, times(1)).run();
-    disconnectCallback.onDisconnect(peerConnectionMatching(ENODE_2), null, true);
+    disconnectCallback.onDisconnect(bootnodeConnection, null, true);
     verify(updatePermsCallback, times(1)).run();
   }
 
   @Test
-  public void firesUpdateWhenNonBootnodeConnects() {
+  public void firesUpdateWhenDynamicPeerConnects() {
     final Collection<EnodeURLImpl> bootnodes = Arrays.asList(ENODE_2, ENODE_3);
     final Collection<PeerConnection> pcs = Collections.emptyList();
 
@@ -229,19 +230,98 @@ public class InsufficientPeersPermissioningProviderTest {
 
     provider.subscribeToUpdates(updatePermsCallback);
 
-    incomingConnectCallback.onConnect(peerConnectionMatching(ENODE_2));
+    // the same PeerConnection instance is handed to connect and disconnect, as the p2p layer does
+    final PeerConnection connection2 = peerConnectionMatching(ENODE_2);
+    final PeerConnection connection4 = peerConnectionMatching(ENODE_4);
+    final PeerConnection connection5 = peerConnectionMatching(ENODE_5);
+
+    incomingConnectCallback.onConnect(connection2);
     verify(updatePermsCallback, times(0)).run();
     incomingConnectCallback.onConnect(peerConnectionMatching(ENODE_3));
     verify(updatePermsCallback, times(0)).run();
-    incomingConnectCallback.onConnect(peerConnectionMatching(ENODE_4));
+    incomingConnectCallback.onConnect(connection4);
     verify(updatePermsCallback, times(1)).run();
-    incomingConnectCallback.onConnect(peerConnectionMatching(ENODE_5));
+    incomingConnectCallback.onConnect(connection5);
     verify(updatePermsCallback, times(1)).run();
-    disconnectCallback.onDisconnect(peerConnectionMatching(ENODE_2), null, true);
+    disconnectCallback.onDisconnect(connection2, null, true);
     verify(updatePermsCallback, times(1)).run();
-    disconnectCallback.onDisconnect(peerConnectionMatching(ENODE_4), null, true);
+    disconnectCallback.onDisconnect(connection4, null, true);
     verify(updatePermsCallback, times(1)).run();
-    disconnectCallback.onDisconnect(peerConnectionMatching(ENODE_5), null, true);
+    disconnectCallback.onDisconnect(connection5, null, true);
     verify(updatePermsCallback, times(2)).run();
+  }
+
+  /**
+   * Regression test for the unbalanced decrement. A connection that is rejected before {@code
+   * RlpxAgent#dispatchConnect} — by node permissioning or by the connection gatekeeper — still
+   * dispatches a disconnect event, because {@code AbstractPeerConnection#disconnect} always does.
+   * The provider used to decrement its tally for such a connection, driving it negative and arming
+   * the bootstrap exception permanently.
+   */
+  @Test
+  public void disconnectOfANeverConnectedPeerDoesNotArmTheBootstrapException() {
+    final Collection<EnodeURLImpl> bootnodes = Collections.singletonList(ENODE_2);
+    final PeerConnection connection4 = peerConnectionMatching(ENODE_4);
+    when(p2pNetwork.getPeers()).thenReturn(Collections.singletonList(connection4));
+
+    final InsufficientPeersPermissioningProvider provider =
+        new InsufficientPeersPermissioningProvider(p2pNetwork, bootnodes);
+
+    final ArgumentCaptor<DisconnectCallback> callbackCaptor =
+        ArgumentCaptor.forClass(DisconnectCallback.class);
+    verify(p2pNetwork).subscribeDisconnect(callbackCaptor.capture());
+    final DisconnectCallback disconnectCallback = callbackCaptor.getValue();
+
+    // one real dynamic peer is connected, so the bootstrap exception must not apply
+    assertThat(provider.isPermitted(SELF_ENODE, ENODE_2)).isEmpty();
+
+    // three connections that were rejected before ever being dispatched as connects
+    disconnectCallback.onDisconnect(peerConnectionMatching(ENODE_3), null, false);
+    disconnectCallback.onDisconnect(peerConnectionMatching(ENODE_5), null, false);
+    disconnectCallback.onDisconnect(peerConnectionMatching(ENODE_3), null, false);
+
+    // the surviving peer still counts, so the exception is still not armed
+    assertThat(provider.isPermitted(SELF_ENODE, ENODE_2)).isEmpty();
+
+    // and once the real peer goes away the exception applies again -- it is not stuck off either
+    disconnectCallback.onDisconnect(connection4, null, false);
+    assertThat(provider.isPermitted(SELF_ENODE, ENODE_2)).contains(true);
+  }
+
+  /**
+   * The other direction of the same asymmetry. A connection can be classified differently at
+   * disconnect time than it was at connect time, because {@code EnodeURLImpl} resolves hostnames
+   * lazily and rewrites its own address. Re-testing {@code isBootnode} on disconnect then skipped
+   * the decrement for a connection that had been counted, so the tally drifted upward and the
+   * bootstrap exception stayed disarmed even with no peers left. Tracking by identity makes the
+   * disconnect independent of how the endpoint resolves the second time.
+   */
+  @Test
+  public void reclassifiedConnectionStillDecrementsOnDisconnect() {
+    final Collection<EnodeURLImpl> bootnodes = Collections.singletonList(ENODE_2);
+
+    // counted as a dynamic peer on connect, then resolves to the bootnode endpoint on disconnect
+    final PeerConnection reclassified = mock(PeerConnection.class);
+    when(reclassified.getRemoteEnode()).thenReturn(ENODE_3, ENODE_2);
+
+    when(p2pNetwork.getPeers()).thenReturn(Collections.emptyList());
+
+    final InsufficientPeersPermissioningProvider provider =
+        new InsufficientPeersPermissioningProvider(p2pNetwork, bootnodes);
+
+    final ArgumentCaptor<ConnectCallback> connectCaptor =
+        ArgumentCaptor.forClass(ConnectCallback.class);
+    verify(p2pNetwork).subscribeConnect(connectCaptor.capture());
+    final ArgumentCaptor<DisconnectCallback> disconnectCaptor =
+        ArgumentCaptor.forClass(DisconnectCallback.class);
+    verify(p2pNetwork).subscribeDisconnect(disconnectCaptor.capture());
+
+    connectCaptor.getValue().onConnect(reclassified);
+    assertThat(provider.isPermitted(SELF_ENODE, ENODE_2)).isEmpty();
+
+    disconnectCaptor.getValue().onDisconnect(reclassified, null, false);
+
+    // the only peer is gone, so the bootstrap exception must apply again
+    assertThat(provider.isPermitted(SELF_ENODE, ENODE_2)).contains(true);
   }
 }
