@@ -126,7 +126,11 @@ public sealed class EngineNewPayloadV4<
                 .getLatestValidAncestor(e.getPayloadParameter().getParentHash())
                 .orElse(null),
             EngineStatus.INVALID,
-            maybeRequestTypeEx.get().getMessage());
+            // The validationError is the only diagnostic the consensus client receives, so it has
+            // to identify the field at fault, not just the reason.
+            RpcErrorType.INVALID_EXECUTION_REQUESTS.getMessage()
+                + ": "
+                + maybeRequestTypeEx.get().getMessage());
       } else {
         // payload parameter should be present in this case, so treat this as an internal error
         logger()
