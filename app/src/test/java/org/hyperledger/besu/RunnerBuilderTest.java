@@ -34,6 +34,7 @@ import org.hyperledger.besu.controller.BesuController;
 import org.hyperledger.besu.crypto.SECP256K1;
 import org.hyperledger.besu.cryptoservices.KeyPairSecurityModule;
 import org.hyperledger.besu.cryptoservices.NodeKey;
+import org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.ImmutableApiConfiguration;
@@ -232,6 +233,9 @@ public final class RunnerBuilderTest {
     final ProtocolSpec spec0 = mock(ProtocolSpec.class);
     final ProtocolSpec spec1 = mock(ProtocolSpec.class);
     final ProtocolSpec spec2 = mock(ProtocolSpec.class);
+    when(spec0.getHardforkId()).thenReturn(MainnetHardforkId.FRONTIER);
+    when(spec1.getHardforkId()).thenReturn(MainnetHardforkId.HOMESTEAD);
+    when(spec2.getHardforkId()).thenReturn(MainnetHardforkId.TANGERINE_WHISTLE);
     when(protocolSchedule.getByBlockHeader(any(ProcessableBlockHeader.class)))
         .thenAnswer(
             inv -> {
@@ -308,6 +312,8 @@ public final class RunnerBuilderTest {
 
     final ProtocolSpec preForkSpec = mock(ProtocolSpec.class);
     final ProtocolSpec postForkSpec = mock(ProtocolSpec.class);
+    when(preForkSpec.getHardforkId()).thenReturn(MainnetHardforkId.FRONTIER);
+    when(postForkSpec.getHardforkId()).thenReturn(MainnetHardforkId.HOMESTEAD);
     when(protocolSchedule.getByBlockHeader(any(ProcessableBlockHeader.class)))
         .thenAnswer(
             inv -> {
