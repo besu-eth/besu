@@ -219,6 +219,10 @@ public class MessageFrame {
   private Code createdCode = null;
   private final boolean isStatic;
 
+  // EIP-8037: state gas drawn from gasRemaining once the reservoir ran dry. Frame-local, so
+  // refunds and failures can unwind it separately.
+  private long stateGasSpilled = 0L;
+
   // Transaction state fields.
   private final List<Log> logs = new ArrayList<>();
   private final Map<Address, Wei> refunds = new HashMap<>();
@@ -247,7 +251,7 @@ public class MessageFrame {
   private Optional<Eip7928AccessList> eip7928AccessList = Optional.empty();
 
   /** The mark of the undoable collections at the creation of this message frame */
-  private final long undoMark;
+  private long undoMark;
 
   /**
    * Builder builder.
@@ -938,6 +942,31 @@ public class MessageFrame {
     }
   }
 
+  // ---- stateGasSpilled ----
+
+  /**
+   * Returns the net state gas this frame has spilled into gasRemaining.
+   *
+   * @return the spilled state gas
+   */
+  public long getStateGasSpilled() {
+    return stateGasSpilled;
+  }
+
+  /**
+   * Adds to this frame's spilled state gas, so a parent can absorb a successful child's spill.
+   *
+   * @param amount the amount to add
+   */
+  public void incrementStateGasSpilled(final long amount) {
+    this.stateGasSpilled += amount;
+  }
+
+  /** Clears the spill once its charges are unwound, so they cannot be refunded twice. */
+  public void resetStateGasSpilled() {
+    this.stateGasSpilled = 0L;
+  }
+
   // ---- consume ----
 
   /**
@@ -950,52 +979,65 @@ public class MessageFrame {
   public boolean consumeStateGas(final long amount) {
     final long reservoirBefore = txValues.stateGasReservoir().get();
     final long gasLeftBefore = gasRemaining;
-    // Draw from the reservoir first, then from gasRemaining for whatever the reservoir can't cover.
     final long fromReservoir = Math.min(reservoirBefore, amount);
     final long fromGas = amount - fromReservoir;
     if (gasRemaining < fromGas) {
-      // OOG: do the accounting last so we leave the counters untouched on failure.
-      if (LOG.isTraceEnabled()) {
-        LOG.trace(
-            "EIP-8037 CONSUME_STATE depth={} requested={} reservoirBefore={} gasLeftBefore={} ok=false reservoirAfter={} gasLeftAfter={} stateGasUsedAfter={}",
-            getDepth(),
-            amount,
-            reservoirBefore,
-            gasLeftBefore,
-            reservoirBefore,
-            gasLeftBefore,
-            txValues.stateGasUsed().get());
-      }
+      traceConsumeState(
+          amount, reservoirBefore, gasLeftBefore, false, reservoirBefore, gasLeftBefore);
       return false;
     }
     txValues.stateGasReservoir().set(reservoirBefore - fromReservoir);
     gasRemaining -= fromGas;
+    // Track the spill so refunds can unwind it back to gasRemaining first (LIFO).
+    stateGasSpilled += fromGas;
     txValues.stateGasUsed().set(txValues.stateGasUsed().get() + amount);
+    traceConsumeState(
+        amount,
+        reservoirBefore,
+        gasLeftBefore,
+        true,
+        txValues.stateGasReservoir().get(),
+        gasRemaining);
+    return true;
+  }
+
+  private void traceConsumeState(
+      final long amount,
+      final long reservoirBefore,
+      final long gasLeftBefore,
+      final boolean ok,
+      final long reservoirAfter,
+      final long gasLeftAfter) {
     if (LOG.isTraceEnabled()) {
       LOG.trace(
-          "EIP-8037 CONSUME_STATE depth={} requested={} reservoirBefore={} gasLeftBefore={} ok=true reservoirAfter={} gasLeftAfter={} stateGasUsedAfter={}",
+          "EIP-8037 CONSUME_STATE depth={} requested={} reservoirBefore={} gasLeftBefore={} ok={} reservoirAfter={} gasLeftAfter={} stateGasUsedAfter={}",
           getDepth(),
           amount,
           reservoirBefore,
           gasLeftBefore,
-          txValues.stateGasReservoir().get(),
-          gasRemaining,
+          ok,
+          reservoirAfter,
+          gasLeftAfter,
           txValues.stateGasUsed().get());
     }
-    return true;
   }
 
   /**
-   * Refills the state-gas reservoir (EIP-8037): credits {@code amount} back to the reservoir and
-   * decrements {@code stateGasUsed}. Applied when a state-growing operation does not actually grow
-   * state (SSTORE 0→X→0, CREATE silent or child failure). Both mutations are {@code
-   * UndoScalar}-scoped and therefore rolled back on revert/halt — the refill contributes to the
-   * reservoir only when the full frame chain succeeds.
+   * Credits state gas back in LIFO order: the frame's spill first, then the reservoir. The order is
+   * observable, since a sub-call can only draw state gas from the reservoir.
    *
    * @param amount the refill amount
    */
   public void refillStateGasReservoir(final long amount) {
-    incrementStateGasReservoir(amount);
+    final long fromGasLeft = Math.min(amount, stateGasSpilled);
+    if (fromGasLeft > 0L) {
+      incrementRemainingGas(fromGasLeft);
+      stateGasSpilled -= fromGasLeft;
+    }
+    final long toReservoir = amount - fromGasLeft;
+    if (toReservoir > 0L) {
+      incrementStateGasReservoir(toReservoir);
+    }
     decrementStateGasUsed(amount);
   }
 
@@ -1444,6 +1486,14 @@ public class MessageFrame {
   }
 
   /**
+   * Advances the undo mark, so that a rollback of the initial frame cannot undo the transaction's
+   * top-frame preparation charges, which persist regardless of the execution outcome.
+   */
+  public void advanceUndoMark() {
+    this.undoMark = txValues.transientStorage().mark();
+  }
+
+  /**
    * Accessor for versionedHashes, if present.
    *
    * @return optional list of hashes
@@ -1499,7 +1549,6 @@ public class MessageFrame {
     private Optional<List<VersionedHash>> versionedHashes = Optional.empty();
 
     private long initialStateGasReservoir = 0L;
-    private long initialStateGasUsed = 0L;
 
     private boolean enableEvmV2 = false;
 
@@ -1819,19 +1868,6 @@ public class MessageFrame {
       return this;
     }
 
-    /**
-     * EIP-8037: initial {@code stateGasUsed} for the transaction's top-level frame, used to bake
-     * intrinsic state gas charges into the frame before execution begins. Ignored for child frames.
-     * Default 0.
-     *
-     * @param initialStateGasUsed the cumulative state gas already charged at frame entry
-     * @return the builder
-     */
-    public Builder initialStateGasUsed(final long initialStateGasUsed) {
-      this.initialStateGasUsed = initialStateGasUsed;
-      return this;
-    }
-
     private void validate() {
       if (parentMessageFrame == null) {
         checkState(worldUpdater != null, "Missing message frame world updater");
@@ -1884,7 +1920,6 @@ public class MessageFrame {
                 blockValues,
                 miningBeneficiary,
                 versionedHashes,
-                initialStateGasUsed,
                 initialStateGasReservoir);
         updater = worldUpdater;
         newStatic = isStatic;

@@ -184,7 +184,7 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
    *
    * @param headHash the head hash
    * @param finalizedHash the finalized hash
-   * @return the or sync head by hash
+   * @return the block header or empty if not present
    */
   Optional<BlockHeader> getOrSyncHeadByHash(Hash headHash, Hash finalizedHash);
 

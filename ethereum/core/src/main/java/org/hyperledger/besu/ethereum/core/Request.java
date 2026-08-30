@@ -18,10 +18,15 @@ import static com.google.common.base.Preconditions.checkArgument;
 
 import org.hyperledger.besu.datatypes.RequestType;
 
+import java.util.Comparator;
+import java.util.List;
+
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
 import org.apache.tuweni.bytes.Bytes;
 
+// implements the deprecated plugin.data.Request until the next breaking release
+@SuppressWarnings("removal")
 public record Request(RequestType type, Bytes data)
     implements org.hyperledger.besu.plugin.data.Request {
 
@@ -55,5 +60,20 @@ public record Request(RequestType type, Bytes data)
   @JsonValue
   public Bytes getEncodedRequest() {
     return Bytes.concatenate(Bytes.of(getType().getSerializedType()), getData());
+  }
+
+  /**
+   * Converts a list of request to the protocol canonical form: elements of the list MUST be ordered
+   * by request_type in ascending order. Elements with empty request_data MUST be excluded from the
+   * list.
+   *
+   * @param requests list of requests
+   * @return protocol canonical request list
+   */
+  public static List<Request> asCanonicalList(final List<Request> requests) {
+    return requests.stream()
+        .sorted(Comparator.comparing(Request::getType))
+        .filter(r -> !r.getData().isEmpty())
+        .toList();
   }
 }

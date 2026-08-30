@@ -529,6 +529,17 @@ public interface GasCalculator {
   }
 
   /**
+   * Returns the regular gas charged for the first write to an account leaf (EIP-2780
+   * ACCOUNT_WRITE), used for the top-frame EIP-7702 authorization charge. Zero for forks without
+   * state-gas metering.
+   *
+   * @return the ACCOUNT_WRITE regular gas cost
+   */
+  default long getAccountWriteGasCost() {
+    return 0L;
+  }
+
+  /**
    * Returns the cost of a SLOAD to a storage slot that has previously been loaded in the TX
    * context.
    *
@@ -699,19 +710,6 @@ public interface GasCalculator {
    * @return the gas cost
    */
   default long delegateCodeGasCost(final int delegateCodeListLength) {
-    return 0L;
-  }
-
-  /**
-   * EIP-2780: the runtime regular gas charged for the account writes performed while processing the
-   * EIP-7702 authorization list. Zero before Amsterdam, where the whole per-authorization cost is
-   * reserved at the intrinsic phase instead.
-   *
-   * @param authorityWrites the number of authorizations that performed the first write to their
-   *     authority within the transaction
-   * @return the gas cost
-   */
-  default long delegateCodeAccountWriteGasCost(final long authorityWrites) {
     return 0L;
   }
 

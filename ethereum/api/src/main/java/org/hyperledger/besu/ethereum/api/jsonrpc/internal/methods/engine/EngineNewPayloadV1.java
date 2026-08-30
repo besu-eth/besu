@@ -14,12 +14,13 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
+import static com.google.common.base.Preconditions.checkNotNull;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.ACCEPTED;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID_BLOCK_HASH;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.SYNCING;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.VALID;
-import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.Configuration.FAIL_ON_UNKNOWN_BUT_NULL;
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.Configuration.FAIL_ON_UNKNOWN_BUT_EMPTY;
 import static org.hyperledger.besu.metrics.BesuMetricCategory.BLOCK_PROCESSING;
 
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
@@ -30,7 +31,7 @@ import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcRequestException;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.OrderedExecutionJsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV1;
@@ -61,15 +62,21 @@ import java.util.Objects;
 import java.util.Optional;
 
 import com.fasterxml.jackson.databind.JsonMappingException;
-import com.google.common.base.Preconditions;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Extends {@link OrderedExecutionJsonRpcMethod} so that {@code engine_newPayload} calls (and those
+ * of the whole sealed V1-V5 hierarchy) are processed in the order they have been received,
+ * consistent with {@code engine_forkchoiceUpdated}: both affect canonical chain state and a
+ * newPayload racing ahead of (or behind) an FCU for the same or a related block could otherwise be
+ * observed out of order.
+ */
 public sealed class EngineNewPayloadV1<
         EP extends ExecutionPayloadV1, NPRP extends NewPayloadRequestParametersV1<? extends EP>>
-    extends ExecutionEngineJsonRpcMethod permits EngineNewPayloadV2 {
+    extends OrderedExecutionJsonRpcMethod permits EngineNewPayloadV2 {
 
   private static final Logger LOG = LoggerFactory.getLogger(EngineNewPayloadV1.class);
   private static final Hash OMMERS_HASH_CONSTANT = Hash.EMPTY_LIST_HASH;
@@ -89,7 +96,8 @@ public sealed class EngineNewPayloadV1<
       final HardforkId minSupportedFork,
       final HardforkId firstUnsupportedFork) {
     super(constructorArguments, minSupportedFork, firstUnsupportedFork);
-    this.mergeCoordinator = constructorArguments.mergeCoordinator();
+    this.mergeCoordinator =
+        checkNotNull(constructorArguments.mergeCoordinator(), "mergeCoordinator must not be null");
     this.ethPeers = constructorArguments.ethPeers();
 
     constructorArguments
@@ -185,9 +193,8 @@ public sealed class EngineNewPayloadV1<
     // 3. Client software MAY initiate a sync process if requisite data for payload validation is
     // missing. Sync process is specified in the Sync section.
     final boolean needsSync = maybeParentHeader.isEmpty();
-    final boolean syncInProgress = mergeContext.get().isSyncing();
-    // Only start backward sync when we're not already syncing
-    if (needsSync && !syncInProgress) {
+    // Only start backward sync when the initial sync is done
+    if (needsSync && mergeContext.get().isInitialSyncDone()) {
       logger()
           .atDebug()
           .setMessage("Parent of block {} is not present, append it to backward sync")
@@ -237,7 +244,7 @@ public sealed class EngineNewPayloadV1<
       return respondWith(reqId, blockParam, null, SYNCING);
     }
 
-    if (syncInProgress) {
+    if (mergeContext.get().isSyncing()) {
       logger().debug("We are syncing");
       return respondWith(reqId, blockParam, null, SYNCING);
     }
@@ -289,7 +296,7 @@ public sealed class EngineNewPayloadV1<
     try {
       blockParam =
           requestContext.getRequiredParameter(
-              0, getPayloadParameterClass(), FAIL_ON_UNKNOWN_BUT_NULL);
+              0, getPayloadParameterClass(), FAIL_ON_UNKNOWN_BUT_EMPTY);
     } catch (JsonRpcParameterException e) {
       throw new InvalidRequestParametersException(
           "Invalid engine payload parameter (index 0)",
@@ -587,7 +594,7 @@ public sealed class EngineNewPayloadV1<
     }
 
     @NonNull ExecutionPayloadV1 getPayloadParameter() {
-      Preconditions.checkNotNull(payloadParameter, "Payload parameter not present");
+      checkNotNull(payloadParameter, "Payload parameter not present");
       return payloadParameter;
     }
 

@@ -1,0 +1,63 @@
+/*
+ * Copyright contributors to Besu.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+apply plugin: 'java-library'
+
+// override the path-derived name (besu-ethereum-core-plugin-api-worldstate-backend) with the plugin API family naming
+def worldstateBackendApiArtifactId = 'besu-plugin-api-worldstate-backend'
+
+jar {
+  archiveBaseName = worldstateBackendApiArtifactId
+  manifest {
+    attributes(
+      'Specification-Title': archiveBaseName,
+      'Specification-Version': project.version,
+      'Implementation-Title': archiveBaseName,
+      'Implementation-Version': calculateVersion(),
+      'Commit-Hash': getGitCommitDetails(40).hash,
+      'Automatic-Module-Name': 'org.hyperledger.besu.plugin.api.worldstate.backend'
+      )
+  }
+}
+
+dependencies {
+  api project(':plugin-api:core')
+  // Hash and Address appear in this module's own signatures, so the dependency
+  // is declared here even though plugin-api:core also re-exports it
+  api project(':datatypes')
+  // MutableWorldState extends evm.worldstate.WorldState and MutableWorldView,
+  // and StateRootCommitter.compute takes an evm.worldstate.WorldUpdater
+  api project(':evm')
+  // StateRootCommitter.timed takes an OperationTimer
+  api project(':metrics:plugin-api')
+  // WorldStateKeyValueStorage.getDataStorageFormat returns DataStorageFormat
+  api project(':services:kvstore:plugin-api')
+  // Bytes32 and UInt256 appear in the storage contract signatures
+  api 'io.consensys.tuweni:tuweni-bytes'
+  api 'io.consensys.tuweni:tuweni-units'
+}
+
+publishing {
+  publications {
+    mavenJava(MavenPublication) {
+      groupId = 'org.hyperledger.besu'
+      artifactId = worldstateBackendApiArtifactId
+      pom {
+        name = 'Besu Plugin API Worldstate Backend'
+        description = 'World state backend contracts of the Besu plugin API, the surface a plugin implements to hold, root and persist the world state'
+      }
+    }
+  }
+}

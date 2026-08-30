@@ -37,14 +37,18 @@ import org.hyperledger.besu.ethereum.core.ExecutionContextTestFixture;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor.TransactionReceiptFactory;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.MainnetParallelBlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelTransactionPreprocessing;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.BalStateRootCommitter;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.bal.BlockAccessListStateRootCalculator;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
+import org.hyperledger.besu.plugin.services.worldstate.StateRootComputation;
 
 import java.math.BigInteger;
 import java.util.Arrays;
@@ -87,9 +91,13 @@ class AbstractBlockProcessorIntegrationTest {
   // EIP-8282 builder request predeploys: the Amsterdam requests processor invokes an empty-data
   // system call on every block, so both appear in every block's access list.
   private static final Address BUILDER_DEPOSIT_CONTRACT =
-      Address.fromHexString("0x0000884d2aa32eaa155f59a2f24efa73d9008282");
+      Address.fromHexString("0x0000bff46984e3725691fa540a8c7589300d8282");
   private static final Address BUILDER_EXIT_CONTRACT =
-      Address.fromHexString("0x000014574a74c805590aff9499fc7a690f008282");
+      Address.fromHexString("0x000064d678505ad48f8ccb093bc65613800e8282");
+  // EIP-2935 history contract. It is not deployed in this test genesis, but the pre-execution
+  // system call still reads the account, so EIP-7928 lists it in every block's access list.
+  private static final Address HISTORY_STORAGE_CONTRACT =
+      Address.fromHexString("0x0000f90827f1c53a10cb7a02335b175320002935");
 
   private static final KeyPair ACCOUNT_GENESIS_1_KEYPAIR =
       generateKeyPair("c87509a1c067bbde78beb793e6fa76530b6382a4c0241e5e4a9ec0a0f44dc0d3");
@@ -229,7 +237,7 @@ class AbstractBlockProcessorIntegrationTest {
     MutableWorldState worldState = worldStateArchive.getWorldState();
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x12e2d5cb327081eef6e04e4140c9c41ad3dcbf9e228ea57607f244f8ede32e1f",
+            "0x2a1d8095d148b89d28a5e7b03b205116eb228c30ae9d86b2d113e81e96e57b65",
             Wei.of(5),
             transactionTransfer1,
             transactionTransfer2);
@@ -263,7 +271,7 @@ class AbstractBlockProcessorIntegrationTest {
     MutableWorldState worldState = worldStateArchive.getWorldState();
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0xadf0aed3b36be9973cca00c632bdffd5e59e8b9cd0513afab64704eedc0c553d",
+            "0xbc68b632221f19f22fff7c5883755fe9610be5bbe8722cb6cdb6e8cbf9814a50",
             Wei.of(5),
             setSlot1Transaction,
             getSlot1Transaction,
@@ -326,7 +334,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block block =
         createBlockWithTransactions(
-            "0x5ffc1cf9f92418561f5aa3aa34c7ea030551026a3e1f01bb0db1804f54b10d80",
+            "0x8d9a8161b2c255f8f514cd92e5364624a775e274739dc9379cf938efd7d45ebc",
             Wei.ZERO,
             transactions);
 
@@ -377,7 +385,8 @@ class AbstractBlockProcessorIntegrationTest {
         WITHDRAWAL_CONTRACT,
         CONSOLIDATION_CONTRACT,
         BUILDER_DEPOSIT_CONTRACT,
-        BUILDER_EXIT_CONTRACT);
+        BUILDER_EXIT_CONTRACT,
+        HISTORY_STORAGE_CONTRACT);
 
     assertBalanceMatchesWorldState(sequentialResult, Address.fromHexStringStrict(ACCOUNT_2));
     assertBalanceMatchesWorldState(sequentialResult, Address.fromHexStringStrict(ACCOUNT_3));
@@ -400,7 +409,8 @@ class AbstractBlockProcessorIntegrationTest {
         WITHDRAWAL_CONTRACT,
         CONSOLIDATION_CONTRACT,
         BUILDER_DEPOSIT_CONTRACT,
-        BUILDER_EXIT_CONTRACT);
+        BUILDER_EXIT_CONTRACT,
+        HISTORY_STORAGE_CONTRACT);
 
     assertBalanceMatchesWorldState(parallelResult, Address.fromHexStringStrict(ACCOUNT_2));
     assertBalanceMatchesWorldState(parallelResult, Address.fromHexStringStrict(ACCOUNT_3));
@@ -427,7 +437,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x9443ad1296b19bc6f76eff7f60bd2f9100dcf5268dd99fb92f8defb24a0e1eda",
+            "0x38119f4725a9ed2fe968d067c7e1a391c9dc4074f2757c5cacb837a021f53cf9",
             Wei.of(5),
             transactionTransfer1,
             transactionTransfer2);
@@ -461,6 +471,7 @@ class AbstractBlockProcessorIntegrationTest {
         CONSOLIDATION_CONTRACT,
         BUILDER_DEPOSIT_CONTRACT,
         BUILDER_EXIT_CONTRACT,
+        HISTORY_STORAGE_CONTRACT,
         coinbase);
 
     assertBalanceMatchesWorldState(blockProcessingResult, Address.fromHexStringStrict(ACCOUNT_2));
@@ -490,7 +501,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0xc855d6ac6b443599d47cf53cdd6c36a28df6751f340160ec059aecf8afc1eff5",
+            "0x9cb3ab2482e8c14c26caf12a9f7b804367aa00d7f61c9640882d9db26599de3f",
             Wei.of(5),
             transferTransaction1,
             transferTransaction2,
@@ -525,6 +536,7 @@ class AbstractBlockProcessorIntegrationTest {
         CONSOLIDATION_CONTRACT,
         BUILDER_DEPOSIT_CONTRACT,
         BUILDER_EXIT_CONTRACT,
+        HISTORY_STORAGE_CONTRACT,
         Address.fromHexStringStrict(ACCOUNT_GENESIS_1),
         coinbase);
 
@@ -565,7 +577,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x4a7a3523e32584e9efc9e9068c51cff74454287fe5ee576699f731284ec08993",
+            "0xc592c108785d1277b0575c3062ba9032c7d2b1ed1c714ceb5c22a4340d7c090c",
             Wei.of(5),
             transferTransaction1,
             transferTransaction2);
@@ -606,6 +618,7 @@ class AbstractBlockProcessorIntegrationTest {
         CONSOLIDATION_CONTRACT,
         BUILDER_DEPOSIT_CONTRACT,
         BUILDER_EXIT_CONTRACT,
+        HISTORY_STORAGE_CONTRACT,
         coinbase);
 
     assertBalanceMatchesWorldState(blockProcessingResult, Address.fromHexStringStrict(ACCOUNT_2));
@@ -645,7 +658,7 @@ class AbstractBlockProcessorIntegrationTest {
         (BonsaiAccount) worldState.get(transferTransaction1.getSender());
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x6418f2ad534bb875d10abbb51d9ed21c6b6581165e5be463b8447624ea0d2eca",
+            "0x85be71c7eb00ae86d5fc859085a14d76d55579ec64e033d588e3d69fc29bacea",
             Wei.of(5),
             transferTransaction1,
             transferTransaction2);
@@ -681,6 +694,7 @@ class AbstractBlockProcessorIntegrationTest {
         CONSOLIDATION_CONTRACT,
         BUILDER_DEPOSIT_CONTRACT,
         BUILDER_EXIT_CONTRACT,
+        HISTORY_STORAGE_CONTRACT,
         coinbase);
 
     assertBalanceMatchesWorldState(blockProcessingResult, Address.fromHexStringStrict(ACCOUNT_2));
@@ -713,7 +727,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x46f3fe76f6a3604ed3ee6a6bc5b0c7a90ec9dc8f5a7df30cd842c25132a8a8b4",
+            "0x85af922b9234c2137cf2bd030036ac011f5753aa5aec4fa46ab96c284acff4bb",
             Wei.of(5),
             setSlot1Transaction,
             getSlot1Transaction,
@@ -740,6 +754,7 @@ class AbstractBlockProcessorIntegrationTest {
         CONSOLIDATION_CONTRACT,
         BUILDER_DEPOSIT_CONTRACT,
         BUILDER_EXIT_CONTRACT,
+        HISTORY_STORAGE_CONTRACT,
         coinbase);
 
     // contract balance is unchanged so no balance changes recorded
@@ -775,7 +790,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0xc9abb93f3fd6274cdc450749550a6eedf4775d9e0cead62c9e3d0f4edfe3cb91",
+            "0xaf3d69d49cf2f4a00b81c634bb9b89371827870c6410e6beb48b901bda5bd2a5",
             Wei.of(5),
             getSlot1Transaction,
             setSlot1Transaction,
@@ -802,6 +817,7 @@ class AbstractBlockProcessorIntegrationTest {
         CONSOLIDATION_CONTRACT,
         BUILDER_DEPOSIT_CONTRACT,
         BUILDER_EXIT_CONTRACT,
+        HISTORY_STORAGE_CONTRACT,
         coinbase);
 
     // contract balance is unchanged so no balance changes recorded
@@ -845,7 +861,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x9fcfd27a635a53d2098a54a5b75fccd69471cc44d0c972215892ff179aca98b6",
+            "0xece29b75b27056f5794e428c553fcaf2e4e281ff4a7b2c4627b82def314188d4",
             Wei.of(5),
             transactionTransfer,
             getcontractBalanceTransaction,
@@ -874,6 +890,7 @@ class AbstractBlockProcessorIntegrationTest {
         CONSOLIDATION_CONTRACT,
         BUILDER_DEPOSIT_CONTRACT,
         BUILDER_EXIT_CONTRACT,
+        HISTORY_STORAGE_CONTRACT,
         coinbase);
 
     assertBalanceMatchesWorldState(blockProcessingResult, contractAddress);
@@ -915,7 +932,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0xd367d7cee13b9c411833f5d21daaf6654deb7afaea166ea47b5ee4ab3d0872b1",
+            "0xfd9cc32aad4462bf112f8c6b35f24fe5fe3ef190dff017ffec1f1938c19bda0c",
             Wei.of(5),
             transactionTransfer,
             sendEthFromContractTransaction,
@@ -944,6 +961,7 @@ class AbstractBlockProcessorIntegrationTest {
         CONSOLIDATION_CONTRACT,
         BUILDER_DEPOSIT_CONTRACT,
         BUILDER_EXIT_CONTRACT,
+        HISTORY_STORAGE_CONTRACT,
         coinbase);
 
     assertBalanceMatchesWorldState(blockProcessingResult, contractAddress);
@@ -984,7 +1002,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x41fd5227eca8c4375f4fd577f6c6785fc34077bdb730062128d2d15862f5a226",
+            "0xe7baefd8e65f1205bc45089d0b67d8caf169323ba0a859f319c871e043884a68",
             Wei.of(5),
             transactionTransfer,
             getcontractBalanceTransaction,
@@ -1014,6 +1032,7 @@ class AbstractBlockProcessorIntegrationTest {
         CONSOLIDATION_CONTRACT,
         BUILDER_DEPOSIT_CONTRACT,
         BUILDER_EXIT_CONTRACT,
+        HISTORY_STORAGE_CONTRACT,
         coinbase);
 
     assertBalanceMatchesWorldState(blockProcessingResult, contractAddress);
@@ -1055,7 +1074,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x41fd5227eca8c4375f4fd577f6c6785fc34077bdb730062128d2d15862f5a226",
+            "0xe7baefd8e65f1205bc45089d0b67d8caf169323ba0a859f319c871e043884a68",
             Wei.of(5),
             transactionTransfer,
             sendEthFromContractTransaction,
@@ -1085,6 +1104,7 @@ class AbstractBlockProcessorIntegrationTest {
         CONSOLIDATION_CONTRACT,
         BUILDER_DEPOSIT_CONTRACT,
         BUILDER_EXIT_CONTRACT,
+        HISTORY_STORAGE_CONTRACT,
         coinbase);
 
     assertBalanceMatchesWorldState(blockProcessingResult, contractAddress);
@@ -1324,12 +1344,30 @@ class AbstractBlockProcessorIntegrationTest {
     final BlockAccessList blockAccessList =
         result.getYield().orElseThrow().getBlockAccessList().orElseThrow();
 
-    final Hash computedRoot =
-        BlockAccessListStateRootCalculator.computeAsync(
-                protocolContext, block.getHeader(), blockAccessList)
-            .join()
-            .root();
+    final BalStateRootCommitter committer =
+        new BalStateRootCommitter(
+                protocolContext,
+                block.getHeader(),
+                BlockAccessListAccountLookup.of(blockAccessList),
+                false)
+            .start();
 
-    assertThat(computedRoot).isEqualTo(expectedRoot);
+    final BlockHeader parentHeader =
+        protocolContext
+            .getBlockchain()
+            .getBlockHeader(block.getHeader().getParentHash())
+            .orElseThrow();
+
+    try (BonsaiWorldState worldState =
+        (BonsaiWorldState)
+            protocolContext
+                .getWorldStateArchive()
+                .getWorldState(
+                    WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(parentHeader))
+                .orElseThrow()) {
+      final StateRootComputation computation =
+          committer.compute(worldState, block.getHeader(), worldState.updater());
+      assertThat(computation.root()).isEqualTo(expectedRoot);
+    }
   }
 }

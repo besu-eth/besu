@@ -15,6 +15,19 @@
 
 apply plugin: 'java-library'
 
+compileJava {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.ERROR)
+    option('NullAway:AnnotatedPackages', 'org.hyperledger.besu.ethereum.permissioning')
+  }
+}
+
+tasks.named('compileTestJava', JavaCompile).configure {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.OFF)
+  }
+}
+
 jar {
   archiveBaseName = calculateArtifactId(project)
   manifest {
@@ -31,6 +44,8 @@ jar {
 dependencies {
   api 'org.slf4j:slf4j-api'
 
+  errorprone 'com.uber.nullaway:nullaway'
+
   implementation project(':crypto:algorithms')
   implementation project(':datatypes')
   implementation project(':ethereum:core')
@@ -45,7 +60,10 @@ dependencies {
   implementation 'io.consensys.tuweni:tuweni-bytes'
   implementation 'io.consensys.tuweni:tuweni-toml'
   implementation 'io.consensys.tuweni:tuweni-units'
+  implementation 'javax.inject:javax.inject'
   implementation 'org.web3j:abi'
+
+  compileOnlyApi 'org.jspecify:jspecify'
 
   testImplementation project(':config')
   testImplementation project(path: ':ethereum:core', configuration: 'testSupportArtifacts')

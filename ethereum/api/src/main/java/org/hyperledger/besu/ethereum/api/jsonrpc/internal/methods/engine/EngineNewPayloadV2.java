@@ -91,7 +91,9 @@ public sealed class EngineNewPayloadV2<
     // Shanghai timestamp,
     // Client software MUST return -32602: Invalid params error if the wrong version of the
     // structure is used in the method call.
-    if (executionPayload.getTimestamp() < shanghaiTimestamp.orElse(0L)) {
+    // The timestamp is a uint64 carried in a long, so it must be compared unsigned: a value above
+    // Long.MAX_VALUE is negative and would otherwise look pre-Shanghai.
+    if (Long.compareUnsigned(executionPayload.getTimestamp(), shanghaiTimestamp.orElse(0L)) < 0) {
       if (executionPayload.getWithdrawals() != null) {
         return ValidationResult.invalid(
             RpcErrorType.INVALID_WITHDRAWALS_PARAMS,

@@ -617,6 +617,7 @@ task resolveSourceArtifacts {
   group = 'verification'
   description = 'Resolves source artifacts for all configurations (including the plugin classpath) so they can be included in dependency verification metadata'
   dependsOn getAllprojects().collect { it.tasks.named('resolveProjectSourceArtifacts') }
+  finalizedBy 'backfillLegacySourceChecksums'
   doLast {
     def resolved = new HashSet()
     forEachBuildscriptSourceArtifact { id, source ->
@@ -624,6 +625,62 @@ task resolveSourceArtifacts {
       resolved.add(id)
     }
     logger.lifecycle("Resolved sources for ${resolved.size()} plugin classpath components")
+  }
+}
+
+// Components no longer reachable from any current dependency graph (e.g. an old vertx-core
+// version kept around from before this branch's 4.x -> 5.x upgrade, see 2aa6fd01d1) still get
+// their jar/pom trusted here on purpose. Nothing in resolveSourceArtifacts above can ever
+// re-discover them, since they aren't requested anywhere anymore - but IntelliJ's sync can still
+// probe their sources jar independently of the live graph and fail verification when it's
+// missing. Backfill sources checksums for every such already-trusted component directly from
+// its own artifact, instead of chasing down why the IDE asked for it.
+task backfillLegacySourceChecksums {
+  group = 'verification'
+  description = 'Resolves -sources.jar for every already-trusted (jar+pom) component in verification-metadata.xml that is missing a sources entry'
+  doLast {
+    def metadataFile = rootProject.file('gradle/verification-metadata.xml')
+    def slurper = new groovy.xml.XmlSlurper()
+    slurper.setFeature('http://xml.org/sax/features/namespaces', false)
+    def metadata = slurper.parse(metadataFile)
+
+    def missing = []
+    metadata.components.component.each { comp ->
+      def group = comp.@group.text()
+      def name = comp.@name.text()
+      def version = comp.@version.text()
+      def hasJar = comp.artifact.any { it.@name.text() == "${name}-${version}.jar".toString() }
+      def hasSources = comp.artifact.any { it.@name.text() == "${name}-${version}-sources.jar".toString() }
+      if (hasJar && !hasSources) {
+        missing << [group: group, name: name, version: version]
+      }
+    }
+
+    if (missing.isEmpty()) {
+      logger.lifecycle('No legacy components are missing a -sources.jar verification entry.')
+      return
+    }
+
+    logger.lifecycle("Probing sources for ${missing.size()} already-trusted component(s) with no sources entry:")
+    def resolvedCount = 0
+    missing.each { m ->
+      def coordinate = "${m.group}:${m.name}:${m.version}"
+      try {
+        def dep = project.dependencies.create("${coordinate}:sources")
+        def detached = project.configurations.detachedConfiguration(dep)
+        detached.transitive = false
+        // access .files to trigger download and register with verification metadata
+        if (!detached.files.isEmpty()) {
+          resolvedCount++
+          logger.lifecycle("  resolved sources for ${coordinate}")
+        }
+      } catch (Exception e) {
+        // Many older/legacy components never published a sources jar at all - that is expected
+        // and not an error; only unexpected failures (e.g. verification itself) should be loud.
+        logger.info("  no sources available for ${coordinate}: ${e.message}")
+      }
+    }
+    logger.lifecycle("Resolved sources for ${resolvedCount}/${missing.size()} legacy components")
   }
 }
 
@@ -854,7 +911,9 @@ subprojects {
         "\t-Pcases=<caseNames>\t\tComma-separated list of @Param caseName values to run (e.g. MOD_32_32,MOD_256_256). Defaults to running all cases.\n" +
         "\t-PgcProfiler=true\t\tEnable the JMH GC profiler to capture allocation rates (gc.alloc.rate.norm) alongside timing.\n" +
         "\t-PasyncProfiler=<libPath>\tLibrary path to fetch the Async profiler from. Default is to disable profiling.\n" +
-        "\t-PasyncProfilerOptions=<asyncProfilerOptions>\tOptions to pass on to the Async profiler separated by ';'. Default is to produce a flamegraph with all other default profiler options.\n"
+        "\t-PasyncProfilerOptions=<asyncProfilerOptions>\tOptions to pass on to the Async profiler separated by ';'. Default is to produce a flamegraph with all other default profiler options.\n" +
+        "\t-PgasProfiler=true\t\tEnable the gas profiler to emit per-benchmark EVM gas cost as a secondary metric.\n" +
+        "\t-PgasProfilerFork=<fork>\tEVM fork to use for gas cost calculation (e.g. CANCUN, OSAKA). Defaults to OSAKA.\n"
     }
 
     tasks.named("jmhJar") {
@@ -880,17 +939,20 @@ subprojects {
       jvmArgs = [
         '-XX:+EnableDynamicAgentLoading'
       ]
+      profilers = []
       if (asyncProfiler != null) {
-        profilers = [
-          'async:libPath=' + asyncProfiler + ';' + asyncProfilerOptions
-        ]
+        profilers.add('async:libPath=' + asyncProfiler + ';' + asyncProfilerOptions)
         // Force debug symbols of stack traces to the profiler
         jvmArgs.addAll("-XX:+UnlockDiagnosticVMOptions", "-XX:+DebugNonSafepoints")
       }
       var gcProfiler = _strCmdArg('gcProfiler')
       if (gcProfiler != null && gcProfiler.toBoolean()) {
-        if (asyncProfiler == null) profilers = []
         profilers.add('gc')
+      }
+      var gasProfiler = _strCmdArg('gasProfiler')
+      if (gasProfiler != null && gasProfiler.toBoolean()) {
+        var gasProfilerFork = _strCmdArg('gasProfilerFork')
+        profilers.add('org.hyperledger.besu.ethereum.vm.operations.GasProfiler' + (gasProfilerFork != null ? ':' + gasProfilerFork : ''))
       }
       duplicateClassesStrategy = DuplicatesStrategy.INCLUDE
     }

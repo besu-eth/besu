@@ -35,6 +35,7 @@ import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -79,7 +80,7 @@ class BonsaiClearStorageTest {
     updater.deleteAccount(CONTRACT);
     updater.commit();
 
-    // frontierRootHash triggers calculateRootHash → clearStorage
+    // frontierRootHash triggers DefaultStateRootCommitter.compute → clearStorage
     final CompletableFuture<Hash> future =
         CompletableFuture.supplyAsync(
             archive.getWorldState()::frontierRootHash,
@@ -104,6 +105,46 @@ class BonsaiClearStorageTest {
             KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE,
             key -> Bytes.wrap(key).slice(0, accountHashPrefix.size()).equals(accountHashPrefix));
     assertThat(remainingSlots).isEmpty();
+  }
+
+  /**
+   * Regression test for <a href="https://github.com/besu-eth/besu/issues/10978">#10978</a>.
+   *
+   * <p>When a contract is selfdestructed and re-created in the same block with a storage slot whose
+   * value matches the pre-destruction persisted value, the {@code isUnchanged()} guard must not
+   * skip the write: the storage trie is rebuilt from empty, so every slot must be written.
+   */
+  @Test
+  void storageIsWrittenWhenSelfdestructedContractRecreatedWithIdenticalValuesInSameBlock() {
+    final Blockchain blockchain = mock(Blockchain.class);
+    final BonsaiWorldStateProvider archive =
+        InMemoryKeyValueStorageProvider.createBonsaiInMemoryWorldStateArchive(blockchain);
+
+    final UInt256 slot = UInt256.ONE;
+    final UInt256 value = UInt256.valueOf(42);
+
+    // block 1: create contract with slot=value
+    final WorldUpdater setup = archive.getWorldState().updater();
+    setup.createAccount(CONTRACT, 1, Wei.of(1)).setStorageValue(slot, value);
+    setup.commit();
+    archive.getWorldState().persist(null);
+
+    // block 2: selfdestruct then recreate with the same slot value (two separate tx commits,
+    // mirroring AbstractBlockProcessor which commit()s the block updater after each tx)
+    final WorldUpdater blockUpdater = archive.getWorldState().updater();
+    final WorldUpdater tx1 = blockUpdater.updater();
+    tx1.deleteAccount(CONTRACT);
+    tx1.commit();
+    blockUpdater.commit();
+
+    final WorldUpdater tx2 = blockUpdater.updater();
+    tx2.createAccount(CONTRACT, 0, Wei.of(1)).setStorageValue(slot, value);
+    tx2.commit();
+    blockUpdater.commit();
+
+    archive.getWorldState().persist(null);
+
+    assertThat(archive.getWorldState().get(CONTRACT).getStorageValue(slot)).isEqualTo(value);
   }
 
   private void populateStorage(final BonsaiWorldStateProvider archive, final int slots) {

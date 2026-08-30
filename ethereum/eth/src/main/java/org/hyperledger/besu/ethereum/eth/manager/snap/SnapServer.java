@@ -76,14 +76,16 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
   private static final int MAX_RESPONSE_SIZE = 2 * 1024 * 1024;
   private static final int MAX_CODE_LOOKUPS_PER_REQUEST = 1024;
   private static final int MAX_STORAGE_RANGE_ACCOUNTS_PER_REQUEST = 4096;
-  private static final AccountRangeMessage EMPTY_ACCOUNT_RANGE =
+  static final AccountRangeMessage EMPTY_ACCOUNT_RANGE =
       AccountRangeMessage.create(new HashMap<>(), new ArrayDeque<>());
-  private static final StorageRangeMessage EMPTY_STORAGE_RANGE =
+  static final StorageRangeMessage EMPTY_STORAGE_RANGE =
       StorageRangeMessage.create(new ArrayDeque<>(), Collections.emptyList());
-  private static final TrieNodesMessage EMPTY_TRIE_NODES_MESSAGE =
+  static final TrieNodesMessage EMPTY_TRIE_NODES_MESSAGE =
       TrieNodesMessage.create(new ArrayList<>());
-  private static final ByteCodesMessage EMPTY_BYTE_CODES_MESSAGE =
+  static final ByteCodesMessage EMPTY_BYTE_CODES_MESSAGE =
       ByteCodesMessage.create(new ArrayDeque<>());
+  static final BlockAccessListsMessage EMPTY_BLOCK_ACCESS_LISTS =
+      BlockAccessListsMessage.create(List.of());
 
   static final Hash HASH_LAST = Hash.wrap(Bytes32.leftPad(Bytes.fromHexString("FF"), (byte) 0xFF));
 
@@ -253,7 +255,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
 
   MessageData constructGetBlockAccessListsResponse(final MessageData message) {
     if (!isStarted.get()) {
-      return BlockAccessListsMessage.create(List.of());
+      return EMPTY_BLOCK_ACCESS_LISTS;
     }
 
     final StopWatch stopWatch = StopWatch.createStarted();

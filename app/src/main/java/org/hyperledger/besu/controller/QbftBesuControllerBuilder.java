@@ -51,6 +51,7 @@ import org.hyperledger.besu.consensus.qbft.QbftForksSchedulesFactory;
 import org.hyperledger.besu.consensus.qbft.QbftProtocolScheduleBuilder;
 import org.hyperledger.besu.consensus.qbft.adaptor.AdaptorUtil;
 import org.hyperledger.besu.consensus.qbft.adaptor.BftEventHandlerAdaptor;
+import org.hyperledger.besu.consensus.qbft.adaptor.QbftBlockAdaptor;
 import org.hyperledger.besu.consensus.qbft.adaptor.QbftBlockCodecAdaptor;
 import org.hyperledger.besu.consensus.qbft.adaptor.QbftBlockCreatorFactoryAdaptor;
 import org.hyperledger.besu.consensus.qbft.adaptor.QbftBlockInterfaceAdaptor;
@@ -83,10 +84,11 @@ import org.hyperledger.besu.consensus.qbft.validator.ValidatorModeTransitionLogg
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.methods.JsonRpcMethods;
+import org.hyperledger.besu.ethereum.blockcreation.BlockCreationTiming;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
-import org.hyperledger.besu.ethereum.chain.MinedBlockObserver;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
+import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Util;
@@ -266,10 +268,7 @@ public class QbftBesuControllerBuilder extends BesuControllerBuilder {
     final Subscribers<QbftMinedBlockObserver> minedBlockObservers = Subscribers.create();
     minedBlockObservers.subscribe(
         qbftBlock -> ethProtocolManager.blockMined(AdaptorUtil.toBesuBlock(qbftBlock)));
-    minedBlockObservers.subscribe(
-        qbftBlock ->
-            blockLogger(transactionPool, localAddress)
-                .blockMined(AdaptorUtil.toBesuBlock(qbftBlock)));
+    minedBlockObservers.subscribe(blockLogger(transactionPool, localAddress));
 
     final EthSynchronizerUpdater synchronizerUpdater =
         new EthSynchronizerUpdater(ethProtocolManager.ethContext().getEthPeers());
@@ -452,9 +451,27 @@ public class QbftBesuControllerBuilder extends BesuControllerBuilder {
     return new BftValidatorOverrides(result);
   }
 
-  private static MinedBlockObserver blockLogger(
+  private static QbftMinedBlockObserver blockLogger(
       final TransactionPool transactionPool, final Address localAddress) {
-    return block ->
+    return qbftBlock -> {
+      final Block block = AdaptorUtil.toBesuBlock(qbftBlock);
+      final Optional<BlockCreationTiming> timing =
+          qbftBlock instanceof QbftBlockAdaptor adaptor
+              ? adaptor.getBlockCreationTiming()
+              : Optional.empty();
+      if (block.getHeader().getCoinbase().equals(localAddress) && timing.isPresent()) {
+        LOG.info(
+            String.format(
+                "Produced #%,d  (%s)| %4d tx | %d pending | %,d (%01.1f%%) gas in %01.3fs | Timing(%s)",
+                block.getHeader().getNumber(),
+                block.getHash().toShortLogString(),
+                block.getBody().getTransactions().size(),
+                transactionPool.count(),
+                block.getHeader().getGasUsed(),
+                (block.getHeader().getGasUsed() * 100.0) / block.getHeader().getGasLimit(),
+                timing.get().end("blockImported").toMillis() / 1000.0,
+                timing.get()));
+      } else {
         LOG.info(
             String.format(
                 "%s %-11s #%,d / %d tx / %d pending / %,d (%01.1f%%) gas / (%s)",
@@ -466,5 +483,7 @@ public class QbftBesuControllerBuilder extends BesuControllerBuilder {
                 block.getHeader().getGasUsed(),
                 (block.getHeader().getGasUsed() * 100.0) / block.getHeader().getGasLimit(),
                 block.getHash().getBytes().toHexString()));
+      }
+    };
   }
 }

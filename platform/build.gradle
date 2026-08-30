@@ -28,14 +28,15 @@ javaPlatform {
 dependencies {
   api platform('com.fasterxml.jackson:jackson-bom:2.21.5')
   api platform('io.grpc:grpc-bom:1.79.0')
-  api platform('io.netty:netty-bom:4.2.16.Final')
+  api platform('io.netty:netty-bom:4.2.17.Final')
   api platform('io.opentelemetry:opentelemetry-bom:1.62.0')
   api platform('io.prometheus:prometheus-metrics-bom:1.5.0')
-  api platform('io.vertx:vertx-stack-depchain:4.5.27')
-  api platform('org.apache.logging.log4j:log4j-bom:2.25.4')
+  api platform('io.vertx:vertx-stack-depchain:5.1.6')
+  api platform('org.apache.logging.log4j:log4j-bom:2.25.5')
   api platform('org.assertj:assertj-bom:3.27.7')
   api platform('org.immutables:bom:2.12.1')
-  api platform('org.junit:junit-bom:5.13.4')
+  api platform('org.junit:junit-bom:5.14.4')
+  api platform('org.jetbrains.kotlin:kotlin-bom:2.4.0')
   api platform('org.mockito:mockito-bom:5.21.0')
   api platform('org.slf4j:slf4j-bom:2.0.17')
 
@@ -51,14 +52,25 @@ dependencies {
     api project(':consensus:qbft')
     api project(':consensus:qbft-core')
     api project(':crypto:algorithms')
+    api project(':crypto:plugin-api')
     api project(':crypto:services')
     api project(':datatypes')
     api project(':ethereum:api')
+    api project(':ethereum:api:plugin-api')
     api project(':ethereum:blockcreation')
+    api project(':ethereum:blockcreation:plugin-api')
     api project(':ethereum:core')
+    api project(':ethereum:core:plugin-api-chain')
+    api project(':ethereum:core:plugin-api-execution')
+    api project(':ethereum:core:plugin-api-worldstate')
+    api project(':ethereum:core:plugin-api-worldstate-backend')
     api project(':ethereum:eth')
+    api project(':ethereum:eth:plugin-api-sync')
+    api project(':ethereum:eth:plugin-api-txpool')
     api project(':ethereum:p2p')
+    api project(':ethereum:p2p:plugin-api')
     api project(':ethereum:permissioning')
+    api project(':ethereum:permissioning:plugin-api')
     api project(':ethereum:referencetests')
     api project(':ethereum:rlp')
     api project(':ethereum:trie')
@@ -68,6 +80,7 @@ dependencies {
     api project(':plugin-api')
     api project(':plugin-api:core')
     api project(':services:kvstore')
+    api project(':services:kvstore:plugin-api')
     api project(':services:pipeline')
     api project(':services:tasks')
     api project(':testutil')
@@ -85,6 +98,8 @@ dependencies {
     api 'com.google.guava:guava:33.5.0-jre'
 
     api 'org.checkerframework:checker-qual:3.43.0'
+
+    api 'com.google.errorprone:error_prone_annotations:2.41.0'
 
     api 'org.jspecify:jspecify:1.0.0'
 
@@ -118,15 +133,15 @@ dependencies {
 
     api 'io.projectreactor:reactor-core:3.8.6'
 
-    api 'io.consensys.tuweni:tuweni-bytes:2.7.2'
-    api 'io.consensys.tuweni:tuweni-config:2.7.2'
-    api 'io.consensys.tuweni:tuweni-concurrent:2.7.2'
-    api 'io.consensys.tuweni:tuweni-crypto:2.7.2'
-    api 'io.consensys.tuweni:tuweni-io:2.7.2'
-    api 'io.consensys.tuweni:tuweni-net:2.7.2'
-    api 'io.consensys.tuweni:tuweni-rlp:2.7.2'
-    api 'io.consensys.tuweni:tuweni-toml:2.7.2'
-    api 'io.consensys.tuweni:tuweni-units:2.7.2'
+    api 'io.consensys.tuweni:tuweni-bytes:2.8.0'
+    api 'io.consensys.tuweni:tuweni-config:2.8.0'
+    api 'io.consensys.tuweni:tuweni-concurrent:2.8.0'
+    api 'io.consensys.tuweni:tuweni-crypto:2.8.0'
+    api 'io.consensys.tuweni:tuweni-io:2.8.0'
+    api 'io.consensys.tuweni:tuweni-net:2.8.0'
+    api 'io.consensys.tuweni:tuweni-rlp:2.8.0'
+    api 'io.consensys.tuweni:tuweni-toml:2.8.0'
+    api 'io.consensys.tuweni:tuweni-units:2.8.0'
 
     api 'jakarta.validation:jakarta.validation-api:3.1.1'
 
@@ -190,7 +205,7 @@ dependencies {
 
     api 'io.consensys.protocols:jc-kzg-4844:2.1.8'
 
-    api 'io.consensys.protocols:discovery:26.6.0'
+    api 'io.consensys.protocols:discovery:26.8.0'
   }
 }
 

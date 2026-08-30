@@ -53,6 +53,11 @@ public abstract class FlatDbStrategyProvider {
 
     // if  flatDbMode is not loaded or has changed, reload flatDbStrategy
     if (this.flatDbMode == null || !this.flatDbMode.equals(newFlatDbMode)) {
+      if (newFlatDbMode == FlatDbMode.PARTIAL) {
+        LOG.warn(
+            "The partial flat database mode is deprecated and will be removed in a future release."
+                + " Please switch to full flat database mode.");
+      }
       this.flatDbMode = newFlatDbMode;
       final CodeStorageStrategy codeStorageStrategy =
           deriveUseCodeStorageByHash(composedWorldStateStorage)

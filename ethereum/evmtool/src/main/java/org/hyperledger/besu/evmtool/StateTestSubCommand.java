@@ -55,6 +55,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JavaType;
@@ -63,6 +65,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.base.Stopwatch;
 import org.apache.tuweni.bytes.Bytes;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.IExitCodeGenerator;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 import picocli.CommandLine.ParentCommand;
@@ -84,13 +87,16 @@ import picocli.CommandLine.ParentCommand;
     description = "Execute an Ethereum State Test.",
     mixinStandardHelpOptions = true,
     versionProvider = VersionProvider.class)
-public class StateTestSubCommand implements Runnable {
+public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
   /**
    * The name of the command for the StateTestSubCommand. This constant is used as the name
    * parameter in the @CommandLine.Command annotation. It defines the command name that users should
    * enter on the command line to invoke this command.
    */
   public static final String COMMAND_NAME = "state-test";
+
+  /** Set when any executed test fails, so the process exits non-zero (for CI/gradle). */
+  private final AtomicBoolean anyFailure = new AtomicBoolean(false);
 
   @SuppressWarnings({"FieldCanBeFinal"})
   @Option(
@@ -100,8 +106,20 @@ public class StateTestSubCommand implements Runnable {
 
   @Option(
       names = {"--test-name"},
-      description = "Limit execution to one named test.")
+      description =
+          "Limit execution to tests whose name contains the given substring, or matches the given"
+              + " pattern (a regex, with * and ? as wildcards).")
   private String testName = null;
+
+  // Compiled up front so a malformed expression fails before any fixture is read
+  private TestNameFilter nameFilter;
+
+  @Option(
+      names = {"--workers"},
+      description =
+          "Number of parallel workers for processing fixture files. Defaults to the number of"
+              + " available cores (${DEFAULT-VALUE} here); lower it to run with less parallelism.")
+  private int workers = Runtime.getRuntime().availableProcessors();
 
   @Option(
       names = {"--data-index"},
@@ -130,7 +148,35 @@ public class StateTestSubCommand implements Runnable {
       negatable = true)
   private Boolean enablePrecompileCache = false;
 
+  @Option(
+      names = {"--json-array"},
+      description =
+          "Output results as a JSON array with standard schema: name, pass, fork, stateRoot, error.")
+  private boolean jsonArray = false;
+
+  @Option(
+      names = {"--summary-only"},
+      description =
+          "Suppress the per-test result line for passing tests, printing only failures and the"
+              + " final summary. Useful when running whole fixture trees.")
+  private boolean summaryOnly = false;
+
+  private final AtomicInteger passCount = new AtomicInteger(0);
+  private final AtomicInteger failCount = new AtomicInteger(0);
+
   @ParentCommand private final EvmToolCommand parentCommand;
+
+  // Collected results for --json-array mode
+  private final List<ObjectNode> jsonArrayResults = Collections.synchronizedList(new ArrayList<>());
+
+  // Fixture files we could not build a test from; reported at the end rather than dropped
+  private final List<String> unreadableFiles = Collections.synchronizedList(new ArrayList<>());
+
+  // Cached across all tests; guarded by getSchedules()
+  private ReferenceTestProtocolSchedules cachedSchedules;
+
+  // Shared for summary output; createObjectNode() is thread safe
+  private static final ObjectMapper SHARED_OBJECT_MAPPER = JsonUtils.createObjectMapper();
 
   // picocli does it magically
   @Parameters private final List<Path> stateTestFiles = new ArrayList<>();
@@ -161,6 +207,16 @@ public class StateTestSubCommand implements Runnable {
         stateTestMapper
             .getTypeFactory()
             .constructParametricType(Map.class, String.class, GeneralStateTestCaseSpec.class);
+    if (testName != null) {
+      try {
+        nameFilter = TestNameFilter.compile(testName);
+      } catch (final IllegalArgumentException e) {
+        parentCommand.out.println(e.getMessage());
+        anyFailure.set(true);
+        return;
+      }
+    }
+
     try {
       if (stateTestFiles.isEmpty()) {
         // if no state tests were specified use standard input to get filenames
@@ -169,7 +225,6 @@ public class StateTestSubCommand implements Runnable {
         while (true) {
           final String fileName = in.readLine();
           if (fileName == null) {
-            // reached end of file.  Stop the loop.
             break;
           }
           final File file = new File(fileName);
@@ -182,22 +237,77 @@ public class StateTestSubCommand implements Runnable {
           }
         }
       } else {
-        for (final Path stateTestFile : stateTestFiles) {
-          final Map<String, GeneralStateTestCaseSpec> generalStateTests;
-          if ("stdin".equals(stateTestFile.toString())) {
-            generalStateTests = stateTestMapper.readValue(parentCommand.in, javaType);
-          } else {
-            generalStateTests = stateTestMapper.readValue(stateTestFile.toFile(), javaType);
-          }
-          executeStateTest(generalStateTests);
-        }
+        FixtureRunner.runFiles(
+            FixtureRunner.collectFiles(stateTestFiles),
+            workers,
+            file -> runFile(file, stateTestMapper, javaType));
       }
+    } catch (final UnsupportedForkException e) {
+      throw e;
     } catch (final JsonProcessingException jpe) {
+      // A fixture that could not be parsed has to fail the run, otherwise a broken fixture tree
+      // reports success.
       parentCommand.out.println("File content error: " + jpe);
+      anyFailure.set(true);
     } catch (final IOException e) {
-      System.err.println("Unable to read state file");
+      System.err.println("Unable to read state file: " + e.getMessage());
+      anyFailure.set(true);
+    } catch (final Exception e) {
+      System.err.println("Error: " + e.getMessage());
       e.printStackTrace(System.err);
+      anyFailure.set(true);
     }
+
+    if (passCount.get() + failCount.get() == 0) {
+      // Fail an empty run, whether or not a filter was given, so a typo in --test-name or a fixture
+      // tree that did not materialise cannot be mistaken for a clean sweep. Matches block-test.
+      if (!jsonArray) {
+        parentCommand.out.printf(
+            "No state test was executed%s.%n",
+            testName == null ? "" : " matching --test-name '" + testName + "'");
+      }
+      anyFailure.set(true);
+    }
+
+    if (jsonArray) {
+      FixtureRunner.printJsonArray(parentCommand.out, jsonArrayResults);
+    } else {
+      if (passCount.get() + failCount.get() > 0
+          && (!parentCommand.showJsonResults || summaryOnly)) {
+        parentCommand.out.printf(
+            "%nState test summary: %d passed, %d failed%n", passCount.get(), failCount.get());
+      }
+      // Not printed under --json-array, where that output is parsed and only the array belongs.
+      if (!unreadableFiles.isEmpty()) {
+        parentCommand.out.printf(
+            "%n%d fixture file(s) were not readable as state tests (no test in them ran):%n",
+            unreadableFiles.size());
+        unreadableFiles.forEach(f -> parentCommand.out.println("  - " + f));
+      }
+    }
+  }
+
+  @Override
+  public int getExitCode() {
+    return anyFailure.get() ? 1 : 0;
+  }
+
+  /**
+   * Reads one fixture file and runs it. Used by both the sequential and the parallel path so the
+   * counts agree either way.
+   */
+  private void runFile(final Path file, final ObjectMapper mapper, final JavaType javaType) {
+    final Map<String, GeneralStateTestCaseSpec> generalStateTests;
+    try {
+      generalStateTests =
+          "stdin".equals(file.toString())
+              ? mapper.readValue(parentCommand.in, javaType)
+              : mapper.readValue(file.toFile(), javaType);
+    } catch (final Exception e) {
+      unreadableFiles.add(file + ": " + e);
+      return;
+    }
+    executeStateTest(generalStateTests);
   }
 
   private void executeStateTest(final Map<String, GeneralStateTestCaseSpec> generalStateTests) {
@@ -206,16 +316,49 @@ public class StateTestSubCommand implements Runnable {
       boolean isLastIteration = (i == repeatCount - 1);
       for (final Map.Entry<String, GeneralStateTestCaseSpec> generalStateTestEntry :
           generalStateTests.entrySet()) {
-        if (testName == null || testName.equals(generalStateTestEntry.getKey())) {
+        if (selects(generalStateTestEntry.getKey())) {
           generalStateTestEntry
               .getValue()
               .finalStateSpecs()
               .forEach(
-                  (__, specs) ->
-                      traceTestSpecs(generalStateTestEntry.getKey(), specs, isLastIteration));
+                  (__, specs) -> {
+                    try {
+                      traceTestSpecs(generalStateTestEntry.getKey(), specs, isLastIteration);
+                    } catch (final UnsupportedForkException e) {
+                      // An unknown fork is a harness configuration problem rather than a test
+                      // failure, so let it out.
+                      throw e;
+                    } catch (final RuntimeException e) {
+                      // Record against the test that caused it, so one broken fixture does not
+                      // abandon the rest of the file.
+                      if (isLastIteration) {
+                        failCount.incrementAndGet();
+                        anyFailure.set(true);
+                        parentCommand.out.printf(
+                            "FAIL: %s - execution error: %s%n", generalStateTestEntry.getKey(), e);
+                      }
+                    }
+                  });
         }
       }
     }
+  }
+
+  /** Whether {@code --test-name} selects the given test. With no filter, everything is selected. */
+  private boolean selects(final String test) {
+    return nameFilter == null || nameFilter.matches(test);
+  }
+
+  /**
+   * The reference test schedules, built once and shared by every worker. Building them is expensive
+   * — 30+ schedules per call — and {@code create} also initialises the KZG trusted setup, which is
+   * process-wide state, so the check-then-act has to be atomic rather than merely visible.
+   */
+  private synchronized ReferenceTestProtocolSchedules getSchedules() {
+    if (cachedSchedules == null) {
+      cachedSchedules = ReferenceTestProtocolSchedules.create(parentCommand.getEvmConfiguration());
+    }
+    return cachedSchedules;
   }
 
   private void traceTestSpecs(
@@ -236,7 +379,6 @@ public class StateTestSubCommand implements Runnable {
                     .build())
             : OperationTracer.NO_TRACING;
 
-    final ObjectMapper objectMapper = JsonUtils.createObjectMapper();
     for (final GeneralStateTestCaseEipSpec spec : specs) {
       if (dataIndex != null && spec.getDataIndex() != dataIndex) {
         continue;
@@ -253,7 +395,7 @@ public class StateTestSubCommand implements Runnable {
 
       final BlockHeader blockHeader = spec.getBlockHeader();
       final Transaction transaction = spec.getTransaction(0);
-      final ObjectNode summaryLine = objectMapper.createObjectNode();
+      final ObjectNode summaryLine = SHARED_OBJECT_MAPPER.createObjectNode();
       if (transaction == null) {
         if ((parentCommand.showJsonAlloc || parentCommand.showJsonResults) && isLastIteration) {
           parentCommand.out.println(
@@ -277,9 +419,7 @@ public class StateTestSubCommand implements Runnable {
         }
 
         final String forkName = fork == null ? spec.getFork() : fork;
-        final ProtocolSchedule protocolSchedule =
-            ReferenceTestProtocolSchedules.create(parentCommand.getEvmConfiguration())
-                .getByName(forkName);
+        final ProtocolSchedule protocolSchedule = getSchedules().getByName(forkName);
         if (protocolSchedule == null) {
           throw new UnsupportedForkException(forkName);
         }
@@ -348,14 +488,20 @@ public class StateTestSubCommand implements Runnable {
         final List<Log> logs = result.getLogs();
         final Hash actualLogsHash = Hash.hash(RLP.encode(out -> out.writeList(logs, Log::writeTo)));
         summaryLine.put("postLogsHash", actualLogsHash.getBytes().toHexString());
-        summaryLine.put(
-            "pass",
-            spec.getExpectException() == null
-                && worldState.rootHash().equals(spec.getExpectedRootHash())
-                && actualLogsHash.equals(spec.getExpectedLogsHash()));
+
+        // Every fixture requires the post state root and the logs hash to match. A fixture that
+        // expects an exception additionally requires the transaction to be rejected; checking the
+        // rejection alone would also pass when we reject for the wrong reason or corrupt state.
+        final boolean exceptionExpected = spec.getExpectException() != null;
+
+        final boolean postStateMatches =
+            worldState.rootHash().equals(spec.getExpectedRootHash())
+                && actualLogsHash.equals(spec.getExpectedLogsHash());
+        final boolean pass = postStateMatches && (!exceptionExpected || result.isInvalid());
+        summaryLine.put("pass", pass);
         if (result.isInvalid()) {
           summaryLine.put("validationError", result.getValidationResult().getErrorMessage());
-        } else if (spec.getExpectException() != null) {
+        } else if (exceptionExpected) {
           summaryLine.put(
               "validationError",
               "Exception '" + spec.getExpectException() + "' was expected but did not occur");
@@ -369,7 +515,35 @@ public class StateTestSubCommand implements Runnable {
       }
 
       if (isLastIteration) {
-        parentCommand.out.println(summaryLine);
+        final boolean testPassed = summaryLine.has("pass") && summaryLine.get("pass").asBoolean();
+        if (testPassed) {
+          passCount.incrementAndGet();
+        } else {
+          failCount.incrementAndGet();
+          anyFailure.set(true);
+        }
+        if (jsonArray) {
+          final ObjectNode standardResult = SHARED_OBJECT_MAPPER.createObjectNode();
+          standardResult.put(
+              "name", summaryLine.has("test") ? summaryLine.get("test").asText() : "");
+          standardResult.put(
+              "pass", summaryLine.has("pass") && summaryLine.get("pass").asBoolean());
+          standardResult.put(
+              "fork", summaryLine.has("fork") ? summaryLine.get("fork").asText() : "");
+          standardResult.put(
+              "stateRoot",
+              summaryLine.has("stateRoot") ? summaryLine.get("stateRoot").asText() : "");
+          String error = "";
+          if (summaryLine.has("validationError")) {
+            error = summaryLine.get("validationError").asText();
+          } else if (summaryLine.has("error")) {
+            error = summaryLine.get("error").asText();
+          }
+          standardResult.put("error", error);
+          jsonArrayResults.add(standardResult);
+        } else if (!summaryOnly || !testPassed) {
+          parentCommand.out.println(summaryLine);
+        }
       }
     }
   }

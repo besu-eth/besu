@@ -26,7 +26,6 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 
-import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -56,6 +55,7 @@ import org.hyperledger.besu.plugin.services.BesuEvents.InitialSyncCompletionList
 import org.hyperledger.besu.plugin.services.BesuEvents.SyncStatusListener;
 import org.hyperledger.besu.plugin.services.BesuEvents.TTDReachedListener;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -576,6 +576,22 @@ public class SyncStateTest {
     verify(inSyncListenerExact).onInSyncStatusChange(false);
   }
 
+  @Test
+  public void inSyncCheckDrivenByABlockImportDoesNotTakeTheSyncStateMonitor() {
+    final List<Boolean> heldMonitorDuringCallback = new ArrayList<>();
+    syncState.subscribeInSync(
+        _ -> heldMonitorDuringCallback.add(Thread.holdsLock(syncState)),
+        Synchronizer.DEFAULT_IN_SYNC_TOLERANCE);
+
+    // Fires the block-added observer and therefore calls checkInSync() on this thread.
+    advanceLocalChain(blockchain.getChainHeadBlockNumber() + 1);
+
+    assertThat(heldMonitorDuringCallback)
+        .withFailMessage("a block import called checkInSync() while holding the sync state monitor")
+        .isNotEmpty()
+        .containsOnly(false);
+  }
+
   private void advanceLocalChain(final long newChainHeight) {
     while (blockchain.getChainHeadBlockNumber() < newChainHeight) {
       final BlockHeader parent = blockchain.getChainHeadHeader();
@@ -736,20 +752,6 @@ public class SyncStateTest {
 
     syncState.markInitialSyncPhaseAsDone();
     assertThat(syncState.isResyncNeeded()).isFalse();
-  }
-
-  @Test
-  public void shouldTrackAccountToRepair() {
-    assertThat(syncState.getAccountToRepair()).isEmpty();
-
-    Address testAddress = Address.fromHexString("0x1234567890123456789012345678901234567890");
-    syncState.markAccountToRepair(Optional.of(testAddress));
-
-    assertThat(syncState.getAccountToRepair()).isPresent();
-    assertThat(syncState.getAccountToRepair().get()).isEqualTo(testAddress);
-
-    syncState.markAccountToRepair(Optional.empty());
-    assertThat(syncState.getAccountToRepair()).isEmpty();
   }
 
   @Test

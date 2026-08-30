@@ -18,6 +18,8 @@ import java.math.BigInteger;
 import java.util.Locale;
 import java.util.Optional;
 
+import org.jspecify.annotations.Nullable;
+
 /** The enum Network name. */
 public enum NetworkDefinition {
   /** Mainnet network name. */
@@ -90,7 +92,14 @@ public enum NetworkDefinition {
       2018, // network id
       false, // can snap sync
       false, // native required
-      60_000_000L), // target gas limit
+      60_000_000L, // target gas limit
+      "2026-12-31",
+      "--network=dev is no longer supported and Besu will not start.\n"
+          + "PoW mining has been removed; this network cannot produce blocks.\n"
+          + "For local development, use Ephemery (--network=ephemery)\n"
+          + "with a consensus layer client, or use Kurtosis:\n"
+          + "https://github.com/ethpandaops/ethereum-package",
+      true),
   /** Future EIPs network name. */
   FUTURE_EIPS(
       "/future.json",
@@ -112,7 +121,9 @@ public enum NetworkDefinition {
   private final long chainId;
   private final long networkId;
   private final boolean canSnapSync;
-  private final String deprecationDate;
+  private final @Nullable String deprecationDate;
+  private final @Nullable String deprecationMessage;
+  private final boolean removed;
   private final boolean nativeRequired;
   private final long targetGasLimit;
 
@@ -123,7 +134,16 @@ public enum NetworkDefinition {
       final boolean canSnapSync,
       final boolean nativeRequired,
       final long targetGasLimit) {
-    this(genesisFile, chainId, networkId, canSnapSync, nativeRequired, targetGasLimit, null);
+    this(
+        genesisFile,
+        chainId,
+        networkId,
+        canSnapSync,
+        nativeRequired,
+        targetGasLimit,
+        null,
+        null,
+        false);
   }
 
   NetworkDefinition(
@@ -133,7 +153,9 @@ public enum NetworkDefinition {
       final boolean canSnapSync,
       final boolean nativeRequired,
       final long targetGasLimit,
-      final String deprecationDate) {
+      final @Nullable String deprecationDate,
+      final @Nullable String deprecationMessage,
+      final boolean removed) {
     this.genesisFile = genesisFile;
     this.chainId = chainId;
     this.networkId = networkId;
@@ -141,6 +163,8 @@ public enum NetworkDefinition {
     this.nativeRequired = nativeRequired;
     this.targetGasLimit = targetGasLimit;
     this.deprecationDate = deprecationDate;
+    this.deprecationMessage = deprecationMessage;
+    this.removed = removed;
   }
 
   /**
@@ -199,12 +223,30 @@ public enum NetworkDefinition {
   }
 
   /**
+   * Is removed boolean. Removed networks are deprecated and will cause Besu to abort on startup.
+   *
+   * @return the boolean
+   */
+  public boolean isRemoved() {
+    return removed;
+  }
+
+  /**
    * Gets deprecation date.
    *
    * @return the deprecation date
    */
   public Optional<String> getDeprecationDate() {
     return Optional.ofNullable(deprecationDate);
+  }
+
+  /**
+   * Gets custom deprecation message, if set.
+   *
+   * @return the deprecation message
+   */
+  public Optional<String> getDeprecationMessage() {
+    return Optional.ofNullable(deprecationMessage);
   }
 
   /**

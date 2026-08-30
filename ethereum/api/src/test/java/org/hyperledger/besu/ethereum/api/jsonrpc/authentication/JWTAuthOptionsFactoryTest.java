@@ -88,7 +88,6 @@ public class JWTAuthOptionsFactoryTest {
     assertThat(jwtAuthOptions.getPubSecKeys()).hasSize(1);
     final PubSecKeyOptions pubSecKeyOptions = jwtAuthOptions.getPubSecKeys().get(0);
     assertThat(pubSecKeyOptions.getAlgorithm()).isEqualTo("RS256");
-    assertThat(pubSecKeyOptions.getSecretKey()).isNull();
     PemObject publicKey =
         new PemReader(
                 new InputStreamReader(
@@ -113,7 +112,6 @@ public class JWTAuthOptionsFactoryTest {
       assertThat(jwtAuthOptions.getPubSecKeys()).hasSize(1);
       final PubSecKeyOptions pubSecKeyOptions = jwtAuthOptions.getPubSecKeys().get(0);
       assertThat(pubSecKeyOptions.getAlgorithm()).isEqualTo("ES256");
-      assertThat(pubSecKeyOptions.getSecretKey()).isNull();
       PemObject publicKey =
           new PemReader(
                   new InputStreamReader(
