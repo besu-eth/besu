@@ -32,6 +32,7 @@
 - `admin_logsRemoveCache` no longer reports `Cache Removed` when nothing was removed. `TransactionLogBloomCacher.removeSegments` skips the whole deletion while log bloom caching is in progress, so the RPC returned success while every cache file was still on disk. It now returns an error in that case. [#11080](https://github.com/besu-eth/besu/pull/11080)
 - Serialize `BftMiningCoordinator` `enable()`/`disable()` with `start()`/`stop()` so the mining state flips and their surrounding checks can no longer interleave with concurrent lifecycle transitions. [#10887](https://github.com/besu-eth/besu/pull/10887)
 - An EIP-7702 transaction with an empty `authorization_list` is now rejected by transaction validation rather than by RLP decoding. Over the Engine API such a transaction made the whole payload report `Failed to decode transactions from block parameter`, hiding both the rule that was broken and any other defect the transaction had.
+- `engine_newPayloadV4`+ now returns `-32602` for an `executionRequests` element consisting only of a type byte, as execution-apis requires, including when that type byte is one Besu does not recognize. Such an element was previously answered with an `INVALID` payload status.
 
 ### Additions and Improvements
 
@@ -90,7 +91,6 @@
 - Complete QBFT votes in a reasonable time when `empyblockperiodseconds` is set by treating QBFT votes as "non empty blocks" [#11111](https://github.com/besu-eth/besu/pull/11111)
 - `engine_newPayload` no longer briefly answers `SYNCING` after startup on a peerless node: `PostMergeContext.isSyncing()` now treats an undetermined terminal-difficulty flag as "reached", matching `SyncState.isInSync()`. [#11168](https://github.com/besu-eth/besu/pull/11168)
 - Engine API timestamps above `2^63-1` are no longer treated as negative: `engine_newPayload` rejected such a payload's withdrawals as pre-Shanghai, `engine_forkchoiceUpdated` failed to parse the payload attributes timestamp at all, and post-merge header validation saw the block as older than its parent.
-- `engine_newPayloadV4`+ now reports an unrecognised `executionRequests` type byte as `Invalid execution requests: Unsupported request type: 0xNN`. The `validationError` on the `INVALID` payload status previously named only the type byte, not the parameter it came from.
 
 ### Additions and Improvements
 - Add `eth_getRawTransactionByHash` JSON-RPC method. [#11170](https://github.com/besu-eth/besu/pull/11170)
