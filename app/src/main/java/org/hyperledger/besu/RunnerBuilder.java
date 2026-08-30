@@ -854,8 +854,8 @@ public class RunnerBuilder {
 
     final P2PNetwork network = networkRunner.getNetwork();
     // ForkId in Ethereum Node Record needs updating when we transition to a new protocol spec.
-    // Compare the resolved spec for the new block against its parent — a change indicates
-    // we just crossed a fork boundary regardless of whether the exact timestamp was hit.
+    // Compare the HardforkId of the resolved spec for the new block against its parent — a change
+    // indicates we just crossed a fork boundary regardless of whether the exact timestamp was hit.
     context
         .getBlockchain()
         .observeBlockAdded(
@@ -866,8 +866,11 @@ public class RunnerBuilder {
                   .getBlockHeader(header.getParentHash())
                   .ifPresent(
                       parentHeader -> {
-                        if (protocolSchedule.getByBlockHeader(header)
-                            != protocolSchedule.getByBlockHeader(parentHeader)) {
+                        if (!protocolSchedule
+                            .getByBlockHeader(header)
+                            .getHardforkId()
+                            .equals(
+                                protocolSchedule.getByBlockHeader(parentHeader).getHardforkId())) {
                           network.updateNodeRecord();
                         }
                       });
