@@ -34,6 +34,7 @@ import org.hyperledger.besu.controller.BesuController;
 import org.hyperledger.besu.crypto.SECP256K1;
 import org.hyperledger.besu.cryptoservices.KeyPairSecurityModule;
 import org.hyperledger.besu.cryptoservices.NodeKey;
+import org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.ImmutableApiConfiguration;
@@ -48,7 +49,6 @@ import org.hyperledger.besu.ethereum.chain.DefaultBlockchain;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
-import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
@@ -59,6 +59,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.SubProtocolConfiguration;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
@@ -70,6 +71,7 @@ import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
 import org.hyperledger.besu.nat.NatMethod;
 import org.hyperledger.besu.plugin.data.EnodeURL;
+import org.hyperledger.besu.plugin.data.ProcessableBlockHeader;
 import org.hyperledger.besu.services.BesuPluginContextImpl;
 import org.hyperledger.besu.services.TransactionValidatorServiceImpl;
 
@@ -227,7 +229,21 @@ public final class RunnerBuilderTest {
             .build();
     runner.startEthereumMainLoop();
 
-    when(protocolSchedule.isOnMilestoneBoundary(any(BlockHeader.class))).thenReturn(true);
+    // Return a distinct ProtocolSpec per fork boundary so the spec-comparison trigger fires.
+    final ProtocolSpec spec0 = mock(ProtocolSpec.class);
+    final ProtocolSpec spec1 = mock(ProtocolSpec.class);
+    final ProtocolSpec spec2 = mock(ProtocolSpec.class);
+    when(spec0.getHardforkId()).thenReturn(MainnetHardforkId.FRONTIER);
+    when(spec1.getHardforkId()).thenReturn(MainnetHardforkId.HOMESTEAD);
+    when(spec2.getHardforkId()).thenReturn(MainnetHardforkId.TANGERINE_WHISTLE);
+    when(protocolSchedule.getByBlockHeader(any(ProcessableBlockHeader.class)))
+        .thenAnswer(
+            inv -> {
+              final ProcessableBlockHeader h = inv.getArgument(0);
+              if (h.getNumber() >= 2) return spec2;
+              if (h.getNumber() >= 1) return spec1;
+              return spec0;
+            });
 
     for (int i = 0; i < 2; ++i) {
       final Block block =
@@ -245,6 +261,100 @@ public final class RunnerBuilderTest {
                   .map(NodeRecord::getSeq))
           .contains(UInt64.valueOf(2 + i));
     }
+  }
+
+  @Test
+  public void timestampForkWithMissedSlotUpdatesNodeRecord() {
+    // Regression test for https://github.com/besu-eth/besu/issues/10882.
+    // If no block lands exactly on the fork timestamp (e.g. a slot is missed), the old
+    // isOnMilestoneBoundary exact-equality check never fired and the ENR retained the
+    // pre-fork fork ID indefinitely. The fix compares the resolved ProtocolSpec between
+    // a block and its parent; a change fires updateNodeRecord() regardless of whether
+    // the exact timestamp was hit.
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final String p2pAdvertisedHost = "172.0.0.1";
+    final StorageProvider storageProvider = new InMemoryKeyValueStorageProvider();
+    final long forkTimestamp = 2000L;
+    // Set genesis timestamp explicitly so the fork at forkTimestamp is not yet active at genesis.
+    final Block genesisBlock =
+        gen.genesisBlock(BlockDataGenerator.BlockOptions.create().setTimestamp(1000L));
+    final MutableBlockchain inMemoryBlockchain =
+        createInMemoryBlockchain(genesisBlock, new MainnetBlockHeaderFunctions());
+    when(protocolContext.getBlockchain()).thenReturn(inMemoryBlockchain);
+    when(genesisConfigOptions.getForkBlockTimestamps()).thenReturn(List.of(forkTimestamp));
+
+    final Runner runner =
+        new RunnerBuilder()
+            .discoveryEnabled(true)
+            .p2pListenInterface("0.0.0.0")
+            .p2pListenPort(30304)
+            .p2pAdvertisedHost(p2pAdvertisedHost)
+            .p2pEnabled(true)
+            .natMethod(NatMethod.NONE)
+            .besuController(besuController)
+            .ethNetworkConfig(mock(EthNetworkConfig.class))
+            .metricsSystem(new NoOpMetricsSystem())
+            .permissioningService(mock(PermissioningServiceImpl.class))
+            .jsonRpcConfiguration(mock(JsonRpcConfiguration.class))
+            .graphQLConfiguration(mock(GraphQLConfiguration.class))
+            .webSocketConfiguration(mock(WebSocketConfiguration.class))
+            .jsonRpcIpcConfiguration(mock(JsonRpcIpcConfiguration.class))
+            .inProcessRpcConfiguration(mock(InProcessRpcConfiguration.class))
+            .metricsConfiguration(mock(MetricsConfiguration.class))
+            .vertx(Vertx.vertx())
+            .dataDir(dataDir.getRoot())
+            .storageProvider(storageProvider)
+            .rpcEndpointService(new RpcEndpointServiceImpl())
+            .apiConfiguration(ImmutableApiConfiguration.builder().build())
+            .transactionValidatorService(mock(TransactionValidatorServiceImpl.class))
+            .build();
+    runner.startEthereumMainLoop();
+
+    final ProtocolSpec preForkSpec = mock(ProtocolSpec.class);
+    final ProtocolSpec postForkSpec = mock(ProtocolSpec.class);
+    when(preForkSpec.getHardforkId()).thenReturn(MainnetHardforkId.FRONTIER);
+    when(postForkSpec.getHardforkId()).thenReturn(MainnetHardforkId.HOMESTEAD);
+    when(protocolSchedule.getByBlockHeader(any(ProcessableBlockHeader.class)))
+        .thenAnswer(
+            inv -> {
+              final ProcessableBlockHeader h = inv.getArgument(0);
+              return h.getTimestamp() >= forkTimestamp ? postForkSpec : preForkSpec;
+            });
+
+    // Block 1: timestamp before fork — no spec change, ENR stays at seq=1.
+    final Block preForkBlock =
+        gen.block(
+            BlockDataGenerator.BlockOptions.create()
+                .setBlockNumber(1)
+                .setTimestamp(forkTimestamp - 1)
+                .setParentHash(inMemoryBlockchain.getChainHeadHash()));
+    inMemoryBlockchain.appendBlock(preForkBlock, gen.receipts(preForkBlock));
+    assertThat(
+            storageProvider
+                .getStorageBySegmentIdentifier(VARIABLES)
+                .get("local-enr-seqno".getBytes(StandardCharsets.UTF_8))
+                .map(Bytes::of)
+                .map(NodeRecordFactory.DEFAULT::fromBytes)
+                .map(NodeRecord::getSeq))
+        .contains(UInt64.valueOf(1));
+
+    // Block 2: timestamp jumps past the fork (exact fork timestamp was never hit — missed slot).
+    // The spec changes, so updateNodeRecord() must fire and seq must advance.
+    final Block postForkBlock =
+        gen.block(
+            BlockDataGenerator.BlockOptions.create()
+                .setBlockNumber(2)
+                .setTimestamp(forkTimestamp + 12)
+                .setParentHash(inMemoryBlockchain.getChainHeadHash()));
+    inMemoryBlockchain.appendBlock(postForkBlock, gen.receipts(postForkBlock));
+    assertThat(
+            storageProvider
+                .getStorageBySegmentIdentifier(VARIABLES)
+                .get("local-enr-seqno".getBytes(StandardCharsets.UTF_8))
+                .map(Bytes::of)
+                .map(NodeRecordFactory.DEFAULT::fromBytes)
+                .map(NodeRecord::getSeq))
+        .contains(UInt64.valueOf(2));
   }
 
   @Test

@@ -31,9 +31,13 @@ import java.util.Optional;
 public final class BlockAccessListAccountLookup {
 
   private final Map<Address, AccountEntry> accountEntries;
+  private final List<BlockAccessList.AccountChanges> accountChanges;
 
-  private BlockAccessListAccountLookup(final Map<Address, AccountEntry> accountEntries) {
+  private BlockAccessListAccountLookup(
+      final Map<Address, AccountEntry> accountEntries,
+      final List<BlockAccessList.AccountChanges> accountChanges) {
     this.accountEntries = accountEntries;
+    this.accountChanges = accountChanges;
   }
 
   public static BlockAccessListAccountLookup of(final BlockAccessList blockAccessList) {
@@ -42,7 +46,15 @@ public final class BlockAccessListAccountLookup {
     for (final BlockAccessList.AccountChanges changes : accountChanges) {
       entries.put(changes.address(), new AccountEntry(changes));
     }
-    return new BlockAccessListAccountLookup(entries);
+    return new BlockAccessListAccountLookup(entries, accountChanges);
+  }
+
+  public List<BlockAccessList.AccountChanges> accountChanges() {
+    return accountChanges;
+  }
+
+  public boolean isEmpty() {
+    return accountChanges.isEmpty();
   }
 
   public Optional<BlockAccessList.AccountChanges> getAccountChanges(final Address address) {

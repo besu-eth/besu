@@ -26,7 +26,6 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 
-import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -753,20 +752,6 @@ public class SyncStateTest {
 
     syncState.markInitialSyncPhaseAsDone();
     assertThat(syncState.isResyncNeeded()).isFalse();
-  }
-
-  @Test
-  public void shouldTrackAccountToRepair() {
-    assertThat(syncState.getAccountToRepair()).isEmpty();
-
-    Address testAddress = Address.fromHexString("0x1234567890123456789012345678901234567890");
-    syncState.markAccountToRepair(Optional.of(testAddress));
-
-    assertThat(syncState.getAccountToRepair()).isPresent();
-    assertThat(syncState.getAccountToRepair().get()).isEqualTo(testAddress);
-
-    syncState.markAccountToRepair(Optional.empty());
-    assertThat(syncState.getAccountToRepair()).isEmpty();
   }
 
   @Test

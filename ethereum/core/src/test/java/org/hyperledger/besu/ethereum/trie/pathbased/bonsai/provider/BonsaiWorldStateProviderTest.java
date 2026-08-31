@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hyperledger.besu.ethereum.core.WorldStateHealerHelper.throwingWorldStateHealerSupplier;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams.withBlockHeaderAndUpdateNodeHead;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams.withStateRootAndBlockHashAndUpdateNodeHead;
@@ -135,7 +134,6 @@ class BonsaiWorldStateProviderTest {
             new BonsaiCachedMerkleTrieLoader(new NoOpMetricsSystem()),
             null,
             EvmConfiguration.DEFAULT,
-            throwingWorldStateHealerSupplier(),
             new PathBasedCodeCache());
 
     final BlockHeader genesis = blockBuilder.number(0).buildHeader();
@@ -297,7 +295,6 @@ class BonsaiWorldStateProviderTest {
         blockchain,
         new BonsaiCachedMerkleTrieLoader(new NoOpMetricsSystem()),
         EvmConfiguration.DEFAULT,
-        throwingWorldStateHealerSupplier(),
         new PathBasedCodeCache());
   }
 

@@ -214,6 +214,10 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
     }
   }
 
+  protected static boolean isPlainValueTransfer(final CallParameter callParams) {
+    return callParams.getPayload().isEmpty() || callParams.getPayload().get().equals(Bytes.EMPTY);
+  }
+
   protected boolean attemptOptimisticSimulationWithMinimumBlockGasUsed(
       final long minTxCost,
       final CallParameter callParams,
@@ -221,7 +225,7 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
       final OperationTracer operationTracer) {
 
     // If the transaction is a plain value transfer, try minTxCost. It is likely to succeed.
-    if (callParams.getPayload().isEmpty() || callParams.getPayload().get().equals(Bytes.EMPTY)) {
+    if (isPlainValueTransfer(callParams)) {
       var maybeSimpleTransferResult =
           simulationFunction.simulate(overrideGasLimit(callParams, minTxCost), operationTracer);
       return maybeSimpleTransferResult.isPresent()

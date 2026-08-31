@@ -91,18 +91,20 @@ import io.vertx.core.http.HttpClientOptions;
 import io.vertx.core.http.HttpClientRequest;
 import io.vertx.core.http.HttpClientResponse;
 import io.vertx.core.http.HttpMethod;
+import io.vertx.core.http.WebSocketClient;
+import io.vertx.core.http.WebSocketClientOptions;
 import io.vertx.core.http.WebSocketConnectOptions;
 import io.vertx.core.json.Json;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.auth.JWTOptions;
 import io.vertx.ext.auth.User;
+import io.vertx.ext.auth.authorization.PermissionBasedAuthorization;
 import io.vertx.ext.auth.jwt.JWTAuth;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
-import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -140,6 +142,7 @@ public class WebSocketServiceLoginTest {
   private WebSocketMessageHandler webSocketMessageHandlerSpy;
   private WebSocketService websocketService;
   private HttpClient httpClient;
+  private WebSocketClient webSocketClient;
 
   @BeforeEach
   public void before() throws URISyntaxException {
@@ -249,6 +252,7 @@ public class WebSocketServiceLoginTest {
             .setDefaultPort(websocketConfiguration.getPort());
 
     httpClient = vertx.createHttpClient(httpClientOptions);
+    webSocketClient = vertx.createWebSocketClient(new WebSocketClientOptions());
   }
 
   @AfterEach
@@ -259,25 +263,33 @@ public class WebSocketServiceLoginTest {
 
   @Test
   public void loginWithBadCredentials() throws InterruptedException {
-    httpClient.request(
-        HttpMethod.POST,
-        websocketConfiguration.getPort(),
-        websocketConfiguration.getHost(),
-        "/login",
-        request -> {
-          request.result().putHeader("Content-Type", "application/json; charset=utf-8");
-          request.result().end("{\"username\":\"user\",\"password\":\"pass\"}");
-          request
-              .result()
-              .send(
-                  response -> {
-                    assertThat(response.result().statusCode()).isEqualTo(401);
-                    assertThat(response.result().statusMessage()).isEqualTo("Unauthorized");
-                    testContext.completeNow();
-                  });
-        });
+    httpClient
+        .request(
+            HttpMethod.POST,
+            websocketConfiguration.getPort(),
+            websocketConfiguration.getHost(),
+            "/login")
+        .onComplete(
+            request -> {
+              request.result().putHeader("Content-Type", "application/json; charset=utf-8");
+              request.result().end("{\"username\":\"user\",\"password\":\"pass\"}");
+              request
+                  .result()
+                  .send()
+                  .onComplete(
+                      response -> {
+                        assertThat(response.result().statusCode()).isEqualTo(401);
+                        assertThat(response.result().statusMessage()).isEqualTo("Unauthorized");
+                        testContext.completeNow();
+                      });
+            });
 
-    testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    assertThat(testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        .as("test context should complete before the timeout")
+        .isTrue();
+    if (testContext.failed()) {
+      throw new AssertionError(testContext.causeOfFailure());
+    }
   }
 
   @Test
@@ -300,51 +312,59 @@ public class WebSocketServiceLoginTest {
                     assertThat(token).isNotNull();
                     assertThat(token).isNotEmpty();
 
+                    // Goes through AuthenticationService#authenticate (the same path production
+                    // JSON-RPC/WS requests use), not the raw JWTAuth provider, since only
+                    // DefaultAuthenticationService#authenticate populates
+                    // user.authorizations() -- which PermissionBasedAuthorization#match depends
+                    // on. Assertions are wrapped in testContext.verify(...) because a thrown
+                    // AssertionError here would otherwise be silently swallowed by Vert.x's
+                    // Future completion handling instead of failing the test.
                     websocketService
                         .authenticationService
                         .get()
-                        .getJwtAuthProvider()
                         .authenticate(
-                            new JsonObject().put("token", token),
-                            (r) -> {
-                              Assertions.assertThat(r.succeeded()).isTrue();
-                              final User user = r.result();
-                              user.isAuthorized(
-                                  "noauths",
-                                  (authed) -> {
-                                    assertThat(authed.succeeded()).isTrue();
-                                    assertThat(authed.result()).isFalse();
-                                  });
-                              user.isAuthorized(
-                                  "fakePermission",
-                                  (authed) -> {
-                                    assertThat(authed.succeeded()).isTrue();
-                                    assertThat(authed.result()).isTrue();
-                                  });
-                              user.isAuthorized(
-                                  "eth:subscribe",
-                                  (authed) -> {
-                                    assertThat(authed.succeeded()).isTrue();
-                                    assertThat(authed.result()).isTrue();
-                                    testContext.completeNow();
-                                  });
-                            });
+                            token,
+                            maybeUser ->
+                                testContext.verify(
+                                    () -> {
+                                      assertThat(maybeUser).isPresent();
+                                      final User user = maybeUser.orElseThrow();
+                                      assertThat(
+                                              PermissionBasedAuthorization.create("noauths")
+                                                  .match(user))
+                                          .isFalse();
+                                      assertThat(
+                                              PermissionBasedAuthorization.create("fakePermission")
+                                                  .match(user))
+                                          .isTrue();
+                                      assertThat(
+                                              PermissionBasedAuthorization.create("eth:subscribe")
+                                                  .match(user))
+                                          .isTrue();
+                                      testContext.completeNow();
+                                    }));
                   });
         };
     Handler<AsyncResult<HttpClientRequest>> requestHandler =
         request -> {
           request.result().putHeader("Content-Type", "application/json; charset=utf-8");
           request.result().end("{\"username\":\"user\",\"password\":\"pegasys\"}");
-          request.result().send(responseHandler);
+          request.result().send().onComplete(responseHandler);
         };
-    httpClient.request(
-        HttpMethod.POST,
-        websocketConfiguration.getPort(),
-        websocketConfiguration.getHost(),
-        "/login",
-        requestHandler);
+    httpClient
+        .request(
+            HttpMethod.POST,
+            websocketConfiguration.getPort(),
+            websocketConfiguration.getHost(),
+            "/login")
+        .onComplete(requestHandler);
 
-    testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    assertThat(testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        .as("test context should complete before the timeout")
+        .isTrue();
+    if (testContext.failed()) {
+      throw new AssertionError(testContext.causeOfFailure());
+    }
   }
 
   @Test
@@ -360,23 +380,29 @@ public class WebSocketServiceLoginTest {
     options.setPort(websocketConfiguration.getPort());
     String badtoken = "badtoken";
     options.addHeader("Authorization", "Bearer " + badtoken);
-    httpClient.webSocket(
-        options,
-        webSocket -> {
-          webSocket.result().writeTextMessage(request);
+    webSocketClient
+        .connect(options)
+        .onComplete(
+            webSocket -> {
+              webSocket.result().writeTextMessage(request);
 
-          webSocket
-              .result()
-              .handler(
-                  buffer ->
-                      testContext.verify(
-                          () -> {
-                            assertEquals(expectedResponse, buffer.toString());
-                            testContext.completeNow();
-                          }));
-        });
+              webSocket
+                  .result()
+                  .handler(
+                      buffer ->
+                          testContext.verify(
+                              () -> {
+                                assertEquals(expectedResponse, buffer.toString());
+                                testContext.completeNow();
+                              }));
+            });
 
-    testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    assertThat(testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        .as("test context should complete before the timeout")
+        .isTrue();
+    if (testContext.failed()) {
+      throw new AssertionError(testContext.causeOfFailure());
+    }
   }
 
   @Test
@@ -392,23 +418,29 @@ public class WebSocketServiceLoginTest {
     options.setURI("/");
     options.setHost(websocketConfiguration.getHost());
     options.setPort(websocketConfiguration.getPort());
-    httpClient.webSocket(
-        options,
-        webSocket -> {
-          webSocket.result().writeTextMessage(request);
+    webSocketClient
+        .connect(options)
+        .onComplete(
+            webSocket -> {
+              webSocket.result().writeTextMessage(request);
 
-          webSocket
-              .result()
-              .handler(
-                  buffer ->
-                      testContext.verify(
-                          () -> {
-                            assertEquals(expectedResponse, buffer.toString());
-                            testContext.completeNow();
-                          }));
-        });
+              webSocket
+                  .result()
+                  .handler(
+                      buffer ->
+                          testContext.verify(
+                              () -> {
+                                assertEquals(expectedResponse, buffer.toString());
+                                testContext.completeNow();
+                              }));
+            });
 
-    testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    assertThat(testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        .as("test context should complete before the timeout")
+        .isTrue();
+    if (testContext.failed()) {
+      throw new AssertionError(testContext.causeOfFailure());
+    }
   }
 
   @Test
@@ -431,75 +463,89 @@ public class WebSocketServiceLoginTest {
     if (goodToken != null) {
       options.addHeader("Authorization", "Bearer " + goodToken);
     }
-    httpClient.webSocket(
-        options,
-        webSocket -> {
-          webSocket.result().writeTextMessage(requestSub);
+    webSocketClient
+        .connect(options)
+        .onComplete(
+            webSocket -> {
+              webSocket.result().writeTextMessage(requestSub);
 
-          webSocket
-              .result()
-              .handler(
-                  buffer ->
-                      testContext.verify(
-                          () -> {
-                            assertEquals(expectedResponse, buffer.toString());
-                            testContext.completeNow();
-                          }));
-        });
+              webSocket
+                  .result()
+                  .handler(
+                      buffer ->
+                          testContext.verify(
+                              () -> {
+                                assertEquals(expectedResponse, buffer.toString());
+                                testContext.completeNow();
+                              }));
+            });
 
-    testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    assertThat(testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        .as("test context should complete before the timeout")
+        .isTrue();
+    if (testContext.failed()) {
+      throw new AssertionError(testContext.causeOfFailure());
+    }
   }
 
   @Test
   public void loginPopulatesJWTPayloadWithRequiredValues() throws InterruptedException {
-    httpClient.request(
-        HttpMethod.POST,
-        websocketConfiguration.getPort(),
-        websocketConfiguration.getHost(),
-        "/login",
-        request -> {
-          request.result().putHeader("Content-Type", "application/json; charset=utf-8");
-          request.result().end("{\"username\":\"user\",\"password\":\"pegasys\"}");
-          request
-              .result()
-              .send(
-                  response -> {
-                    response
-                        .result()
-                        .bodyHandler(
-                            buffer -> {
-                              final String body = buffer.toString();
-                              assertThat(body).isNotBlank();
+    httpClient
+        .request(
+            HttpMethod.POST,
+            websocketConfiguration.getPort(),
+            websocketConfiguration.getHost(),
+            "/login")
+        .onComplete(
+            request -> {
+              request.result().putHeader("Content-Type", "application/json; charset=utf-8");
+              request.result().end("{\"username\":\"user\",\"password\":\"pegasys\"}");
+              request
+                  .result()
+                  .send()
+                  .onComplete(
+                      response -> {
+                        response
+                            .result()
+                            .bodyHandler(
+                                buffer -> {
+                                  final String body = buffer.toString();
+                                  assertThat(body).isNotBlank();
 
-                              final JsonObject respBody = new JsonObject(body);
-                              final String token = respBody.getString("token");
+                                  final JsonObject respBody = new JsonObject(body);
+                                  final String token = respBody.getString("token");
 
-                              final JsonObject jwtPayload = decodeJwtPayload(token);
-                              assertThat(jwtPayload.getString("username")).isEqualTo("user");
-                              assertThat(jwtPayload.getJsonArray("permissions"))
-                                  .isEqualTo(
-                                      new JsonArray(
-                                          list(
-                                              "fakePermission",
-                                              "eth:blockNumber",
-                                              "eth:subscribe",
-                                              "web3:*")));
+                                  final JsonObject jwtPayload = decodeJwtPayload(token);
+                                  assertThat(jwtPayload.getString("username")).isEqualTo("user");
+                                  assertThat(jwtPayload.getJsonArray("permissions"))
+                                      .isEqualTo(
+                                          new JsonArray(
+                                              list(
+                                                  "fakePermission",
+                                                  "eth:blockNumber",
+                                                  "eth:subscribe",
+                                                  "web3:*")));
 
-                              assertThat(jwtPayload.getString("privacyPublicKey"))
-                                  .isEqualTo("A1aVtMxLCUHmBVHXoZzzBgPbW/wj5axDpW9X8l91SGo=");
+                                  assertThat(jwtPayload.getString("privacyPublicKey"))
+                                      .isEqualTo("A1aVtMxLCUHmBVHXoZzzBgPbW/wj5axDpW9X8l91SGo=");
 
-                              assertThat(jwtPayload.containsKey("iat")).isTrue();
-                              assertThat(jwtPayload.containsKey("exp")).isTrue();
-                              final long tokenExpiry =
-                                  jwtPayload.getLong("exp") - jwtPayload.getLong("iat");
-                              assertThat(tokenExpiry).isEqualTo(MINUTES.toSeconds(5));
+                                  assertThat(jwtPayload.containsKey("iat")).isTrue();
+                                  assertThat(jwtPayload.containsKey("exp")).isTrue();
+                                  final long tokenExpiry =
+                                      jwtPayload.getLong("exp") - jwtPayload.getLong("iat");
+                                  assertThat(tokenExpiry).isEqualTo(MINUTES.toSeconds(5));
 
-                              testContext.completeNow();
-                            });
-                  });
-        });
+                                  testContext.completeNow();
+                                });
+                      });
+            });
 
-    testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    assertThat(testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        .as("test context should complete before the timeout")
+        .isTrue();
+    if (testContext.failed()) {
+      throw new AssertionError(testContext.causeOfFailure());
+    }
   }
 
   private JsonObject decodeJwtPayload(final String token) {

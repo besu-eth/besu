@@ -109,7 +109,16 @@ public class TransactionLogBloomCacher {
           LOG.error("Cache directory '{}' does not exist and could not be made.", cacheDir);
           return cachingStatus;
         }
-        for (long blockNum = start; blockNum < stop; blockNum += BLOCKS_PER_BLOOM_CACHE) {
+        // Defence in depth: never walk past the chain head, whatever a caller asks for.
+        // "+ 1" keeps the segment that contains the head itself in range.
+        final long clampedStop = Math.min(stop, blockchain.getChainHeadBlockNumber() + 1);
+        if (clampedStop < stop) {
+          LOG.debug(
+              "Clamping log bloom cache stop block from {} to chain head {}",
+              stop,
+              clampedStop - 1);
+        }
+        for (long blockNum = start; blockNum < clampedStop; blockNum += BLOCKS_PER_BLOOM_CACHE) {
           LOG.trace("Caching segment at {}", blockNum);
           final File cacheFile = calculateCacheFileName(blockNum, cacheDir);
           blockchain

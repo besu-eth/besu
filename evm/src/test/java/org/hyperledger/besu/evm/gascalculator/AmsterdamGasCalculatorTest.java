@@ -39,7 +39,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.quality.Strictness;
 
@@ -53,58 +52,64 @@ class AmsterdamGasCalculatorTest {
 
   private final AmsterdamGasCalculator amsterdamGasCalculator = new AmsterdamGasCalculator();
 
-  @Mock private Transaction transaction;
-
   @Test
   void transactionFloorCostShouldBeAtLeastTransactionBaseCost() {
-    // EIP-2780: TX_BASE (12000) replaces the flat 21000 minimum.
-    // floor cost = 12000 (base cost) + 0
-    when(transaction.getPayload()).thenReturn(Bytes.EMPTY);
-    when(transaction.getAccessList()).thenReturn(Optional.empty());
-    assertThat(amsterdamGasCalculator.transactionFloorCost(transaction)).isEqualTo(12000L);
+    // EIP-3120: the floor is anchored on the decomposed EIP-2780 regular base, which for a
+    // zero-value simple call is TX_BASE (12000) + COLD_ACCOUNT_ACCESS (3000) = 15000.
+    assertThat(amsterdamGasCalculator.transactionFloorCost(callWith(Bytes.EMPTY, List.of())))
+        .isEqualTo(15000L);
 
-    // EIP-7976: floor cost = 12000 + 256 * 64 (uniform per-byte floor) = 28384
-    when(transaction.getPayload()).thenReturn(Bytes.repeat((byte) 0x0, 256));
-    assertThat(amsterdamGasCalculator.transactionFloorCost(transaction)).isEqualTo(28384L);
+    // EIP-7976: floor cost = 15000 + 256 * 64 (uniform per-byte floor) = 31384
+    assertThat(
+            amsterdamGasCalculator.transactionFloorCost(
+                callWith(Bytes.repeat((byte) 0x0, 256), List.of())))
+        .isEqualTo(31384L);
 
     // EIP-7976: non-zero bytes priced identically to zero bytes for the floor
-    when(transaction.getPayload()).thenReturn(Bytes.repeat((byte) 0x1, 256));
-    assertThat(amsterdamGasCalculator.transactionFloorCost(transaction)).isEqualTo(28384L);
+    assertThat(
+            amsterdamGasCalculator.transactionFloorCost(
+                callWith(Bytes.repeat((byte) 0x1, 256), List.of())))
+        .isEqualTo(31384L);
 
-    // 11-byte mixed payload: 12000 + 11 * 64 = 12704
-    when(transaction.getPayload()).thenReturn(Bytes.fromHexString("0x0001000100010001000101"));
-    assertThat(amsterdamGasCalculator.transactionFloorCost(transaction)).isEqualTo(12704L);
+    // 11-byte mixed payload: 15000 + 11 * 64 = 15704
+    assertThat(
+            amsterdamGasCalculator.transactionFloorCost(
+                callWith(Bytes.fromHexString("0x0001000100010001000101"), List.of())))
+        .isEqualTo(15704L);
   }
 
   @Test
   void accessListGasCostIncludesDataFloor() {
-    // EIP-8038: per-entry access cost raised to COLD_ACCESS (3,000) for both addresses and keys.
+    // EIP-8038: per-address access cost is COLD_ACCOUNT_ACCESS (3,000) - WARM_ACCESS (100) =
+    // 2,900; per-key access cost is COLD_STORAGE_ACCESS (2,100) - WARM_ACCESS (100) = 2,000, so a
+    // prepaid entry is gas-neutral with a cold access.
     // EIP-7981 data floor: +1280/address + 2048/key.
-    // One address + zero keys  = 3000 + 1280 = 4280
-    assertThat(amsterdamGasCalculator.accessListGasCost(1, 0)).isEqualTo(4280L);
-    // One address + one key    = 4280 + 3000 + 2048 = 9328
-    assertThat(amsterdamGasCalculator.accessListGasCost(1, 1)).isEqualTo(9328L);
-    // Three addresses + five keys = 3*4280 + 5*(3000+2048) = 12840 + 25240 = 38080
-    assertThat(amsterdamGasCalculator.accessListGasCost(3, 5)).isEqualTo(38080L);
+    // One address + zero keys  = 2900 + 1280 = 4180
+    assertThat(amsterdamGasCalculator.accessListGasCost(1, 0)).isEqualTo(4180L);
+    // One address + one key    = 4180 + 2000 + 2048 = 8228
+    assertThat(amsterdamGasCalculator.accessListGasCost(1, 1)).isEqualTo(8228L);
+    // Three addresses + five keys = 3*4180 + 5*(2000+2048) = 12540 + 20240 = 32780
+    assertThat(amsterdamGasCalculator.accessListGasCost(3, 5)).isEqualTo(32780L);
   }
 
   @Test
   void eip8038CreateAccessGasCost() {
-    // EIP-8038: CREATE/CREATE2 regular-gas cost = CREATE_ACCESS = ACCOUNT_WRITE (8,000)
-    // + COLD_STORAGE_ACCESS (3,000) = 11,000.
-    assertThat(amsterdamGasCalculator.txCreateCost()).isEqualTo(11_000L);
+    // EIP-8038: CREATE/CREATE2 regular-gas cost = CREATE_ACCESS = ACCOUNT_WRITE (9,000)
+    // + COLD_ACCOUNT_ACCESS (3,000) = 12,000.
+    assertThat(amsterdamGasCalculator.txCreateCost()).isEqualTo(12_000L);
   }
 
   @Test
   void eip8038StateAccessGasRepricing() {
-    // EIP-8038: cold access raised to 3,000 (account was 2,600, storage slot was 2,100).
+    // EIP-8038: cold account access is 3,000 (was 2,600); cold storage access is 2,100 (was
+    // 3,000, briefly repriced up before this revision brought it back to the pre-8038 value).
     assertThat(amsterdamGasCalculator.getColdAccountAccessCost()).isEqualTo(3_000L);
-    assertThat(amsterdamGasCalculator.getColdSloadCost()).isEqualTo(3_000L);
+    assertThat(amsterdamGasCalculator.getColdSloadCost()).isEqualTo(2_100L);
     // SSTORE cold surcharge excludes the warm base (100) folded into slotAccessCost:
-    // COLD_STORAGE_ACCESS 3,000 - WARM_ACCESS 100 = 2,900.
-    assertThat(amsterdamGasCalculator.getSStoreColdAccessGasCost()).isEqualTo(2_900L);
-    // CALL value cost = ACCOUNT_WRITE (8,000) + CALL_STIPEND (2,300) = 10,300.
-    assertThat(amsterdamGasCalculator.callValueTransferGasCost()).isEqualTo(10_300L);
+    // COLD_STORAGE_ACCESS 2,100 - WARM_ACCESS 100 = 2,000.
+    assertThat(amsterdamGasCalculator.getSStoreColdAccessGasCost()).isEqualTo(2_000L);
+    // CALL value cost = ACCOUNT_WRITE (9,000) + CALL_STIPEND (2,300) = 11,300.
+    assertThat(amsterdamGasCalculator.callValueTransferGasCost()).isEqualTo(11_300L);
     // EXTCODESIZE base = extra WARM_ACCESS "code reading cost" (100).
     assertThat(amsterdamGasCalculator.getExtCodeSizeOperationGasCost()).isEqualTo(100L);
   }
@@ -138,11 +143,11 @@ class AmsterdamGasCalculatorTest {
         Arguments.of("ETH to delegated account", RECIPIENT, Wei.ONE, 21_000L),
         Arguments.of("self-transfer, sender delegated", SENDER, Wei.ONE, 12_000L),
         Arguments.of("ETH creating a new account", RECIPIENT, Wei.ONE, 21_000L),
-        // to == null: contract creation. The recipient balance write is already covered by
-        // CREATE_ACCESS, but a value-bearing creation still pays the EIP-7708 transfer log (1,756).
-        Arguments.of("create, value = 0", null, Wei.ZERO, 23_000L),
-        Arguments.of("create, value > 0", null, Wei.ONE, 24_756L),
-        Arguments.of("create, target pre-exists", null, Wei.ZERO, 23_000L));
+        // to == null: contract creation. CREATE_ACCESS covers the recipient balance write and the
+        // EIP-7708 transfer log is folded into TX_VALUE_COST, so value makes no difference.
+        Arguments.of("create, value = 0", null, Wei.ZERO, 24_000L),
+        Arguments.of("create, value > 0", null, Wei.ONE, 24_000L),
+        Arguments.of("create, target pre-exists", null, Wei.ZERO, 24_000L));
   }
 
   @ParameterizedTest(name = "{0}")
@@ -164,34 +169,45 @@ class AmsterdamGasCalculatorTest {
 
   @Test
   void eip2780IntrinsicGasChargesInitCodeWords() {
-    // Creation of a 33-byte init code: 23,000 + CODE_INIT_PER_WORD (2) * ceil(33/32) = 23,004.
+    // Creation of a 33-byte init code: 24,000 + CODE_INIT_PER_WORD (2) * ceil(33/32) = 24,004.
     // All non-zero bytes, so data_cost = 33 * 4 * 4 = 528.
     final Transaction tx = transactionWith(null, Wei.ZERO, Bytes.repeat((byte) 0x1, 33), 0);
-    assertThat(amsterdamGasCalculator.transactionIntrinsicRegularGas(tx)).isEqualTo(23_532L);
+    assertThat(amsterdamGasCalculator.transactionIntrinsicRegularGas(tx)).isEqualTo(24_532L);
   }
 
   @Test
-  void eip2780AuthorizationIntrinsicReservesAccountWrite() {
-    // EIP-2780: ACCOUNT_WRITE (8,000) + REGULAR_PER_AUTH_BASE_COST (7,816) = 15,816 is reserved
-    // per authorization at the intrinsic phase.
-    assertThat(amsterdamGasCalculator.delegateCodeGasCost(1)).isEqualTo(15_816L);
-    assertThat(amsterdamGasCalculator.delegateCodeGasCost(3)).isEqualTo(47_448L);
+  void eip2780AuthorizationIntrinsicChargesOnlyTheStateIndependentBase() {
+    // EIP-2780: the intrinsic charges only REGULAR_PER_AUTH_BASE_COST (7,816) per authorization;
+    // ACCOUNT_WRITE is charged at the top frame on the authority's pre-state.
+    assertThat(amsterdamGasCalculator.delegateCodeGasCost(1)).isEqualTo(7_816L);
+    assertThat(amsterdamGasCalculator.delegateCodeGasCost(3)).isEqualTo(23_448L);
 
-    // A zero-value 7702 transaction with one authorization: 15,000 + 15,816 = 30,816.
+    // A zero-value 7702 transaction with one authorization: 15,000 + 7,816 = 22,816.
     final Transaction tx = transactionWith(RECIPIENT, Wei.ZERO, Bytes.EMPTY, 1);
-    assertThat(amsterdamGasCalculator.transactionIntrinsicRegularGas(tx)).isEqualTo(30_816L);
+    assertThat(amsterdamGasCalculator.transactionIntrinsicRegularGas(tx)).isEqualTo(22_816L);
   }
 
   @Test
-  void eip2780AuthorityWriteIsRefundedWhenNoAccountGrows() {
-    // The worst-case ACCOUNT_WRITE reserved per authorization is refunded for authorities that
-    // already existed (and for invalid authorizations, which the processor folds into that count).
-    assertThat(amsterdamGasCalculator.calculateDelegateCodeGasRefund(0)).isZero();
-    assertThat(amsterdamGasCalculator.calculateDelegateCodeGasRefund(2)).isEqualTo(16_000L);
+  void eip2780AccountWriteGasCostIsExposedForTheTopFrameAuthorizationCharge() {
+    assertThat(amsterdamGasCalculator.getAccountWriteGasCost()).isEqualTo(9_000L);
   }
 
   private Transaction transactionWith(
       final Address to, final Wei value, final Bytes payload, final int codeDelegations) {
+    return transactionWith(to, value, payload, codeDelegations, List.of());
+  }
+
+  /** A zero-value call to {@link #RECIPIENT} carrying {@code payload} and an access list. */
+  private Transaction callWith(final Bytes payload, final List<AccessListEntry> accessList) {
+    return transactionWith(RECIPIENT, Wei.ZERO, payload, 0, accessList);
+  }
+
+  private Transaction transactionWith(
+      final Address to,
+      final Wei value,
+      final Bytes payload,
+      final int codeDelegations,
+      final List<AccessListEntry> accessList) {
     long zeroBytes = 0L;
     for (int i = 0; i < payload.size(); i++) {
       if (payload.get(i) == (byte) 0x0) {
@@ -205,32 +221,25 @@ class AmsterdamGasCalculatorTest {
     when(tx.getValue()).thenReturn(value);
     when(tx.getPayload()).thenReturn(payload);
     when(tx.getPayloadZeroBytes()).thenReturn(zeroBytes);
-    when(tx.getAccessList()).thenReturn(Optional.empty());
+    when(tx.getAccessList())
+        .thenReturn(accessList.isEmpty() ? Optional.empty() : Optional.of(accessList));
     when(tx.codeDelegationListSize()).thenReturn(codeDelegations);
     return tx;
   }
 
   @Test
-  void transactionFloorCostWithoutAccessListMatchesCalldataOnlyFloor() {
-    when(transaction.getPayload()).thenReturn(Bytes.repeat((byte) 0x1, 256));
-    when(transaction.getAccessList()).thenReturn(Optional.empty());
-
-    // EIP-2780: 12000 + 256 * 64 = 28384
-    assertThat(amsterdamGasCalculator.transactionFloorCost(transaction)).isEqualTo(28384L);
-  }
-
-  @Test
   void transactionFloorCostIncludesAccessListBytes() {
     // 10 calldata bytes + 1 address (20 bytes) + 2 keys (2*32 = 64 bytes) = 94 bytes
-    // EIP-2780: 12000 + 94 * 64 = 12000 + 6016 = 18016
+    // EIP-3120: anchor = 12000 + 3000 = 15000; 15000 + 94 * 64 = 15000 + 6016 = 21016
     final AccessListEntry entry =
         new AccessListEntry(
             Address.fromHexString("0x00000000000000000000000000000000000000aa"),
             List.of(Bytes32.ZERO, Bytes32.ZERO));
-    when(transaction.getPayload()).thenReturn(Bytes.repeat((byte) 0x1, 10));
-    when(transaction.getAccessList()).thenReturn(Optional.of(List.of(entry)));
 
-    assertThat(amsterdamGasCalculator.transactionFloorCost(transaction)).isEqualTo(18016L);
+    assertThat(
+            amsterdamGasCalculator.transactionFloorCost(
+                callWith(Bytes.repeat((byte) 0x1, 10), List.of(entry))))
+        .isEqualTo(21016L);
   }
 
   @Test
@@ -240,7 +249,7 @@ class AmsterdamGasCalculatorTest {
     // entry B: 20 address bytes + 1 key  (1*32 = 32)    = 52 bytes
     // entry C: 20 address bytes + 3 keys (3*32 = 96)    = 116 bytes
     // total bytes = 4 + 20 + 52 + 116 = 192
-    // EIP-2780: floor = 12000 + 192 * 64 = 12000 + 12288 = 24288
+    // EIP-3120: floor = (12000 + 3000) + 192 * 64 = 15000 + 12288 = 27288
     final AccessListEntry entryA =
         new AccessListEntry(
             Address.fromHexString("0x00000000000000000000000000000000000000aa"), List.of());
@@ -252,10 +261,10 @@ class AmsterdamGasCalculatorTest {
         new AccessListEntry(
             Address.fromHexString("0x00000000000000000000000000000000000000cc"),
             List.of(Bytes32.ZERO, Bytes32.ZERO, Bytes32.ZERO));
-    when(transaction.getPayload()).thenReturn(Bytes.repeat((byte) 0x1, 4));
-    when(transaction.getAccessList()).thenReturn(Optional.of(List.of(entryA, entryB, entryC)));
-
-    assertThat(amsterdamGasCalculator.transactionFloorCost(transaction)).isEqualTo(24288L);
+    assertThat(
+            amsterdamGasCalculator.transactionFloorCost(
+                callWith(Bytes.repeat((byte) 0x1, 4), List.of(entryA, entryB, entryC))))
+        .isEqualTo(27288L);
   }
 
   @Test
@@ -267,18 +276,18 @@ class AmsterdamGasCalculatorTest {
   @Test
   void eip8246SelfDestructOperationGasCost() {
     // EIP-8038/EIP-8246: static SELFDESTRUCT cost is 5,000; sending a positive balance to a new
-    // (non-existent or empty) beneficiary adds ACCOUNT_WRITE (8,000) => 13,000. The cold-access
+    // (non-existent or empty) beneficiary adds ACCOUNT_WRITE (9,000) => 14,000. The cold-access
     // surcharge and NEW_ACCOUNT state gas are charged elsewhere (in SelfDestructOperation).
 
-    // null beneficiary + positive balance => 5,000 + 8,000 = 13,000
+    // null beneficiary + positive balance => 5,000 + 9,000 = 14,000
     assertThat(amsterdamGasCalculator.selfDestructOperationGasCost(null, Wei.ONE))
-        .isEqualTo(13_000L);
+        .isEqualTo(14_000L);
 
-    // empty beneficiary + positive balance => 5,000 + 8,000 = 13,000
+    // empty beneficiary + positive balance => 5,000 + 9,000 = 14,000
     final Account emptyBeneficiary = mock(Account.class);
     when(emptyBeneficiary.isEmpty()).thenReturn(true);
     assertThat(amsterdamGasCalculator.selfDestructOperationGasCost(emptyBeneficiary, Wei.ONE))
-        .isEqualTo(13_000L);
+        .isEqualTo(14_000L);
 
     // existing (non-empty) beneficiary + positive balance => static 5,000 only
     final Account aliveBeneficiary = mock(Account.class);

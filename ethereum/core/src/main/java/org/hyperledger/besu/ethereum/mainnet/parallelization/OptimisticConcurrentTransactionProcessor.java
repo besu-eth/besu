@@ -217,27 +217,27 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
           transactionCollisionDetector.hasCollision(
               transaction, miningBeneficiary, parallelizedTransactionContext, blockAccumulator);
       if (transactionProcessingResult.isSuccessful() && !hasCollision) {
-        final MutableAccount miningBeneficiaryAccount =
-            blockAccumulator.getOrCreate(miningBeneficiary);
-        Wei reward = parallelizedTransactionContext.miningBeneficiaryReward();
+        final Wei reward = parallelizedTransactionContext.miningBeneficiaryReward();
         if (!reward.isZero() || !transactionProcessor.getClearEmptyAccounts()) {
+          final MutableAccount miningBeneficiaryAccount =
+              blockAccumulator.getOrCreate(miningBeneficiary);
           miningBeneficiaryAccount.incrementBalance(reward);
-        }
 
-        if (!reward.isZero()) {
-          final Wei miningBeneficiaryPostBalance = miningBeneficiaryAccount.getBalance();
-          transactionProcessingResult
-              .getPartialBlockAccessView()
-              .ifPresent(
-                  partialBlockAccessView ->
-                      partialBlockAccessView.accountChanges().stream()
-                          .filter(
-                              accountChanges ->
-                                  accountChanges.getAddress().equals(miningBeneficiary))
-                          .findFirst()
-                          .ifPresent(
-                              accountChanges ->
-                                  accountChanges.setPostBalance(miningBeneficiaryPostBalance)));
+          if (!reward.isZero()) {
+            final Wei miningBeneficiaryPostBalance = miningBeneficiaryAccount.getBalance();
+            transactionProcessingResult
+                .getPartialBlockAccessView()
+                .ifPresent(
+                    partialBlockAccessView ->
+                        partialBlockAccessView.accountChanges().stream()
+                            .filter(
+                                accountChanges ->
+                                    accountChanges.getAddress().equals(miningBeneficiary))
+                            .findFirst()
+                            .ifPresent(
+                                accountChanges ->
+                                    accountChanges.setPostBalance(miningBeneficiaryPostBalance)));
+          }
         }
 
         blockAccumulator.importStateChangesFromSource(transactionAccumulator);

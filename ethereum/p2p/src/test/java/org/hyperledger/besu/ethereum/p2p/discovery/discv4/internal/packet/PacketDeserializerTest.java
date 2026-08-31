@@ -14,8 +14,10 @@
  */
 package org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet;
 
+import org.hyperledger.besu.crypto.Hash;
 import org.hyperledger.besu.crypto.SECPSignature;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
+import org.hyperledger.besu.ethereum.p2p.discovery.PeerDiscoveryPacketDecodingException;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.Endpoint;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.PacketType;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.enrrequest.EnrRequestPacketData;
@@ -223,6 +225,52 @@ public class PacketDeserializerTest {
     EnrRequestPacketData actualPacketData =
         packet.getPacketData(EnrRequestPacketData.class).orElseThrow();
     Assertions.assertEquals(456, actualPacketData.getExpiration());
+  }
+
+  @Test
+  public void testDecodeWithOutOfBoundsSignatureThrowsDecodingException() {
+    // Crafted invalid packet with r=0 in the signature (out of the valid SECP256k1 range [1, n)).
+    final Bytes sig =
+        Bytes.concatenate(
+            Bytes.repeat((byte) 0x00, 32), Bytes.repeat((byte) 0x01, 32), Bytes.of(0x00));
+    final Bytes type = Bytes.of(0x05); // ENR_REQUEST
+    final Bytes body = Bytes.of(0xc5, 0x84, 0xff, 0xff, 0xff, 0xff); // RLP [0xFFFFFFFF] expiration
+    final Bytes rest = Bytes.concatenate(sig, type, body);
+    final Bytes packet = Bytes.concatenate(Hash.keccak256(rest), rest);
+
+    Assertions.assertThrows(
+        PeerDiscoveryPacketDecodingException.class, () -> packetDeserializer.decode(packet));
+  }
+
+  @Test
+  public void testDecodeWithInvalidRecIdThrowsDecodingException() {
+    // recId = 0x02 is outside {0, 1} — SECPSignature.create() throws IllegalArgumentException.
+    final Bytes sig =
+        Bytes.concatenate(
+            Bytes.repeat((byte) 0x01, 32), Bytes.repeat((byte) 0x01, 32), Bytes.of(0x02));
+    final Bytes type = Bytes.of(0x05); // ENR_REQUEST
+    final Bytes body = Bytes.of(0xc5, 0x84, 0xff, 0xff, 0xff, 0xff);
+    final Bytes rest = Bytes.concatenate(sig, type, body);
+    final Bytes packet = Bytes.concatenate(Hash.keccak256(rest), rest);
+
+    Assertions.assertThrows(
+        PeerDiscoveryPacketDecodingException.class, () -> packetDeserializer.decode(packet));
+  }
+
+  @Test
+  public void testDecodeWithOutOfBoundsSThrowsDecodingException() {
+    // s=0 is outside the valid SECP256k1 range [1, n) — exercises the same checkInBounds path as
+    // r=0 but via the s field.
+    final Bytes sig =
+        Bytes.concatenate(
+            Bytes.repeat((byte) 0x01, 32), Bytes.repeat((byte) 0x00, 32), Bytes.of(0x00));
+    final Bytes type = Bytes.of(0x05); // ENR_REQUEST
+    final Bytes body = Bytes.of(0xc5, 0x84, 0xff, 0xff, 0xff, 0xff);
+    final Bytes rest = Bytes.concatenate(sig, type, body);
+    final Bytes packet = Bytes.concatenate(Hash.keccak256(rest), rest);
+
+    Assertions.assertThrows(
+        PeerDiscoveryPacketDecodingException.class, () -> packetDeserializer.decode(packet));
   }
 
   @Test

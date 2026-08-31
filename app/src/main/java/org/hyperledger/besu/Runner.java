@@ -325,7 +325,7 @@ public class Runner implements AutoCloseable {
   /** Stop services. */
   public void stop() {
     stopServices();
-    vertx.close((res) -> vertxShutdownLatch.countDown());
+    vertx.close().onComplete((res) -> vertxShutdownLatch.countDown());
     waitForServiceToStop("Vertx", vertxShutdownLatch::await);
     if (ephemeryService != null) {
       ephemeryService.close();
