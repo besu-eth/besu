@@ -43,7 +43,6 @@ import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.common.BackwardHeaderDriver;
 import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncStateStorage;
-import org.hyperledger.besu.ethereum.eth.sync.common.CheckpointReorgException;
 import org.hyperledger.besu.ethereum.eth.sync.common.SingleBlockHeaderDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.common.WrongChainException;
 import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.Checkpoint;
@@ -63,6 +62,7 @@ import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -191,6 +191,95 @@ public class SnapSyncChainDownloaderTest {
     // Before the fix this blocks until the timeout; after the fix cancel() completes the future.
     assertThatThrownBy(() -> downloadFuture.get(5, TimeUnit.SECONDS))
         .hasRootCauseInstanceOf(CancellationException.class);
+  }
+
+  @Test
+  public void shouldRejectASecondStart() throws Exception {
+    setupSuccessfulPipelineMocks();
+
+    final SnapSyncChainDownloader downloader =
+        new SnapSyncChainDownloader(
+            pipelineFactory,
+            syncConfig,
+            protocolSchedule,
+            protocolContext,
+            ethContext,
+            syncState,
+            syncDurationMetrics,
+            pivotBlockHeader,
+            chainSyncStateStorage,
+            headerDownloader);
+
+    downloader.onWorldStateHealFinished();
+    downloader.start().get(5, TimeUnit.SECONDS);
+
+    // Restarting the same downloader would run a second download over shared mutable state.
+    assertThatThrownBy(() -> downloader.start().get(5, TimeUnit.SECONDS))
+        .hasCauseInstanceOf(IllegalStateException.class);
+  }
+
+  @Test
+  public void cancellationBeforeStartAbortsWithoutStartingAPipeline() {
+    final SnapSyncChainDownloader downloader =
+        new SnapSyncChainDownloader(
+            pipelineFactory,
+            syncConfig,
+            protocolSchedule,
+            protocolContext,
+            ethContext,
+            syncState,
+            syncDurationMetrics,
+            pivotBlockHeader,
+            chainSyncStateStorage,
+            headerDownloader);
+
+    // Sync can be stopped while the world state downloader is still wiring the chain download up.
+    downloader.cancel();
+
+    assertThatThrownBy(() -> downloader.start().get(5, TimeUnit.SECONDS))
+        .hasRootCauseInstanceOf(CancellationException.class);
+    verify(pipelineFactory, never()).createBackwardHeaderDownloadPipeline(any());
+  }
+
+  @Test
+  public void cancellationDuringStage1SkipsStage2() {
+    final AtomicReference<SnapSyncChainDownloader> downloaderRef = new AtomicReference<>();
+
+    @SuppressWarnings("unchecked")
+    final Pipeline<Long> backwardPipeline = mock(Pipeline.class);
+    final BackwardHeaderDriver driver = mock(BackwardHeaderDriver.class);
+    lenient().when(driver.getMatchedAncestor()).thenReturn(Optional.empty());
+    when(pipelineFactory.createBackwardHeaderDownloadPipeline(any()))
+        .thenReturn(
+            new SnapSyncChainDownloadPipelineFactory.BackwardHeaderPipelineResult(
+                backwardPipeline, driver));
+    // Sync is stopped while Stage 1 is running; the cycle must not go on to download bodies.
+    when(scheduler.startPipeline(any()))
+        .thenAnswer(
+            invocation -> {
+              downloaderRef.get().cancel();
+              return CompletableFuture.completedFuture(null);
+            });
+    when(ethPeers.peerCount()).thenReturn(1);
+
+    final SnapSyncChainDownloader downloader =
+        new SnapSyncChainDownloader(
+            pipelineFactory,
+            syncConfig,
+            protocolSchedule,
+            protocolContext,
+            ethContext,
+            syncState,
+            syncDurationMetrics,
+            pivotBlockHeader,
+            chainSyncStateStorage,
+            headerDownloader);
+    downloaderRef.set(downloader);
+
+    assertThatThrownBy(() -> downloader.start().get(5, TimeUnit.SECONDS))
+        .hasRootCauseInstanceOf(CancellationException.class);
+    verify(pipelineFactory, never())
+        .createForwardBodiesAndReceiptsDownloadPipeline(anyLong(), any(), any());
   }
 
   @Test
@@ -513,7 +602,12 @@ public class SnapSyncChainDownloaderTest {
     chainSyncStateStorage.storeState(loadedState);
 
     when(blockchain.blockIsOnCanonicalChain(newPivot.getHash())).thenReturn(false);
-    // Stage 2 resumes from the chain head when the chain head already has a body stored.
+    lenient().when(blockchain.blockIsOnCanonicalChain(chainHeadAtCrash.getHash())).thenReturn(true);
+    // Stage 2 resumes from the chain head when the chain head already has a body stored
+    // and is still canonical.
+    lenient()
+        .when(blockchain.getBlockHeader(chainHeadAtCrash.getNumber()))
+        .thenReturn(Optional.of(chainHeadAtCrash));
     when(blockchain.getBlockBody(chainHeadAtCrash.getHash()))
         .thenReturn(Optional.of(mock(BlockBody.class)));
     when(blockchain.getChainHeadHeader()).thenReturn(chainHeadAtCrash);
@@ -759,7 +853,12 @@ public class SnapSyncChainDownloaderTest {
     chainSyncStateStorage.storeState(loadedState);
 
     when(blockchain.blockIsOnCanonicalChain(newPivot.getHash())).thenReturn(false);
-    // Stage 2 resumes from the chain head when the chain head already has a body stored.
+    lenient().when(blockchain.blockIsOnCanonicalChain(chainHeadAtCrash.getHash())).thenReturn(true);
+    // Stage 2 resumes from the chain head when the chain head already has a body stored
+    // and is still canonical.
+    lenient()
+        .when(blockchain.getBlockHeader(chainHeadAtCrash.getNumber()))
+        .thenReturn(Optional.of(chainHeadAtCrash));
     when(blockchain.getBlockBody(chainHeadAtCrash.getHash()))
         .thenReturn(Optional.of(mock(BlockBody.class)));
     when(blockchain.getChainHeadHeader()).thenReturn(chainHeadAtCrash);
@@ -929,6 +1028,78 @@ public class SnapSyncChainDownloaderTest {
     verify(pipelineFactory).createForwardBodiesAndReceiptsDownloadPipeline(eq(500L), any(), any());
   }
 
+  /**
+   * The highest imported block may reside on the orphaned fork after a reorg has already moved the
+   * canonical headers to the new fork. {@code forwardDownloadAnchor} must detect the mismatch and
+   * fall back to {@code highestCanonicalBody} (which walks the current canonical chain), otherwise
+   * the forward download starts from the orphaned chain head, missing the new fork's BALs and
+   * bodies in the {@code [common ancestor, chain head]} number range.
+   *
+   * <pre>
+   *   Previous canonical (fork A)            New canonical (fork B)
+   *
+   *     10 ─ ...                             10' ─ ... ─ 15'
+   *     │  (imported)  ← chainHead            │           ↑
+   *     │                                     │       new pivot
+   *     │                                     │
+   *     1 ──────────────────────────────────── 1
+   *     (imported)                             (imported)
+   *
+   *   Without the canonical check, anchor = 10 would skip fork-B blocks 2..10.
+   *   With the check, anchor falls back to 1, covering the full reorg window.
+   * </pre>
+   */
+  @Test
+  public void stage2RecoveryFallsBackToCanonicalBodyWhenChainHeadOrphanedByReorg()
+      throws Exception {
+    final BlockHeader oldPivot = new BlockHeaderTestFixture().number(10).buildHeader();
+    final BlockHeader newPivot = new BlockHeaderTestFixture().number(15).buildHeader();
+    final BlockHeader storedBodyAnchor = new BlockHeaderTestFixture().number(1).buildHeader();
+
+    // Fork-A block 10 was imported (has a body), but after the reorg it is no longer
+    // canonical at that height — the canonical header at 10 belongs to fork B instead.
+    final BlockHeader forkABlock10 =
+        new BlockHeaderTestFixture().number(10).timestamp(1L).buildHeader();
+    final BlockHeader forkBBlock10 =
+        new BlockHeaderTestFixture().number(10).timestamp(2L).buildHeader();
+
+    final ChainSyncState loadedState =
+        new ChainSyncState(oldPivot, storedBodyAnchor, crashedStateAnchor, true);
+    chainSyncStateStorage.storeState(loadedState);
+
+    when(blockchain.blockIsOnCanonicalChain(newPivot.getHash())).thenReturn(false);
+    when(blockchain.getChainHeadHeader()).thenReturn(forkABlock10);
+    // forkABlock10 is no longer canonical: getBlockHeader(10) resolves to fork B.
+    lenient()
+        .when(blockchain.getBlockHeader(forkABlock10.getNumber()))
+        .thenReturn(Optional.of(forkBBlock10));
+    // Lenient: aborted early by the canonical check in the fixed code path.
+    lenient()
+        .when(blockchain.getBlockBody(forkABlock10.getHash()))
+        .thenReturn(Optional.of(mock(BlockBody.class)));
+
+    setupSuccessfulPipelineMocks();
+
+    final SnapSyncChainDownloader downloader =
+        new SnapSyncChainDownloader(
+            pipelineFactory,
+            syncConfig,
+            protocolSchedule,
+            protocolContext,
+            ethContext,
+            syncState,
+            syncDurationMetrics,
+            newPivot,
+            chainSyncStateStorage,
+            headerDownloader);
+
+    downloader.onWorldStateHealFinished();
+    downloader.start().get(5, TimeUnit.SECONDS);
+
+    // Anchor falls back to the stored body anchor (1), not the orphaned chain head (10).
+    verify(pipelineFactory).createForwardBodiesAndReceiptsDownloadPipeline(eq(1L), any(), any());
+  }
+
   // ── Checkpoint validation after the initial header download to genesis ───────────────────
 
   @Test
@@ -980,7 +1151,72 @@ public class SnapSyncChainDownloaderTest {
     downloader.onWorldStateHealFinished();
 
     assertThatThrownBy(() -> downloader.start().get(5, TimeUnit.SECONDS))
-        .hasRootCauseInstanceOf(CheckpointReorgException.class);
+        .hasRootCauseInstanceOf(WrongChainException.class);
+  }
+
+  @Test
+  public void stage1AnchorIsCheckpointWhenHeadersToCheckpointOnlyEnabled() throws Exception {
+    // With a configured checkpoint (#500) and the skip-pre-checkpoint-headers option enabled,
+    // Stage 1 must anchor at the checkpoint (#500) rather than walking headers to genesis (#0).
+    final ChainSyncState stage1State =
+        runInitialCheckpointSyncAndCaptureStage1State(/* headersToCheckpointOnly= */ true);
+
+    assertThat(stage1State.headerDownloadAnchor().getNumber())
+        .isEqualTo(checkpointBlockHeader.getNumber());
+    assertThat(stage1State.bodyCheckpoint().getNumber())
+        .isEqualTo(checkpointBlockHeader.getNumber());
+  }
+
+  @Test
+  public void stage1AnchorIsGenesisWhenHeadersToCheckpointOnlyDisabled() throws Exception {
+    // Default behaviour: even with a configured checkpoint, Stage 1 walks headers down to genesis
+    // (#0). The checkpoint still governs the body-download floor (bodyCheckpoint == #500).
+    final ChainSyncState stage1State =
+        runInitialCheckpointSyncAndCaptureStage1State(/* headersToCheckpointOnly= */ false);
+
+    assertThat(stage1State.headerDownloadAnchor().getNumber()).isEqualTo(0L);
+    assertThat(stage1State.bodyCheckpoint().getNumber())
+        .isEqualTo(checkpointBlockHeader.getNumber());
+  }
+
+  private ChainSyncState runInitialCheckpointSyncAndCaptureStage1State(
+      final boolean headersToCheckpointOnly) throws Exception {
+    final Checkpoint checkpoint =
+        ImmutableCheckpoint.builder()
+            .blockNumber(checkpointBlockHeader.getNumber())
+            .blockHash(checkpointBlockHeader.getHash())
+            .totalDifficulty(Difficulty.ONE)
+            .build();
+    when(syncState.getCheckpoint()).thenReturn(Optional.of(checkpoint));
+    when(headerDownloader.downloadBlockHeader(checkpointBlockHeader.getHash()))
+        .thenReturn(CompletableFuture.completedFuture(checkpointBlockHeader));
+
+    setupSuccessfulPipelineMocks();
+
+    final SynchronizerConfiguration config =
+        SynchronizerConfiguration.builder()
+            .snapSyncHeadersToCheckpointOnly(headersToCheckpointOnly)
+            .build();
+
+    final SnapSyncChainDownloader downloader =
+        new SnapSyncChainDownloader(
+            pipelineFactory,
+            config,
+            protocolSchedule,
+            protocolContext,
+            ethContext,
+            syncState,
+            syncDurationMetrics,
+            pivotBlockHeader,
+            chainSyncStateStorage,
+            headerDownloader);
+
+    downloader.onWorldStateHealFinished();
+    downloader.start().get(5, TimeUnit.SECONDS);
+
+    final ArgumentCaptor<ChainSyncState> captor = ArgumentCaptor.forClass(ChainSyncState.class);
+    verify(pipelineFactory).createBackwardHeaderDownloadPipeline(captor.capture());
+    return captor.getValue();
   }
 
   @SuppressWarnings("unchecked")

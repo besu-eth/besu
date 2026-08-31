@@ -22,6 +22,7 @@ import org.hyperledger.besu.plugin.services.metrics.MetricCategory;
 
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.ToDoubleFunction;
 import java.util.stream.Stream;
@@ -33,7 +34,6 @@ import io.prometheus.metrics.model.snapshots.CounterSnapshot;
 import io.prometheus.metrics.model.snapshots.DataPointSnapshot;
 import io.prometheus.metrics.model.snapshots.GaugeSnapshot;
 import io.prometheus.metrics.model.snapshots.MetricSnapshot;
-import io.vertx.core.impl.ConcurrentHashSet;
 
 /**
  * A Prometheus Guava cache collector implementation for Besu metrics. This class provides a way to
@@ -100,7 +100,7 @@ class PrometheusGuavaCache extends CategorizedPrometheusCollector {
                 "guava_cache_size", Context::gaugeValueExtractor);
 
     private final CacheMetricsCollector cacheMetricsCollector = new CacheMetricsCollector();
-    private final Set<String> cacheNames = new ConcurrentHashSet<>();
+    private final Set<String> cacheNames = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean collectorRegistered = new AtomicBoolean(false);
 
     boolean alreadyExists(final String name) {

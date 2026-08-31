@@ -30,6 +30,7 @@ import java.util.Collections;
 import org.apache.tuweni.bytes.Bytes32;
 
 /** The Ibft query service. */
+@SuppressWarnings("removal")
 public class IbftQueryServiceImpl extends PoaQueryServiceImpl implements BftQueryService {
 
   private final BftBlockInterface blockInterface;

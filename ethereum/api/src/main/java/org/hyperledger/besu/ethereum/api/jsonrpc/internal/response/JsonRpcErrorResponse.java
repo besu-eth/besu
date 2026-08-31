@@ -54,6 +54,10 @@ public class JsonRpcErrorResponse implements JsonRpcResponse {
     this(id, new JsonRpcError(error));
   }
 
+  public JsonRpcErrorResponse(final Object id, final RpcErrorType error, final String data) {
+    this(id, new JsonRpcError(error, data));
+  }
+
   public JsonRpcErrorResponse(
       final Object id, final ValidationResult<RpcErrorType> validationResult) {
     this(

@@ -73,6 +73,10 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
     }
     final Operation currentOperation = frame.getCurrentOperation();
     final String opcode = currentOperation.getName();
+    if (isSyntheticEmptyCodeStop(
+        currentOperation.isVirtualOperation(), opcode, frame.getCode().getSize())) {
+      return;
+    }
     final long thisGasCost = computeGasCost(currentOperation, operationResult, frame);
 
     final ExceptionalHaltReason haltReason =

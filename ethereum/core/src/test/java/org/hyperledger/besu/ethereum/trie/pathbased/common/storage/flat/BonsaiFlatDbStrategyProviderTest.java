@@ -20,7 +20,6 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFlatDbStrategyProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFullFlatDbStrategy;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiPartialFlatDbStrategy;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.ethereum.worldstate.ImmutableDataStorageConfiguration;
@@ -293,28 +292,6 @@ class FlatDbStrategyProviderTest {
     assertThat(flatDbStrategyProvider.flatDbMode).isEqualTo(FlatDbMode.FULL);
     assertThat(flatDbStrategyProvider.flatDbStrategy.codeStorageStrategy)
         .isInstanceOf(CodeHashCodeStorageStrategy.class);
-  }
-
-  @Test
-  void downgradesFlatDbStrategyToPartiallyFlatDbMode() {
-    updateFlatDbMode(FlatDbMode.FULL);
-
-    flatDbStrategyProvider.downgradeToPartialFlatDbMode(composedWorldStateStorage);
-    assertThat(flatDbStrategyProvider.flatDbMode).isEqualTo(FlatDbMode.PARTIAL);
-    assertThat(flatDbStrategyProvider.flatDbStrategy).isNotNull();
-    assertThat(flatDbStrategyProvider.getFlatDbStrategy(composedWorldStateStorage))
-        .isInstanceOf(BonsaiPartialFlatDbStrategy.class);
-  }
-
-  @Test
-  void downgradesArchiveFlatDbStrategyToPartiallyFlatDbMode() {
-    updateFlatDbMode(FlatDbMode.ARCHIVE);
-
-    flatDbStrategyProvider.downgradeToPartialFlatDbMode(composedWorldStateStorage);
-    assertThat(flatDbStrategyProvider.flatDbMode).isEqualTo(FlatDbMode.PARTIAL);
-    assertThat(flatDbStrategyProvider.flatDbStrategy).isNotNull();
-    assertThat(flatDbStrategyProvider.getFlatDbStrategy(composedWorldStateStorage))
-        .isInstanceOf(BonsaiPartialFlatDbStrategy.class);
   }
 
   private void updateFlatDbMode(final FlatDbMode flatDbMode) {

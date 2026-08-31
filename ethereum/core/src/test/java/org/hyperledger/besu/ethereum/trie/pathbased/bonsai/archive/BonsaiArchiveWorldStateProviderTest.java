@@ -225,7 +225,6 @@ public class BonsaiArchiveWorldStateProviderTest {
         null,
         null,
         EvmConfiguration.DEFAULT,
-        () -> null,
         new PathBasedCodeCache(),
         new NoOpMetricsSystem());
   }

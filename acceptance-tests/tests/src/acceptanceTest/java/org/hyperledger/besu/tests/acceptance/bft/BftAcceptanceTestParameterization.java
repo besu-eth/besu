@@ -39,15 +39,7 @@ public class BftAcceptanceTestParameterization {
   @FunctionalInterface
   public interface NodeCreator {
 
-    BesuNode create(
-        BesuNodeFactory factory, String name, boolean fixedPort, DataStorageFormat storageFormat)
-        throws Exception;
-  }
-
-  @FunctionalInterface
-  public interface FixedPortNodeCreator {
-
-    BesuNode createFixedPort(BesuNodeFactory factory, String name, boolean fixedPort)
+    BesuNode create(BesuNodeFactory factory, String name, DataStorageFormat storageFormat)
         throws Exception;
   }
 
@@ -67,22 +59,22 @@ public class BftAcceptanceTestParameterization {
   }
 
   public BesuNode createNode(final BesuNodeFactory factory, final String name) throws Exception {
-    return creatorFn.create(factory, name, false, DataStorageFormat.FOREST);
+    return creatorFn.create(factory, name, DataStorageFormat.FOREST);
   }
 
-  public BesuNode createBonsaiNodeFixedPort(final BesuNodeFactory factory, final String name)
+  public BesuNode createBonsaiNode(final BesuNodeFactory factory, final String name)
       throws Exception {
-    return creatorFn.create(factory, name, true, DataStorageFormat.BONSAI);
+    return creatorFn.create(factory, name, DataStorageFormat.BONSAI);
   }
 
-  public BesuNode createBonsaiArchiveNodeFixedPort(final BesuNodeFactory factory, final String name)
+  public BesuNode createBonsaiArchiveNode(final BesuNodeFactory factory, final String name)
       throws Exception {
-    return creatorFn.create(factory, name, true, DataStorageFormat.X_BONSAI_ARCHIVE);
+    return creatorFn.create(factory, name, DataStorageFormat.X_BONSAI_ARCHIVE);
   }
 
-  public BesuNode createForestNodeFixedPort(final BesuNodeFactory factory, final String name)
+  public BesuNode createForestNode(final BesuNodeFactory factory, final String name)
       throws Exception {
-    return creatorFn.create(factory, name, true, DataStorageFormat.FOREST);
+    return creatorFn.create(factory, name, DataStorageFormat.FOREST);
   }
 
   public BesuNode createNodeWithValidators(
