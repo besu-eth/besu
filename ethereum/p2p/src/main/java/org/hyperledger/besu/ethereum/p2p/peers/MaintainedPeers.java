@@ -19,13 +19,12 @@ import static com.google.common.base.Preconditions.checkArgument;
 import org.hyperledger.besu.util.Subscribers;
 
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
-
-import io.vertx.core.impl.ConcurrentHashSet;
 
 /** Represents a set of peers for which connections should be actively maintained. */
 public class MaintainedPeers {
-  private final Set<Peer> maintainedPeers = new ConcurrentHashSet<>();
+  private final Set<Peer> maintainedPeers = ConcurrentHashMap.newKeySet();
   private final Subscribers<PeerAddedCallback> addedSubscribers = Subscribers.create();
   private final Subscribers<PeerRemovedCallback> removedCallbackSubscribers = Subscribers.create();
 

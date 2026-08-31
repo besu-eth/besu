@@ -101,13 +101,4 @@ public class CountLeadingZerosOperationBenchmark {
       frame.popStackItem();
     }
   }
-
-  @Benchmark
-  @OperationsPerInvocation(OPERATIONS_PER_INVOCATION)
-  public void baseline() {
-    for (int i = 0; i < OPERATIONS_PER_INVOCATION; i++) {
-      frame.pushStackItem(bytes);
-      frame.popStackItem();
-    }
-  }
 }

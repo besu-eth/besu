@@ -94,7 +94,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
-import io.vertx.core.http.HttpClient;
+import io.vertx.core.http.WebSocketClient;
 import io.vertx.core.json.Json;
 import io.vertx.core.json.JsonObject;
 import okhttp3.MediaType;
@@ -325,27 +325,29 @@ public final class RunnerTest {
                 }
               });
       final Promise<String> promise = Promise.promise();
-      final HttpClient httpClient = vertx.createHttpClient();
-      httpClient.webSocket(
-          runnerBehind.getWebSocketPort().get(),
-          WebSocketConfiguration.DEFAULT_WEBSOCKET_HOST,
-          "/",
-          ws -> {
-            ws.result()
-                .writeTextMessage(
-                    "{\"id\": 1, \"method\": \"eth_subscribe\", \"params\": [\"syncing\"]}");
-            ws.result()
-                .textMessageHandler(
-                    payload -> {
-                      final boolean matches =
-                          payload.equals("{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":\"0x0\"}");
-                      if (matches) {
-                        promise.complete(payload);
-                      } else {
-                        promise.fail("Unexpected result: " + payload);
-                      }
-                    });
-          });
+      final WebSocketClient webSocketClient = vertx.createWebSocketClient();
+      webSocketClient
+          .connect(
+              runnerBehind.getWebSocketPort().get(),
+              WebSocketConfiguration.DEFAULT_WEBSOCKET_HOST,
+              "/")
+          .onComplete(
+              ws -> {
+                ws.result()
+                    .writeTextMessage(
+                        "{\"id\": 1, \"method\": \"eth_subscribe\", \"params\": [\"syncing\"]}");
+                ws.result()
+                    .textMessageHandler(
+                        payload -> {
+                          final boolean matches =
+                              payload.equals("{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":\"0x0\"}");
+                          if (matches) {
+                            promise.complete(payload);
+                          } else {
+                            promise.fail("Unexpected result: " + payload);
+                          }
+                        });
+              });
       final Future<String> future = promise.future();
       Awaitility.await()
           .catchUncaughtExceptions()

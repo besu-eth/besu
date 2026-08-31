@@ -19,13 +19,13 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-import io.vertx.core.AsyncResult;
 import io.vertx.core.Future;
-import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
-import io.vertx.core.json.JsonObject;
 import io.vertx.ext.auth.User;
 import io.vertx.ext.auth.authentication.AuthenticationProvider;
+import io.vertx.ext.auth.authentication.CredentialValidationException;
+import io.vertx.ext.auth.authentication.Credentials;
+import io.vertx.ext.auth.authentication.UsernamePasswordCredentials;
 import org.apache.tuweni.toml.Toml;
 import org.apache.tuweni.toml.TomlParseResult;
 import org.apache.tuweni.toml.TomlTable;
@@ -43,61 +43,43 @@ public class TomlAuth implements AuthenticationProvider {
   }
 
   @Override
-  public void authenticate(
-      final JsonObject authInfo, final Handler<AsyncResult<User>> resultHandler) {
-    final String username = authInfo.getString("username");
-    if (username == null) {
-      resultHandler.handle(Future.failedFuture("No username provided"));
-      return;
+  public Future<User> authenticate(final Credentials credentials) {
+    if (!(credentials instanceof final UsernamePasswordCredentials usernamePasswordCredentials)) {
+      return Future.failedFuture(new CredentialValidationException("Invalid credentials type"));
+    }
+    try {
+      usernamePasswordCredentials.checkValid(null);
+    } catch (final RuntimeException e) {
+      return Future.failedFuture(e);
     }
 
-    final String password = authInfo.getString("password");
-    if (password == null) {
-      resultHandler.handle(Future.failedFuture("No password provided"));
-      return;
+    final String username = usernamePasswordCredentials.getUsername();
+    final String password = usernamePasswordCredentials.getPassword();
+    return vertx.executeBlocking(() -> authenticateBlocking(username, password), false);
+  }
+
+  // Declares IOException so a config/IO problem (e.g. a missing or unreadable toml file) fails
+  // the Future with its own specific, diagnosable type rather than being folded into
+  // CredentialValidationException alongside actual bad-credentials failures.
+  private TomlUser authenticateBlocking(final String username, final String password)
+      throws IOException {
+    final TomlParseResult parseResult = Toml.parse(options.getTomlPath());
+
+    final TomlTable userData = parseResult.getTableOrEmpty("Users." + username);
+    if (userData.isEmpty()) {
+      throw new CredentialValidationException("User not found");
     }
 
-    vertx.executeBlocking(
-        f -> {
-          TomlParseResult parseResult;
-          try {
-            parseResult = Toml.parse(options.getTomlPath());
-          } catch (IOException e) {
-            f.fail(e);
-            return;
-          }
+    final TomlUser tomlUser = readTomlUserFromTable(username, userData);
+    if (tomlUser.getPassword().isEmpty()) {
+      throw new CredentialValidationException("No password set for user");
+    }
 
-          final TomlTable userData = parseResult.getTableOrEmpty("Users." + username);
-          if (userData.isEmpty()) {
-            f.fail("User not found");
-            return;
-          }
+    if (!checkPasswordHash(password, tomlUser.getPassword())) {
+      throw new CredentialValidationException("Invalid password");
+    }
 
-          final TomlUser tomlUser = readTomlUserFromTable(username, userData);
-          if (tomlUser.getPassword().isEmpty()) {
-            f.fail("No password set for user");
-            return;
-          }
-
-          checkPasswordHash(
-              password,
-              tomlUser.getPassword(),
-              rs -> {
-                if (rs.succeeded()) {
-                  f.complete(tomlUser);
-                } else {
-                  f.fail(rs.cause());
-                }
-              });
-        },
-        false,
-        res -> {
-          if (res.succeeded()) {
-            resultHandler.handle(Future.succeededFuture((User) res.result()));
-          } else {
-            resultHandler.handle(Future.failedFuture(res.cause()));
-          }
-        });
+    return tomlUser;
   }
 
   private TomlUser readTomlUserFromTable(final String username, final TomlTable userData) {
@@ -121,15 +103,7 @@ public class TomlAuth implements AuthenticationProvider {
         username, saltedAndHashedPassword, groups, permissions, roles, privacyPublicKey);
   }
 
-  private void checkPasswordHash(
-      final String password,
-      final String passwordHash,
-      final Handler<AsyncResult<Void>> resultHandler) {
-    boolean passwordMatches = BCrypt.checkpw(password, passwordHash);
-    if (passwordMatches) {
-      resultHandler.handle(Future.succeededFuture());
-    } else {
-      resultHandler.handle(Future.failedFuture("Invalid password"));
-    }
+  private boolean checkPasswordHash(final String password, final String passwordHash) {
+    return BCrypt.checkpw(password, passwordHash);
   }
 }

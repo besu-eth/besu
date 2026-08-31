@@ -272,7 +272,8 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
     if (jsonArray) {
       FixtureRunner.printJsonArray(parentCommand.out, jsonArrayResults);
     } else {
-      if (passCount.get() + failCount.get() > 0) {
+      if (passCount.get() + failCount.get() > 0
+          && (!parentCommand.showJsonResults || summaryOnly)) {
         parentCommand.out.printf(
             "%nState test summary: %d passed, %d failed%n", passCount.get(), failCount.get());
       }

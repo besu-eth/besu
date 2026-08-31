@@ -421,7 +421,7 @@ public class WebSocketServiceTLSTest {
     WebSocketClientOptions clientOptions =
         new WebSocketClientOptions()
             .setSsl(true)
-            .setKeyStoreOptions(
+            .setKeyCertOptions(
                 new JksOptions()
                     .setPath(clientKeystoreFile.getAbsolutePath())
                     .setPassword("password"))
