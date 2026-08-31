@@ -126,7 +126,7 @@ public sealed class EngineGetBlobsV1<BAP extends BlobAndProofV1>
   }
 
   protected @NotNull List<BAP> getResultPartialMode(final VersionedHash[] versionedHashes) {
-    return fetchedBlobsData(versionedHashes).blobProofBundles().parallelStream()
+    return fetchedBlobsData(versionedHashes).blobProofBundles().stream()
         .map(this::getBlobAndProofResult)
         .toList();
   }
