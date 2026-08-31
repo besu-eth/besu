@@ -243,6 +243,10 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
     var result = fromSuccessResp(resp);
     assertThat(result.getStatusAsString()).isEqualTo(INVALID.name());
     assertThat(result.getLatestValidHash().get()).isEqualTo(mockHash);
+    // The validationError is the only diagnostic a consensus client gets, so it has to name the
+    // executionRequests parameter, not just the type byte that was not recognised.
+    assertThat(result.getError())
+        .isEqualTo("Invalid execution requests: Unsupported request type: 0xFF");
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 

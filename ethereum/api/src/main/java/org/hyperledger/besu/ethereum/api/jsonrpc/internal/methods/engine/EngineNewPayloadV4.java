@@ -45,6 +45,12 @@ public sealed class EngineNewPayloadV4<
     extends EngineNewPayloadV3<EP, NPRP> permits EngineNewPayloadV5 {
   private static final Logger LOG = LoggerFactory.getLogger(EngineNewPayloadV4.class);
 
+  /**
+   * Prefix every {@code executionRequests} rejection carries, so an INVALID payload status names
+   * the parameter at fault rather than only the condition that tripped.
+   */
+  static final String INVALID_EXECUTION_REQUESTS_ERROR = "Invalid execution requests";
+
   public EngineNewPayloadV4(
       final ConstructorArguments constructorArguments,
       final HardforkId minSupportedFork,
@@ -126,7 +132,10 @@ public sealed class EngineNewPayloadV4<
                 .getLatestValidAncestor(e.getPayloadParameter().getParentHash())
                 .orElse(null),
             EngineStatus.INVALID,
-            maybeRequestTypeEx.get().getMessage());
+            // The exception names the type byte but not the field it came from, and the
+            // validationError is all a consensus client sees. Say the execution requests are what
+            // is invalid, then why.
+            INVALID_EXECUTION_REQUESTS_ERROR + ": " + maybeRequestTypeEx.get().getMessage());
       } else {
         // payload parameter should be present in this case, so treat this as an internal error
         logger()
