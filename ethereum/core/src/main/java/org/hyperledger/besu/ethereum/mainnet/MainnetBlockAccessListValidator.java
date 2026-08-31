@@ -78,16 +78,14 @@ public class MainnetBlockAccessListValidator implements BlockAccessListValidator
     if (itemCount <= maxItems) {
       return BlockAccessListItemSizeCheck.withinBudget();
     }
-    final String blockRef =
-        blockHeader instanceof BlockHeader fullHeader
-            ? fullHeader.getBlockHash().toShortLogString()
-            : String.format("pending#%d", blockHeader.getNumber());
+    // Bare fact, no block reference: the two callers are a block being imported and one being
+    // built, and each names its own block -- the block under construction has no hash to name.
     return BlockAccessListItemSizeCheck.overBudget(
         new BlockAccessListValidationError(
             String.format(
-                "Block access list size exceeds maximum allowed items for block %s with gas limit %d"
+                "block access list size exceeds the maximum allowed items for gas limit %d"
                     + " (items %d, max %d)",
-                blockRef, blockHeader.getGasLimit(), itemCount, maxItems)));
+                blockHeader.getGasLimit(), itemCount, maxItems)));
   }
 
   @Override
@@ -105,7 +103,14 @@ public class MainnetBlockAccessListValidator implements BlockAccessListValidator
             blockHeader,
             protocolSchedule.getByBlockHeader(blockHeader));
     if (sizeCheck.isOverBudget()) {
-      final BlockAccessListValidationError error = sizeCheck.overBudgetError().orElseThrow();
+      // Same opening as MainnetBlockValidator's pre-execution BAL rejection, so a block failing on
+      // its access list reads the same whichever of the two checks caught it.
+      final BlockAccessListValidationError error =
+          new BlockAccessListValidationError(
+              String.format(
+                  "Block access list validation failed for block %s: %s",
+                  blockHeader.getBlockHash(),
+                  sizeCheck.overBudgetError().orElseThrow().errorMessage()));
       LOG.error(error.errorMessage());
       return Optional.of(error);
     }
@@ -141,13 +146,15 @@ public class MainnetBlockAccessListValidator implements BlockAccessListValidator
       return false;
     }
 
-    final BlockAccessListItemSizeCheck lightSizeCheck =
-        validateExecutedBlockAccessListItemSize(
-            bal.eip7928ItemCount(), blockHeader, protocolSchedule.getByBlockHeader(blockHeader));
-    if (lightSizeCheck.isOverBudget()) {
-      LOG.warn(lightSizeCheck.overBudgetError().orElseThrow().errorMessage());
-      return false;
-    }
+    // EIP-7928's bal_items <= gas_limit / ITEM_COST budget is deliberately not checked here. The
+    // reference implementation applies it to the BAL built during execution, after the block has
+    // run (execution-specs amsterdam fork.py, validate_block_access_list_gas_limit), and
+    // validateExecutedBlockAccessListAfterBuild does the same. Checking the supplied BAL up front
+    // as well rejects nothing extra -- an over-budget supplied BAL either matches the executed one,
+    // which is then over budget too, or fails the hash comparison -- but it does pre-empt the
+    // errors execution would have reported, so a block invalid for an unrelated reason was blamed
+    // on its access list. A block whose gas limit is small enough for the mandatory system-contract
+    // entries alone to exceed the budget made every such block report a BAL failure.
 
     if (balHashMismatchAgainstHeaderIfAny(bal, headerBalHash, Optional.empty(), false, false)
         .isPresent()) {

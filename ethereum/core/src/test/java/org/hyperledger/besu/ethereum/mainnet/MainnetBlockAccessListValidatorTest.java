@@ -157,8 +157,8 @@ class MainnetBlockAccessListValidatorTest {
   @Nested
   class SizeLimit {
 
-    @Test
-    void failsWhenExceedingMaxItems() {
+    /** 1 addr + 1 storage change + 4 reads = 6 items; with ITEM_COST 2000, gas 10_000 caps at 5. */
+    private static BlockAccessList overBudgetBal() {
       final BlockAccessList.AccountChanges account =
           new BlockAccessList.AccountChanges(
               ADDR_1,
@@ -173,34 +173,40 @@ class MainnetBlockAccessListValidatorTest {
               List.of(),
               List.of(),
               List.of());
-      final BlockAccessList bal = new BlockAccessList(List.of(account));
-      // 1 addr + 1 storage change + 4 reads = 6 items. ITEM_COST=2000, gas 10_000 → max 5 items
+      return new BlockAccessList(List.of(account));
+    }
+
+    @Test
+    void failsWhenExceedingMaxItems() {
+      final BlockAccessList bal = overBudgetBal();
       final BlockHeader header = headerWithBal(bal, 10_000L);
-      Assertions.assertThat(validator().validate(Optional.of(bal), header, 0)).isFalse();
+
+      Assertions.assertThat(
+              validator()
+                  .validateExecutedBlockAccessListAfterBuild(bal, header, Optional.of(bal), false))
+          .isPresent();
+    }
+
+    @Test
+    void suppliedBalIsNotSizeCheckedBeforeExecution() {
+      // The budget belongs to the BAL execution builds, checked once the block has run, so an
+      // over-budget supplied BAL must not pre-empt whatever execution would have reported.
+      final BlockAccessList bal = overBudgetBal();
+
+      Assertions.assertThat(validator().validate(Optional.of(bal), headerWithBal(bal, 10_000L), 0))
+          .isTrue();
     }
 
     @Test
     void sizeCheckSkippedWhenItemCostZero() {
-      // BAL with 6 items would fail with itemCost=2000 and gas 10_000 (max 5 items)
-      final BlockAccessList.AccountChanges account =
-          new BlockAccessList.AccountChanges(
-              ADDR_1,
-              List.of(
-                  new BlockAccessList.SlotChanges(
-                      SLOT_1, List.of(new BlockAccessList.StorageChange(0, UInt256.ZERO)))),
-              List.of(
-                  new BlockAccessList.SlotRead(SLOT_2),
-                  new BlockAccessList.SlotRead(SLOT_3),
-                  new BlockAccessList.SlotRead(new StorageSlotKey(UInt256.valueOf(4))),
-                  new BlockAccessList.SlotRead(new StorageSlotKey(UInt256.valueOf(5)))),
-              List.of(),
-              List.of(),
-              List.of());
-      final BlockAccessList bal = new BlockAccessList(List.of(account));
+      final BlockAccessList bal = overBudgetBal();
       final BlockHeader header = headerWithBal(bal, 10_000L);
+
       // With itemCost=0 the size constraint is not applied (no division, check skipped)
-      Assertions.assertThat(validatorWithItemCost(0L).validate(Optional.of(bal), header, 0))
-          .isTrue();
+      Assertions.assertThat(
+              validatorWithItemCost(0L)
+                  .validateExecutedBlockAccessListAfterBuild(bal, header, Optional.of(bal), false))
+          .isEmpty();
     }
   }
 

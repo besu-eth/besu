@@ -215,7 +215,9 @@ class AbstractBlockProcessorBalValidationTest {
             Optional.empty());
 
     assertThat(result.isSuccessful()).isFalse();
-    assertThat(result.errorMessage.orElse("")).contains("Block access list size exceeds maximum");
+    assertThat(result.errorMessage.orElse(""))
+        .startsWith("Block access list validation failed for block ")
+        .contains("size exceeds the maximum allowed items");
     assertThat(txCalls).hasValue(6);
   }
 
