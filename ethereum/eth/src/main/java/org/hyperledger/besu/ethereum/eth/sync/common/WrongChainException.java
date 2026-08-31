@@ -16,13 +16,9 @@
 package org.hyperledger.besu.ethereum.eth.sync.common;
 
 /**
- * Signals that the backward header download has encountered a chain whose genesis differs from the
- * locally-stored genesis. Thrown by {@code BackwardHeaderDriver} when anchor recovery walks down to
- * the genesis floor without finding a matching canonical ancestor.
- *
- * <p>Recognised by {@code SnapSyncChainDownloader.shouldRetry} as non-retryable: the overall sync
- * future completes exceptionally and the operator is expected to intervene rather than letting the
- * downloader loop on the wrong chain.
+ * Signals that the pivot does not descend from the chain we trust — the downloaded headers do not
+ * link to the trust anchor (genesis or the trusted checkpoint) — so no amount of downloading from
+ * the current pivot can produce a valid chain.
  */
 public class WrongChainException extends RuntimeException {
 

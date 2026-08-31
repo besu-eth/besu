@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngin
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineCallListener;
 import org.hyperledger.besu.ethereum.api.jsonrpc.methods.ExecutionEngineJsonRpcMethods.VersionScheduler;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
@@ -52,6 +53,7 @@ class VersionSchedulerTest {
           .mergeCoordinator(mock(MergeMiningCoordinator.class))
           .ethPeers(mock(EthPeers.class))
           .metricsSystem(new NoOpMetricsSystem())
+          .transactionPool(mock(TransactionPool.class))
           .maxRequestBlocks(0)
           .build();
 
@@ -147,6 +149,30 @@ class VersionSchedulerTest {
       assertThat(factory.invocations).isOne();
       assertThat(factory.constructorArguments).isSameAs(constructorArguments);
     }
+  }
+
+  @Test
+  void startsFromBuildsTheVersionGatedOnItsOwnFork() {
+    when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.of(0L));
+
+    final List<ExecutionEngineJsonRpcMethod> builtMethods =
+        List.copyOf(VersionScheduler.startsFrom(AMSTERDAM, v1).build(constructorArguments));
+
+    assertThat(builtMethods).containsExactly(v1.instance);
+    assertThat(v1.invocations).isOne();
+    assertThat(v1.constructorArguments).isSameAs(constructorArguments);
+    v1.assertForkWindow(AMSTERDAM, null);
+  }
+
+  @Test
+  void startsFromSkipsTheVersionWhenItsForkIsNotScheduled() {
+    when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.empty());
+
+    final List<ExecutionEngineJsonRpcMethod> builtMethods =
+        List.copyOf(VersionScheduler.startsFrom(AMSTERDAM, v1).build(constructorArguments));
+
+    assertThat(builtMethods).isEmpty();
+    assertThat(v1.invocations).isZero();
   }
 
   @Test

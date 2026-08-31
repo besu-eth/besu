@@ -29,6 +29,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
@@ -48,7 +49,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 public class EngineForkchoiceUpdatedV3Test extends EngineForkchoiceUpdatedV2Test {
 
   @Override
-  protected EngineForkchoiceUpdatedV1<?> createMethodInstance() {
+  protected EngineForkchoiceUpdatedV1<?, ?> createMethodInstance() {
     return new EngineForkchoiceUpdatedV3<>(
         new ConstructorArgumentsBuilder()
             .protocolSchedule(protocolSchedule)
@@ -58,6 +59,7 @@ public class EngineForkchoiceUpdatedV3Test extends EngineForkchoiceUpdatedV2Test
             .mergeCoordinator(mergeCoordinator)
             .ethPeers(mock(EthPeers.class))
             .metricsSystem(new NoOpMetricsSystem())
+            .transactionPool(transactionPool)
             .maxRequestBlocks(0)
             .build(),
         CANCUN,
@@ -95,7 +97,7 @@ public class EngineForkchoiceUpdatedV3Test extends EngineForkchoiceUpdatedV2Test
   @Override
   protected Object validPayloadAttributesForBlock(final BlockHeader head) {
     return new PayloadAttributesV3(
-        String.valueOf(head.getTimestamp() + 1),
+        Quantity.create(head.getTimestamp() + 1),
         Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
         Address.ECREC.toString(),
         Collections.emptyList(),
@@ -105,7 +107,7 @@ public class EngineForkchoiceUpdatedV3Test extends EngineForkchoiceUpdatedV2Test
   @Override
   protected Object invalidTimestampPayloadAttributesForBlock(final BlockHeader head) {
     return new PayloadAttributesV3(
-        String.valueOf(head.getTimestamp()),
+        Quantity.create(head.getTimestamp()),
         Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
         Address.ECREC.toString(),
         Collections.emptyList(),
@@ -115,7 +117,7 @@ public class EngineForkchoiceUpdatedV3Test extends EngineForkchoiceUpdatedV2Test
   @Override
   protected Object payloadAttributesWithNullWithdrawalsForBlock(final BlockHeader head) {
     return new PayloadAttributesV3(
-        String.valueOf(head.getTimestamp() + 1),
+        Quantity.create(head.getTimestamp() + 1),
         Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
         Address.ECREC.toString(),
         null,
