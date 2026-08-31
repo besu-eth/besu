@@ -43,8 +43,6 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
 
   private Optional<UInt256> preExecutionStorageKey = Optional.empty();
   private Optional<Bytes[]> preExecutionMemory = Optional.empty();
-  private MessageFrame memorySnapshotFrame;
-  private boolean memoryDirty;
   private Bytes inputData;
   private int stepCount;
   private boolean limitReached;
@@ -307,9 +305,7 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
     return Optional.empty();
   }
 
-  /**
-   * Captures memory as it stood before the operation executes.
-   */
+  /** Captures memory as it stood before the operation executes. */
   private Optional<Bytes[]> captureMemory(final MessageFrame frame) {
     if (!options.traceMemory() || frame.memoryWordSize() == 0) {
       return Optional.empty();
@@ -319,10 +315,6 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
       return preExecutionMemory;
     }
     return forceCaptureMem(frame);
-  }
-
-  private boolean memoryUnchangedSinceSnapshot(final MessageFrame frame) {
-    return memorySnapshotFrame == frame && !memoryDirty && frame.getMaybeUpdatedMemory().isEmpty();
   }
 
   private Optional<Bytes[]> forceCaptureMem(final MessageFrame frame) {

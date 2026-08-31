@@ -58,6 +58,12 @@ public abstract class AbstractDebugOperationTracer implements OperationTracer {
   /** Call depth before the operation executed, set in {@link #tracePreExecution}. */
   protected int depth;
 
+  /** The frame the current memory snapshot was taken on, set by subclasses when they snapshot. */
+  protected MessageFrame memorySnapshotFrame;
+
+  /** Whether memory has been written since the current snapshot was taken. */
+  protected boolean memoryDirty;
+
   /**
    * Whether the current opcode should be traced (respects the {@code traceOpcodes} filter). Set by
    * {@link #tracePreExecution}; checked by {@link #tracePostExecution} in subclasses.
@@ -129,6 +135,10 @@ public abstract class AbstractDebugOperationTracer implements OperationTracer {
       stackContents[i] = frame.getStackItem(stackContents.length - i - 1);
     }
     return Optional.of(stackContents);
+  }
+
+  protected boolean memoryUnchangedSinceSnapshot(final MessageFrame frame) {
+    return memorySnapshotFrame == frame && !memoryDirty && frame.getMaybeUpdatedMemory().isEmpty();
   }
 
   private boolean shouldTraceOpcode(final Operation currentOpcode) {
