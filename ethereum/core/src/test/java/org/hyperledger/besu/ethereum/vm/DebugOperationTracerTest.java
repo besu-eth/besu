@@ -479,6 +479,30 @@ class DebugOperationTracerTest {
   }
 
   @Test
+  void shouldTakeNewMemorySnapshotAfterAnUntracedMemoryWrite() {
+    final MessageFrame frame = validMessageFrameWithInitiatedMemory(WORD_1);
+    final DebugOperationTracer tracer = createDebugOperationTracerWithMemory();
+
+    traceFrame(frame, tracer, anOperation);
+
+    // A child call returning output, or a precompile writing its result, updates the parent frame's
+    // memory outside of any traced operation and without changing its size.
+    frame.writeMemory(0L, 32, WORD_2, true);
+    traceFrame(frame, tracer, anOperation);
+
+    final List<TraceFrame> frames = tracer.getTraceFrames();
+    assertThat(frames).hasSize(2);
+    final Bytes[] before = frames.get(0).getMemory().orElseThrow();
+    final Bytes[] after = frames.get(1).getMemory().orElseThrow();
+
+    assertThat(after)
+        .as("A memory write from outside a traced operation must invalidate the snapshot")
+        .isNotSameAs(before);
+    assertThat(before[0]).isEqualTo(WORD_1);
+    assertThat(after[0]).isEqualTo(WORD_2);
+  }
+
+  @Test
   void shouldCaptureMemoryDirectlyWhenLastFrameIsNull() {
     final MessageFrame frame = validMessageFrameWithInitiatedMemory(WORD_1);
     final DebugOperationTracer tracer = createDebugOperationTracerWithMemory();

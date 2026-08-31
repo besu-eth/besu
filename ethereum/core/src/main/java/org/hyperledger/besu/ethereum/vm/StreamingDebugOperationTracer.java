@@ -51,6 +51,8 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
   private final FrameWriter frameWriter;
   private boolean hasEmittedFrame = false;
   private Bytes[] preExecutionMemory;
+  private MessageFrame memorySnapshotFrame;
+  private boolean memoryDirty;
 
   /**
    * Creates a streaming operation tracer.
@@ -71,12 +73,21 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
   @Override
   protected void capturePreExecutionState(final MessageFrame frame) {
     preExecutionMemory = options.traceMemory() ? snapshotMemory(frame) : null;
+    memorySnapshotFrame = frame;
+    memoryDirty = false;
   }
 
-  private static Bytes[] snapshotMemory(final MessageFrame frame) {
+  private Bytes[] snapshotMemory(final MessageFrame frame) {
     final int wordCount = frame.memoryWordSize();
     if (wordCount == 0) {
       return null;
+    }
+    if (memorySnapshotFrame == frame
+        && !memoryDirty
+        && frame.getMaybeUpdatedMemory().isEmpty()
+        && preExecutionMemory != null
+        && preExecutionMemory.length == wordCount) {
+      return preExecutionMemory;
     }
     final Bytes[] words = new Bytes[wordCount];
     for (int i = 0; i < wordCount; i++) {
@@ -87,6 +98,7 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
 
   @Override
   public void tracePostExecution(final MessageFrame frame, final OperationResult operationResult) {
+    memoryDirty |= frame.getMaybeUpdatedMemory().isPresent();
     if (!traceOpcode) {
       return;
     }

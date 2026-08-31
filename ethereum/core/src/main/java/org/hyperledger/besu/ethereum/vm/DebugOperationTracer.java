@@ -43,8 +43,8 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
 
   private Optional<UInt256> preExecutionStorageKey = Optional.empty();
   private Optional<Bytes[]> preExecutionMemory = Optional.empty();
-  private MessageFrame lastTracedFrame;
-  private boolean memoryUpdatedByLastOperation;
+  private MessageFrame memorySnapshotFrame;
+  private boolean memoryDirty;
   private Bytes inputData;
   private int stepCount;
   private boolean limitReached;
@@ -87,12 +87,13 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
       inputData = frame.getInputData().copy();
     else inputData = frame.getInputData();
     preExecutionMemory = captureMemory(frame);
+    memorySnapshotFrame = frame;
+    memoryDirty = false;
   }
 
   @Override
   public void tracePostExecution(final MessageFrame frame, final OperationResult operationResult) {
-    memoryUpdatedByLastOperation = frame.getMaybeUpdatedMemory().isPresent();
-    lastTracedFrame = frame;
+    memoryDirty |= frame.getMaybeUpdatedMemory().isPresent();
     final Operation currentOperation = frame.getCurrentOperation();
     final String opcode = currentOperation.getName();
     final int opcodeNumber = (opcode != null) ? currentOperation.getOpcode() : Integer.MAX_VALUE;
@@ -306,16 +307,22 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
     return Optional.empty();
   }
 
+  /**
+   * Captures memory as it stood before the operation executes.
+   */
   private Optional<Bytes[]> captureMemory(final MessageFrame frame) {
     if (!options.traceMemory() || frame.memoryWordSize() == 0) {
       return Optional.empty();
-    } else if (!memoryUpdatedByLastOperation && lastTracedFrame == frame) {
-      if (preExecutionMemory.isPresent()
-          && preExecutionMemory.get().length == frame.memoryWordSize()) {
-        return preExecutionMemory;
-      }
+    } else if (memoryUnchangedSinceSnapshot(frame)
+        && preExecutionMemory.isPresent()
+        && preExecutionMemory.get().length == frame.memoryWordSize()) {
+      return preExecutionMemory;
     }
     return forceCaptureMem(frame);
+  }
+
+  private boolean memoryUnchangedSinceSnapshot(final MessageFrame frame) {
+    return memorySnapshotFrame == frame && !memoryDirty && frame.getMaybeUpdatedMemory().isEmpty();
   }
 
   private Optional<Bytes[]> forceCaptureMem(final MessageFrame frame) {
@@ -341,8 +348,8 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
   public void reset() {
     traceFrames = new ArrayList<>();
     lastFrame = null;
-    lastTracedFrame = null;
-    memoryUpdatedByLastOperation = false;
+    memorySnapshotFrame = null;
+    memoryDirty = false;
     preExecutionMemory = Optional.empty();
     stepCount = 0;
     limitReached = false;
