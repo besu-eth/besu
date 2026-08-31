@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.hyperledger.besu.datatypes.BlobType.KZG_CELL_PROOFS;
 import static org.hyperledger.besu.datatypes.BlobType.KZG_PROOF;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineTestSupport.fromErrorResp;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -28,6 +29,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.merge.MergeContext;
+import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
@@ -35,6 +37,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ConstructorArgumentsBuilder;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
@@ -44,10 +47,12 @@ import org.hyperledger.besu.ethereum.core.BlobTestFixture;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.kzg.BlobProofBundle;
 import org.hyperledger.besu.ethereum.core.kzg.CKZG4844Helper;
+import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.metrics.ObservableMetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
+import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
 import java.util.Arrays;
@@ -75,8 +80,19 @@ public class EngineGetBlobsV4Test extends AbstractScheduledApiTest {
   private TransactionPool transactionPool;
   private EngineGetBlobsV4 method;
 
+  // GetBlobsMetrics calls labelledMetric.labels(version) once per inc(...) call, so each
+  // LabelledMetric mock must resolve .labels(...) to a fixed Counter mock: chained
+  // verify(labelledMetric).labels(x).inc(y) does not reliably resolve the intermediate
+  // labels(x) return value through Mockito's stub for a plain (non deep-stub) mock, so the
+  // production code's actual Counter instance is captured here and verified against directly.
+  @Mock LabelledMetric<Counter> requestedLabelledCounter;
+  @Mock LabelledMetric<Counter> availableLabelledCounter;
+  @Mock LabelledMetric<Counter> missingLabelledCounter;
+  @Mock LabelledMetric<Counter> partialResponseLabelledCounter;
+  @Mock LabelledMetric<Counter> fullResponseLabelledCounter;
   @Mock Counter requestedCounter;
   @Mock Counter availableCounter;
+  @Mock Counter missingCounter;
   @Mock Counter partialResponseCounter;
   @Mock Counter fullResponseCounter;
   @Mock ObservableMetricsSystem metricsSystem;
@@ -92,33 +108,58 @@ public class EngineGetBlobsV4Test extends AbstractScheduledApiTest {
     when(blockHeader.getTimestamp()).thenReturn(amsterdamHardfork.milestone());
     when(blockchain.getChainHeadHeader()).thenReturn(blockHeader);
 
-    when(metricsSystem.createCounter(
+    when(metricsSystem.createLabelledCounter(
             eq(BesuMetricCategory.RPC),
-            eq("execution_engine_getblobs_v4_requested_total"),
-            anyString()))
-        .thenReturn(requestedCounter);
-    when(metricsSystem.createCounter(
+            eq("execution_engine_getblobs_requested_total"),
+            anyString(),
+            eq("version")))
+        .thenReturn(requestedLabelledCounter);
+    when(metricsSystem.createLabelledCounter(
             eq(BesuMetricCategory.RPC),
-            eq("execution_engine_getblobs_v4_available_total"),
-            anyString()))
-        .thenReturn(availableCounter);
-    when(metricsSystem.createCounter(
+            eq("execution_engine_getblobs_available_total"),
+            anyString(),
+            eq("version")))
+        .thenReturn(availableLabelledCounter);
+    when(metricsSystem.createLabelledCounter(
             eq(BesuMetricCategory.RPC),
-            eq("execution_engine_getblobs_v4_partial_total"),
-            anyString()))
-        .thenReturn(partialResponseCounter);
-    when(metricsSystem.createCounter(
-            eq(BesuMetricCategory.RPC), eq("execution_engine_getblobs_v4_full_total"), anyString()))
-        .thenReturn(fullResponseCounter);
+            eq("execution_engine_getblobs_missing_total"),
+            anyString(),
+            eq("version")))
+        .thenReturn(missingLabelledCounter);
+    when(metricsSystem.createLabelledCounter(
+            eq(BesuMetricCategory.RPC),
+            eq("execution_engine_getblobs_partial_total"),
+            anyString(),
+            eq("version")))
+        .thenReturn(partialResponseLabelledCounter);
+    when(metricsSystem.createLabelledCounter(
+            eq(BesuMetricCategory.RPC),
+            eq("execution_engine_getblobs_full_total"),
+            anyString(),
+            eq("version")))
+        .thenReturn(fullResponseLabelledCounter);
+
+    when(requestedLabelledCounter.labels(anyString())).thenReturn(requestedCounter);
+    when(availableLabelledCounter.labels(anyString())).thenReturn(availableCounter);
+    when(missingLabelledCounter.labels(anyString())).thenReturn(missingCounter);
+    when(partialResponseLabelledCounter.labels(anyString())).thenReturn(partialResponseCounter);
+    when(fullResponseLabelledCounter.labels(anyString())).thenReturn(fullResponseCounter);
 
     method =
         new EngineGetBlobsV4(
-            mock(Vertx.class),
-            protocolContext,
-            protocolSchedule,
-            mock(EngineCallListener.class),
-            transactionPool,
-            metricsSystem);
+            new ConstructorArgumentsBuilder()
+                .protocolSchedule(protocolSchedule)
+                .protocolContext(protocolContext)
+                .vertx(mock(Vertx.class))
+                .engineCallListener(mock(EngineCallListener.class))
+                .mergeCoordinator(mock(MergeMiningCoordinator.class))
+                .transactionPool(transactionPool)
+                .ethPeers(mock(EthPeers.class))
+                .metricsSystem(metricsSystem)
+                .maxRequestBlocks(0)
+                .build(),
+            AMSTERDAM,
+            null);
   }
 
   @Test
@@ -140,6 +181,7 @@ public class EngineGetBlobsV4Test extends AbstractScheduledApiTest {
 
     verify(requestedCounter).inc(1);
     verify(availableCounter).inc(1);
+    verify(missingCounter).inc(0);
     verify(fullResponseCounter).inc();
     verifyNoInteractions(partialResponseCounter);
   }
@@ -164,13 +206,11 @@ public class EngineGetBlobsV4Test extends AbstractScheduledApiTest {
 
     Bytes blobCells = bundle.getBlobCellsBytes().orElseThrow();
     int cellSize = blobCells.size() / CKZG4844Helper.CELL_PROOFS_PER_BLOB;
-    String expectedCell0 = blobCells.slice(0, cellSize).toHexString();
-    String expectedCell127 = blobCells.slice(127 * cellSize, cellSize).toHexString();
+    Bytes expectedCell0 = blobCells.slice(0, cellSize);
+    Bytes expectedCell127 = blobCells.slice(127 * cellSize, cellSize);
     assertThat(result.getFirst().getBlobCells()).containsExactly(expectedCell0, expectedCell127);
     assertThat(result.getFirst().getProofs())
-        .containsExactly(
-            bundle.getKzgProof().get(0).getData().toHexString(),
-            bundle.getKzgProof().get(127).getData().toHexString());
+        .containsExactly(bundle.getKzgProof().get(0), bundle.getKzgProof().get(127));
   }
 
   @Test
@@ -200,6 +240,7 @@ public class EngineGetBlobsV4Test extends AbstractScheduledApiTest {
 
     verify(requestedCounter).inc(3);
     verify(availableCounter).inc(2);
+    verify(missingCounter).inc(1);
     verify(partialResponseCounter).inc();
     verifyNoInteractions(fullResponseCounter);
   }
@@ -217,6 +258,7 @@ public class EngineGetBlobsV4Test extends AbstractScheduledApiTest {
 
     verify(requestedCounter).inc(1);
     verify(availableCounter).inc(0);
+    verify(missingCounter).inc(1);
     verify(partialResponseCounter).inc();
     verifyNoInteractions(fullResponseCounter);
   }
@@ -246,6 +288,23 @@ public class EngineGetBlobsV4Test extends AbstractScheduledApiTest {
   }
 
   @Test
+  void shouldFailWhenAmsterdamNotActive() {
+    when(blockHeader.getTimestamp()).thenReturn(amsterdamHardfork.milestone() - 1);
+    JsonRpcResponse response =
+        method.syncResponse(buildRequestContext(FULL_BITARRAY, new VersionedHash[0]));
+    assertThat(fromErrorResp(response).getCode())
+        .isEqualTo(RpcErrorType.UNSUPPORTED_FORK.getCode());
+  }
+
+  @Test
+  void shouldSucceedWhenAmsterdamActive() {
+    when(blockHeader.getTimestamp()).thenReturn(amsterdamHardfork.milestone());
+    JsonRpcResponse response =
+        method.syncResponse(buildRequestContext(FULL_BITARRAY, new VersionedHash[0]));
+    assertThat(response.getType()).isEqualTo(RpcResponseType.SUCCESS);
+  }
+
+  @Test
   public void shouldReturnNullWhenSyncing() {
     when(mergeContext.isSyncing()).thenReturn(true);
     BlobProofBundle bundle = createBundleWithBlobType(KZG_CELL_PROOFS);
@@ -255,7 +314,11 @@ public class EngineGetBlobsV4Test extends AbstractScheduledApiTest {
 
     assertThat(response.getResult()).isNull();
     verifyNoInteractions(
-        requestedCounter, availableCounter, partialResponseCounter, fullResponseCounter);
+        requestedCounter,
+        availableCounter,
+        missingCounter,
+        partialResponseCounter,
+        fullResponseCounter);
   }
 
   @Test

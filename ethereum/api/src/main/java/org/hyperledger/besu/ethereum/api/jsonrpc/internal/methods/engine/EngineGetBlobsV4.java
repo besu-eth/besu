@@ -14,11 +14,9 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
-
 import org.hyperledger.besu.datatypes.BlobType;
+import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.datatypes.VersionedHash;
-import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
@@ -31,21 +29,15 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlobCellsAndProofsV1;
 import org.hyperledger.besu.ethereum.core.kzg.BlobProofBundle;
 import org.hyperledger.besu.ethereum.core.kzg.CKZG4844Helper;
+import org.hyperledger.besu.ethereum.core.kzg.KZGProof;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
-import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
-import org.hyperledger.besu.metrics.BesuMetricCategory;
-import org.hyperledger.besu.plugin.services.MetricsSystem;
-import org.hyperledger.besu.plugin.services.metrics.Counter;
-import org.hyperledger.besu.util.HexUtils;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 
-import io.vertx.core.Vertx;
 import jakarta.validation.constraints.NotNull;
 import org.apache.tuweni.bytes.Bytes;
 import org.jspecify.annotations.Nullable;
@@ -74,42 +66,16 @@ public class EngineGetBlobsV4 extends ExecutionEngineJsonRpcMethod {
   private static final int INDICES_BITARRAY_BYTE_LENGTH = 16;
 
   private final TransactionPool transactionPool;
-  private final Counter requestedCounter;
-  private final Counter availableCounter;
-  private final Counter partialResponseCounter;
-  private final Counter fullResponseCounter;
-  private final Optional<Long> amsterdamMilestone;
+  protected final GetBlobsMetrics getBlobsMetrics;
 
   public EngineGetBlobsV4(
-      final Vertx vertx,
-      final ProtocolContext protocolContext,
-      final ProtocolSchedule protocolSchedule,
-      final EngineCallListener engineCallListener,
-      final TransactionPool transactionPool,
-      final MetricsSystem metricsSystem) {
-    super(vertx, protocolSchedule, protocolContext, engineCallListener);
-    this.transactionPool = transactionPool;
-    this.requestedCounter =
-        metricsSystem.createCounter(
-            BesuMetricCategory.RPC,
-            "execution_engine_getblobs_v4_requested_total",
-            "Number of blobs requested via engine_getBlobsV4");
-    this.availableCounter =
-        metricsSystem.createCounter(
-            BesuMetricCategory.RPC,
-            "execution_engine_getblobs_v4_available_total",
-            "Number of blobs requested via engine_getBlobsV4 that are present in the blob pool");
-    this.partialResponseCounter =
-        metricsSystem.createCounter(
-            BesuMetricCategory.RPC,
-            "execution_engine_getblobs_v4_partial_total",
-            "Number of calls to engine_getBlobsV4 that returned partial responses");
-    this.fullResponseCounter =
-        metricsSystem.createCounter(
-            BesuMetricCategory.RPC,
-            "execution_engine_getblobs_v4_full_total",
-            "Number of calls to engine_getBlobsV4 that returned complete responses");
-    this.amsterdamMilestone = protocolSchedule.milestoneFor(AMSTERDAM);
+      final ConstructorArguments constructorArguments,
+      final HardforkId minSupportedFork,
+      final HardforkId firstUnsupportedFork) {
+    super(constructorArguments, minSupportedFork, firstUnsupportedFork);
+    this.transactionPool = constructorArguments.transactionPool();
+    this.getBlobsMetrics =
+        new GetBlobsMetrics(constructorArguments.metricsSystem(), getNumericVersion());
   }
 
   @Override
@@ -135,27 +101,28 @@ public class EngineGetBlobsV4 extends ExecutionEngineJsonRpcMethod {
       return new JsonRpcErrorResponse(requestContext.getRequest().getId(), forkValidationResult);
     }
 
-    requestedCounter.inc(versionedHashes.length);
+    getBlobsMetrics.increaseRequested(versionedHashes.length);
 
     final List<Integer> cellIndexes = cellIndexesFor(indicesBitarray);
     final List<BlobCellsAndProofsV1> result = getBlobV4Result(versionedHashes, cellIndexes);
 
     // count available blobs (non-null entries)
-    long availableCount = result.stream().filter(Objects::nonNull).count();
-    availableCounter.inc(availableCount);
+    final int availableCount = (int) result.stream().filter(Objects::nonNull).count();
+    getBlobsMetrics.increaseAvailable(availableCount);
+    getBlobsMetrics.increaseMissing(versionedHashes.length - availableCount);
 
     // track if this was a partial or full response
     if (availableCount == versionedHashes.length) {
-      fullResponseCounter.inc();
+      getBlobsMetrics.increaseFull();
     } else {
-      partialResponseCounter.inc();
+      getBlobsMetrics.increasePartial();
     }
 
     LOG.atDebug()
-        .setMessage("Requested {} bundles, found {} valid bundles{}")
+        .setMessage("Requested {} bundles, found {} valid bundles, {} missing")
         .addArgument(versionedHashes.length)
         .addArgument(availableCount)
-        .addArgument(() -> availableCount < versionedHashes.length ? " (partial response)" : "")
+        .addArgument(() -> versionedHashes.length - availableCount)
         .log();
 
     return new JsonRpcSuccessResponse(requestContext.getRequest().getId(), result);
@@ -227,21 +194,10 @@ public class EngineGetBlobsV4 extends ExecutionEngineJsonRpcMethod {
       return null;
     }
     final int cellSize = blobCells.size() / CKZG4844Helper.CELL_PROOFS_PER_BLOB;
-    final List<String> cells =
-        cellIndexes.stream()
-            .map(index -> blobCells.slice(index * cellSize, cellSize))
-            .map(cell -> HexUtils.toFastHex(cell, true))
-            .toList();
-    final List<String> proofs =
-        cellIndexes.stream()
-            .map(index -> bundle.getKzgProof().get(index))
-            .map(proof -> HexUtils.toFastHex(proof.getData(), true))
-            .toList();
+    final List<Bytes> cells =
+        cellIndexes.stream().map(index -> blobCells.slice(index * cellSize, cellSize)).toList();
+    final List<KZGProof> proofs =
+        cellIndexes.stream().map(index -> bundle.getKzgProof().get(index)).toList();
     return new BlobCellsAndProofsV1(cells, proofs);
-  }
-
-  @Override
-  protected ValidationResult<RpcErrorType> validateForkSupported(final long currentTimestamp) {
-    return ForkSupportHelper.validateForkSupported(AMSTERDAM, amsterdamMilestone, currentTimestamp);
   }
 }

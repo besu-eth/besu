@@ -1,5 +1,5 @@
 {
-  "_comment": "Maps execution-spec-tests exception keys to Besu error-message patterns produced by validateAndProcessBlock (not the engine API). Organized by validation stage. Source: https://github.com/ethereum/execution-specs",
+  "_comment": "Maps execution-spec-tests exception keys to the Besu error-message patterns that condition produces. The top-level 'substring' and 'regex' sections cover validateAndProcessBlock, and are used by both the JUnit reference tests and evmtool's engine-test; the 'engine' section at the bottom adds the messages only the Engine API emits. Organized by validation stage. Source: https://github.com/ethereum/execution-specs (clis/besu.py)",
 
   "substring": {
 
@@ -14,6 +14,7 @@
     "BlockException.INVALID_BLOCK_NUMBER":                       "Header validation failed",
     "BlockException.INVALID_BLOCK_TIMESTAMP_OLDER_THAN_PARENT":  "Header validation failed",
     "BlockException.INVALID_GASLIMIT":                           "Header validation failed",
+    "BlockException.INVALID_GAS_USED_ABOVE_LIMIT":               "Header validation failed",
 
     "_comment_body": "Block body validation — MainnetBlockBodyValidator failures (receipts root, tx root, log bloom, withdrawals root, etc.)",
     "BlockException.INVALID_LOG_BLOOM":                          "failed to validate output of imported block",
@@ -25,11 +26,9 @@
     "_comment_state": "World state — state root mismatch after block execution",
     "BlockException.INVALID_STATE_ROOT":                         "World State Root does not match expected value",
 
-    "_comment_bal": "Block Access List (BAL) — EIP-7928 block access list validation (keep even if unmatched, BAL is evolving)",
+    "_comment_bal": "Block Access List (BAL) — EIP-7928 block access list validation (keep even if unmatched, BAL is evolving). Two messages reach here: MainnetBlockValidator wraps a failure as 'Block access list validation failed for block <hash>', while MainnetBlockAccessListValidator reports a hash mismatch directly. Entries that either can produce are in the regex section below.",
     "BlockException.BLOCK_ACCESS_LIST_GAS_LIMIT_EXCEEDED":       "Block access list validation failed for block",
-    "BlockException.INCORRECT_BLOCK_FORMAT":                     "Block access list validation failed for block",
     "BlockException.INVALID_BAL_EXTRA_ACCOUNT":                  "Block access list validation failed for block",
-    "BlockException.INVALID_BAL_HASH":                           "Block access list validation failed for block",
     "BlockException.INVALID_BAL_MISSING_ACCOUNT":                "Block access list hash mismatch",
 
     "_comment_tx_gas": "Transaction gas/fee errors — rejected by MainnetTransactionValidator",
@@ -40,8 +39,12 @@
     "TransactionException.NONCE_IS_MAX":                         "invalid Nonce must be less than",
     "TransactionException.PRIORITY_GREATER_THAN_MAX_FEE_PER_GAS": "transaction invalid max priority fee per gas cannot be greater than max fee per gas",
 
+    "_comment_tx_chain": "Transaction chain id",
+    "TransactionException.INVALID_CHAINID":                      "transaction invalid transaction was meant for chain id",
+
     "_comment_tx_type": "Transaction type errors — wrong tx type for the fork",
     "TransactionException.TYPE_3_TX_CONTRACT_CREATION":          "transaction invalid transaction blob transactions must have a to address",
+    "TransactionException.TYPE_3_TX_PRE_FORK":                   "Transaction type BLOB is invalid, accepted transaction types are",
     "TransactionException.TYPE_4_EMPTY_AUTHORIZATION_LIST":      "transaction invalid transaction code delegation transactions must have a non-empty code delegation list",
     "TransactionException.TYPE_4_TX_CONTRACT_CREATION":          "transaction invalid transaction code delegation transactions must have a to address",
     "TransactionException.TYPE_4_TX_PRE_FORK":                   "transaction invalid Transaction type DELEGATE_CODE is invalid"
@@ -74,13 +77,15 @@
     "BlockException.INVALID_REQUESTS":                           "Invalid execution requests|Requests hash mismatch, calculated: 0x[0-9a-f]+ header: 0x[0-9a-f]+",
 
     "_comment_bal_regex": "Block Access List (BAL) — EIP-7928 (keep even if unmatched)",
+    "BlockException.INCORRECT_BLOCK_FORMAT":                     "Block access list validation failed for block|Block access list hash mismatch",
+    "BlockException.INVALID_BAL_HASH":                           "Block access list validation failed for block|Block access list hash mismatch",
     "BlockException.INVALID_BLOCK_ACCESS_LIST":                  "Block access list validation failed for block 0x[0-9a-f]+|Block access list hash mismatch, calculated: 0x[0-9a-f]+ header: 0x[0-9a-f]+",
 
     "_comment_tx_funds": "Transaction funds/gas errors — multiple error formats depending on the cause",
     "TransactionException.GAS_LIMIT_EXCEEDS_MAXIMUM":            "transaction invalid Transaction gas limit must be at most \\d+",
     "TransactionException.INITCODE_SIZE_EXCEEDED":               "transaction invalid Initcode size of \\d+ exceeds maximum size of \\d+",
     "TransactionException.INSUFFICIENT_ACCOUNT_FUNDS":           "transaction invalid transaction up-front cost 0x[0-9a-f]+ exceeds transaction sender account balance 0x[0-9a-f]+|Header validation failed \\(LIGHT\\)",
-    "TransactionException.INTRINSIC_GAS_BELOW_FLOOR_GAS_COST":  "transaction invalid intrinsic gas cost \\d+ exceeds gas limit \\d+",
+    "TransactionException.INTRINSIC_GAS_BELOW_FLOOR_GAS_COST":  "transaction invalid intrinsic gas cost \\d+( \\(regular \\d+ \\+ state \\d+\\))? exceeds gas limit \\d+",
     "TransactionException.INTRINSIC_GAS_TOO_LOW":                "transaction invalid intrinsic gas cost \\d+( \\(regular \\d+ \\+ state \\d+\\))? exceeds gas limit \\d+",
 
     "_comment_tx_nonce": "Transaction nonce errors",
@@ -89,6 +94,9 @@
 
     "_comment_tx_sender": "Transaction sender errors",
     "TransactionException.SENDER_NOT_EOA":                       "transaction invalid Sender 0x[0-9a-f]+ has deployed code and so is not authorized to send transactions",
+
+    "_comment_tx_signature": "Transaction signature errors",
+    "TransactionException.INVALID_SIGNATURE_VRS":                "transaction invalid Signature s value should be less than \\d+, but got \\d+",
 
     "_comment_tx_type_pre_fork": "Transaction type not supported on this fork — Besu emits the same error for all unsupported types",
     "TransactionException.TYPE_NOT_SUPPORTED":                     "transaction invalid Transaction type \\w+ is invalid, accepted transaction types are|replay protected signatures is not supported",
@@ -99,5 +107,36 @@
     "TR_TypeNotSupportedBlob":                                   "Transaction type BLOB is invalid, accepted transaction types are|replay protected signatures is not supported",
     "TransactionException.TYPE_3_TX_BLOB_COUNT_EXCEEDED":        "Blob transaction has too many blobs: \\d+|Invalid Blob Count: \\d+|Header validation failed \\(",
     "TransactionException.TYPE_3_TX_MAX_BLOB_GAS_ALLOWANCE_EXCEEDED": "Blob transaction 0x[0-9a-f]+ exceeds block blob gas limit: \\d+ > \\d+|total blob gas \\d+ exceeds max blob gas per block \\d+|Header validation failed \\("
+  },
+
+  "engine": {
+
+    "_comment": "Engine API surface only. engine-test reaches validateAndProcessBlock through MergeCoordinator.rememberBlock, so every mapping above applies to it unchanged; these are the additional messages engine_newPayloadVX produces itself, before or around block processing, which the block-import path never emits. A message matching either section counts, so only genuinely different patterns belong here — anything the block-import path also produces goes above, once.",
+
+    "substring": {
+
+      "_comment_blob_gas": "EngineNewPayloadV3 checks blob gas against the payload before importing; block import reports the same conditions as a header validation failure",
+      "BlockException.BLOB_GAS_USED_ABOVE_LIMIT":                "Payload BlobGasUsed does not match calculated BlobGasUsed",
+      "BlockException.INCORRECT_BLOB_GAS_USED":                  "Payload BlobGasUsed does not match calculated BlobGasUsed",
+      "BlockException.INCORRECT_EXCESS_BLOB_GAS":                "Payload excessBlobGas does not match calculated excessBlobGas",
+
+      "_comment_timestamp": "EngineNewPayloadV1 rejects a non-increasing timestamp itself",
+      "BlockException.INVALID_BLOCK_TIMESTAMP_OLDER_THAN_PARENT": "block timestamp not greater than parent",
+
+      "_comment_rlp": "EngineNewPayloadV1 decodes the payload's transaction list; anything malformed in it surfaces as this one message, so several exceptions map to it",
+      "BlockException.RLP_STRUCTURES_ENCODING":                  "Failed to decode transactions from block parameter",
+      "TransactionException.INVALID_SIGNATURE_VRS":              "Failed to decode transactions from block parameter",
+      "TransactionException.TYPE_3_TX_WITH_FULL_BLOBS":          "Failed to decode transactions from block parameter",
+      "TransactionException.TYPE_3_TX_ZERO_BLOBS":               "Failed to decode transactions from block parameter",
+
+      "_comment_versioned_hash": "VersionedHash rejects a version byte other than 0x01 while the payload's transaction list is being decoded, and EngineNewPayloadV1 appends that cause to the decode failure above — so the message identifies the versioned hash rather than only the element that failed to decode.",
+      "TransactionException.TYPE_3_TX_INVALID_BLOB_VERSIONED_HASH": "Invalid versionedHash"
+    },
+
+    "regex": {
+
+      "_comment_block_hash": "EngineNewPayloadV1 recomputes the block hash and compares it with the payload's",
+      "BlockException.INVALID_BLOCK_HASH":                       "Computed block hash 0x[0-9a-f]+ does not match block hash parameter 0x[0-9a-f]+"
+    }
   }
 }

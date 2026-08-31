@@ -547,14 +547,10 @@ public sealed class EngineNewPayloadV1<
         if (jsonPath.equals("transactions")) {
           return respondWithInvalid(
               reqId,
-              "Failed to decode transactions from block parameter ("
-                  + fieldEx.getOriginalMessage()
-                  + ")");
+              "Failed to decode transactions from block parameter (" + describe(fieldEx) + ")");
         } else if (jsonPath.equals("extraData")) {
           customMessage =
-              "Failed to decode extraData from block parameter ("
-                  + fieldEx.getOriginalMessage()
-                  + ")";
+              "Failed to decode extraData from block parameter (" + describe(fieldEx) + ")";
         }
       }
     }
@@ -565,6 +561,26 @@ public sealed class EngineNewPayloadV1<
             RpcErrorType.INVALID_ENGINE_NEW_PAYLOAD_PARAMS,
             Objects.requireNonNullElse(
                 customMessage, "Failed to decode block parameter (" + e.getMessage() + ")")));
+  }
+
+  /**
+   * Describes a decoding failure, appending the root cause to the mapping exception's own message.
+   *
+   * <p>The outermost message is the generic wrapper the decoder adds — for a transaction list,
+   * "Error applying element decoding function on element N of the list" — which says where the
+   * failure was but nothing about what was wrong with it. The cause carries that, so a caller is
+   * told the versioned hash was invalid rather than only that decoding stopped at element 0.
+   */
+  private static String describe(final JsonMappingException fieldEx) {
+    final String message = fieldEx.getOriginalMessage();
+    Throwable cause = fieldEx.getCause();
+    while (cause != null && cause.getCause() != null && cause.getCause() != cause) {
+      cause = cause.getCause();
+    }
+    final String rootMessage = cause == null ? null : cause.getMessage();
+    return rootMessage == null || rootMessage.isBlank() || rootMessage.equals(message)
+        ? message
+        : message + ": " + rootMessage;
   }
 
   protected static class InvalidRequestParametersException extends InvalidJsonRpcRequestException {

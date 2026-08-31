@@ -132,6 +132,56 @@ public class EngineAuthServiceTest {
     auth.authenticate(token, event -> assertThat(event).isPresent());
   }
 
+  /**
+   * The fast path compares the presented token against the cached one with MessageDigest.isEqual
+   * rather than String.equals, so that a live bearer credential is not matched with a byte-by-byte
+   * early-exit comparison. These cases pin the comparison's correctness — a timing-safe compare
+   * that mishandles length or the final byte would still pass the plain cache-hit test above.
+   */
+  @Test
+  public void fastPathDoesNotAcceptATokenDifferingOnlyInItsLastCharacter()
+      throws IOException, URISyntaxException {
+    Vertx vertx = mock(Vertx.class);
+    final Path userKey =
+        Paths.get(ClassLoader.getSystemResource("authentication/ee-jwt-secret.hex").toURI());
+    Path dataDir = Files.createTempDirectory("besuUnitTest");
+    EngineAuthService auth = new EngineAuthService(vertx, Optional.of(userKey.toFile()), dataDir);
+    JWTAuth jwtAuth = auth.getJwtAuthProvider();
+    String token =
+        jwtAuth.generateToken(new JsonObject().put("iat", System.currentTimeMillis() / 1000));
+
+    // prime the cache
+    auth.authenticate(token, event -> assertThat(event).isPresent());
+
+    final char lastChar = token.charAt(token.length() - 1);
+    final String tampered = token.substring(0, token.length() - 1) + (lastChar == 'A' ? 'B' : 'A');
+    auth.authenticate(tampered, event -> assertThat(event).isEmpty());
+
+    // the cache is untouched by the rejected attempt
+    auth.authenticate(token, event -> assertThat(event).isPresent());
+  }
+
+  @Test
+  public void fastPathDoesNotAcceptAPrefixOrExtensionOfTheCachedToken()
+      throws IOException, URISyntaxException {
+    Vertx vertx = mock(Vertx.class);
+    final Path userKey =
+        Paths.get(ClassLoader.getSystemResource("authentication/ee-jwt-secret.hex").toURI());
+    Path dataDir = Files.createTempDirectory("besuUnitTest");
+    EngineAuthService auth = new EngineAuthService(vertx, Optional.of(userKey.toFile()), dataDir);
+    JWTAuth jwtAuth = auth.getJwtAuthProvider();
+    String token =
+        jwtAuth.generateToken(new JsonObject().put("iat", System.currentTimeMillis() / 1000));
+
+    auth.authenticate(token, event -> assertThat(event).isPresent());
+
+    auth.authenticate(token.substring(0, token.length() - 1), event -> assertThat(event).isEmpty());
+    auth.authenticate(token + "A", event -> assertThat(event).isEmpty());
+    auth.authenticate("", event -> assertThat(event).isEmpty());
+
+    auth.authenticate(token, event -> assertThat(event).isPresent());
+  }
+
   @Test
   public void rejectsStaleCachedToken() throws IOException, URISyntaxException {
     Vertx vertx = mock(Vertx.class);
