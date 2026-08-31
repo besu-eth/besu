@@ -53,6 +53,7 @@
 - Complete QBFT votes in a reasonable time when `empyblockperiodseconds` is set by treating QBFT votes as "non empty blocks" [#11111](https://github.com/besu-eth/besu/pull/11111)
 - `engine_newPayload` no longer briefly answers `SYNCING` after startup on a peerless node: `PostMergeContext.isSyncing()` now treats an undetermined terminal-difficulty flag as "reached", matching `SyncState.isInSync()`. [#11168](https://github.com/besu-eth/besu/pull/11168)
 - Engine API timestamps above `2^63-1` are no longer treated as negative: `engine_newPayload` rejected such a payload's withdrawals as pre-Shanghai, `engine_forkchoiceUpdated` failed to parse the payload attributes timestamp at all, and post-merge header validation saw the block as older than its parent.
+- Fix ENR fork ID not updating after timestamp-scheduled forks when no block lands exactly on the fork timestamp. [#10882](https://github.com/besu-eth/besu/issues/10882)
 
 ### Additions and Improvements
 - Add JMH `GasProfiler` that emits `mgas_per_s` as a secondary metric on each benchmark iteration using Besu's own `GasCalculator`. Enable with `-PgasProfiler=true`; override the EVM fork with `-PgasProfilerFork=<fork>` (defaults to Osaka). [#10807](https://github.com/besu-eth/besu/pull/10807)

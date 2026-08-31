@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Besu.
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -12,15 +12,15 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.vm.operations;
+package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator;
 
-import org.hyperledger.besu.evm.gascalculator.GasCalculator;
+import org.hyperledger.besu.datatypes.Address;
 
-import org.openjdk.jmh.infra.BenchmarkParams;
-import org.openjdk.jmh.infra.Blackhole;
+import java.util.Set;
 
-public interface GasCostBenchmark {
-  long getGasCost(BenchmarkParams params, GasCalculator calc);
-
-  void executeOperation(Blackhole blackhole);
+/** Immutable snapshot of addresses whose state was modified by a single committed transaction. */
+public record CommittedTransactionChanges(Set<Address> changedAddresses) {
+  public CommittedTransactionChanges(final Set<Address> changedAddresses) {
+    this.changedAddresses = Set.copyOf(changedAddresses);
+  }
 }

@@ -939,21 +939,18 @@ subprojects {
       jvmArgs = [
         '-XX:+EnableDynamicAgentLoading'
       ]
+      profilers = []
       if (asyncProfiler != null) {
-        profilers = [
-          'async:libPath=' + asyncProfiler + ';' + asyncProfilerOptions
-        ]
+        profilers.add('async:libPath=' + asyncProfiler + ';' + asyncProfilerOptions)
         // Force debug symbols of stack traces to the profiler
         jvmArgs.addAll("-XX:+UnlockDiagnosticVMOptions", "-XX:+DebugNonSafepoints")
       }
       var gcProfiler = _strCmdArg('gcProfiler')
       if (gcProfiler != null && gcProfiler.toBoolean()) {
-        if (asyncProfiler == null) profilers = []
         profilers.add('gc')
       }
       var gasProfiler = _strCmdArg('gasProfiler')
       if (gasProfiler != null && gasProfiler.toBoolean()) {
-        if (asyncProfiler == null) profilers = []
         var gasProfilerFork = _strCmdArg('gasProfilerFork')
         profilers.add('org.hyperledger.besu.ethereum.vm.operations.GasProfiler' + (gasProfilerFork != null ? ':' + gasProfilerFork : ''))
       }
