@@ -456,15 +456,21 @@ class DebugOperationTracerTest {
 
     traceFrame(frame, tracer, anOperation);
     traceFrame(frame, tracer, MSTORE_OPERATION);
+    traceFrame(frame, tracer, anOperation);
 
     final List<TraceFrame> frames = tracer.getTraceFrames();
-    assertThat(frames).hasSize(2);
+    assertThat(frames).hasSize(3);
     assertThat(frames.get(0).getMemory()).isPresent();
     assertThat(frames.get(1).getMemory()).isPresent();
+    assertThat(frames.get(2).getMemory()).isPresent();
 
     final Bytes[] before = frames.get(0).getMemory().get();
-    final Bytes[] after = frames.get(1).getMemory().get();
+    final Bytes[] mstore = frames.get(1).getMemory().get();
+    final Bytes[] after = frames.get(2).getMemory().get();
 
+    assertThat(mstore)
+        .as("A memory-writing opcode still reports the memory it started with")
+        .isSameAs(before);
     assertThat(after)
         .as("After a memory-writing opcode, a new memory snapshot must be taken")
         .isNotSameAs(before);

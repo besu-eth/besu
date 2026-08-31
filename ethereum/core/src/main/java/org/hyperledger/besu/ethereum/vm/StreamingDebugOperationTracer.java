@@ -42,6 +42,7 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
         long gasCost,
         int depth,
         Bytes[] preExecutionStack,
+        Bytes[] preExecutionMemory,
         MessageFrame frame,
         ExceptionalHaltReason haltReason,
         Bytes revertReason);
@@ -49,6 +50,7 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
 
   private final FrameWriter frameWriter;
   private boolean hasEmittedFrame = false;
+  private Bytes[] preExecutionMemory;
 
   /**
    * Creates a streaming operation tracer.
@@ -64,6 +66,23 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
       final FrameWriter frameWriter) {
     super(options, recordChildCallGas);
     this.frameWriter = frameWriter;
+  }
+
+  @Override
+  protected void capturePreExecutionState(final MessageFrame frame) {
+    preExecutionMemory = options.traceMemory() ? snapshotMemory(frame) : null;
+  }
+
+  private static Bytes[] snapshotMemory(final MessageFrame frame) {
+    final int wordCount = frame.memoryWordSize();
+    if (wordCount == 0) {
+      return null;
+    }
+    final Bytes[] words = new Bytes[wordCount];
+    for (int i = 0; i < wordCount; i++) {
+      words[i] = frame.readMemory(i * 32L, 32);
+    }
+    return words;
   }
 
   @Override
@@ -93,6 +112,7 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
         thisGasCost,
         depth,
         preExecutionStack.orElse(null),
+        preExecutionMemory,
         frame,
         haltReason,
         revertReason);
@@ -111,6 +131,7 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
           frame.getRemainingGas(),
           0L,
           frame.getDepth(),
+          null,
           null,
           frame,
           null,
