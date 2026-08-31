@@ -88,6 +88,12 @@ public class DebugTraceBlockStreamerHexEncodingTest {
   // Each iteration pushes Bytes.EMPTY (0x0) onto the stack, generating thousands of struct logs.
   private static final Bytes PUSH0_INIT_CODE = Bytes.fromHexString("0x5b5f506000560000");
 
+  // Init code with two sequential MSTOREs, each expanding memory by one word:
+  //   PUSH1 0x00 PUSH1 0x00 MSTORE PUSH1 0x00 PUSH1 0x20 MSTORE STOP
+  // structLogs[5] is the second MSTORE: one word of memory before it, two after.
+  private static final Bytes DOUBLE_MSTORE_INIT_CODE =
+      Bytes.fromHexString("0x6000600052600060205200");
+
   private ExecutionContextTestFixture fixture;
   private BlockchainQueries blockchainQueries;
   private final ObjectMapper mapper = new ObjectMapper();
@@ -364,6 +370,55 @@ public class DebugTraceBlockStreamerHexEncodingTest {
     assertThat(streamedRoot)
         .as("streaming and accumulating paths must produce identical JSON with memory enabled")
         .isEqualTo(accRoot);
+  }
+
+  /**
+   * The {@code memory} field must hold the memory space <em>before</em> the operation executes, as
+   * documented.
+   */
+  @Test
+  public void memoryIsReportedAsOfBeforeTheOperationExecutes() throws Exception {
+    final TraceOptions withMemory =
+        new TraceOptions(
+            TracerType.OPCODE_TRACER,
+            OpCodeTracerConfigBuilder.createFrom(TraceOptions.DEFAULT.opCodeTracerConfig())
+                .traceMemory(true)
+                .build(),
+            java.util.Map.of());
+    final Transaction tx =
+        Transaction.builder()
+            .type(TransactionType.EIP1559)
+            .nonce(0)
+            .maxPriorityFeePerGas(Wei.of(5))
+            .maxFeePerGas(Wei.of(7))
+            .gasLimit(200_000L)
+            .value(Wei.ZERO)
+            .payload(DOUBLE_MSTORE_INIT_CODE)
+            .chainId(BigInteger.valueOf(42))
+            .signAndBuild(KEY_PAIR);
+    final Block block = buildBlock(tx);
+    final DebugTraceBlockStreamer streamer =
+        new DebugTraceBlockStreamer(
+            block, withMemory, fixture.getProtocolSchedule(), blockchainQueries);
+
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    streamer.streamTo(out, mapper);
+    final JsonNode streamed = mapper.readTree(out.toByteArray());
+    final JsonNode accumulated =
+        mapper.readTree(mapper.writeValueAsBytes(streamer.accumulateAll()));
+
+    for (final JsonNode root : List.of(streamed, accumulated)) {
+      final JsonNode structLogs = root.get(0).get("result").get("structLogs");
+
+      assertThat(structLogs.get(2).get("op").asText()).isEqualTo("MSTORE");
+      assertThat(structLogs.get(2).has("memory")).isFalse();
+
+      assertThat(structLogs.get(5).get("op").asText()).isEqualTo("MSTORE");
+      assertThat(structLogs.get(5).get("memory")).hasSize(1);
+
+      assertThat(structLogs.get(6).get("op").asText()).isEqualTo("STOP");
+      assertThat(structLogs.get(6).get("memory")).hasSize(2);
+    }
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────
