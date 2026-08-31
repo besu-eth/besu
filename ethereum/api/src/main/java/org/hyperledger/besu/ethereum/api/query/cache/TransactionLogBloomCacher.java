@@ -300,6 +300,7 @@ public class TransactionLogBloomCacher {
               cacheFile.getName());
         }
       } catch (final IOException e) {
+        // TODO: partial failures still return true - see #11067 follow-up
         if (isDiskFull(e)) {
           LOG.error(e.getMessage());
           System.exit(DISK_FULL_EXIT_CODE);
