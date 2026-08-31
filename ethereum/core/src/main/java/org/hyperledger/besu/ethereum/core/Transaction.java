@@ -252,9 +252,12 @@ public class Transaction
         checkArgument(
             maybeCodeDelegationList.isPresent(),
             "Must specify code delegation authorizations for code delegation transaction");
-        checkArgument(
-            !maybeCodeDelegationList.get().isEmpty(),
-            "Code delegation transaction must have at least one authorization");
+        // An empty authorization_list is well-formed RLP; EIP-7702 makes it a transaction validity
+        // rule, not an encoding one, so it is rejected by MainnetTransactionValidator rather than
+        // here. Rejecting it at construction would abort decoding of the whole enclosing list --
+        // an engine_newPayload transactions array, an eth/68 message -- and report a decode
+        // failure in place of the real reason the transaction was invalid, hiding any other
+        // defect it has.
       }
     }
 
