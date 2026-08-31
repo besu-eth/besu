@@ -43,6 +43,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.ImmutableInProcessRpcConfigurat
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.ipc.JsonRpcIpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration;
+import org.hyperledger.besu.ethereum.api.pluginadapter.RpcEndpointServiceImpl;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
@@ -52,6 +53,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfigurati
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
+import org.hyperledger.besu.ethereum.permissioning.pluginadapter.PermissioningServiceImpl;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
@@ -59,8 +61,6 @@ import org.hyperledger.besu.metrics.ObservableMetricsSystem;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
 import org.hyperledger.besu.services.BesuPluginContextImpl;
-import org.hyperledger.besu.services.PermissioningServiceImpl;
-import org.hyperledger.besu.services.RpcEndpointServiceImpl;
 import org.hyperledger.besu.services.TransactionValidatorServiceImpl;
 import org.hyperledger.besu.testutil.TestClock;
 
@@ -307,11 +307,12 @@ public class EphemeryTest extends CommandTestAbstract {
     Field portsField = BesuCommand.class.getDeclaredField("allocatedPorts");
     portsField.setAccessible(true);
     @SuppressWarnings("unchecked")
-    Set<Integer> allocatedPorts = (Set<Integer>) portsField.get(besuCommand);
+    Set<BesuCommand.PortBinding> allocatedPorts =
+        (Set<BesuCommand.PortBinding>) portsField.get(besuCommand);
 
     // Add some ports
-    allocatedPorts.add(8545);
-    allocatedPorts.add(30303);
+    allocatedPorts.add(new BesuCommand.PortBinding(8545, BesuCommand.Transport.TCP));
+    allocatedPorts.add(new BesuCommand.PortBinding(30303, BesuCommand.Transport.TCP));
     assertThat(allocatedPorts).hasSizeGreaterThanOrEqualTo(2);
     besuCommand.clearAllocatedPorts();
 

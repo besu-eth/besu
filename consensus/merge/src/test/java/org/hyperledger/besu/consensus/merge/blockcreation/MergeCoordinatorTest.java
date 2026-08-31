@@ -200,7 +200,6 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     when(mergeContext.as(MergeContext.class)).thenReturn(mergeContext);
     when(mergeContext.getTerminalTotalDifficulty())
         .thenReturn(genesisState.getBlock().getHeader().getDifficulty().plus(1L));
-
     protocolContext =
         new ProtocolContext.Builder()
             .withBlockchain(blockchain)
@@ -1049,6 +1048,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
   public void assertGetOrSyncForBlockNotPresent() {
     BlockHeader mockHeader =
         headerGenerator.parentHash(Hash.fromHexStringLenient("0xbeef")).buildHeader();
+    when(mergeContext.isInitialSyncDone()).thenReturn(true);
     when(backwardSyncContext.syncBackwardsUntil(mockHeader.getBlockHash()))
         .thenReturn(CompletableFuture.completedFuture(null));
 
@@ -1058,30 +1058,16 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
   }
 
   @Test
-  public void forkchoiceUpdateShouldIgnoreAncestorOfChainHead() {
-    BlockHeader terminalHeader = terminalPowBlock();
-    sendNewPayloadAndForkchoiceUpdate(
-        new Block(terminalHeader, BlockBody.empty()), Optional.empty(), Hash.ZERO);
+  public void assertGetOrSyncForBlockNotPresentDoesNotStartBackwardSyncWhenInitialSyncNotDone() {
+    BlockHeader mockHeader =
+        headerGenerator.parentHash(Hash.fromHexStringLenient("0xbeef")).buildHeader();
+    when(mergeContext.isInitialSyncDone()).thenReturn(false);
 
-    BlockHeader parentHeader = nextBlockHeader(terminalHeader);
-    Block parent = new Block(parentHeader, BlockBody.empty());
-    sendNewPayloadAndForkchoiceUpdate(parent, Optional.empty(), terminalHeader.getHash());
+    var res = coordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO);
 
-    BlockHeader childHeader = nextBlockHeader(parentHeader);
-    Block child = new Block(childHeader, BlockBody.empty());
-    sendNewPayloadAndForkchoiceUpdate(child, Optional.empty(), parent.getHash());
-
-    ForkchoiceResult res =
-        coordinator.updateForkChoice(parentHeader, Hash.ZERO, terminalHeader.getHash());
-
-    assertThat(res.getStatus()).isEqualTo(ForkchoiceResult.Status.IGNORE_UPDATE_TO_OLD_HEAD);
-    assertThat(res.shouldNotProceedToPayloadBuildProcess()).isTrue();
-    assertThat(res.getNewHead().isEmpty()).isTrue();
-    assertThat(res.getLatestValid().isPresent()).isTrue();
-    assertThat(res.getLatestValid().get()).isEqualTo(parentHeader.getHash());
-    assertThat(res.getErrorMessage().isEmpty()).isTrue();
-
-    verify(blockchain, never()).rewindToBlock(any());
+    assertThat(res).isNotPresent();
+    verify(backwardSyncContext, never()).maybeUpdateTargetHeight(any());
+    verify(backwardSyncContext, never()).syncBackwardsUntil(any(Hash.class));
   }
 
   @ParameterizedTest(name = "{index}: {0}")

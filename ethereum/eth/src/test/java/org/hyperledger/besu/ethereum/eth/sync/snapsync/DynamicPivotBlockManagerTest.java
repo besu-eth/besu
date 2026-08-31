@@ -49,18 +49,18 @@ public class DynamicPivotBlockManagerTest {
     when(fastSyncActions.getSyncState()).thenReturn(syncState);
     when(ethContext.getScheduler()).thenReturn(new DeterministicEthScheduler());
     dynamicPivotBlockManager =
-        new DynamicPivotBlockSelector(ethContext, fastSyncActions, snapSyncState, null);
+        new DynamicPivotBlockSelector(ethContext, fastSyncActions, snapSyncState, null, 60_000L);
   }
 
   @Test
   public void shouldSwitchPivotWhenDifferentFromCurrent() {
     final BlockHeader newHeader = new BlockHeaderTestFixture().number(1060).buildHeader();
-    final SnapSyncProcessState selectedState = new SnapSyncProcessState(newHeader.getHash(), false);
-    final SnapSyncProcessState downloadedState = new SnapSyncProcessState(newHeader, false);
+    final SnapSyncProcessState selectedState = new SnapSyncProcessState(newHeader.getHash());
+    final SnapSyncProcessState downloadedState = new SnapSyncProcessState(newHeader);
 
     when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
         .thenReturn(completedFuture(selectedState));
-    when(fastSyncActions.downloadPivotBlockHeader(selectedState))
+    when(fastSyncActions.resolvePivotBlockHeader(selectedState))
         .thenReturn(completedFuture(downloadedState));
     // current pivot is different (empty → no current pivot header)
     when(snapSyncState.getPivotBlockHeader()).thenReturn(Optional.empty());
@@ -78,8 +78,7 @@ public class DynamicPivotBlockManagerTest {
   @Test
   public void shouldNotSwitchPivotWhenSameAsCurrent() {
     final BlockHeader currentHeader = new BlockHeaderTestFixture().number(1060).buildHeader();
-    final SnapSyncProcessState selectedState =
-        new SnapSyncProcessState(currentHeader.getHash(), false);
+    final SnapSyncProcessState selectedState = new SnapSyncProcessState(currentHeader.getHash());
 
     when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
         .thenReturn(completedFuture(selectedState));
@@ -89,7 +88,7 @@ public class DynamicPivotBlockManagerTest {
     dynamicPivotBlockManager.check(
         (blockHeader, newBlockFound) -> assertThat(newBlockFound).isFalse());
 
-    verify(fastSyncActions, never()).downloadPivotBlockHeader(selectedState);
+    verify(fastSyncActions, never()).resolvePivotBlockHeader(selectedState);
     verify(snapSyncState, never()).setCurrentHeader(currentHeader);
   }
 
@@ -104,15 +103,16 @@ public class DynamicPivotBlockManagerTest {
     when(nonFiringContext.getScheduler()).thenReturn(nonFiringScheduler);
 
     final DynamicPivotBlockSelector throttled =
-        new DynamicPivotBlockSelector(nonFiringContext, fastSyncActions, snapSyncState, null);
+        new DynamicPivotBlockSelector(
+            nonFiringContext, fastSyncActions, snapSyncState, null, 60_000L);
 
     final BlockHeader newHeader = new BlockHeaderTestFixture().number(1060).buildHeader();
-    final SnapSyncProcessState selectedState = new SnapSyncProcessState(newHeader.getHash(), false);
-    final SnapSyncProcessState downloadedState = new SnapSyncProcessState(newHeader, false);
+    final SnapSyncProcessState selectedState = new SnapSyncProcessState(newHeader.getHash());
+    final SnapSyncProcessState downloadedState = new SnapSyncProcessState(newHeader);
 
     when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
         .thenReturn(completedFuture(selectedState));
-    when(fastSyncActions.downloadPivotBlockHeader(selectedState))
+    when(fastSyncActions.resolvePivotBlockHeader(selectedState))
         .thenReturn(completedFuture(downloadedState));
     when(snapSyncState.getPivotBlockHeader()).thenReturn(Optional.empty());
     when(snapSyncState.getPivotBlockNumber()).thenReturn(java.util.OptionalLong.of(900));

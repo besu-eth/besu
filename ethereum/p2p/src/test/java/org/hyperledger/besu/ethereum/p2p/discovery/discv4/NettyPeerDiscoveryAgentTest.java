@@ -32,6 +32,7 @@ import org.hyperledger.besu.ethereum.p2p.config.DiscoveryConfiguration;
 import org.hyperledger.besu.ethereum.p2p.discovery.NodeRecordManager;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.DiscoveryPeerV4;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.PacketType;
+import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.PeerDiscoveryController;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.DaggerPacketPackage;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.Packet;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.PacketPackage;
@@ -39,7 +40,9 @@ import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.ping.P
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.p2p.peers.Peer;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions;
+import org.hyperledger.besu.ethereum.p2p.rlpx.ConnectSource;
 import org.hyperledger.besu.ethereum.p2p.rlpx.RlpxAgent;
+import org.hyperledger.besu.metrics.StubMetricsSystem;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.nat.NatService;
 
@@ -58,6 +61,7 @@ import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt64;
+import org.ethereum.beacon.discovery.schema.NodeRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -90,7 +94,9 @@ class NettyPeerDiscoveryAgentTest {
 
     final RlpxAgent rlpxAgent = mock(RlpxAgent.class);
     lenient()
-        .when(rlpxAgent.connect(org.mockito.ArgumentMatchers.any()))
+        .when(
+            rlpxAgent.connect(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
         .thenReturn(CompletableFuture.failedFuture(new RuntimeException()));
 
     final NatService natService = new NatService(Optional.empty());
@@ -216,9 +222,238 @@ class NettyPeerDiscoveryAgentTest {
     verify(agent, never()).handleIncomingPacket(any(), any());
   }
 
+  @Test
+  void start_withEphemeralIpv6BindPort_advertisesTheTransportsResolvedPortNotZero()
+      throws Exception {
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final DiscoveryConfiguration config = new DiscoveryConfiguration();
+    config.setBindHost("127.0.0.1");
+    config.setAdvertisedHost("127.0.0.1");
+    config.setBindPort(0);
+    config.setEnodeBootnodes(Collections.emptyList());
+    config.setAdvertisedHostIpv6(Optional.of("2001:db8::1"));
+    // The bug scenario: an ephemeral (OS-assigned) IPv6 discovery port, requested via 0.
+    config.setBindPortIpv6(0);
+
+    final ForkIdManager forkIdManager = mock(ForkIdManager.class);
+    final ForkId forkId = new ForkId(Bytes.EMPTY, Bytes.EMPTY);
+    lenient().when(forkIdManager.getForkIdForChainHead()).thenReturn(forkId);
+
+    final RlpxAgent rlpxAgent = mock(RlpxAgent.class);
+    lenient()
+        .when(rlpxAgent.connect(any(), any(ConnectSource.class)))
+        .thenReturn(CompletableFuture.failedFuture(new RuntimeException()));
+    lenient().when(rlpxAgent.getIpv6ListeningPort()).thenReturn(Optional.of(30304));
+
+    final NatService natService = new NatService(Optional.empty());
+    final NodeRecordManager nodeRecordManager =
+        new NodeRecordManager(
+            new InMemoryKeyValueStorageProvider(), nodeKey, forkIdManager, natService);
+
+    // The port an OS would actually assign for an ephemeral bind - deliberately different from
+    // the configured 0, so the test fails if the fix regresses to using the configured value.
+    final int resolvedIpv6Port = 54321;
+    final TrackingTransport ipv6Transport = new TrackingTransport();
+    ipv6Transport.ipv6BoundAddress =
+        Optional.of(new InetSocketAddress(InetAddress.getByName("2001:db8::1"), resolvedIpv6Port));
+
+    final NettyPeerDiscoveryAgent ipv6Agent =
+        NettyPeerDiscoveryAgent.createWithTransport(
+            nodeKey,
+            config,
+            PeerPermissions.noop(),
+            new NoOpMetricsSystem(),
+            nodeRecordManager,
+            forkIdManager,
+            rlpxAgent,
+            ipv6Transport);
+
+    try {
+      ipv6Agent.start(30303).join();
+
+      final NodeRecord nodeRecord =
+          nodeRecordManager.getLocalNode().orElseThrow().getNodeRecord().orElseThrow();
+      assertThat(nodeRecord.getUdp6Address()).isPresent();
+      assertThat(nodeRecord.getUdp6Address().get().getPort()).isEqualTo(resolvedIpv6Port);
+    } finally {
+      ipv6Agent.stop().join();
+    }
+  }
+
+  private NettyPeerDiscoveryAgent agentWithMetrics(
+      final StubMetricsSystem metrics, final TrackingTransport agentTransport) {
+    final NodeKey agentNodeKey = NodeKeyUtils.generate();
+    final DiscoveryConfiguration config = new DiscoveryConfiguration();
+    config.setBindHost("127.0.0.1");
+    config.setAdvertisedHost("127.0.0.1");
+    config.setBindPort(0);
+    config.setEnodeBootnodes(Collections.emptyList());
+
+    final ForkIdManager forkIdManager = mock(ForkIdManager.class);
+    lenient()
+        .when(forkIdManager.getForkIdForChainHead())
+        .thenReturn(new ForkId(Bytes.EMPTY, Bytes.EMPTY));
+
+    final RlpxAgent agentRlpxAgent = mock(RlpxAgent.class);
+    lenient()
+        .when(agentRlpxAgent.connect(any(), any(ConnectSource.class)))
+        .thenReturn(CompletableFuture.failedFuture(new RuntimeException()));
+
+    return NettyPeerDiscoveryAgent.createWithTransport(
+        agentNodeKey,
+        config,
+        PeerPermissions.noop(),
+        metrics,
+        new NodeRecordManager(
+            new InMemoryKeyValueStorageProvider(),
+            agentNodeKey,
+            forkIdManager,
+            new NatService(Optional.empty())),
+        forkIdManager,
+        agentRlpxAgent,
+        agentTransport);
+  }
+
+  private static void drain(final Executor dispatchExecutor) throws Exception {
+    final CountDownLatch sentinelRan = new CountDownLatch(1);
+    dispatchExecutor.execute(sentinelRan::countDown);
+    assertThat(sentinelRan.await(5, TimeUnit.SECONDS)).isTrue();
+  }
+
+  @Test
+  void inboundAdmission_capsInflightPackets_andCountsDrops() throws Exception {
+    final StubMetricsSystem metrics = new StubMetricsSystem();
+    final TrackingTransport metricsTransport = new TrackingTransport();
+    final NettyPeerDiscoveryAgent metricsAgent = agentWithMetrics(metrics, metricsTransport);
+    try {
+      metricsAgent.start(30303).join();
+
+      // Submitting directly consumes no admission permit, so the gate stays at full capacity.
+      final CountDownLatch releaseDecodeThread = new CountDownLatch(1);
+      final CountDownLatch decodeThreadBusy = new CountDownLatch(1);
+      metricsAgent
+          .createDecodeExecutor()
+          .execute(
+              () -> {
+                decodeThreadBusy.countDown();
+                try {
+                  releaseDecodeThread.await(5, TimeUnit.SECONDS);
+                } catch (final InterruptedException e) {
+                  Thread.currentThread().interrupt();
+                }
+                return null;
+              });
+      assertThat(decodeThreadBusy.await(5, TimeUnit.SECONDS)).isTrue();
+
+      final int floodSize = 1000;
+      final InetSocketAddress sender =
+          new InetSocketAddress(InetAddress.getLoopbackAddress(), 30303);
+      final Bytes encoded = metricsAgent.packetSerializer.encode(packet);
+      for (int i = 0; i < floodSize; i++) {
+        metricsTransport.inboundHandler.onPacket(sender, encoded);
+      }
+
+      assertThat(metrics.getGaugeValue("discovery_inflight_inbound_packets_current"))
+          .isEqualTo(PeerDiscoveryAgentV4.MAX_INFLIGHT_INBOUND_PACKETS);
+      assertThat(metrics.getCounterValue("discovery_packets_dropped_total", "admission_limit"))
+          .isEqualTo(floodSize - PeerDiscoveryAgentV4.MAX_INFLIGHT_INBOUND_PACKETS);
+
+      releaseDecodeThread.countDown();
+    } finally {
+      metricsAgent.stop().join();
+    }
+  }
+
+  @Test
+  void admissionPermit_isReleased_afterDispatchCompletes() throws Exception {
+    final StubMetricsSystem metrics = new StubMetricsSystem();
+    final TrackingTransport metricsTransport = new TrackingTransport();
+    final NettyPeerDiscoveryAgent metricsAgent = agentWithMetrics(metrics, metricsTransport);
+    try {
+      metricsAgent.start(30303).join();
+
+      metricsTransport.inboundHandler.onPacket(
+          new InetSocketAddress(InetAddress.getLoopbackAddress(), 30303),
+          metricsAgent.packetSerializer.encode(packet));
+
+      // Decode is single-threaded and FIFO, so a no-op queued after the real decode completes only
+      // once that decode has posted its continuation to the dispatch thread.
+      metricsAgent.createDecodeExecutor().execute(() -> null).get(5, TimeUnit.SECONDS);
+      drain(metricsAgent.createDispatchExecutor());
+
+      assertThat(metrics.getGaugeValue("discovery_inflight_inbound_packets_current")).isZero();
+    } finally {
+      metricsAgent.stop().join();
+    }
+  }
+
+  @Test
+  void admissionPermit_isReleased_whenDecodeFails() throws Exception {
+    final StubMetricsSystem metrics = new StubMetricsSystem();
+    final TrackingTransport metricsTransport = new TrackingTransport();
+    final NettyPeerDiscoveryAgent metricsAgent = agentWithMetrics(metrics, metricsTransport);
+    try {
+      metricsAgent.start(30303).join();
+
+      // Size-valid but undecodable: exercises the error branch of the dispatch continuation.
+      metricsTransport.inboundHandler.onPacket(
+          new InetSocketAddress(InetAddress.getLoopbackAddress(), 30303),
+          Bytes.repeat((byte) 0x2a, 200));
+
+      metricsAgent.createDecodeExecutor().execute(() -> null).get(5, TimeUnit.SECONDS);
+      drain(metricsAgent.createDispatchExecutor());
+
+      assertThat(metrics.getGaugeValue("discovery_inflight_inbound_packets_current")).isZero();
+    } finally {
+      metricsAgent.stop().join();
+    }
+  }
+
+  @Test
+  void cryptoQueue_dropsExcess_andCountsDrops() throws Exception {
+    final StubMetricsSystem metrics = new StubMetricsSystem();
+    final NettyPeerDiscoveryAgent metricsAgent = agentWithMetrics(metrics, new TrackingTransport());
+    try {
+      final PeerDiscoveryController.AsyncExecutor workerExecutor =
+          metricsAgent.createWorkerExecutor();
+
+      final CountDownLatch releaseCryptoThreads = new CountDownLatch(1);
+      final CountDownLatch cryptoThreadsBusy = new CountDownLatch(2);
+      for (int i = 0; i < 2; i++) {
+        workerExecutor.execute(
+            () -> {
+              cryptoThreadsBusy.countDown();
+              try {
+                releaseCryptoThreads.await(5, TimeUnit.SECONDS);
+              } catch (final InterruptedException e) {
+                Thread.currentThread().interrupt();
+              }
+              return null;
+            });
+      }
+      assertThat(cryptoThreadsBusy.await(5, TimeUnit.SECONDS)).isTrue();
+
+      for (int i = 0; i < NettyPeerDiscoveryAgent.CRYPTO_QUEUE_CAPACITY; i++) {
+        workerExecutor.execute(() -> null);
+      }
+
+      // Must not throw: ScheduledExecutorAsyncExecutor catches RuntimeException into the returned
+      // future, so an AbortPolicy would complete it exceptionally and log an ERROR per drop.
+      final CompletableFuture<Object> dropped = workerExecutor.execute(() -> null);
+      assertThat(dropped).isNotCompleted();
+      assertThat(metrics.getCounterValue("discovery_packets_dropped_total", "crypto_capacity"))
+          .isEqualTo(1);
+
+      releaseCryptoThreads.countDown();
+    } finally {
+      metricsAgent.stop().join();
+    }
+  }
+
   private static class TrackingTransport implements Transport {
     final AtomicInteger sendCallCount = new AtomicInteger(0);
     volatile InboundV4Handler inboundHandler;
+    volatile Optional<InetSocketAddress> ipv6BoundAddress = Optional.empty();
 
     @Override
     public CompletableFuture<InetSocketAddress> start() {
@@ -240,6 +475,11 @@ class NettyPeerDiscoveryAgentTest {
     @Override
     public void setInboundHandler(final InboundV4Handler handler) {
       this.inboundHandler = handler;
+    }
+
+    @Override
+    public Optional<InetSocketAddress> getIpv6BoundAddress() {
+      return ipv6BoundAddress;
     }
   }
 }

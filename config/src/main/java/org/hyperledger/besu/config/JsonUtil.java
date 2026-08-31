@@ -40,6 +40,7 @@ import com.fasterxml.jackson.databind.node.JsonNodeType;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.base.Predicates;
 import org.apache.tuweni.bytes.Bytes;
+import org.jspecify.annotations.Nullable;
 
 /** The Json util class. */
 public class JsonUtil {
@@ -354,7 +355,8 @@ public class JsonUtil {
    * @param defaultValue the default value
    * @return the Wei
    */
-  public static Bytes getBytes(final ObjectNode json, final String key, final Bytes defaultValue) {
+  public static @Nullable Bytes getBytes(
+      final ObjectNode json, final String key, final @Nullable Bytes defaultValue) {
     return getBytes(json, key).orElse(defaultValue);
   }
 
@@ -652,12 +654,12 @@ public class JsonUtil {
   private static class NameExcludeFilter extends TokenFilter {
     private final Set<String> names;
 
-    public NameExcludeFilter(final String... names) {
+    NameExcludeFilter(final String... names) {
       this.names = Set.of(names);
     }
 
     @Override
-    public TokenFilter includeProperty(final String name) {
+    public @Nullable TokenFilter includeProperty(final String name) {
       if (names.contains(name)) {
         return null;
       }

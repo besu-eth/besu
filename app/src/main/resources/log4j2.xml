@@ -1,64 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Configuration level="WARN">
-    <Properties>
-        <Property name="root.log.level">${env:LOG_LEVEL:-INFO}</Property>
-        <Property name="root.log.logger">${env:LOGGER:-Console}</Property>
-        <Property name="host">${env:HOST:-${docker:containerId:-${hostName:-localhost}}}</Property>
-        <Property name="splunk.url">${env:SPLUNK_URL}</Property>
-        <Property name="splunk.token">${env:SPLUNK_TOKEN}</Property>
-        <Property name="splunk.index">${env:SPLUNK_INDEX}</Property>
-        <Property name="splunk.source">${env:SPLUNK_SOURCE:-besu}</Property>
-        <Property name="splunk.sourcetype">${env:SPLUNK_SOURCETYPE:-besu}</Property>
-        <Property name="splunk.batch_size_bytes">${env:SPLUNK_BATCH_SIZE_BYTES:-65536}</Property>
-        <Property name="splunk.batch_size_count">${env:SPLUNK_BATCH_SIZE_COUNT:-1000}</Property>
-        <Property name="splunk.batch_interval">${env:SPLUNK_BATCH_INTERVAL:-500}</Property>
-        <Property name="splunk.disableCertificateValidation">${env:SPLUNK_SKIPTLSVERIFY:-false}</Property>
-    </Properties>
+<Configuration level="WARN" xmlns:xi="http://www.w3.org/2001/XInclude">
+    <xi:include href="log4j2-besu-properties.xml"/>
 
     <Appenders>
-        <Routing name="Router">
-            <Routes pattern="$${sys:root.log.logger}">
-                <Route key="Splunk">
-                    <SplunkHttp name="Splunk"
-                                url="${sys:splunk.url}"
-                                token="${sys:splunk.token}"
-                                host="${sys:host}"
-                                index="${sys:splunk.index}"
-                                source="${sys:splunk.source}"
-                                sourcetype="${sys:splunk.sourcetype}"
-                                messageFormat="text"
-                                batch_size_bytes="${sys:splunk.batch_size_bytes}"
-                                batch_size_count="${sys:splunk.batch_size_count}"
-                                batch_interval="${sys:splunk.batch_interval}"
-                                disableCertificateValidation="${sys:splunk.disableCertificateValidation}">
-                        <PatternLayout pattern="%msg" />
-                    </SplunkHttp>
-                </Route>
-            </Routes>
-        </Routing>
+        <Console name="Console" target="SYSTEM_OUT">
+            <PatternLayout
+                disableAnsi="${sys:besu.disableAnsi:-false}"
+                noConsoleNoAnsi="${sys:besu.disableAnsi:-false}"
+                pattern="%style{%d{yyyy-MM-dd HH:mm:ss.SSSZZZ}}{DIM}%style{ | }{DIM}%style{%t}{DIM}%style{ | }{DIM}%highlight{%-5level}{TRACE=normal}%style{ | }{DIM}%style{%c{1}}{DIM}%style{ | }{DIM}%highlight{%msgc%n%throwable}{TRACE=normal}" />
+        </Console>
+        <xi:include href="log4j2-besu-splunk-appender.xml"/>
     </Appenders>
-    <Loggers>
-        <Logger name="org.apache.logging.log4j.status.StatusLogger" level="OFF"/>
-        <Logger name="org.apache.tuweni.discovery.DNSTimerTask">
-            <RegexFilter regex="Refreshing DNS records with .*" onMatch="DENY" onMismatch="NEUTRAL" />
-        </Logger>
-        <Logger name="org.apache.tuweni.discovery.DNSResolver">
-            <RegexFilter regex="DNS query error with .*" onMatch="DENY" onMismatch="NEUTRAL" />
-        </Logger>
-        <Logger name="io.vertx.core.dns.DnsException">
-            <RegexFilter regex="DNS query error occurred:.*" onMatch="DENY" onMismatch="NEUTRAL" />
-        </Logger>
-        <Logger name="org.hyperledger.besu.ethereum.eth.transactions">
-            <MarkerFilter marker="INVALID_TX_REMOVED" onMatch="DENY" onMismatch="NEUTRAL" />
-        </Logger>
-        <Logger name="io.opentelemetry.extension.trace.propagation.B3PropagatorExtractorMultipleHeaders">
-            <RegexFilter regex="Invalid TraceId in B3 header:.*" onMatch="DENY" onMismatch="NEUTRAL" />
-        </Logger>
-        <Logger name="org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiSnapshotWorldStateKeyValueStorage">
-            <StackTraceMatchFilter stackContains="BlockTransactionSelector" messageEquals="Attempting to access closed worldstate" onMatch="DENY" onMismatch="NEUTRAL"/>
-        </Logger>
-        <Root level="${sys:root.log.level}">
-            <AppenderRef ref="Router" />
-        </Root>
-    </Loggers>
+
+    <xi:include href="log4j2-besu-loggers.xml"/>
 </Configuration>

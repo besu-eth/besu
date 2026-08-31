@@ -40,12 +40,13 @@ dependencies {
   implementation project(':util')
 
   implementation 'com.google.guava:guava'
+  compileOnly 'com.google.errorprone:error_prone_annotations'
   annotationProcessor 'com.google.dagger:dagger-compiler'
   implementation 'com.google.dagger:dagger'
   implementation 'dnsjava:dnsjava'
-  implementation 'io.netty:netty-handler'
-  implementation 'io.netty:netty-transport'
   implementation 'io.netty:netty-transport-native-unix-common'
+  implementation 'io.netty:netty-transport'
+  implementation 'io.netty:netty-handler'
   implementation 'io.vertx:vertx-core'
   implementation 'javax.inject:javax.inject'
 
@@ -55,13 +56,13 @@ dependencies {
   implementation 'io.consensys.tuweni:tuweni-rlp'
   implementation 'io.consensys.tuweni:tuweni-units'
   implementation 'org.apache.commons:commons-collections4'
-  implementation 'org.jetbrains.kotlin:kotlin-stdlib'
   implementation 'org.owasp.encoder:encoder'
   implementation 'org.xerial.snappy:snappy-java'
   implementation 'com.github.seancfoley:ipaddress'
 
   annotationProcessor "org.immutables:value"
   implementation "org.immutables:value-annotations"
+  implementation 'io.projectreactor:reactor-core'
   implementation 'io.consensys.protocols:discovery'
 
   // test dependencies.

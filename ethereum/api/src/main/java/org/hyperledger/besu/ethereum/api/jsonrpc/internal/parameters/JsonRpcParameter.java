@@ -40,6 +40,10 @@ public class JsonRpcParameter {
   private static final ObjectMapper mapperFailOnUnknownButNull =
       JsonRpcObjectMapperFactory.getParameterMapperIgnoringUnknownNulls();
 
+  /** As mapperFailOnUnknownButNull, but empty unknown properties are dropped too. */
+  private static final ObjectMapper mapperFailOnUnknownButEmpty =
+      JsonRpcObjectMapperFactory.getParameterMapperIgnoringUnknownEmpties();
+
   /**
    * Retrieves a required parameter at the given index interpreted as the given class. Throws
    * InvalidJsonRpcParameters if the parameter is missing or of the wrong type.
@@ -236,7 +240,13 @@ public class JsonRpcParameter {
      * null} are silently dropped, while unknown properties with a non-{@code null} value still
      * cause deserialization to fail.
      */
-    FAIL_ON_UNKNOWN_BUT_NULL(mapperFailOnUnknownButNull);
+    FAIL_ON_UNKNOWN_BUT_NULL(mapperFailOnUnknownButNull),
+    /**
+     * As {@link #FAIL_ON_UNKNOWN_BUT_NULL}, but empty unknown properties are dropped too. For
+     * engine payloads, where an empty unknown field states nothing and so must be judged by block
+     * validation rather than rejected as invalid params.
+     */
+    FAIL_ON_UNKNOWN_BUT_EMPTY(mapperFailOnUnknownButEmpty);
 
     final ObjectMapper mapper;
 

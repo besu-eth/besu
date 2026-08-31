@@ -62,6 +62,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.pending.
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.pending.PendingTransactionSubscriptionService;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.syncing.SyncingSubscriptionService;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.transactionreceipts.TransactionReceiptsSubscriptionService;
+import org.hyperledger.besu.ethereum.api.pluginadapter.RpcEndpointServiceImpl;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
@@ -72,6 +73,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.p2p.config.DiscoveryConfiguration;
+import org.hyperledger.besu.ethereum.p2p.config.DiscoveryMode;
 import org.hyperledger.besu.ethereum.p2p.config.ImmutableNetworkingConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.RlpxConfiguration;
@@ -104,6 +106,7 @@ import org.hyperledger.besu.ethereum.permissioning.account.AccountPermissioningC
 import org.hyperledger.besu.ethereum.permissioning.node.InsufficientPeersPermissioningProvider;
 import org.hyperledger.besu.ethereum.permissioning.node.NodePermissioningController;
 import org.hyperledger.besu.ethereum.permissioning.node.PeerPermissionsAdapter;
+import org.hyperledger.besu.ethereum.permissioning.pluginadapter.PermissioningServiceImpl;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethstats.EthStatsService;
@@ -121,8 +124,6 @@ import org.hyperledger.besu.plugin.BesuPlugin;
 import org.hyperledger.besu.plugin.data.EnodeURL;
 import org.hyperledger.besu.plugin.services.HealthCheckService;
 import org.hyperledger.besu.services.BesuPluginContextImpl;
-import org.hyperledger.besu.services.PermissioningServiceImpl;
-import org.hyperledger.besu.services.RpcEndpointServiceImpl;
 import org.hyperledger.besu.services.TransactionValidatorServiceImpl;
 import org.hyperledger.besu.util.BesuVersionUtils;
 import org.hyperledger.besu.util.NetworkUtility;
@@ -147,7 +148,6 @@ import com.google.common.base.Strings;
 import graphql.GraphQL;
 import inet.ipaddr.IPAddress;
 import io.vertx.core.Vertx;
-import io.vertx.core.VertxOptions;
 import io.vertx.core.json.JsonObject;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -166,9 +166,12 @@ public class RunnerBuilder {
   private final Collection<Bytes> bannedNodeIds = new ArrayList<>();
   private boolean p2pEnabled = true;
   private boolean discoveryEnabled;
+  private DiscoveryMode discoveryMode = DiscoveryMode.getDefault();
   private String p2pAdvertisedHost;
   private String p2pListenInterface = NetworkUtility.INADDR_ANY;
   private int p2pListenPort;
+  private Integer p2pDiscoveryListenPort;
+  private Integer p2pDiscoveryListenPortIpv6;
   private Optional<String> p2pAdvertisedHostIpv6 = Optional.empty();
   private Optional<String> p2pListenInterfaceIpv6 = Optional.empty();
   private int p2pListenPortIpv6 = EnodeURLImpl.DEFAULT_LISTENING_PORT_IPV6;
@@ -249,6 +252,17 @@ public class RunnerBuilder {
   }
 
   /**
+   * Set discovery mode.
+   *
+   * @param discoveryMode the discovery mode
+   * @return the runner builder
+   */
+  public RunnerBuilder discoveryMode(final DiscoveryMode discoveryMode) {
+    this.discoveryMode = discoveryMode;
+    return this;
+  }
+
+  /**
    * Add Eth network config.
    *
    * @param ethNetworkConfig the eth network config
@@ -302,6 +316,28 @@ public class RunnerBuilder {
    */
   public RunnerBuilder p2pListenPort(final int p2pListenPort) {
     this.p2pListenPort = p2pListenPort;
+    return this;
+  }
+
+  /**
+   * Add UDP discovery listen port. Defaults to p2pListenPort when not set.
+   *
+   * @param p2pDiscoveryListenPort the UDP discovery port
+   * @return the runner builder
+   */
+  public RunnerBuilder p2pDiscoveryListenPort(final Integer p2pDiscoveryListenPort) {
+    this.p2pDiscoveryListenPort = p2pDiscoveryListenPort;
+    return this;
+  }
+
+  /**
+   * Add IPv6 UDP discovery listen port. Defaults to p2pListenPortIpv6 when not set.
+   *
+   * @param p2pDiscoveryListenPortIpv6 the IPv6 UDP discovery port
+   * @return the runner builder
+   */
+  public RunnerBuilder p2pDiscoveryListenPortIpv6(final Integer p2pDiscoveryListenPortIpv6) {
+    this.p2pDiscoveryListenPortIpv6 = p2pDiscoveryListenPortIpv6;
     return this;
   }
 
@@ -661,15 +697,19 @@ public class RunnerBuilder {
 
     Preconditions.checkNotNull(besuController);
 
+    final int effectiveDiscoveryPort =
+        p2pDiscoveryListenPort != null ? p2pDiscoveryListenPort : p2pListenPort;
     final DiscoveryConfiguration discoveryConfiguration =
         DiscoveryConfiguration.create()
             .setBindHost(p2pListenInterface)
-            .setBindPort(p2pListenPort)
+            .setBindPort(effectiveDiscoveryPort)
             .setAdvertisedHost(p2pAdvertisedHost);
     p2pListenInterfaceIpv6.ifPresent(
         iface -> {
+          final int effectiveDiscoveryPortIpv6 =
+              p2pDiscoveryListenPortIpv6 != null ? p2pDiscoveryListenPortIpv6 : p2pListenPortIpv6;
           discoveryConfiguration.setBindHostIpv6(p2pListenInterfaceIpv6);
-          discoveryConfiguration.setBindPortIpv6(p2pListenPortIpv6);
+          discoveryConfiguration.setBindPortIpv6(effectiveDiscoveryPortIpv6);
           discoveryConfiguration.setAdvertisedHostIpv6(p2pAdvertisedHostIpv6);
         });
     discoveryConfiguration.setPreferIpv6Outbound(preferIpv6Outbound);
@@ -688,8 +728,6 @@ public class RunnerBuilder {
           discoveryConfiguration.getEnodeBootnodes(),
           discoveryConfiguration.getEnrBootnodes());
       discoveryConfiguration.setDnsDiscoveryURL(ethNetworkConfig.dnsDiscoveryUrl());
-      discoveryConfiguration.setDiscoveryV5Enabled(
-          networkingConfiguration.discoveryConfiguration().isDiscoveryV5Enabled());
       discoveryConfiguration.setFilterOnEnrForkId(
           networkingConfiguration.discoveryConfiguration().isFilterOnEnrForkIdEnabled());
       discoveryConfiguration.setDiscV5DiscoveryIntervalSeconds(
@@ -701,6 +739,7 @@ public class RunnerBuilder {
     } else {
       discoveryConfiguration.setEnabled(false);
     }
+    discoveryConfiguration.setDiscoveryMode(discoveryMode);
 
     final NodeKey nodeKey = besuController.getNodeKey();
 
@@ -717,21 +756,12 @@ public class RunnerBuilder {
             .flatMap(protocolManager -> protocolManager.getSupportedCapabilities().stream())
             .collect(Collectors.toSet());
 
-    // IPv6 dual-stack support (a second UDP socket + a second TCP socket) was introduced
-    // alongside DiscV5. Besu does not implement dual-stack for DiscV4, so RLPx should only
-    // bind a second TCP socket when DiscV5 is active. This guard can be dropped once DiscV4
-    // is removed.
-    final boolean rlpxDualStackEnabled =
-        discoveryEnabled && networkingConfiguration.discoveryConfiguration().isDiscoveryV5Enabled();
     final RlpxConfiguration rlpxConfiguration =
         RlpxConfiguration.create()
             .setBindHost(p2pListenInterface)
             .setBindPort(p2pListenPort)
-            .setBindHostIpv6(rlpxDualStackEnabled ? p2pListenInterfaceIpv6 : Optional.empty())
-            .setBindPortIpv6(
-                rlpxDualStackEnabled
-                    ? p2pListenInterfaceIpv6.map(ignored -> p2pListenPortIpv6)
-                    : Optional.empty())
+            .setBindHostIpv6(p2pListenInterfaceIpv6)
+            .setBindPortIpv6(p2pListenInterfaceIpv6.map(ignored -> p2pListenPortIpv6))
             .setSupportedProtocols(subProtocols)
             .setClientId(BesuVersionUtils.nodeName(identityString));
     networkingConfiguration =
@@ -823,15 +853,27 @@ public class RunnerBuilder {
     networkRunner.getRlpxAgent().ifPresent(ethPeers::setRlpxAgent);
 
     final P2PNetwork network = networkRunner.getNetwork();
-    // ForkId in Ethereum Node Record needs updating when we transition to a new
-    // protocol spec
+    // ForkId in Ethereum Node Record needs updating when we transition to a new protocol spec.
+    // Compare the HardforkId of the resolved spec for the new block against its parent — a change
+    // indicates we just crossed a fork boundary regardless of whether the exact timestamp was hit.
     context
         .getBlockchain()
         .observeBlockAdded(
             blockAddedEvent -> {
-              if (protocolSchedule.isOnMilestoneBoundary(blockAddedEvent.getHeader())) {
-                network.updateNodeRecord();
-              }
+              final var header = blockAddedEvent.getHeader();
+              context
+                  .getBlockchain()
+                  .getBlockHeader(header.getParentHash())
+                  .ifPresent(
+                      parentHeader -> {
+                        if (!protocolSchedule
+                            .getByBlockHeader(header)
+                            .getHardforkId()
+                            .equals(
+                                protocolSchedule.getByBlockHeader(parentHeader).getHardforkId())) {
+                          network.updateNodeRecord();
+                        }
+                      });
             });
     nodePermissioningController.ifPresent(
         n ->
@@ -856,6 +898,9 @@ public class RunnerBuilder {
         new FilterManagerBuilder()
             .blockchainQueries(blockchainQueries)
             .transactionPool(transactionPool)
+            .maxLogRange(apiConfiguration.getMaxLogsRange())
+            .maxFilterCount(apiConfiguration.getMaxFilterCount())
+            .filterTimeout(apiConfiguration.getFilterTimeout())
             .build();
     vertx.deployVerticle(filterManager);
 
@@ -926,7 +971,7 @@ public class RunnerBuilder {
     }
 
     final SubscriptionManager subscriptionManager =
-        createSubscriptionManager(vertx, transactionPool, blockchainQueries);
+        createSubscriptionManager(vertx, transactionPool, webSocketConfiguration);
 
     if (webSocketConfiguration.isEnabled()
         || (jsonRpcIpcConfiguration != null && jsonRpcIpcConfiguration.isEnabled())) {
@@ -1007,7 +1052,8 @@ public class RunnerBuilder {
 
     Optional<GraphQLHttpService> graphQLHttpService = Optional.empty();
     if (graphQLConfiguration.isEnabled()) {
-      final GraphQLDataFetchers fetchers = new GraphQLDataFetchers(supportedCapabilities);
+      final GraphQLDataFetchers fetchers =
+          new GraphQLDataFetchers(supportedCapabilities, graphQLConfiguration.getMaxBlockRange());
       final Map<GraphQLContextType, Object> graphQlContextMap = new ConcurrentHashMap<>();
       graphQlContextMap.putIfAbsent(GraphQLContextType.BLOCKCHAIN_QUERIES, blockchainQueries);
       graphQlContextMap.putIfAbsent(GraphQLContextType.PROTOCOL_SCHEDULE, protocolSchedule);
@@ -1294,8 +1340,7 @@ public class RunnerBuilder {
       case UPNP:
         return Optional.of(new UpnpNatManager());
       case DOCKER:
-        return Optional.of(
-            new DockerNatManager(p2pAdvertisedHost, p2pListenPort, jsonRpcConfiguration.getPort()));
+        return Optional.of(new DockerNatManager(p2pAdvertisedHost, jsonRpcConfiguration.getPort()));
       case NONE:
       default:
         return Optional.empty();
@@ -1345,8 +1390,12 @@ public class RunnerBuilder {
       final RpcEndpointServiceImpl rpcEndpointServiceImpl,
       final TransactionSimulator transactionSimulator,
       final EthScheduler ethScheduler) {
-    // sync vertx for engine consensus API, to process requests in FIFO order;
-    final Vertx consensusEngineServer = Vertx.vertx(new VertxOptions().setWorkerPoolSize(1));
+    // vertx for the engine consensus API: engine methods execute concurrently on its worker
+    // pool, except engine_forkchoiceUpdated and engine_newPayload calls, which the Engine API
+    // spec requires to be processed in the order received — those run on a dedicated
+    // single-threaded executor (see OrderedExecutionJsonRpcMethod)
+    final Vertx consensusEngineServer =
+        Vertx.vertx(new io.vertx.core.VertxOptions().setWorkerPoolSize(1).setEventLoopPoolSize(1));
 
     final Map<String, JsonRpcMethod> methods =
         new JsonRpcMethodsFactory()
@@ -1377,7 +1426,7 @@ public class RunnerBuilder {
                 natService,
                 namedPlugins,
                 dataDir,
-                besuController.getProtocolManager().ethContext().getEthPeers(),
+                besuController.getEthPeers(),
                 consensusEngineServer,
                 apiConfiguration,
                 enodeDnsConfiguration,
@@ -1401,9 +1450,9 @@ public class RunnerBuilder {
   private SubscriptionManager createSubscriptionManager(
       final Vertx vertx,
       final TransactionPool transactionPool,
-      final BlockchainQueries blockchainQueries) {
+      final WebSocketConfiguration webSocketConfiguration) {
     final SubscriptionManager subscriptionManager =
-        new SubscriptionManager(metricsSystem, blockchainQueries.getBlockchain());
+        new SubscriptionManager(metricsSystem, webSocketConfiguration);
     final PendingTransactionSubscriptionService pendingTransactions =
         new PendingTransactionSubscriptionService(subscriptionManager);
     final PendingTransactionDroppedSubscriptionService pendingTransactionsRemoved =
@@ -1516,8 +1565,11 @@ public class RunnerBuilder {
 
   private HealthService.HealthCheck adaptProvider(
       final HealthCheckService.HealthCheckProvider provider) {
-    return healthServiceParams ->
-        new HealthService.HealthCheckResult(
-            provider.isHealthy(healthServiceParams::getParam), new JsonObject());
+    return healthServiceParams -> {
+      final HealthCheckService.HealthCheckResult result =
+          provider.check(healthServiceParams::getParam);
+      return new HealthService.HealthCheckResult(
+          result.isHealthy(), new JsonObject(result.getDetails()));
+    };
   }
 }

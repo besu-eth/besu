@@ -1558,10 +1558,11 @@ public class JsonRpcHttpServiceTest extends JsonRpcHttpServiceTestBase {
   @Test
   public void batchRequestParseError() throws Exception {
     final String req =
-        "[\n"
-            + "  {\"jsonrpc\": \"2.0\", \"method\": \"net_version\", \"id\": \"1\"},\n"
-            + "  {\"jsonrpc\": \"2.0\", \"method\"\n"
-            + "]";
+        """
+        [
+          {"jsonrpc": "2.0", "method": "net_version", "id": "1"},
+          {"jsonrpc": "2.0", "method"
+        ]""";
 
     final RequestBody body = RequestBody.create(req, JSON);
 

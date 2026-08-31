@@ -41,7 +41,6 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -65,9 +64,9 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
   private static final Logger PROCESS_LOG =
       LoggerFactory.getLogger("org.hyperledger.besu.SubProcessLog");
 
-  private final Map<String, Process> besuProcesses = new HashMap<>();
+  private final Map<String, Process> besuProcesses = new ConcurrentHashMap<>();
   private final ExecutorService outputProcessorExecutor = Executors.newCachedThreadPool();
-  private boolean capturingConsole;
+  private volatile boolean capturingConsole;
   private final ByteArrayOutputStream consoleContents = new ByteArrayOutputStream();
   private final PrintStream consoleOut = new PrintStream(consoleContents);
   private static final int MAX_STARTUP_OUTPUT_LINES = 200;
@@ -130,7 +129,14 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
 
       nodeOutputs.put(node.getName(), EvictingQueue.create(MAX_STARTUP_OUTPUT_LINES));
       final Process process = processBuilder.start();
-      process.onExit().thenRun(() -> node.setExitCode(process.exitValue()));
+      process
+          .onExit()
+          .thenRun(
+              () -> {
+                if (besuProcesses.get(node.getName()) == process) {
+                  node.setExitCode(process.exitValue());
+                }
+              });
       outputProcessorExecutor.execute(() -> printOutput(node, process));
       besuProcesses.put(node.getName(), process);
     } catch (final IOException e) {
@@ -155,9 +161,22 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
     params.add("--data-path");
     params.add(dataDir.toAbsolutePath().toString());
 
-    if (node.isDevMode()) {
-      params.add("--network");
-      params.add("DEV");
+    if (node.isDevMode() && node.getGenesisConfig().isEmpty()) {
+      // --network=dev is deprecated; pass dev.json directly as genesis file instead
+      try (final var devGenesisStream =
+          ProcessBesuNodeRunner.class.getResourceAsStream("/dev.json")) {
+        if (devGenesisStream == null) {
+          throw new IllegalStateException("/dev.json resource not found");
+        }
+        final String devGenesis = new String(devGenesisStream.readAllBytes(), UTF_8);
+        final Path devGenesisFile = createGenesisFile(node, devGenesis);
+        params.add("--genesis-file");
+        params.add(devGenesisFile.toAbsolutePath().toString());
+        params.add("--network-id");
+        params.add("2018");
+      } catch (final IOException e) {
+        throw new IllegalStateException("Failed to load dev.json genesis", e);
+      }
     } else if (node.getNetwork() != null) {
       params.add("--network");
       params.add(node.getNetwork().name());
@@ -188,10 +207,6 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
 
     params.add("--discovery-enabled");
     params.add(Boolean.toString(node.isDiscoveryEnabled()));
-
-    if (node.getNetworkingConfiguration().discoveryConfiguration().isDiscoveryV5Enabled()) {
-      params.add("--Xv5-discovery-enabled");
-    }
 
     params.add("--p2p-host");
     params.add(node.p2pListenHost());
@@ -685,6 +700,11 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
   @Override
   public String getConsoleContents() {
     capturingConsole = false;
+    return consoleContents.toString(UTF_8);
+  }
+
+  @Override
+  public String peekConsoleContents() {
     return consoleContents.toString(UTF_8);
   }
 }

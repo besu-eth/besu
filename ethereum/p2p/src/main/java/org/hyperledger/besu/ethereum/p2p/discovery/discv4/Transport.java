@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.p2p.discovery.discv4;
 
 import java.net.InetSocketAddress;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -29,6 +30,15 @@ public interface Transport {
   CompletableFuture<Void> send(InetSocketAddress recipient, Bytes data);
 
   void setInboundHandler(InboundV4Handler handler);
+
+  /**
+   * Returns the actual bound IPv6 address, if this transport is sharing a dual-stack socket and an
+   * IPv6 channel is bound. Empty for an owned (IPv4-only) transport, or when no IPv6 channel is
+   * bound.
+   */
+  default Optional<InetSocketAddress> getIpv6BoundAddress() {
+    return Optional.empty();
+  }
 
   @FunctionalInterface
   interface InboundV4Handler {

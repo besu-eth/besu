@@ -40,12 +40,19 @@ public class GraphQLConfiguration {
   /** The default port number for the GraphQL HTTP server. */
   public static final int DEFAULT_GRAPHQL_HTTP_PORT = 8547;
 
+  /**
+   * The default maximum number of blocks a single {@code blocks(from,to)} GraphQL query may span,
+   * mirroring the JSON-RPC {@code --rpc-max-logs-range} default.
+   */
+  public static final long DEFAULT_MAX_BLOCK_RANGE = 5000L;
+
   private boolean enabled;
   private int port;
   private String host;
   private List<String> corsAllowedDomains = Collections.emptyList();
   private List<String> hostsAllowlist = Arrays.asList("localhost", DEFAULT_GRAPHQL_HTTP_HOST);
   private long httpTimeoutSec = TimeoutOptions.defaultOptions().getTimeoutSeconds();
+  private long maxBlockRange = DEFAULT_MAX_BLOCK_RANGE;
 
   private String tlsKeyStorePath;
   private String tlsKeyStorePasswordFile;
@@ -69,6 +76,7 @@ public class GraphQLConfiguration {
     config.setPort(DEFAULT_GRAPHQL_HTTP_PORT);
     config.setHost(DEFAULT_GRAPHQL_HTTP_HOST);
     config.setHttpTimeoutSec(TimeoutOptions.defaultOptions().getTimeoutSeconds());
+    config.setMaxBlockRange(DEFAULT_MAX_BLOCK_RANGE);
     return config;
   }
 
@@ -182,6 +190,24 @@ public class GraphQLConfiguration {
    */
   public void setHttpTimeoutSec(final long httpTimeoutSec) {
     this.httpTimeoutSec = httpTimeoutSec;
+  }
+
+  /**
+   * Retrieves the maximum number of blocks a single {@code blocks(from,to)} query may span.
+   *
+   * @return the maximum block range, or 0 for no limit
+   */
+  public long getMaxBlockRange() {
+    return maxBlockRange;
+  }
+
+  /**
+   * Sets the maximum number of blocks a single {@code blocks(from,to)} query may span.
+   *
+   * @param maxBlockRange the maximum block range to set; 0 means no limit
+   */
+  public void setMaxBlockRange(final long maxBlockRange) {
+    this.maxBlockRange = maxBlockRange;
   }
 
   /**
@@ -307,6 +333,7 @@ public class GraphQLConfiguration {
         .add("corsAllowedDomains", corsAllowedDomains)
         .add("hostsAllowlist", hostsAllowlist)
         .add("httpTimeoutSec", httpTimeoutSec)
+        .add("maxBlockRange", maxBlockRange)
         .toString();
   }
 

@@ -138,26 +138,23 @@ public class JsonRpcIpcService {
       final String connectionId) {
     vertx
         .<JsonRpcResponse>executeBlocking(
-            promise -> {
-              final JsonRpcResponse jsonRpcResponse =
-                  jsonRpcExecutor.execute(
-                      Optional.empty(),
-                      null,
-                      null,
-                      closedSocket::get,
-                      jsonRpcRequest,
-                      req -> {
-                        if (subscriptionManager.isPresent()) {
-                          final WebSocketRpcRequest websocketRequest =
-                              req.mapTo(WebSocketRpcRequest.class);
-                          websocketRequest.setConnectionId(connectionId);
-                          return websocketRequest;
-                        } else {
-                          return req.mapTo(JsonRpcRequest.class);
-                        }
-                      });
-              promise.complete(jsonRpcResponse);
-            })
+            () ->
+                jsonRpcExecutor.execute(
+                    Optional.empty(),
+                    null,
+                    null,
+                    closedSocket::get,
+                    jsonRpcRequest,
+                    req -> {
+                      if (subscriptionManager.isPresent()) {
+                        final WebSocketRpcRequest websocketRequest =
+                            req.mapTo(WebSocketRpcRequest.class);
+                        websocketRequest.setConnectionId(connectionId);
+                        return websocketRequest;
+                      } else {
+                        return req.mapTo(JsonRpcRequest.class);
+                      }
+                    }))
         .onSuccess(
             jsonRpcResponse -> {
               if (!closedSocket.get()) {
@@ -186,7 +183,7 @@ public class JsonRpcIpcService {
     } else {
       vertx
           .<List<JsonRpcResponse>>executeBlocking(
-              promise -> {
+              () -> {
                 List<JsonRpcResponse> responses = new ArrayList<>();
                 for (int i = 0; i < batchJsonRpcRequest.size(); i++) {
                   final JsonObject jsonRequest;
@@ -205,7 +202,7 @@ public class JsonRpcIpcService {
                           jsonRequest,
                           req -> req.mapTo(JsonRpcRequest.class)));
                 }
-                promise.complete(responses);
+                return responses;
               })
           .onSuccess(
               jsonRpcBatchResponse -> {

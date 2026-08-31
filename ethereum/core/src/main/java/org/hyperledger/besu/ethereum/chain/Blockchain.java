@@ -125,8 +125,8 @@ public interface Blockchain {
    */
   default boolean blockIsOnCanonicalChain(final Hash blockHeaderHash) {
     return getBlockHeader(blockHeaderHash)
-        .flatMap(h -> getBlockHashByNumber(h.getNumber()))
-        .filter(h -> h.equals(blockHeaderHash))
+        .flatMap(header -> getBlockHashByNumber(header.getNumber()))
+        .filter(hash -> hash.equals(blockHeaderHash))
         .isPresent();
   }
 

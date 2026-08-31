@@ -18,7 +18,14 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 
 import org.apache.tuweni.bytes.Bytes;
 
-/** The enum Restriction. */
+/**
+ * The enum Restriction.
+ *
+ * @deprecated This type is scheduled for removal in a future release, with no replacement. It
+ *     belonged to the private transaction API removed in Besu 25.6.0 and is no longer reachable
+ *     from any plugin contract.
+ */
+@Deprecated(forRemoval = true)
 public enum Restriction {
   /** Restricted restriction. */
   RESTRICTED(Bytes.wrap("restricted".getBytes(UTF_8))),

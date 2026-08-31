@@ -25,7 +25,6 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.N
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.SlotChanges;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.SlotRead;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.StorageChange;
-import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.util.ArrayList;
@@ -63,10 +62,9 @@ public final class BlockAccessListDecoder {
                           changeIn.leaveList();
                           return new StorageChange(txIndex, newVal);
                         });
-                if (changes.isEmpty()) {
-                  throw new RLPException(
-                      "Block access list slot changes must contain at least one storage change");
-                }
+                // An empty change list is well-formed RLP. The EIP-7928 "at least one storage
+                // change" rule is left to MainnetBlockAccessListValidator, so the block comes back
+                // INVALID instead of engine_newPayload failing on invalid params.
                 scIn.leaveList();
                 return new SlotChanges(slot, changes);
               });

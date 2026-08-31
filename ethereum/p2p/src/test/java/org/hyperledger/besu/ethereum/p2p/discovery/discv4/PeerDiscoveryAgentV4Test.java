@@ -124,6 +124,30 @@ public class PeerDiscoveryAgentV4Test {
   }
 
   @Test
+  public void nodeRecord_withAdvertisedHostIpv6_carriesIpv6EnrFields() {
+    final MockPeerDiscoveryAgent agent =
+        helper.startDiscoveryAgent(helper.agentBuilder().advertisedHostIpv6("2001:db8::1"));
+
+    final NodeRecord nodeRecord =
+        agent.getAdvertisedPeer().orElseThrow().getNodeRecord().orElseThrow();
+
+    assertThat(nodeRecord.getTcp6Address()).isPresent();
+    assertThat(nodeRecord.getTcp6Address().get().getPort()).isGreaterThan(0);
+    assertThat(nodeRecord.getUdp6Address()).isPresent();
+  }
+
+  @Test
+  public void nodeRecord_withoutAdvertisedHostIpv6_hasNoIpv6EnrFields() {
+    final MockPeerDiscoveryAgent agent = helper.startDiscoveryAgent();
+
+    final NodeRecord nodeRecord =
+        agent.getAdvertisedPeer().orElseThrow().getNodeRecord().orElseThrow();
+
+    assertThat(nodeRecord.getTcp6Address()).isEmpty();
+    assertThat(nodeRecord.getUdp6Address()).isEmpty();
+  }
+
+  @Test
   public void testUpdateNodeRecordReusesEnrWhenNothingChanged() {
     final KeyPair keyPair =
         SIGNATURE_ALGORITHM.createKeyPair(

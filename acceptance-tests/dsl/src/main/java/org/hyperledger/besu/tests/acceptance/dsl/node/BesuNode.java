@@ -139,7 +139,7 @@ public class BesuNode implements NodeConfiguration, RunnableNode, AutoCloseable 
   private final List<String> extraCLIOptions;
   private final List<String> staticNodes;
   private boolean isDnsEnabled = false;
-  private Optional<Integer> exitCode = Optional.empty();
+  private volatile Optional<Integer> exitCode = Optional.empty();
   private final boolean isStrictTxReplayProtectionEnabled;
   private final Map<String, String> environment;
   private SynchronizerConfiguration synchronizerConfiguration;
@@ -758,11 +758,6 @@ public class BesuNode implements NodeConfiguration, RunnableNode, AutoCloseable 
   public void setBootnodes(final List<String> bootnodes) {
     this.bootnodes.clear();
     this.bootnodes.addAll(bootnodes);
-  }
-
-  @Override
-  public boolean isDiscoveryV5Enabled() {
-    return networkingConfiguration.discoveryConfiguration().isDiscoveryV5Enabled();
   }
 
   @Override

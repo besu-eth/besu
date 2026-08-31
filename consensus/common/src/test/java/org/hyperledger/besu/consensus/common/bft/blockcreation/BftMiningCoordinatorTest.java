@@ -15,6 +15,9 @@
 package org.hyperledger.besu.consensus.common.bft.blockcreation;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -33,12 +36,14 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 
+import java.time.Duration;
 import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -84,6 +89,29 @@ public class BftMiningCoordinatorTest {
   }
 
   @Test
+  public void stopsMiningWhenDisabledForMergeTransition() {
+    bftMiningCoordinator.enable();
+    bftMiningCoordinator.start();
+    // the merge transition watcher disables then stops the coordinator when TTD is reached
+    bftMiningCoordinator.disable();
+    bftMiningCoordinator.stop();
+    verify(bftProcessor).stop();
+  }
+
+  @Test
+  public void stopsMiningWhenIdleAfterHavingBeenStarted() {
+    bftMiningCoordinator.enable();
+    bftMiningCoordinator.start();
+    // disable()/enable() only flip the tracked state, they never touch the processor/executors
+    // themselves, so a previously started coordinator can be sitting in IDLE (not just PAUSED)
+    // while its processor is genuinely still running.
+    bftMiningCoordinator.disable();
+    bftMiningCoordinator.enable();
+    bftMiningCoordinator.stop();
+    verify(bftProcessor).stop();
+  }
+
+  @Test
   public void restartsMiningAfterStop() {
     assertThat(bftMiningCoordinator.isMining()).isFalse();
     bftMiningCoordinator.stop();
@@ -103,6 +131,29 @@ public class BftMiningCoordinatorTest {
     // BFT processor should be started once for every time the mining
     // coordinator is restarted
     verify(bftProcessor, times(2)).start();
+  }
+
+  @Test
+  public void concurrentStopDoesNotTearDownAStartInProgress() throws Exception {
+    final Thread[] stopper = new Thread[1];
+    doAnswer(
+            invocation -> {
+              stopper[0] = new Thread(bftMiningCoordinator::stop, "concurrent-stop");
+              stopper[0].start();
+              stopper[0].join(500);
+              return null;
+            })
+        .when(controller)
+        .start();
+
+    bftMiningCoordinator.enable();
+    bftMiningCoordinator.start();
+    assertTimeoutPreemptively(Duration.ofSeconds(5), () -> stopper[0].join());
+
+    final InOrder inOrder = inOrder(bftExecutors);
+    inOrder.verify(bftExecutors).start();
+    inOrder.verify(bftExecutors).executeBftProcessor(bftProcessor);
+    inOrder.verify(bftExecutors).stop();
   }
 
   @Test

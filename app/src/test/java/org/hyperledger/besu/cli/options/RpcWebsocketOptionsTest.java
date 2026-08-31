@@ -98,6 +98,32 @@ public class RpcWebsocketOptionsTest extends CommandTestAbstract {
   }
 
   @Test
+  public void rpcWsMaxActiveSubscriptionsAcceptsZero() {
+    parseCommand("--rpc-ws-max-active-subscriptions", "0");
+
+    verify(mockRunnerBuilder).webSocketConfiguration(wsRpcConfigArgumentCaptor.capture());
+    assertThat(wsRpcConfigArgumentCaptor.getValue().getMaxActiveSubscriptions()).isEqualTo(0);
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void rpcWsMaxActiveSubscriptionsAcceptsNonNegativeValue() {
+    parseCommand("--rpc-ws-max-active-subscriptions", "1");
+
+    verify(mockRunnerBuilder).webSocketConfiguration(wsRpcConfigArgumentCaptor.capture());
+    assertThat(wsRpcConfigArgumentCaptor.getValue().getMaxActiveSubscriptions()).isEqualTo(1);
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void rpcWsMaxActiveSubscriptionsNegativeValueMustFail() {
+    parseCommand("--rpc-ws-max-active-subscriptions", "-1");
+
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains("--rpc-ws-max-active-subscriptions must be >= 0 (0 specifies no limit)");
+  }
+
+  @Test
   public void rpcWsRpcEnabledPropertyMustBeUsed() {
     parseCommand("--rpc-ws-enabled");
 
@@ -216,11 +242,13 @@ public class RpcWebsocketOptionsTest extends CommandTestAbstract {
     final Path toml =
         createTempFile(
             "toml",
-            "rpc-ws-api=[\"ETH\", \"NET\"]\n"
-                + "rpc-ws-host=\"0.0.0.0\"\n"
-                + "rpc-ws-port=1234\n"
-                + "rpc-ws-max-active-connections=77\n"
-                + "rpc-ws-max-frame-size=65535\n");
+            """
+            rpc-ws-api=["ETH", "NET"]
+            rpc-ws-host="0.0.0.0"
+            rpc-ws-port=1234
+            rpc-ws-max-active-connections=77
+            rpc-ws-max-frame-size=65535
+            """);
 
     parseCommand("--config-file", toml.toString());
 

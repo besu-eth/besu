@@ -69,6 +69,16 @@ public class SStoreOperation extends AbstractOperation {
 
   @Override
   public OperationResult execute(final MessageFrame frame, final EVM evm) {
+    final UInt256 key = UInt256.fromBytes(frame.popStackItem());
+    final UInt256 newValue = UInt256.fromBytes(frame.popStackItem());
+
+    // EIP-8038: resolve the account ahead of the gas checks below, so that an SSTORE which halts
+    // for insufficient gas has still recorded the account in the block access list.
+    final MutableAccount account = getMutableAccount(frame.getRecipientAddress(), frame);
+    if (account == null) {
+      return ILLEGAL_STATE_CHANGE;
+    }
+
     final long remainingGas = frame.getRemainingGas();
 
     if (frame.isStatic()) {
@@ -79,20 +89,17 @@ public class SStoreOperation extends AbstractOperation {
       return new OperationResult(minimumGasRemaining, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 
-    final UInt256 key = UInt256.fromBytes(frame.popStackItem());
-    final UInt256 newValue = UInt256.fromBytes(frame.popStackItem());
+    final Address address = account.getAddress();
+    final boolean slotIsWarm = frame.warmUpStorage(address, key);
 
-    final Address address = frame.getRecipientAddress();
-
-    final long sloadCost =
-        frame.warmUpStorage(address, key) ? 0L : gasCalculator().getSStoreColdAccessGasCost();
-    if (remainingGas < sloadCost) {
-      return new OperationResult(sloadCost, ExceptionalHaltReason.INSUFFICIENT_GAS);
-    }
-
-    final MutableAccount account = getMutableAccount(address, frame);
-    if (account == null) {
-      return ILLEGAL_STATE_CHANGE;
+    // EIP-8038: the repriced access cost can exceed the EIP-2200 stipend, so the sentry above no
+    // longer guarantees the access is affordable. Check before the current-value read below, which
+    // would otherwise record the slot in the block access list (EIP-7928) for an unpaid access.
+    final long accessCost =
+        gasCalculator().getWarmStorageReadCost()
+            + (slotIsWarm ? 0L : gasCalculator().getSStoreColdAccessGasCost());
+    if (remainingGas < accessCost) {
+      return new OperationResult(accessCost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 
     final Supplier<UInt256> currentValueSupplier =
@@ -102,7 +109,7 @@ public class SStoreOperation extends AbstractOperation {
 
     final long cost =
         gasCalculator().slotAccessCost(newValue, currentValueSupplier, originalValueSupplier)
-            + sloadCost;
+            + (slotIsWarm ? 0L : gasCalculator().getSStoreColdAccessGasCost());
     if (remainingGas < cost) {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }

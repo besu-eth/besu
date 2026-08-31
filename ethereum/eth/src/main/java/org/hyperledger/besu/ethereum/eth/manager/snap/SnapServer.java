@@ -76,14 +76,16 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
   private static final int MAX_RESPONSE_SIZE = 2 * 1024 * 1024;
   private static final int MAX_CODE_LOOKUPS_PER_REQUEST = 1024;
   private static final int MAX_STORAGE_RANGE_ACCOUNTS_PER_REQUEST = 4096;
-  private static final AccountRangeMessage EMPTY_ACCOUNT_RANGE =
+  static final AccountRangeMessage EMPTY_ACCOUNT_RANGE =
       AccountRangeMessage.create(new HashMap<>(), new ArrayDeque<>());
-  private static final StorageRangeMessage EMPTY_STORAGE_RANGE =
+  static final StorageRangeMessage EMPTY_STORAGE_RANGE =
       StorageRangeMessage.create(new ArrayDeque<>(), Collections.emptyList());
-  private static final TrieNodesMessage EMPTY_TRIE_NODES_MESSAGE =
+  static final TrieNodesMessage EMPTY_TRIE_NODES_MESSAGE =
       TrieNodesMessage.create(new ArrayList<>());
-  private static final ByteCodesMessage EMPTY_BYTE_CODES_MESSAGE =
+  static final ByteCodesMessage EMPTY_BYTE_CODES_MESSAGE =
       ByteCodesMessage.create(new ArrayDeque<>());
+  static final BlockAccessListsMessage EMPTY_BLOCK_ACCESS_LISTS =
+      BlockAccessListsMessage.create(List.of());
 
   static final Hash HASH_LAST = Hash.wrap(Bytes32.leftPad(Bytes.fromHexString("FF"), (byte) 0xFF));
 
@@ -253,46 +255,65 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
 
   MessageData constructGetBlockAccessListsResponse(final MessageData message) {
     if (!isStarted.get()) {
-      return BlockAccessListsMessage.create(List.of());
+      return EMPTY_BLOCK_ACCESS_LISTS;
     }
-
-    final GetBlockAccessListsMessage getBlockAccessLists =
-        GetBlockAccessListsMessage.readFrom(message);
-    final Iterable<Hash> blockHashes = getBlockAccessLists.blockHashes(true);
-    final int maxResponseBytes =
-        Math.min(getBlockAccessLists.responseBytes(true).intValue(), MAX_RESPONSE_SIZE);
 
     final StopWatch stopWatch = StopWatch.createStarted();
-    final List<Optional<BlockAccessList>> blockAccessLists = new ArrayList<>();
+    int requestedCount = 0;
+    try {
+      final GetBlockAccessListsMessage getBlockAccessLists =
+          GetBlockAccessListsMessage.readFrom(message);
+      final Iterable<Hash> blockHashes = getBlockAccessLists.blockHashes(true);
+      final int maxResponseBytes =
+          Math.min(getBlockAccessLists.responseBytes(true).intValue(), MAX_RESPONSE_SIZE);
 
-    final Optional<Blockchain> maybeBlockchain =
-        protocolContext.map(ProtocolContext::getBlockchain);
+      final List<Optional<BlockAccessList>> blockAccessLists = new ArrayList<>();
 
-    if (maybeBlockchain.isPresent()) {
-      final var blockchain = maybeBlockchain.get();
-      final ExceedingPredicate<Optional<BlockAccessList>> blockAccessListsResponseSizePredicate =
-          new ExceedingPredicate<>(
-              new ResponseSizePredicate<>(
-                  "block access lists",
-                  stopWatch,
-                  maxResponseBytes,
-                  maxMillisPerRequest,
-                  SnapServer::calculateBlockAccessListEncodedSize));
-      for (final Hash blockHash : blockHashes) {
-        final Optional<BlockAccessList> maybeBlockAccessList =
-            blockchain.getBlockAccessList(blockHash);
+      final Optional<Blockchain> maybeBlockchain =
+          protocolContext.map(ProtocolContext::getBlockchain);
 
-        if (blockAccessListsResponseSizePredicate.test(maybeBlockAccessList)) {
-          blockAccessLists.add(maybeBlockAccessList);
-        }
+      if (maybeBlockchain.isPresent()) {
+        final var blockchain = maybeBlockchain.get();
+        final ExceedingPredicate<Optional<BlockAccessList>> blockAccessListsResponseSizePredicate =
+            new ExceedingPredicate<>(
+                new ResponseSizePredicate<>(
+                    "block access lists",
+                    stopWatch,
+                    maxResponseBytes,
+                    maxMillisPerRequest,
+                    SnapServer::calculateBlockAccessListEncodedSize));
+        for (final Hash blockHash : blockHashes) {
+          requestedCount++;
+          final Optional<BlockAccessList> maybeBlockAccessList =
+              blockchain.getBlockAccessList(blockHash);
 
-        if (!blockAccessListsResponseSizePredicate.shouldGetMore()) {
-          break;
+          if (blockAccessListsResponseSizePredicate.test(maybeBlockAccessList)) {
+            blockAccessLists.add(maybeBlockAccessList);
+          }
+
+          if (!blockAccessListsResponseSizePredicate.shouldGetMore()) {
+            break;
+          }
         }
       }
-    }
 
-    return BlockAccessListsMessage.create(blockAccessLists);
+      if (LOGGER.isDebugEnabled()) {
+        final long unavailable = blockAccessLists.stream().filter(Optional::isEmpty).count();
+        LOGGER
+            .atDebug()
+            .setMessage(
+                "Served block access lists request: requested={}, returned={}, unavailable={}, took {} ms")
+            .addArgument(requestedCount)
+            .addArgument(blockAccessLists.size() - unavailable)
+            .addArgument(unavailable)
+            .addArgument(stopWatch.getTime())
+            .log();
+      }
+      return BlockAccessListsMessage.create(blockAccessLists);
+    } catch (final RuntimeException e) {
+      LOGGER.error("Unexpected exception serving block access lists request", e);
+      return BlockAccessListsMessage.create(List.of());
+    }
   }
 
   MessageData constructGetAccountRangeResponse(final MessageData message) {

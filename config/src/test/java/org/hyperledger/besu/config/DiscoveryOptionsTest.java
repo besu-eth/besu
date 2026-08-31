@@ -15,7 +15,6 @@
 package org.hyperledger.besu.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.List;
 
@@ -28,11 +27,6 @@ class DiscoveryOptionsTest {
   @Test
   void defaultHasNoBootNodes() {
     assertThat(DiscoveryOptions.DEFAULT.getBootNodes()).isEmpty();
-  }
-
-  @Test
-  void defaultHasNoV5BootNodes() {
-    assertThat(DiscoveryOptions.DEFAULT.getV5BootNodes()).isEmpty();
   }
 
   @Test
@@ -54,48 +48,16 @@ class DiscoveryOptionsTest {
   }
 
   @Test
-  void parsesV5BootNodes() {
+  void parsesMixedEnrAndEnodeBootNodes() {
     final ObjectNode root = JsonUtil.createEmptyObjectNode();
-    final ArrayNode v5Bootnodes = root.putArray("v5bootnodes");
-    v5Bootnodes.add("enr:-abc123");
-    v5Bootnodes.add("enr:-def456");
+    final ArrayNode bootnodes = root.putArray("bootnodes");
+    bootnodes.add("enode://abc@127.0.0.1:30303");
+    bootnodes.add("enr:-abc123");
 
     final DiscoveryOptions options = new DiscoveryOptions(root);
-    assertThat(options.getV5BootNodes())
+    assertThat(options.getBootNodes())
         .isPresent()
-        .hasValue(List.of("enr:-abc123", "enr:-def456"));
-  }
-
-  @Test
-  void v5BootNodesEmptyWhenKeyAbsent() {
-    final ObjectNode root = JsonUtil.createEmptyObjectNode();
-    root.putArray("bootnodes").add("enode://abc@127.0.0.1:30303");
-
-    final DiscoveryOptions options = new DiscoveryOptions(root);
-    assertThat(options.getV5BootNodes()).isEmpty();
-    assertThat(options.getBootNodes()).isPresent();
-  }
-
-  @Test
-  void bootNodesAndV5BootNodesCanCoexist() {
-    final ObjectNode root = JsonUtil.createEmptyObjectNode();
-    root.putArray("bootnodes").add("enode://abc@127.0.0.1:30303");
-    root.putArray("v5bootnodes").add("enr:-abc123");
-
-    final DiscoveryOptions options = new DiscoveryOptions(root);
-    assertThat(options.getBootNodes()).isPresent().hasValue(List.of("enode://abc@127.0.0.1:30303"));
-    assertThat(options.getV5BootNodes()).isPresent().hasValue(List.of("enr:-abc123"));
-  }
-
-  @Test
-  void v5BootNodesThrowsOnNonStringElement() {
-    final ObjectNode root = JsonUtil.createEmptyObjectNode();
-    root.putArray("v5bootnodes").add(42);
-
-    final DiscoveryOptions options = new DiscoveryOptions(root);
-    assertThatThrownBy(options::getV5BootNodes)
-        .isInstanceOf(IllegalArgumentException.class)
-        .hasMessageContaining("v5bootnodes does not contain a string");
+        .hasValue(List.of("enode://abc@127.0.0.1:30303", "enr:-abc123"));
   }
 
   @Test

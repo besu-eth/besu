@@ -75,9 +75,9 @@ class PrecompileCachePrefixBoundTest {
     final Bytes paddedShort = Bytes.concatenate(prefix, Bytes.repeat((byte) 0xab, 16));
     final Bytes paddedLong = Bytes.concatenate(prefix, MutableBytes.create(1_600_000));
 
-    final int prefixKey = AbstractPrecompiledContract.getCacheKey(prefix, 128);
-    final int paddedShortKey = AbstractPrecompiledContract.getCacheKey(paddedShort, 128);
-    final int paddedLongKey = AbstractPrecompiledContract.getCacheKey(paddedLong, 128);
+    final Bytes prefixKey = AbstractPrecompiledContract.getCacheKey(prefix, 128);
+    final Bytes paddedShortKey = AbstractPrecompiledContract.getCacheKey(paddedShort, 128);
+    final Bytes paddedLongKey = AbstractPrecompiledContract.getCacheKey(paddedLong, 128);
 
     assertThat(paddedShortKey).isEqualTo(prefixKey);
     assertThat(paddedLongKey).isEqualTo(prefixKey);

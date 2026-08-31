@@ -84,6 +84,7 @@ public class DownloadBackwardHeadersStep
   private final PeerTaskExecutor peerTaskExecutor;
   private final int headerRequestSize;
   private final long trustAnchorBlockNumber;
+  private final long recoveryFloorBlockNumber;
   private final Duration timeoutDuration;
 
   /**
@@ -93,6 +94,8 @@ public class DownloadBackwardHeadersStep
    * @param ethContext the eth context
    * @param headerRequestSize the number of headers to request per batch
    * @param trustAnchorBlockNumber the lowest header that we want to download
+   * @param recoveryFloorBlockNumber the lowest header anchor recovery may walk down to: the trusted
+   *     checkpoint, or genesis when no checkpoint is configured
    * @param timeoutDuration the maximum time to wait including all retries
    */
   public DownloadBackwardHeadersStep(
@@ -100,6 +103,7 @@ public class DownloadBackwardHeadersStep
       final EthContext ethContext,
       final int headerRequestSize,
       final long trustAnchorBlockNumber,
+      final long recoveryFloorBlockNumber,
       final Duration timeoutDuration) {
     if (headerRequestSize < 1) throw new IllegalArgumentException("headerRequestSize must be >= 1");
     this.protocolSchedule = protocolSchedule;
@@ -107,6 +111,7 @@ public class DownloadBackwardHeadersStep
     this.peerTaskExecutor = ethContext.getPeerTaskExecutor();
     this.headerRequestSize = headerRequestSize;
     this.trustAnchorBlockNumber = trustAnchorBlockNumber;
+    this.recoveryFloorBlockNumber = recoveryFloorBlockNumber;
     this.timeoutDuration = timeoutDuration;
   }
 
@@ -126,7 +131,15 @@ public class DownloadBackwardHeadersStep
    */
   @Override
   public CompletableFuture<List<BlockHeader>> apply(final Long startBlockNumber) {
-    final long remainingHeaders = startBlockNumber - trustAnchorBlockNumber;
+    // In recovery mode the start can drop to or below the trust anchor, in which case the walk
+    // continues down to the recovery floor. That floor is the trusted checkpoint (genesis when
+    // there is none): {@code BackwardHeaderDriver} refuses to reconnect below it, so requesting
+    // headers below it would only fetch data we are going to discard.
+    final long floor =
+        (startBlockNumber <= trustAnchorBlockNumber)
+            ? recoveryFloorBlockNumber
+            : trustAnchorBlockNumber;
+    final long remainingHeaders = startBlockNumber - floor;
     final int headersToRequest = (int) Math.min(headerRequestSize, remainingHeaders);
     if (headersToRequest < 1) {
       throw new IllegalStateException(
@@ -255,20 +268,22 @@ public class DownloadBackwardHeadersStep
           throw new IllegalStateException("Parent hash of last header does not match first header");
         }
         downloadedHeaders.addAll(resultBlockHeaders);
-        LOG.trace(
-            "[{}:{}] Successfully received {} headers starting from block {}",
-            currTaskId,
-            iteration,
-            requestMaxHeaders,
-            requestStartBlockNumber);
+        LOG.atTrace()
+            .setMessage("[{}:{}] Successfully received {} headers starting from block {}")
+            .addArgument(currTaskId)
+            .addArgument(iteration)
+            .addArgument(requestMaxHeaders)
+            .addArgument(requestStartBlockNumber)
+            .log();
       } else {
-        LOG.trace(
-            "[{}:{}] Failed with {} to retrieve {} headers starting from block {}",
-            currTaskId,
-            iteration,
-            responseCode,
-            requestMaxHeaders,
-            requestStartBlockNumber);
+        LOG.atTrace()
+            .setMessage("[{}:{}] Failed with {} to retrieve {} headers starting from block {}")
+            .addArgument(currTaskId)
+            .addArgument(iteration)
+            .addArgument(responseCode)
+            .addArgument(requestMaxHeaders)
+            .addArgument(requestStartBlockNumber)
+            .log();
         if (responseCode == PeerTaskExecutorResponseCode.INTERNAL_SERVER_ERROR) {
           return CompletableFuture.failedFuture(
               new RuntimeException(
@@ -278,7 +293,12 @@ public class DownloadBackwardHeadersStep
                       + startBlockNumber));
         } else {
 
-          LOG.trace("[{}:{}] Waiting for {} before retrying", currTaskId, iteration, RETRY_DELAY);
+          LOG.atTrace()
+              .setMessage("[{}:{}] Waiting for {} before retrying")
+              .addArgument(currTaskId)
+              .addArgument(iteration)
+              .addArgument(RETRY_DELAY)
+              .log();
           final int passIterations = iteration;
           return ethScheduler.scheduleFutureTask(
               () ->

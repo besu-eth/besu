@@ -22,6 +22,8 @@ import picocli.CommandLine;
  * Custom PicoCli IFactory to handle version provider construction with plugin versions. Based on
  * same logic as PicoCLI DefaultFactory.
  */
+// PluginVersionsProvider is deprecated for removal from the plugin API
+@SuppressWarnings("removal")
 public class BesuCommandCustomFactory implements CommandLine.IFactory {
   private final PluginVersionsProvider pluginVersionsProvider;
   private final CommandLine.IFactory defaultFactory = CommandLine.defaultFactory();

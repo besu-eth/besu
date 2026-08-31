@@ -18,7 +18,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SECPPrivateKey;
-import org.hyperledger.besu.crypto.SECPPublicKey;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.tests.acceptance.dsl.AcceptanceTestBase;
 import org.hyperledger.besu.tests.acceptance.dsl.node.Node;
@@ -26,7 +25,7 @@ import org.hyperledger.besu.tests.acceptance.dsl.node.cluster.Cluster;
 import org.hyperledger.besu.tests.acceptance.dsl.node.cluster.ClusterConfigurationBuilder;
 import org.hyperledger.besu.tests.acceptance.dsl.node.configuration.BesuNodeConfigurationBuilder;
 
-import java.net.ServerSocket;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -37,7 +36,8 @@ import org.bouncycastle.crypto.params.ECDomainParameters;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 public class BootNodesGenesisSetupTest extends AcceptanceTestBase {
   private static final String CURVE_NAME = "secp256k1";
@@ -66,52 +66,11 @@ public class BootNodesGenesisSetupTest extends AcceptanceTestBase {
     super.tearDownAcceptanceTestBase();
   }
 
-  @Test
-  public void shouldConnectNodesViaV4EnodeBootnodesInGenesis() throws Exception {
-    int nodeAPort, nodeBPort;
-    try (ServerSocket nodeASocket = new ServerSocket(0);
-        ServerSocket nodeBSocket = new ServerSocket(0)) {
-      nodeAPort = nodeASocket.getLocalPort();
-      nodeBPort = nodeBSocket.getLocalPort();
-    }
-
-    final KeyPair nodeAKeyPair =
-        createKeyPair(
-            Bytes32.fromHexString(
-                "0x8f2a55949038a9610f50fb23b5883af3b4ecb3c3bb792cbcefbd1542c692be63"));
-    final KeyPair nodeBKeyPair =
-        createKeyPair(
-            Bytes32.fromHexString(
-                "0xc87509a1c067bbde78beb793e6fa76530b6382a4c0241e5e4a9ec0a0f44dc0d3"));
-
-    final Node nodeA =
-        besu.createNode(
-            "nodeA",
-            b ->
-                configureV4Node(
-                    b, nodeAPort, nodeAKeyPair, nodeBKeyPair.getPublicKey(), nodeBPort));
-    final Node nodeB =
-        besu.createNode(
-            "nodeB",
-            b ->
-                configureV4Node(
-                    b, nodeBPort, nodeBKeyPair, nodeAKeyPair.getPublicKey(), nodeAPort));
-
-    noDiscoveryCluster.start(nodeA, nodeB);
-
-    nodeA.verify(net.awaitPeerCount(1));
-    nodeA.verify(admin.hasPeer(nodeB));
-    nodeB.verify(admin.hasPeer(nodeA));
-  }
-
-  @Test
-  public void shouldConnectNodesViaV5EnrBootnodesInGenesis() throws Exception {
-    int nodeAPort, nodeBPort;
-    try (ServerSocket nodeASocket = new ServerSocket(0);
-        ServerSocket nodeBSocket = new ServerSocket(0)) {
-      nodeAPort = nodeASocket.getLocalPort();
-      nodeBPort = nodeBSocket.getLocalPort();
-    }
+  @ParameterizedTest
+  @ValueSource(strings = {"enode", "enr"})
+  public void shouldConnectNodesViaBootnodesInGenesis(final String bootnodeField) throws Exception {
+    // Pin discovery mode to the one that consumes this bootnode format.
+    final String discoveryMode = bootnodeField.equals("enr") ? "V5" : "V4";
 
     final KeyPair nodeAKeyPair =
         createKeyPair(
@@ -124,17 +83,16 @@ public class BootNodesGenesisSetupTest extends AcceptanceTestBase {
 
     // Start nodeA first with no genesis bootnodes — it just listens for incoming connections
     final Node nodeA =
-        besu.createNode("nodeA", b -> configureV5Node(b, nodeAPort, nodeAKeyPair, null));
+        besu.createNode("nodeA", b -> addDiscoveryBootnodes(b, nodeAKeyPair, null, discoveryMode));
     noDiscoveryCluster.addNode(nodeA);
 
-    // Get nodeA's actual ENR from the running node so we use the exact ENR Besu generated
     final Map<String, Object> nodeAInfo = nodeA.execute(admin.nodeInfo());
-    final String nodeAEnr = (String) nodeAInfo.get("enr");
-    assertThat(nodeAEnr).isNotNull().startsWith("enr:");
+    final String nodeABootnode = (String) nodeAInfo.get(bootnodeField);
+    assertThat(nodeABootnode).isNotNull();
 
-    // Start nodeB with nodeA's real ENR as the genesis V5 bootnode
     final Node nodeB =
-        besu.createNode("nodeB", b -> configureV5Node(b, nodeBPort, nodeBKeyPair, nodeAEnr));
+        besu.createNode(
+            "nodeB", b -> addDiscoveryBootnodes(b, nodeBKeyPair, nodeABootnode, discoveryMode));
     noDiscoveryCluster.addNode(nodeB);
 
     nodeA.verify(net.awaitPeerCount(1));
@@ -146,39 +104,17 @@ public class BootNodesGenesisSetupTest extends AcceptanceTestBase {
     return KeyPair.create(SECPPrivateKey.create(privateKey, ALGORITHM), curve, ALGORITHM);
   }
 
-  private BesuNodeConfigurationBuilder configureV4Node(
+  private BesuNodeConfigurationBuilder addDiscoveryBootnodes(
       final BesuNodeConfigurationBuilder b,
-      final int p2pPort,
       final KeyPair keyPair,
-      final SECPPublicKey peerPublicKey,
-      final int peerP2pPort) {
-    return b.devMode(false)
-        .keyPair(keyPair)
-        .p2pPort(p2pPort)
-        .genesisConfigProvider(
-            nodes ->
-                Optional.of(
-                    String.format(
-                        "{\"config\":{\"ethash\":{},\"discovery\":{\"bootnodes\":[\"enode://%s@127.0.0.1:%d\"]}},\"gasLimit\":\"0x1\",\"difficulty\":\"0x1\"}",
-                        peerPublicKey.toString().substring(2), peerP2pPort)))
-        .bootnodeEligible(false)
-        .discoveryV5Enabled(false)
-        .jsonRpcEnabled()
-        .jsonRpcAdmin();
-  }
-
-  private BesuNodeConfigurationBuilder configureV5Node(
-      final BesuNodeConfigurationBuilder b,
-      final int p2pPort,
-      final KeyPair keyPair,
-      final String bootEnr) {
+      final String bootnode,
+      final String discoveryMode) {
     final String discoverySection =
-        bootEnr != null
-            ? String.format("\"discovery\":{\"v5bootnodes\":[\"%s\"]}", bootEnr)
+        bootnode != null
+            ? String.format("\"discovery\":{\"bootnodes\":[\"%s\"]}", bootnode)
             : "\"discovery\":{}";
     return b.devMode(false)
         .keyPair(keyPair)
-        .p2pPort(p2pPort)
         .genesisConfigProvider(
             nodes ->
                 Optional.of(
@@ -186,7 +122,7 @@ public class BootNodesGenesisSetupTest extends AcceptanceTestBase {
                         "{\"config\":{\"ethash\":{},%s},\"gasLimit\":\"0x1\",\"difficulty\":\"0x1\"}",
                         discoverySection)))
         .bootnodeEligible(false)
-        .discoveryV5Enabled(true)
+        .extraCLIOptions(List.of("--discovery-mode=" + discoveryMode))
         .jsonRpcEnabled()
         .jsonRpcAdmin();
   }

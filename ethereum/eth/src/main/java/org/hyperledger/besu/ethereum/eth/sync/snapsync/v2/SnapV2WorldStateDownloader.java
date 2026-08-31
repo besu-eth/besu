@@ -56,6 +56,7 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
   private static final Logger LOG = LoggerFactory.getLogger(SnapV2WorldStateDownloader.class);
 
   static final int NO_PEER_RETRY_DELAY_MILLISECONDS = 5_000;
+  private static final long NO_PEER_LOG_INTERVAL_MS = 30_000L;
 
   private final long minMillisBeforeStalling;
   private final Clock clock;
@@ -73,6 +74,8 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
   private volatile WorldStateHealFinishedListener worldStateHealFinishedListener;
   private volatile SnapV2PivotCatchupListener pivotCatchupListener;
   private final SnapV2BlockAccessListApplier blockAccessListApplier;
+  private final SnapV2ReorgHealer reorgHealer;
+  private long lastNoPeerLogMillis;
 
   public SnapV2WorldStateDownloader(
       final EthContext ethContext,
@@ -103,6 +106,13 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
     this.blockAccessListApplier =
         new SnapV2BlockAccessListApplier(
             worldStateStorageCoordinator, blockchain, protocolSchedule);
+    this.reorgHealer =
+        new SnapV2ReorgHealer(
+            blockchain,
+            worldStateStorageCoordinator,
+            protocolSchedule,
+            SnapV2ReorgStateFetcher.fromEthContext(
+                ethContext, metricsSystem, worldStateStorageCoordinator));
 
     metricsSystem.createIntegerGauge(
         BesuMetricCategory.SYNCHRONIZER,
@@ -148,9 +158,7 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
       }
 
       if (ethContext.getEthPeers().peerCount() == 0) {
-        LOG.debug(
-            "No peers available, deferring snap/2 world state pipeline start for {} ms",
-            NO_PEER_RETRY_DELAY_MILLISECONDS);
+        logNoPeersWaiting();
         return ethContext
             .getScheduler()
             .scheduleFutureTask(
@@ -172,7 +180,14 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
       final SnapSyncMetricsManager snapsyncMetricsManager =
           new SnapSyncMetricsManager(metricsSystem, ethContext);
       final DynamicPivotBlockSelector pivotBlockSelector =
-          new DynamicPivotBlockSelector(ethContext, fastSyncActions, snapSyncState, null);
+          new DynamicPivotBlockSelector(
+              ethContext,
+              fastSyncActions,
+              snapSyncState,
+              null,
+              snapSyncConfiguration.getPivotBlockCheckIntervalMillis());
+      final long storagePipelineInFlightCapacity =
+          (long) snapSyncConfiguration.getStorageCountPerRequest() * maxOutstandingRequests;
       final SnapV2WorldDownloadState newDownloadState =
           new SnapV2WorldDownloadState(
               worldStateStorageCoordinator,
@@ -187,8 +202,10 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
               worldStateHealFinishedListener,
               pivotCatchupListener,
               blockAccessListApplier,
+              reorgHealer,
               blockchain,
-              ethContext);
+              ethContext,
+              storagePipelineInFlightCapacity);
 
       final Map<Bytes32, Bytes32> ranges = RangeManager.generateAllRanges(16);
       snapsyncMetricsManager.initRange(ranges);
@@ -208,6 +225,7 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
               metricsSystem);
 
       downloadState.set(newDownloadState);
+      newDownloadState.startHeartbeat();
       return newDownloadState.startDownload(downloadProcess, ethContext.getScheduler());
     }
   }
@@ -230,5 +248,16 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
   @Override
   public Optional<Long> getKnownStates() {
     return Optional.empty();
+  }
+
+  private void logNoPeersWaiting() {
+    final long now = System.currentTimeMillis();
+    if (now - lastNoPeerLogMillis >= NO_PEER_LOG_INTERVAL_MS) {
+      lastNoPeerLogMillis = now;
+      LOG.info(
+          "No peers available, waiting to start snap/2 world state download "
+              + "(retrying every {} ms)",
+          NO_PEER_RETRY_DELAY_MILLISECONDS);
+    }
   }
 }

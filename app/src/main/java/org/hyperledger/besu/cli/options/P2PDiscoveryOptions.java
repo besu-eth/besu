@@ -18,6 +18,7 @@ import org.hyperledger.besu.cli.DefaultCommandValues;
 import org.hyperledger.besu.cli.converter.PercentageConverter;
 import org.hyperledger.besu.cli.converter.SubnetCidrConverter;
 import org.hyperledger.besu.cli.util.CommandLineUtils;
+import org.hyperledger.besu.ethereum.p2p.config.DiscoveryMode;
 import org.hyperledger.besu.ethereum.p2p.discovery.P2PDiscoveryConfiguration;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.util.NetworkUtility;
@@ -81,6 +82,16 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
       arity = "1")
   public final Boolean peerDiscoveryEnabled = true;
 
+  /** Selects which discovery protocol(s) the node runs. */
+  @CommandLine.Option(
+      names = {"--discovery-mode"},
+      description =
+          "Discovery protocol(s) to run: V4, V5, or BOTH (default: ${DEFAULT-VALUE}). "
+              + "V4 runs only DiscV4. "
+              + "V5 runs only DiscV5 (requires a secp256k1 node key; falls back to V4 if unsupported). "
+              + "BOTH runs DiscV4 and DiscV5 concurrently on a shared UDP socket.")
+  public DiscoveryMode discoveryMode = DiscoveryMode.getDefault();
+
   /**
    * A list of bootstrap nodes can be passed and a hardcoded list will be used otherwise by the
    * Runner.
@@ -90,9 +101,7 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
       names = {"--bootnodes"},
       paramLabel = "<enode://id@host:port>|<enr:base64Enr>",
       description =
-          "Comma separated enode or ENR URLs for P2P discovery bootstrap. "
-              + "Must be either all enode URLs (discovery V4) or all ENR URLs (discovery V5). "
-              + "Default is a predefined list.",
+          "Comma separated enode URLs (DiscV4) and/or ENR strings (DiscV5) for P2P discovery bootstrap. Defaults to genesis-provided bootnodes.",
       split = ",",
       arity = "0..*")
   public final List<String> bootNodes = null;
@@ -122,6 +131,14 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
       description = "Port on which to listen for P2P communication (default: ${DEFAULT-VALUE})")
   public Integer p2pPort = EnodeURLImpl.DEFAULT_LISTENING_PORT;
 
+  /** The UDP port used for devp2p peer discovery. Defaults to --p2p-port when not set. */
+  @CommandLine.Option(
+      names = {"--p2p-discovery-port"},
+      paramLabel = DefaultCommandValues.MANDATORY_PORT_FORMAT_HELP,
+      description =
+          "UDP port for devp2p peer discovery. Defaults to --p2p-port when not set. Use 0 for ephemeral port allocation.")
+  public Integer p2pDiscoveryPort = null;
+
   // ===================== IPv6 Network Options =====================
 
   /** The IPv6 address the node advertises to peers for P2P communication. */
@@ -147,6 +164,14 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
       description =
           "Port on which to listen for IPv6 P2P communication (default: ${DEFAULT-VALUE})")
   public Integer p2pPortIpv6 = EnodeURLImpl.DEFAULT_LISTENING_PORT_IPV6;
+
+  /** The IPv6 UDP port used for devp2p peer discovery. Defaults to --p2p-port-ipv6 when not set. */
+  @CommandLine.Option(
+      names = {"--p2p-discovery-port-ipv6"},
+      paramLabel = DefaultCommandValues.MANDATORY_PORT_FORMAT_HELP,
+      description =
+          "IPv6 UDP port for devp2p peer discovery. Defaults to --p2p-port-ipv6 when not set. Use 0 for ephemeral port allocation.")
+  public Integer p2pDiscoveryPortIpv6 = null;
 
   // ===================== IP Version Preference =====================
 
@@ -271,12 +296,15 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
     return new P2PDiscoveryConfiguration(
         p2pEnabled,
         peerDiscoveryEnabled,
+        discoveryMode,
         p2pHost,
         p2pInterface,
         p2pPort,
+        p2pDiscoveryPort != null ? p2pDiscoveryPort : p2pPort,
         Optional.ofNullable(p2pHostIpv6),
         Optional.ofNullable(p2pInterfaceIpv6),
         p2pPortIpv6,
+        p2pDiscoveryPortIpv6 != null ? p2pDiscoveryPortIpv6 : p2pPortIpv6,
         maxPeers,
         isLimitRemoteWireConnectionsEnabled,
         maxRemoteConnectionsPercentage,

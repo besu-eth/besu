@@ -35,6 +35,9 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
+import org.hyperledger.besu.metrics.BesuMetricCategory;
+import org.hyperledger.besu.plugin.services.MetricsSystem;
+import org.hyperledger.besu.plugin.services.metrics.Counter;
 
 import java.math.BigInteger;
 import java.util.Comparator;
@@ -42,6 +45,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
@@ -55,6 +60,13 @@ public class SnapProtocolManager implements ProtocolManager {
   private final EthMessages snapMessages;
   private final EthScheduler ethScheduler;
 
+  private final int maxConcurrentRequestsPerPeer;
+  private final int maxConcurrentRequestsGlobal;
+  private final AtomicInteger globalInFlightRequests = new AtomicInteger(0);
+  private final Map<PeerConnection, AtomicInteger> perPeerInFlightRequests =
+      new ConcurrentHashMap<>();
+  private final Counter rejectedRequestsCounter;
+
   public SnapProtocolManager(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final SnapSyncConfiguration snapConfig,
@@ -62,13 +74,27 @@ public class SnapProtocolManager implements ProtocolManager {
       final EthMessages snapMessages,
       final EthScheduler ethScheduler,
       final ProtocolContext protocolContext,
-      final Synchronizer synchronizer) {
+      final Synchronizer synchronizer,
+      final MetricsSystem metricsSystem) {
     this.ethPeers = ethPeers;
     this.snapMessages = snapMessages;
     this.ethScheduler = ethScheduler;
     this.supportedCapabilities = calculateCapabilities(snapConfig);
+    this.maxConcurrentRequestsPerPeer = snapConfig.getMaxConcurrentSnapRequestsPerPeer();
+    this.maxConcurrentRequestsGlobal = snapConfig.getMaxConcurrentSnapRequestsGlobal();
     new SnapServer(
         snapConfig, snapMessages, worldStateStorageCoordinator, protocolContext, synchronizer);
+
+    metricsSystem.createIntegerGauge(
+        BesuMetricCategory.PEERS,
+        "snap_service_requests_in_flight_current",
+        "The current number of snap sync GET_* requests concurrently scheduled for processing",
+        globalInFlightRequests::get);
+    this.rejectedRequestsCounter =
+        metricsSystem.createCounter(
+            BesuMetricCategory.PEERS,
+            "snap_service_requests_rejected_total",
+            "Total number of snap sync GET_* requests answered with an empty response because a concurrency cap was reached");
   }
 
   private List<Capability> calculateCapabilities(final SnapSyncConfiguration snapConfig) {
@@ -151,6 +177,54 @@ public class SnapProtocolManager implements ProtocolManager {
       final EthMessage decodedEthMessage,
       final Capability cap,
       final int code) {
+    if (!reserveSnapRequestSlot(ethPeer)) {
+      respondEmptyDueToOverload(ethPeer, decodedEthMessage, code);
+      return;
+    }
+    try {
+      scheduleReservedSnapRequest(ethPeer, decodedEthMessage, cap, code);
+    } catch (final RuntimeException e) {
+      // Only reachable during shutdown: the services executor rejects synchronously once shut
+      // down. Release the slot so it isn't leaked.
+      releaseSnapRequestSlot(ethPeer);
+      throw e;
+    }
+  }
+
+  /** Cap was hit; reply empty instead of leaving the peer to time out. */
+  private void respondEmptyDueToOverload(
+      final EthPeer ethPeer, final EthMessage decodedEthMessage, final int code) {
+    final BigInteger requestId;
+    try {
+      requestId = decodedEthMessage.getData().unwrapMessageData().getKey();
+    } catch (final RLPException e) {
+      LOG.debug(
+          "Received malformed snap message code={} (BREACH_OF_PROTOCOL), disconnecting: {}",
+          code,
+          ethPeer,
+          e);
+      ethPeer.disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+      return;
+    }
+    sendSnapResponse(ethPeer, emptyResponseFor(code).wrapMessageData(requestId));
+  }
+
+  private static MessageData emptyResponseFor(final int code) {
+    return switch (code) {
+      case SnapV1.GET_ACCOUNT_RANGE -> SnapServer.EMPTY_ACCOUNT_RANGE;
+      case SnapV1.GET_STORAGE_RANGE -> SnapServer.EMPTY_STORAGE_RANGE;
+      case SnapV1.GET_BYTECODES -> SnapServer.EMPTY_BYTE_CODES_MESSAGE;
+      case SnapV1.GET_TRIE_NODES -> SnapServer.EMPTY_TRIE_NODES_MESSAGE;
+      case SnapV2.GET_BLOCK_ACCESS_LISTS -> SnapServer.EMPTY_BLOCK_ACCESS_LISTS;
+      default -> throw new IllegalStateException("Unhandled snap GET_* code: " + code);
+    };
+  }
+
+  private void scheduleReservedSnapRequest(
+      final EthPeer ethPeer,
+      final EthMessage decodedEthMessage,
+      final Capability cap,
+      final int code) {
     ethScheduler
         .scheduleServiceTask(
             () -> {
@@ -185,7 +259,61 @@ public class SnapProtocolManager implements ProtocolManager {
                     .log();
               }
               return null;
-            });
+            })
+        .whenComplete((result, error) -> releaseSnapRequestSlot(ethPeer));
+  }
+
+  /**
+   * Reserves a global and per-peer slot before scheduling; increment-then-check avoids a TOCTOU
+   * race.
+   *
+   * @return true if reserved; false if a cap was hit (request answered empty instead).
+   */
+  private boolean reserveSnapRequestSlot(final EthPeer ethPeer) {
+    if (maxConcurrentRequestsGlobal > 0) {
+      final int reservedGlobal = globalInFlightRequests.incrementAndGet();
+      if (reservedGlobal > maxConcurrentRequestsGlobal) {
+        globalInFlightRequests.decrementAndGet();
+        rejectSnapRequest(ethPeer, "global");
+        return false;
+      }
+    }
+    if (maxConcurrentRequestsPerPeer > 0) {
+      final AtomicInteger perPeerCount =
+          perPeerInFlightRequests.computeIfAbsent(
+              ethPeer.getConnection(), unused -> new AtomicInteger(0));
+      final int reservedPerPeer = perPeerCount.incrementAndGet();
+      if (reservedPerPeer > maxConcurrentRequestsPerPeer) {
+        perPeerCount.decrementAndGet();
+        if (maxConcurrentRequestsGlobal > 0) {
+          globalInFlightRequests.decrementAndGet();
+        }
+        rejectSnapRequest(ethPeer, "per-peer");
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private void releaseSnapRequestSlot(final EthPeer ethPeer) {
+    if (maxConcurrentRequestsGlobal > 0) {
+      globalInFlightRequests.decrementAndGet();
+    }
+    if (maxConcurrentRequestsPerPeer > 0) {
+      final AtomicInteger perPeerCount = perPeerInFlightRequests.get(ethPeer.getConnection());
+      if (perPeerCount != null) {
+        perPeerCount.decrementAndGet();
+      }
+    }
+  }
+
+  private void rejectSnapRequest(final EthPeer ethPeer, final String scope) {
+    rejectedRequestsCounter.inc();
+    LOG.atDebug()
+        .setMessage("Answering snap request from peer {} empty: {} concurrency cap reached")
+        .addArgument(ethPeer::getLoggableId)
+        .addArgument(scope)
+        .log();
   }
 
   private void sendSnapResponse(final EthPeer ethPeer, final MessageData responseData) {
@@ -206,7 +334,9 @@ public class SnapProtocolManager implements ProtocolManager {
   public void handleDisconnect(
       final PeerConnection connection,
       final DisconnectReason reason,
-      final boolean initiatedByPeer) {}
+      final boolean initiatedByPeer) {
+    perPeerInFlightRequests.remove(connection);
+  }
 
   @Override
   public int getHighestProtocolVersion() {

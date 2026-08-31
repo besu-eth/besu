@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -92,7 +93,7 @@ public class EthGetFilterLogsTest {
     final JsonRpcRequestContext request = requestWithFilterId("NOT FOUND");
     final JsonRpcResponse expectedResponse =
         new JsonRpcErrorResponse(null, RpcErrorType.LOGS_FILTER_NOT_FOUND);
-    when(filterManager.logs(eq("NOT FOUND"))).thenReturn(null);
+    when(filterManager.logs(eq("NOT FOUND"), any())).thenReturn(null);
 
     final JsonRpcResponse response = method.response(request);
 
@@ -104,7 +105,7 @@ public class EthGetFilterLogsTest {
     final JsonRpcRequestContext request = requestWithFilterId("0x1");
     final JsonRpcResponse expectedResponse =
         new JsonRpcSuccessResponse(null, new LogsResult(new ArrayList<>()));
-    when(filterManager.logs(eq("0x1"))).thenReturn(new ArrayList<>());
+    when(filterManager.logs(eq("0x1"), any())).thenReturn(new ArrayList<>());
 
     final JsonRpcResponse response = method.response(request);
 
@@ -116,7 +117,7 @@ public class EthGetFilterLogsTest {
     final JsonRpcRequestContext request = requestWithFilterId("0x1");
     final JsonRpcResponse expectedResponse =
         new JsonRpcSuccessResponse(null, new LogsResult(logs()));
-    when(filterManager.logs(eq("0x1"))).thenReturn(logs());
+    when(filterManager.logs(eq("0x1"), any())).thenReturn(logs());
 
     final JsonRpcResponse response = method.response(request);
 
