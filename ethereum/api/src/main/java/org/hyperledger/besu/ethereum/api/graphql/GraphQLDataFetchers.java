@@ -386,8 +386,14 @@ public class GraphQLDataFetchers {
 
       @SuppressWarnings("unchecked")
       final List<Address> addrs = (List<Address>) filter.get("addresses");
+      // `topics` is nullable in the schema, and the schema's own documentation says "[] or nil
+      // matches any topic list", so an omitted value has to behave like an empty one rather than
+      // being dereferenced. graphql-java puts the key in the map with a null value when a client
+      // writes `topics: null` explicitly, so getOrDefault is not enough on its own.
+      // (`addrs` may stay null: LogsQuery.Builder.addresses tolerates it.)
       @SuppressWarnings("unchecked")
-      final List<List<LogTopic>> topics = (List<List<LogTopic>>) filter.get("topics");
+      final List<List<LogTopic>> topics =
+          Optional.ofNullable((List<List<LogTopic>>) filter.get("topics")).orElse(List.of());
 
       final List<List<LogTopic>> transformedTopics = new ArrayList<>();
       for (final List<LogTopic> topic : topics) {

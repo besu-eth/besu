@@ -15,6 +15,19 @@
 
 apply plugin: 'java-library'
 
+compileJava {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.ERROR)
+    option('NullAway:AnnotatedPackages', 'org.hyperledger.besu.metrics.rocksdb')
+  }
+}
+
+tasks.named('compileTestJava', JavaCompile).configure {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.OFF)
+  }
+}
+
 jar {
   archiveBaseName = calculateArtifactId(project)
   manifest {
@@ -31,8 +44,12 @@ jar {
 dependencies {
   api 'org.slf4j:slf4j-api'
 
+  errorprone 'com.uber.nullaway:nullaway'
+
   implementation project(':metrics:core')
   implementation project(':plugin-api')
 
   implementation 'org.rocksdb:rocksdbjni'
+
+  compileOnly 'org.jspecify:jspecify'
 }

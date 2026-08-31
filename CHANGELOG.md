@@ -14,6 +14,7 @@
 - Vert.x 5's `PoolMetrics` SPI drops the `rejected` callback, so the `vertx_worker_pool_rejected_total` metric no longer reports any value; remove any dashboard or alert that depends on it. [#11015](https://github.com/besu-eth/besu/pull/11015)
 - Vert.x 5's DNS client now filters resolved records by comparing an answer's owner name against the queried name case-sensitively, silently dropping non-matching records instead of returning them as Vert.x 4.x did. EIP-1459 DNS discovery could miss subtree/node TXT records from a server whose response doesn't echo the query name byte-for-byte (e.g. differing case). [#11015](https://github.com/besu-eth/besu/pull/11015)
 - Removed the custom `engine_preparePayload_debug` RPC methods, use the standard `testing_buildBlockV1` instead. [#11011](https://github.com/besu-eth/besu/pull/11011)
+- `eth_feeHistory` now rejects reward percentiles outside `[0, 100]`, not strictly increasing, or more than 100 values (`-32602`), instead of sorting unordered input or silently omitting `reward` for oversize lists. [#11055](https://github.com/besu-eth/besu/issues/11055)
 - RPC changes to enhance compatibility with other ELs
   - `eth_estimateGas` now returns the exact minimal gas limit for plain value transfers instead of a value up to `--estimate-gas-tolerance-ratio` above it, e.g. 15000 instead of 15159 for a zero-value transfer under EIP-2780 (Amsterdam), matching other ELs. [#11178](https://github.com/besu-eth/besu/pull/11178)
 
@@ -22,6 +23,12 @@
   - `PluginTransactionSelectorFactory.create(final SelectorsStateManager selectorsStateManager)` is deprecated for removal
   - `PoaQueryService` and `BftQueryService` are deprecated and will be removed in a future release, with no replacement. They have no known usage
   - `MiningService` is deprecated for removal and will be removed in a future release, with no replacement. It has no known usage
+  - The plugin API is being reorganized into per-feature modules ([#10820](https://github.com/besu-eth/besu/issues/10820)). Nothing has changed for plugin authors yet: `besu-plugin-api` re-exports every module, so existing plugins compile and run unmodified. A future release will apply the breaking changes, batched into a single break with a migration guide:
+    - packages are renamed to match their module, for example `org.hyperledger.besu.plugin.services.storage` becomes `org.hyperledger.besu.plugin.storage`, with contracts plugins implement moving under an `spi` sub-package
+    - contracts that serve several unrelated audiences are split apart, and contracts that overlap are merged into one
+    - types and methods whose names no longer describe what they do are renamed, and a number of signatures change
+    - contracts and methods that are deprecated, superseded, or have no known usage are removed
+  - The plugin lifecycle is being redesigned. The phases a plugin goes through, the services available in each of them, and the way a plugin obtains those services are all expected to change, and the changes will not be source compatible.
   - `PluginVersionsProvider`, `plugin.data.Request`, `plugin.data.Restriction`, `plugin.data.UnsignedPrivateMarkerTransaction` and `plugin.data.Signature` are deprecated for removal, with no replacement. None is reachable through any plugin service or data contract: the three privacy types were orphaned when private transaction support was removed, `Request` is implemented internally but never exposed, and `PluginVersionsProvider` is internal `--version` plumbing
 - `--Xbft-legacy-protocol-encoding` will be removed once Besu 25.x is no longer supported. [#10499](https://github.com/besu-eth/besu/pull/10499)
 - `--Xsnapsync-synchronizer-pivot-block-distance-before-caching` is deprecated and will be removed in a future release; the flag is now a silent no-op.
@@ -29,6 +36,8 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
+- GraphQL `logs(filter: ...)` no longer fails when the filter's `topics` field is omitted or explicitly null, on both the top-level `logs` query and the block-scoped one. The schema declares `topics` nullable and documents "[] or nil matches any topic list", but the field was dereferenced unguarded, so a documented-valid query returned a `DataFetchingException` and `data: null`. [#11188](https://github.com/besu-eth/besu/pull/11188)
+- The Engine API JWT fast-path cache now compares the presented bearer token against the cached one with `MessageDigest.isEqual` over UTF-8 bytes instead of `String.equals`, so the comparison does not return early on the first differing byte.
 - `engine_newPayloadV5` now returns `{status: INVALID}` instead of a `-32602` JSON-RPC error when a present `blockAccessList` cannot be decoded; a missing `blockAccessList` still returns `-32602`. [#11177](https://github.com/besu-eth/besu/pull/11177)
 - `debug_getRawReceipts` now accepts a block hash as well as a block number or tag. [#11156](https://github.com/besu-eth/besu/pull/11156)
 - Support dynamic reorg tracking for transaction receipt logs in `eth_getTransactionReceipt` and `eth_getBlockReceipts` by populating the `removed` field. [#11076](https://github.com/besu-eth/besu/pull/11076)
@@ -52,6 +61,7 @@
 - Complete QBFT votes in a reasonable time when `empyblockperiodseconds` is set by treating QBFT votes as "non empty blocks" [#11111](https://github.com/besu-eth/besu/pull/11111)
 - `engine_newPayload` no longer briefly answers `SYNCING` after startup on a peerless node: `PostMergeContext.isSyncing()` now treats an undetermined terminal-difficulty flag as "reached", matching `SyncState.isInSync()`. [#11168](https://github.com/besu-eth/besu/pull/11168)
 - Engine API timestamps above `2^63-1` are no longer treated as negative: `engine_newPayload` rejected such a payload's withdrawals as pre-Shanghai, `engine_forkchoiceUpdated` failed to parse the payload attributes timestamp at all, and post-merge header validation saw the block as older than its parent.
+- Fix ENR fork ID not updating after timestamp-scheduled forks when no block lands exactly on the fork timestamp. [#10882](https://github.com/besu-eth/besu/issues/10882)
 
 ### Additions and Improvements
 - Add JMH `GasProfiler` that emits `mgas_per_s` as a secondary metric on each benchmark iteration using Besu's own `GasCalculator`. Enable with `-PgasProfiler=true`; override the EVM fork with `-PgasProfilerFork=<fork>` (defaults to Osaka). [#10807](https://github.com/besu-eth/besu/pull/10807)
