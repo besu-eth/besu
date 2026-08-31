@@ -20,6 +20,7 @@ import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PARIS;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PRAGUE;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SHANGHAI;
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.VALID;
 import static org.hyperledger.besu.evmtool.EngineTestSubCommand.COMMAND_NAME;
 
 import org.hyperledger.besu.datatypes.Hash;
@@ -28,6 +29,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcRequestException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineCallListener;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineForkchoiceUpdatedV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineForkchoiceUpdatedV2;
@@ -554,7 +556,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
 
     boolean testPassed = true;
     String failureReason = "";
-    String lastPayloadStatus = "";
+    EngineStatus lastPayloadStatus = null;
 
     final EngineTestCaseSpec.EngineNewPayload[] payloads = spec.getEngineNewPayloads();
     if (payloads == null || payloads.length == 0) {
@@ -687,7 +689,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
         // Get payload status from successful response
         final PayloadStatusV1 status =
             (PayloadStatusV1) ((JsonRpcSuccessResponse) response).getResult();
-        lastPayloadStatus = status.getStatusAsString();
+        lastPayloadStatus = status.getStatus();
 
         // A fixture that expects an Engine API errorCode requires an actual JSON-RPC error
         // response; a status response, even INVALID, does not satisfy it. This is the distinction
@@ -697,17 +699,17 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
           failureReason =
               String.format(
                   "payload %d: expected Engine API error code %s, got success response with status %s",
-                  i, payload.getErrorCode(), status.getStatusAsString());
+                  i, payload.getErrorCode(), status.getStatus());
           break;
         }
 
         if (payload.expectsValid()) {
-          if (!"VALID".equals(status.getStatusAsString())) {
+          if (!VALID.equals(status.getStatus())) {
             testPassed = false;
             failureReason =
                 String.format(
                     "payload %d: expected VALID, got %s (err: %s)",
-                    i, status.getStatusAsString(), status.getError());
+                    i, status.getStatus(), status.getError());
             break;
           }
           if (verbose) {
@@ -751,7 +753,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
             parentCommand.out.printf("Payload %d: FCU VALID%n", i);
           }
         } else {
-          if ("VALID".equals(status.getStatusAsString())) {
+          if (VALID.equals(status.getStatus())) {
             testPassed = false;
             failureReason =
                 String.format(
@@ -773,7 +775,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
           if (verbose) {
             parentCommand.out.printf(
                 "Payload %d: %s (expected: %s, got: %s)%n",
-                i, status.getStatusAsString(), payload.getValidationError(), status.getError());
+                i, status.getStatus(), payload.getValidationError(), status.getError());
           }
         }
       } catch (final InvalidJsonRpcRequestException e) {
@@ -823,7 +825,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
       final boolean testPassed,
       final String failureReason,
       final FixtureRunner.TestResults results) {
-    recordResult(test, spec, blockchain, testPassed, failureReason, "", results);
+    recordResult(test, spec, blockchain, testPassed, failureReason, null, results);
   }
 
   /**
@@ -842,7 +844,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
       final MutableBlockchain blockchain,
       final boolean testPassed,
       final String failureReason,
-      final String lastPayloadStatus,
+      final EngineStatus lastPayloadStatus,
       final FixtureRunner.TestResults results) {
     if (testPassed) {
       if (verbose) {
@@ -865,7 +867,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
       result.put("fork", spec.getNetwork());
       result.put(
           "lastBlockHash", blockchain == null ? "" : blockchain.getChainHeadHash().toHexString());
-      result.put("lastPayloadStatus", lastPayloadStatus);
+      result.put("lastPayloadStatus", lastPayloadStatus != null ? lastPayloadStatus.name() : "");
       // Empty on a pass: a test whose payload was correctly INVALID has no error to report, and
       // carrying that payload's message here would make a passing row indistinguishable from a
       // failed one.
