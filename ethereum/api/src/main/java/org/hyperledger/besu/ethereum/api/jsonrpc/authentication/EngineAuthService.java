@@ -18,8 +18,10 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.util.Collection;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
@@ -52,7 +54,18 @@ public class EngineAuthService implements AuthenticationService {
   // Caching the last validated token avoids repeated Jackson JSON parsing and HMAC-SHA256
   // verification for the burst of calls that arrive with the same token string. The iat
   // freshness check is still performed on every request.
-  private record CachedToken(String raw, long iat, User user) {}
+  //
+  // The token is held as UTF-8 bytes so the fast path can compare it with
+  // MessageDigest.isEqual, which does not return early on the first differing byte. The
+  // presented value is a live bearer credential, so it should not be compared with
+  // String.equals even where the leak is not considered practically exploitable.
+  private record CachedToken(byte[] rawUtf8, long iat, User user) {
+    private CachedToken(final byte[] rawUtf8, final long iat, final User user) {
+      this.rawUtf8 = rawUtf8.clone();
+      this.iat = iat;
+      this.user = user;
+    }
+  }
 
   private final AtomicReference<CachedToken> lastValidToken = new AtomicReference<>();
 
@@ -146,7 +159,8 @@ public class EngineAuthService implements AuthenticationService {
     // burst of engine API calls that arrive with the same token. The iat freshness check is
     // still performed on every request to correctly reject a cached token once it goes stale.
     final CachedToken cached = lastValidToken.get();
-    if (cached != null && cached.raw().equals(token)) {
+    final byte[] tokenUtf8 = token.getBytes(StandardCharsets.UTF_8);
+    if (cached != null && MessageDigest.isEqual(cached.rawUtf8(), tokenUtf8)) {
       handler.handle(issuedRecently(cached.iat()) ? Optional.of(cached.user()) : Optional.empty());
       return;
     }
@@ -159,7 +173,7 @@ public class EngineAuthService implements AuthenticationService {
                 if (r.succeeded()) {
                   final long iat = r.result().attributes().getLong("iat");
                   if (issuedRecently(iat)) {
-                    lastValidToken.set(new CachedToken(token, iat, r.result()));
+                    lastValidToken.set(new CachedToken(tokenUtf8, iat, r.result()));
                     handler.handle(Optional.of(r.result()));
                   } else {
                     LOG.warn("Client sent stale token: {}", r.result().attributes());

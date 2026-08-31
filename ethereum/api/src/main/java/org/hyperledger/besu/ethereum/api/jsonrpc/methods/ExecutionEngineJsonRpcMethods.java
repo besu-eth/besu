@@ -143,47 +143,13 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
           createGetPayloadBodiesByRangeMethods(constructorArguments));
       executionEngineApisSupported.addAll(
           createEngineExchangeTransitionConfigurationMethods(constructorArguments));
+      executionEngineApisSupported.addAll(createGetBlobsMethods(constructorArguments));
+      executionEngineApisSupported.addAll(createGetBlobsV4Methods(constructorArguments));
 
       executionEngineApisSupported.addAll(
           Arrays.asList(
               new EngineExchangeCapabilities(constructorArguments),
-              new EngineGetClientVersionV1(constructorArguments, clientVersion, commit),
-              new EngineGetBlobsV1(
-                  consensusEngineServer,
-                  protocolContext,
-                  protocolSchedule,
-                  engineQosTimer,
-                  transactionPool)));
-
-      if (protocolSchedule.milestoneFor(OSAKA).isPresent()) {
-        executionEngineApisSupported.add(
-            new EngineGetBlobsV2(
-                consensusEngineServer,
-                protocolContext,
-                protocolSchedule,
-                engineQosTimer,
-                transactionPool,
-                metricsSystem));
-        executionEngineApisSupported.add(
-            new EngineGetBlobsV3(
-                consensusEngineServer,
-                protocolContext,
-                protocolSchedule,
-                engineQosTimer,
-                transactionPool,
-                metricsSystem));
-      }
-
-      if (protocolSchedule.milestoneFor(AMSTERDAM).isPresent()) {
-        executionEngineApisSupported.add(
-            new EngineGetBlobsV4(
-                consensusEngineServer,
-                protocolContext,
-                protocolSchedule,
-                engineQosTimer,
-                transactionPool,
-                metricsSystem));
-      }
+              new EngineGetClientVersionV1(constructorArguments, clientVersion, commit)));
 
       return mapOf(executionEngineApisSupported);
     } else {
@@ -257,6 +223,24 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
         .build(constructorArguments);
   }
 
+  private Collection<? extends JsonRpcMethod> createGetBlobsMethods(
+      final ConstructorArguments constructorArguments) {
+    // V2 and V3 both activate at Osaka and coexist from then on: V2 answers all-or-nothing, V3
+    // answers partially, so neither supersedes the other.
+    return VersionScheduler.startsFrom(CANCUN, EngineGetBlobsV1::new)
+        .thenFrom(OSAKA, EngineGetBlobsV2::new, EngineGetBlobsV3::new)
+        .build(constructorArguments);
+  }
+
+  private Collection<? extends JsonRpcMethod> createGetBlobsV4Methods(
+      final ConstructorArguments constructorArguments) {
+    // engine_getBlobsV4 is not the next version of the V1-V3 chain: it takes different request
+    // parameters and returns BlobCellsAndProofsV1 instead of BlobAndProofV1/V2, so it is its own
+    // standalone series that is simply added from Amsterdam on, leaving V2/V3 valid indefinitely.
+    return VersionScheduler.startsFrom(AMSTERDAM, EngineGetBlobsV4::new)
+        .build(constructorArguments);
+  }
+
   @VisibleForTesting
   static class VersionScheduler {
     final List<MethodVersionBuildData> readyMethods = new ArrayList<>();
@@ -277,6 +261,12 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
         final EngineMethodFactory firstVersion, final HardforkId to) {
       final VersionScheduler vs = new VersionScheduler();
       vs.readyMethods.add(new MethodVersionBuildData(firstVersion, null, to));
+      return vs;
+    }
+
+    static VersionScheduler startsFrom(final HardforkId from, final EngineMethodFactory factory) {
+      final VersionScheduler vs = new VersionScheduler();
+      vs.pendingMethods.add(new MethodVersionBuildData(factory, from, null));
       return vs;
     }
 
