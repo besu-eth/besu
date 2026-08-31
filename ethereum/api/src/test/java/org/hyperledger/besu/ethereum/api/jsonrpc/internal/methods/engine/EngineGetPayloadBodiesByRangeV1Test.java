@@ -17,29 +17,33 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.INVALID_PARAMS;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.INVALID_RANGE_REQUEST_TOO_LARGE;
-import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.GWei;
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ConstructorArgumentsBuilder;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineGetPayloadBodiesResultV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.ExecutionPayloadBodiesV1;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
+import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
+import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
+import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
 import java.util.Collections;
@@ -47,7 +51,6 @@ import java.util.List;
 import java.util.Optional;
 
 import io.vertx.core.Vertx;
-import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt64;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -59,21 +62,36 @@ import org.mockito.quality.Strictness;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
-public class EngineGetPayloadBodiesByRangeV1Test {
-  private EngineGetPayloadBodiesByRangeV1 method;
-  private static final Vertx vertx = Vertx.vertx();
-  private static final BlockResultFactory blockResultFactory = new BlockResultFactory();
-  @Mock private ProtocolContext protocolContext;
-  @Mock private EngineCallListener engineCallListener;
-  @Mock private MutableBlockchain blockchain;
+public class EngineGetPayloadBodiesByRangeV1Test extends AbstractScheduledApiTest {
+  protected EngineGetPayloadBodiesByRangeV1<?> method;
+  protected static final Vertx vertx = Vertx.vertx();
+  @Mock protected ProtocolContext protocolContext;
+  @Mock protected EngineCallListener engineCallListener;
+  @Mock protected MutableBlockchain blockchain;
+  @Mock protected TransactionPool transactionPool;
 
+  @Override
   @BeforeEach
   public void before() {
     when(protocolContext.getBlockchain()).thenReturn(blockchain);
-    this.method =
-        spy(
-            new EngineGetPayloadBodiesByRangeV1(
-                vertx, protocolContext, blockResultFactory, engineCallListener));
+    this.method = createMethodInstance(10);
+  }
+
+  protected EngineGetPayloadBodiesByRangeV1<?> createMethodInstance(final int maxRequestBlocks) {
+    return new EngineGetPayloadBodiesByRangeV1<>(
+        new ConstructorArgumentsBuilder()
+            .protocolSchedule(protocolSchedule)
+            .protocolContext(protocolContext)
+            .vertx(vertx)
+            .engineCallListener(engineCallListener)
+            .mergeCoordinator(mock(MergeMiningCoordinator.class))
+            .ethPeers(mock(EthPeers.class))
+            .metricsSystem(new NoOpMetricsSystem())
+            .transactionPool(transactionPool)
+            .maxRequestBlocks(maxRequestBlocks)
+            .build(),
+        null,
+        null);
   }
 
   @Test
@@ -84,247 +102,223 @@ public class EngineGetPayloadBodiesByRangeV1Test {
   @Test
   public void shouldReturnPayloadForKnownNumber() {
     final SignatureAlgorithm sig = SignatureAlgorithmFactory.getInstance();
-    final Hash blockHash1 = Hash.wrap(Bytes32.random());
-    final Hash blockHash2 = Hash.wrap(Bytes32.random());
-    final Hash blockHash3 = Hash.wrap(Bytes32.random());
-    final BlockBody blockBody1 =
-        new BlockBody(
-            List.of(new TransactionTestFixture().createTransaction(sig.generateKeyPair())),
-            Collections.emptyList());
-    final BlockBody blockBody2 =
-        new BlockBody(
-            List.of(
-                new TransactionTestFixture().createTransaction(sig.generateKeyPair()),
-                new TransactionTestFixture().createTransaction(sig.generateKeyPair())),
-            Collections.emptyList());
-    final BlockBody blockBody3 =
-        new BlockBody(
-            List.of(
-                new TransactionTestFixture().createTransaction(sig.generateKeyPair()),
-                new TransactionTestFixture().createTransaction(sig.generateKeyPair()),
-                new TransactionTestFixture().createTransaction(sig.generateKeyPair())),
-            Collections.emptyList());
-    when(blockchain.getChainHeadBlockNumber()).thenReturn(Long.valueOf(130));
-    when(blockchain.getBlockBody(blockHash1)).thenReturn(Optional.of(blockBody1));
-    when(blockchain.getBlockBody(blockHash2)).thenReturn(Optional.of(blockBody2));
-    when(blockchain.getBlockBody(blockHash3)).thenReturn(Optional.of(blockBody3));
-    when(blockchain.getBlockHashByNumber(123)).thenReturn(Optional.of(blockHash1));
-    when(blockchain.getBlockHashByNumber(124)).thenReturn(Optional.of(blockHash2));
-    when(blockchain.getBlockHashByNumber(125)).thenReturn(Optional.of(blockHash3));
+    final Block block1 =
+        blockWithBody(
+            123L,
+            new BlockBody(
+                List.of(new TransactionTestFixture().createTransaction(sig.generateKeyPair())),
+                Collections.emptyList()));
+    final Block block2 =
+        blockWithBody(
+            124L,
+            new BlockBody(
+                List.of(
+                    new TransactionTestFixture().createTransaction(sig.generateKeyPair()),
+                    new TransactionTestFixture().createTransaction(sig.generateKeyPair())),
+                Collections.emptyList()));
+    final Block block3 =
+        blockWithBody(
+            125L,
+            new BlockBody(
+                List.of(
+                    new TransactionTestFixture().createTransaction(sig.generateKeyPair()),
+                    new TransactionTestFixture().createTransaction(sig.generateKeyPair()),
+                    new TransactionTestFixture().createTransaction(sig.generateKeyPair())),
+                Collections.emptyList()));
+    when(blockchain.getChainHeadBlockNumber()).thenReturn(130L);
+    stubBlock(123, block1);
+    stubBlock(124, block2);
+    stubBlock(125, block3);
 
-    final var resp = resp("0x7b", "0x3");
-    final EngineGetPayloadBodiesResultV1 result = fromSuccessResp(resp);
-    assertThat(result.getPayloadBodies().size()).isEqualTo(3);
-    assertThat(result.getPayloadBodies().get(0).getTransactions().size()).isEqualTo(1);
-    assertThat(result.getPayloadBodies().get(1).getTransactions().size()).isEqualTo(2);
-    assertThat(result.getPayloadBodies().get(2).getTransactions().size()).isEqualTo(3);
+    final List<ExecutionPayloadBodiesV1> result = fromSuccessResp(resp("0x7b", "0x3"));
+    assertThat(result.size()).isEqualTo(3);
+    assertThat(result.get(0).getTransactions().size()).isEqualTo(1);
+    assertThat(result.get(1).getTransactions().size()).isEqualTo(2);
+    assertThat(result.get(2).getTransactions().size()).isEqualTo(3);
   }
 
   @Test
   public void shouldReturnNullForUnknownNumber() {
-    when(blockchain.getChainHeadBlockNumber()).thenReturn(Long.valueOf(130));
-    final var resp = resp("0x7b", "0x3");
-    final EngineGetPayloadBodiesResultV1 result = fromSuccessResp(resp);
-    assertThat(result.getPayloadBodies().size()).isEqualTo(3);
-    assertThat(result.getPayloadBodies().get(0)).isNull();
-    assertThat(result.getPayloadBodies().get(1)).isNull();
-    assertThat(result.getPayloadBodies().get(2)).isNull();
+    when(blockchain.getChainHeadBlockNumber()).thenReturn(130L);
+    // blockchain.getBlockHashByNumber returns Optional.empty() by default
+
+    final List<ExecutionPayloadBodiesV1> result = fromSuccessResp(resp("0x7b", "0x3"));
+    assertThat(result.size()).isEqualTo(3);
+    assertThat(result.get(0)).isNull();
+    assertThat(result.get(1)).isNull();
+    assertThat(result.get(2)).isNull();
   }
 
   @Test
   public void shouldReturnNullForUnknownNumberAndPayloadForKnownNumber() {
     final SignatureAlgorithm sig = SignatureAlgorithmFactory.getInstance();
-    final Hash blockHash1 = Hash.wrap(Bytes32.random());
-    final Hash blockHash3 = Hash.wrap(Bytes32.random());
-    final BlockBody blockBody1 =
-        new BlockBody(
-            List.of(new TransactionTestFixture().createTransaction(sig.generateKeyPair())),
-            Collections.emptyList());
-    final BlockBody blockBody3 =
-        new BlockBody(
-            List.of(
-                new TransactionTestFixture().createTransaction(sig.generateKeyPair()),
-                new TransactionTestFixture().createTransaction(sig.generateKeyPair()),
-                new TransactionTestFixture().createTransaction(sig.generateKeyPair())),
-            Collections.emptyList());
-    when(blockchain.getChainHeadBlockNumber()).thenReturn(Long.valueOf(130));
-    when(blockchain.getBlockBody(blockHash1)).thenReturn(Optional.of(blockBody1));
-    when(blockchain.getBlockBody(blockHash3)).thenReturn(Optional.of(blockBody3));
-    when(blockchain.getBlockHashByNumber(123)).thenReturn(Optional.of(blockHash1));
-    when(blockchain.getBlockHashByNumber(125)).thenReturn(Optional.of(blockHash3));
+    final Block block1 =
+        blockWithBody(
+            123L,
+            new BlockBody(
+                List.of(new TransactionTestFixture().createTransaction(sig.generateKeyPair())),
+                Collections.emptyList()));
+    final Block block3 =
+        blockWithBody(
+            125L,
+            new BlockBody(
+                List.of(
+                    new TransactionTestFixture().createTransaction(sig.generateKeyPair()),
+                    new TransactionTestFixture().createTransaction(sig.generateKeyPair()),
+                    new TransactionTestFixture().createTransaction(sig.generateKeyPair())),
+                Collections.emptyList()));
+    when(blockchain.getChainHeadBlockNumber()).thenReturn(130L);
+    stubBlock(123, block1);
+    stubBlock(125, block3);
 
-    final var resp = resp("0x7b", "0x3");
-    final var result = fromSuccessResp(resp);
-    assertThat(result.getPayloadBodies().size()).isEqualTo(3);
-    assertThat(result.getPayloadBodies().get(0).getTransactions().size()).isEqualTo(1);
-    assertThat(result.getPayloadBodies().get(1)).isNull();
-    assertThat(result.getPayloadBodies().get(2).getTransactions().size()).isEqualTo(3);
+    final List<ExecutionPayloadBodiesV1> result = fromSuccessResp(resp("0x7b", "0x3"));
+    assertThat(result.size()).isEqualTo(3);
+    assertThat(result.get(0).getTransactions().size()).isEqualTo(1);
+    assertThat(result.get(1)).isNull();
+    assertThat(result.get(2).getTransactions().size()).isEqualTo(3);
   }
 
   @Test
   public void shouldReturnNullForWithdrawalsWhenBlockIsPreShanghai() {
     final SignatureAlgorithm sig = SignatureAlgorithmFactory.getInstance();
-    final Hash blockHash1 = Hash.wrap(Bytes32.random());
-    final Hash blockHash2 = Hash.wrap(Bytes32.random());
+    final Block block1 =
+        blockWithBody(
+            123L,
+            new BlockBody(
+                List.of(
+                    new TransactionTestFixture().createTransaction(sig.generateKeyPair()),
+                    new TransactionTestFixture().createTransaction(sig.generateKeyPair()),
+                    new TransactionTestFixture().createTransaction(sig.generateKeyPair())),
+                Collections.emptyList()));
+    final Block block2 =
+        blockWithBody(
+            124L,
+            new BlockBody(
+                List.of(new TransactionTestFixture().createTransaction(sig.generateKeyPair())),
+                Collections.emptyList(),
+                Optional.empty()));
+    when(blockchain.getChainHeadBlockNumber()).thenReturn(130L);
+    stubBlock(123, block1);
+    stubBlock(124, block2);
 
-    final BlockBody preShanghaiBlockBody =
-        new BlockBody(
-            List.of(
-                new TransactionTestFixture().createTransaction(sig.generateKeyPair()),
-                new TransactionTestFixture().createTransaction(sig.generateKeyPair()),
-                new TransactionTestFixture().createTransaction(sig.generateKeyPair())),
-            Collections.emptyList());
-
-    final BlockBody preShanghaiBlockBody2 =
-        new BlockBody(
-            List.of(new TransactionTestFixture().createTransaction(sig.generateKeyPair())),
-            Collections.emptyList(),
-            Optional.empty());
-    when(blockchain.getChainHeadBlockNumber()).thenReturn(Long.valueOf(130));
-    when(blockchain.getBlockBody(blockHash1)).thenReturn(Optional.of(preShanghaiBlockBody));
-    when(blockchain.getBlockBody(blockHash2)).thenReturn(Optional.of(preShanghaiBlockBody2));
-    when(blockchain.getBlockHashByNumber(123)).thenReturn(Optional.of(blockHash1));
-    when(blockchain.getBlockHashByNumber(124)).thenReturn(Optional.of(blockHash2));
-
-    final var resp = resp("0x7b", "0x2");
-    final var result = fromSuccessResp(resp);
-    assertThat(result.getPayloadBodies().size()).isEqualTo(2);
-    assertThat(result.getPayloadBodies().get(0).getTransactions().size()).isEqualTo(3);
-    assertThat(result.getPayloadBodies().get(0).getWithdrawals()).isNull();
-    assertThat(result.getPayloadBodies().get(1).getTransactions().size()).isEqualTo(1);
-    assertThat(result.getPayloadBodies().get(1).getWithdrawals()).isNull();
-    ;
+    final List<ExecutionPayloadBodiesV1> result = fromSuccessResp(resp("0x7b", "0x2"));
+    assertThat(result.size()).isEqualTo(2);
+    assertThat(result.get(0).getTransactions().size()).isEqualTo(3);
+    assertThat(result.get(0).getWithdrawals()).isNull();
+    assertThat(result.get(1).getTransactions().size()).isEqualTo(1);
+    assertThat(result.get(1).getWithdrawals()).isNull();
   }
 
   @Test
   public void shouldReturnWithdrawalsWhenBlockIsPostShanghai() {
     final SignatureAlgorithm sig = SignatureAlgorithmFactory.getInstance();
-    final Hash blockHash1 = Hash.wrap(Bytes32.random());
-    final Hash blockHash2 = Hash.wrap(Bytes32.random());
     final Withdrawal withdrawal =
         new Withdrawal(UInt64.ONE, UInt64.ONE, Address.fromHexString("0x1"), GWei.ONE);
     final Withdrawal withdrawal2 =
         new Withdrawal(UInt64.ONE, UInt64.ONE, Address.fromHexString("0x2"), GWei.ONE);
+    final Block block1 =
+        blockWithBody(
+            123L,
+            new BlockBody(
+                List.of(
+                    new TransactionTestFixture().createTransaction(sig.generateKeyPair()),
+                    new TransactionTestFixture().createTransaction(sig.generateKeyPair()),
+                    new TransactionTestFixture().createTransaction(sig.generateKeyPair())),
+                Collections.emptyList(),
+                Optional.of(List.of(withdrawal))));
+    final Block block2 =
+        blockWithBody(
+            124L,
+            new BlockBody(
+                List.of(new TransactionTestFixture().createTransaction(sig.generateKeyPair())),
+                Collections.emptyList(),
+                Optional.of(List.of(withdrawal2))));
+    when(blockchain.getChainHeadBlockNumber()).thenReturn(130L);
+    stubBlock(123, block1);
+    stubBlock(124, block2);
 
-    final BlockBody shanghaiBlockBody =
-        new BlockBody(
-            List.of(
-                new TransactionTestFixture().createTransaction(sig.generateKeyPair()),
-                new TransactionTestFixture().createTransaction(sig.generateKeyPair()),
-                new TransactionTestFixture().createTransaction(sig.generateKeyPair())),
-            Collections.emptyList(),
-            Optional.of(List.of(withdrawal)));
-
-    final BlockBody shanghaiBlockBody2 =
-        new BlockBody(
-            List.of(new TransactionTestFixture().createTransaction(sig.generateKeyPair())),
-            Collections.emptyList(),
-            Optional.of(List.of(withdrawal2)));
-    when(blockchain.getChainHeadBlockNumber()).thenReturn(Long.valueOf(130));
-    when(blockchain.getBlockBody(blockHash1)).thenReturn(Optional.of(shanghaiBlockBody));
-    when(blockchain.getBlockBody(blockHash2)).thenReturn(Optional.of(shanghaiBlockBody2));
-    when(blockchain.getBlockHashByNumber(123)).thenReturn(Optional.of(blockHash1));
-    when(blockchain.getBlockHashByNumber(124)).thenReturn(Optional.of(blockHash2));
-
-    final var resp = resp("0x7b", "0x2");
-    final var result = fromSuccessResp(resp);
-    assertThat(result.getPayloadBodies().size()).isEqualTo(2);
-    assertThat(result.getPayloadBodies().get(0).getTransactions().size()).isEqualTo(3);
-    assertThat(result.getPayloadBodies().get(0).getWithdrawals().size()).isEqualTo(1);
-    assertThat(result.getPayloadBodies().get(1).getTransactions().size()).isEqualTo(1);
-    assertThat(result.getPayloadBodies().get(1).getWithdrawals().size()).isEqualTo(1);
+    final List<ExecutionPayloadBodiesV1> result = fromSuccessResp(resp("0x7b", "0x2"));
+    assertThat(result.size()).isEqualTo(2);
+    assertThat(result.get(0).getTransactions().size()).isEqualTo(3);
+    assertThat(result.get(0).getWithdrawals().size()).isEqualTo(1);
+    assertThat(result.get(1).getTransactions().size()).isEqualTo(1);
+    assertThat(result.get(1).getWithdrawals().size()).isEqualTo(1);
   }
 
   @Test
   public void shouldNotContainTrailingNullForBlocksPastTheCurrentHead() {
     final SignatureAlgorithm sig = SignatureAlgorithmFactory.getInstance();
-    final Hash blockHash1 = Hash.wrap(Bytes32.random());
     final Withdrawal withdrawal =
         new Withdrawal(UInt64.ONE, UInt64.ONE, Address.fromHexString("0x1"), GWei.ONE);
+    final Block block1 =
+        blockWithBody(
+            123L,
+            new BlockBody(
+                List.of(
+                    new TransactionTestFixture().createTransaction(sig.generateKeyPair()),
+                    new TransactionTestFixture().createTransaction(sig.generateKeyPair()),
+                    new TransactionTestFixture().createTransaction(sig.generateKeyPair())),
+                Collections.emptyList(),
+                Optional.of(List.of(withdrawal))));
+    when(blockchain.getChainHeadBlockNumber()).thenReturn(123L);
+    stubBlock(123, block1);
 
-    final BlockBody shanghaiBlockBody =
-        new BlockBody(
-            List.of(
-                new TransactionTestFixture().createTransaction(sig.generateKeyPair()),
-                new TransactionTestFixture().createTransaction(sig.generateKeyPair()),
-                new TransactionTestFixture().createTransaction(sig.generateKeyPair())),
-            Collections.emptyList(),
-            Optional.of(List.of(withdrawal)));
-    when(blockchain.getChainHeadBlockNumber()).thenReturn(Long.valueOf(123));
-    when(blockchain.getBlockBody(blockHash1)).thenReturn(Optional.of(shanghaiBlockBody));
-    when(blockchain.getBlockHashByNumber(123)).thenReturn(Optional.of(blockHash1));
-
-    final var resp = resp("0x7b", "0x3");
-    final var result = fromSuccessResp(resp);
-    assertThat(result.getPayloadBodies().size()).isEqualTo(1);
+    final List<ExecutionPayloadBodiesV1> result = fromSuccessResp(resp("0x7b", "0x3"));
+    assertThat(result.size()).isEqualTo(1);
   }
 
   @Test
   public void shouldReturnUpUntilHeadWhenStartBlockPlusCountEqualsHeadNumber() {
     final SignatureAlgorithm sig = SignatureAlgorithmFactory.getInstance();
-    final Hash blockHash1 = Hash.wrap(Bytes32.random());
-    final Hash blockHash2 = Hash.wrap(Bytes32.random());
-    final Hash blockHash3 = Hash.wrap(Bytes32.random());
     final Withdrawal withdrawal =
         new Withdrawal(UInt64.ONE, UInt64.ONE, Address.fromHexString("0x1"), GWei.ONE);
+    final Block block =
+        blockWithBody(
+            123L,
+            new BlockBody(
+                List.of(new TransactionTestFixture().createTransaction(sig.generateKeyPair())),
+                Collections.emptyList(),
+                Optional.of(List.of(withdrawal))));
+    when(blockchain.getChainHeadBlockNumber()).thenReturn(125L);
+    stubBlock(123, block);
+    stubBlock(124, block);
+    stubBlock(125, block);
 
-    final BlockBody shanghaiBlockBody =
-        new BlockBody(
-            List.of(new TransactionTestFixture().createTransaction(sig.generateKeyPair())),
-            Collections.emptyList(),
-            Optional.of(List.of(withdrawal)));
-    final BlockBody shanghaiBlockBody2 =
-        new BlockBody(
-            List.of(new TransactionTestFixture().createTransaction(sig.generateKeyPair())),
-            Collections.emptyList(),
-            Optional.of(List.of(withdrawal)));
-    final BlockBody shanghaiBlockBody3 =
-        new BlockBody(
-            List.of(new TransactionTestFixture().createTransaction(sig.generateKeyPair())),
-            Collections.emptyList(),
-            Optional.of(List.of(withdrawal)));
-    when(blockchain.getChainHeadBlockNumber()).thenReturn(Long.valueOf(125));
-    when(blockchain.getBlockBody(blockHash1)).thenReturn(Optional.of(shanghaiBlockBody));
-    when(blockchain.getBlockBody(blockHash2)).thenReturn(Optional.of(shanghaiBlockBody2));
-    when(blockchain.getBlockBody(blockHash3)).thenReturn(Optional.of(shanghaiBlockBody3));
-    when(blockchain.getBlockHashByNumber(123)).thenReturn(Optional.of(blockHash1));
-    when(blockchain.getBlockHashByNumber(124)).thenReturn(Optional.of(blockHash2));
-    when(blockchain.getBlockHashByNumber(125)).thenReturn(Optional.of(blockHash3));
-
-    final var resp = resp("0x7b", "0x3");
-    final var result = fromSuccessResp(resp);
-    assertThat(result.getPayloadBodies().size()).isEqualTo(3);
+    final List<ExecutionPayloadBodiesV1> result = fromSuccessResp(resp("0x7b", "0x3"));
+    assertThat(result.size()).isEqualTo(3);
   }
 
   @Test
   public void ShouldReturnEmptyPayloadForRequestsPastCurrentHead() {
-
-    when(blockchain.getChainHeadBlockNumber()).thenReturn(Long.valueOf(123));
-    final JsonRpcResponse resp = resp("0x7d", "0x3");
-    final var result = fromSuccessResp(resp);
-    assertThat(result.getPayloadBodies()).isEqualTo(Collections.EMPTY_LIST);
+    when(blockchain.getChainHeadBlockNumber()).thenReturn(123L);
+    final List<ExecutionPayloadBodiesV1> result = fromSuccessResp(resp("0x7d", "0x3"));
+    assertThat(result).isEqualTo(Collections.EMPTY_LIST);
   }
 
   @Test
   public void shouldReturnErrorWhenRequestExceedsPermittedNumberOfBlocks() {
-    doReturn(3).when(method).getMaxRequestBlocks();
-    final JsonRpcResponse resp = resp("0x539", "0x4");
-    final var result = fromErrorResp(resp);
-    assertThat(result.getCode()).isEqualTo(INVALID_RANGE_REQUEST_TOO_LARGE.getCode());
+    this.method = createMethodInstance(3);
+    assertThat(fromErrorResp(resp("0x539", "0x4")).getCode())
+        .isEqualTo(INVALID_RANGE_REQUEST_TOO_LARGE.getCode());
   }
 
   @Test
   public void shouldReturnInvalidParamsIfStartIsZero() {
-    final JsonRpcResponse resp = resp("0x0", "0x539");
-    final var result = fromErrorResp(resp);
-    assertThat(result.getCode()).isEqualTo(INVALID_PARAMS.getCode());
+    assertThat(fromErrorResp(resp("0x0", "0x539")).getCode()).isEqualTo(INVALID_PARAMS.getCode());
   }
 
   @Test
   public void shouldReturnInvalidParamsIfCountIsZero() {
-    final JsonRpcResponse resp = resp("0x539", "0x0");
-    final var result = fromErrorResp(resp);
-    assertThat(result.getCode()).isEqualTo(INVALID_PARAMS.getCode());
+    assertThat(fromErrorResp(resp("0x539", "0x0")).getCode()).isEqualTo(INVALID_PARAMS.getCode());
+  }
+
+  static Block blockWithBody(final long blockNumber, final BlockBody body) {
+    return new Block(new BlockHeaderTestFixture().number(blockNumber).buildHeader(), body);
+  }
+
+  void stubBlock(final long blockNumber, final Block block) {
+    when(blockchain.getBlockHashByNumber(blockNumber)).thenReturn(Optional.of(block.getHash()));
+    when(blockchain.getBlockBody(block.getHash())).thenReturn(Optional.of(block.getBody()));
   }
 
   private JsonRpcResponse resp(final String startBlockNumber, final String range) {
@@ -336,13 +330,10 @@ public class EngineGetPayloadBodiesByRangeV1Test {
                 new Object[] {startBlockNumber, range})));
   }
 
-  private EngineGetPayloadBodiesResultV1 fromSuccessResp(final JsonRpcResponse resp) {
+  @SuppressWarnings("unchecked")
+  private List<ExecutionPayloadBodiesV1> fromSuccessResp(final JsonRpcResponse resp) {
     assertThat(resp.getType()).isEqualTo(RpcResponseType.SUCCESS);
-    return Optional.of(resp)
-        .map(JsonRpcSuccessResponse.class::cast)
-        .map(JsonRpcSuccessResponse::getResult)
-        .map(EngineGetPayloadBodiesResultV1.class::cast)
-        .get();
+    return (List<ExecutionPayloadBodiesV1>) ((JsonRpcSuccessResponse) resp).getResult();
   }
 
   private JsonRpcError fromErrorResp(final JsonRpcResponse resp) {

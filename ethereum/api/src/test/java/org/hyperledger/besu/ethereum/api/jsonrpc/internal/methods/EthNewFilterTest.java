@@ -35,6 +35,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorR
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
+import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.api.query.LogsQuery;
 
 import java.util.Collections;
@@ -51,12 +52,13 @@ import org.mockito.junit.jupiter.MockitoExtension;
 public class EthNewFilterTest {
 
   @Mock private FilterManager filterManager;
+  @Mock private BlockchainQueries blockchainQueries;
   private EthNewFilter method;
   private final String ETH_METHOD = "eth_newFilter";
 
   @BeforeEach
   public void setUp() {
-    method = new EthNewFilter(filterManager);
+    method = new EthNewFilter(filterManager, blockchainQueries, 0);
   }
 
   @Test
@@ -163,6 +165,30 @@ public class EthNewFilterTest {
     verify(filterManager)
         .installLogFilter(
             refEq(BlockParameter.LATEST), refEq(BlockParameter.LATEST), eq(expectedLogsQuery));
+  }
+
+  @Test
+  public void filterWithRangeExceedingMaxLogRangeReturnsError() {
+    when(blockchainQueries.headBlockNumber()).thenReturn(10000L);
+    final EthNewFilter methodWithLimit = new EthNewFilter(filterManager, blockchainQueries, 100);
+    final FilterParameter filterParameter =
+        new FilterParameter(
+            new BlockParameter(0L),
+            new BlockParameter(5000L),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null);
+    final JsonRpcRequestContext request = ethNewFilter(filterParameter);
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcErrorResponse(null, RpcErrorType.EXCEEDS_RPC_MAX_BLOCK_RANGE);
+
+    final JsonRpcResponse response = methodWithLimit.response(request);
+
+    assertThat(response).usingRecursiveComparison().isEqualTo(expectedResponse);
   }
 
   @Test

@@ -44,6 +44,7 @@ public enum RpcErrorType implements RpcMethodError {
   INVALID_CALL_PARAMS(INVALID_PARAMS_ERROR_CODE, "Invalid call params"),
   INVALID_CONSOLIDATION_REQUEST_PARAMS(
       INVALID_PARAMS_ERROR_CODE, "Invalid consolidation request params"),
+  INVALID_CUSTODY_COLUMNS_PARAMS(INVALID_PARAMS_ERROR_CODE, "Invalid custody columns params"),
   INVALID_DATA_PARAMS(INVALID_PARAMS_ERROR_CODE, "Invalid data params"),
   INVALID_DATA_HASH_PARAMS(INVALID_PARAMS_ERROR_CODE, "Invalid data hash params"),
   INVALID_DEPOSIT_REQUEST_PARAMS(INVALID_PARAMS_ERROR_CODE, "Invalid deposit request"),
@@ -69,6 +70,7 @@ public enum RpcErrorType implements RpcMethodError {
   INVALID_FILTER_PARAMS(INVALID_PARAMS_ERROR_CODE, "Invalid filter params"),
   INVALID_HASH_RATE_PARAMS(INVALID_PARAMS_ERROR_CODE, "Invalid hash rate params"),
   INVALID_ID_PARAMS(INVALID_PARAMS_ERROR_CODE, "Invalid ID params"),
+  INVALID_INDICES_BITARRAY_PARAMS(INVALID_PARAMS_ERROR_CODE, "Invalid indices bitarray params"),
   INVALID_RETURN_COMPLETE_TRANSACTION_PARAMS(
       INVALID_PARAMS_ERROR_CODE, "Invalid return complete transaction params"),
   INVALID_LOG_FILTER_PARAMS(INVALID_PARAMS_ERROR_CODE, "Invalid log filter params"),
@@ -156,8 +158,10 @@ public enum RpcErrorType implements RpcMethodError {
   TRANSACTION_UPFRONT_COST_EXCEEDS_BALANCE(-32004, "Upfront cost exceeds account balance"),
   EXCEEDS_BLOCK_GAS_LIMIT(-32005, "Transaction gas limit exceeds block gas limit"),
   EXCEEDS_TRANSACTION_GAS_LIMIT(-32005, "Transaction gas limit cap exceeded"),
+  EXCEEDS_RPC_MAX_ACTIVE_SUBSCRIPTIONS(-32005, "Maximum number of active subscriptions exceeded"),
   EXCEEDS_RPC_MAX_BLOCK_RANGE(-32005, "Requested range exceeds maximum RPC range limit"),
   EXCEEDS_RPC_MAX_BATCH_SIZE(-32005, "Number of requests exceeds max batch size"),
+  EXCEEDS_RPC_MAX_ACTIVE_FILTERS(-32005, "Maximum number of active filters exceeded"),
   NONCE_TOO_HIGH(-32006, "Nonce too high"),
   TX_SENDER_NOT_AUTHORIZED(-32007, "Sender account not authorized to send transactions"),
   CHAIN_HEAD_WORLD_STATE_NOT_AVAILABLE(-32008, "Initial sync is still in progress"),

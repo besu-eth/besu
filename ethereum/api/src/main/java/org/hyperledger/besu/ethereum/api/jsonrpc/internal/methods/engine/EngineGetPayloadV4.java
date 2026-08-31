@@ -14,46 +14,31 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.OSAKA;
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PRAGUE;
-
 import org.hyperledger.besu.consensus.merge.PayloadWrapper;
-import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
-import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
-import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
-import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineGetPayloadResultV4;
+import org.hyperledger.besu.ethereum.core.Request;
 
-import java.util.Optional;
+import java.util.List;
 
-import io.vertx.core.Vertx;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-public class EngineGetPayloadV4 extends AbstractEngineGetPayload {
+public sealed class EngineGetPayloadV4 extends EngineGetPayloadV3 permits EngineGetPayloadV5 {
 
-  private final Optional<Long> pragueMilestone;
-  private final Optional<Long> osakaMilestone;
+  private static final Logger LOG = LoggerFactory.getLogger(EngineGetPayloadV4.class);
+
+  @Override
+  protected Logger logger() {
+    return LOG;
+  }
 
   public EngineGetPayloadV4(
-      final Vertx vertx,
-      final ProtocolContext protocolContext,
-      final MergeMiningCoordinator mergeMiningCoordinator,
-      final BlockResultFactory blockResultFactory,
-      final EngineCallListener engineCallListener,
-      final ProtocolSchedule schedule) {
-    super(
-        vertx,
-        schedule,
-        protocolContext,
-        mergeMiningCoordinator,
-        blockResultFactory,
-        engineCallListener);
-    pragueMilestone = schedule.milestoneFor(PRAGUE);
-    osakaMilestone = schedule.milestoneFor(OSAKA);
+      final ConstructorArguments constructorArguments,
+      final HardforkId minSupportedFork,
+      final HardforkId firstUnsupportedFork) {
+    super(constructorArguments, minSupportedFork, firstUnsupportedFork);
   }
 
   @Override
@@ -62,16 +47,15 @@ public class EngineGetPayloadV4 extends AbstractEngineGetPayload {
   }
 
   @Override
-  protected JsonRpcResponse createResponse(
-      final JsonRpcRequestContext request, final PayloadWrapper payload) {
-
-    return new JsonRpcSuccessResponse(
-        request.getRequest().getId(), blockResultFactory.payloadTransactionCompleteV4(payload));
+  protected Object createResponse(final PayloadWrapper payload) {
+    return new EngineGetPayloadResultV4(
+        createExecutionPayload(payload),
+        payload.blockValue(),
+        createBlobsBundle(payload.blockWithReceipts().getBlock().getBody().getTransactions()),
+        prepareRequests(payload));
   }
 
-  @Override
-  protected ValidationResult<RpcErrorType> validateForkSupported(final long blockTimestamp) {
-    return ForkSupportHelper.validateForkSupported(
-        PRAGUE, pragueMilestone, OSAKA, osakaMilestone, blockTimestamp);
+  protected List<Request> prepareRequests(final PayloadWrapper payload) {
+    return payload.requests().map(Request::asCanonicalList).orElse(null);
   }
 }

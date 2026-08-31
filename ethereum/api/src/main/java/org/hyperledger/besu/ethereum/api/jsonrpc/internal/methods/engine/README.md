@@ -13,7 +13,11 @@ series, each in its own PR, to keep changes reviewable:
 | Series | Constructor takes `ConstructorArguments`? | Registered via `VersionScheduler`? |
 |---|---|---|
 | `engine_forkchoiceUpdatedV*` | Yes | Yes |
-| `engine_newPayloadV*`, `engine_getPayloadV*`, `engine_getBlobsV*`, `engine_getPayloadBodiesBy*`, `engine_exchangeCapabilities`, `engine_preparePayloadDebug`, `engine_getClientVersionV1`, `engine_exchangeTransitionConfigurationV1` | Not yet | Not yet |
+| `engine_newPayloadV*` | Yes | Yes |
+| `engine_getPayloadV*` | Yes | Yes |
+| `engine_getPayloadBodiesBy*` | Yes | Yes |
+| `engine_exchangeCapabilities`, `engine_getClientVersionV1`, `engine_exchangeTransitionConfigurationV1` | Yes | Yes |
+| `engine_getBlobsV*` | Not yet | Not yet |
 
 The not-yet-migrated series still take their old flat constructor argument list (some via
 `ExecutionEngineJsonRpcMethod`'s TRANSITIONAL SHIM constructors, kept until every series has moved
@@ -23,28 +27,46 @@ follow the pattern below and update this table.
 
 ## Architecture (migrated series)
 
-Each method series (currently just `engine_forkchoiceUpdatedV*` — see the migration status table
-above) is a **sealed class hierarchy mirroring the specification**: version N extends version N−1
-and overrides only what its spec version adds or changes.
+Each migrated series that has more than one version (`engine_forkchoiceUpdatedV*`,
+`engine_newPayloadV*`, `engine_getPayloadV*`, `engine_getPayloadBodiesBy*` — see the migration
+status table above) is a **sealed class hierarchy mirroring the specification**: version N extends
+version N−1 and overrides only what its spec version adds or changes.
 
 - `EngineForkchoiceUpdatedV1 permits EngineForkchoiceUpdatedV2`, `... V3 permits
-  EngineForkchoiceUpdatedV4`, and the latest version is `final`. Future migrated series follow the
-  same shape.
+  EngineForkchoiceUpdatedV4`; `EngineNewPayloadV1 permits EngineNewPayloadV2`, `... V4 permits
+  EngineNewPayloadV5`; `EngineGetPayloadV1 permits EngineGetPayloadV2`, `... V5 permits
+  EngineGetPayloadV6`; `EngineGetPayloadBodiesByHashV1 permits EngineGetPayloadBodiesByHashV2` and
+  `EngineGetPayloadBodiesByRangeV1 permits EngineGetPayloadBodiesByRangeV2`; and the latest version
+  of each is `final`. Future migrated series follow the same shape.
+- The remaining migrated series (`engine_exchangeCapabilities`,
+  `engine_getClientVersionV1`, `engine_exchangeTransitionConfigurationV1`) have a single spec
+  version so far, so they are plain (non-`sealed`, no `permits`) classes extending
+  `ExecutionEngineJsonRpcMethod` directly. They become sealed hierarchies the day a V2 is
+  specified — everything else about them (constructor shape, registration) is already the
+  migrated pattern.
 - All versions extend `ExecutionEngineJsonRpcMethod`, which owns the fork-window validation
   (`minSupportedFork` / `firstUnsupportedFork` constructor arguments, `validateForkSupported`,
   see also `ForkSupportHelper`). Concrete versions never check fork timestamps themselves.
+- Engine methods execute concurrently by default. Engine methods that require ordering (FIFO)
+  must extend `OrderedExecutionJsonRpcMethod`. Examples being `EngineNewPayloadV1` and `EngineForkchoiceUpdatedV1`
+- and associated sealed version hierarchies.
 - Migrated series take a single `ExecutionEngineJsonRpcMethod.ConstructorArguments` record (built
   via the generated `ConstructorArgumentsBuilder`) plus `(minSupportedFork, firstUnsupportedFork)`,
   instead of a bespoke positional argument list per series — this is what lets `VersionScheduler`
   build every version through one shared factory shape (see below). `ConstructorArguments` only
-  carries the fields the currently-migrated series need; extend it (and its builder) when
-  migrating a series that needs a field it doesn't have yet.
+  carries the fields the currently-migrated series need — mark a field `@Nullable` if only some
+  migrated series read it (e.g. `ethPeers`/`metricsSystem` are `engine_newPayloadV*`-only) — and
+  extend it (and its builder) when migrating a series that needs a field it doesn't have yet.
 - The JSON data structures relevant to migrated series are sealed hierarchies too, mirroring the
-  spec versions: request parameters in `..internal.parameters` (`ForkchoiceStateV1`,
-  `PayloadAttributesV1..V4`), results in `..internal.results` (`ForkchoiceUpdatedResultV1`,
-  `PayloadStatusV1`).
+  spec versions: request parameters in `..internal.parameters` (`ExecutionPayloadV1..V4`,
+  `NewPayloadRequestParametersV1..V3`, `ForkchoiceStateV1`, `PayloadAttributesV1..V4`), results in
+  `..internal.results` (`PayloadStatusV1`, `ForkchoiceUpdatedResultV1`,
+  `EngineGetPayloadResultV1..V6`, `ExecutionPayloadBodiesV1..V2`). Result classes reuse the
+  request-side payload hierarchy rather than re-declaring header fields:
+  `EngineGetPayloadResultV1` wraps an `ExecutionPayloadV1` via `@JsonValue`.
 - A version class overrides narrow, protected hooks of its parent (e.g. `createResponse`,
-  `validateParameters`, `validatePayloadAttributes`) — it never re-implements the request flow.
+  `createExecutionPayload`, `validateParameters`, `validatePayloadAttributes`) — it never
+  re-implements the request flow.
 
 ### Registration and scheduling
 
@@ -59,6 +81,11 @@ VersionScheduler.startsFromBeginningUntil(EngineForkchoiceUpdatedV1::new, SHANGH
     .thenFrom(AMSTERDAM, EngineForkchoiceUpdatedV4::new)
     .build(constructorArguments);
 ```
+
+Not every series is a version-supersedes-version chain: in `engine_getPayloadBodiesBy*` V2 only adds
+an optional field, so V1 and V2 coexist permanently, with no fork window on either — use
+`VersionScheduler.alwaysActive(EngineGetPayloadBodiesByHashV1::new, EngineGetPayloadBodiesByHashV2::new)`
+for series like this instead of `startsFromBeginningUntil`/`thenFrom`.
 
 The scheduler instantiates each version with the right `(minSupportedFork, firstUnsupportedFork)`
 pair derived from the chain. Method names live in the `RpcMethod` enum;

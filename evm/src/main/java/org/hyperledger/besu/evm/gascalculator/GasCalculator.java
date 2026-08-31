@@ -422,6 +422,19 @@ public interface GasCalculator {
   }
 
   /**
+   * EIP-8246: whether SELFDESTRUCT preserves the originator's balance instead of burning it. When
+   * true, a same-tx-created account is cleared (nonce/code/storage) at transaction finalization
+   * with its balance preserved (EIP-161 state clearing then removes a zero-balance result) and no
+   * Burn log is emitted while the balance is preserved.
+   *
+   * @return true if the originator's balance is preserved on self destruct, false (pre-Amsterdam)
+   *     otherwise
+   */
+  default boolean isSelfDestructBalancePreserved() {
+    return false;
+  }
+
+  /**
    * Returns the cost for executing a {@link Keccak256Operation}.
    *
    * @param frame The current frame
@@ -512,6 +525,17 @@ public interface GasCalculator {
    * @return the cost to access an account not previously accessed in the TX context.
    */
   default long getColdAccountAccessCost() {
+    return 0L;
+  }
+
+  /**
+   * Returns the regular gas charged for the first write to an account leaf (EIP-2780
+   * ACCOUNT_WRITE), used for the top-frame EIP-7702 authorization charge. Zero for forks without
+   * state-gas metering.
+   *
+   * @return the ACCOUNT_WRITE regular gas cost
+   */
+  default long getAccountWriteGasCost() {
     return 0L;
   }
 

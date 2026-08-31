@@ -18,6 +18,8 @@ import static java.util.Collections.emptyList;
 import static java.util.Collections.singletonList;
 import static java.util.stream.Collectors.toUnmodifiableList;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+import static org.hyperledger.besu.ethereum.api.ApiConfiguration.DEFAULT_FILTER_TIMEOUT;
+import static org.hyperledger.besu.ethereum.api.ApiConfiguration.DEFAULT_MAX_FILTER_COUNT;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -61,7 +63,9 @@ public class FilterManagerLogFilterTest {
   @Mock private Blockchain blockchain;
   @Mock private BlockchainQueries blockchainQueries;
   @Mock private TransactionPool transactionPool;
-  @Spy private final FilterRepository filterRepository = new FilterRepository();
+
+  @Spy
+  private final FilterRepository filterRepository = new FilterRepository(DEFAULT_MAX_FILTER_COUNT);
 
   @BeforeEach
   public void setupTest() {
@@ -169,7 +173,7 @@ public class FilterManagerLogFilterTest {
 
   @Test
   public void getLogsForAbsentFilterReturnsNull() {
-    assertThat(filterManager.logs("NOTTHERE")).isNull();
+    assertThat(filterManager.logs("NOTTHERE", () -> true)).isNull();
   }
 
   @Test
@@ -180,14 +184,15 @@ public class FilterManagerLogFilterTest {
         .thenReturn(singletonList(log));
 
     final String filterId = filterManager.installLogFilter(latest(), latest(), logsQuery());
-    final List<LogWithMetadata> retrievedLogs = filterManager.logs(filterId);
+    final List<LogWithMetadata> retrievedLogs = filterManager.logs(filterId, () -> true);
 
     assertThat(retrievedLogs).usingRecursiveComparison().isEqualTo(singletonList(log));
   }
 
   @Test
   public void getLogsChangesShouldResetFilterExpireDate() {
-    final LogFilter filter = spy(new LogFilter("foo", latest(), latest(), logsQuery()));
+    final LogFilter filter =
+        spy(new LogFilter("foo", latest(), latest(), logsQuery(), DEFAULT_FILTER_TIMEOUT));
     doReturn(Optional.of(filter)).when(filterRepository).getFilter(eq("foo"), eq(LogFilter.class));
 
     filterManager.logsChanges("foo");
@@ -197,10 +202,11 @@ public class FilterManagerLogFilterTest {
 
   @Test
   public void getLogsShouldResetFilterExpireDate() {
-    final LogFilter filter = spy(new LogFilter("foo", latest(), latest(), logsQuery()));
+    final LogFilter filter =
+        spy(new LogFilter("foo", latest(), latest(), logsQuery(), DEFAULT_FILTER_TIMEOUT));
     doReturn(Optional.of(filter)).when(filterRepository).getFilter(eq("foo"), eq(LogFilter.class));
 
-    filterManager.logs("foo");
+    filterManager.logs("foo", () -> true);
 
     verify(filter).resetExpireTime();
   }

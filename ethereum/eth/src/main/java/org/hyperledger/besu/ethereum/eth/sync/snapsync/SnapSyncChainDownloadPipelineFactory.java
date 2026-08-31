@@ -112,6 +112,7 @@ public class SnapSyncChainDownloadPipelineFactory {
             ethContext,
             headerRequestSize,
             lowerAnchor.getNumber(),
+            chainState.bodyCheckpoint().getNumber(),
             Duration.ofMillis(syncConfig.getBackwardHeadersDownloadStepTimeoutMillis()));
 
     final Pipeline<Long> pipeline =

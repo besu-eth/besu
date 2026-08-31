@@ -318,7 +318,18 @@ public abstract class AbstractSECP256 implements SignatureAlgorithm {
     }
     // Compressed keys require you to know an extra bit of data about the y-coord as there are
     // two possibilities. So it's encoded in the recId.
-    final ECPoint R = decompressKey(x, (recId & 1) == 1);
+    final ECPoint R;
+    try {
+      R = decompressKey(x, (recId & 1) == 1);
+    } catch (final IllegalArgumentException e) {
+      // x is a valid scalar but not the x-coordinate of any curve point, so there is no key to
+      // recover. Report that the same way every other unrecoverable case here does — and the same
+      // way the native backend does — rather than letting decompressKey's exception escape:
+      // callers such as CodeDelegationProcessor and transaction sender recovery expect an absent
+      // result, not a throw, and a backend that throws where the other returns empty is itself a
+      // consensus-divergence risk.
+      return null;
+    }
     // 1.4. If nR != point at infinity, then do another iteration of Step 1 (callers
     // responsibility).
     if (!R.multiply(n).isInfinity()) {
@@ -425,11 +436,39 @@ public abstract class AbstractSECP256 implements SignatureAlgorithm {
   @Override
   public Optional<SECPPublicKey> recoverPublicKeyFromSignature(
       final Bytes32 dataHash, final SECPSignature signature) {
+    if (!isRecoverable(signature)) {
+      return Optional.empty();
+    }
+
     final BigInteger publicKeyBI =
         recoverFromSignature(signature.getRecId(), signature.getR(), signature.getS(), dataHash);
     return publicKeyBI == null
         ? Optional.empty()
         : Optional.of(SECPPublicKey.create(publicKeyBI, ALGORITHM));
+  }
+
+  /**
+   * Whether a public key can be recovered from this signature at all, i.e. whether both {@code r}
+   * and {@code s} lie in {@code [1, n)}.
+   *
+   * <p>{@link SECPSignature#create} already enforces this, but {@link CodeDelegationSignature}
+   * (EIP-7702) deliberately does not — it bounds {@code r} and {@code s} only by {@code 2^256} so
+   * that an out-of-range authorization tuple yields an empty authority rather than an exception.
+   * That leaves the range check to recovery, and it has to happen here rather than in the backends:
+   * for {@code n < r < p} the native libsecp256k1 compact parser rejects the signature while
+   * BouncyCastle recovers a usable key, so without this guard two nodes on the same chain running
+   * different backends derive different delegated authorities from the same transaction and write
+   * different world state.
+   *
+   * @param signature the signature to check
+   * @return true if both components are in {@code [1, n)}
+   */
+  protected boolean isRecoverable(final SECPSignature signature) {
+    return isInCurveOrderRange(signature.getR()) && isInCurveOrderRange(signature.getS());
+  }
+
+  private boolean isInCurveOrderRange(final BigInteger value) {
+    return value.compareTo(BigInteger.ONE) >= 0 && value.compareTo(curveOrder) < 0;
   }
 
   @Override

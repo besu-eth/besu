@@ -18,7 +18,9 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import static java.util.stream.Collectors.toUnmodifiableList;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameter;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.api.query.LogsQuery;
 import org.hyperledger.besu.ethereum.chain.BlockAddedEvent;
@@ -26,10 +28,12 @@ import org.hyperledger.besu.ethereum.core.LogWithMetadata;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 import com.google.common.annotations.VisibleForTesting;
 import io.vertx.core.AbstractVerticle;
@@ -42,14 +46,20 @@ public class FilterManager extends AbstractVerticle {
   private final FilterIdGenerator filterIdGenerator;
   private final FilterRepository filterRepository;
   private final BlockchainQueries blockchainQueries;
+  private final long maxLogRange;
+  private final Duration filterTimeout;
 
   FilterManager(
       final BlockchainQueries blockchainQueries,
       final TransactionPool transactionPool,
       final FilterIdGenerator filterIdGenerator,
-      final FilterRepository filterRepository) {
+      final FilterRepository filterRepository,
+      final Duration filterTimeout,
+      final long maxLogRange) {
     this.filterIdGenerator = filterIdGenerator;
     this.filterRepository = filterRepository;
+    this.filterTimeout = filterTimeout;
+    this.maxLogRange = maxLogRange;
     checkNotNull(blockchainQueries.getBlockchain());
     blockchainQueries.getBlockchain().observeBlockAdded(this::recordBlockEvent);
     transactionPool.subscribePendingTransactions(this::recordPendingTransactionEvent);
@@ -69,9 +79,7 @@ public class FilterManager extends AbstractVerticle {
   private void startFilterTimeoutTimer() {
     vertx.setPeriodic(
         FILTER_TIMEOUT_CHECK_TIMER,
-        timerId ->
-            vertx.executeBlocking(
-                future -> new FilterTimeoutMonitor(filterRepository).checkFilters(), result -> {}));
+        timerId -> new FilterTimeoutMonitor(filterRepository).checkFilters());
   }
 
   /**
@@ -81,7 +89,7 @@ public class FilterManager extends AbstractVerticle {
    */
   public String installBlockFilter() {
     final String filterId = filterIdGenerator.nextId();
-    filterRepository.save(new BlockFilter(filterId));
+    filterRepository.save(new BlockFilter(filterId, filterTimeout));
     return filterId;
   }
 
@@ -92,7 +100,7 @@ public class FilterManager extends AbstractVerticle {
    */
   public String installPendingTransactionFilter() {
     final String filterId = filterIdGenerator.nextId();
-    filterRepository.save(new PendingTransactionFilter(filterId));
+    filterRepository.save(new PendingTransactionFilter(filterId, filterTimeout));
     return filterId;
   }
 
@@ -107,7 +115,7 @@ public class FilterManager extends AbstractVerticle {
   public String installLogFilter(
       final BlockParameter fromBlock, final BlockParameter toBlock, final LogsQuery logsQuery) {
     final String filterId = filterIdGenerator.nextId();
-    filterRepository.save(new LogFilter(filterId, fromBlock, toBlock, logsQuery));
+    filterRepository.save(new LogFilter(filterId, fromBlock, toBlock, logsQuery, filterTimeout));
     return filterId;
   }
 
@@ -232,7 +240,7 @@ public class FilterManager extends AbstractVerticle {
     return logs;
   }
 
-  public List<LogWithMetadata> logs(final String filterId) {
+  public List<LogWithMetadata> logs(final String filterId, final Supplier<Boolean> isAlive) {
     final LogFilter filter = filterRepository.getFilter(filterId, LogFilter.class).orElse(null);
     if (filter == null) {
       return null;
@@ -240,16 +248,36 @@ public class FilterManager extends AbstractVerticle {
       filter.resetExpireTime();
     }
 
+    // Read head exactly once so that LATEST..LATEST filters always refer to the same block,
+    // avoiding a race where a new block lands between the two reads and shifts the range.
     final long headBlockNumber = blockchainQueries.headBlockNumber();
-    final long fromBlockNumber = filter.getFromBlock().getNumber().orElse(headBlockNumber);
-    final long toBlockNumber = filter.getToBlock().getNumber().orElse(headBlockNumber);
+    final long fromBlockNumber = resolveFilterBlockNumber(filter.getFromBlock(), headBlockNumber);
+    final long toBlockNumber = resolveFilterBlockNumber(filter.getToBlock(), headBlockNumber);
 
-    return findLogsWithinRange(filter, fromBlockNumber, toBlockNumber);
+    if (maxLogRange > 0 && (toBlockNumber - fromBlockNumber) > maxLogRange) {
+      throw new InvalidJsonRpcParameters(
+          "Requested range exceeds maximum range limit", RpcErrorType.EXCEEDS_RPC_MAX_BLOCK_RANGE);
+    }
+
+    return findLogsWithinRange(filter, fromBlockNumber, toBlockNumber, isAlive);
+  }
+
+  // Resolves a filter block parameter to a concrete block number without calling headBlockNumber()
+  // again. FINALIZED and SAFE are looked up via the chain; everything else (LATEST, PENDING,
+  // NUMERIC, EARLIEST) either returns its stored number or falls back to the already-read head.
+  private long resolveFilterBlockNumber(final BlockParameter param, final long headBlockNumber) {
+    if (param.isFinalized() || param.isSafe()) {
+      return param.getBlockNumber(blockchainQueries).orElse(headBlockNumber);
+    }
+    return param.getNumber().orElse(headBlockNumber);
   }
 
   private List<LogWithMetadata> findLogsWithinRange(
-      final LogFilter filter, final long fromBlockNumber, final long toBlockNumber) {
+      final LogFilter filter,
+      final long fromBlockNumber,
+      final long toBlockNumber,
+      final Supplier<Boolean> isAlive) {
     return blockchainQueries.matchingLogs(
-        fromBlockNumber, toBlockNumber, filter.getLogsQuery(), () -> true);
+        fromBlockNumber, toBlockNumber, filter.getLogsQuery(), isAlive);
   }
 }

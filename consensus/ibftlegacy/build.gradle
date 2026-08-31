@@ -1,5 +1,24 @@
 apply plugin: 'java-library'
 
+compileJava {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.ERROR)
+    option('NullAway:AnnotatedPackages', 'org.hyperledger.besu.consensus.ibftlegacy')
+  }
+}
+
+tasks.named('compileTestJava', JavaCompile).configure {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.OFF)
+  }
+}
+
+tasks.matching { it.name == 'compileIntegrationTestJava' }.configureEach {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.OFF)
+  }
+}
+
 jar {
   archiveBaseName = calculateArtifactId(project)
   manifest {
@@ -34,6 +53,10 @@ dependencies {
   implementation 'com.fasterxml.jackson.core:jackson-databind'
   implementation 'io.consensys.tuweni:tuweni-bytes'
   implementation 'io.consensys.tuweni:tuweni-units'
+
+  errorprone 'com.uber.nullaway:nullaway'
+
+  compileOnlyApi 'org.jspecify:jspecify'
 
   testImplementation project(path: ':consensus:common', configuration: 'testSupportArtifacts')
   testImplementation project(path: ':consensus:ibft', configuration: 'testSupportArtifacts')

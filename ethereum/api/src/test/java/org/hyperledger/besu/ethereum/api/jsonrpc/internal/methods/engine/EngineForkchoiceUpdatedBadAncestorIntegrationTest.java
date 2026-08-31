@@ -42,11 +42,13 @@ import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
+import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncContext;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.util.List;
 import java.util.Optional;
@@ -88,7 +90,7 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
   private BadBlockManager badBlockManager;
   private MutableBlockchain blockchain;
   private MergeCoordinator mergeCoordinator;
-  private EngineForkchoiceUpdatedV3<PayloadAttributesV3> method;
+  private EngineForkchoiceUpdatedV3<PayloadAttributesV3, ?> method;
 
   @BeforeEach
   public void setUp() {
@@ -139,6 +141,10 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
                 .vertx(vertx)
                 .engineCallListener(mock(EngineCallListener.class))
                 .mergeCoordinator(mergeCoordinator)
+                .ethPeers(mock(EthPeers.class))
+                .metricsSystem(new NoOpMetricsSystem())
+                .transactionPool(transactionPool)
+                .maxRequestBlocks(0)
                 .build(),
             CANCUN,
             AMSTERDAM);

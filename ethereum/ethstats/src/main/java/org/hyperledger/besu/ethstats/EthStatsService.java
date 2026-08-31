@@ -190,8 +190,8 @@ public class EthStatsService {
       enodeURL = p2PNetwork.getLocalEnode().orElseThrow();
       vertx
           .createWebSocketClient(webSocketClientOptions)
-          .connect(
-              webSocketConnectOptions,
+          .connect(webSocketConnectOptions)
+          .onComplete(
               event -> {
                 if (event.succeeded()) {
                   webSocket = event.result();
@@ -468,16 +468,17 @@ public class EthStatsService {
       final Consumer<Boolean> handlerResult) {
     try {
       LOG.trace("Send ethstats request {}", message.generateCommand());
-      webSocket.writeTextMessage(
-          message.generateCommand(),
-          handler -> {
-            if (!handler.succeeded()) {
-              LOG.error("Failed to send {} ethstats request", message.getType());
-              handlerResult.accept(FALSE);
-            } else {
-              handlerResult.accept(TRUE);
-            }
-          });
+      webSocket
+          .writeTextMessage(message.generateCommand())
+          .onComplete(
+              handler -> {
+                if (!handler.succeeded()) {
+                  LOG.error("Failed to send {} ethstats request", message.getType());
+                  handlerResult.accept(FALSE);
+                } else {
+                  handlerResult.accept(TRUE);
+                }
+              });
     } catch (Exception e) {
       LOG.error(
           "Failed to send {} ethstats request with error {}", message.getType(), e.getMessage());

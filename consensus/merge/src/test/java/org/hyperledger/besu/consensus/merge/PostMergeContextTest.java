@@ -66,6 +66,7 @@ public class PostMergeContextTest {
 
   @Test
   public void switchFromPoWToPoSStopSyncAndCallsSubscribers() {
+    when(mockSyncState.isInitialSyncPhaseDone()).thenReturn(Boolean.TRUE);
     when(mockSyncState.hasReachedTerminalDifficulty()).thenReturn(Optional.of(Boolean.TRUE));
     when(mockSyncState.isInSync()).thenReturn(Boolean.TRUE);
 
@@ -79,6 +80,7 @@ public class PostMergeContextTest {
 
   @Test
   public void setPrePoSStateNotStopSync() {
+    when(mockSyncState.isInitialSyncPhaseDone()).thenReturn(Boolean.TRUE);
     when(mockSyncState.hasReachedTerminalDifficulty()).thenReturn(Optional.of(Boolean.FALSE));
 
     postMergeContext.setIsPostMerge(Difficulty.of(9L));
@@ -267,6 +269,8 @@ public class PostMergeContextTest {
     // after setting a syncState things should progress as expected.
     postMergeContext.setSyncState(mockSyncState);
 
+    when(mockSyncState.isInitialSyncPhaseDone()).thenReturn(Boolean.TRUE);
+
     // Assuming we're not in sync
     when(mockSyncState.isInSync()).thenReturn(Boolean.FALSE);
 
@@ -339,10 +343,36 @@ public class PostMergeContextTest {
     // On post-merge networks (e.g. Hoodi), reachedTerminalDifficulty is always true.
     // During full sync, markInitialSyncPhaseAsDone() is called before downloading begins,
     // so isInSync() reflects actual peer sync state. The node is syncing but not yet in sync.
+    when(mockSyncState.isInitialSyncPhaseDone()).thenReturn(Boolean.TRUE);
     when(mockSyncState.hasReachedTerminalDifficulty()).thenReturn(Optional.of(Boolean.TRUE));
     when(mockSyncState.isInSync()).thenReturn(Boolean.FALSE);
 
     assertThat(postMergeContext.isSyncing()).isTrue();
+  }
+
+  @Test
+  public void isSyncingReturnsFalseAtStartupBeforeTerminalDifficultyIsDetermined() {
+    // Regression test: a freshly started node with p2p enabled and no peers yet answered
+    // engine_newPayload with SYNCING for about a second, because reachedTerminalDifficulty is
+    // only set asynchronously once DefaultSynchronizer's downloader terminates. This is the
+    // state hive's consume-engine sims hit on the very first payload after the genesis FCU.
+    when(mockSyncState.isInitialSyncPhaseDone()).thenReturn(Boolean.TRUE);
+    // Not determined yet — the synchronizer has not finished starting up.
+    when(mockSyncState.hasReachedTerminalDifficulty()).thenReturn(Optional.empty());
+    // No peers, so SyncState reports in-sync (both the sync target and best peer are absent).
+    when(mockSyncState.isInSync()).thenReturn(Boolean.TRUE);
+
+    assertThat(postMergeContext.isSyncing()).isFalse();
+  }
+
+  @Test
+  public void isSyncingReturnsTrueWhenTerminalDifficultyIsKnownNotToBeReached() {
+    when(mockSyncState.isInitialSyncPhaseDone()).thenReturn(Boolean.TRUE);
+    when(mockSyncState.hasReachedTerminalDifficulty()).thenReturn(Optional.of(Boolean.FALSE));
+
+    // Short-circuits on the pre-TTD gate, so peer sync state is never consulted.
+    assertThat(postMergeContext.isSyncing()).isTrue();
+    verify(mockSyncState, never()).isInSync();
   }
 
   @Test

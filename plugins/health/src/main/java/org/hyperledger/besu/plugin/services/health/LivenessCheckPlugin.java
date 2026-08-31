@@ -34,7 +34,8 @@ public class LivenessCheckPlugin implements BesuPlugin {
             .orElseThrow(
                 () -> new IllegalStateException("Required service missing: HealthCheckService"));
 
-    healthCheckService.registerHealthCheck(LIVENESS_ENDPOINT, params -> true);
+    healthCheckService.registerHealthCheck(
+        LIVENESS_ENDPOINT, params -> HealthCheckService.HealthCheckResult.of(true));
   }
 
   @Override

@@ -34,6 +34,9 @@ public class RoundChangePayloadValidator {
   private static final String ERROR_PREFIX = "Invalid RoundChange Payload";
   private static final Logger LOG = LoggerFactory.getLogger(RoundChangePayloadValidator.class);
 
+  /** maximum allowed round */
+  public static final int MAX_ALLOWED_ROUND = 1000;
+
   private final Collection<Address> validators;
   private final long chainHeight;
 
@@ -69,8 +72,8 @@ public class RoundChangePayloadValidator {
     }
 
     final int targetRound = payload.getRoundIdentifier().getRoundNumber();
-    if (targetRound <= 0) {
-      LOG.info("{}: must contain a positive target round number", ERROR_PREFIX);
+    if (targetRound <= 0 || targetRound > MAX_ALLOWED_ROUND) {
+      LOG.info("{}: target round number out of range [1, {}]", ERROR_PREFIX, MAX_ALLOWED_ROUND);
       return false;
     }
 

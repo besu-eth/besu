@@ -21,6 +21,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -106,6 +107,10 @@ public final class DefaultP2PNetworkTest {
     lenient()
         .when(discoveryAgent.start(anyInt()))
         .thenReturn(CompletableFuture.completedFuture(30301));
+    // attemptPeerConnections() caps at (maxPeers - current); default to "plenty of room" so
+    // existing tests that don't care about the cap keep exercising every candidate peer.
+    lenient().when(rlpxAgent.getMaxPeers()).thenReturn(25);
+    lenient().when(rlpxAgent.getConnectionCount()).thenReturn(0);
   }
 
   @Test
@@ -198,13 +203,20 @@ public final class DefaultP2PNetworkTest {
     final DefaultP2PNetwork network = network();
     final Peer peer = PeerTestHelper.createPeer();
 
+    // Stubbed before start(), which arms a 2s timer that runs checkMaintainedConnectionPeers() on
+    // the scheduler thread. That background call invokes rlpxAgent too, and Mockito tracks the
+    // invocation being stubbed per mock rather than per thread, so stubbing after start() can have
+    // its when(...)/thenReturn(...) pair torn apart by the timer on a slow enough run.
+    // thenAnswer() rather than thenReturn() because a Stream is single-use and the timer may
+    // consume one before this test does.
+    when(rlpxAgent.streamActiveConnections())
+        .thenAnswer(invocation -> Stream.of(MockPeerConnection.create(peer)));
+
     network.start();
 
     maintainedPeers.add(peer);
 
     // Don't connect to an already connected peer
-    when(rlpxAgent.streamActiveConnections())
-        .thenReturn(Stream.of(MockPeerConnection.create(peer)));
     network.checkMaintainedConnectionPeers();
     verify(rlpxAgent, times(0)).connect(peer, ConnectSource.MAINTAIN);
   }
@@ -326,6 +338,57 @@ public final class DefaultP2PNetworkTest {
     final DefaultP2PNetwork network = network();
     network.attemptPeerConnections();
     verify(rlpxAgent, times(3)).connect(any(), eq(ConnectSource.MAINTAIN));
+  }
+
+  @Test
+  public void attemptPeerConnections_overprovisionsButBoundsCandidateCount() {
+    when(rlpxAgent.getMaxPeers()).thenReturn(25);
+    when(rlpxAgent.getConnectionCount()).thenReturn(24);
+
+    // 1 slot open, overprovision factor 3 -> at most 3 candidates attempted, out of 5 ready.
+    final List<DiscoveryPeerV4> discoPeers = new ArrayList<>();
+    for (int i = 0; i < 5; i++) {
+      final DiscoveryPeerV4 peer = DiscoveryPeerV4.fromEnode(PeerTestHelper.enode());
+      peer.setBonded();
+      peer.setLastAttemptedConnection(i);
+      discoPeers.add(peer);
+    }
+    when(discoveryAgent.streamDiscoveredPeers()).thenReturn(discoPeers.stream());
+
+    final DefaultP2PNetwork network = network();
+    network.attemptPeerConnections();
+
+    verify(rlpxAgent, times(3)).connect(any(), eq(ConnectSource.MAINTAIN));
+    verify(rlpxAgent, never()).connect(eq(discoPeers.get(3)), any());
+    verify(rlpxAgent, never()).connect(eq(discoPeers.get(4)), any());
+  }
+
+  @Test
+  public void attemptPeerConnections_noAttemptsAtMaxPeers() {
+    when(rlpxAgent.getMaxPeers()).thenReturn(25);
+    when(rlpxAgent.getConnectionCount()).thenReturn(25);
+
+    final DefaultP2PNetwork network = network();
+    network.attemptPeerConnections();
+
+    verify(rlpxAgent, never()).connect(any(), any(ConnectSource.class));
+    verify(discoveryAgent, never()).streamDiscoveredPeers();
+  }
+
+  @Test
+  public void attemptPeerConnections_excludesAlreadyConnectingOrConnectedPeers() {
+    final DiscoveryPeerV4 connectingPeer = DiscoveryPeerV4.fromEnode(PeerTestHelper.enode());
+    final DiscoveryPeerV4 freePeer = DiscoveryPeerV4.fromEnode(PeerTestHelper.enode());
+    connectingPeer.setBonded();
+    freePeer.setBonded();
+    when(rlpxAgent.isConnectingOrConnected(connectingPeer.getId())).thenReturn(true);
+    when(discoveryAgent.streamDiscoveredPeers()).thenReturn(Stream.of(connectingPeer, freePeer));
+
+    final DefaultP2PNetwork network = network();
+    network.attemptPeerConnections();
+
+    verify(rlpxAgent, never()).connect(eq(connectingPeer), any(ConnectSource.class));
+    verify(rlpxAgent).connect(freePeer, ConnectSource.MAINTAIN);
   }
 
   @Test
