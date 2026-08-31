@@ -32,14 +32,13 @@ public record Request(RequestType type, Bytes data)
 
   @JsonCreator
   public static Request fromBytes(final Bytes bytes) {
-    checkArgument(!bytes.isEmpty(), "Request cannot be empty");
+    // Length is checked before the type byte is resolved because the two failures are reported
+    // differently over the Engine API: a request of 1 byte or shorter is -32602 (execution-apis
+    // prague.md, engine_newPayloadV4), while an unrecognised request_type is an INVALID payload.
+    // Resolving the type first would report a bare type byte as the latter.
+    checkArgument(bytes.size() > 1, "Request must be longer than 1 byte, but is %s", bytes.size());
 
-    final RequestType type = RequestType.of(bytes.get(0));
-    final Bytes data = bytes.slice(1);
-
-    checkArgument(!data.isEmpty(), "Request must be at least 1 byte");
-
-    return new Request(type, data);
+    return new Request(RequestType.of(bytes.get(0)), bytes.slice(1));
   }
 
   @Override
