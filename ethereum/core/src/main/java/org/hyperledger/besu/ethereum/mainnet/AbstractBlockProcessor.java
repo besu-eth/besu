@@ -614,7 +614,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
     final BlockGasAccountingStrategy strategy = protocolSpec.getBlockGasAccountingStrategy();
     final var gasCalculator = protocolSpec.getGasCalculator();
     if (!strategy.hasBlockCapacity(
-        transaction.getGasLimit(),
+        transaction,
         gasCalculator.stateGasCostCalculator().transactionExecutionGasLimit(),
         cumulativeExecutionGasUsed,
         cumulativeStateGasUsed,

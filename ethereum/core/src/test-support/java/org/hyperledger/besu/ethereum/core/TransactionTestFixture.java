@@ -71,6 +71,8 @@ public class TransactionTestFixture {
   private Optional<BigInteger> v = Optional.empty();
   private Optional<List<org.hyperledger.besu.datatypes.CodeDelegation>> codeDelegations =
       Optional.empty();
+  private Optional<List<Frame>> frames = Optional.empty();
+  private Optional<List<FrameSignature>> frameSignatures = Optional.empty();
 
   public Transaction createTransaction(final KeyPair keys) {
     final Transaction.Builder builder = Transaction.builder();
@@ -123,6 +125,22 @@ public class TransactionTestFixture {
         builder.maxFeePerGas(maxFeePerGas.orElse(Wei.of(5000)));
         builder.accessList(accessListEntries.orElse(List.of()));
         builder.codeDelegations(codeDelegations.orElse(List.of(CODE_DELEGATION)));
+        break;
+      case FRAME:
+        builder.maxPriorityFeePerGas(maxPriorityFeePerGas.orElse(Wei.of(500)));
+        builder.maxFeePerGas(maxFeePerGas.orElse(Wei.of(5000)));
+        builder.frames(
+            frames.orElse(
+                List.of(
+                    new Frame(
+                        Frame.MODE_VERIFY,
+                        Frame.APPROVE_SCOPE_MASK,
+                        Optional.empty(),
+                        100_000L,
+                        0L,
+                        Wei.ZERO,
+                        Bytes.EMPTY))));
+        builder.frameSignatures(frameSignatures.orElse(List.of()));
         break;
     }
 
@@ -217,6 +235,16 @@ public class TransactionTestFixture {
   public TransactionTestFixture codeDelegations(
       final List<org.hyperledger.besu.datatypes.CodeDelegation> codeDelegations) {
     this.codeDelegations = Optional.ofNullable(codeDelegations);
+    return this;
+  }
+
+  public TransactionTestFixture frames(final List<Frame> frames) {
+    this.frames = Optional.ofNullable(frames);
+    return this;
+  }
+
+  public TransactionTestFixture frameSignatures(final List<FrameSignature> frameSignatures) {
+    this.frameSignatures = Optional.ofNullable(frameSignatures);
     return this;
   }
 

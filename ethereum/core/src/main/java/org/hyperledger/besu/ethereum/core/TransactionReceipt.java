@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.core;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.datatypes.LogsBloomFilter;
@@ -51,6 +52,9 @@ public class TransactionReceipt implements org.hyperledger.besu.plugin.data.Tran
   private final int status;
   private final TransactionReceiptType transactionReceiptType;
   private final Optional<Bytes> revertReason;
+  // EIP-8141 frame transaction receipts: the fee payer and the per-frame receipts.
+  private final Optional<Address> maybePayer;
+  private final Optional<List<FrameReceipt>> maybeFrameReceipts;
 
   /**
    * Creates an instance of a state root-encoded transaction receipt.
@@ -140,6 +144,39 @@ public class TransactionReceipt implements org.hyperledger.besu.plugin.data.Tran
         maybeRevertReason);
   }
 
+  /**
+   * Creates an EIP-8141 frame transaction receipt. The receipt payload has no transaction-level
+   * status; the status held here is derived (1 when every frame succeeded) for interfaces that need
+   * a single value. The logs are the concatenation of the frame logs, in frame order.
+   *
+   * @param payer the account that paid the transaction fees
+   * @param cumulativeGasUsed the total gas consumed in the block after this transaction
+   * @param frameReceipts one receipt per frame, in frame order
+   */
+  public TransactionReceipt(
+      final Address payer, final long cumulativeGasUsed, final List<FrameReceipt> frameReceipts) {
+    this(
+        TransactionType.FRAME,
+        null,
+        deriveFrameStatus(frameReceipts),
+        cumulativeGasUsed,
+        concatenateFrameLogs(frameReceipts),
+        null,
+        Optional.empty(),
+        Optional.of(payer),
+        Optional.of(frameReceipts));
+  }
+
+  private static int deriveFrameStatus(final List<FrameReceipt> frameReceipts) {
+    return frameReceipts.stream().allMatch(fr -> fr.status() == FrameReceipt.STATUS_SUCCESS)
+        ? 1
+        : 0;
+  }
+
+  private static List<Log> concatenateFrameLogs(final List<FrameReceipt> frameReceipts) {
+    return frameReceipts.stream().flatMap(fr -> fr.logs().stream()).toList();
+  }
+
   /** Private constructor used by all public constructors. */
   private TransactionReceipt(
       final TransactionType transactionType,
@@ -149,15 +186,41 @@ public class TransactionReceipt implements org.hyperledger.besu.plugin.data.Tran
       final List<Log> logs,
       final LogsBloomFilter bloomFilter,
       final Optional<Bytes> revertReason) {
+    this(
+        transactionType,
+        stateRoot,
+        status,
+        cumulativeGasUsed,
+        logs,
+        bloomFilter,
+        revertReason,
+        Optional.empty(),
+        Optional.empty());
+  }
+
+  /** Private constructor used by all public constructors. */
+  private TransactionReceipt(
+      final TransactionType transactionType,
+      final Hash stateRoot,
+      final int status,
+      final long cumulativeGasUsed,
+      final List<Log> logs,
+      final LogsBloomFilter bloomFilter,
+      final Optional<Bytes> revertReason,
+      final Optional<Address> maybePayer,
+      final Optional<List<FrameReceipt>> maybeFrameReceipts) {
     this.transactionType = transactionType;
     this.stateRoot = stateRoot;
     this.cumulativeGasUsed = cumulativeGasUsed;
     this.status = status;
     this.logs = logs;
-    this.bloomFilter = bloomFilter;
+    this.bloomFilter =
+        bloomFilter == null ? LogsBloomFilter.builder().insertLogs(logs).build() : bloomFilter;
     this.transactionReceiptType =
         stateRoot == null ? TransactionReceiptType.STATUS : TransactionReceiptType.ROOT;
     this.revertReason = revertReason;
+    this.maybePayer = maybePayer;
+    this.maybeFrameReceipts = maybeFrameReceipts;
   }
 
   /**
@@ -236,6 +299,24 @@ public class TransactionReceipt implements org.hyperledger.besu.plugin.data.Tran
     return revertReason;
   }
 
+  /**
+   * EIP-8141: the account that paid the transaction fees.
+   *
+   * @return the payer, present only for frame transaction receipts
+   */
+  public Optional<Address> getPayer() {
+    return maybePayer;
+  }
+
+  /**
+   * EIP-8141: the per-frame receipts.
+   *
+   * @return the frame receipts, present only for frame transaction receipts
+   */
+  public Optional<List<FrameReceipt>> getFrameReceipts() {
+    return maybeFrameReceipts;
+  }
+
   @Override
   public boolean equals(final Object obj) {
     if (obj == this) {
@@ -247,7 +328,9 @@ public class TransactionReceipt implements org.hyperledger.besu.plugin.data.Tran
     return logs.equals(other.getLogsList())
         && Objects.equals(stateRoot, other.stateRoot)
         && cumulativeGasUsed == other.getCumulativeGasUsed()
-        && status == other.status;
+        && status == other.status
+        && maybePayer.map(Address::getBytes).equals(other.maybePayer.map(Address::getBytes))
+        && maybeFrameReceipts.equals(other.maybeFrameReceipts);
   }
 
   @Override

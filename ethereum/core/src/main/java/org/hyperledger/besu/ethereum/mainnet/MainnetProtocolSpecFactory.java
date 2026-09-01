@@ -341,6 +341,11 @@ public class MainnetProtocolSpecFactory {
         metricsSystem);
   }
 
+  /**
+   * The Bogota fork (the fork after Amsterdam), currently carrying EIP-8141 frame transactions.
+   *
+   * @return a protocol spec for the Bogota fork.
+   */
   public ProtocolSpecBuilder bogotaDefinition() {
     return MainnetProtocolSpecs.bogotaDefinition(
         chainId,

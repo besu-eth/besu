@@ -1319,6 +1319,24 @@ public abstract class MainnetProtocolSpecs {
     return amsterdamSpecBuilder;
   }
 
+  private static ProtocolSpecBuilder applyBlobSchedule(
+      final ProtocolSpecBuilder builder,
+      final GenesisConfigOptions genesisConfigOptions,
+      final Function<BlobScheduleOptions, Optional<BlobSchedule>> blobGetter,
+      final Function<GenesisConfigOptions, OptionalLong> blobScheduleTimestampGetter,
+      final HardforkId hardforkId) {
+    // Only apply a fork's blob schedule if the fork is actually activated (has a timestamp).
+    // This prevents inactive BPO forks from overriding the blob schedule with stale values
+    // from the genesis config.
+    if (blobScheduleTimestampGetter.apply(genesisConfigOptions).isPresent()) {
+      genesisConfigOptions
+          .getBlobScheduleOptions()
+          .flatMap(blobGetter)
+          .ifPresent(builder::blobSchedule);
+    }
+    return builder.hardforkId(hardforkId);
+  }
+
   static ProtocolSpecBuilder bogotaDefinition(
       final Optional<BigInteger> chainId,
       final boolean enableRevertReason,
@@ -1337,29 +1355,57 @@ public abstract class MainnetProtocolSpecs {
             isParallelTxProcessingEnabled,
             balConfiguration,
             metricsSystem)
+        // EIP-8141: frame transaction opcodes (APPROVE and introspection)
         .evmBuilder(
             (gasCalculator, __) ->
                 MainnetEVMs.bogota(
                     gasCalculator, chainId.orElse(BigInteger.ZERO), evmConfiguration))
+        // EIP-8141: accept the frame transaction type
+        .transactionValidatorFactoryBuilder(
+            (evm, gasLimitCalculator, feeMarket) ->
+                new TransactionValidatorFactory(
+                    evm.getGasCalculator(),
+                    gasLimitCalculator,
+                    feeMarket,
+                    true,
+                    chainId,
+                    Set.of(
+                        TransactionType.FRONTIER,
+                        TransactionType.ACCESS_LIST,
+                        TransactionType.EIP1559,
+                        TransactionType.BLOB,
+                        TransactionType.DELEGATE_CODE,
+                        TransactionType.FRAME),
+                    Set.of(BlobType.KZG_CELL_PROOFS),
+                    evm.getMaxInitcodeSize()))
+        // EIP-8141: frame transaction execution
+        .transactionProcessorBuilder(
+            (gasCalculator,
+                feeMarket,
+                transactionValidator,
+                contractCreationProcessor,
+                messageCallProcessor) ->
+                MainnetTransactionProcessor.builder()
+                    .gasCalculator(gasCalculator)
+                    .transactionValidatorFactory(transactionValidator)
+                    .contractCreationProcessor(contractCreationProcessor)
+                    .messageCallProcessor(messageCallProcessor)
+                    .clearEmptyAccounts(true)
+                    .warmCoinbase(true)
+                    .maxStackSize(evmConfiguration.evmStackSize())
+                    .feeMarket(feeMarket)
+                    .coinbaseFeePriceCalculator(CoinbaseFeePriceCalculator.eip1559())
+                    .codeDelegationProcessor(
+                        new CodeDelegationProcessor(
+                            chainId,
+                            SIGNATURE_ALGORITHM.getHalfCurveOrder(),
+                            new CodeDelegationService()))
+                    .transferLogEmitter(EIP7708TransferLogEmitter.INSTANCE)
+                    .supportsFrameTransactions(true)
+                    .build())
+        // EIP-8141: frame transaction receipts
+        .transactionReceiptFactory(new BogotaTransactionReceiptFactory(enableRevertReason))
         .hardforkId(BOGOTA);
-  }
-
-  private static ProtocolSpecBuilder applyBlobSchedule(
-      final ProtocolSpecBuilder builder,
-      final GenesisConfigOptions genesisConfigOptions,
-      final Function<BlobScheduleOptions, Optional<BlobSchedule>> blobGetter,
-      final Function<GenesisConfigOptions, OptionalLong> blobScheduleTimestampGetter,
-      final HardforkId hardforkId) {
-    // Only apply a fork's blob schedule if the fork is actually activated (has a timestamp).
-    // This prevents inactive BPO forks from overriding the blob schedule with stale values
-    // from the genesis config.
-    if (blobScheduleTimestampGetter.apply(genesisConfigOptions).isPresent()) {
-      genesisConfigOptions
-          .getBlobScheduleOptions()
-          .flatMap(blobGetter)
-          .ifPresent(builder::blobSchedule);
-    }
-    return builder.hardforkId(hardforkId);
   }
 
   static ProtocolSpecBuilder futureEipsDefinition(
@@ -1487,6 +1533,35 @@ public abstract class MainnetProtocolSpecs {
           gasUsed,
           result.getLogs(),
           revertReasonEnabled ? result.getRevertReason() : Optional.empty());
+    }
+  }
+
+  /**
+   * Bogota: EIP-8141 frame transactions have their own receipt payload {@code [cumulative_gas_used,
+   * payer, [frame_receipt, ...]]}; every other type keeps the Berlin typed status receipt.
+   */
+  static class BogotaTransactionReceiptFactory extends BerlinTransactionReceiptFactory {
+
+    public BogotaTransactionReceiptFactory(final boolean revertReasonEnabled) {
+      super(revertReasonEnabled);
+    }
+
+    @Override
+    public TransactionReceipt create(
+        final TransactionType transactionType,
+        final TransactionProcessingResult result,
+        final long gasUsed) {
+      if (transactionType.supportsFrames()) {
+        final var outcome =
+            result
+                .getFrameTransactionOutcome()
+                .orElseThrow(
+                    () ->
+                        new IllegalStateException(
+                            "Frame transaction result is missing its frame outcome"));
+        return new TransactionReceipt(outcome.payer(), gasUsed, outcome.frameReceipts());
+      }
+      return super.create(transactionType, result, gasUsed);
     }
   }
 

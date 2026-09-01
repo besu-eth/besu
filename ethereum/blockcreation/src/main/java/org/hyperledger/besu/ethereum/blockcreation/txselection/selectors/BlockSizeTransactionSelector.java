@@ -127,7 +127,7 @@ public class BlockSizeTransactionSelector extends AbstractStatefulTransactionSel
    */
   private boolean transactionTooLargeForBlock(final Transaction transaction, final GasState state) {
     return !gasAccountingStrategy.hasBlockCapacity(
-        transaction.getGasLimit(),
+        transaction,
         stateGasCostCalculator.transactionExecutionGasLimit(),
         state.executionGas(),
         state.stateGas(),

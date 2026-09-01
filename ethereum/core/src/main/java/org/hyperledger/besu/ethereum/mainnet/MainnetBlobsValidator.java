@@ -104,8 +104,10 @@ public class MainnetBlobsValidator {
   private ValidationResult<TransactionInvalidReason> validateBlobTransaction(
       final Transaction transaction) {
 
-    // Blob transactions must target a recipient account
-    if (transaction.getType().supportsBlob() && transaction.getTo().isEmpty()) {
+    // Blob transactions must target a recipient account (frame transactions have no top-level
+    // recipient by design)
+    if (transaction.getType() == org.hyperledger.besu.datatypes.TransactionType.BLOB
+        && transaction.getTo().isEmpty()) {
       return ValidationResult.invalid(
           TransactionInvalidReason.INVALID_TRANSACTION_FORMAT,
           "transaction blob transactions must have a to address");

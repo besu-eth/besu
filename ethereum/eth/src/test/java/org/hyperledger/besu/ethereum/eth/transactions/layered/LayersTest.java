@@ -1869,6 +1869,7 @@ public class LayersTest extends BaseTransactionPoolTest {
             case EIP1559 -> createEIP1559PendingTransaction(sender, nonce);
             case BLOB -> createBlobPendingTransaction(sender, nonce);
             case DELEGATE_CODE -> createEIP7702PendingTransaction(sender, nonce, inputDelegations);
+            case FRAME -> throw new IllegalArgumentException("Frame transactions are not pooled");
           };
       final LiveTransactionMetadata liveTransactionMetadata =
           new LiveTransactionMetadata(newPendingTx, inputDelegations);

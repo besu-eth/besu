@@ -456,7 +456,13 @@ public class T8nExecutor {
       long transactionGasUsed = transaction.getGasLimit() - result.getGasRemaining();
 
       gasUsed += transactionGasUsed;
-      long intrinsicGas = gasCalculator.transactionIntrinsicGasCost(transaction, 0);
+      long intrinsicGas =
+          transaction.getType().supportsFrames()
+              ? org.hyperledger.besu.ethereum.core.FrameTransactionGas.intrinsicGas(
+                  transaction.getFrames().orElseThrow(),
+                  transaction.getFrameSignatures().orElse(List.of()),
+                  transaction.getSender())
+              : gasCalculator.transactionIntrinsicGasCost(transaction, 0);
       TransactionReceipt receipt =
           protocolSpec
               .getTransactionReceiptFactory()

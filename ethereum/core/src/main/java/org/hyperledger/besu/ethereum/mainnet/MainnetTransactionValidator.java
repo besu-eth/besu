@@ -121,7 +121,9 @@ public class MainnetTransactionValidator implements TransactionValidator {
           "Transaction gas limit must be at most " + txGasLimitCap);
     }
 
-    if (transactionType.supportsBlob()) {
+    // Frame transactions are not required to carry blobs; blob rules apply only when they do.
+    if (transactionType.supportsBlob()
+        && (transactionType == TransactionType.BLOB || transaction.getBlobCount() > 0)) {
       final ValidationResult<TransactionInvalidReason> blobTransactionResult =
           blobsValidator.validate(transaction);
       if (!blobTransactionResult.isValid()) {
@@ -151,7 +153,116 @@ public class MainnetTransactionValidator implements TransactionValidator {
       }
     }
 
+    if (transactionType.supportsFrames()) {
+      final ValidationResult<TransactionInvalidReason> frameValidation =
+          validateFrameFields(transaction);
+      if (!frameValidation.isValid()) {
+        return frameValidation;
+      }
+    }
+
     return validateCostAndFee(transaction, baseFee, blobFee, transactionValidationParams);
+  }
+
+  /** The EIP-8141 expiry verifier contract address. */
+  public static final org.hyperledger.besu.datatypes.Address EXPIRY_VERIFIER =
+      org.hyperledger.besu.datatypes.Address.fromHexString("0x8141");
+
+  private static final int MAX_FRAMES = 64;
+
+  /** EIP-8141 static validity constraints on the frames and signature entries. */
+  private static ValidationResult<TransactionInvalidReason> validateFrameFields(
+      final Transaction transaction) {
+    final var frames = transaction.getFrames().orElseThrow();
+    if (frames.isEmpty() || frames.size() > MAX_FRAMES) {
+      return frameInvalid("frame count must be between 1 and " + MAX_FRAMES);
+    }
+
+    if (transaction.getBlobCount() == 0
+        && !transaction.getMaxFeePerBlobGas().orElse(Wei.ZERO).isZero()) {
+      return frameInvalid("max fee per blob gas must be zero without blob versioned hashes");
+    }
+
+    for (final var signature : transaction.getFrameSignatures().orElse(java.util.List.of())) {
+      if (signature.scheme() < 0
+          || signature.scheme() > org.hyperledger.besu.ethereum.core.FrameSignature.SCHEME_P256) {
+        return frameInvalid("unknown signature scheme " + signature.scheme());
+      }
+      if (signature.scheme() == org.hyperledger.besu.ethereum.core.FrameSignature.SCHEME_ARBITRARY
+          && !signature.signer().isEmpty()) {
+        return frameInvalid("ARBITRARY signature entries must not declare a signer");
+      }
+      if (signature.msg().size() == 32 && signature.msg().isZero()) {
+        return frameInvalid("explicit zero signature digest is invalid");
+      }
+    }
+
+    long totalFrameGas = 0L;
+    int expiryFrames = 0;
+    for (int i = 0; i < frames.size(); i++) {
+      final var frame = frames.get(i);
+      if (frame.mode() < 0 || frame.mode() > org.hyperledger.besu.ethereum.core.Frame.MODE_SENDER) {
+        return frameInvalid("unknown frame mode " + frame.mode());
+      }
+      if (frame.flags() < 0 || frame.flags() > 7) {
+        return frameInvalid("reserved frame flag bits set: " + frame.flags());
+      }
+      if (frame.executionGasLimit() < 0 || frame.stateGasLimit() < 0) {
+        return frameInvalid("frame gas limits exceed 2^63-1");
+      }
+      try {
+        totalFrameGas =
+            Math.addExact(
+                totalFrameGas, Math.addExact(frame.executionGasLimit(), frame.stateGasLimit()));
+      } catch (final ArithmeticException ae) {
+        return frameInvalid("total frame gas exceeds 2^64-1");
+      }
+      if (frame.mode() != org.hyperledger.besu.ethereum.core.Frame.MODE_SENDER
+          && !frame.value().isZero()) {
+        return frameInvalid("frame " + i + " carries value outside SENDER mode");
+      }
+      if ((frame.flags() & org.hyperledger.besu.ethereum.core.Frame.FLAG_APPROVE_EXECUTION) != 0
+          && frame.target().isPresent()
+          && !frame.target().get().getBytes().equals(transaction.getSender().getBytes())) {
+        return frameInvalid(
+            "frame " + i + " allows execution approval with a target other than the sender");
+      }
+      if (frame.isAtomicBatch()) {
+        if (frame.mode() == org.hyperledger.besu.ethereum.core.Frame.MODE_VERIFY) {
+          return frameInvalid("frame " + i + " is a batched VERIFY frame");
+        }
+        if (i + 1 >= frames.size()) {
+          return frameInvalid("last frame cannot carry the atomic batch flag");
+        }
+        if (frames.get(i + 1).mode() == org.hyperledger.besu.ethereum.core.Frame.MODE_VERIFY) {
+          return frameInvalid("frame " + (i + 1) + " is a batched VERIFY frame");
+        }
+      }
+      final boolean inBatch = frame.isAtomicBatch() || (i > 0 && frames.get(i - 1).isAtomicBatch());
+      if (inBatch && frame.allowedApprovalScope() != 0) {
+        return frameInvalid("batched frame " + i + " must not carry an approval scope");
+      }
+      // Expiry verifier frames.
+      if (frame.mode() == org.hyperledger.besu.ethereum.core.Frame.MODE_VERIFY
+          && frame.target().isPresent()
+          && frame.target().get().getBytes().equals(EXPIRY_VERIFIER.getBytes())) {
+        expiryFrames++;
+        if (expiryFrames > 1) {
+          return frameInvalid("at most one expiry verifier frame is allowed");
+        }
+        if (frame.flags() != 0
+            || !frame.value().isZero()
+            || frame.stateGasLimit() != 0
+            || frame.data().size() != 8) {
+          return frameInvalid("malformed expiry verifier frame " + i);
+        }
+      }
+    }
+    return ValidationResult.valid();
+  }
+
+  private static ValidationResult<TransactionInvalidReason> frameInvalid(final String message) {
+    return ValidationResult.invalid(TransactionInvalidReason.INVALID_FRAMES, message);
   }
 
   private static ValidationResult<TransactionInvalidReason> validateCodeDelegation(
@@ -226,7 +337,9 @@ public class MainnetTransactionValidator implements TransactionValidator {
       }
     }
 
-    if (transaction.getType().supportsBlob()) {
+    // EIP-8141: frame transactions are only blob-carrying when they declare versioned hashes;
+    // the blob fee rules apply only in that case.
+    if (transaction.getType().supportsBlob() && transaction.getBlobCount() > 0) {
       final long txTotalBlobGas = gasCalculator.blobGasCost(transaction.getBlobCount());
       if (txTotalBlobGas > gasLimitCalculator.currentBlobGasLimit()) {
         return ValidationResult.invalid(
@@ -251,14 +364,31 @@ public class MainnetTransactionValidator implements TransactionValidator {
       }
     }
 
-    final long baselineGas =
-        clampedAdd(
-            transaction.getAccessList().map(gasCalculator::accessListGasCost).orElse(0L),
-            gasCalculator.delegateCodeGasCost(transaction.codeDelegationListSize()));
-    final long intrinsicGasCostOrFloor =
-        Math.max(
-            gasCalculator.transactionIntrinsicGasCost(transaction, baselineGas),
-            gasCalculator.transactionFloorCost(transaction));
+    final long intrinsicGasCostOrFloor;
+    if (transaction.getType().supportsFrames()) {
+      // EIP-8141: the EIP-7825 cap binds max(intrinsic + total frame execution gas, calldata
+      // floor); the declared state gas is exempt.
+      final var frames = transaction.getFrames().orElseThrow();
+      final var signatures = transaction.getFrameSignatures().orElse(java.util.List.of());
+      intrinsicGasCostOrFloor =
+          Math.max(
+              clampedAdd(
+                  org.hyperledger.besu.ethereum.core.FrameTransactionGas.intrinsicGas(
+                      frames, signatures, transaction.getSender()),
+                  org.hyperledger.besu.ethereum.core.FrameTransactionGas.totalExecutionGasLimit(
+                      frames)),
+              org.hyperledger.besu.ethereum.core.FrameTransactionGas.calldataFloorGas(
+                  frames, signatures, transaction.getSender()));
+    } else {
+      final long baselineGas =
+          clampedAdd(
+              transaction.getAccessList().map(gasCalculator::accessListGasCost).orElse(0L),
+              gasCalculator.delegateCodeGasCost(transaction.codeDelegationListSize()));
+      intrinsicGasCostOrFloor =
+          Math.max(
+              gasCalculator.transactionIntrinsicGasCost(transaction, baselineGas),
+              gasCalculator.transactionFloorCost(transaction));
+    }
 
     // EIP-8037: cap max(intrinsic_execution, calldata_floor) rather than tx.gas itself.
     final long intrinsicGasLimitCap = gasLimitCalculator.transactionIntrinsicGasLimitCap();
@@ -304,9 +434,13 @@ public class MainnetTransactionValidator implements TransactionValidator {
       if (sender.getCodeHash() != null) codeHash = sender.getCodeHash();
     }
 
-    // check if the sender has enough balance to pay for the gas
+    // EIP-8141: the payer (chosen by APPROVE during execution) covers the fees, not necessarily
+    // the sender, so no sender balance requirement applies.
     final Wei maxUpfrontGasCost =
-        transaction.getMaxUpfrontGasCost(gasCalculator.blobGasCost(transaction.getBlobCount()));
+        transaction.getType().supportsFrames()
+            ? Wei.ZERO
+            : transaction.getMaxUpfrontGasCost(
+                gasCalculator.blobGasCost(transaction.getBlobCount()));
     if (!validationParams.allowUnderpricedGas() && maxUpfrontGasCost.compareTo(senderBalance) > 0) {
       return ValidationResult.invalid(
           TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE,
@@ -350,7 +484,9 @@ public class MainnetTransactionValidator implements TransactionValidator {
               transaction.getNonce(), senderNonce, transaction.getSender()));
     }
 
-    if (!validationParams.isAllowContractAddressAsSender()
+    // EIP-8141 explicitly lifts the EIP-3607 restriction for frame transactions.
+    if (!transaction.getType().supportsFrames()
+        && !validationParams.isAllowContractAddressAsSender()
         && !canSendTransaction(sender, codeHash)) {
       return ValidationResult.invalid(
           TransactionInvalidReason.TX_SENDER_NOT_AUTHORIZED,
@@ -381,6 +517,12 @@ public class MainnetTransactionValidator implements TransactionValidator {
       return ValidationResult.invalid(
           TransactionInvalidReason.REPLAY_PROTECTED_SIGNATURES_NOT_SUPPORTED,
           "replay protected signatures is not supported");
+    }
+
+    // EIP-8141: frame transactions declare their sender and have no outer signature; the
+    // signature entries are validated by the frame transaction processor.
+    if (transaction.getType().supportsFrames()) {
+      return ValidationResult.valid();
     }
 
     final SECPSignature signature = transaction.getSignature();

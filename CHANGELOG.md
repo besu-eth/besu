@@ -188,6 +188,7 @@ opportunity to upgrade.
 ### Additions and Improvements
 - Add `eth_getRawTransactionByHash` JSON-RPC method. [#11170](https://github.com/besu-eth/besu/pull/11170)
 - Add `eth_getHeaderByHash` and `eth_getHeaderByNumber`, header-only alternatives to the block getters proposed for standardization in [execution-apis#877](https://github.com/ethereum/execution-apis/pull/877) [#11220](https://github.com/besu-eth/besu/pull/11220)
+- Implement [EIP-8141: Frame Transactions](https://eips.ethereum.org/EIPS/eip-8141) behind the new Bogota milestone (`bogotaTime` genesis option): transaction type `0x06` with per-frame execution/state gas budgets, APPROVE-based payment (including contract paymasters), the frame receipt payload, protocol-side signature validation (secp256k1, P256, arbitrary), and the APPROVE/TXPARAM/FRAMEDATALOAD/FRAMEDATACOPY/FRAMEPARAM/SIGPARAM/SIGDATACOPY opcodes. Mempool rules are not yet implemented, so frame transactions are only accepted in blocks.
 - Add JMH `GasProfiler` that emits `mgas_per_s` as a secondary metric on each benchmark iteration using Besu's own `GasCalculator`. Enable with `-PgasProfiler=true`; override the EVM fork with `-PgasProfilerFork=<fork>` (defaults to Osaka). [#10807](https://github.com/besu-eth/besu/pull/10807)
 - Align Kotlin runtime dependencies to 2.4.0 to support plugins compiled against the Kotlin 2.4 API. [#10983](https://github.com/besu-eth/besu/pull/10983)
 - Upgrade log4j to 2.25.5 [#11075](https://github.com/besu-eth/besu/pull/11075)

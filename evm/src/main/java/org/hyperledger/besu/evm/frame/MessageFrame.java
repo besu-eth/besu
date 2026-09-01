@@ -981,6 +981,20 @@ public class MessageFrame {
   public boolean consumeStateGas(final long amount) {
     final long reservoirBefore = txValues.stateGasReservoir().get();
     final long gasLeftBefore = gasRemaining;
+    // EIP-8141: each frame's state-gas pool is explicit and isolated; execution gas can never be
+    // spent on state charges, so the reservoir never spills into gasRemaining.
+    if (txValues.frameTransactionContext().isPresent()) {
+      if (reservoirBefore < amount) {
+        traceConsumeState(
+            amount, reservoirBefore, gasLeftBefore, false, reservoirBefore, gasLeftBefore);
+        return false;
+      }
+      txValues.stateGasReservoir().set(reservoirBefore - amount);
+      txValues.stateGasUsed().set(txValues.stateGasUsed().get() + amount);
+      traceConsumeState(
+          amount, reservoirBefore, gasLeftBefore, true, reservoirBefore - amount, gasLeftBefore);
+      return true;
+    }
     final long fromReservoir = Math.min(reservoirBefore, amount);
     final long fromGas = amount - fromReservoir;
     if (gasRemaining < fromGas) {
@@ -1031,6 +1045,12 @@ public class MessageFrame {
    * @param amount the refill amount
    */
   public void refillStateGasReservoir(final long amount) {
+    // EIP-8141: no spill exists; the refill goes straight back to the frame's pool.
+    if (txValues.frameTransactionContext().isPresent()) {
+      incrementStateGasReservoir(amount);
+      decrementStateGasUsed(amount);
+      return;
+    }
     final long fromGasLeft = Math.min(amount, stateGasSpilled);
     if (fromGasLeft > 0L) {
       incrementRemainingGas(fromGasLeft);
@@ -1061,6 +1081,66 @@ public class MessageFrame {
       txValues.stateGasReservoir().set(reservoir - d);
       stateGasSpilled = spilled - d;
     }
+  }
+
+  /**
+   * Consumes SSTORE state gas, recording the executing EIP-8141 frame as the outstanding charge
+   * owner so a later refill can reattribute it. Outside frame transactions this is identical to
+   * {@link #consumeStateGas(long)}.
+   *
+   * @param address the account whose slot was set
+   * @param slotKey the storage slot
+   * @param amount the state gas to consume
+   * @return true if the full amount was consumed, false on insufficiency (no mutation)
+   */
+  public boolean consumeStateGasForStorageSet(
+      final Address address, final Bytes32 slotKey, final long amount) {
+    if (!consumeStateGas(amount)) {
+      return false;
+    }
+    txValues
+        .frameTransactionContext()
+        .ifPresent(context -> context.recordSlotCharge(address, slotKey));
+    return true;
+  }
+
+  /**
+   * Refills SSTORE state gas for a cleared slot. In an EIP-8141 frame transaction the refill is
+   * reattributed to the frame that paid the outstanding charge: the current frame's pool is
+   * credited only when it is the owner, otherwise only the owner's receipt is reduced. Outside
+   * frame transactions this is identical to {@link #refillStateGasReservoir(long)}.
+   *
+   * @param address the account whose slot was cleared
+   * @param slotKey the storage slot
+   * @param amount the state gas to refill
+   */
+  public void refillStateGasForStorageClear(
+      final Address address, final Bytes32 slotKey, final long amount) {
+    final var maybeContext = txValues.frameTransactionContext();
+    if (maybeContext.isEmpty()) {
+      refillStateGasReservoir(amount);
+      return;
+    }
+    final FrameTransactionContext context = maybeContext.get();
+    final Integer owner = context.removeSlotCharge(address, slotKey);
+    if (owner == null || owner == context.currentFrameIndex()) {
+      // Spendable refill: the executing frame reclaims its own outstanding charge.
+      refillStateGasReservoir(amount);
+    } else {
+      // Non-spendable: reduce the owning frame's receipt so settlement returns the gas, without
+      // growing the current frame's pool.
+      context.reduceFrameStateGasUsed(owner, amount);
+      decrementStateGasUsed(amount);
+    }
+  }
+
+  /**
+   * The EIP-8141 frame transaction context, when processing a frame transaction.
+   *
+   * @return the frame transaction context
+   */
+  public Optional<FrameTransactionContext> getFrameTransactionContext() {
+    return txValues.frameTransactionContext();
   }
 
   // ============================================================
@@ -1572,6 +1652,8 @@ public class MessageFrame {
 
     private long initialStateGasReservoir = 0L;
 
+    private TxValues existingTxValues;
+
     private boolean enableEvmV2 = false;
 
     /** Instantiates a new Builder. */
@@ -1890,6 +1972,20 @@ public class MessageFrame {
       return this;
     }
 
+    /**
+     * Injects an existing {@link TxValues} into a top-level frame, so several sequential top-level
+     * frames can share one transaction-scoped context (EIP-8141 frame transactions). The caller
+     * manages warm-address seeding: unlike a normal top frame, neither the contract nor the sender
+     * is auto-warmed, per EIP-8141 ("being a frame target does not warm an address").
+     *
+     * @param txValues the transaction values to share
+     * @return the builder
+     */
+    public Builder txValues(final TxValues txValues) {
+      this.existingTxValues = txValues;
+      return this;
+    }
+
     private void validate() {
       if (parentMessageFrame == null) {
         checkState(worldUpdater != null, "Missing message frame world updater");
@@ -1923,6 +2019,33 @@ public class MessageFrame {
       WorldUpdater updater;
       boolean newStatic;
       TxValues newTxValues;
+
+      if (parentMessageFrame == null && existingTxValues != null) {
+        newTxValues = existingTxValues;
+        updater = worldUpdater;
+        newStatic = isStatic;
+        MessageFrame injectedFrame =
+            new MessageFrame(
+                enableEvmV2,
+                type,
+                updater,
+                initialGas,
+                address,
+                contract,
+                inputData,
+                sender,
+                value,
+                apparentValue,
+                code,
+                newStatic,
+                completer,
+                contextVariables == null ? Map.of() : contextVariables,
+                reason,
+                newTxValues,
+                eip7928AccessList);
+        newTxValues.messageFrameStack().addFirst(injectedFrame);
+        return injectedFrame;
+      }
 
       if (parentMessageFrame == null) {
         HashSet<Address> warmedUpAddresses = new HashSet<>();

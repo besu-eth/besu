@@ -133,6 +133,7 @@ abstract class AbstractBlockProcessorTest {
     final long blockGasLimit = 100_000L;
     final BlockHeader header = new BlockHeaderTestFixture().gasLimit(blockGasLimit).buildHeader();
     final Transaction tx = mock(Transaction.class);
+    when(tx.getType()).thenReturn(org.hyperledger.besu.datatypes.TransactionType.EIP1559);
     when(tx.getGasLimit()).thenReturn(50_000L);
     when(tx.getHash()).thenReturn(Hash.fromHexStringLenient("0x1234"));
 
