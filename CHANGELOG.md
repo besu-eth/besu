@@ -18,8 +18,8 @@
   - The plugin lifecycle is being redesigned. The phases a plugin goes through, the services available in each of them, and the way a plugin obtains those services are all expected to change, and the changes will not be source compatible.
   - `PluginVersionsProvider`, `plugin.data.Request`, `plugin.data.Restriction`, `plugin.data.UnsignedPrivateMarkerTransaction` and `plugin.data.Signature` are deprecated for removal, with no replacement. None is reachable through any plugin service or data contract: the three privacy types were orphaned when private transaction support was removed, `Request` is implemented internally but never exposed, and `PluginVersionsProvider` is internal `--version` plumbing
 - `--Xbft-legacy-protocol-encoding` will be removed once Besu 25.x is no longer supported. [#10499](https://github.com/besu-eth/besu/pull/10499)
-- `--Xsnapsync-synchronizer-pivot-block-distance-before-caching` is deprecated and will be removed in a future release; the flag is now a silent no-op.
-- `--snapsync-synchronizer-pre-checkpoint-headers-only-enabled` is deprecated and will be removed in a future release; the flag is now a silent no-op.
+- `--Xsnapsync-synchronizer-pivot-block-distance-before-caching` is deprecated (since 26.6.1) and will be removed in a future release; the flag is now a silent no-op.
+- `--snapsync-synchronizer-pre-checkpoint-headers-only-enabled` is deprecated (since 26.8.1) and will be removed in a future release; the flag is now a silent no-op.
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
@@ -55,11 +55,12 @@
   - `MiningService` is deprecated for removal and will be removed in a future release, with no replacement. It has no known usage
   - `PluginVersionsProvider`, `plugin.data.Request`, `plugin.data.Restriction`, `plugin.data.UnsignedPrivateMarkerTransaction` and `plugin.data.Signature` are deprecated for removal, with no replacement. None is reachable through any plugin service or data contract: the three privacy types were orphaned when private transaction support was removed, `Request` is implemented internally but never exposed, and `PluginVersionsProvider` is internal `--version` plumbing
 - `--Xbft-legacy-protocol-encoding` will be removed once Besu 25.x is no longer supported. [#10499](https://github.com/besu-eth/besu/pull/10499)
-- `--Xsnapsync-synchronizer-pivot-block-distance-before-caching` is deprecated and will be removed in a future release; the flag is now a silent no-op.
-- `--snapsync-synchronizer-pre-checkpoint-headers-only-enabled` is deprecated and will be removed in a future release; the flag is now a silent no-op.
+- `--Xsnapsync-synchronizer-pivot-block-distance-before-caching` is deprecated (since 26.6.1) and will be removed in a future release; the flag is now a silent no-op.
+- `--snapsync-synchronizer-pre-checkpoint-headers-only-enabled` is deprecated (since 26.8.1) and will be removed in a future release; the flag is now a silent no-op.
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
+- GraphQL `logs(filter: ...)` no longer fails when the filter's `topics` field is omitted or explicitly null, on both the top-level `logs` query and the block-scoped one. The schema declares `topics` nullable and documents "[] or nil matches any topic list", but the field was dereferenced unguarded, so a documented-valid query returned a `DataFetchingException` and `data: null`. [#11188](https://github.com/besu-eth/besu/pull/11188)
 - `engine_newPayloadV5` now returns `{status: INVALID}` instead of a `-32602` JSON-RPC error when a present `blockAccessList` cannot be decoded; a missing `blockAccessList` still returns `-32602`. [#11177](https://github.com/besu-eth/besu/pull/11177)
 - `debug_getRawReceipts` now accepts a block hash as well as a block number or tag. [#11156](https://github.com/besu-eth/besu/pull/11156)
 - Support dynamic reorg tracking for transaction receipt logs in `eth_getTransactionReceipt` and `eth_getBlockReceipts` by populating the `removed` field. [#11076](https://github.com/besu-eth/besu/pull/11076)

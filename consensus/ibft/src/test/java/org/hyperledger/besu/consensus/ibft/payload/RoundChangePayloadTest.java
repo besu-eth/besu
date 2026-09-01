@@ -55,7 +55,8 @@ public class RoundChangePayloadTest {
     roundChangePayload.writeTo(rlpOut);
 
     final RLPInput rlpInput = RLP.input(rlpOut.encoded());
-    RoundChangePayload actualRoundChangePayload = RoundChangePayload.readFrom(rlpInput);
+    RoundChangePayload actualRoundChangePayload =
+        RoundChangePayload.readFrom(rlpInput, DecodeBudget.forSingleMessage());
     assertThat(actualRoundChangePayload.getRoundIdentifier()).isEqualTo(ROUND_IDENTIFIER);
     assertThat(actualRoundChangePayload.getPreparedCertificate()).isEqualTo(Optional.empty());
     assertThat(actualRoundChangePayload.getMessageType()).isEqualTo(IbftV2.ROUND_CHANGE);
@@ -74,7 +75,8 @@ public class RoundChangePayloadTest {
     roundChangePayload.writeTo(rlpOut);
 
     final RLPInput rlpInput = RLP.input(rlpOut.encoded());
-    RoundChangePayload actualRoundChangePayload = RoundChangePayload.readFrom(rlpInput);
+    RoundChangePayload actualRoundChangePayload =
+        RoundChangePayload.readFrom(rlpInput, DecodeBudget.forSingleMessage());
     assertThat(actualRoundChangePayload.getRoundIdentifier()).isEqualTo(ROUND_IDENTIFIER);
     assertThat(actualRoundChangePayload.getPreparedCertificate())
         .isEqualTo(Optional.of(preparedCertificate));
@@ -98,7 +100,8 @@ public class RoundChangePayloadTest {
     roundChangePayload.writeTo(rlpOut);
 
     final RLPInput rlpInput = RLP.input(rlpOut.encoded());
-    RoundChangePayload actualRoundChangePayload = RoundChangePayload.readFrom(rlpInput);
+    RoundChangePayload actualRoundChangePayload =
+        RoundChangePayload.readFrom(rlpInput, DecodeBudget.forSingleMessage());
     assertThat(actualRoundChangePayload.getRoundIdentifier()).isEqualTo(ROUND_IDENTIFIER);
     assertThat(actualRoundChangePayload.getPreparedCertificate())
         .isEqualTo(Optional.of(preparedCert));
