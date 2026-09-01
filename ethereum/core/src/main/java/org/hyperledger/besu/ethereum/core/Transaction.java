@@ -37,6 +37,7 @@ import org.hyperledger.besu.ethereum.core.encoding.AccessListTransactionEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.BlobTransactionEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.CodeDelegationTransactionEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
+import org.hyperledger.besu.ethereum.core.encoding.FrameTransactionEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.TransactionDecoder;
 import org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder;
 import org.hyperledger.besu.ethereum.core.kzg.Blob;
@@ -132,6 +133,8 @@ public class Transaction
 
   // Caches the hash used to uniquely identify the transaction.
   private volatile Hash hash;
+  // Caches the EIP-8141 canonical signature hash of a frame transaction.
+  private volatile Hash frameSignatureHash;
   // Caches the size in bytes of the encoded transaction.
   private volatile int sizeForAnnouncement = -1;
   private volatile int sizeForEth72Announcement = -1;
@@ -143,6 +146,9 @@ public class Transaction
 
   private final Optional<BlobsWithCommitments> blobsWithCommitments;
   private final Optional<List<CodeDelegation>> maybeCodeDelegationList;
+
+  private final Optional<List<Frame>> maybeFrames;
+  private final Optional<List<FrameSignature>> maybeFrameSignatures;
 
   private final Optional<Bytes> rawRlp;
 
@@ -222,6 +228,8 @@ public class Transaction
       final Optional<List<VersionedHash>> versionedHashes,
       final Optional<BlobsWithCommitments> blobsWithCommitments,
       final Optional<List<CodeDelegation>> maybeCodeDelegationList,
+      final Optional<List<Frame>> maybeFrames,
+      final Optional<List<FrameSignature>> maybeFrameSignatures,
       final Optional<Bytes> rawRlp,
       final Optional<Hash> hash,
       final int sizeForAnnouncement,
@@ -253,7 +261,9 @@ public class Transaction
             "Must not specify blob versioned hashes or max fee per blob gas for transaction not supporting it");
       }
 
-      if (transactionType.supportsBlob()) {
+      // EIP-8141 frame transactions may carry blobs but are not required to; only the EIP-4844
+      // blob transaction type mandates them.
+      if (transactionType == TransactionType.BLOB) {
         checkArgument(
             versionedHashes.isPresent(), "Must specify blob versioned hashes for blob transaction");
         checkArgument(
@@ -267,6 +277,18 @@ public class Transaction
         checkArgument(
             maybeCodeDelegationList.isPresent(),
             "Must specify code delegation authorizations for code delegation transaction");
+      }
+
+      if (transactionType.supportsFrames()) {
+        checkArgument(sender != null, "Must specify the sender of a frame transaction");
+        checkArgument(signature == null, "Must not specify a signature for a frame transaction");
+        checkArgument(
+            maybeFrames.isPresent() && !maybeFrames.get().isEmpty(),
+            "Frame transaction must have at least one frame");
+      } else {
+        checkArgument(
+            maybeFrames.isEmpty() && maybeFrameSignatures.isEmpty(),
+            "Must not specify frames for transaction not supporting them");
       }
     }
 
@@ -287,6 +309,8 @@ public class Transaction
     this.versionedHashes = versionedHashes;
     this.blobsWithCommitments = blobsWithCommitments;
     this.maybeCodeDelegationList = maybeCodeDelegationList;
+    this.maybeFrames = maybeFrames;
+    this.maybeFrameSignatures = maybeFrameSignatures;
     this.rawRlp = rawRlp;
     hash.ifPresent(h -> this.hash = h);
     this.sizeForAnnouncement = sizeForAnnouncement;
@@ -580,12 +604,12 @@ public class Transaction
 
   @Override
   public BigInteger getR() {
-    return signature.getR();
+    return signature == null ? null : signature.getR();
   }
 
   @Override
   public BigInteger getS() {
-    return signature.getS();
+    return signature == null ? null : signature.getS();
   }
 
   @Override
@@ -609,11 +633,13 @@ public class Transaction
 
   @Override
   public BigInteger getYParity() {
-    if (transactionType != null && transactionType != TransactionType.FRONTIER) {
+    if (transactionType != null
+        && transactionType != TransactionType.FRONTIER
+        && signature != null) {
       // EIP-2718 typed transaction, return yParity:
       return BigInteger.valueOf(signature.getRecId());
     } else {
-      // legacy types never return yParity
+      // legacy types and unsigned frame transactions never return yParity
       return null;
     }
   }
@@ -712,7 +738,8 @@ public class Transaction
 
   @Override
   public boolean isContractCreation() {
-    return getTo().isEmpty();
+    // An EIP-8141 frame transaction has no top-level recipient but is not a contract creation.
+    return getTo().isEmpty() && !transactionType.supportsFrames();
   }
 
   /**
@@ -834,6 +861,39 @@ public class Transaction
   }
 
   /**
+   * Returns the EIP-8141 frames of a frame transaction.
+   *
+   * @return the frames, or empty for other transaction types
+   */
+  public Optional<List<Frame>> getFrames() {
+    return maybeFrames;
+  }
+
+  /**
+   * Returns the EIP-8141 signature entries of a frame transaction.
+   *
+   * @return the signature entries, or empty for other transaction types
+   */
+  public Optional<List<FrameSignature>> getFrameSignatures() {
+    return maybeFrameSignatures;
+  }
+
+  /**
+   * Computes the EIP-8141 canonical signature hash: the keccak of the type byte and the payload
+   * with the raw signature bytes of canonical-hash entries elided.
+   *
+   * @return the canonical frame transaction signature hash
+   */
+  public Hash getFrameSignatureHash() {
+    checkState(
+        transactionType.supportsFrames(), "Signature hash only defined for frame transactions");
+    if (frameSignatureHash == null) {
+      frameSignatureHash = Hash.hash(encodedPreimage());
+    }
+    return frameSignatureHash;
+  }
+
+  /**
    * Return the list of transaction hashes extracted from the collection of Transaction passed as
    * argument
    *
@@ -883,6 +943,12 @@ public class Transaction
 
   @Override
   public Bytes encodedPreimage() {
+    if (transactionType.supportsFrames()) {
+      // EIP-8141: the signing payload elides raw signature bytes of canonical-hash entries.
+      return Bytes.concatenate(
+          Bytes.of(transactionType.getSerializedType()),
+          RLP.encode(rlpOutput -> FrameTransactionEncoder.encodeForSigning(this, rlpOutput)));
+    }
     return getPreimage(
         transactionType,
         nonce,
@@ -970,6 +1036,11 @@ public class Transaction
                       () ->
                           new IllegalStateException(
                               "Developer error: the transaction should be guaranteed to have a code delegations here")));
+          // EIP-8141 frame transactions have no outer signature; their signing payload is
+          // instance-scoped and built directly in encodedPreimage().
+          case FRAME ->
+              throw new IllegalStateException(
+                  "Frame transactions have no sender recovery preimage");
         };
     return preimage;
   }
@@ -1331,6 +1402,12 @@ public class Transaction
         maybeCodeDelegationList.map(
             codeDelegations ->
                 codeDelegations.stream().map(this::codeDelegationDetachedCopy).toList());
+    final Optional<List<Frame>> detachedFrames =
+        maybeFrames.map(frames -> frames.stream().map(this::frameDetachedCopy).toList());
+    final Optional<List<FrameSignature>> detachedFrameSignatures =
+        maybeFrameSignatures.map(
+            frameSignatures ->
+                frameSignatures.stream().map(this::frameSignatureDetachedCopy).toList());
 
     final var copiedTx =
         new Transaction(
@@ -1352,6 +1429,8 @@ public class Transaction
             detachedVersionedHashes,
             detachedBlobsWithCommitments,
             detachedCodeDelegationList,
+            detachedFrames,
+            detachedFrameSignatures,
             Optional.empty(),
             Optional.ofNullable(hash),
             sizeForAnnouncement,
@@ -1378,6 +1457,25 @@ public class Transaction
         detachedAddress,
         codeDelegation.nonce(),
         codeDelegation.signature());
+  }
+
+  private Frame frameDetachedCopy(final Frame frame) {
+    return new Frame(
+        frame.mode(),
+        frame.flags(),
+        frame.target().map(address -> Address.wrap(address.getBytes().copy())),
+        frame.executionGasLimit(),
+        frame.stateGasLimit(),
+        frame.value(),
+        frame.data().copy());
+  }
+
+  private FrameSignature frameSignatureDetachedCopy(final FrameSignature frameSignature) {
+    return new FrameSignature(
+        frameSignature.scheme(),
+        frameSignature.signer().copy(),
+        frameSignature.msg().copy(),
+        frameSignature.signature().copy());
   }
 
   public static class Builder {
@@ -1413,6 +1511,8 @@ public class Transaction
     protected List<VersionedHash> versionedHashes = null;
     private BlobsWithCommitments blobsWithCommitments;
     protected Optional<List<CodeDelegation>> codeDelegationAuthorizations = Optional.empty();
+    protected Optional<List<Frame>> frames = Optional.empty();
+    protected Optional<List<FrameSignature>> frameSignatures = Optional.empty();
     protected Bytes rawRlp = null;
     private Optional<Hash> hash = Optional.empty();
     private int sizeForAnnouncement = -1;
@@ -1528,6 +1628,16 @@ public class Transaction
       return this;
     }
 
+    public Builder frames(final List<Frame> frames) {
+      this.frames = Optional.ofNullable(frames);
+      return this;
+    }
+
+    public Builder frameSignatures(final List<FrameSignature> frameSignatures) {
+      this.frameSignatures = Optional.ofNullable(frameSignatures);
+      return this;
+    }
+
     public Builder rawRlp(final Bytes rawRlp) {
       this.rawRlp = rawRlp;
       return this;
@@ -1574,6 +1684,23 @@ public class Transaction
 
     public Transaction build() {
       if (transactionType == null) guessType();
+      if (transactionType.supportsFrames()) {
+        // Frame transactions carry no explicit fields for gas limit, value or payload; the gas
+        // limit is derived as the EIP-8141 max_gas the payer can be charged for.
+        if (gasLimit == -1L && frames.isPresent() && sender != null) {
+          gasLimit =
+              FrameTransactionGas.maxGas(frames.get(), frameSignatures.orElse(List.of()), sender);
+        }
+        if (value == null) {
+          value = Wei.ZERO;
+        }
+        if (payload == null) {
+          payload = new Payload(Bytes.EMPTY);
+        }
+        if (maxFeePerBlobGas == null) {
+          maxFeePerBlobGas = Wei.ZERO;
+        }
+      }
       return new Transaction(
           false,
           transactionType,
@@ -1593,6 +1720,8 @@ public class Transaction
           Optional.ofNullable(versionedHashes),
           Optional.ofNullable(blobsWithCommitments),
           codeDelegationAuthorizations,
+          frames,
+          frameSignatures,
           Optional.ofNullable(rawRlp),
           hash,
           sizeForAnnouncement,

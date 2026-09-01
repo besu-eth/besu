@@ -38,6 +38,7 @@ import org.hyperledger.besu.evm.operation.AddOperationOptimized;
 import org.hyperledger.besu.evm.operation.AddressOperation;
 import org.hyperledger.besu.evm.operation.AndOperation;
 import org.hyperledger.besu.evm.operation.AndOperationOptimized;
+import org.hyperledger.besu.evm.operation.ApproveOperation;
 import org.hyperledger.besu.evm.operation.BalanceOperation;
 import org.hyperledger.besu.evm.operation.BaseFeeOperation;
 import org.hyperledger.besu.evm.operation.BlobBaseFeeOperation;
@@ -70,6 +71,9 @@ import org.hyperledger.besu.evm.operation.ExpOperation;
 import org.hyperledger.besu.evm.operation.ExtCodeCopyOperation;
 import org.hyperledger.besu.evm.operation.ExtCodeHashOperation;
 import org.hyperledger.besu.evm.operation.ExtCodeSizeOperation;
+import org.hyperledger.besu.evm.operation.FrameDataCopyOperation;
+import org.hyperledger.besu.evm.operation.FrameDataLoadOperation;
+import org.hyperledger.besu.evm.operation.FrameParamOperation;
 import org.hyperledger.besu.evm.operation.GasLimitOperation;
 import org.hyperledger.besu.evm.operation.GasOperation;
 import org.hyperledger.besu.evm.operation.GasPriceOperation;
@@ -125,6 +129,8 @@ import org.hyperledger.besu.evm.operation.ShlOperation;
 import org.hyperledger.besu.evm.operation.ShlOperationOptimized;
 import org.hyperledger.besu.evm.operation.ShrOperation;
 import org.hyperledger.besu.evm.operation.ShrOperationOptimized;
+import org.hyperledger.besu.evm.operation.SigDataCopyOperation;
+import org.hyperledger.besu.evm.operation.SigParamOperation;
 import org.hyperledger.besu.evm.operation.SignExtendOperation;
 import org.hyperledger.besu.evm.operation.SlotNumOperation;
 import org.hyperledger.besu.evm.operation.StaticCallOperation;
@@ -135,6 +141,7 @@ import org.hyperledger.besu.evm.operation.SwapOperation;
 import org.hyperledger.besu.evm.operation.TLoadOperation;
 import org.hyperledger.besu.evm.operation.TStoreOperation;
 import org.hyperledger.besu.evm.operation.TimestampOperation;
+import org.hyperledger.besu.evm.operation.TxParamOperation;
 import org.hyperledger.besu.evm.operation.XorOperation;
 import org.hyperledger.besu.evm.operation.XorOperationOptimized;
 
@@ -1228,6 +1235,15 @@ public class MainnetEVMs {
       final BigInteger chainID,
       final EvmConfiguration evmConfiguration) {
     registerAmsterdamOperations(registry, gasCalculator, chainID, evmConfiguration);
+
+    // EIP-8141: frame transaction approval and introspection operations
+    registry.put(new ApproveOperation(gasCalculator));
+    registry.put(new TxParamOperation(gasCalculator));
+    registry.put(new FrameDataLoadOperation(gasCalculator));
+    registry.put(new FrameDataCopyOperation(gasCalculator));
+    registry.put(new FrameParamOperation(gasCalculator));
+    registry.put(new SigParamOperation(gasCalculator));
+    registry.put(new SigDataCopyOperation(gasCalculator));
   }
 
   /**

@@ -85,10 +85,53 @@ public class TransactionReceiptDecoder {
 
   private static TransactionReceipt decodeTypedReceipt(
       final RLPInput rlpInput, final boolean revertReasonAllowed) {
-    final ReceiptComponents components = decodeTypedReceiptComponents(rlpInput);
+    final Bytes typedTransactionReceiptBytes = rlpInput.readBytes();
+    final TransactionType transactionType =
+        TransactionType.fromOpaque(typedTransactionReceiptBytes.get(0))
+            .orElseThrow(
+                () ->
+                    new IllegalStateException(
+                        "Invalid transaction type %x"
+                            .formatted(typedTransactionReceiptBytes.get(0))));
+    final RLPInput input = new BytesValueRLPInput(typedTransactionReceiptBytes.slice(1), false);
+    // EIP-8141 frame receipts carry their own payload shape.
+    if (transactionType.supportsFrames()) {
+      return decodeFrameReceipt(input);
+    }
+    final ReceiptComponents components = decodeTypedReceiptComponents(transactionType, input);
     Optional<Bytes> revertReason = readMaybeRevertReason(components.input(), revertReasonAllowed);
     components.input().leaveList();
     return createReceipt(components, revertReason);
+  }
+
+  /**
+   * Decodes an EIP-8141 frame receipt payload: {@code [cumulative_gas_used, payer, [[status,
+   * [execution, state], logs], ...]]}.
+   *
+   * @param input the payload RLP (after the type byte)
+   * @return the frame transaction receipt
+   */
+  private static TransactionReceipt decodeFrameReceipt(final RLPInput input) {
+    input.enterList();
+    final long cumulativeGas = input.readLongScalar();
+    final org.hyperledger.besu.datatypes.Address payer =
+        org.hyperledger.besu.datatypes.Address.wrap(input.readBytes());
+    final List<org.hyperledger.besu.ethereum.core.FrameReceipt> frameReceipts =
+        input.readList(
+            frameInput -> {
+              frameInput.enterList();
+              final int status = frameInput.readIntScalar();
+              frameInput.enterList();
+              final long executionGasUsed = frameInput.readLongScalar();
+              final long stateGasUsed = frameInput.readLongScalar();
+              frameInput.leaveList();
+              final List<Log> logs = frameInput.readList(logInput -> Log.readFrom(logInput, false));
+              frameInput.leaveList();
+              return new org.hyperledger.besu.ethereum.core.FrameReceipt(
+                  status, executionGasUsed, stateGasUsed, logs);
+            });
+    input.leaveList();
+    return new TransactionReceipt(payer, cumulativeGas, frameReceipts);
   }
 
   /**
@@ -96,20 +139,12 @@ public class TransactionReceiptDecoder {
    * to construct the final receipt. The returned RLPInput is positioned after logs, ready to read
    * optional fields (revertReason).
    *
-   * @param rlpInput the RLP input positioned at the start of a typed receipt
+   * @param transactionType the already-parsed transaction type
+   * @param input the payload RLP input (after the type byte)
    * @return the decoded receipt components
    */
-  private static ReceiptComponents decodeTypedReceiptComponents(final RLPInput rlpInput) {
-    RLPInput input = rlpInput;
-    final Bytes typedTransactionReceiptBytes = input.readBytes();
-    TransactionType transactionType =
-        TransactionType.fromOpaque(typedTransactionReceiptBytes.get(0))
-            .orElseThrow(
-                () ->
-                    new IllegalStateException(
-                        "Invalid transaction type %x"
-                            .formatted(typedTransactionReceiptBytes.get(0))));
-    input = new BytesValueRLPInput(typedTransactionReceiptBytes.slice(1), false);
+  private static ReceiptComponents decodeTypedReceiptComponents(
+      final TransactionType transactionType, final RLPInput input) {
     input.enterList();
     final RLPInput statusOrStateRoot = input.readAsRlp();
     final long cumulativeGas = input.readLongScalar();

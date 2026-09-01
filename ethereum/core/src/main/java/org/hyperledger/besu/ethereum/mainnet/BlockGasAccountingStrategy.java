@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.mainnet;
 
+import org.hyperledger.besu.ethereum.core.FrameTransactionGas;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 
@@ -62,6 +63,44 @@ public interface BlockGasAccountingStrategy {
       final long blockGasLimit) {
     final long remainingExecution = Math.max(0, blockGasLimit - cumulativeExecutionGas);
     return txGasLimit <= remainingExecution;
+  }
+
+  /**
+   * Transaction-aware capacity check. EIP-8141 frame transactions declare both budgets explicitly,
+   * so their reservations are exact per dimension; other transactions delegate to {@link
+   * #hasBlockCapacity(long, long, long, long, long)}.
+   *
+   * @param transaction the candidate transaction
+   * @param txMaxGasLimit runtime cap on regular gas per tx (EIP-7825 TX_MAX_GAS_LIMIT)
+   * @param cumulativeRegularGas cumulative regular gas used in the block so far
+   * @param cumulativeStateGas cumulative state gas used in the block so far
+   * @param blockGasLimit the block gas limit
+   * @return true if the block has capacity for this transaction
+   */
+  default boolean hasBlockCapacity(
+      final Transaction transaction,
+      final long txMaxGasLimit,
+      final long cumulativeRegularGas,
+      final long cumulativeStateGas,
+      final long blockGasLimit) {
+    if (transaction.getType().supportsFrames()) {
+      final var frames = transaction.getFrames().orElseThrow();
+      final var signatures = transaction.getFrameSignatures().orElse(java.util.List.of());
+      final long executionReservation =
+          Math.max(
+              FrameTransactionGas.intrinsicGas(frames, signatures, transaction.getSender())
+                  + FrameTransactionGas.totalExecutionGasLimit(frames),
+              FrameTransactionGas.calldataFloorGas(frames, signatures, transaction.getSender()));
+      final long stateReservation = FrameTransactionGas.totalStateGasLimit(frames);
+      return executionReservation <= Math.max(0L, blockGasLimit - cumulativeRegularGas)
+          && stateReservation <= Math.max(0L, blockGasLimit - cumulativeStateGas);
+    }
+    return hasBlockCapacity(
+        transaction.getGasLimit(),
+        txMaxGasLimit,
+        cumulativeRegularGas,
+        cumulativeStateGas,
+        blockGasLimit);
   }
 
   /**

@@ -29,7 +29,9 @@ public enum TransactionType {
   /** Blob transaction type. */
   BLOB(0x03),
   /** Eip7702 transaction type. */
-  DELEGATE_CODE(0x04);
+  DELEGATE_CODE(0x04),
+  /** Eip8141 frame transaction type. */
+  FRAME(0x06);
 
   private static final Set<TransactionType> ACCESS_LIST_SUPPORTED_TRANSACTION_TYPES =
       EnumSet.of(ACCESS_LIST, EIP1559, BLOB, DELEGATE_CODE);
@@ -51,8 +53,15 @@ public enum TransactionType {
   private static final TransactionType[] transactionTypeByOpaqueByte =
       new TransactionType[Byte.toUnsignedInt(MAX_LEGACY_TX_OPAQUE_BYTE) + 1];
 
+  // Sized by the maximum serialized type byte, not the enum cardinality: serialized type
+  // values may be sparse (e.g. FRAME is 0x06 with no 0x05 assigned).
   private static final TransactionType[] transactionTypeByEthSerializedType =
-      new TransactionType[values().length];
+      new TransactionType
+          [EnumSet.allOf(TransactionType.class).stream()
+                  .mapToInt(tt -> Byte.toUnsignedInt(tt.getEthSerializedType()))
+                  .max()
+                  .orElse(0)
+              + 1];
 
   static {
     EnumSet.allOf(TransactionType.class).stream()
@@ -61,8 +70,9 @@ public enum TransactionType {
               tt.requireChainId = tt != FRONTIER;
               tt.supportAccessList = ACCESS_LIST_SUPPORTED_TRANSACTION_TYPES.contains(tt);
               tt.supportBaseFeeMarket = !LEGACY_FEE_MARKET_TRANSACTION_TYPES.contains(tt);
-              tt.supportBlob = tt == BLOB;
+              tt.supportBlob = tt == BLOB || tt == FRAME;
               tt.supportDelegatedCode = tt == DELEGATE_CODE;
+              tt.supportFrames = tt == FRAME;
               if (tt == FRONTIER) {
                 for (int i = Byte.toUnsignedInt(MIN_LEGACY_TX_OPAQUE_BYTE);
                     i < Byte.toUnsignedInt(MAX_LEGACY_TX_OPAQUE_BYTE);
@@ -83,6 +93,7 @@ public enum TransactionType {
   boolean supportBaseFeeMarket;
   boolean supportBlob;
   boolean supportDelegatedCode;
+  boolean supportFrames;
 
   TransactionType(final int typeValue, final int serializedType) {
     this.typeValue = (byte) typeValue;
@@ -184,5 +195,14 @@ public enum TransactionType {
    */
   public boolean supportsDelegateCode() {
     return supportDelegatedCode;
+  }
+
+  /**
+   * Does transaction type support EIP-8141 frames.
+   *
+   * @return the boolean
+   */
+  public boolean supportsFrames() {
+    return supportFrames;
   }
 }

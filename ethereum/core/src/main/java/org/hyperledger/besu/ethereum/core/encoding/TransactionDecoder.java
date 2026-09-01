@@ -41,7 +41,8 @@ public class TransactionDecoder {
               TransactionType.ACCESS_LIST, AccessListTransactionDecoder::decode,
               TransactionType.EIP1559, EIP1559TransactionDecoder::decode,
               TransactionType.BLOB, BlobTransactionDecoder::decode,
-              TransactionType.DELEGATE_CODE, CodeDelegationTransactionDecoder::decode));
+              TransactionType.DELEGATE_CODE, CodeDelegationTransactionDecoder::decode,
+              TransactionType.FRAME, FrameTransactionDecoder::decode));
 
   @FunctionalInterface
   interface PooledDecoder {
