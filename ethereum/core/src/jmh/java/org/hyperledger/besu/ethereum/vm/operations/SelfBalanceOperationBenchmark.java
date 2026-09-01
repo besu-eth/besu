@@ -28,6 +28,8 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.operation.SelfBalanceOperation;
+
+import org.openjdk.jmh.infra.BenchmarkParams;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.concurrent.TimeUnit;
@@ -48,7 +50,7 @@ import org.openjdk.jmh.infra.Blackhole;
 @OutputTimeUnit(value = TimeUnit.NANOSECONDS)
 @Measurement(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
 @BenchmarkMode(Mode.AverageTime)
-public class SelfBalanceOperationBenchmark {
+public class SelfBalanceOperationBenchmark implements GasCostBenchmark {
 
   private SelfBalanceOperation operation;
   private MessageFrame frame;
@@ -82,9 +84,15 @@ public class SelfBalanceOperationBenchmark {
     worldUpdater.get(address);
   }
 
+  @Override
   @Benchmark
   public void executeOperation(final Blackhole blackhole) {
     blackhole.consume(operation.execute(frame, null));
     frame.popStackItem();
+  }
+
+  @Override
+  public long getGasCost(final BenchmarkParams params, final GasCalculator calc) {
+    return new SelfBalanceOperation(calc).getGasCost();
   }
 }

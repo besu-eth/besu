@@ -15,13 +15,22 @@
 package org.hyperledger.besu.ethereum.vm.operations;
 
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.operation.XorOperation;
 
-public class XorOperationBenchmark extends BinaryOperationBenchmark {
+import org.openjdk.jmh.infra.BenchmarkParams;
+
+public class XorOperationBenchmark extends BinaryOperationBenchmark
+    implements GasCostBenchmark {
 
   @Override
   protected Operation.OperationResult invoke(final MessageFrame frame) {
     return XorOperation.staticOperation(frame);
+  }
+
+  @Override
+  public long getGasCost(final BenchmarkParams params, final GasCalculator calc) {
+    return new XorOperation(calc).getGasCost();
   }
 }
