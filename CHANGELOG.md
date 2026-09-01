@@ -36,6 +36,7 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
+- The RLPx ECIES decrypt length guard now compares the input length against the HMAC-SHA256 MAC size (32 bytes) instead of the MAC key size (16 bytes), so short malformed handshake inputs are rejected at the guard instead of throwing `NegativeArraySizeException` when allocating the plaintext buffer. [#11218](https://github.com/besu-eth/besu/pull/11218)
 - GraphQL `logs(filter: ...)` no longer fails when the filter's `topics` field is omitted or explicitly null, on both the top-level `logs` query and the block-scoped one. The schema declares `topics` nullable and documents "[] or nil matches any topic list", but the field was dereferenced unguarded, so a documented-valid query returned a `DataFetchingException` and `data: null`. [#11188](https://github.com/besu-eth/besu/pull/11188)
 - The Engine API JWT fast-path cache now compares the presented bearer token against the cached one with `MessageDigest.isEqual` over UTF-8 bytes instead of `String.equals`, so the comparison does not return early on the first differing byte.
 - `engine_newPayloadV5` now returns `{status: INVALID}` instead of a `-32602` JSON-RPC error when a present `blockAccessList` cannot be decoded; a missing `blockAccessList` still returns `-32602`. [#11177](https://github.com/besu-eth/besu/pull/11177)
