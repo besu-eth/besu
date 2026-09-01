@@ -15,7 +15,7 @@
 package org.hyperledger.besu.evm;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.InstanceOfAssertFactories.array;
+import static org.junit.jupiter.params.provider.Arguments.arguments;
 
 import java.math.BigInteger;
 import java.util.Arrays;
@@ -109,6 +109,189 @@ public class UInt256Test {
     result = UInt256.fromBytesBE(input);
     expected = new UInt256(0, 4294967295L, -1L, -1L);
     assertThat(result).as("32b-case2-limbs").isEqualTo(expected);
+  }
+
+  private static Stream<Arguments> fromBytesBERangeCases() {
+    return Stream.of(
+        // ---- zero length ----------------------------------------------
+        arguments(new byte[0], new int[] {0, 0}, UInt256.ZERO),
+        arguments(new byte[0], new int[] {0, 2}, UInt256.ZERO),
+        arguments(Bytes.fromHexString("0x55ab55").toArray(), new int[] {0, 0}, UInt256.ZERO),
+        arguments(Bytes.fromHexString("0x55ab55").toArray(), new int[] {2, 0}, UInt256.ZERO),
+        arguments(
+            Bytes.fromHexString("0x010203040506070809").toArray(), new int[] {0, -1}, UInt256.ZERO),
+        arguments(
+            Bytes.fromHexString("0x010203040506070809").toArray(), new int[] {4, 0}, UInt256.ZERO),
+
+        // ---- single-limb path (length < 8) ----------------------------------------------
+        // 0x55 bytes sit outside the converted range and must never leak into the result
+        arguments(
+            Bytes.fromHexString("0x55ab55").toArray(),
+            new int[] {1, 1},
+            new UInt256(0, 0, 0, 0xabL)),
+        arguments(
+            Bytes.fromHexString("0x55ffff55").toArray(),
+            new int[] {1, 2},
+            new UInt256(0, 0, 0, 0xffffL)),
+        // pins big-endian byte order inside the limb
+        arguments(
+            Bytes.fromHexString("0x550102030455").toArray(),
+            new int[] {1, 4},
+            new UInt256(0, 0, 0, 0x01020304L)),
+        // widest single-limb range
+        arguments(
+            Bytes.fromHexString("0x55ffffffffffffff55").toArray(),
+            new int[] {1, 7},
+            new UInt256(0, 0, 0, 0x00ffffffffffffffL)),
+        // high bit set in the most significant byte of the range
+        arguments(
+            Bytes.fromHexString("0x8000000000000055").toArray(),
+            new int[] {0, 7},
+            new UInt256(0, 0, 0, 0x80000000000000L)),
+        // range starting on the last byte of the array
+        arguments(
+            Bytes.fromHexString("0x0102030405060708090a").toArray(),
+            new int[] {9, 1},
+            new UInt256(0, 0, 0, 0x0aL)),
+
+        // ---- exactly one limb (length == 8), the multi-limb path boundary ---------------
+        // pins big-endian byte order across the whole limb
+        arguments(
+            Bytes.fromHexString("0x55010203040506070855").toArray(),
+            new int[] {1, 8},
+            new UInt256(0, 0, 0, 0x0102030405060708L)),
+        arguments(
+            Bytes.fromHexString("0x55ffffffffffffffff55").toArray(),
+            new int[] {1, 8},
+            new UInt256(0, 0, 0, -1L)),
+        // range ends exactly at bytes.length, so the 8-byte VarHandle read must not overrun
+        arguments(
+            Bytes.fromHexString("0x5555ffffffffffffffff").toArray(),
+            new int[] {2, 8},
+            new UInt256(0, 0, 0, -1L)),
+        // all-zero range inside a non-zero array
+        arguments(
+            Bytes.fromHexString("0x55000000000000000055").toArray(),
+            new int[] {1, 8},
+            UInt256.ZERO),
+
+        // ---- length 9, one byte spills into u1 -----------------------------------------
+        arguments(
+            Bytes.fromHexString("0x5501ffffffffffffffff55").toArray(),
+            new int[] {1, 9},
+            new UInt256(0, 0, 1, -1L)),
+        // same range, but ending exactly at bytes.length
+        arguments(
+            Bytes.fromHexString("0x5501ffffffffffffffff").toArray(),
+            new int[] {1, 9},
+            new UInt256(0, 0, 1, -1L)),
+
+        // ---- two and three whole limbs, and the partial limb above each --------------
+        arguments(
+            Bytes.fromHexString("0x550102030405060708090a0b0c0d0e0f1055").toArray(),
+            new int[] {1, 16},
+            new UInt256(0, 0, 0x0102030405060708L, 0x090a0b0c0d0e0f10L)),
+        arguments(
+            Bytes.fromHexString("0x55ff0102030405060708090a0b0c0d0e0f1055").toArray(),
+            new int[] {1, 17},
+            new UInt256(0, 0xff, 0x0102030405060708L, 0x090a0b0c0d0e0f10L)),
+        arguments(
+            Bytes.fromHexString("0x550102030405060708090a0b0c0d0e0f10111213141516171855").toArray(),
+            new int[] {1, 24},
+            new UInt256(0, 0x0102030405060708L, 0x090a0b0c0d0e0f10L, 0x1112131415161718L)),
+        arguments(
+            Bytes.fromHexString("0x55ff0102030405060708090a0b0c0d0e0f10111213141516171855")
+                .toArray(),
+            new int[] {1, 25},
+            new UInt256(0xff, 0x0102030405060708L, 0x090a0b0c0d0e0f10L, 0x1112131415161718L)),
+
+        // ---- full width (length == 32) ------------------------------------------------
+        // four distinct limbs, pins limb ordering end to end
+        arguments(
+            Bytes.fromHexString(
+                    "0x55550102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f205555")
+                .toArray(),
+            new int[] {2, 32},
+            new UInt256(
+                0x0102030405060708L,
+                0x090a0b0c0d0e0f10L,
+                0x1112131415161718L,
+                0x191a1b1c1d1e1f20L)),
+        // whole array is the range: offset 0 and end == bytes.length
+        arguments(
+            Bytes.fromHexString(
+                    "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20")
+                .toArray(),
+            new int[] {0, 32},
+            new UInt256(
+                0x0102030405060708L,
+                0x090a0b0c0d0e0f10L,
+                0x1112131415161718L,
+                0x191a1b1c1d1e1f20L)),
+        arguments(
+            Bytes.fromHexString(
+                    "0x55ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff55")
+                .toArray(),
+            new int[] {1, 32},
+            UInt256.MAX),
+        // 32-byte range ending exactly at bytes.length
+        arguments(
+            Bytes.fromHexString(
+                    "0x55ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+                .toArray(),
+            new int[] {1, 32},
+            UInt256.MAX),
+        // high bit set in every limb, catches sign extension between limbs
+        arguments(
+            Bytes.fromHexString(
+                    "0x55800000000000000080000000000000008000000000000000800000000000000055")
+                .toArray(),
+            new int[] {1, 32},
+            new UInt256(Long.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE)),
+
+        // ---- length > 32 truncates the most significant bytes -------------------------
+        // the leading 0xaa is dropped, leaving 32 x 0xff
+        arguments(
+            Bytes.fromHexString(
+                    "0xaaffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+                .toArray(),
+            new int[] {0, 33},
+            UInt256.MAX),
+        // same, with a non-zero offset
+        arguments(
+            Bytes.fromHexString(
+                    "0x55aaffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff55")
+                .toArray(),
+            new int[] {1, 33},
+            UInt256.MAX),
+        // 40-byte range: the leading 8 x 0xaa are dropped, leaving 32 x 0x01
+        arguments(
+            Bytes.fromHexString(
+                    "0xaaaaaaaaaaaaaaaa0101010101010101010101010101010101010101010101010101010101010101")
+                .toArray(),
+            new int[] {0, 40},
+            new UInt256(
+                0x0101010101010101L,
+                0x0101010101010101L,
+                0x0101010101010101L,
+                0x0101010101010101L)),
+        // 36-byte range: the kept low 32 bytes straddle the 0x01 / 0xbb boundary
+        arguments(
+            Bytes.fromHexString(
+                    "0x0101010101010101010101010101010101010101010101010101010101010101bbbbbbbb")
+                .toArray(),
+            new int[] {0, 36},
+            new UInt256(
+                0x0101010101010101L,
+                0x0101010101010101L,
+                0x0101010101010101L,
+                0x01010101bbbbbbbbL)));
+  }
+
+  @ParameterizedTest
+  @MethodSource("fromBytesBERangeCases")
+  public void fromBytesBERange(final byte[] bytes, final int[] bounds, final UInt256 expected) {
+    assertThat(UInt256.fromBytesBE(bytes, bounds[0], bounds[1])).isEqualTo(expected);
   }
 
   @Test
@@ -212,34 +395,34 @@ public class UInt256Test {
 
   public static Stream<Arguments> modTestCases() {
     return Stream.of(
-        Arguments.of("0000000067e36864", "001fff"),
-        Arguments.of("022b1c8c1227a00000", "038d7ea4c68000"),
-        Arguments.of("1000000000000000000000000000000000000000000000000", "ff00000000000000"),
-        Arguments.of("ff00000000000000000000000000000000", "100000000000000000000000000000000"),
-        Arguments.of("ff00000000000000000000000000000000", "100000000000000000000000000000001"),
-        Arguments.of(
+        arguments("0000000067e36864", "001fff"),
+        arguments("022b1c8c1227a00000", "038d7ea4c68000"),
+        arguments("1000000000000000000000000000000000000000000000000", "ff00000000000000"),
+        arguments("ff00000000000000000000000000000000", "100000000000000000000000000000000"),
+        arguments("ff00000000000000000000000000000000", "100000000000000000000000000000001"),
+        arguments(
             "1000000000000000000000000000000000000000000000000",
             "ff000000000000000000000000000000"),
-        Arguments.of(
+        arguments(
             "1000000000000000000000000000000000000000000000000",
             "100000000000000000000000000000001"),
-        Arguments.of(
+        arguments(
             "000000000000000000ff00000000000000000000000000000000000000000000",
             "0000000000000000000000000000000000fe0000000000000000000000000001"),
-        Arguments.of("020000000000000000000000000000000000", "02000000000000000000"),
-        Arguments.of("10000000000000000010000000000000000", "200000000000000ff"),
-        Arguments.of(
+        arguments("020000000000000000000000000000000000", "02000000000000000000"),
+        arguments("10000000000000000010000000000000000", "200000000000000ff"),
+        arguments(
             "ff000000000000000000000000000000000000000000000000000000",
             "1000000000000000000000002000000000000000000000000"),
-        Arguments.of("800000000000000080", "80"),
-        Arguments.of("cea0c5cc171fa61277e5604a3bc8aef4de3d3882", "7dae7454bb193b1c28e64a6a935bc3"),
+        arguments("800000000000000080", "80"),
+        arguments("cea0c5cc171fa61277e5604a3bc8aef4de3d3882", "7dae7454bb193b1c28e64a6a935bc3"),
         // mulSubOverflow - addBack bugs
         // Modulus192 path (b.u3==0, b.u2!=0)
-        Arguments.of(
+        arguments(
             "7effffff8000000000000000000000000000000000000000d900000000000001",
             "7effffff800000007effffff800000008000ff0000010000"),
         // Modulus128 path (b.u3==0, b.u2==0, b.u1!=0)
-        Arguments.of(
+        arguments(
             "7effffff800000000000000000000000d900000000000001",
             "7effffff800000007fffffffffffffff"));
   }
@@ -301,17 +484,17 @@ public class UInt256Test {
   public static Stream<Arguments> addModTestCases() {
     return Stream.of(
         // reference tests
-        Arguments.of("000000010000000000000000000000000000000000000000", "0000c350", "000003e8"),
-        Arguments.of(
+        arguments("000000010000000000000000000000000000000000000000", "0000c350", "000003e8"),
+        arguments(
             "fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe",
             "fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe",
             "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
         // reduceNormalised bugs
-        Arguments.of(
+        arguments(
             "62d900c9700000000000000000023f00bc1814ff00000000000000ca22300806",
             "ffffffffffffffffb4fffff4befff4f4f4d4f4f504f4f4bef5f5100b0bf4f5f6",
             "13464637e8bdc0e53b895d7b79348a784"),
-        Arguments.of(
+        arguments(
             "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
             "80008e949e9e9ec0cf4f4d4f4f4f41523410af5f20b0b7606f4d4f439f5f6000",
             "1800000000000000080000000000000017ffffffffffffffd"));
@@ -370,105 +553,105 @@ public class UInt256Test {
   public static Stream<Arguments> mulModTestCases() {
     return Stream.of(
         // reference tests
-        Arguments.of(
+        arguments(
             "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe",
             "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe",
             "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe"),
-        Arguments.of(
+        arguments(
             "0x000000000000000000000000ffffffffffffffffffffffffffffffffffffffff",
             "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe",
             "0x000000000000000000000000ffffffffffffffffffffffffffffffffffffffff"),
-        Arguments.of(
+        arguments(
             "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe",
             "0xffffffffffffffffffffffffb195148ca348dc57a7331852b390ccefa7b0c18b",
             "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe"),
         // mulSubOverflow bugs
-        Arguments.of(
+        arguments(
             "0x0000000000000001000000000000000000000000000000000000000000000001",
             "0x0000000000000001000000000000000000000000000000000000000000000000",
             "0x0000000000000001000000000000000000000000000000000000000000000000"),
         // mulSubOverflow - addBack bugs
         // Modulus256 path (b.u3!=0) via mulMod
-        Arguments.of(
+        arguments(
             "0x7effffff8000000000000000000000000000000000000000d900000000000001",
             "0x010000000000000000",
             "0x7effffff800000007effffff800000008000ff00000100007effffff80000000"),
         // UInt128 M-R path: modReduceNormalisedSlowPath(UInt576) branch coverage
         // (128-bit modulus, at least one operand > 128 bits triggers multiply-then-reduce)
         // Branch 5 (else, 3 reduceSteps): product ~258 bits
-        Arguments.of(
+        arguments(
             "0x0100000000000000010000000000000001",
             "0x0100000000000000010000000000000001",
             "0x80000000000000000000000000000001"),
         // Branch 4 (4 reduceSteps): product ~321 bits
-        Arguments.of(
+        arguments(
             "0x01000000000000000000000000000000010000000000000001",
             "0x0100000000000000010000000000000001",
             "0x80000000000000000000000000000001"),
         // Branch 3 (5 reduceSteps): product ~384 bits
-        Arguments.of(
+        arguments(
             "0x8000000000000000000000000000000000000000000000010000000000000001",
             "0x0100000000000000010000000000000001",
             "0x80000000000000000000000000000001"),
         // Branch 2 (6 reduceSteps): product ~448 bits
-        Arguments.of(
+        arguments(
             "0x8000000000000000000000000000000000000000000000010000000000000001",
             "0x01000000000000000000000000000000010000000000000001",
             "0x80000000000000000000000000000001"),
         // Branch 1 via v.u7 >= u1 (7 reduceSteps): product ~512 bits, shift=0
-        Arguments.of(
+        arguments(
             "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
             "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
             "0x80000000000000000000000000000001"),
         // Branch 1 via v.u8 != 0 (7 reduceSteps): shifted product > 512 bits, shift=1
-        Arguments.of(
+        arguments(
             "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
             "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
             "0x40000000000000000000000000000001"),
         // UInt128 mulSubOverflow through M-R: triggers v2 == u1 in reduceStep
-        Arguments.of(
+        arguments(
             "0x7effffff80000000000000000000000000000000000000000000000000000001",
             "0x01000000000000000000000000000000000000000000000001",
             "0x7effffff800000007fffffffffffffff"),
         // Noisy: 256-bit x 64-bit operands, 128-bit modulus
-        Arguments.of(
+        arguments(
             "0xdeadbeefcafebabedeadbeefcafebabedeadbeefcafebabedeadbeefcafebabe",
             "0xcafebabedeadbeef",
             "0x80000000000000000000000000000001"),
         // UInt192 M-R path: modReduceNormalisedSlowPath(UInt576) branch coverage
         // (192-bit modulus, at least one operand > 192 bits triggers multiply-then-reduce)
         // Branch 4 (else, 3 reduceSteps): product ~321 bits
-        Arguments.of(
+        arguments(
             "0x01000000000000000000000000000000010000000000000001",
             "0x0100000000000000010000000000000001",
             "0x800000000000000000000000000000000000000000000001"),
         // Branch 3 (4 reduceSteps): product ~384 bits
-        Arguments.of(
+        arguments(
             "0x8000000000000000000000000000000000000000000000010000000000000001",
             "0x0100000000000000010000000000000001",
             "0x800000000000000000000000000000000000000000000001"),
         // Branch 2 (5 reduceSteps): product ~448 bits
-        Arguments.of(
+        arguments(
             "0x8000000000000000000000000000000000000000000000010000000000000001",
             "0x01000000000000000000000000000000010000000000000001",
             "0x800000000000000000000000000000000000000000000001"),
         // Branch 1 via v.u7 >= u2 (6 reduceSteps): product ~512 bits, shift=0
-        Arguments.of(
+        arguments(
             "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
             "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
             "0x800000000000000000000000000000000000000000000001"),
         // Branch 1 via v.u8 != 0 (6 reduceSteps): shifted product > 512 bits, shift=1
-        Arguments.of(
+        arguments(
             "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
             "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
             "0x400000000000000000000000000000000000000000000001"),
         // UInt192 mulSubOverflow through M-R: triggers v3 == u2 in reduceStep
-        Arguments.of(
+        arguments(
             "0x8200000000000000000000000000000000000000000000000000000000000001",
             "0x01000000000000000000000000000000000000000000000001",
             "0x8200000000000000fe000004000000ffff000000fffff700"),
         // Noisy: 256-bit x 128-bit operands, 192-bit modulus
-        Arguments.of(
+        arguments(
             "0xdeadbeefcafebabedeadbeefcafebabedeadbeefcafebabedeadbeefcafebabe",
             "0xcafebabedeadbeefcafebabedeadbeef",
             "0x800000000000000000000000000000000000000000000001"));
@@ -776,7 +959,7 @@ public class UInt256Test {
       "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
     };
     return Arrays.stream(values)
-        .flatMap(v -> IntStream.of(SHIFT_AMOUNTS).mapToObj(s -> Arguments.of(v, s)));
+        .flatMap(v -> IntStream.of(SHIFT_AMOUNTS).mapToObj(s -> arguments(v, s)));
   }
 
   @ParameterizedTest
