@@ -40,6 +40,8 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetBlockTra
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetCode;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetFilterChanges;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetFilterLogs;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetHeaderByHash;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetHeaderByNumber;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetLogs;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetProof;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetStorageAt;
@@ -145,6 +147,8 @@ public class EthJsonRpcMethods extends ApiGroupJsonRpcMethods {
             new EthGetBlockReceipts(blockchainQueries, protocolSchedule),
             new EthGetBlockTransactionCountByNumber(blockchainQueries),
             new EthGetBlockTransactionCountByHash(blockchainQueries),
+            new EthGetHeaderByHash(blockchainQueries),
+            new EthGetHeaderByNumber(blockchainQueries),
             new EthCall(blockchainQueries, transactionSimulator, metricsSystem),
             new EthFeeHistory(
                 protocolSchedule, blockchainQueries, miningCoordinator, apiConfiguration),
