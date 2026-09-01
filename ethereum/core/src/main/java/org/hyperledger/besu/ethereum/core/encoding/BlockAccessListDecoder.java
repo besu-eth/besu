@@ -52,13 +52,13 @@ public final class BlockAccessListDecoder {
           acctIn.readList(
               scIn -> {
                 scIn.enterList();
-                StorageSlotKey slot = new StorageSlotKey(UInt256.fromBytes(scIn.readBytes()));
+                StorageSlotKey slot = new StorageSlotKey(scIn.readUInt256Scalar());
                 List<StorageChange> changes =
                     scIn.readList(
                         changeIn -> {
                           changeIn.enterList();
                           long txIndex = changeIn.readUnsignedIntScalar();
-                          UInt256 newVal = UInt256.fromBytes(changeIn.readBytes());
+                          UInt256 newVal = changeIn.readUInt256Scalar();
                           changeIn.leaveList();
                           return new StorageChange(txIndex, newVal);
                         });
@@ -71,14 +71,14 @@ public final class BlockAccessListDecoder {
               });
 
       List<SlotRead> reads =
-          acctIn.readList(r -> new SlotRead(new StorageSlotKey(UInt256.fromBytes(r.readBytes()))));
+          acctIn.readList(r -> new SlotRead(new StorageSlotKey(r.readUInt256Scalar())));
 
       List<BalanceChange> balances =
           acctIn.readList(
               bcIn -> {
                 bcIn.enterList();
                 long txIndex = bcIn.readUnsignedIntScalar();
-                Wei postBalance = Wei.of(UInt256.fromBytes(bcIn.readBytes()));
+                Wei postBalance = Wei.of(bcIn.readUInt256Scalar());
                 bcIn.leaveList();
                 return new BalanceChange(txIndex, postBalance);
               });
