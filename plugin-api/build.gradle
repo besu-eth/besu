@@ -103,14 +103,8 @@ tasks.register('checkAPICompatibility', me.champeau.gradle.japicmp.JapicmpTask) 
   //   methodExcludes = ['org.hyperledger.besu.plugin.services.metrics.Counter#inc(long)']
   // Exclusions are cleared by the release PR that bumps apiBaselineVersion.
   fieldExcludes = [
-    'org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter#SYNCHRONOUS',
   ]
   methodExcludes = [
-    'org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter#computeRoot(java.util.function.Supplier, org.hyperledger.besu.plugin.services.worldstate.MutableWorldState, org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage$Updater, org.hyperledger.besu.plugin.data.BlockHeader)',
-    'org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter#compute(org.hyperledger.besu.plugin.services.worldstate.MutableWorldState, org.hyperledger.besu.plugin.data.BlockHeader, org.hyperledger.besu.evm.worldstate.WorldUpdater)',
-    'org.hyperledger.besu.plugin.services.worldstate.MutableWorldState#persist(org.hyperledger.besu.plugin.data.BlockHeader)',
-    'org.hyperledger.besu.plugin.services.HealthCheckService$HealthCheckProvider#isHealthy(org.hyperledger.besu.plugin.services.HealthCheckService$ParamSource)',
-    'org.hyperledger.besu.plugin.services.HealthCheckService$HealthCheckProvider#check(org.hyperledger.besu.plugin.services.HealthCheckService$ParamSource)'
   ]
 
   txtOutputFile = layout.buildDirectory.file('reports/japicmp/plugin-api-compatibility.txt')
