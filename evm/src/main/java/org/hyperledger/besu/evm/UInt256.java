@@ -109,38 +109,38 @@ public record UInt256(long u3, long u2, long u1, long u0) {
   }
 
   /**
-   * Convert the sequence of bytes between {@code from} (inclusive) and {@code to} (exclusive) to a
-   * UInt256 value. If {@code to - from} is less than 32 bytes, the most significant bytes of the
-   * UInt256 value are set to 0. The caller must ensure that {@code to} does not exceed {@code
-   * bytes.length}.
+   * Convert {@code length} bytes starting at {@code offset} (inclusive) to a UInt256 value. If
+   * {@code length} is less than 32, the most significant bytes of the UInt256 are set to 0. If
+   * {@code length} is greater than 32, the most significant bytes are truncated (the low-order 32
+   * bytes are kept).
    *
    * @param bytes raw bytes in BigEndian order.
-   * @param from start index of the bytes array to convert, inclusive
-   * @param to end index of the bytes array to convert, exclusive
+   * @param offset start index of the bytes array to convert, inclusive
+   * @param length amount of bytes to take for conversion
    * @return Big-endian UInt256 represented by the bytes.
    */
-  public static UInt256 fromBytesBE(final byte[] bytes, final int from, final int to) {
-    // finish-off
-    if (bytes.length == 0 || to - from <= 0) {
+  public static UInt256 fromBytesBE(final byte[] bytes, final int offset, final int length) {
+    if (bytes.length == 0 || length <= 0) {
       return ZERO;
     }
-    if (to - from < 8) {
-      return fromBytesSingleLimb(bytes, from, to);
+    if (length < 8) {
+      return fromBytesSingleLimb(bytes, offset, length);
     }
-    int prevIndex = to;
+    int end = offset + length;
+    int prevIndex = end;
     int nextIndex = prevIndex - 8;
     final long u0 = getLong(bytes, nextIndex, prevIndex);
     prevIndex = nextIndex;
 
-    nextIndex = Math.max(from, prevIndex - 8);
+    nextIndex = Math.max(offset, prevIndex - 8);
     final long u1 = getLong(bytes, nextIndex, prevIndex);
     prevIndex = nextIndex;
 
-    nextIndex = Math.max(from, prevIndex - 8);
+    nextIndex = Math.max(offset, prevIndex - 8);
     final long u2 = getLong(bytes, nextIndex, prevIndex);
     prevIndex = nextIndex;
 
-    nextIndex = Math.max(from, to - BYTESIZE);
+    nextIndex = Math.max(offset, end - BYTESIZE);
     final long u3 = getLong(bytes, nextIndex, prevIndex);
 
     return new UInt256(u3, u2, u1, u0);
@@ -152,9 +152,10 @@ public record UInt256(long u3, long u2, long u1, long u0) {
     return shift == N_BITS_PER_LIMB ? 0L : value >>> shift;
   }
 
-  private static UInt256 fromBytesSingleLimb(final byte[] bytes, final int from, final int to) {
+  private static UInt256 fromBytesSingleLimb(
+      final byte[] bytes, final int offset, final int length) {
     long value = 0;
-    for (int i = to - 1, shift = 0; i >= from; i--, shift += 8) {
+    for (int i = offset + length - 1, shift = 0; i >= offset; i--, shift += 8) {
       value |= ((bytes[i] & 0xFFL) << shift);
     }
     return new UInt256(0, 0, 0, value);

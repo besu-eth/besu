@@ -65,12 +65,12 @@ public class PushOperationV2 extends AbstractFixedCostOperationV2 {
       final MessageFrame frame, final byte[] code, final int pc, final int pushSize) {
     final int start = pc + 1;
     final int end = start + pushSize;
-    UInt256 pushValue = UInt256.fromBytesBE(code, start, Math.min(end, code.length));
+    final int remainingSize = Math.min(end, code.length) - start;
+    UInt256 pushValue = UInt256.fromBytesBE(code, start, remainingSize);
 
     // Slow-path - when push is truncated and zeros need to be appended
     if (end > code.length) {
-      final int remainingSize = Math.max(0, code.length - start);
-      pushValue = pushValue.shiftLeft(Math.max(0, (pushSize - remainingSize) * 8));
+      pushValue = pushValue.shiftLeft((pushSize - remainingSize) * 8);
     }
 
     final long[] stack = frame.stackDataV2();
