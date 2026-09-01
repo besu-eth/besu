@@ -102,10 +102,8 @@ tasks.register('checkAPICompatibility', me.champeau.gradle.japicmp.JapicmpTask) 
   // exclusion covering it (method/field/class/compatibilityChangeExcludes), e.g.
   //   methodExcludes = ['org.hyperledger.besu.plugin.services.metrics.Counter#inc(long)']
   // Exclusions are cleared by the release PR that bumps apiBaselineVersion.
-  fieldExcludes = [
-  ]
-  methodExcludes = [
-  ]
+  fieldExcludes = []
+  methodExcludes = []
 
   txtOutputFile = layout.buildDirectory.file('reports/japicmp/plugin-api-compatibility.txt')
   htmlOutputFile = layout.buildDirectory.file('reports/japicmp/plugin-api-compatibility.html')
