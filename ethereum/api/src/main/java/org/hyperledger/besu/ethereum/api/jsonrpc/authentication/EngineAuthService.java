@@ -86,15 +86,21 @@ public class EngineAuthService implements AuthenticationService {
   private JWTAuthOptions engineApiJWTOptions(
       final JwtAlgorithm jwtAlgorithm, final Optional<File> keyFile, final Path datadir) {
     byte[] signingKey = null;
-    if (!keyFile.isPresent()) {
+    if (keyFile.isEmpty()) {
       final File jwtFile = new File(datadir.toFile(), EPHEMERAL_JWT_FILE);
       jwtFile.deleteOnExit();
       final byte[] ephemeralKey = Bytes32.random().toArray();
       try {
         Files.writeString(jwtFile.toPath(), Codec.base16Encode(ephemeralKey));
       } catch (IOException ioe) {
-        LOG.warn("Unable to write ephemeral jwt key file to {}", jwtFile.toPath().toString());
-        LOG.info("JWT KEY: {}", Codec.base16Encode(ephemeralKey));
+        UnsecurableEngineApiException e =
+            new UnsecurableEngineApiException(
+                "Unable to write ephemeral JWT key to "
+                    + jwtFile.toPath()
+                    + "; use --engine-jwt-secret to supply a key file in a writable location");
+        e.fillInStackTrace();
+        e.initCause(ioe);
+        throw e;
       }
       signingKey = ephemeralKey;
     } else { // user configured option to use a specified file

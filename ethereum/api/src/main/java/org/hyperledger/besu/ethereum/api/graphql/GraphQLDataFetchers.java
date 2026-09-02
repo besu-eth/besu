@@ -380,7 +380,15 @@ public class GraphQLDataFetchers {
       final long fromBlock = (Long) filter.getOrDefault("fromBlock", currentBlock);
       final long toBlock = (Long) filter.getOrDefault("toBlock", currentBlock);
 
+      if (fromBlock < 0) {
+        throw new GraphQLException(GraphQLError.INVALID_PARAMS);
+      }
       if (fromBlock > toBlock) {
+        throw new GraphQLException(GraphQLError.INVALID_PARAMS);
+      }
+      // Checked on the caller-supplied (pre-clamp) span so an attacker can't sidestep the cap by
+      // supplying a `toBlock` far beyond the chain head, relying on matchingLogs to short-circuit.
+      if (maxBlockRange > 0 && (toBlock - fromBlock) > maxBlockRange) {
         throw new GraphQLException(GraphQLError.INVALID_PARAMS);
       }
 

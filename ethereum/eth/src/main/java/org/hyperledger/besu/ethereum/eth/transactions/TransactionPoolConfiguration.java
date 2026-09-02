@@ -108,6 +108,7 @@ public interface TransactionPoolConfiguration {
   Wei DEFAULT_TX_POOL_MIN_GAS_PRICE = Wei.of(1000);
   byte DEFAULT_TX_POOL_MIN_SCORE = -128;
   boolean DEFAULT_TX_POOL_ENABLE_BALANCE_CHECK = true;
+  int DEFAULT_TX_POOL_MAX_TX_BYTES = 128 * 1024;
 
   TransactionPoolConfiguration DEFAULT = ImmutableTransactionPoolConfiguration.builder().build();
 
@@ -149,6 +150,11 @@ public interface TransactionPoolConfiguration {
   @Value.Default
   default Wei getP2pTxFeeCap() {
     return DEFAULT_P2P_TX_FEE_CAP;
+  }
+
+  @Value.Default
+  default int getTxPoolMaxTxBytes() {
+    return DEFAULT_TX_POOL_MAX_TX_BYTES;
   }
 
   @Value.Default

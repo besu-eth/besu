@@ -18,7 +18,6 @@ import static java.util.Collections.emptyList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BOGOTA;
-import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineTestSupport.fromErrorResp;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.INVALID_BLOCK_ACCESS_LIST_PARAMS;
 import static org.mockito.Mockito.times;
@@ -31,7 +30,6 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ConstructorArgumentsBuilder;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadStatusV1;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
@@ -131,10 +129,11 @@ public class EngineNewPayloadV5Test extends EngineNewPayloadV4Test {
 
     final JsonRpcResponse resp = respV5(payloadParam);
 
-    final PayloadStatusV1 res = fromSuccessResp(resp);
-    assertThat(res.getStatusAsString()).isEqualTo(INVALID.name());
-    assertThat(res.getLatestValidHash()).isEmpty();
-    assertThat(res.getError())
+    final var errorResp = fromErrorResp(resp);
+    assertThat(errorResp.getCode()).isEqualTo(INVALID_BLOCK_ACCESS_LIST_PARAMS.getCode());
+    assertThat(errorResp.getMessage())
+        .isEqualTo("Invalid block access list params (missing or invalid)");
+    assertThat(errorResp.getData())
         .isEqualTo(
             "Failed to decode block access list payload parameter (Illegal character 'z' found at index 0 in hex binary representation)");
     verify(engineCallListener, times(1)).executionEngineCalled();
@@ -153,10 +152,11 @@ public class EngineNewPayloadV5Test extends EngineNewPayloadV4Test {
 
     final JsonRpcResponse resp = respV5(payloadParam);
 
-    final PayloadStatusV1 res = fromSuccessResp(resp);
-    assertThat(res.getStatusAsString()).isEqualTo(INVALID.name());
-    assertThat(res.getLatestValidHash()).isEmpty();
-    assertThat(res.getError())
+    final var errorResp = fromErrorResp(resp);
+    assertThat(errorResp.getCode()).isEqualTo(INVALID_BLOCK_ACCESS_LIST_PARAMS.getCode());
+    assertThat(errorResp.getMessage())
+        .isEqualTo("Invalid block access list params (missing or invalid)");
+    assertThat(errorResp.getData())
         .isEqualTo(
             "Failed to decode block access list payload parameter (Expected current item to be a list, but it is: BYTE_ELEMENT (at bytes 0-1: [01]))");
     verify(engineCallListener, times(1)).executionEngineCalled();

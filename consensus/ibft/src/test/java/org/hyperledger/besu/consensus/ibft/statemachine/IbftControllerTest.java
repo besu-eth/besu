@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.util.Lists.newArrayList;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.lenient;
@@ -450,7 +451,7 @@ public class IbftControllerTest {
     lenient().when(proposal.getAuthor()).thenReturn(validator);
     lenient().when(proposal.getRoundIdentifier()).thenReturn(roundIdentifier);
     lenient().when(proposalMessageData.getCode()).thenReturn(IbftV2.PROPOSAL);
-    lenient().when(proposalMessageData.decode()).thenReturn(proposal);
+    lenient().when(proposalMessageData.decode(anyInt())).thenReturn(proposal);
     proposalMessage = new DefaultMessage(null, proposalMessageData);
   }
 

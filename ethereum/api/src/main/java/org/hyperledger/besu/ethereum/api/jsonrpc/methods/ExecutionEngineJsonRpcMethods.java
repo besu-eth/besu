@@ -132,7 +132,7 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
     if (mergeCoordinator.isPresent()) {
       final ConstructorArguments constructorArguments =
           constructorArgumentsBuilder.mergeCoordinator(mergeCoordinator.get()).build();
-      List<JsonRpcMethod> executionEngineApisSupported = new ArrayList<>();
+      final List<JsonRpcMethod> executionEngineApisSupported = new ArrayList<>();
       executionEngineApisSupported.addAll(
           createEngineForkchoiceUpdatedMethods(constructorArguments));
       executionEngineApisSupported.addAll(createEngineNewPayloadMethods(constructorArguments));
@@ -156,7 +156,7 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
       // engine_exchangeTransitionConfigurationV1 is registered when no merge-compatible mining
       // coordinator is present, so merge coordinator is not required to be present.
       return mapOf(
-          new ArrayList<>(
+          List.copyOf(
               createEngineExchangeTransitionConfigurationMethods(
                   constructorArgumentsBuilder.build())));
     }
@@ -247,9 +247,9 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
     List<MethodVersionBuildData> pendingMethods = new ArrayList<>();
 
     /**
-     * Creates one version of an engine method. Migrated series share the same {@code
-     * (ConstructorArguments, HardforkId, HardforkId)} constructor signature, so their constructor
-     * references can be used directly, keeping method instantiation free of reflection.
+     * Creates one version of an engine method. Since all versioned engine methods share the same
+     * constructor signature, their constructor references can be used directly, keeping method
+     * instantiation free of reflection.
      */
     @FunctionalInterface
     interface EngineMethodFactory {
