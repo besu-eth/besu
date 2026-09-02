@@ -28,8 +28,7 @@ import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.infra.BenchmarkParams;
 
-public class EqOperationBenchmark extends BinaryOperationBenchmark
-    implements GasCostBenchmark {
+public class EqOperationBenchmark extends BinaryOperationBenchmark implements GasCostBenchmark {
 
   // public because of jmh code generator
   public enum MODE {

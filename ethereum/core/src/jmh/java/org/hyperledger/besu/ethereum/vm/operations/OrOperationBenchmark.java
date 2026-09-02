@@ -21,8 +21,7 @@ import org.hyperledger.besu.evm.operation.OrOperation;
 
 import org.openjdk.jmh.infra.BenchmarkParams;
 
-public class OrOperationBenchmark extends BinaryOperationBenchmark
-    implements GasCostBenchmark {
+public class OrOperationBenchmark extends BinaryOperationBenchmark implements GasCostBenchmark {
 
   @Override
   protected Operation.OperationResult invoke(final MessageFrame frame) {
