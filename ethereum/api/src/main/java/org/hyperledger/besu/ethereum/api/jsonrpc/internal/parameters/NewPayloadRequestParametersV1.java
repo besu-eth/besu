@@ -22,11 +22,6 @@ public sealed class NewPayloadRequestParametersV1<EP extends ExecutionPayloadV1>
     this.payloadParameter = payloadParameter;
   }
 
-  public NewPayloadRequestParametersV1(
-      final NewPayloadRequestParametersV1<? extends EP> requestParameters) {
-    this.payloadParameter = requestParameters.payloadParameter();
-  }
-
   public EP payloadParameter() {
     return payloadParameter;
   }

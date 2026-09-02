@@ -25,8 +25,10 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.TopicsDeser
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -38,7 +40,7 @@ import com.google.common.collect.Lists;
 
 public class LogsQuery {
 
-  private final List<Address> addresses;
+  private final Set<Address> addresses;
   private final List<List<LogTopic>> topics;
   private final List<LogsBloomFilter> addressBlooms;
   private final List<List<LogsBloomFilter>> topicsBlooms;
@@ -55,7 +57,7 @@ public class LogsQuery {
     // that won't throw a null pointer exception when checking to see if the list contains null.
     // List.of(...) is one of the lists that reacts poorly to null member checks and is something
     // that we should expect to see passed in. So we must copy into a null-tolerant list.
-    this.addresses = addresses != null ? new ArrayList<>(addresses) : emptyList();
+    this.addresses = addresses != null ? new HashSet<>(addresses) : Set.of();
     this.topics =
         topics != null
             ? topics.stream().map(ArrayList::new).collect(Collectors.toList())

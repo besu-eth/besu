@@ -99,13 +99,36 @@ public interface WithdrawalsValidator {
 
   class NotApplicableWithdrawals implements WithdrawalsValidator {
 
+    private static final Logger LOG = LoggerFactory.getLogger(NotApplicableWithdrawals.class);
+
     @Override
     public boolean validateWithdrawals(final Optional<List<Withdrawal>> withdrawals) {
+      // Pre-Shanghai blocks have no withdrawals field (Optional.empty()) — valid.
+      // Shanghai+ blocks must carry an empty list; a non-empty list means a Byzantine
+      // proposer injected unauthorized withdrawals that would be executed as balance credits.
+      if (withdrawals.isPresent() && !withdrawals.get().isEmpty()) {
+        LOG.warn(
+            "Withdrawals not applicable but block contained {} withdrawal(s)",
+            withdrawals.get().size());
+        return false;
+      }
       return true;
     }
 
     @Override
     public boolean validateWithdrawalsRoot(final Block block) {
+      final Optional<Hash> withdrawalsRoot = block.getHeader().getWithdrawalsRoot();
+      if (withdrawalsRoot.isEmpty()) {
+        return true; // pre-Shanghai block, no withdrawals root field
+      }
+      final Hash expectedRoot = Hash.EMPTY_TRIE_HASH;
+      if (!expectedRoot.equals(withdrawalsRoot.get())) {
+        LOG.warn(
+            "Invalid block: withdrawals root mismatch (expected={}, actual={})",
+            expectedRoot,
+            withdrawalsRoot.get());
+        return false;
+      }
       return true;
     }
   }
