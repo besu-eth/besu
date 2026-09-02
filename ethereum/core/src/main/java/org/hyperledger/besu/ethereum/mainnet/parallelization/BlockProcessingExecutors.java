@@ -42,7 +42,7 @@ public final class BlockProcessingExecutors {
   private static final int STORAGE_TRIE_THREADS =
       intProperty("besu.block.storageTrieThreads", NCPU * 2);
   private static final int ACCOUNT_TRIE_THREADS =
-      intProperty("besu.block.accountTrieThreads", NCPU);
+      intProperty("besu.block.accountTrieThreads", NCPU * 2);
   private static final int STATE_ROOT_THREADS = intProperty("besu.block.stateRootThreads", 1);
 
   // CPU work: parallel tx execution (EVM, keccak, RLP). Bounded to cores.
