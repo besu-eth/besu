@@ -30,7 +30,8 @@ public final class RequestProcessingContext extends BlockProcessingContext {
         context.getProtocolSpec(),
         context.getBlockHashLookup(),
         context.getOperationTracer(),
-        context.getBlockAccessListBuilder());
+        context.getBlockAccessListBuilder(),
+        context.getCodeReadTracker());
     this.transactionReceipts = transactionReceipts;
   }
 

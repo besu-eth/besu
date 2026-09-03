@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
+import org.hyperledger.besu.ethereum.mainnet.WitnessCodeTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
 import java.util.List;
@@ -82,7 +83,9 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
    * @param block the block
    * @return the block processing result
    */
-  BlockProcessingResult rememberBlock(final Block block);
+  default BlockProcessingResult rememberBlock(final Block block) {
+    return rememberBlock(block, Optional.empty());
+  }
 
   /**
    * Remember block with optional block access list.
@@ -91,8 +94,24 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
    * @param blockAccessList optional block access list
    * @return the block processing result
    */
+  default BlockProcessingResult rememberBlock(
+      final Block block, final Optional<BlockAccessList> blockAccessList) {
+    return rememberBlock(block, blockAccessList, Optional.empty());
+  }
+
+  /**
+   * Remember block, additionally collecting the EIP-8025 code reads needed to build an execution
+   * witness for the imported block.
+   *
+   * @param block the block
+   * @param blockAccessList optional block access list
+   * @param witnessCodeTracker collector for the block's code reads, empty to skip collection
+   * @return the block processing result
+   */
   BlockProcessingResult rememberBlock(
-      final Block block, final Optional<BlockAccessList> blockAccessList);
+      final Block block,
+      final Optional<BlockAccessList> blockAccessList,
+      final Optional<WitnessCodeTracker> witnessCodeTracker);
 
   /**
    * Validate block.

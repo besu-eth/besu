@@ -34,9 +34,9 @@ import com.fasterxml.jackson.databind.JsonMappingException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public final class EngineNewPayloadV5<
+public sealed class EngineNewPayloadV5<
         EP extends ExecutionPayloadV4, NPRP extends NewPayloadRequestParametersV3<? extends EP>>
-    extends EngineNewPayloadV4<EP, NPRP> {
+    extends EngineNewPayloadV4<EP, NPRP> permits EngineNewPayloadWithWitnessV5 {
 
   private static final Logger LOG = LoggerFactory.getLogger(EngineNewPayloadV5.class);
 

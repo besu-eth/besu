@@ -250,6 +250,8 @@ public class MessageFrame {
 
   private Optional<Eip7928AccessList> eip7928AccessList = Optional.empty();
 
+  private Optional<CodeReadTracker> codeReadTracker = Optional.empty();
+
   /** The mark of the undoable collections at the creation of this message frame */
   private long undoMark;
 
@@ -1511,6 +1513,15 @@ public class MessageFrame {
     return eip7928AccessList;
   }
 
+  /**
+   * Accessor for CodeReadTracker, if present.
+   *
+   * @return optional CodeReadTracker
+   */
+  public Optional<CodeReadTracker> getCodeReadTracker() {
+    return codeReadTracker;
+  }
+
   /** Reset. */
   public void reset() {
     maybeUpdatedMemory = Optional.empty();
@@ -1545,6 +1556,7 @@ public class MessageFrame {
     private Set<Address> eip2930AccessListWarmAddresses = emptySet();
     private Multimap<Address, Bytes32> eip2930AccessListWarmStorage = HashMultimap.create();
     private Optional<Eip7928AccessList> eip7928AccessList = Optional.empty();
+    private Optional<CodeReadTracker> codeReadTracker = Optional.empty();
 
     private Optional<List<VersionedHash>> versionedHashes = Optional.empty();
 
@@ -1835,6 +1847,17 @@ public class MessageFrame {
     }
 
     /**
+     * Sets code read tracker for EIP-8025 witness collection.
+     *
+     * @param codeReadTracker tracker to record code reads
+     * @return the builder
+     */
+    public Builder codeReadTracker(final CodeReadTracker codeReadTracker) {
+      this.codeReadTracker = Optional.of(codeReadTracker);
+      return this;
+    }
+
+    /**
      * Sets versioned hashes list.
      *
      * @param versionedHashes the Optional list of versioned hashes
@@ -1949,6 +1972,7 @@ public class MessageFrame {
               reason,
               newTxValues,
               eip7928AccessList);
+      messageFrame.codeReadTracker = codeReadTracker;
       newTxValues.messageFrameStack().addFirst(messageFrame);
       messageFrame.warmUpAddress(sender);
       for (Address a : eip2930AccessListWarmAddresses) {

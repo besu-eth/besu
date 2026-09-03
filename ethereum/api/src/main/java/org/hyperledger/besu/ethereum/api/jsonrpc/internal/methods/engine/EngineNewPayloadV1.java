@@ -273,7 +273,7 @@ public sealed class EngineNewPayloadV1<
       lastExecutionTimeInNs = System.nanoTime() - startTimeNs;
       logImportedBlockInfo(
           block, lastExecutionTimeInNs, executionResult.getNbParallelizedTransactions());
-      return respondWith(reqId, blockParam, newBlockHeader.getHash(), VALID);
+      return respondWithSuccess(reqId, blockParam, newBlockHeader, executionResult);
     } else {
       logger().debug("New payload is invalid: {}", executionResult);
       if (executionResult.causedBy().isPresent()) {
@@ -369,6 +369,28 @@ public sealed class EngineNewPayloadV1<
                 return authority;
               });
     }
+  }
+
+  /**
+   * Builds the success response for a payload that was just executed. Overridable so variants can
+   * enrich it with data derived from block processing (e.g. the EIP-8025 execution witness); the
+   * default ignores {@code executionResult} and responds with the standard VALID payload status.
+   *
+   * <p>Note this covers only the freshly-executed path: a payload whose block is already present
+   * returns VALID without passing through here.
+   *
+   * @param requestId the JSON-RPC request id
+   * @param param the execution payload parameter
+   * @param newBlockHeader the header of the imported block
+   * @param executionResult the result of processing the block
+   * @return the JSON-RPC response
+   */
+  protected JsonRpcResponse respondWithSuccess(
+      final Object requestId,
+      final ExecutionPayloadV1 param,
+      final BlockHeader newBlockHeader,
+      final BlockProcessingResult executionResult) {
+    return respondWith(requestId, param, newBlockHeader.getHash(), VALID);
   }
 
   JsonRpcResponse respondWith(
