@@ -136,22 +136,59 @@ def extractDevnetFixtures = tasks.register("extractDevnetFixtures", Sync) {
 tasks.register("cleanReferenceTestCache") {
   description = "Deletes cached execution-spec(-tests) tarballs other than the currently declared versions."
   doLast {
-    [
-      configurations.tarConfig,
-      configurations.devnetTarConfig
-    ].each { config ->
+    // Collect every module directory -> set of version directories that are currently in use.
+    // Multiple configs may share the same module (e.g. devnet and zkevm both use
+    // 'ethereum:execution-specs'), so we must keep ALL of their versions before deleting anything.
+    def keepByModule = [:].withDefault { [] as Set }
+    configurations.matching { it.name.endsWith('TarConfig') }.each { config ->
       def currentFile = config.files.find { it.name.endsWith('.tar.gz') }
       if (currentFile == null) return
         // Cache layout: <module>/<version>/<hash>/<file>.tar.gz
         def versionDir = currentFile.parentFile.parentFile
       def moduleDir = versionDir.parentFile
+      keepByModule[moduleDir.absolutePath] << versionDir.name
+    }
+    keepByModule.each { modulePath, keepVersions ->
+      def moduleDir = new File(modulePath)
       moduleDir.listFiles()?.each { sibling ->
-        if (sibling.isDirectory() && sibling.name != versionDir.name) {
+        if (sibling.isDirectory() && !keepVersions.contains(sibling.name)) {
           logger.lifecycle("Deleting stale fixture cache: ${sibling}")
           delete sibling
         }
       }
     }
+  }
+}
+
+def extractZkevmFixtures = tasks.register("extractZkevmFixtures", Sync) {
+  from {
+    tarTree(configurations.zkevmTarConfig.files.find { it.name.startsWith('execution-spec') })
+  }
+  into layout.buildDirectory.dir("execution-spec-zkevm-tests")
+  finalizedBy("cleanReferenceTestCache")
+}
+
+def zkevmExecutionWitnessTests = tasks.register("zkevmExecutionWitnessTests") {
+  dependsOn extractZkevmFixtures
+  final referenceTestsDir = layout.buildDirectory.dir("execution-spec-zkevm-tests")
+  final generatedTestsDir = layout.buildDirectory.dir("generated/sources/reference-test/$name/java")
+
+  inputs.dir referenceTestsDir
+  inputs.files fileTree("src/reference-test/templates")
+  outputs.dir generatedTestsDir
+  doFirst {
+    delete generatedTestsDir
+  }
+  doLast {
+    generateTestFilesGroupedByDirectory(
+      fileTree(referenceTestsDir.get().dir("fixtures/blockchain_tests")),
+      file("src/reference-test/templates/ZkevmExecutionWitnessTest.java.template"),
+      "fixtures",
+      "blockchain_tests",
+      generatedTestsDir.get().dir("org/hyperledger/besu/ethereum/vm/zkevm").asFile.path,
+      "ZkevmExecutionWitnessTest",
+      "org.hyperledger.besu.ethereum.vm.zkevm",
+      )
   }
 }
 
@@ -271,6 +308,13 @@ sourceSets {
       srcDirs 'build/execution-spec-devnet-tests/'
     }
   }
+  referenceTestZkevm {
+    java {
+      compileClasspath += main.output + referenceTest.output
+      runtimeClasspath += main.output + referenceTest.output
+      srcDirs zkevmExecutionWitnessTests
+    }
+  }
 }
 
 // stable execution-spec-tests tarball contains fixtures/.meta/index.json
@@ -289,6 +333,9 @@ configurations {
   referenceTestDevnetAnnotationProcessor.extendsFrom testAnnotationProcessor
   referenceTestDevnetImplementation.extendsFrom referenceTestImplementation
   referenceTestDevnetRuntimeOnly.extendsFrom referenceTestRuntimeOnly
+  referenceTestZkevmAnnotationProcessor.extendsFrom testAnnotationProcessor
+  referenceTestZkevmImplementation.extendsFrom referenceTestImplementation
+  referenceTestZkevmRuntimeOnly.extendsFrom referenceTestRuntimeOnly
   // we need this because referenceTestImplementation defaults to 'canBeResolved=false'.
   tarConfig.extendsFrom referenceTestImplementation
   tarConfig {
@@ -296,6 +343,10 @@ configurations {
     canBeConsumed = false
   }
   devnetTarConfig {
+    canBeResolved = true
+    canBeConsumed = false
+  }
+  zkevmTarConfig {
     canBeResolved = true
     canBeConsumed = false
   }
@@ -348,6 +399,10 @@ dependencies {
     group: 'ethereum', name: 'execution-specs',
     version: 'tests-glamsterdam-devnet@v8.1.1', classifier: 'fixtures_glamsterdam-devnet', ext: 'tar.gz'
     )
+  zkevmTarConfig(
+    group: 'ethereum', name: 'execution-specs',
+    version: 'tests-zkevm@v0.8.2', classifier: 'fixtures_zkevm', ext: 'tar.gz'
+    )
   referenceTestImplementation 'com.fasterxml.jackson.core:jackson-databind'
   referenceTestImplementation 'com.google.guava:guava'
   referenceTestImplementation 'io.consensys.tuweni:tuweni-bytes'
@@ -387,6 +442,17 @@ tasks.register('referenceTestsCustom', Test) {
   description = 'Runs custom blockchain reference tests.'
   testClassesDirs = sourceSets.referenceTest.output.classesDirs
   classpath = sourceSets.referenceTest.runtimeClasspath
+}
+
+tasks.register('referenceTestsZkevm', Test) {
+  useJUnitPlatform()
+  description = 'Runs zkevm execution-spec-tests and validates debug_executionWitness output.'
+  testClassesDirs = sourceSets.referenceTestZkevm.output.classesDirs
+  // Fixtures are loaded off the classpath, so point at the extracted tree directly rather than
+  // copying several GB of JSON through a processResources task.
+  classpath = sourceSets.referenceTestZkevm.runtimeClasspath + files(extractZkevmFixtures)
+  outputs.upToDateWhen { false }
+  outputs.cacheIf { false }
 }
 
 tasks.register('validateReferenceTestSubmodule') {

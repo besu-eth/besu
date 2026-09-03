@@ -23,6 +23,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.WitnessCodeReads;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -210,6 +211,25 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       final Block block,
       final Optional<BlockAccessList> blockAccessList,
       final PreprocessingFunction preprocessingBlockFunction) {
+    return processBlock(
+        protocolContext,
+        blockchain,
+        worldState,
+        block,
+        blockAccessList,
+        preprocessingBlockFunction,
+        Optional.empty());
+  }
+
+  @Override
+  public BlockProcessingResult processBlock(
+      final ProtocolContext protocolContext,
+      final Blockchain blockchain,
+      final MutableWorldState worldState,
+      final Block block,
+      final Optional<BlockAccessList> blockAccessList,
+      final PreprocessingFunction preprocessingBlockFunction,
+      final Optional<WitnessCodeTracker> witnessCodeTracker) {
     final List<TransactionReceipt> receipts = new ArrayList<>();
     // EIP-7778: Track two separate cumulative gas values
     // cumulativeRegularGasUsed: For block gas limit enforcement (uses protocol-specific strategy)
@@ -262,7 +282,8 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
               protocolSpec,
               blockHashLookup,
               !blockTracer.isEnabled() ? OperationTracer.NO_TRACING : blockTracer,
-              blockAccessListBuilder);
+              blockAccessListBuilder,
+              witnessCodeTracker.map(t -> t));
       protocolSpec
           .getPreExecutionProcessor()
           .process(blockProcessingContext, preExecutionAccessLocationTracker);
@@ -561,10 +582,23 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       // EIP-8037: gas_metered = max(cumulative_regular, cumulative_state)
       final long gasMetered = Math.max(cumulativeRegularGasUsed, cumulativeStateGasUsed);
 
+      final Optional<WitnessCodeReads> maybeWitnessCodeReads =
+          witnessCodeTracker.map(
+              t ->
+                  new WitnessCodeReads(
+                      t.getCodeReads(),
+                      t.getAuthorizationCodeReads(),
+                      blockHashLookup.getAccessedAncestors()));
+
       return new BlockProcessingResult(
           Optional.of(
               new BlockProcessingOutputs(
-                  worldState, receipts, maybeRequests, maybeBlockAccessList, gasMetered)),
+                  worldState,
+                  receipts,
+                  maybeRequests,
+                  maybeBlockAccessList,
+                  gasMetered,
+                  maybeWitnessCodeReads)),
           parallelizedTxFound ? Optional.of(nbParallelTx) : Optional.empty());
     } finally {
       stateRootCommitter.cancel();
@@ -600,7 +634,8 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         blockHashLookup,
         TransactionValidationParams.processingBlock(),
         blobGasPrice,
-        accessLocationTracker);
+        accessLocationTracker,
+        blockProcessingContext.getCodeReadTracker());
   }
 
   @SuppressWarnings(
