@@ -26,7 +26,7 @@ public final class GasFormulas {
 
   public static OptionalLong compute(final BenchmarkParams params, final GasCalculator calc) {
     final String fqn = params.getBenchmark();
-    if (fqn.endsWith(".baseline")) {
+    if (!fqn.endsWith("executeOperation")) {
       return OptionalLong.empty();
     }
     final String className = fqn.substring(0, fqn.lastIndexOf('.'));

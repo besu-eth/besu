@@ -25,6 +25,8 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
 import org.apache.tuweni.bytes.Bytes;
 
+// implements the deprecated plugin.data.Request until the next breaking release
+@SuppressWarnings("removal")
 public record Request(RequestType type, Bytes data)
     implements org.hyperledger.besu.plugin.data.Request {
 

@@ -114,17 +114,6 @@ public class EngineTestCaseSpec {
   }
 
   /**
-   * The raw JSON of the fixture's {@code config.blobSchedule}, or {@code null} if absent. Used as a
-   * cache key so a protocol schedule is built once per distinct blob schedule.
-   *
-   * @return the blob schedule node as a string, or "" when absent
-   */
-  public String getBlobScheduleKey() {
-    final JsonNode blobSchedule = config == null ? null : config.get("blobSchedule");
-    return blobSchedule == null ? "" : blobSchedule.toString();
-  }
-
-  /**
    * Builds {@link BlobScheduleOptions} from the fixture's {@code config.blobSchedule}. Fork keys
    * are lower-cased because Besu reads them as {@code cancun}/{@code prague}/{@code bpo1}..{@code
    * bpo5} whereas fixtures use {@code Cancun}/{@code BPO1} etc.

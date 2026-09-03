@@ -18,6 +18,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import static java.util.stream.Collectors.toUnmodifiableList;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.LogsBloomFilter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
@@ -79,9 +80,7 @@ public class FilterManager extends AbstractVerticle {
   private void startFilterTimeoutTimer() {
     vertx.setPeriodic(
         FILTER_TIMEOUT_CHECK_TIMER,
-        timerId ->
-            vertx.executeBlocking(
-                future -> new FilterTimeoutMonitor(filterRepository).checkFilters(), result -> {}));
+        timerId -> new FilterTimeoutMonitor(filterRepository).checkFilters());
   }
 
   /**
@@ -148,6 +147,7 @@ public class FilterManager extends AbstractVerticle {
         });
 
     final List<LogWithMetadata> logsWithMetadata = event.getLogsWithMetadata();
+    final LogsBloomFilter blockBloom = event.getHeader().getLogsBloom();
     filterRepository.getFiltersOfType(LogFilter.class).stream()
         .filter(
             // Only keep filters where the "to" block could include the block in the event
@@ -156,6 +156,7 @@ public class FilterManager extends AbstractVerticle {
               return maybeToBlockNumber.isEmpty()
                   || maybeToBlockNumber.get() >= event.getHeader().getNumber();
             })
+        .filter(filter -> filter.getLogsQuery().couldMatch(blockBloom))
         .forEach(
             filter -> {
               final LogsQuery logsQuery = filter.getLogsQuery();

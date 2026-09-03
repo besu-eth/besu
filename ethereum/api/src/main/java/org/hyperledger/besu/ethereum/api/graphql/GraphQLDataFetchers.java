@@ -380,14 +380,28 @@ public class GraphQLDataFetchers {
       final long fromBlock = (Long) filter.getOrDefault("fromBlock", currentBlock);
       final long toBlock = (Long) filter.getOrDefault("toBlock", currentBlock);
 
+      if (fromBlock < 0) {
+        throw new GraphQLException(GraphQLError.INVALID_PARAMS);
+      }
       if (fromBlock > toBlock) {
+        throw new GraphQLException(GraphQLError.INVALID_PARAMS);
+      }
+      // Checked on the caller-supplied (pre-clamp) span so an attacker can't sidestep the cap by
+      // supplying a `toBlock` far beyond the chain head, relying on matchingLogs to short-circuit.
+      if (maxBlockRange > 0 && (toBlock - fromBlock) > maxBlockRange) {
         throw new GraphQLException(GraphQLError.INVALID_PARAMS);
       }
 
       @SuppressWarnings("unchecked")
       final List<Address> addrs = (List<Address>) filter.get("addresses");
+      // `topics` is nullable in the schema, and the schema's own documentation says "[] or nil
+      // matches any topic list", so an omitted value has to behave like an empty one rather than
+      // being dereferenced. graphql-java puts the key in the map with a null value when a client
+      // writes `topics: null` explicitly, so getOrDefault is not enough on its own.
+      // (`addrs` may stay null: LogsQuery.Builder.addresses tolerates it.)
       @SuppressWarnings("unchecked")
-      final List<List<LogTopic>> topics = (List<List<LogTopic>>) filter.get("topics");
+      final List<List<LogTopic>> topics =
+          Optional.ofNullable((List<List<LogTopic>>) filter.get("topics")).orElse(List.of());
 
       final List<List<LogTopic>> transformedTopics = new ArrayList<>();
       for (final List<LogTopic> topic : topics) {
