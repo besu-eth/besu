@@ -114,7 +114,7 @@ public class BesuEventsImpl implements BesuEvents {
 
   @Override
   public void removeBlockReorgListener(final long listenerIdentifier) {
-    blockchain.removeObserver(listenerIdentifier);
+    blockchain.removeChainReorgObserver(listenerIdentifier);
   }
 
   @Override
