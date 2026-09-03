@@ -22,6 +22,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.frame.BlockValues;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.operation.CountLeadingZerosOperation;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
@@ -40,13 +41,15 @@ import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.Warmup;
+import org.openjdk.jmh.infra.BenchmarkParams;
+import org.openjdk.jmh.infra.Blackhole;
 
 @State(Scope.Thread)
 @Warmup(iterations = 2, time = 1, timeUnit = TimeUnit.SECONDS)
 @OutputTimeUnit(value = TimeUnit.NANOSECONDS)
 @Measurement(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
 @BenchmarkMode(Mode.AverageTime)
-public class CountLeadingZerosOperationBenchmark {
+public class CountLeadingZerosOperationBenchmark implements GasCostBenchmark {
   // variable used to run inner loop of invocations because CLZ runs in under 15 nanoseconds so
   // overhead from framework
   // taking measurements is high. There are variable and offset errors either in baseline and the
@@ -92,9 +95,15 @@ public class CountLeadingZerosOperationBenchmark {
     bytes = Bytes.fromHexString(bytesHex);
   }
 
+  @Override
+  public long getGasCost(final BenchmarkParams params, final GasCalculator calc) {
+    return new CountLeadingZerosOperation(calc).getGasCost();
+  }
+
+  @Override
   @Benchmark
   @OperationsPerInvocation(OPERATIONS_PER_INVOCATION)
-  public void executeOperation() {
+  public void executeOperation(final Blackhole blackhole) {
     for (int i = 0; i < OPERATIONS_PER_INVOCATION; i++) {
       frame.pushStackItem(bytes);
       CountLeadingZerosOperation.staticOperation(frame);
