@@ -19,7 +19,6 @@ import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErr
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StateOverrideMap;
-import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
@@ -175,46 +174,8 @@ public class EthCall extends AbstractBlockParameterOrBlockHashMethod {
 
   private TransactionValidationParams buildTransactionValidationParams(
       final BlockHeader header, final CallParameter callParams) {
-
-    final boolean isAllowExceedingBalance;
-    // if it is not set explicitly whether we want a strict check of the balance or not. this will
-    // be decided according to the provided parameters
-    if (callParams.getStrict().isEmpty()) {
-      isAllowExceedingBalance = isAllowExceedingBalanceAutoSelection(header, callParams);
-
-    } else {
-      isAllowExceedingBalance = !callParams.getStrict().orElse(Boolean.FALSE);
-    }
-    return isAllowExceedingBalance
+    return CallParameterUtil.isAllowExceedingBalance(header, callParams)
         ? TransactionValidationParams.transactionSimulatorAllowExceedingBalanceAndFutureNonce()
         : TransactionValidationParams.transactionSimulatorAllowFutureNonce();
-  }
-
-  private boolean isAllowExceedingBalanceAutoSelection(
-      final BlockHeader header, final CallParameter callParams) {
-
-    boolean isZeroGasPrice = callParams.getGasPrice().map(Wei.ZERO::equals).orElse(true);
-
-    if (header.getBaseFee().isPresent()) {
-      if (callParams.getBlobVersionedHashes().isPresent()
-          && (callParams.getMaxFeePerBlobGas().isEmpty()
-              || callParams.getMaxFeePerBlobGas().get().equals(Wei.ZERO))) {
-        return true;
-      }
-      boolean isZeroMaxFeePerGas = callParams.getMaxFeePerGas().orElse(Wei.ZERO).equals(Wei.ZERO);
-      boolean isZeroMaxPriorityFeePerGas =
-          callParams.getMaxPriorityFeePerGas().orElse(Wei.ZERO).equals(Wei.ZERO);
-      if (isZeroGasPrice && isZeroMaxFeePerGas && isZeroMaxPriorityFeePerGas) {
-        // After 1559, when gas pricing is not provided, 0 is used and the balance is not
-        // checked
-        return true;
-      } else {
-        // After 1559, when gas price is provided, it is interpreted as both the max and
-        // priority fee and the balance is checked
-        return false;
-      }
-    }
-    // Prior 1559, when gas price == 0 or is not provided the balance is not checked
-    return isZeroGasPrice;
   }
 }
