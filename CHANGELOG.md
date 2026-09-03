@@ -23,6 +23,7 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
+- `debug_traceCall` now applies the same balance-check rules as `eth_call`: an explicit `strict` flag is honoured, and when it is absent the balance is checked unless the call supplies no (or zero) gas pricing. Previously the balance check was unconditionally skipped, contrary to the documented default. [#11069](https://github.com/besu-eth/besu/issues/11069)
 - GraphQL `logs(filter: ...)` no longer fails when the filter's `topics` field is omitted or explicitly null, on both the top-level `logs` query and the block-scoped one. The schema declares `topics` nullable and documents "[] or nil matches any topic list", but the field was dereferenced unguarded, so a documented-valid query returned a `DataFetchingException` and `data: null`. [#11188](https://github.com/besu-eth/besu/pull/11188)
 - The Engine API JWT fast-path cache now compares the presented bearer token against the cached one with `MessageDigest.isEqual` over UTF-8 bytes instead of `String.equals`, so the comparison does not return early on the first differing byte.
 - Fix ENR fork ID not updating after timestamp-scheduled forks when no block lands exactly on the fork timestamp. [#10882](https://github.com/besu-eth/besu/issues/10882)
