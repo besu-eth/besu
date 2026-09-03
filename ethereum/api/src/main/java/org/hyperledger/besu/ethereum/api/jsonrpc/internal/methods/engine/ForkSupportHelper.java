@@ -24,21 +24,6 @@ import java.util.Optional;
 
 public class ForkSupportHelper {
 
-  // TRANSITIONAL SHIM (remove in cleanup PR): kept so not-yet-migrated engine methods that still
-  // pass an Optional<Long> milestone keep compiling alongside the new Long-based overload.
-  public static ValidationResult<RpcErrorType> validateForkSupported(
-      final HardforkId firstSupportedHardforkId,
-      final Optional<Long> maybeFirstSupportedForkMilestone,
-      final long blockTimestamp) {
-    if (maybeFirstSupportedForkMilestone.isEmpty()) {
-      return ValidationResult.invalid(
-          RpcErrorType.UNSUPPORTED_FORK,
-          "Configuration error, no schedule for " + firstSupportedHardforkId.name() + " fork set");
-    }
-    return validateForkSupported(
-        firstSupportedHardforkId, maybeFirstSupportedForkMilestone.get(), blockTimestamp);
-  }
-
   public static ValidationResult<RpcErrorType> validateForkSupported(
       final HardforkId firstSupportedHardforkId,
       final Long firstSupportedForkMilestone,

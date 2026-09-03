@@ -27,16 +27,23 @@ import org.hyperledger.besu.consensus.common.ForkSpec;
 import org.hyperledger.besu.consensus.common.ForksSchedule;
 import org.hyperledger.besu.consensus.common.bft.BftExtraDataCodec;
 import org.hyperledger.besu.consensus.common.bft.BftProtocolSchedule;
+import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.GWei;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
+import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.mainnet.WithdrawalsValidator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.OptionalLong;
 
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.apache.tuweni.units.bigints.UInt64;
 import org.junit.jupiter.api.Test;
 
 public class QbftProtocolScheduleBuilderTest {
@@ -278,6 +285,45 @@ public class QbftProtocolScheduleBuilderTest {
                 .getGasLimitCalculator()
                 .transactionGasLimitCap())
         .isEqualTo(8_000_000L);
+  }
+
+  @Test
+  public void shanghaiQbftSpecRejectsByzantineInjectedWithdrawals() {
+    // Regression test for GHSA-p4h2-gvh4-pv6j: verify that the BFT protocol schedule wires
+    // NotApplicableWithdrawals correctly for Shanghai, and that the validator rejects a
+    // Byzantine proposer's non-empty withdrawal list before it reaches WithdrawalsProcessor.
+    final long shanghaiTime = 0;
+    final ObjectNode genesisConfigNode = JsonUtil.createEmptyObjectNode();
+    genesisConfigNode.put("shanghaitime", shanghaiTime);
+
+    final BftProtocolSchedule schedule =
+        createProtocolSchedule(
+            JsonGenesisConfigOptions.fromJsonObject(genesisConfigNode),
+            List.of(new ForkSpec<>(0, JsonQbftConfigOptions.DEFAULT)));
+
+    final ProtocolSpec shanghaiSpec = schedule.getByBlockNumberOrTimestamp(1, shanghaiTime);
+    final WithdrawalsValidator validator = shanghaiSpec.getWithdrawalsValidator();
+
+    // Schedule must wire NotApplicableWithdrawals, not AllowedWithdrawals
+    assertThat(validator).isInstanceOf(WithdrawalsValidator.NotApplicableWithdrawals.class);
+
+    // Empty list (honest proposer) must be accepted
+    assertThat(validator.validateWithdrawals(Optional.of(List.of()))).isTrue();
+
+    // Byzantine proposer injects one withdrawal — must be rejected before execution
+    final List<Withdrawal> injected =
+        List.of(
+            new Withdrawal(
+                UInt64.valueOf(9001),
+                UInt64.valueOf(313),
+                Address.fromHexString("0x000000000000000000000000000000000000c0de"),
+                GWei.of(11)));
+    assertThat(validator.validateWithdrawals(Optional.of(injected))).isFalse();
+
+    // Multiple injected withdrawals also rejected
+    assertThat(
+            validator.validateWithdrawals(Optional.of(List.of(injected.get(0), injected.get(0)))))
+        .isFalse();
   }
 
   private BftProtocolSchedule createProtocolSchedule(

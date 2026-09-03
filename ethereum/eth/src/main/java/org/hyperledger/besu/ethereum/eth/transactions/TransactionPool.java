@@ -20,6 +20,7 @@ import static org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolStru
 import static org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolStructuredLogUtils.logStop;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.CHAIN_HEAD_NOT_AVAILABLE;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.CHAIN_HEAD_WORLD_STATE_NOT_AVAILABLE;
+import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.EXCEEDS_MAX_TX_BYTES;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.INTERNAL_ERROR;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.TRANSACTION_ALREADY_KNOWN;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
@@ -431,6 +432,17 @@ public class TransactionPool implements BlockAddedObserver {
           .addArgument(transaction::getHash)
           .log();
       return ValidationResultAndAccount.invalid(CHAIN_HEAD_NOT_AVAILABLE);
+    }
+
+    final int txSizeForBlockInclusion = transaction.getSizeForBlockInclusion();
+    if (txSizeForBlockInclusion > configuration.getTxPoolMaxTxBytes()) {
+      LOG.atDebug()
+          .setMessage("rejecting transaction {} with {} bytes > max tx bytes of {}")
+          .addArgument(transaction::getHash)
+          .addArgument(txSizeForBlockInclusion)
+          .addArgument(configuration::getTxPoolMaxTxBytes)
+          .log();
+      return ValidationResultAndAccount.invalid(EXCEEDS_MAX_TX_BYTES);
     }
 
     final FeeMarket feeMarket =

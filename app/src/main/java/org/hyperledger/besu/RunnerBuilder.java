@@ -72,6 +72,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.pluginadapter.TransactionValidatorServiceImpl;
 import org.hyperledger.besu.ethereum.p2p.config.DiscoveryConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.DiscoveryMode;
 import org.hyperledger.besu.ethereum.p2p.config.ImmutableNetworkingConfiguration;
@@ -124,7 +125,6 @@ import org.hyperledger.besu.plugin.BesuPlugin;
 import org.hyperledger.besu.plugin.data.EnodeURL;
 import org.hyperledger.besu.plugin.services.HealthCheckService;
 import org.hyperledger.besu.services.BesuPluginContextImpl;
-import org.hyperledger.besu.services.TransactionValidatorServiceImpl;
 import org.hyperledger.besu.util.BesuVersionUtils;
 import org.hyperledger.besu.util.NetworkUtility;
 
@@ -1032,7 +1032,8 @@ public class RunnerBuilder {
               : WebSocketConfiguration.createEngineDefault();
 
       final WebSocketMethodsFactory websocketMethodsFactory =
-          new WebSocketMethodsFactory(subscriptionManager, engineMethods);
+          new WebSocketMethodsFactory(
+              subscriptionManager, engineMethods, apiConfiguration.getMaxFilterAddresses());
 
       engineJsonRpcService =
           Optional.of(
@@ -1182,7 +1183,8 @@ public class RunnerBuilder {
               besuController.getProtocolManager().ethContext().getScheduler());
 
       final WebSocketMethodsFactory ipcMethodsFactory =
-          new WebSocketMethodsFactory(subscriptionManager, ipcMethods);
+          new WebSocketMethodsFactory(
+              subscriptionManager, ipcMethods, apiConfiguration.getMaxFilterAddresses());
 
       jsonRpcIpcService =
           Optional.of(
@@ -1510,7 +1512,8 @@ public class RunnerBuilder {
       final ObservableMetricsSystem metricsSystem) {
 
     final WebSocketMethodsFactory websocketMethodsFactory =
-        new WebSocketMethodsFactory(subscriptionManager, jsonRpcMethods);
+        new WebSocketMethodsFactory(
+            subscriptionManager, jsonRpcMethods, apiConfiguration.getMaxFilterAddresses());
 
     rpcEndpointServiceImpl
         .getPluginMethods(configuration.getRpcApis())
