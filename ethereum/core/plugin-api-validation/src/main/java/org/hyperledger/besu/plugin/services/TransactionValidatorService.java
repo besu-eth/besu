@@ -17,7 +17,14 @@ package org.hyperledger.besu.plugin.services;
 import org.hyperledger.besu.plugin.Unstable;
 import org.hyperledger.besu.plugin.services.txvalidator.TransactionValidationRule;
 
-/** Service to add additional transaction validation rules */
+/**
+ * Service to register additional {@link TransactionValidationRule}s, applied wherever the node
+ * validates a transaction.
+ *
+ * <p>Rules must be registered in {@code BesuPlugin#register} or {@code
+ * BesuPlugin#beforeExternalServices}: the node reads them once, when it is built, and rules
+ * registered later are not guaranteed to apply.
+ */
 @Unstable
 public interface TransactionValidatorService extends BesuService {
 
