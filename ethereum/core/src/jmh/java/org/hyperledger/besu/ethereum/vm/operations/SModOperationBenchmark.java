@@ -15,12 +15,15 @@
 package org.hyperledger.besu.ethereum.vm.operations;
 
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.operation.SModOperationOptimized;
 
 import org.openjdk.jmh.annotations.Param;
+import org.openjdk.jmh.infra.BenchmarkParams;
 
-public class SModOperationBenchmark extends SignedBinaryArithmeticOperationBenchmark {
+public class SModOperationBenchmark extends SignedBinaryArithmeticOperationBenchmark
+    implements GasCostBenchmark {
   @Param({
     "SMOD_32_32",
     "SMOD_64_32",
@@ -57,5 +60,10 @@ public class SModOperationBenchmark extends SignedBinaryArithmeticOperationBench
   @Override
   protected Operation.OperationResult invoke(final MessageFrame frame) {
     return SModOperationOptimized.staticOperation(frame);
+  }
+
+  @Override
+  public long getGasCost(final BenchmarkParams params, final GasCalculator calc) {
+    return new SModOperationOptimized(calc).getGasCost();
   }
 }

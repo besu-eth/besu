@@ -241,7 +241,7 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
             mockEnginePayloadParam(blockHeader, emptyList()), requestsAsParam(unknownTypeRequests));
 
     var result = fromSuccessResp(resp);
-    assertThat(result.getStatusAsString()).isEqualTo(INVALID.name());
+    assertThat(result.getStatus()).isEqualTo(INVALID);
     assertThat(result.getLatestValidHash().get()).isEqualTo(mockHash);
     verify(engineCallListener, times(1)).executionEngineCalled();
   }

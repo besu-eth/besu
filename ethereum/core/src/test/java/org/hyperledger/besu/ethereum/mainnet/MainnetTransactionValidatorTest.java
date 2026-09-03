@@ -893,6 +893,9 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
     return Stream.of(
         Arguments.of(ValidationParamsVariant.PROCESSING, 16_777_216L, true),
         Arguments.of(ValidationParamsVariant.PROCESSING, 16_777_217L, false),
+        // Long.MIN_VALUE == 2^63 in unsigned representation; signed '>' comparison would treat
+        // it as negative and incorrectly pass the cap check — must be rejected unsigned
+        Arguments.of(ValidationParamsVariant.PROCESSING, Long.MIN_VALUE, false),
         Arguments.of(ValidationParamsVariant.SIMULATING, 16_777_216L, true),
         Arguments.of(ValidationParamsVariant.SIMULATING, 16_777_217L, true));
   }

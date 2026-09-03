@@ -40,7 +40,7 @@ public class WebSocketMethodsFactoryTest {
   @BeforeEach
   public void before() {
     jsonRpcMethods.put("eth_unsubscribe", jsonRpcMethod());
-    factory = new WebSocketMethodsFactory(subscriptionManager, jsonRpcMethods);
+    factory = new WebSocketMethodsFactory(subscriptionManager, jsonRpcMethods, 0);
   }
 
   @Test
@@ -73,7 +73,7 @@ public class WebSocketMethodsFactoryTest {
     final Map<String, JsonRpcMethod> jsonRpcMethodsMap = new HashMap<>();
     jsonRpcMethodsMap.put("method1", jsonRpcMethod1);
     jsonRpcMethodsMap.put("method2", jsonRpcMethod2);
-    factory = new WebSocketMethodsFactory(subscriptionManager, jsonRpcMethodsMap);
+    factory = new WebSocketMethodsFactory(subscriptionManager, jsonRpcMethodsMap, 0);
 
     final Map<String, JsonRpcMethod> methods = factory.methods();
 
