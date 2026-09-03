@@ -1032,7 +1032,8 @@ public class RunnerBuilder {
               : WebSocketConfiguration.createEngineDefault();
 
       final WebSocketMethodsFactory websocketMethodsFactory =
-          new WebSocketMethodsFactory(subscriptionManager, engineMethods);
+          new WebSocketMethodsFactory(
+              subscriptionManager, engineMethods, apiConfiguration.getMaxFilterAddresses());
 
       engineJsonRpcService =
           Optional.of(
@@ -1182,7 +1183,8 @@ public class RunnerBuilder {
               besuController.getProtocolManager().ethContext().getScheduler());
 
       final WebSocketMethodsFactory ipcMethodsFactory =
-          new WebSocketMethodsFactory(subscriptionManager, ipcMethods);
+          new WebSocketMethodsFactory(
+              subscriptionManager, ipcMethods, apiConfiguration.getMaxFilterAddresses());
 
       jsonRpcIpcService =
           Optional.of(
@@ -1510,7 +1512,8 @@ public class RunnerBuilder {
       final ObservableMetricsSystem metricsSystem) {
 
     final WebSocketMethodsFactory websocketMethodsFactory =
-        new WebSocketMethodsFactory(subscriptionManager, jsonRpcMethods);
+        new WebSocketMethodsFactory(
+            subscriptionManager, jsonRpcMethods, apiConfiguration.getMaxFilterAddresses());
 
     rpcEndpointServiceImpl
         .getPluginMethods(configuration.getRpcApis())

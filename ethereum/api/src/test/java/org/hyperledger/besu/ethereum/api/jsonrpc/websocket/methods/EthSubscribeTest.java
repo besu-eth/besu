@@ -46,7 +46,7 @@ public class EthSubscribeTest {
   public void before() {
     subscriptionManagerMock = mock(SubscriptionManager.class);
     mapperMock = mock(SubscriptionRequestMapper.class);
-    ethSubscribe = new EthSubscribe(subscriptionManagerMock, mapperMock);
+    ethSubscribe = new EthSubscribe(subscriptionManagerMock, mapperMock, 0);
   }
 
   @Test

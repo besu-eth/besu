@@ -111,6 +111,15 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
               + " pattern (a regex, with * and ? as wildcards).")
   private String testName = null;
 
+  @Option(
+      names = {"--test-name-regex"},
+      description =
+          "Limit execution to tests whose id matches the given regex, taken verbatim. This is a"
+              + " hive --sim.limit value: anchored at the start of the id, open at the end and"
+              + " case-sensitive, as re.match is. Nothing is escaped or rewritten, so a published"
+              + " hive filter can be passed exactly as it appears.")
+  private String testNameRegex = null;
+
   // Compiled up front so a malformed expression fails before any fixture is read
   private TestNameFilter nameFilter;
 
@@ -207,9 +216,9 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
         stateTestMapper
             .getTypeFactory()
             .constructParametricType(Map.class, String.class, GeneralStateTestCaseSpec.class);
-    if (testName != null) {
+    if (testName != null || testNameRegex != null) {
       try {
-        nameFilter = TestNameFilter.compile(testName);
+        nameFilter = TestNameFilter.fromOptions(testName, testNameRegex);
       } catch (final IllegalArgumentException e) {
         parentCommand.out.println(e.getMessage());
         anyFailure.set(true);
@@ -252,6 +261,11 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
     } catch (final IOException e) {
       System.err.println("Unable to read state file: " + e.getMessage());
       anyFailure.set(true);
+    } catch (final InterruptedException e) {
+      // Catching it cleared the flag; restore it so whoever interrupted the run still sees it.
+      Thread.currentThread().interrupt();
+      System.err.println("Interrupted while running state tests");
+      anyFailure.set(true);
     } catch (final Exception e) {
       System.err.println("Error: " + e.getMessage());
       e.printStackTrace(System.err);
@@ -263,8 +277,7 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
       // tree that did not materialise cannot be mistaken for a clean sweep. Matches block-test.
       if (!jsonArray) {
         parentCommand.out.printf(
-            "No state test was executed%s.%n",
-            testName == null ? "" : " matching --test-name '" + testName + "'");
+            "No state test was executed%s.%n", TestNameFilter.describe(testName, testNameRegex));
       }
       anyFailure.set(true);
     }

@@ -109,6 +109,23 @@ public class TransactionPoolOptionsTest
   }
 
   @Test
+  public void maxTxBytesDefaultsTo128KiB() {
+    internalTestSuccess(config -> assertThat(config.getTxPoolMaxTxBytes()).isEqualTo(128 * 1024));
+  }
+
+  @Test
+  public void maxTxBytesOverride() {
+    internalTestSuccess(
+        config -> assertThat(config.getTxPoolMaxTxBytes()).isEqualTo(65536),
+        "--tx-pool-max-tx-bytes=65536");
+  }
+
+  @Test
+  public void maxTxBytesMustBePositive() {
+    internalTestFailure("Max transaction bytes must be greater than 0", "--tx-pool-max-tx-bytes=0");
+  }
+
+  @Test
   public void saveToFileDisabledByDefault() {
     internalTestSuccess(config -> assertThat(config.getEnableSaveRestore()).isFalse());
   }
