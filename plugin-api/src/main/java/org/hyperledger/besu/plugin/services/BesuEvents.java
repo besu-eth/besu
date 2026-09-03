@@ -45,7 +45,16 @@ import org.apache.tuweni.bytes.Bytes32;
  *   <li><b>Logs</b> - Fired when a new block containing logs is received.
  *   <li><b>SynchronizerStatus </b> - Fired when the status of the synchronizer changes.
  * </ul>
+ *
+ * @deprecated Removed at the plugin API's next breaking release. Each event family now lives on its
+ *     feature service and returns a {@code Subscription} handle that is closed to unsubscribe,
+ *     instead of a {@code long} id: block propagated, block added, block reorg, log and bad block
+ *     on {@code BlockchainService}; transaction added and transaction dropped on {@code
+ *     TransactionPoolService}; sync status and initial sync completion on {@code
+ *     SynchronizationService}. {@code TTDReachedListener} has no replacement: it has no add method
+ *     here, so no plugin has ever been able to register one.
  */
+@Deprecated
 public interface BesuEvents extends BesuService {
 
   /**
