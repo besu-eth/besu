@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.vm.operations;
 
 import org.hyperledger.besu.evm.EvmSpecVersion;
+import org.hyperledger.besu.evm.gascalculator.AmsterdamGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.BerlinGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.ByzantiumGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.CancunGasCalculator;
@@ -29,6 +30,7 @@ import org.hyperledger.besu.evm.gascalculator.PetersburgGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.PragueGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.ShanghaiGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.SpuriousDragonGasCalculator;
+import org.hyperledger.besu.evm.gascalculator.TangerineWhistleGasCalculator;
 
 import java.io.File;
 import java.util.Collection;
@@ -92,6 +94,7 @@ public class GasProfiler implements InternalProfiler, ExternalProfiler {
     return switch (EvmSpecVersion.valueOf(fork)) {
       case FRONTIER -> new FrontierGasCalculator();
       case HOMESTEAD -> new HomesteadGasCalculator();
+      case TANGERINE_WHISTLE -> new TangerineWhistleGasCalculator();
       case SPURIOUS_DRAGON -> new SpuriousDragonGasCalculator();
       case BYZANTIUM -> new ByzantiumGasCalculator();
       case CONSTANTINOPLE -> new ConstantinopleGasCalculator();
@@ -102,6 +105,8 @@ public class GasProfiler implements InternalProfiler, ExternalProfiler {
       case SHANGHAI -> new ShanghaiGasCalculator();
       case CANCUN -> new CancunGasCalculator();
       case PRAGUE -> new PragueGasCalculator();
+      case OSAKA -> new OsakaGasCalculator();
+      case AMSTERDAM -> new AmsterdamGasCalculator();
       default -> new OsakaGasCalculator();
     };
   }
@@ -135,7 +140,8 @@ public class GasProfiler implements InternalProfiler, ExternalProfiler {
             "mgas_per_s",
             1000 * trialGasCost.getAsLong() / nsPerOp,
             "MGas/s",
-            AggregationPolicy.AVG));
+            AggregationPolicy.AVG),
+        new ScalarResult("gas", trialGasCost.getAsLong(), "gas", AggregationPolicy.MAX));
   }
 
   @Override

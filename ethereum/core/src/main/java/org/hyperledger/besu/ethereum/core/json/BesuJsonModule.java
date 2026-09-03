@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.core.json;
 import org.hyperledger.besu.datatypes.BlobGas;
 import org.hyperledger.besu.datatypes.LogsBloomFilter;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
@@ -60,5 +61,8 @@ public final class BesuJsonModule extends SimpleModule {
 
     addSerializer(BlockAccessList.class, new BlockAccessListJson.Serializer());
     addDeserializer(BlockAccessList.class, new BlockAccessListJson.Deserializer());
+
+    addSerializer(Transaction.class, new TransactionJson.BlockBodySerializer());
+    addDeserializer(Transaction.class, new TransactionJson.BlockBodyDeserializer());
   }
 }

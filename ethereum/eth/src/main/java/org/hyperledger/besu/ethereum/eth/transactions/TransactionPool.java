@@ -20,6 +20,7 @@ import static org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolStru
 import static org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolStructuredLogUtils.logStop;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.CHAIN_HEAD_NOT_AVAILABLE;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.CHAIN_HEAD_WORLD_STATE_NOT_AVAILABLE;
+import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.EXCEEDS_MAX_TX_BYTES;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.INTERNAL_ERROR;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.TRANSACTION_ALREADY_KNOWN;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
@@ -124,6 +125,7 @@ public class TransactionPool implements BlockAddedObserver {
   private final ListMultimap<VersionedHash, BlobProofBundle> mapOfBlobsInTransactionPool =
       Multimaps.synchronizedListMultimap(
           Multimaps.newListMultimap(new HashMap<>(), () -> new ArrayList<>(1)));
+  private final AtomicReference<Bytes> blobCustodyColumns = new AtomicReference<>();
 
   public TransactionPool(
       final Supplier<PendingTransactions> pendingTransactionsSupplier,
@@ -430,6 +432,17 @@ public class TransactionPool implements BlockAddedObserver {
           .addArgument(transaction::getHash)
           .log();
       return ValidationResultAndAccount.invalid(CHAIN_HEAD_NOT_AVAILABLE);
+    }
+
+    final int txSizeForBlockInclusion = transaction.getSizeForBlockInclusion();
+    if (txSizeForBlockInclusion > configuration.getTxPoolMaxTxBytes()) {
+      LOG.atDebug()
+          .setMessage("rejecting transaction {} with {} bytes > max tx bytes of {}")
+          .addArgument(transaction::getHash)
+          .addArgument(txSizeForBlockInclusion)
+          .addArgument(configuration::getTxPoolMaxTxBytes)
+          .log();
+      return ValidationResultAndAccount.invalid(EXCEEDS_MAX_TX_BYTES);
     }
 
     final FeeMarket feeMarket =
@@ -752,6 +765,20 @@ public class TransactionPool implements BlockAddedObserver {
       // do nothing
     }
     return cacheForBlobsOfTransactionsAddedToABlock.get(vh);
+  }
+
+  /**
+   * The CL's current blob custody column set, as last reported via {@code
+   * engine_forkchoiceUpdatedV4}'s {@code custodyColumns} parameter.
+   *
+   * @return the 16-byte custody bitarray, or empty if the CL has never reported one.
+   */
+  public Optional<Bytes> getBlobCustodyColumns() {
+    return Optional.ofNullable(blobCustodyColumns.get());
+  }
+
+  public void updateBlobCustodyColumns(final Bytes custodyColumns) {
+    blobCustodyColumns.set(custodyColumns);
   }
 
   public boolean isEnabled() {

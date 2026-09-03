@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineC
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
@@ -59,6 +60,8 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
 
   @Mock private EthPeers ethPeers;
 
+  @Mock private TransactionPool transactionPool;
+
   @AfterAll
   public static void tearDown() {
     vertx.close().toCompletionStage().toCompletableFuture().join();
@@ -71,8 +74,11 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
     final CyclicBarrier bothStarted = new CyclicBarrier(2);
     final UnorderedStubEngineMethod method =
         new UnorderedStubEngineMethod(
+            protocolSchedule,
             protocolContext,
             engineCallListener,
+            ethPeers,
+            transactionPool,
             req -> {
               try {
                 bothStarted.await(10, TimeUnit.SECONDS);
@@ -98,6 +104,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
             engineCallListener,
             mergeCoordinator,
             ethPeers,
+            transactionPool,
             req -> {
               maxActive.accumulateAndGet(active.incrementAndGet(), Math::max);
               try {
@@ -142,10 +149,25 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
     private final Function<JsonRpcRequestContext, JsonRpcResponse> body;
 
     UnorderedStubEngineMethod(
+        final ProtocolSchedule protocolSchedule,
         final ProtocolContext protocolContext,
         final EngineCallListener engineCallListener,
+        final EthPeers ethPeers,
+        final TransactionPool transactionPool,
         final Function<JsonRpcRequestContext, JsonRpcResponse> body) {
-      super(vertx, protocolContext, engineCallListener);
+      super(
+          new ConstructorArgumentsBuilder()
+              .protocolSchedule(protocolSchedule)
+              .protocolContext(protocolContext)
+              .vertx(vertx)
+              .engineCallListener(engineCallListener)
+              .ethPeers(ethPeers)
+              .metricsSystem(new NoOpMetricsSystem())
+              .transactionPool(transactionPool)
+              .maxRequestBlocks(0)
+              .build(),
+          null,
+          null);
       this.body = body;
     }
 
@@ -169,6 +191,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
         final EngineCallListener engineCallListener,
         final MergeMiningCoordinator mergeCoordinator,
         final EthPeers ethPeers,
+        final TransactionPool transactionPool,
         final Function<JsonRpcRequestContext, JsonRpcResponse> body) {
       super(
           new ConstructorArgumentsBuilder()
@@ -179,6 +202,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
               .mergeCoordinator(mergeCoordinator)
               .ethPeers(ethPeers)
               .metricsSystem(new NoOpMetricsSystem())
+              .transactionPool(transactionPool)
               .maxRequestBlocks(0)
               .build(),
           null,

@@ -271,9 +271,9 @@ class SStoreOperationTest {
 
     // No state gas for clearing when original was nonzero
     assertThat(frame.getStateGasUsed()).isEqualTo(0L);
-    // EIP-8038: storage-clear refund = (STORAGE_WRITE 10,000 + COLD_STORAGE_ACCESS 3,000) * 4800 /
-    // 5000 = 12,480 (replaces the London SSTORE_CLEARS_SCHEDULE of 4,800).
-    assertThat(frame.getGasRefund()).isEqualTo(12_480L);
+    // EIP-8038: storage-clear refund = (STORAGE_WRITE 10,000 + COLD_STORAGE_ACCESS 2,100) * 4800 /
+    // 5000 = 11,616 (replaces the London SSTORE_CLEARS_SCHEDULE of 4,800).
+    assertThat(frame.getGasRefund()).isEqualTo(11_616L);
   }
 
   @Test

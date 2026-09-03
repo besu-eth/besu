@@ -33,6 +33,7 @@ import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.Warmup;
 import org.openjdk.jmh.infra.BenchmarkParams;
+import org.openjdk.jmh.infra.Blackhole;
 
 @State(Scope.Thread)
 @Warmup(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
@@ -62,8 +63,9 @@ public class Keccak256Benchmark implements GasCostBenchmark {
     bytes = Bytes.wrap(byteArray);
   }
 
+  @Override
   @Benchmark
-  public void executeOperation() {
-    Hash.keccak256(bytes);
+  public void executeOperation(final Blackhole blackhole) {
+    blackhole.consume(Hash.keccak256(bytes));
   }
 }

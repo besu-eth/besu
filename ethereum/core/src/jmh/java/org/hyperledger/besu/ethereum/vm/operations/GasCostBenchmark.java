@@ -17,7 +17,10 @@ package org.hyperledger.besu.ethereum.vm.operations;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
 import org.openjdk.jmh.infra.BenchmarkParams;
+import org.openjdk.jmh.infra.Blackhole;
 
 public interface GasCostBenchmark {
   long getGasCost(BenchmarkParams params, GasCalculator calc);
+
+  void executeOperation(Blackhole blackhole);
 }

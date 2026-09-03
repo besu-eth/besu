@@ -17,13 +17,18 @@ package org.hyperledger.besu.ethereum.mainnet;
 import static java.util.Collections.emptyList;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.GWei;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
+import org.hyperledger.besu.ethereum.core.Withdrawal;
 
 import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 
+import org.apache.tuweni.units.bigints.UInt64;
 import org.junit.jupiter.api.Test;
 
 public class WithdrawalsValidatorTest {
@@ -128,5 +133,69 @@ public class WithdrawalsValidatorTest {
     final Block block = blockDataGenerator.block();
     assertThat(new WithdrawalsValidator.NotApplicableWithdrawals().validateWithdrawalsRoot(block))
         .isTrue();
+  }
+
+  // Byzantine-proposer regression tests for GHSA-p4h2-gvh4-pv6j:
+  // a proposer injecting non-empty withdrawals must be rejected before execution.
+
+  @Test
+  public void rejectsByzantineNonEmptyWithdrawalList() {
+    final List<Withdrawal> injected =
+        List.of(
+            new Withdrawal(
+                UInt64.valueOf(9001),
+                UInt64.valueOf(313),
+                Address.fromHexString("0x000000000000000000000000000000000000c0de"),
+                GWei.of(11)));
+    assertThat(
+            new WithdrawalsValidator.NotApplicableWithdrawals()
+                .validateWithdrawals(Optional.of(injected)))
+        .isFalse();
+  }
+
+  @Test
+  public void rejectsByzantineWithdrawalsRootMismatch() {
+    // Body has empty list but header declares a wrong root (all-zero, as in the PoC).
+    final BlockDataGenerator.BlockOptions blockOptions =
+        BlockDataGenerator.BlockOptions.create()
+            .setWithdrawals(Optional.of(Collections.emptyList()))
+            .setWithdrawalsRoot(Hash.ZERO);
+    final Block block = blockDataGenerator.block(blockOptions);
+    assertThat(new WithdrawalsValidator.NotApplicableWithdrawals().validateWithdrawalsRoot(block))
+        .isFalse();
+  }
+
+  @Test
+  public void rejectsByzantineNonEmptyWithdrawalsWithCorrectRoot() {
+    // Body has one real withdrawal and the header root correctly reflects it — still rejected
+    // because the list is non-empty.
+    final List<Withdrawal> injected =
+        List.of(
+            new Withdrawal(
+                UInt64.valueOf(9001),
+                UInt64.valueOf(313),
+                Address.fromHexString("0x000000000000000000000000000000000000c0de"),
+                GWei.of(11)));
+    final BlockDataGenerator.BlockOptions blockOptions =
+        BlockDataGenerator.BlockOptions.create().setWithdrawals(Optional.of(injected));
+    final Block block = blockDataGenerator.block(blockOptions);
+    assertThat(
+            new WithdrawalsValidator.NotApplicableWithdrawals()
+                .validateWithdrawals(block.getBody().getWithdrawals()))
+        .isFalse();
+  }
+
+  @Test
+  public void rejectsByzantineDuplicateWithdrawals() {
+    final Withdrawal w =
+        new Withdrawal(
+            UInt64.valueOf(7),
+            UInt64.valueOf(1),
+            Address.fromHexString("0x000000000000000000000000000000000000dead"),
+            GWei.of(7));
+    assertThat(
+            new WithdrawalsValidator.NotApplicableWithdrawals()
+                .validateWithdrawals(Optional.of(List.of(w, w))))
+        .isFalse();
   }
 }

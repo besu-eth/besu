@@ -40,6 +40,7 @@ dependencies {
   implementation project(':util')
 
   implementation 'com.google.guava:guava'
+  compileOnly 'com.google.errorprone:error_prone_annotations'
   annotationProcessor 'com.google.dagger:dagger-compiler'
   implementation 'com.google.dagger:dagger'
   implementation 'dnsjava:dnsjava'

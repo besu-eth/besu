@@ -21,7 +21,6 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.json.QuantityJson;
-import org.hyperledger.besu.ethereum.core.json.TransactionJson;
 
 import java.util.List;
 
@@ -111,7 +110,7 @@ public sealed class ExecutionPayloadV1 permits ExecutionPayloadV2 {
   }
 
   @JsonSetter("blockNumber")
-  @JsonDeserialize(using = QuantityJson.LongDeserializer.class)
+  @JsonDeserialize(using = QuantityJson.UnsignedLongDeserializer.class)
   public void setBlockNumber(final long blockNumber) {
     this.blockNumber = blockNumber;
   }
@@ -122,19 +121,19 @@ public sealed class ExecutionPayloadV1 permits ExecutionPayloadV2 {
   }
 
   @JsonSetter("gasLimit")
-  @JsonDeserialize(using = QuantityJson.LongDeserializer.class)
+  @JsonDeserialize(using = QuantityJson.UnsignedLongDeserializer.class)
   public void setGasLimit(final long gasLimit) {
     this.gasLimit = gasLimit;
   }
 
   @JsonSetter("gasUsed")
-  @JsonDeserialize(using = QuantityJson.LongDeserializer.class)
+  @JsonDeserialize(using = QuantityJson.UnsignedLongDeserializer.class)
   public void setGasUsed(final long gasUsed) {
     this.gasUsed = gasUsed;
   }
 
   @JsonSetter("timestamp")
-  @JsonDeserialize(using = QuantityJson.LongDeserializer.class)
+  @JsonDeserialize(using = QuantityJson.UnsignedLongDeserializer.class)
   public void setTimestamp(final long timestamp) {
     this.timestamp = timestamp;
   }
@@ -163,7 +162,6 @@ public sealed class ExecutionPayloadV1 permits ExecutionPayloadV2 {
   }
 
   @JsonSetter("transactions")
-  @JsonDeserialize(contentUsing = TransactionJson.BlockBodyDeserializer.class)
   public void setTransactions(final List<Transaction> transactions) {
     this.transactions = transactions;
   }
@@ -224,7 +222,6 @@ public sealed class ExecutionPayloadV1 permits ExecutionPayloadV2 {
     return prevRandao;
   }
 
-  @JsonSerialize(contentUsing = TransactionJson.BlockBodySerializer.class)
   public List<Transaction> getTransactions() {
     return transactions;
   }

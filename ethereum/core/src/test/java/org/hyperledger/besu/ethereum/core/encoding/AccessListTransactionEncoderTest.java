@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.core.encoding;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
@@ -30,7 +29,6 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.S
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.StorageChange;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
-import org.hyperledger.besu.ethereum.rlp.RLPException;
 
 import java.util.List;
 
@@ -141,7 +139,10 @@ public class AccessListTransactionEncoderTest {
   }
 
   @Test
-  void shouldRejectSlotChangesWithoutStorageChanges() {
+  void shouldDecodeSlotChangesWithoutStorageChanges() {
+    // An empty change list is well-formed RLP. The EIP-7928 "at least one storage change" rule is
+    // left to MainnetBlockAccessListValidator, so the block is reported INVALID rather than as an
+    // engine_newPayload parameter error.
     final Address address = Address.fromHexString("0x00000000219ab540356cbb839cbe05303d7705fa");
     final StorageSlotKey slotKey = new StorageSlotKey(Wei.ONE.toUInt256());
     final BlockAccessList invalidAccessList =
@@ -158,10 +159,17 @@ public class AccessListTransactionEncoderTest {
     final BytesValueRLPOutput output = new BytesValueRLPOutput();
     BlockAccessListEncoder.encode(invalidAccessList, output);
 
-    assertThatThrownBy(
-            () -> BlockAccessListDecoder.decode(new BytesValueRLPInput(output.encoded(), false)))
-        .isInstanceOf(RLPException.class)
-        .hasMessageContaining("at least one storage change");
+    final BlockAccessList decoded =
+        BlockAccessListDecoder.decode(new BytesValueRLPInput(output.encoded(), false));
+
+    assertThat(decoded.accountChanges()).hasSize(1);
+    assertThat(decoded.accountChanges().getFirst().storageChanges())
+        .singleElement()
+        .satisfies(
+            slotChanges -> {
+              assertThat(slotChanges.slot()).isEqualTo(slotKey);
+              assertThat(slotChanges.changes()).isEmpty();
+            });
   }
 
   @Test

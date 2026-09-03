@@ -113,6 +113,15 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
               + " pattern (a regex, with * and ? as wildcards).")
   private String testName = null;
 
+  @Option(
+      names = {"--test-name-regex"},
+      description =
+          "Limit execution to tests whose id matches the given regex, taken verbatim. This is a"
+              + " hive --sim.limit value: anchored at the start of the id, open at the end and"
+              + " case-sensitive, as re.match is. Nothing is escaped or rewritten, so a published"
+              + " hive filter can be passed exactly as it appears.")
+  private String testNameRegex = null;
+
   // Compiled up front so a malformed expression fails before any fixture is read
   private TestNameFilter nameFilter;
 
@@ -152,10 +161,6 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
   // picocli does it magically
   @Parameters private final List<Path> blockchainTestFiles = new ArrayList<>();
 
-  // Cached across all tests: building the 30+ reference test schedules is expensive.
-  // Guarded by getSchedules().
-  private ReferenceTestProtocolSchedules cachedSchedules;
-
   /**
    * Default constructor for the BlockchainTestSubCommand class. This constructor doesn't take any
    * arguments and initializes the parentCommand to null. PicoCLI requires this constructor.
@@ -188,9 +193,9 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
             .getTypeFactory()
             .constructParametricType(
                 Map.class, String.class, BlockchainReferenceTestCaseSpec.class);
-    if (testName != null) {
+    if (testName != null || testNameRegex != null) {
       try {
-        nameFilter = TestNameFilter.compile(testName);
+        nameFilter = TestNameFilter.fromOptions(testName, testNameRegex);
       } catch (final IllegalArgumentException e) {
         parentCommand.out.println(e.getMessage());
         exitCode = 1;
@@ -230,6 +235,11 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
     } catch (final IOException e) {
       setupFailed = true;
       System.err.println("Unable to read state file: " + e.getMessage());
+    } catch (final InterruptedException e) {
+      // Catching it cleared the flag; restore it so whoever interrupted the run still sees it.
+      Thread.currentThread().interrupt();
+      setupFailed = true;
+      System.err.println("Interrupted while running blockchain tests");
     } catch (final Exception e) {
       setupFailed = true;
       System.err.println("Error: " + e.getMessage());
@@ -241,7 +251,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       if (!results.hasTests() && !jsonArray) {
         parentCommand.out.printf(
             "No blockchain test was executed%s.%n",
-            testName == null ? "" : " matching --test-name '" + testName + "'");
+            TestNameFilter.describe(testName, testNameRegex));
       }
       exitCode = results.failed() > 0 || setupFailed || !results.hasTests() ? 1 : 0;
       if (jsonArray) {
@@ -260,7 +270,9 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
             .filter(
                 entry -> {
                   final String test = entry.getKey();
-                  if (testName != null && !matchesTestName(test)) {
+                  // Gate on the compiled filter, not on --test-name: --test-name-regex compiles one
+                  // too, and testing the wrong field silently runs the whole tree unfiltered.
+                  if (nameFilter != null && !matchesTestName(test)) {
                     if (verbose) {
                       parentCommand.out.println("Skipping test: " + test);
                     }
@@ -309,18 +321,6 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
     return nameFilter.matches(test);
   }
 
-  /**
-   * The reference test schedules, built once and shared by every worker. Building them is expensive
-   * — 30+ schedules per call — and {@code create} also initialises the KZG trusted setup, which is
-   * process-wide state, so the check-then-act has to be atomic rather than merely visible.
-   */
-  private synchronized ReferenceTestProtocolSchedules getSchedules() {
-    if (cachedSchedules == null) {
-      cachedSchedules = ReferenceTestProtocolSchedules.create(parentCommand.getEvmConfiguration());
-    }
-    return cachedSchedules;
-  }
-
   private void traceTestSpecs(
       final String test,
       final BlockchainReferenceTestCaseSpec spec,
@@ -342,7 +342,13 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
                     genesisBlockHeader.getStateRoot(), genesisBlockHeader.getHash()))
             .orElseThrow();
 
-    final ProtocolSchedule schedule = getSchedules().getByName(spec.getNetwork());
+    // The fixture's own config.blobSchedule is passed through, because a devnet sets blob target
+    // and max to values Besu's defaults do not carry. Build the schedule without it and every blob
+    // test is validated against the wrong parameters.
+    final ProtocolSchedule schedule =
+        ReferenceTestProtocolSchedules.cached(
+                parentCommand.getEvmConfiguration(), spec.getBlobScheduleOptions().orElse(null))
+            .getByName(spec.getNetwork());
 
     BlockTestTracerManager tracerManager = null;
     PrintStream traceWriter;

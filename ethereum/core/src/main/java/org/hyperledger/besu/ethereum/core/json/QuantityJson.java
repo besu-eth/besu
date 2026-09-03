@@ -68,6 +68,30 @@ public final class QuantityJson {
     }
   }
 
+  /**
+   * Engine API QUANTITYs are {@code uint64}, so {@code 0xffffffffffffffff} is syntactically valid
+   * and must be answered by block validation rather than an "invalid params" error. Values above
+   * {@link Long#MAX_VALUE} are carried as negative longs instead of being rejected.
+   */
+  public static class UnsignedLongDeserializer extends StdDeserializer<Long> {
+
+    public UnsignedLongDeserializer() {
+      this(null);
+    }
+
+    public UnsignedLongDeserializer(final Class<?> vc) {
+      super(vc);
+    }
+
+    @Override
+    public Long deserialize(final JsonParser jsonParser, final DeserializationContext context)
+        throws IOException {
+      return UInt64.fromHexString(jsonParser.getCodec().readValue(jsonParser, String.class))
+          .toBytes()
+          .toLong();
+    }
+  }
+
   public static class GasDeserializer extends StdDeserializer<Long> {
 
     public GasDeserializer() {
