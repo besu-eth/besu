@@ -32,7 +32,6 @@ import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
 import org.hyperledger.besu.ethereum.debug.TracerType;
-import org.hyperledger.besu.ethereum.mainnet.ImmutableTransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
@@ -44,13 +43,6 @@ import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
 import java.util.Optional;
 
 public class DebugTraceCall extends AbstractTraceCall {
-  private static final TransactionValidationParams NON_STRICT_PARAMS =
-      ImmutableTransactionValidationParams.builder()
-          .from(TransactionValidationParams.transactionSimulator())
-          .isAllowFutureNonce(true)
-          .isAllowExceedingBalance(true)
-          .allowUnderpriced(true)
-          .build();
 
   public DebugTraceCall(
       final BlockchainQueries blockchainQueries,
@@ -136,7 +128,7 @@ public class DebugTraceCall extends AbstractTraceCall {
   protected TransactionValidationParams buildTransactionValidationParams(
       final BlockHeader header, final CallParameter callParams) {
     return CallParameterUtil.isAllowExceedingBalance(header, callParams)
-        ? NON_STRICT_PARAMS
+        ? TransactionValidationParams.transactionSimulatorAllowExceedingBalanceAndFutureNonce()
         : TransactionValidationParams.transactionSimulatorAllowFutureNonce();
   }
 }
