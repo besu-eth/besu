@@ -60,6 +60,9 @@ public abstract class ApiConfiguration {
   /** The default maximum block range for log filter queries. */
   public static final long DEFAULT_MAX_LOGS_RANGE = 5000L;
 
+  /** The default maximum number of addresses allowed per log filter or log subscription. */
+  public static final int DEFAULT_MAX_FILTER_ADDRESSES = 1000;
+
   /** Constructs a new ApiConfiguration with default values. */
   protected ApiConfiguration() {}
 
@@ -208,5 +211,16 @@ public abstract class ApiConfiguration {
   @Value.Default
   public Long getDebugTraceStepLimit() {
     return DEFAULT_DEBUG_TRACE_STEP_LIMIT;
+  }
+
+  /**
+   * Returns the maximum number of addresses permitted per log filter or log subscription. Zero
+   * means uncapped (operator opt-out).
+   *
+   * @return the maximum address count per filter, or 0 for unlimited
+   */
+  @Value.Default
+  public Integer getMaxFilterAddresses() {
+    return DEFAULT_MAX_FILTER_ADDRESSES;
   }
 }

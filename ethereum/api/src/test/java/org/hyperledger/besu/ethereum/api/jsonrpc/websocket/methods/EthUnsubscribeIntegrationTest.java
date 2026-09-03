@@ -66,7 +66,7 @@ public class EthUnsubscribeIntegrationTest {
     vertx = Vertx.vertx(new VertxOptions().setPreferNativeTransport(true));
     testContext = new VertxTestContext();
     subscriptionManager = new SubscriptionManager(new NoOpMetricsSystem());
-    webSocketMethodsFactory = new WebSocketMethodsFactory(subscriptionManager, new HashMap<>());
+    webSocketMethodsFactory = new WebSocketMethodsFactory(subscriptionManager, new HashMap<>(), 0);
     webSocketMessageHandler =
         new WebSocketMessageHandler(
             vertx,
