@@ -43,7 +43,7 @@ public class TestHealthCheckPlugin implements BesuPlugin {
   @Override
   public void register(final ServiceManager context) {
     LOG.info("Registered TestHealthCheckPlugin");
-    dataDir = Path.of(System.getProperty("besu.plugins.dir", "plugins"));
+    dataDir = PluginCallbackDir.of(context).toPath();
     context
         .getService(HealthCheckService.class)
         .ifPresent(

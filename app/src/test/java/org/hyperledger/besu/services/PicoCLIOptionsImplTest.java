@@ -82,4 +82,13 @@ public class PicoCLIOptionsImplTest {
     assertThatExceptionOfType(UnmatchedArgumentException.class)
         .isThrownBy(() -> commandLine.parseArgs("--does-not-exist", "1"));
   }
+
+  @Test
+  public void testAddingOptionsAfterDefinitionCompletedFails() {
+    serviceImpl.optionsDefinitionCompleted();
+    assertThatExceptionOfType(PicoCLIOptionsImpl.OptionsAlreadyParsedException.class)
+        .isThrownBy(() -> serviceImpl.addPicoCLIOptions("Test1", new MixinOptions()))
+        .withMessageContaining("Test1")
+        .withMessageContaining("defineOptions()");
+  }
 }

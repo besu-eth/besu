@@ -31,13 +31,13 @@ public abstract class AbstractTestReloadConfigurationPlugin implements BesuPlugi
   }
 
   @Override
-  public void register(final ServiceManager serviceManager) {
-    callbackDir = new File(System.getProperty("besu.plugins.dir", "plugins"));
+  public void defineOptions(final PicoCLIOptions options) {
+    options.addPicoCLIOptions("reload-conf" + pluginNum, this);
+  }
 
-    serviceManager
-        .getService(PicoCLIOptions.class)
-        .orElseThrow()
-        .addPicoCLIOptions("reload-conf" + pluginNum, this);
+  @Override
+  public void register(final ServiceManager serviceManager) {
+    callbackDir = PluginCallbackDir.of(serviceManager);
   }
 
   protected abstract boolean shouldFail();
