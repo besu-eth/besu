@@ -21,6 +21,7 @@ import org.hyperledger.besu.ethereum.core.plugins.PluginConfiguration;
 import org.hyperledger.besu.plugin.BesuPlugin;
 import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.services.BesuService;
+import org.hyperledger.besu.plugin.services.PicoCLIOptions;
 import org.hyperledger.besu.plugin.services.PluginVersionsProvider;
 
 import java.io.IOException;
@@ -45,6 +46,7 @@ import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Throwables;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -60,14 +62,14 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
     UNINITIALIZED,
     /** Initialized lifecycle. */
     INITIALIZED,
+    /** Plugins are being loaded and are declaring their CLI options. */
+    DEFINING_OPTIONS,
+    /** Every plugin has declared its CLI options; the command line can be parsed. */
+    OPTIONS_DEFINED,
     /** Registering lifecycle. */
     REGISTERING,
     /** Registered lifecycle. */
     REGISTERED,
-    /** Before external services started lifecycle. */
-    BEFORE_EXTERNAL_SERVICES_STARTED,
-    /** Before external services finished lifecycle. */
-    BEFORE_EXTERNAL_SERVICES_FINISHED,
     /** Before main loop started lifecycle. */
     BEFORE_MAIN_LOOP_STARTED,
     /** Before main loop finished lifecycle. */
@@ -83,6 +85,9 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
 
   private List<BesuPlugin> detectedPlugins = new ArrayList<>();
   private List<String> requestedPlugins = new ArrayList<>();
+
+  /** Plugins that completed {@code defineOptions()}, in load order. */
+  private final List<BesuPlugin> loadedPlugins = new ArrayList<>();
 
   private final List<BesuPlugin> registeredPlugins = new ArrayList<>();
 
@@ -124,41 +129,89 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
   public void initialize(final PluginConfiguration config) {
     checkState(
         state == Lifecycle.UNINITIALIZED,
-        "Besu plugins have already been initialized. Cannot register additional plugins.");
+        "Besu plugins have already been initialized. Cannot initialize again.");
     this.config = config;
     state = Lifecycle.INITIALIZED;
   }
 
   /**
-   * Registers plugins based on the provided {@link PluginConfiguration}. This method finds plugins
-   * according to the configuration settings, filters them if necessary and then registers the
-   * filtered or found plugins
+   * Discovers, verifies and instantiates the plugins selected by the {@link PluginConfiguration},
+   * then calls {@link BesuPlugin#defineOptions(PicoCLIOptions)} on each. Runs before the command
+   * line is parsed.
    *
-   * @throws IllegalStateException if the system is not in the UNINITIALIZED state.
+   * @param picoCLIOptions the option registry handed to each plugin
+   * @throws IllegalStateException if the context is not in the INITIALIZED state.
+   */
+  public void defineOptions(final PicoCLIOptions picoCLIOptions) {
+    checkState(
+        state == Lifecycle.INITIALIZED,
+        "BesuContext should be in state %s but it was in %s",
+        Lifecycle.INITIALIZED,
+        state);
+    state = Lifecycle.DEFINING_OPTIONS;
+
+    for (final BesuPlugin plugin : loadPlugins()) {
+      try {
+        plugin.defineOptions(picoCLIOptions);
+        pluginVersions.put(plugin.getName(), plugin.getVersion());
+        loadedPlugins.add(plugin);
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Defined options of plugin of type {}.", plugin.getClass().getName());
+        }
+      } catch (final Exception e) {
+        if (config.isContinueOnPluginError()) {
+          LOG.error(
+              "Error defining options of plugin of type {}, register, start and stop will not be called.",
+              plugin.getClass().getName(),
+              e);
+        } else {
+          throw new RuntimeException(
+              "Error defining options of plugin of type " + plugin.getClass().getName(), e);
+        }
+      }
+    }
+    state = Lifecycle.OPTIONS_DEFINED;
+  }
+
+  /**
+   * Discovers, verifies and instantiates the plugins selected by the configuration.
+   *
+   * @return the plugins to define options for, empty when external plugins are disabled
+   */
+  @VisibleForTesting
+  List<BesuPlugin> loadPlugins() {
+    if (!config.isExternalPluginsEnabled()) {
+      LOG.debug("External plugins are disabled. Skipping plugins loading.");
+      return List.of();
+    }
+    detectedPlugins = detectPlugins(config);
+    if (config.getRequestedPlugins().isEmpty()) {
+      // If no plugins were specified, load all detected plugins
+      return detectedPlugins;
+    }
+    // Load only the plugins that were explicitly requested and validated
+    requestedPlugins = config.getRequestedPlugins();
+    return matchAndValidateRequestedPlugins(requestedPlugins, detectedPlugins);
+  }
+
+  /**
+   * Calls {@link BesuPlugin#register(ServiceManager)} on every plugin that completed {@link
+   * #defineOptions(PicoCLIOptions)}. Must run after the command line has been parsed.
+   *
+   * @throws IllegalStateException if the context is not in the OPTIONS_DEFINED state.
    */
   public void registerPlugins() {
     checkState(
-        state == Lifecycle.INITIALIZED,
-        "Besu plugins have already been registered. Cannot register additional plugins.");
+        state == Lifecycle.OPTIONS_DEFINED,
+        "BesuContext should be in state %s but it was in %s",
+        Lifecycle.OPTIONS_DEFINED,
+        state);
     state = Lifecycle.REGISTERING;
-
-    if (config.isExternalPluginsEnabled()) {
-      detectedPlugins = detectPlugins(config);
-
-      if (config.getRequestedPlugins().isEmpty()) {
-        // If no plugins were specified, register all detected plugins
-        registerPlugins(detectedPlugins);
-      } else {
-        // Register only the plugins that were explicitly requested and validated
-        requestedPlugins = config.getRequestedPlugins();
-        // Match and validate the requested plugins against the detected plugins
-        List<BesuPlugin> registeringPlugins =
-            matchAndValidateRequestedPlugins(requestedPlugins, detectedPlugins);
-
-        registerPlugins(registeringPlugins);
+    registeredPlugins.clear();
+    for (final BesuPlugin plugin : loadedPlugins) {
+      if (registerPlugin(plugin)) {
+        registeredPlugins.add(plugin);
       }
-    } else {
-      LOG.debug("External plugins are disabled. Skipping plugins registration.");
     }
     state = Lifecycle.REGISTERED;
   }
@@ -190,21 +243,21 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
     return matchingPlugins;
   }
 
-  private void registerPlugins(final List<BesuPlugin> pluginsToRegister) {
-
-    for (final BesuPlugin plugin : pluginsToRegister) {
-      if (registerPlugin(plugin)) {
-        registeredPlugins.add(plugin);
-      }
-    }
-  }
-
   private boolean registerPlugin(final BesuPlugin plugin) {
     try {
       plugin.register(this);
-      pluginVersions.put(plugin.getName(), plugin.getVersion());
       LOG.info("Registered plugin of type {}.", plugin.getClass().getName());
     } catch (final Exception e) {
+      if (Throwables.getCausalChain(e).stream()
+          .anyMatch(PicoCLIOptionsImpl.OptionsAlreadyParsedException.class::isInstance)) {
+        // Always fatal, even with --plugin-continue-on-error and even when the plugin wrapped the
+        // exception: an unmigrated plugin must not run with its options unparsed
+        throw new RuntimeException(
+            "Plugin "
+                + plugin.getClass().getName()
+                + " added CLI options during register(); options must be declared in defineOptions()",
+            e);
+      }
       if (config.isContinueOnPluginError()) {
         LOG.error(
             "Error registering plugin of type {}, start and stop will not be called.",
@@ -219,50 +272,12 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
     return true;
   }
 
-  /** Before external services. */
-  public void beforeExternalServices() {
+  /** Start plugins. */
+  public void startPlugins() {
     checkState(
         state == Lifecycle.REGISTERED,
         "BesuContext should be in state %s but it was in %s",
         Lifecycle.REGISTERED,
-        state);
-    state = Lifecycle.BEFORE_EXTERNAL_SERVICES_STARTED;
-    final Iterator<BesuPlugin> pluginsIterator = registeredPlugins.iterator();
-
-    while (pluginsIterator.hasNext()) {
-      final BesuPlugin plugin = pluginsIterator.next();
-
-      try {
-        plugin.beforeExternalServices();
-        if (LOG.isDebugEnabled()) {
-          LOG.debug(
-              "beforeExternalServices called on plugin of type {}.", plugin.getClass().getName());
-        }
-      } catch (final Exception e) {
-        if (config.isContinueOnPluginError()) {
-          LOG.error(
-              "Error calling `beforeExternalServices` on plugin of type {}, start will not be called.",
-              plugin.getClass().getName(),
-              e);
-          pluginsIterator.remove();
-        } else {
-          throw new RuntimeException(
-              "Error calling `beforeExternalServices` on plugin of type "
-                  + plugin.getClass().getName(),
-              e);
-        }
-      }
-    }
-    LOG.debug("Plugin startup complete.");
-    state = Lifecycle.BEFORE_EXTERNAL_SERVICES_FINISHED;
-  }
-
-  /** Start plugins. */
-  public void startPlugins() {
-    checkState(
-        state == Lifecycle.BEFORE_EXTERNAL_SERVICES_FINISHED,
-        "BesuContext should be in state %s but it was in %s",
-        Lifecycle.BEFORE_EXTERNAL_SERVICES_FINISHED,
         state);
     state = Lifecycle.BEFORE_MAIN_LOOP_STARTED;
     final Iterator<BesuPlugin> pluginsIterator = registeredPlugins.iterator();
@@ -468,8 +483,11 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
     return summary;
   }
 
-  /** Resets the lifecycle state to uninitialized for Ephemery restart. */
+  /**
+   * Rewinds to the options-defined state so the Ephemery restart can call {@link
+   * #registerPlugins()} again on the same plugin instances, without re-parsing the command line.
+   */
   public void resetState() {
-    state = Lifecycle.UNINITIALIZED;
+    state = Lifecycle.OPTIONS_DEFINED;
   }
 }
