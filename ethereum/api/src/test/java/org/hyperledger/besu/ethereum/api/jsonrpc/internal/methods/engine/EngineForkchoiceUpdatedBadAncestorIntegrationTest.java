@@ -90,7 +90,7 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
   private BadBlockManager badBlockManager;
   private MutableBlockchain blockchain;
   private MergeCoordinator mergeCoordinator;
-  private EngineForkchoiceUpdatedV3<PayloadAttributesV3> method;
+  private EngineForkchoiceUpdatedV3<PayloadAttributesV3, ?> method;
 
   @BeforeEach
   public void setUp() {
@@ -143,6 +143,7 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
                 .mergeCoordinator(mergeCoordinator)
                 .ethPeers(mock(EthPeers.class))
                 .metricsSystem(new NoOpMetricsSystem())
+                .transactionPool(transactionPool)
                 .maxRequestBlocks(0)
                 .build(),
             CANCUN,
@@ -192,8 +193,8 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
     final ForkchoiceUpdatedResultV1 forkchoiceResult =
         (ForkchoiceUpdatedResultV1) ((JsonRpcSuccessResponse) response).getResult();
     assertThat(forkchoiceResult.getPayloadStatus().getStatus()).isEqualTo(INVALID);
-    assertThat(forkchoiceResult.getPayloadStatus().getLatestValidHashAsString())
-        .isEqualTo(validParent.getHash().toHexString());
+    assertThat(forkchoiceResult.getPayloadStatus().getLatestValidHash())
+        .contains(validParent.getHash());
     final String error = forkchoiceResult.getPayloadStatus().getError();
     assertThat(error).contains(descendantHeader.getHash().toString());
     assertThat(error).containsIgnoringCase("invalid");
@@ -230,8 +231,7 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
     final ForkchoiceUpdatedResultV1 forkchoiceResult =
         (ForkchoiceUpdatedResultV1) ((JsonRpcSuccessResponse) response).getResult();
     assertThat(forkchoiceResult.getPayloadStatus().getStatus()).isEqualTo(INVALID);
-    assertThat(forkchoiceResult.getPayloadStatus().getLatestValidHashAsString())
-        .isEqualTo(Hash.ZERO.toHexString());
+    assertThat(forkchoiceResult.getPayloadStatus().getLatestValidHash()).contains(Hash.ZERO);
     final String error = forkchoiceResult.getPayloadStatus().getError();
     assertThat(error).contains(descendantHeader.getHash().toString());
     assertThat(error).containsIgnoringCase("invalid");

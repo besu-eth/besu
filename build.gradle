@@ -911,7 +911,9 @@ subprojects {
         "\t-Pcases=<caseNames>\t\tComma-separated list of @Param caseName values to run (e.g. MOD_32_32,MOD_256_256). Defaults to running all cases.\n" +
         "\t-PgcProfiler=true\t\tEnable the JMH GC profiler to capture allocation rates (gc.alloc.rate.norm) alongside timing.\n" +
         "\t-PasyncProfiler=<libPath>\tLibrary path to fetch the Async profiler from. Default is to disable profiling.\n" +
-        "\t-PasyncProfilerOptions=<asyncProfilerOptions>\tOptions to pass on to the Async profiler separated by ';'. Default is to produce a flamegraph with all other default profiler options.\n"
+        "\t-PasyncProfilerOptions=<asyncProfilerOptions>\tOptions to pass on to the Async profiler separated by ';'. Default is to produce a flamegraph with all other default profiler options.\n" +
+        "\t-PgasProfiler=true\t\tEnable the gas profiler to emit per-benchmark EVM gas cost as a secondary metric.\n" +
+        "\t-PgasProfilerFork=<fork>\tEVM fork to use for gas cost calculation (e.g. CANCUN, OSAKA). Defaults to OSAKA.\n"
     }
 
     tasks.named("jmhJar") {
@@ -937,17 +939,20 @@ subprojects {
       jvmArgs = [
         '-XX:+EnableDynamicAgentLoading'
       ]
+      profilers = []
       if (asyncProfiler != null) {
-        profilers = [
-          'async:libPath=' + asyncProfiler + ';' + asyncProfilerOptions
-        ]
+        profilers.add('async:libPath=' + asyncProfiler + ';' + asyncProfilerOptions)
         // Force debug symbols of stack traces to the profiler
         jvmArgs.addAll("-XX:+UnlockDiagnosticVMOptions", "-XX:+DebugNonSafepoints")
       }
       var gcProfiler = _strCmdArg('gcProfiler')
       if (gcProfiler != null && gcProfiler.toBoolean()) {
-        if (asyncProfiler == null) profilers = []
         profilers.add('gc')
+      }
+      var gasProfiler = _strCmdArg('gasProfiler')
+      if (gasProfiler != null && gasProfiler.toBoolean()) {
+        var gasProfilerFork = _strCmdArg('gasProfilerFork')
+        profilers.add('org.hyperledger.besu.ethereum.vm.operations.GasProfiler' + (gasProfilerFork != null ? ':' + gasProfilerFork : ''))
       }
       duplicateClassesStrategy = DuplicatesStrategy.INCLUDE
     }

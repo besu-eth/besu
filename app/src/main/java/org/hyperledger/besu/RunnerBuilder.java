@@ -72,6 +72,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.pluginadapter.TransactionValidatorServiceImpl;
 import org.hyperledger.besu.ethereum.p2p.config.DiscoveryConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.DiscoveryMode;
 import org.hyperledger.besu.ethereum.p2p.config.ImmutableNetworkingConfiguration;
@@ -124,7 +125,6 @@ import org.hyperledger.besu.plugin.BesuPlugin;
 import org.hyperledger.besu.plugin.data.EnodeURL;
 import org.hyperledger.besu.plugin.services.HealthCheckService;
 import org.hyperledger.besu.services.BesuPluginContextImpl;
-import org.hyperledger.besu.services.TransactionValidatorServiceImpl;
 import org.hyperledger.besu.util.BesuVersionUtils;
 import org.hyperledger.besu.util.NetworkUtility;
 
@@ -148,7 +148,6 @@ import com.google.common.base.Strings;
 import graphql.GraphQL;
 import inet.ipaddr.IPAddress;
 import io.vertx.core.Vertx;
-import io.vertx.core.VertxOptions;
 import io.vertx.core.json.JsonObject;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -854,15 +853,27 @@ public class RunnerBuilder {
     networkRunner.getRlpxAgent().ifPresent(ethPeers::setRlpxAgent);
 
     final P2PNetwork network = networkRunner.getNetwork();
-    // ForkId in Ethereum Node Record needs updating when we transition to a new
-    // protocol spec
+    // ForkId in Ethereum Node Record needs updating when we transition to a new protocol spec.
+    // Compare the HardforkId of the resolved spec for the new block against its parent — a change
+    // indicates we just crossed a fork boundary regardless of whether the exact timestamp was hit.
     context
         .getBlockchain()
         .observeBlockAdded(
             blockAddedEvent -> {
-              if (protocolSchedule.isOnMilestoneBoundary(blockAddedEvent.getHeader())) {
-                network.updateNodeRecord();
-              }
+              final var header = blockAddedEvent.getHeader();
+              context
+                  .getBlockchain()
+                  .getBlockHeader(header.getParentHash())
+                  .ifPresent(
+                      parentHeader -> {
+                        if (!protocolSchedule
+                            .getByBlockHeader(header)
+                            .getHardforkId()
+                            .equals(
+                                protocolSchedule.getByBlockHeader(parentHeader).getHardforkId())) {
+                          network.updateNodeRecord();
+                        }
+                      });
             });
     nodePermissioningController.ifPresent(
         n ->
@@ -887,6 +898,7 @@ public class RunnerBuilder {
         new FilterManagerBuilder()
             .blockchainQueries(blockchainQueries)
             .transactionPool(transactionPool)
+            .maxLogRange(apiConfiguration.getMaxLogsRange())
             .maxFilterCount(apiConfiguration.getMaxFilterCount())
             .filterTimeout(apiConfiguration.getFilterTimeout())
             .build();
@@ -1020,7 +1032,8 @@ public class RunnerBuilder {
               : WebSocketConfiguration.createEngineDefault();
 
       final WebSocketMethodsFactory websocketMethodsFactory =
-          new WebSocketMethodsFactory(subscriptionManager, engineMethods);
+          new WebSocketMethodsFactory(
+              subscriptionManager, engineMethods, apiConfiguration.getMaxFilterAddresses());
 
       engineJsonRpcService =
           Optional.of(
@@ -1170,7 +1183,8 @@ public class RunnerBuilder {
               besuController.getProtocolManager().ethContext().getScheduler());
 
       final WebSocketMethodsFactory ipcMethodsFactory =
-          new WebSocketMethodsFactory(subscriptionManager, ipcMethods);
+          new WebSocketMethodsFactory(
+              subscriptionManager, ipcMethods, apiConfiguration.getMaxFilterAddresses());
 
       jsonRpcIpcService =
           Optional.of(
@@ -1378,8 +1392,12 @@ public class RunnerBuilder {
       final RpcEndpointServiceImpl rpcEndpointServiceImpl,
       final TransactionSimulator transactionSimulator,
       final EthScheduler ethScheduler) {
-    // sync vertx for engine consensus API, to process requests in FIFO order;
-    final Vertx consensusEngineServer = Vertx.vertx(new VertxOptions().setWorkerPoolSize(1));
+    // vertx for the engine consensus API: engine methods execute concurrently on its worker
+    // pool, except engine_forkchoiceUpdated and engine_newPayload calls, which the Engine API
+    // spec requires to be processed in the order received — those run on a dedicated
+    // single-threaded executor (see OrderedExecutionJsonRpcMethod)
+    final Vertx consensusEngineServer =
+        Vertx.vertx(new io.vertx.core.VertxOptions().setWorkerPoolSize(1).setEventLoopPoolSize(1));
 
     final Map<String, JsonRpcMethod> methods =
         new JsonRpcMethodsFactory()
@@ -1410,7 +1428,7 @@ public class RunnerBuilder {
                 natService,
                 namedPlugins,
                 dataDir,
-                besuController.getProtocolManager().ethContext().getEthPeers(),
+                besuController.getEthPeers(),
                 consensusEngineServer,
                 apiConfiguration,
                 enodeDnsConfiguration,
@@ -1494,7 +1512,8 @@ public class RunnerBuilder {
       final ObservableMetricsSystem metricsSystem) {
 
     final WebSocketMethodsFactory websocketMethodsFactory =
-        new WebSocketMethodsFactory(subscriptionManager, jsonRpcMethods);
+        new WebSocketMethodsFactory(
+            subscriptionManager, jsonRpcMethods, apiConfiguration.getMaxFilterAddresses());
 
     rpcEndpointServiceImpl
         .getPluginMethods(configuration.getRpcApis())

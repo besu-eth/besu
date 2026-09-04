@@ -88,7 +88,6 @@ public class JWTAuthOptionsFactoryTest {
     assertThat(jwtAuthOptions.getPubSecKeys()).hasSize(1);
     final PubSecKeyOptions pubSecKeyOptions = jwtAuthOptions.getPubSecKeys().get(0);
     assertThat(pubSecKeyOptions.getAlgorithm()).isEqualTo("RS256");
-    assertThat(pubSecKeyOptions.getSecretKey()).isNull();
     PemObject publicKey =
         new PemReader(
                 new InputStreamReader(
@@ -113,7 +112,6 @@ public class JWTAuthOptionsFactoryTest {
       assertThat(jwtAuthOptions.getPubSecKeys()).hasSize(1);
       final PubSecKeyOptions pubSecKeyOptions = jwtAuthOptions.getPubSecKeys().get(0);
       assertThat(pubSecKeyOptions.getAlgorithm()).isEqualTo("ES256");
-      assertThat(pubSecKeyOptions.getSecretKey()).isNull();
       PemObject publicKey =
           new PemReader(
                   new InputStreamReader(
@@ -146,6 +144,22 @@ public class JWTAuthOptionsFactoryTest {
             () -> jwtAuthOptionsFactory.createForExternalPublicKey(enclavePublicKeyFile.toFile()))
         .isInstanceOf(IllegalStateException.class)
         .hasMessage("Authentication RPC public key file format is invalid");
+  }
+
+  @Test
+  public void rejectsHmacAlgorithmWithPublicKeyFile() throws URISyntaxException {
+    final JWTAuthOptionsFactory jwtAuthOptionsFactory = new JWTAuthOptionsFactory();
+    final File enclavePublicKeyFile =
+        Paths.get(ClassLoader.getSystemResource("authentication/jwt_public_key_rsa").toURI())
+            .toAbsolutePath()
+            .toFile();
+
+    assertThatThrownBy(
+            () ->
+                jwtAuthOptionsFactory.createForExternalPublicKeyWithAlgorithm(
+                    enclavePublicKeyFile, JwtAlgorithm.HS256))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("HS256");
   }
 
   @Test

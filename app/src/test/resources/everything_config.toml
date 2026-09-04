@@ -111,6 +111,8 @@ rpc-gas-cap = 50000000
 rpc-max-trace-filter-range=100
 rpc-max-active-filters=1000
 rpc-filter-timeout-seconds=60
+rpc-max-trace-steps=2000
+rpc-max-log-filter-addresses=500
 
 # GRAPHQL HTTP
 graphql-http-enabled=false
@@ -197,6 +199,7 @@ p2p-tx-feecap=2000000000000000000
 strict-tx-replay-protection-enabled=true
 tx-pool-no-local-priority=false
 tx-pool-priority-senders=["0xABC0000000000000000000000000000000001234","0xDEF0000000000000000000000000000000001234"]
+tx-pool-max-tx-bytes=131072
 tx-pool-enable-save-restore=true
 tx-pool-save-file="txpool.dump"
 ## Layered
@@ -263,6 +266,7 @@ plugins-verification-mode="none"
 # snapsync
 snapsync-synchronizer-transaction-indexing-enabled=true
 snapsync-synchronizer-pre-checkpoint-headers-only-enabled=true
+snapsync-synchronizer-skip-pre-checkpoint-headers-enabled=false
 
 # history expiry
 history-expiry-prune=false

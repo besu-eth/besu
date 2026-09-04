@@ -10,7 +10,7 @@
     "id": 448,
     "error": {
       "code": -32602,
-      "message" : "Invalid transaction hash params"
+      "message" : "Invalid block hash params"
     }
   },
   "statusCode": 200

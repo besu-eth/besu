@@ -446,49 +446,50 @@ public class LayeredPendingTransactions implements PendingTransactions {
       // CodeDelegation txs are present. Execution can skip individual authorization tuples while
       // the outer transaction stays valid; a skipped tuple does NOT increment the authority nonce.
       // Read the actual post-block authority nonce from the world state as of the just-added block.
-      final var maybeWorldState =
-          worldStateArchive.getWorldState(
-              WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(blockHeader));
-      if (maybeWorldState.isPresent()) {
-        try (final WorldState worldState = maybeWorldState.get()) {
-          codeDelegationTxs.forEach(
-              transaction ->
-                  transaction
-                      .getCodeDelegationList()
-                      .get()
-                      .forEach(
-                          cd ->
-                              cd.authorizer()
-                                  .ifPresent(
-                                      address -> {
-                                        final Account account = worldState.get(address);
-                                        // An applied tuple increments the authority nonce by one,
-                                        // so the tuple is confirmed only when the post-block nonce
-                                        // is exactly one past its declared nonce. A skipped tuple
-                                        // leaves the nonce unchanged (or the account absent), so it
-                                        // is ignored and never purges the authority's pending txs.
-                                        if (account != null
-                                            && account.getNonce() - 1 == cd.nonce()) {
-                                          maxConfirmedNonceBySender.merge(
-                                              address, cd.nonce(), Math::max);
-                                        }
-                                      })));
-        } catch (final Exception e) {
-          LOG.error(
-              "Error reading world state at {} to reconcile code-delegation authority nonces.",
-              blockHeader.toLogString(),
-              e);
+      try {
+        final var maybeWorldState =
+            worldStateArchive.getWorldState(
+                WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(blockHeader));
+        if (maybeWorldState.isPresent()) {
+          try (final WorldState worldState = maybeWorldState.get()) {
+            codeDelegationTxs.forEach(
+                transaction ->
+                    transaction
+                        .getCodeDelegationList()
+                        .get()
+                        .forEach(
+                            cd ->
+                                cd.authorizer()
+                                    .ifPresent(
+                                        address -> {
+                                          final Account account = worldState.get(address);
+                                          // An applied tuple increments the authority nonce by one,
+                                          // so the tuple is confirmed only when the post-block
+                                          // nonce is exactly one past its declared nonce.
+                                          if (account != null
+                                              && account.getNonce() - 1 == cd.nonce()) {
+                                            maxConfirmedNonceBySender.merge(
+                                                address, cd.nonce(), Math::max);
+                                          }
+                                        })));
+          }
+        } else {
+          // The world state as of the confirmed block may not be reconstructable (eg, it is
+          // already several blocks behind head). Reconcile with the confirmed sender nonce only,
+          // rather than reading authority nonce from a different block; this can under-purge but
+          // never over-purges a still-valid pending transaction.
+          LOG.atDebug()
+              .setMessage(
+                  "World state at {} unavailable, reconciling with confirmed sender nonce only")
+              .addArgument(blockHeader::toLogString)
+              .log();
         }
-      } else {
-        // The world state as of the confirmed block may not be reconstructable (for example, it is
-        // already several blocks behind head). Reconcile with the confirmed sender nonce only,
-        // rather than reading authority nonce from a different block; this can under-purge but
-        // never over-purges a still-valid pending transaction.
-        LOG.atDebug()
-            .setMessage(
-                "World state at {} unavailable, reconciling with confirmed sender nonce only")
-            .addArgument(blockHeader::toLogString)
-            .log();
+      } catch (final Exception e) {
+        LOG.error(
+            "Error reading world state at {} to reconcile code-delegation authority nonces,"
+                + " falling back to sender-only nonce reconciliation.",
+            blockHeader.toLogString(),
+            e);
       }
     }
     return maxConfirmedNonceBySender;

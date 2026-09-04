@@ -20,6 +20,7 @@ import static java.util.Collections.singletonList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.mainnet.ValidationResult.valid;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.EXCEEDS_BLOCK_GAS_LIMIT;
+import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.EXCEEDS_MAX_TX_BYTES;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.GAS_PRICE_TOO_LOW;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.INVALID_TRANSACTION_FORMAT;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.NONCE_TOO_FAR_IN_FUTURE_FOR_SENDER;
@@ -64,6 +65,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Stream;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledIf;
 import org.junit.jupiter.api.condition.EnabledIf;
@@ -80,6 +82,16 @@ import org.mockito.junit.jupiter.MockitoSettings;
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = LENIENT)
 public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoolTestBase {
+
+  @Test
+  public void blobCustodyColumnsStartsEmptyAndRoundTripsAfterUpdate() {
+    assertThat(transactionPool.getBlobCustodyColumns()).isEmpty();
+
+    final Bytes custodyColumns = Bytes.repeat((byte) 0xAB, 16);
+    transactionPool.updateBlobCustodyColumns(custodyColumns);
+
+    assertThat(transactionPool.getBlobCustodyColumns()).contains(custodyColumns);
+  }
 
   @ParameterizedTest
   @ValueSource(booleans = {true, false})
@@ -429,6 +441,92 @@ public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoo
 
     addAndAssertTransactionViaApiValid(transaction0a, noLocalPriority);
     addAndAssertTransactionViaApiInvalid(transaction0b, TRANSACTION_REPLACEMENT_UNDERPRICED);
+  }
+
+  /** Encoded overhead around the payload, measured so tests can hit the cap exactly. */
+  private int encodedOverheadForLargePayload() {
+    final int probePayload = TransactionPoolConfiguration.DEFAULT_TX_POOL_MAX_TX_BYTES;
+    final Transaction probe =
+        createBaseTransaction(0)
+            .payload(Bytes.wrap(new byte[probePayload]))
+            .createTransaction(KEY_PAIR1);
+    return probe.getSizeForBlockInclusion() - probePayload;
+  }
+
+  private Transaction transactionOfEncodedSize(final int targetEncodedSize) {
+    // The ECDSA signature's r/s components are minimally RLP-encoded, so their byte length
+    // varies (about 1 in 256 times a leading zero byte is dropped) depending on the signed
+    // message. Since every payload length signs a different message, the overhead measured
+    // against one transaction isn't guaranteed to carry over exactly to another: adjust and
+    // re-sign until the actual encoded size lands on the target instead of assuming it will.
+    int payloadSize = targetEncodedSize - encodedOverheadForLargePayload();
+    for (int attempt = 0; attempt < 5; attempt++) {
+      final Transaction tx =
+          createBaseTransaction(0)
+              .payload(Bytes.wrap(new byte[payloadSize]))
+              .createTransaction(KEY_PAIR1);
+      final int actualEncodedSize = tx.getSizeForBlockInclusion();
+      if (actualEncodedSize == targetEncodedSize) {
+        return tx;
+      }
+      payloadSize += targetEncodedSize - actualEncodedSize;
+    }
+    throw new AssertionError(
+        "Could not converge on a transaction of encoded size " + targetEncodedSize);
+  }
+
+  @Test
+  public void shouldRejectLocalTransactionExceedingMaxEncodedSize() {
+    final Transaction oversized =
+        transactionOfEncodedSize(TransactionPoolConfiguration.DEFAULT_TX_POOL_MAX_TX_BYTES + 1);
+    givenTransactionIsValid(oversized);
+
+    addAndAssertTransactionViaApiInvalid(oversized, EXCEEDS_MAX_TX_BYTES);
+  }
+
+  @Test
+  public void shouldRejectRemoteTransactionExceedingMaxEncodedSize() {
+    // The relay case from the report:
+    // an oversized transaction arriving over p2p must not be re-broadcast.
+    final Transaction oversized =
+        transactionOfEncodedSize(TransactionPoolConfiguration.DEFAULT_TX_POOL_MAX_TX_BYTES + 1);
+    givenTransactionIsValid(oversized);
+
+    addAndAssertRemoteTransactionInvalid(oversized);
+  }
+
+  @Test
+  public void shouldAcceptTransactionExactlyAtMaxEncodedSize() {
+    // The cap is inclusive:
+    // 128 KiB exactly is still accepted, matching the other clients.
+    final Transaction atLimit =
+        transactionOfEncodedSize(TransactionPoolConfiguration.DEFAULT_TX_POOL_MAX_TX_BYTES);
+    givenTransactionIsValid(atLimit);
+
+    addAndAssertTransactionViaApiValid(atLimit, false);
+  }
+
+  @Test
+  public void shouldHonourConfiguredMaxEncodedSize() {
+    final Transaction tx =
+        transactionOfEncodedSize(TransactionPoolConfiguration.DEFAULT_TX_POOL_MAX_TX_BYTES);
+    givenTransactionIsValid(tx);
+
+    // Same transaction that is fine at the default becomes invalid under a tighter cap.
+    transactionPool =
+        createTransactionPool(
+            b -> b.minGasPrice(Wei.of(2)).txPoolMaxTxBytes(tx.getSizeForBlockInclusion() - 1));
+
+    addAndAssertTransactionViaApiInvalid(tx, EXCEEDS_MAX_TX_BYTES);
+  }
+
+  @Test
+  public void shouldNotRejectOrdinarySizedTransaction() {
+    // Non-regression: the cap must not disturb normal traffic.
+    final Transaction ordinary = createTransaction(0);
+    givenTransactionIsValid(ordinary);
+
+    addAndAssertTransactionViaApiValid(ordinary, false);
   }
 
   @Test

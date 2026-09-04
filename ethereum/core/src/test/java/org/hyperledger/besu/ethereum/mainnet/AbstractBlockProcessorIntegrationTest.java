@@ -271,7 +271,7 @@ class AbstractBlockProcessorIntegrationTest {
     MutableWorldState worldState = worldStateArchive.getWorldState();
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x3086411bd16f16bc32aa3d66fe714ad3b550f1cf984874a12eecea6c84d3b82a",
+            "0xbc68b632221f19f22fff7c5883755fe9610be5bbe8722cb6cdb6e8cbf9814a50",
             Wei.of(5),
             setSlot1Transaction,
             getSlot1Transaction,
@@ -727,7 +727,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x3e8f3a9a2085f356f1fd3a6376fe1840e4cb46a363bafe48e8115d688dc55442",
+            "0x85af922b9234c2137cf2bd030036ac011f5753aa5aec4fa46ab96c284acff4bb",
             Wei.of(5),
             setSlot1Transaction,
             getSlot1Transaction,
@@ -790,7 +790,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0xc8aeca86351eff24abc6f3b9a28982fb31822a427f44b70f5d7cec3bb31581a6",
+            "0xaf3d69d49cf2f4a00b81c634bb9b89371827870c6410e6beb48b901bda5bd2a5",
             Wei.of(5),
             getSlot1Transaction,
             setSlot1Transaction,
@@ -861,7 +861,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x1e3c5d762e099a7967d7d226b12692c0f61f2aa2f807b60fa253693d9aa53196",
+            "0xece29b75b27056f5794e428c553fcaf2e4e281ff4a7b2c4627b82def314188d4",
             Wei.of(5),
             transactionTransfer,
             getcontractBalanceTransaction,
@@ -932,7 +932,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0xdb50ddd7ca8b00ebcdf43b72adeea2d999bc3f50d00b9d0aca06f2bef3cd472f",
+            "0xfd9cc32aad4462bf112f8c6b35f24fe5fe3ef190dff017ffec1f1938c19bda0c",
             Wei.of(5),
             transactionTransfer,
             sendEthFromContractTransaction,
@@ -1002,7 +1002,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x2fd424ddb705b55346a535e99bcceff9a8ae0b19d037ffcad09b2d951a7a6226",
+            "0xe7baefd8e65f1205bc45089d0b67d8caf169323ba0a859f319c871e043884a68",
             Wei.of(5),
             transactionTransfer,
             getcontractBalanceTransaction,
@@ -1074,7 +1074,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x2fd424ddb705b55346a535e99bcceff9a8ae0b19d037ffcad09b2d951a7a6226",
+            "0xe7baefd8e65f1205bc45089d0b67d8caf169323ba0a859f319c871e043884a68",
             Wei.of(5),
             transactionTransfer,
             sendEthFromContractTransaction,
