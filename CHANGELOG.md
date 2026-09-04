@@ -26,6 +26,8 @@
 - GraphQL `logs(filter: ...)` no longer fails when the filter's `topics` field is omitted or explicitly null, on both the top-level `logs` query and the block-scoped one. The schema declares `topics` nullable and documents "[] or nil matches any topic list", but the field was dereferenced unguarded, so a documented-valid query returned a `DataFetchingException` and `data: null`. [#11188](https://github.com/besu-eth/besu/pull/11188)
 - The Engine API JWT fast-path cache now compares the presented bearer token against the cached one with `MessageDigest.isEqual` over UTF-8 bytes instead of `String.equals`, so the comparison does not return early on the first differing byte.
 - Fix ENR fork ID not updating after timestamp-scheduled forks when no block lands exactly on the fork timestamp. [#10882](https://github.com/besu-eth/besu/issues/10882)
+- Besu no longer announces the EIP-4844 version 0 size of a blob transaction while serving the EIP-7594 version 1 (cell proofs) encoding. From Osaka on, a locally submitted version 0 blob transaction is upgraded to version 1 before it is pooled, but the pre-upgrade transaction was the one broadcast, so `NewPooledTransactionHashes` under-announced it by 6,226 bytes per blob against what `GetPooledTransactions` then served, and go-ethereum peers responded with `dropPeer()`. [#11203](https://github.com/besu-eth/besu/pull/11203)
+- `admin_logsRemoveCache` no longer reports `Cache Removed` when nothing was removed. `TransactionLogBloomCacher.removeSegments` skips the whole deletion while log bloom caching is in progress, so the RPC returned success while every cache file was still on disk. It now returns an error in that case. [#11080](https://github.com/besu-eth/besu/pull/11080)
 
 ### Additions and Improvements
 
@@ -86,6 +88,7 @@
 - Engine API timestamps above `2^63-1` are no longer treated as negative: `engine_newPayload` rejected such a payload's withdrawals as pre-Shanghai, `engine_forkchoiceUpdated` failed to parse the payload attributes timestamp at all, and post-merge header validation saw the block as older than its parent.
 
 ### Additions and Improvements
+- Add `eth_getRawTransactionByHash` JSON-RPC method. [#11170](https://github.com/besu-eth/besu/pull/11170)
 - Add JMH `GasProfiler` that emits `mgas_per_s` as a secondary metric on each benchmark iteration using Besu's own `GasCalculator`. Enable with `-PgasProfiler=true`; override the EVM fork with `-PgasProfilerFork=<fork>` (defaults to Osaka). [#10807](https://github.com/besu-eth/besu/pull/10807)
 - Align Kotlin runtime dependencies to 2.4.0 to support plugins compiled against the Kotlin 2.4 API. [#10983](https://github.com/besu-eth/besu/pull/10983)
 - Upgrade log4j to 2.25.5 [#11075](https://github.com/besu-eth/besu/pull/11075)
@@ -101,11 +104,13 @@
 - Extract the Plugin API worldstate-backend module. The world state backend contracts (`MutableWorldState`, `StateRootCommitter`, `StateRootComputation`, `WorldStateKeyValueStorage` and `WorldStatePreimageStorage`) now live in a new `besu-plugin-api-worldstate-backend` artifact, re-exported by `besu-plugin-api` so existing consumers are unaffected. [#11118](https://github.com/besu-eth/besu/pull/11118)
 - Extract the Plugin API execution module. The simulation and tracing contracts (`TransactionSimulationService`, `BlockSimulationService`, `TraceService`, the `BlockImportTracerProvider` / `BlockAwareOperationTracer` tracer SPI and the `BlockOverrides`, `PluginBlockSimulationResult`, `TransactionSimulationResult`, `BlockTraceResult` and `TransactionTraceResult` data types) now live in a new `besu-plugin-api-execution` artifact, re-exported by `besu-plugin-api` so existing consumers are unaffected. [#11172](https://github.com/besu-eth/besu/pull/11172)
 - Extract the Plugin API blockproduction module. The transaction selection and mining control contracts (`TransactionSelectionService`, `MiningService`, the `PluginTransactionSelector` / `PluginTransactionSelectorFactory` / `TransactionSelector` / `AbstractStatefulPluginTransactionSelector` selection SPI, `BlockTransactionSelectionService`, `SelectorsStateManager`, and the `TransactionEvaluationContext` and `TransactionSelectionResult` data types) now live in a new `besu-plugin-api-blockproduction` artifact, re-exported by `besu-plugin-api` so existing consumers are unaffected. [#11182](https://github.com/besu-eth/besu/pull/11182)
+- Extract the Plugin API validation module. The protocol transaction validation contracts (`TransactionValidatorService` and the `TransactionValidationRule` SPI) now live in a new `besu-plugin-api-validation` artifact, re-exported by `besu-plugin-api` so existing consumers are unaffected. [#11227](https://github.com/besu-eth/besu/pull/11227)
 - Add `--p2p-discovery-port` and `--p2p-discovery-port-ipv6` flags to configure a separate UDP port for devp2p peer discovery, independent of the TCP p2p port. Specify `0` to request an ephemeral port from the OS. [#10718](https://github.com/besu-eth/besu/pull/10718)
 - Pending peer request iteration: `streamAvailablePeers()` scan replaced with an allocation-free capacity check. Reduces lock contention and GC pressure under a backlog of pending peer requests. [#10900](https://github.com/besu-eth/besu/pull/10900)
 - Engine API methods now execute concurrently, with only `engine_forkchoiceUpdated` and `engine_newPayload` calls processed serially in arrival order as the Engine API spec mandates. Previously all engine calls were serialized on a single thread, so light requests like `engine_getBlobsV2` could queue behind a block import and exceed the consensus client's timeout. [#11053](https://github.com/besu-eth/besu/pull/11053)
 - Add a server-side cap on EVM steps captured per debug_traceCallMany to prevent unbounded execution [#11142](https://github.com/besu-eth/besu/pull/11142)
 - Add EIP-8070 Engine API surface: `engine_getBlobsV4` and custodyColumns [#11141](https://github.com/besu-eth/besu/pull/11141)
+- Add metrics for `emptyblockperiodseconds` to aid with observability (e.g. diagnosing unhealthy vs quiet chains) [#11162](https://github.com/besu-eth/besu/pull/11162)
 
 ## 26.8.0
 

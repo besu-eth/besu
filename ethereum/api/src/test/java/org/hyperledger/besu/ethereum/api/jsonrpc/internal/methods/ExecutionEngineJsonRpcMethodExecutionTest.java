@@ -74,8 +74,11 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
     final CyclicBarrier bothStarted = new CyclicBarrier(2);
     final UnorderedStubEngineMethod method =
         new UnorderedStubEngineMethod(
+            protocolSchedule,
             protocolContext,
             engineCallListener,
+            ethPeers,
+            transactionPool,
             req -> {
               try {
                 bothStarted.await(10, TimeUnit.SECONDS);
@@ -146,10 +149,25 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
     private final Function<JsonRpcRequestContext, JsonRpcResponse> body;
 
     UnorderedStubEngineMethod(
+        final ProtocolSchedule protocolSchedule,
         final ProtocolContext protocolContext,
         final EngineCallListener engineCallListener,
+        final EthPeers ethPeers,
+        final TransactionPool transactionPool,
         final Function<JsonRpcRequestContext, JsonRpcResponse> body) {
-      super(vertx, protocolContext, engineCallListener);
+      super(
+          new ConstructorArgumentsBuilder()
+              .protocolSchedule(protocolSchedule)
+              .protocolContext(protocolContext)
+              .vertx(vertx)
+              .engineCallListener(engineCallListener)
+              .ethPeers(ethPeers)
+              .metricsSystem(new NoOpMetricsSystem())
+              .transactionPool(transactionPool)
+              .maxRequestBlocks(0)
+              .build(),
+          null,
+          null);
       this.body = body;
     }
 

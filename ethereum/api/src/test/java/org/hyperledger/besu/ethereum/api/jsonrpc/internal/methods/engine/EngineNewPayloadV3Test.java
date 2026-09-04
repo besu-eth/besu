@@ -200,7 +200,7 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
                 zeroParentBeaconBlockRootParam()));
 
     PayloadStatusV1 res = fromSuccessResp(resp);
-    assertThat(res.getStatusAsString()).isEqualTo(INVALID.name());
+    assertThat(res.getStatus()).isEqualTo(INVALID);
     assertThat(res.getError()).startsWith("Invalid versioned hash params");
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
@@ -282,7 +282,7 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
                 zeroParentBeaconBlockRootParam()));
 
     PayloadStatusV1 res = fromSuccessResp(resp);
-    assertThat(res.getStatusAsString()).isEqualTo(INVALID.name());
+    assertThat(res.getStatus()).isEqualTo(INVALID);
     assertThat(res.getError()).startsWith("Failed to decode transactions from block parameter");
     verify(engineCallListener, times(1)).executionEngineCalled();
   }

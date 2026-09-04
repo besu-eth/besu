@@ -104,7 +104,10 @@ public class AdminLogsRemoveCache implements JsonRpcMethod {
                     new InternalError(
                         "Error attempting to get TransactionLogBloomCacher. Please ensure that the TransactionLogBloomCacher is enabled."));
 
-    transactionLogBloomCacher.removeSegments(startBlock, stopBlock);
+    if (!transactionLogBloomCacher.removeSegments(startBlock, stopBlock)) {
+      return new JsonRpcErrorResponse(
+          requestContext.getRequest().getId(), RpcErrorType.CACHE_REMOVAL_IN_PROGRESS);
+    }
 
     return new JsonRpcSuccessResponse(
         requestContext.getRequest().getId(), Map.of("Status", "Cache Removed"));
