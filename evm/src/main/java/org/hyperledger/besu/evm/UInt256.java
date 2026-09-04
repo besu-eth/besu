@@ -389,7 +389,7 @@ public record UInt256(long u3, long u2, long u1, long u0) {
   /**
    * Bitwise shift left.
    *
-   * @param shift The number of bits to shift left (at most 0-256 (exclusive)).
+   * @param shift The number of bits to shift left (at most 0-256 (inclusive)).
    * @return The shifted UInt256.
    */
   public UInt256 shiftLeft(final int shift) {
@@ -399,7 +399,7 @@ public record UInt256(long u3, long u2, long u1, long u0) {
   /**
    * Bitwise shift right.
    *
-   * @param shift The number of bits to shift right (at most 0-256 (exclusive)).
+   * @param shift The number of bits to shift right (at most 0-256 (inclusive)).
    * @return The shifted UInt256.
    */
   public UInt256 shiftRight(final int shift) {
@@ -769,7 +769,7 @@ public record UInt256(long u3, long u2, long u1, long u0) {
   }
 
   /**
-   * Arithmetic right-shifts a 256-bit value in place by 0..255 bits, sign-extending with {@code
+   * Arithmetic right-shifts a 256-bit value in place by 0..256 bits, sign-extending with {@code
    * fill}.
    *
    * @param shift number of bits to shift
@@ -842,7 +842,7 @@ public record UInt256(long u3, long u2, long u1, long u0) {
   }
 
   /**
-   * Left-shifts a 256-bit value in place by 1..255 bits, zero-filling from the right.
+   * Left-shifts a 256-bit value in place by 0..256 bits, zero-filling from the right.
    *
    * @param shift number of bits to shift
    * @return the result
