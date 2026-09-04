@@ -29,11 +29,15 @@ public class BftAcceptanceTestParameterization {
         Arguments.of(
             "ibft2",
             new BftAcceptanceTestParameterization(
-                BesuNodeFactory::createIbft2Node, BesuNodeFactory::createIbft2NodeWithValidators)),
+                BesuNodeFactory::createIbft2Node,
+                BesuNodeFactory::createIbft2NodeFixedPort,
+                BesuNodeFactory::createIbft2NodeWithValidators)),
         Arguments.of(
             "qbft",
             new BftAcceptanceTestParameterization(
-                BesuNodeFactory::createQbftNode, BesuNodeFactory::createQbftNodeWithValidators)));
+                BesuNodeFactory::createQbftNode,
+                BesuNodeFactory::createQbftNodeFixedPort,
+                BesuNodeFactory::createQbftNodeWithValidators)));
   }
 
   @FunctionalInterface
@@ -50,11 +54,15 @@ public class BftAcceptanceTestParameterization {
   }
 
   private final NodeCreator creatorFn;
+  private final NodeCreator fixedPortCreatorFn;
   private final NodeWithValidatorsCreator createorWithValidatorFn;
 
   public BftAcceptanceTestParameterization(
-      final NodeCreator creatorFn, final NodeWithValidatorsCreator createorWithValidatorFn) {
+      final NodeCreator creatorFn,
+      final NodeCreator fixedPortCreatorFn,
+      final NodeWithValidatorsCreator createorWithValidatorFn) {
     this.creatorFn = creatorFn;
+    this.fixedPortCreatorFn = fixedPortCreatorFn;
     this.createorWithValidatorFn = createorWithValidatorFn;
   }
 
@@ -75,6 +83,23 @@ public class BftAcceptanceTestParameterization {
   public BesuNode createForestNode(final BesuNodeFactory factory, final String name)
       throws Exception {
     return creatorFn.create(factory, name, DataStorageFormat.FOREST);
+  }
+
+  // Fixed-port variants below. These give each node a deterministic, restart-stable p2p/RPC port
+  // and are intended for tests that stop and restart nodes
+  public BesuNode createBonsaiNodeFixedPort(final BesuNodeFactory factory, final String name)
+      throws Exception {
+    return fixedPortCreatorFn.create(factory, name, DataStorageFormat.BONSAI);
+  }
+
+  public BesuNode createBonsaiArchiveNodeFixedPort(final BesuNodeFactory factory, final String name)
+      throws Exception {
+    return fixedPortCreatorFn.create(factory, name, DataStorageFormat.X_BONSAI_ARCHIVE);
+  }
+
+  public BesuNode createForestNodeFixedPort(final BesuNodeFactory factory, final String name)
+      throws Exception {
+    return fixedPortCreatorFn.create(factory, name, DataStorageFormat.FOREST);
   }
 
   public BesuNode createNodeWithValidators(

@@ -79,11 +79,12 @@ public class BftMiningSoakTest extends ParameterizedBftTestBase {
     // in between certain steps. There should be no upper-limit to how long the test is run for
     assertThat(getTestDurationMins()).isGreaterThanOrEqualTo(MIN_TEST_TIME_MINS);
 
-    // Create a mix of Bonsai and Forest DB nodes
-    final BesuNode minerNode1 = nodeFactory.createBonsaiNode(besu, "miner1");
-    final BesuNode minerNode2 = nodeFactory.createBonsaiArchiveNode(besu, "miner2");
-    final BesuNode minerNode3 = nodeFactory.createBonsaiNode(besu, "miner3");
-    final BesuNode minerNode4 = nodeFactory.createForestNode(besu, "miner4");
+    // Create a mix of Bonsai and Forest DB nodes. Use fixed ports so that nodes reliably re-peer
+    // after restarts
+    final BesuNode minerNode1 = nodeFactory.createBonsaiNodeFixedPort(besu, "miner1");
+    final BesuNode minerNode2 = nodeFactory.createBonsaiArchiveNodeFixedPort(besu, "miner2");
+    final BesuNode minerNode3 = nodeFactory.createBonsaiNodeFixedPort(besu, "miner3");
+    final BesuNode minerNode4 = nodeFactory.createForestNodeFixedPort(besu, "miner4");
 
     // Each step should be given a minimum of 3 minutes to complete successfully. If the time
     // give to run the soak test results in a time-per-step lower than this then the time
