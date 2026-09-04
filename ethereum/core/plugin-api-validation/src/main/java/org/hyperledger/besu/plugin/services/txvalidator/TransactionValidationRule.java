@@ -18,7 +18,19 @@ import org.hyperledger.besu.datatypes.Transaction;
 
 import java.util.Optional;
 
-/** Allows you to implement a custom transaction validator */
+/**
+ * A custom transaction validation rule, applied wherever the node validates a transaction: pool
+ * admission, block import, block production and simulation. Rules can only be more restrictive, the
+ * standard protocol validation still applies. For gating pool admission only, use {@code
+ * TransactionPoolValidatorService} instead.
+ *
+ * <p>Because a rejection at block import makes this node reject blocks that peers without the rule
+ * accept, a rule must be applied uniformly across the network.
+ *
+ * <p>The transaction passed to the rule may not have passed the standard protocol validation, so
+ * accessors that recover the sender may throw. The rule is given no indication of which validation
+ * path invoked it.
+ */
 @FunctionalInterface
 public interface TransactionValidationRule {
   /**

@@ -70,6 +70,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.pluginadapter.TransactionPoolValidatorServiceImpl;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.pluginadapter.TransactionValidatorServiceImpl;
 import org.hyperledger.besu.ethereum.permissioning.PermissioningConfiguration;
 import org.hyperledger.besu.ethereum.permissioning.pluginadapter.PermissioningServiceImpl;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
@@ -87,7 +88,6 @@ import org.hyperledger.besu.plugin.services.storage.KeyValueStorageFactory;
 import org.hyperledger.besu.services.BesuConfigurationImpl;
 import org.hyperledger.besu.services.BesuPluginContextImpl;
 import org.hyperledger.besu.services.StorageServiceImpl;
-import org.hyperledger.besu.services.TransactionValidatorServiceImpl;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;

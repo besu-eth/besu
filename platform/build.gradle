@@ -62,6 +62,7 @@ dependencies {
     api project(':ethereum:core')
     api project(':ethereum:core:plugin-api-chain')
     api project(':ethereum:core:plugin-api-execution')
+    api project(':ethereum:core:plugin-api-validation')
     api project(':ethereum:core:plugin-api-worldstate')
     api project(':ethereum:core:plugin-api-worldstate-backend')
     api project(':ethereum:eth')
