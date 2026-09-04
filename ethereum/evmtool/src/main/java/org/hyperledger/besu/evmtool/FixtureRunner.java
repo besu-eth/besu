@@ -48,6 +48,22 @@ final class FixtureRunner {
   private FixtureRunner() {}
 
   /**
+   * Whether {@code path} lies under a {@code .meta} directory, which fixture trees use for
+   * generation metadata rather than runnable fixtures.
+   *
+   * <p>Compared element by element rather than by searching the rendered path for {@code "/.meta/"}
+   * so the check holds wherever the platform separator is not {@code '/'}.
+   */
+  private static boolean isUnderMetaDirectory(final Path path) {
+    for (final Path element : path) {
+      if (".meta".equals(element.toString())) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Collects the fixture files named by {@code paths}, expanding directories recursively.
    *
    * @param paths the paths given on the command line
@@ -63,7 +79,7 @@ final class FixtureRunner {
         try (Stream<Path> stream = Files.walk(path)) {
           stream
               .filter(p -> p.toString().endsWith(".json"))
-              .filter(p -> !p.toString().contains("/.meta/"))
+              .filter(p -> !isUnderMetaDirectory(p))
               .sorted()
               .forEach(files::add);
         }

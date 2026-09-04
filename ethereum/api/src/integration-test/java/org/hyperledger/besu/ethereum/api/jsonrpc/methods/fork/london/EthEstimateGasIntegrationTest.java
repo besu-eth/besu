@@ -95,7 +95,7 @@ public class EthEstimateGasIntegrationTest {
             .build();
 
     final JsonRpcResponse response = method.response(requestWithParams(callParameter));
-    final JsonRpcResponse expectedResponse = new JsonRpcSuccessResponse(null, "0x6429");
+    final JsonRpcResponse expectedResponse = new JsonRpcSuccessResponse(null, "0x62d4");
     assertThat(response).usingRecursiveComparison().isEqualTo(expectedResponse);
   }
 

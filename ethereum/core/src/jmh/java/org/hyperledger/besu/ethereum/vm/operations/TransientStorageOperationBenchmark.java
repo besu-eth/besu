@@ -26,6 +26,7 @@ import org.hyperledger.besu.ethereum.core.MessageFrameTestFixture;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.CancunGasCalculator;
+import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.operation.TLoadOperation;
 import org.hyperledger.besu.evm.operation.TStoreOperation;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
@@ -37,9 +38,11 @@ import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.TearDown;
+import org.openjdk.jmh.infra.BenchmarkParams;
+import org.openjdk.jmh.infra.Blackhole;
 
 @State(Scope.Thread)
-public class TransientStorageOperationBenchmark {
+public class TransientStorageOperationBenchmark implements GasCostBenchmark {
 
   private OperationBenchmarkHelper operationBenchmarkHelper;
   private TStoreOperation tstore;
@@ -78,6 +81,14 @@ public class TransientStorageOperationBenchmark {
   public void cleanUp() throws Exception {
     operationBenchmarkHelper.cleanUp();
   }
+
+  @Override
+  public long getGasCost(final BenchmarkParams params, final GasCalculator calc) {
+    return calc.getTransientStoreOperationGasCost() + calc.getTransientLoadOperationGasCost();
+  }
+
+  @Override
+  public void executeOperation(final Blackhole blackhole) {}
 
   @Benchmark
   public Bytes executeOperation() {

@@ -30,6 +30,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorR
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
+import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
@@ -74,12 +75,17 @@ class TestingBuildBlockV1Test {
   @Mock private TransactionPool transactionPool;
   @Mock private EthScheduler ethScheduler;
   @Mock private MutableBlockchain blockchain;
+  @Mock private Block genesisBlock;
+  @Mock private BlockHeader genesisHeader;
 
   private TestingBuildBlockV1 method;
 
   @BeforeEach
   void setUp() {
     when(protocolContext.getBlockchain()).thenReturn(blockchain);
+    when(blockchain.getGenesisBlock()).thenReturn(genesisBlock);
+    when(genesisBlock.getHeader()).thenReturn(genesisHeader);
+    when(genesisHeader.getGasLimit()).thenReturn(30_000_000L);
     method =
         new TestingBuildBlockV1(
             protocolContext, protocolSchedule, miningConfiguration, transactionPool, ethScheduler);

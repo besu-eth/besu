@@ -28,6 +28,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
+@SuppressWarnings("removal")
 public class BesuCommandCustomFactoryTest {
 
   @Mock private PluginVersionsProvider pluginVersionsProvider;

@@ -63,6 +63,25 @@ class BlockchainBasedBlockHashLookupTest {
             createHeader(CURRENT_BLOCK_NUMBER, headers[headers.length - 1]), blockchain);
   }
 
+  @Test
+  void shouldSeedAccessedAncestorsWithParentOfCurrentBlock() {
+    Assertions.assertThat(lookup.getAccessedAncestors())
+        .containsEntry((long) CURRENT_BLOCK_NUMBER - 1, headers[headers.length - 1].getBlockHash());
+  }
+
+  @Test
+  void shouldNotReportNegativeBlockNumberInAccessedAncestorsAtGenesis() {
+    // The parent seed is number-1, which is -1 at genesis. The map is part of block-processing
+    // outputs and feeds the EIP-8025 headers walk, so a negative key would send that walk below
+    // genesis.
+    final BlockHashLookup genesisLookup =
+        new BlockchainBasedBlockHashLookup(createHeader(0, null), blockchain);
+
+    Assertions.assertThat(genesisLookup.getAccessedAncestors()).isEmpty();
+    Assertions.assertThat(genesisLookup.getAccessedAncestors().keySet())
+        .allMatch(number -> number >= 0);
+  }
+
   private void setUpBlockchain(final int blockNumberAtHead) {
     headers = new BlockHeader[blockNumberAtHead];
     BlockHeader parentHeader = null;

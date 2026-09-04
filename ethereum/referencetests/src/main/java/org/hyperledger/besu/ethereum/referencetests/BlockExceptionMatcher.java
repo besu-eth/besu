@@ -18,8 +18,11 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.regex.Pattern;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -34,6 +37,12 @@ import com.google.common.base.Splitter;
  * block-exception-mapping.json}, which mirrors the Python implementation at: <a
  * href="https://github.com/ethereum/execution-specs/blob/mainnet/packages/testing/src/execution_testing/client_clis/clis/besu.py">...</a>
  *
+ * <p>Two surfaces share the file. {@link #matches} answers for a message produced by block import,
+ * which is what the JUnit reference tests see; {@link #matchesEngine} answers for one produced over
+ * the Engine API, which is what evmtool's {@code engine-test} sees. The engine path runs the same
+ * block processing, so it inherits every block-import mapping and the file's {@code engine} section
+ * only carries what {@code engine_newPayloadVX} adds.
+ *
  * <p>To update the mapping, edit {@code block-exception-mapping.json} only — no Java changes
  * needed.
  */
@@ -41,11 +50,10 @@ public final class BlockExceptionMatcher {
 
   private static final Map<String, String> SUBSTRING_MAP;
   private static final Map<String, Pattern> REGEX_MAP;
+  private static final Map<String, String> ENGINE_SUBSTRING_MAP;
+  private static final Map<String, Pattern> ENGINE_REGEX_MAP;
 
   static {
-    final Map<String, String> substrings = new HashMap<>();
-    final Map<String, Pattern> regexes = new HashMap<>();
-
     try (InputStream in =
         BlockExceptionMatcher.class
             .getClassLoader()
@@ -56,20 +64,36 @@ public final class BlockExceptionMatcher {
       }
 
       final JsonNode root = new ObjectMapper().readTree(in);
-
-      for (var e : root.path("substring").properties()) {
-        substrings.put(e.getKey(), e.getValue().asText());
-      }
-      for (var e : root.path("regex").properties()) {
-        regexes.put(e.getKey(), Pattern.compile(e.getValue().asText()));
-      }
+      SUBSTRING_MAP = readSubstrings(root);
+      REGEX_MAP = readRegexes(root);
+      final JsonNode engine = root.path("engine");
+      ENGINE_SUBSTRING_MAP = readSubstrings(engine);
+      ENGINE_REGEX_MAP = readRegexes(engine);
 
     } catch (IOException ex) {
       throw new IllegalStateException("Failed to load block-exception-mapping.json", ex);
     }
+  }
 
-    SUBSTRING_MAP = Collections.unmodifiableMap(substrings);
-    REGEX_MAP = Collections.unmodifiableMap(regexes);
+  // Keys beginning with '_' are the section comments the file is annotated with, not exceptions.
+  private static Map<String, String> readSubstrings(final JsonNode section) {
+    final Map<String, String> substrings = new HashMap<>();
+    for (var e : section.path("substring").properties()) {
+      if (!e.getKey().startsWith("_")) {
+        substrings.put(e.getKey(), e.getValue().asText());
+      }
+    }
+    return Collections.unmodifiableMap(substrings);
+  }
+
+  private static Map<String, Pattern> readRegexes(final JsonNode section) {
+    final Map<String, Pattern> regexes = new HashMap<>();
+    for (var e : section.path("regex").properties()) {
+      if (!e.getKey().startsWith("_")) {
+        regexes.put(e.getKey(), Pattern.compile(e.getValue().asText()));
+      }
+    }
+    return Collections.unmodifiableMap(regexes);
   }
 
   private BlockExceptionMatcher() {}
@@ -97,15 +121,81 @@ public final class BlockExceptionMatcher {
   }
 
   private static boolean matchesSingle(final String key, final String actualErrorMessage) {
-    final String substringPattern = SUBSTRING_MAP.get(key);
-    if (substringPattern != null) {
-      return actualErrorMessage.contains(substringPattern);
+    return matchesSingle(key, actualErrorMessage, SUBSTRING_MAP, REGEX_MAP);
+  }
+
+  private static boolean matchesSingle(
+      final String key,
+      final String actualErrorMessage,
+      final Map<String, String> substrings,
+      final Map<String, Pattern> regexes) {
+    final String substringPattern = substrings.get(key);
+    if (substringPattern != null && actualErrorMessage.contains(substringPattern)) {
+      return true;
     }
-    final Pattern regexPattern = REGEX_MAP.get(key);
-    if (regexPattern != null) {
-      return regexPattern.matcher(actualErrorMessage).find();
+    final Pattern regexPattern = regexes.get(key);
+    return regexPattern != null && regexPattern.matcher(actualErrorMessage).find();
+  }
+
+  /**
+   * As {@link #matches}, for a message produced over the Engine API rather than by block import.
+   *
+   * <p>The engine path reaches {@code validateAndProcessBlock} through {@code
+   * MergeCoordinator.rememberBlock}, so every block-import mapping applies to it too; the engine
+   * section of the mapping file only adds the messages {@code engine_newPayloadVX} produces itself.
+   * A message matching either counts.
+   *
+   * @param exceptionKeyExpr the exception key expression from the fixture, {@code |}-separated
+   * @param actualErrorMessage the error message Besu returned with the INVALID status
+   * @return {@code true} if the message matches at least one of the expected patterns
+   */
+  public static boolean matchesEngine(
+      final String exceptionKeyExpr, final String actualErrorMessage) {
+    for (final String key : Splitter.on('|').split(exceptionKeyExpr)) {
+      final String k = key.strip();
+      if (matchesSingle(k, actualErrorMessage, ENGINE_SUBSTRING_MAP, ENGINE_REGEX_MAP)
+          || matchesSingle(k, actualErrorMessage)) {
+        return true;
+      }
     }
     return false;
+  }
+
+  /**
+   * Every exception key whose pattern matches the given message, for diagnostics: an oracle failure
+   * is far easier to read when it says what Besu's message did map to.
+   *
+   * @param actualErrorMessage the error message Besu returned
+   * @param includeEngine whether to consult the Engine API section as well
+   * @return the matching exception keys, in a stable order, possibly empty
+   */
+  public static Set<String> matchingExceptions(
+      final String actualErrorMessage, final boolean includeEngine) {
+    final Set<String> matched = new TreeSet<>();
+    if (actualErrorMessage == null) {
+      return matched;
+    }
+    final List<Map<String, String>> substringMaps =
+        includeEngine ? List.of(SUBSTRING_MAP, ENGINE_SUBSTRING_MAP) : List.of(SUBSTRING_MAP);
+    final List<Map<String, Pattern>> regexMaps =
+        includeEngine ? List.of(REGEX_MAP, ENGINE_REGEX_MAP) : List.of(REGEX_MAP);
+    for (final Map<String, String> map : substringMaps) {
+      map.forEach(
+          (key, pattern) -> {
+            if (actualErrorMessage.contains(pattern)) {
+              matched.add(key);
+            }
+          });
+    }
+    for (final Map<String, Pattern> map : regexMaps) {
+      map.forEach(
+          (key, pattern) -> {
+            if (pattern.matcher(actualErrorMessage).find()) {
+              matched.add(key);
+            }
+          });
+    }
+    return matched;
   }
 
   /**

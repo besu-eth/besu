@@ -265,6 +265,13 @@ public class DNSResolver {
     try {
       // Future.await parks current virtual thread and waits for the result. Any failure is
       // thrown as a Throwable.
+      // NOTE: Vert.x 5's DnsClientImpl (rewritten to delegate to Netty's DnsNameResolver) filters
+      // resolved records with a case-sensitive comparison of the answer's owner name against the
+      // query name (record.name().equals(name)); Vert.x 4.5.x had no such check. A server whose
+      // TXT response doesn't echo the query name byte-for-byte (e.g. differing case from
+      // lowercased zone data) will have its records silently dropped here rather than raising an
+      // error, which would surface as this method returning Optional.empty() for a subdomain that
+      // genuinely has a record. See MockDnsServerVerticle for how this was diagnosed.
       final List<String> records = Future.await(dnsClient.resolveTXT(domainName));
       if (records == null || records.isEmpty()) {
         return Optional.empty();

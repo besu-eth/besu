@@ -44,7 +44,8 @@ public class VersionedHash extends BytesHolder {
                 Bytes.of(SHA256_VERSION_ID),
                 hash.getBytes().slice(1, hash.getBytes().size() - 1))));
     if (versionId != SHA256_VERSION_ID) {
-      throw new IllegalArgumentException("Only supported hash version is 0x01, sha256 hash.");
+      throw new IllegalArgumentException(
+          "Invalid versionedHash: only supported hash version is 0x01, sha256 hash.");
     }
   }
 
@@ -58,7 +59,8 @@ public class VersionedHash extends BytesHolder {
     super(typedHash);
     byte versionId = getBytes().get(0);
     if (versionId != SHA256_VERSION_ID) {
-      throw new IllegalArgumentException("Only supported hash version is 0x01, sha256 hash.");
+      throw new IllegalArgumentException(
+          "Invalid versionedHash: only supported hash version is 0x01, sha256 hash.");
     }
   }
 

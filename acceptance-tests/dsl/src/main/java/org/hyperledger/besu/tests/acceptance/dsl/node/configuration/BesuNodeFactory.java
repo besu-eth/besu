@@ -358,18 +358,26 @@ public class BesuNodeFactory {
             .build());
   }
 
-  public BesuNode createIbft2Node(
-      final String name, final boolean fixedPort, final DataStorageFormat storageFormat)
+  public BesuNode createIbft2Node(final String name, final DataStorageFormat storageFormat)
+      throws IOException {
+    return createIbft2Node(name, storageFormat, false);
+  }
+
+  public BesuNode createIbft2NodeFixedPort(final String name, final DataStorageFormat storageFormat)
+      throws IOException {
+    return createIbft2Node(name, storageFormat, true);
+  }
+
+  private BesuNode createIbft2Node(
+      final String name, final DataStorageFormat storageFormat, final boolean fixedPort)
       throws IOException {
     JsonRpcConfiguration rpcConfig = node.createJsonRpcWithIbft2EnabledConfig(false);
     rpcConfig.addRpcApi("ADMIN,TXPOOL");
     if (fixedPort) {
-      rpcConfig.setPort(
-          Math.abs(name.hashCode() % 60000)
-              + 1024); // Generate a consistent port for p2p based on node name
+      rpcConfig.setPort(fixedRpcPort(name));
     }
 
-    BesuNodeConfigurationBuilder builder =
+    final BesuNodeConfigurationBuilder builder =
         new BesuNodeConfigurationBuilder()
             .name(name)
             .miningEnabled()
@@ -382,27 +390,45 @@ public class BesuNodeFactory {
                     : DataStorageConfiguration.DEFAULT_BONSAI_CONFIG)
             .genesisConfigProvider(GenesisConfigurationFactory::createIbft2GenesisConfig);
     if (fixedPort) {
-      builder.p2pPort(
-          Math.abs(name.hashCode() % 60000)
-              + 1024
-              + 500); // Generate a consistent port for p2p based on node name (+ 500 to avoid
-      // clashing with RPC port or other nodes with a similar name)
+      builder.p2pPort(fixedP2pPort(name));
     }
     return create(builder.build());
   }
 
-  public BesuNode createQbftNode(
-      final String name, final boolean fixedPort, final DataStorageFormat storageFormat)
+  // Deterministic per-node ports derived from the node name, so a node that is stopped and
+  // restarted rebinds the *same* address. Only the BFT soak test uses the *FixedPort factory
+  // methods: it restarts nodes (including the discovery bootnode) and relies on stable ports for
+  // re-peering. All other BFT acceptance tests use ephemeral ports (#11020) to avoid intermittent
+  // port-already-in-use failures when parallel test cases hash to the same port.
+  private static int fixedRpcPort(final String name) {
+    return Math.abs(name.hashCode() % 60000) + 1024;
+  }
+
+  private static int fixedP2pPort(final String name) {
+    // +500 to avoid clashing with the RPC port of a node whose name hashes nearby.
+    return Math.abs(name.hashCode() % 60000) + 1024 + 500;
+  }
+
+  public BesuNode createQbftNode(final String name, final DataStorageFormat storageFormat)
+      throws IOException {
+    return createQbftNode(name, storageFormat, false);
+  }
+
+  public BesuNode createQbftNodeFixedPort(final String name, final DataStorageFormat storageFormat)
+      throws IOException {
+    return createQbftNode(name, storageFormat, true);
+  }
+
+  private BesuNode createQbftNode(
+      final String name, final DataStorageFormat storageFormat, final boolean fixedPort)
       throws IOException {
     JsonRpcConfiguration rpcConfig = node.createJsonRpcWithQbftEnabledConfig(false);
     rpcConfig.addRpcApi("ADMIN,TXPOOL");
     if (fixedPort) {
-      rpcConfig.setPort(
-          Math.abs(name.hashCode() % 60000)
-              + 1024); // Generate a consistent port for p2p based on node name
+      rpcConfig.setPort(fixedRpcPort(name));
     }
 
-    BesuNodeConfigurationBuilder builder =
+    final BesuNodeConfigurationBuilder builder =
         new BesuNodeConfigurationBuilder()
             .name(name)
             .miningEnabled()
@@ -417,11 +443,7 @@ public class BesuNodeFactory {
                         : DataStorageConfiguration.DEFAULT_BONSAI_ARCHIVE_CONFIG)
             .genesisConfigProvider(GenesisConfigurationFactory::createQbftGenesisConfig);
     if (fixedPort) {
-      builder.p2pPort(
-          Math.abs(name.hashCode() % 60000)
-              + 1024
-              + 500); // Generate a consistent port for p2p based on node name (+ 500 to avoid
-      // clashing with RPC port or other nodes with a similar name)
+      builder.p2pPort(fixedP2pPort(name));
     }
     return create(builder.build());
   }
@@ -453,18 +475,12 @@ public class BesuNodeFactory {
             .build());
   }
 
-  public BesuNode createQbftMigrationNode(
-      final String name, final boolean fixedPort, final DataStorageFormat storageFormat)
+  public BesuNode createQbftMigrationNode(final String name, final DataStorageFormat storageFormat)
       throws IOException {
     JsonRpcConfiguration rpcConfig = node.createJsonRpcWithQbftEnabledConfig(false);
     rpcConfig.addRpcApi("ADMIN,TXPOOL");
-    if (fixedPort) {
-      rpcConfig.setPort(
-          Math.abs(name.hashCode() % 60000)
-              + 1024); // Generate a consistent port for p2p based on node name
-    }
 
-    BesuNodeConfigurationBuilder builder =
+    return create(
         new BesuNodeConfigurationBuilder()
             .name(name)
             .miningEnabled()
@@ -475,15 +491,8 @@ public class BesuNodeFactory {
                 storageFormat == DataStorageFormat.FOREST
                     ? DataStorageConfiguration.DEFAULT_FOREST_CONFIG
                     : DataStorageConfiguration.DEFAULT_BONSAI_CONFIG)
-            .genesisConfigProvider(GenesisConfigurationFactory::createQbftMigrationGenesisConfig);
-    if (fixedPort) {
-      builder.p2pPort(
-          Math.abs(name.hashCode() % 60000)
-              + 1024
-              + 500); // Generate a consistent port for p2p based on node name (+ 500 to avoid
-      // clashing with RPC port or other nodes with a similar name)
-    }
-    return create(builder.build());
+            .genesisConfigProvider(GenesisConfigurationFactory::createQbftMigrationGenesisConfig)
+            .build());
   }
 
   public BesuNode createCustomGenesisNode(

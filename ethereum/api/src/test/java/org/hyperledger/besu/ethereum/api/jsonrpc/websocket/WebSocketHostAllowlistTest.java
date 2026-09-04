@@ -74,7 +74,7 @@ public class WebSocketHostAllowlistTest {
 
     final Map<String, JsonRpcMethod> websocketMethods =
         new WebSocketMethodsFactory(
-                new SubscriptionManager(new NoOpMetricsSystem()), new HashMap<>())
+                new SubscriptionManager(new NoOpMetricsSystem()), new HashMap<>(), 0)
             .methods();
     webSocketMessageHandlerSpy =
         spy(
@@ -205,26 +205,25 @@ public class WebSocketHostAllowlistTest {
       final VertxTestContext testContext, final String hostname, final int expectedResponse)
       throws Throwable {
 
-    httpClient.request(
-        HttpMethod.POST,
-        websocketPort,
-        webSocketConfiguration.getHost(),
-        "/",
-        request -> {
-          request.result().putHeader("Host", hostname);
-          request.result().end();
-          request
-              .result()
-              .send(
-                  response -> {
-                    if (response.succeeded()) {
-                      assertThat(response.result().statusCode()).isEqualTo(expectedResponse);
-                      testContext.completeNow();
-                    } else {
-                      testContext.failNow(response.cause());
-                    }
-                  });
-        });
+    httpClient
+        .request(HttpMethod.POST, websocketPort, webSocketConfiguration.getHost(), "/")
+        .onComplete(
+            request -> {
+              request.result().putHeader("Host", hostname);
+              request.result().end();
+              request
+                  .result()
+                  .send()
+                  .onComplete(
+                      response -> {
+                        if (response.succeeded()) {
+                          assertThat(response.result().statusCode()).isEqualTo(expectedResponse);
+                          testContext.completeNow();
+                        } else {
+                          testContext.failNow(response.cause());
+                        }
+                      });
+            });
     assertThat(testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
         .isTrue();
     if (testContext.failed()) {

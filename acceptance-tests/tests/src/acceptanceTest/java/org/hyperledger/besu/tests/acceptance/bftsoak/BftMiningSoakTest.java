@@ -79,7 +79,8 @@ public class BftMiningSoakTest extends ParameterizedBftTestBase {
     // in between certain steps. There should be no upper-limit to how long the test is run for
     assertThat(getTestDurationMins()).isGreaterThanOrEqualTo(MIN_TEST_TIME_MINS);
 
-    // Create a mix of Bonsai and Forest DB nodes
+    // Create a mix of Bonsai and Forest DB nodes. Use fixed ports so that nodes reliably re-peer
+    // after restarts
     final BesuNode minerNode1 = nodeFactory.createBonsaiNodeFixedPort(besu, "miner1");
     final BesuNode minerNode2 = nodeFactory.createBonsaiArchiveNodeFixedPort(besu, "miner2");
     final BesuNode minerNode3 = nodeFactory.createBonsaiNodeFixedPort(besu, "miner3");
