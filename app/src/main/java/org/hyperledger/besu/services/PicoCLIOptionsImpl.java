@@ -28,6 +28,7 @@ public class PicoCLIOptionsImpl implements PicoCLIOptions {
   private static final Logger LOG = LoggerFactory.getLogger(PicoCLIOptionsImpl.class);
 
   private final CommandLine commandLine;
+  private boolean optionsDefinitionCompleted = false;
 
   /**
    * Instantiates a new Pico cli options.
@@ -38,8 +39,19 @@ public class PicoCLIOptionsImpl implements PicoCLIOptions {
     this.commandLine = commandLine;
   }
 
+  /**
+   * Marks the end of the option-definition phase. The command line is parsed right after this call,
+   * so any later attempt to add options throws {@link OptionsAlreadyParsedException}.
+   */
+  public void optionsDefinitionCompleted() {
+    optionsDefinitionCompleted = true;
+  }
+
   @Override
   public void addPicoCLIOptions(final String namespace, final Object optionObject) {
+    if (optionsDefinitionCompleted) {
+      throw new OptionsAlreadyParsedException(namespace);
+    }
     final String pluginPrefix = "--plugin-" + namespace + "-";
     final String unstablePrefix = "--Xplugin-" + namespace + "-";
     final CommandSpec mixin = CommandSpec.forAnnotatedObject(optionObject);
@@ -58,6 +70,25 @@ public class PicoCLIOptionsImpl implements PicoCLIOptions {
       throw new RuntimeException("Error loading CLI options");
     } else {
       commandLine.getCommandSpec().addMixin("Plugin " + namespace, mixin);
+    }
+  }
+
+  /**
+   * Thrown when a plugin adds CLI options after the command line has been parsed, typically from
+   * {@code register()} instead of {@code defineOptions()}.
+   */
+  public static class OptionsAlreadyParsedException extends IllegalStateException {
+    /**
+     * Creates the exception for the given option namespace.
+     *
+     * @param namespace the namespace the options were added under
+     */
+    public OptionsAlreadyParsedException(final String namespace) {
+      super(
+          "CLI options for namespace '"
+              + namespace
+              + "' were added after the command line was parsed; plugins must declare their"
+              + " options in defineOptions(), not in register()");
     }
   }
 }

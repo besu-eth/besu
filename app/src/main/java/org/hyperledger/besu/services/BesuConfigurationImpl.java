@@ -38,7 +38,7 @@ public class BesuConfigurationImpl
   private MiningConfiguration miningConfiguration;
   private String rpcHttpHost = JsonRpcConfiguration.DEFAULT_JSON_RPC_HOST;
   private Integer rpcHttpPort = JsonRpcConfiguration.DEFAULT_JSON_RPC_PORT;
-  private long rpcHttpTimeoutSec = JsonRpcConfiguration.DEFAULT_HTTP_TIMEOUT_SEC;
+  private final long rpcHttpTimeoutSec = JsonRpcConfiguration.DEFAULT_HTTP_TIMEOUT_SEC;
 
   /** Default Constructor. */
   public BesuConfigurationImpl() {}
@@ -79,9 +79,12 @@ public class BesuConfigurationImpl
    * @return BesuConfigurationImpl instance
    */
   public BesuConfigurationImpl withJsonRpcHttpOptions(final JsonRpcHttpOptions rpcHttpOptions) {
+    // Read the bound option values directly: this runs before the options are validated, and
+    // building the full JsonRpcConfiguration would fail on an invalid TLS setup before the
+    // validation message is produced. The timeout is not an option of this group, so the default
+    // stays in place, as it did when the configuration was built here.
     this.rpcHttpHost = rpcHttpOptions.getRpcHttpHost();
     this.rpcHttpPort = rpcHttpOptions.getRpcHttpPort();
-    this.rpcHttpTimeoutSec = rpcHttpOptions.jsonRpcConfiguration().getHttpTimeoutSec();
     return this;
   }
 
