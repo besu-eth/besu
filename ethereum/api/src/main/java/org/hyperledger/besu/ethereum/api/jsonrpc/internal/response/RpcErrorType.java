@@ -215,6 +215,10 @@ public enum RpcErrorType implements RpcMethodError {
   // Worldstate errors
   WORLD_STATE_UNAVAILABLE(-32000, "World state unavailable"),
 
+  // Log bloom cache errors
+  CACHE_REMOVAL_IN_PROGRESS(
+      -32000, "Cache removal is unavailable while log bloom caching is in progress"),
+
   // Debug failures
   BLOCK_NOT_FOUND(-32000, "Block not found"),
   PARENT_BLOCK_NOT_FOUND(-32000, "Parent block not found"),
