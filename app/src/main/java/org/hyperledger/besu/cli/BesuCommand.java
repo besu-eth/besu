@@ -896,7 +896,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
   private IExecutionStrategy createOptionsDefinitionTask(final IExecutionStrategy nextStep) {
     return parseResult -> {
-      if (parseResult.isUsageHelpRequested() || parseResult.isVersionHelpRequested()) {
+      if (isHelpOrVersionRequested(parseResult)) {
         // suppressing the info log to avoid that plugin loading logs are printed
         // before the help or the version information
         suppressInfoLog();
@@ -913,13 +913,20 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
   private IExecutionStrategy createPluginRegistrationTask(final IExecutionStrategy nextStep) {
     return parseResult -> {
-      if (parseResult.isUsageHelpRequested() || parseResult.isVersionHelpRequested()) {
-        // The option list is complete, which is all help and version need: no plugin registers
-        return Optional.ofNullable(CommandLine.executeHelpRequest(parseResult)).orElse(0);
+      // Help or version requested for any command in the chain (e.g. `besu blocks --help`): the
+      // option list is complete, which is all they need, so no plugin registers
+      final Integer helpExitCode = CommandLine.executeHelpRequest(parseResult);
+      if (helpExitCode != null) {
+        return helpExitCode;
       }
       registerPlugins();
       return nextStep.execute(parseResult);
     };
+  }
+
+  private static boolean isHelpOrVersionRequested(final ParseResult parseResult) {
+    return parseResult.asCommandLineList().stream()
+        .anyMatch(cl -> cl.isUsageHelpRequested() || cl.isVersionHelpRequested());
   }
 
   /**

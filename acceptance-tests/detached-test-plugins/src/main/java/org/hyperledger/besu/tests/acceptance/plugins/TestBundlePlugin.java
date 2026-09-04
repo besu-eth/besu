@@ -75,15 +75,16 @@ public class TestBundlePlugin implements BesuPlugin {
   int failingNonce = -1;
 
   @Override
-  public void register(final ServiceManager serviceManager) {
-    this.serviceManager = serviceManager;
-    serviceManager.getService(PicoCLIOptions.class).orElseThrow().addPicoCLIOptions("bundle", this);
+  public void defineOptions(final PicoCLIOptions options) {
+    options.addPicoCLIOptions("bundle", this);
   }
 
   @Override
-  public void beforeExternalServices() {
+  public void register(final ServiceManager serviceManager) {
+    this.serviceManager = serviceManager;
+
     if (enabled) {
-      callbackDir = new File(System.getProperty("besu.plugins.dir", "plugins"));
+      callbackDir = PluginCallbackDir.of(serviceManager);
 
       serviceManager
           .getService(TransactionSelectionService.class)

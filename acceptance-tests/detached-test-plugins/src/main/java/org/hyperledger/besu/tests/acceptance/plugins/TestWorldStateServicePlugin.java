@@ -42,14 +42,15 @@ public class TestWorldStateServicePlugin implements BesuPlugin {
   boolean enabled = false;
 
   @Override
+  public void defineOptions(final PicoCLIOptions options) {
+    options.addPicoCLIOptions("world-state-service", this);
+  }
+
+  @Override
   public void register(final ServiceManager serviceManager) {
     LOG.info("Registering TestWorldStateServicePlugin");
     this.serviceManager = serviceManager;
-    serviceManager
-        .getService(PicoCLIOptions.class)
-        .orElseThrow()
-        .addPicoCLIOptions("world-state-service", this);
-    callbackDir = new File(System.getProperty("besu.plugins.dir", "plugins"));
+    callbackDir = PluginCallbackDir.of(serviceManager);
   }
 
   @Override

@@ -34,7 +34,6 @@ public class TestPicoCLIPlugin implements BesuPlugin {
 
   private static final String UNSET = "UNSET";
   private static final String FAIL_REGISTER = "FAILREGISTER";
-  private static final String FAIL_BEFORE_EXTERNAL_SERVICES = "FAILBEFOREEXTERNALSERVICES";
   private static final String FAIL_START = "FAILSTART";
   private static final String FAIL_AFTER_EXTERNAL_SERVICE_POST_MAIN_LOOP =
       "FAILAFTEREXTERNALSERVICEPOSTMAINLOOP";
@@ -57,7 +56,16 @@ public class TestPicoCLIPlugin implements BesuPlugin {
   private File callbackDir;
 
   @Override
+  public void defineOptions(final PicoCLIOptions options) {
+    LOG.info("Defining options.  Test Option is '{}'", testOption);
+    state = "definingOptions";
+    options.addPicoCLIOptions("test", this);
+    state = "optionsDefined";
+  }
+
+  @Override
   public void register(final ServiceManager context) {
+    // testOption is bound at this point
     LOG.info("Registering.  Test Option is '{}'", testOption);
     state = "registering";
 
@@ -66,27 +74,9 @@ public class TestPicoCLIPlugin implements BesuPlugin {
       throw new RuntimeException("I was told to fail at registration");
     }
 
-    context
-        .getService(PicoCLIOptions.class)
-        .ifPresent(picoCLIOptions -> picoCLIOptions.addPicoCLIOptions("test", this));
-
-    callbackDir = new File(System.getProperty("besu.plugins.dir", "plugins"));
+    callbackDir = PluginCallbackDir.of(context);
     writeSignal("registered");
     state = "registered";
-  }
-
-  @Override
-  public void beforeExternalServices() {
-    LOG.info("Before external services. Test Option is '{}'", testOption);
-    state = "beforeExternalServices";
-
-    if (FAIL_BEFORE_EXTERNAL_SERVICES.equals(testOption)) {
-      state = "failbeforeExternalServices";
-      throw new RuntimeException("I was told to fail before external services");
-    }
-
-    writeSignal("beforeExternalServices");
-    state = "beforeExternalServicesFinished";
   }
 
   @Override
