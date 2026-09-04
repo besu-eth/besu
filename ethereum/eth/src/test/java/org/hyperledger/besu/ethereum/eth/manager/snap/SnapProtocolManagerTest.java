@@ -44,8 +44,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
-import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
-import org.hyperledger.besu.plugin.services.MetricsSystem;
+import org.hyperledger.besu.metrics.StubMetricsSystem;
 
 import java.math.BigInteger;
 import java.util.ArrayList;
@@ -77,7 +76,7 @@ class SnapProtocolManagerTest {
   @Mock private Synchronizer synchronizer;
   @Mock private EthScheduler ethScheduler;
   @Mock private EthPeer ethPeer;
-  private final MetricsSystem metricsSystem = new NoOpMetricsSystem();
+  private final StubMetricsSystem metricsSystem = new StubMetricsSystem();
 
   private SnapProtocolManager snapProtocolManager;
 
@@ -213,6 +212,32 @@ class SnapProtocolManagerTest {
     snapProtocolManager.processMessage(SnapProtocol.SNAP1, getTrieNodesMessage(peerConnection, 2));
     // Completing the first task freed the slot, so the third request is now accepted.
     verify(ethScheduler, times(2)).scheduleServiceTask(any(Runnable.class));
+  }
+
+  @Test
+  void tracksGlobalInFlightGaugeWhenGlobalCapIsDisabled() {
+    snapProtocolManager = createSnapProtocolManager();
+
+    final MockPeerConnection peerConnection = snapPeerConnection();
+    stubPeer(ethPeer, peerConnection);
+    final List<CompletableFuture<Void>> scheduledTasks = new ArrayList<>();
+    when(ethScheduler.scheduleServiceTask(any(Runnable.class)))
+        .thenAnswer(
+            invocation -> {
+              final CompletableFuture<Void> future = new CompletableFuture<>();
+              scheduledTasks.add(future);
+              return future;
+            });
+
+    snapProtocolManager.processMessage(SnapProtocol.SNAP1, getTrieNodesMessage(peerConnection, 0));
+
+    assertThat(metricsSystem.getGaugeValue("snap_service_requests_in_flight_current"))
+        .isEqualTo(1.0);
+
+    scheduledTasks.get(0).complete(null);
+
+    assertThat(metricsSystem.getGaugeValue("snap_service_requests_in_flight_current"))
+        .isEqualTo(0.0);
   }
 
   @Test

@@ -121,11 +121,17 @@ public interface WithdrawalsValidator {
       if (withdrawalsRoot.isEmpty()) {
         return true; // pre-Shanghai block, no withdrawals root field
       }
-      final Hash expectedRoot = Hash.EMPTY_TRIE_HASH;
-      if (!expectedRoot.equals(withdrawalsRoot.get())) {
+      // A block with a withdrawalsRoot in the header but no withdrawals field in the body is
+      // malformed.
+      if (block.getBody().getWithdrawals().isEmpty()) {
+        LOG.warn(
+            "Invalid block: withdrawalsRoot present in header but withdrawals absent from body");
+        return false;
+      }
+      if (!Hash.EMPTY_TRIE_HASH.equals(withdrawalsRoot.get())) {
         LOG.warn(
             "Invalid block: withdrawals root mismatch (expected={}, actual={})",
-            expectedRoot,
+            Hash.EMPTY_TRIE_HASH,
             withdrawalsRoot.get());
         return false;
       }
