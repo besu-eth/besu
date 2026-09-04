@@ -28,8 +28,8 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.transaction.CallParameter;
 import org.hyperledger.besu.ethereum.transaction.PreCloseStateHandler;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
-import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
 
 import java.util.Optional;
 
@@ -92,8 +92,8 @@ public abstract class AbstractTraceCall extends AbstractTraceByBlock {
     final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(maybeBlockHeader.get());
 
     final TraceOptions effectiveTraceOptions = applyServerStepLimit(traceOptions);
-    final DebugOperationTracer tracer =
-        new DebugOperationTracer(effectiveTraceOptions.opCodeTracerConfig(), recordChildCallGas);
+    final OperationTracer tracer =
+        DebugOperationTracerFactory.create(effectiveTraceOptions, recordChildCallGas);
     return transactionSimulator
         .process(
             callParams,
@@ -138,6 +138,6 @@ public abstract class AbstractTraceCall extends AbstractTraceByBlock {
 
   protected abstract PreCloseStateHandler<Object> getSimulatorResultHandler(
       final JsonRpcRequestContext requestContext,
-      final DebugOperationTracer tracer,
+      final OperationTracer tracer,
       final ProtocolSpec protocolSpec);
 }

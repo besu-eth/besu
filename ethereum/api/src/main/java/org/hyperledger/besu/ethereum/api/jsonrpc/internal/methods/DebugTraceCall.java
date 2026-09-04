@@ -27,17 +27,15 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionT
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.OpCodeLoggerTracerResult;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
-import org.hyperledger.besu.ethereum.debug.TracerType;
 import org.hyperledger.besu.ethereum.mainnet.ImmutableTransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.transaction.PreCloseStateHandler;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
-import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
 
 import java.util.Optional;
 
@@ -105,7 +103,7 @@ public class DebugTraceCall extends AbstractTraceCall {
   @Override
   protected PreCloseStateHandler<Object> getSimulatorResultHandler(
       final JsonRpcRequestContext requestContext,
-      final DebugOperationTracer tracer,
+      final OperationTracer tracer,
       final ProtocolSpec protocolSpec) {
     return (mutableWorldState, maybeSimulatorResult) ->
         maybeSimulatorResult.map(
@@ -120,11 +118,8 @@ public class DebugTraceCall extends AbstractTraceCall {
               final TransactionTrace transactionTrace =
                   new TransactionTrace(
                       result.transaction(), result.result(), tracer.getTraceFrames());
-              final TraceOptions opts = getTraceOptions(requestContext);
-              if (opts.tracerType() == TracerType.OPCODE_TRACER) {
-                return new OpCodeLoggerTracerResult(transactionTrace, tracer.isLimitReached());
-              }
-              return DebugTraceTransactionStepFactory.create(opts, protocolSpec)
+              return DebugTraceTransactionStepFactory.create(
+                      getTraceOptions(requestContext), protocolSpec, tracer)
                   .apply(transactionTrace)
                   .getResult();
             });

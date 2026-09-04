@@ -15,30 +15,24 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTrace;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.CallTracerResultConverter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.DebugTraceTransactionResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.FourByteTracerResultConverter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.OpCodeLoggerTracerResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.calltrace.CallTracer;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.tracing.diff.StateDiffTrace;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.tracing.diff.StateTraceGenerator;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.tracing.diff.StateTraceResult;
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
 import org.hyperledger.besu.ethereum.debug.TracerType;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
 
-import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 
 import com.fasterxml.jackson.annotation.JsonGetter;
 
-/**
- * Factory for creating transaction steps for various tracers.
- *
- * <p>This factory provides methods to create functions that process a {@link TransactionTrace} and
- * return a {@link DebugTraceTransactionResult} with the appropriate tracer result based on the
- * specified tracer type. Both synchronous and asynchronous processing options are available through
- * the {@code create} and {@code createAsync} methods respectively.
- */
+/** Creates transaction result functions for debug tracers. */
 public class DebugTraceTransactionStepFactory {
 
   /**
@@ -48,26 +42,20 @@ public class DebugTraceTransactionStepFactory {
    *
    * @param traceOptions the trace options containing the tracer type and configuration
    * @param protocolSpec the protocol spec for the block being traced
+   * @param tracer the operation tracer used to produce the {@link TransactionTrace}; required for
+   *     {@link TracerType#CALL_TRACER}, which reads its result directly from the tracer instead of
+   *     an opcode-level trace
    * @return a function that processes a {@link TransactionTrace} and returns a {@link
    *     DebugTraceTransactionResult} with the appropriate tracer result
    */
   public static Function<TransactionTrace, DebugTraceTransactionResult> create(
-      final TraceOptions traceOptions, final ProtocolSpec protocolSpec) {
+      final TraceOptions traceOptions,
+      final ProtocolSpec protocolSpec,
+      final OperationTracer tracer) {
     TracerType tracerType = traceOptions.tracerType();
     return switch (tracerType) {
-      case OPCODE_TRACER ->
-          transactionTrace -> {
-            // default - struct/opcode logger tracer
-            var result = new OpCodeLoggerTracerResult(transactionTrace);
-            return new DebugTraceTransactionResult(transactionTrace, result);
-          };
-      case CALL_TRACER ->
-          transactionTrace -> {
-            final boolean onlyTopCall =
-                Boolean.TRUE.equals(traceOptions.tracerConfig().getOrDefault("onlyTopCall", false));
-            var result = CallTracerResultConverter.convert(transactionTrace, onlyTopCall);
-            return new DebugTraceTransactionResult(transactionTrace, result);
-          };
+      case OPCODE_TRACER -> createDebugTraceResultFunction(tracer);
+      case CALL_TRACER -> createCallTracerResultFunction(tracer);
       case FLAT_CALL_TRACER ->
           transactionTrace -> {
             // TODO: Implement flatCallTracer logic and wire it here
@@ -96,21 +84,27 @@ public class DebugTraceTransactionStepFactory {
     };
   }
 
-  /**
-   * Creates an asynchronous function that processes a {@link TransactionTrace} and returns a {@link
-   * DebugTraceTransactionResult} with the appropriate tracer result based on the specified tracer
-   * type.
-   *
-   * @param traceOptions the options of tracer to use for processing the transaction trace
-   * @param protocolSpec the protocol spec for the block being traced
-   * @return an asynchronous function that processes a {@link TransactionTrace} and returns a {@link
-   *     DebugTraceTransactionResult} with the appropriate tracer result
-   */
-  public static Function<TransactionTrace, CompletableFuture<DebugTraceTransactionResult>>
-      createAsync(final TraceOptions traceOptions, final ProtocolSpec protocolSpec) {
+  private static Function<TransactionTrace, DebugTraceTransactionResult>
+      createDebugTraceResultFunction(final OperationTracer tracer) {
+    if (!(tracer instanceof DebugOperationTracer debugTracer)) {
+      throw new IllegalArgumentException("OPCODE_TRACER requires DebugOperationTracer");
+    }
+    return transactionTrace -> {
+      var result = new OpCodeLoggerTracerResult(transactionTrace, debugTracer.isLimitReached());
+      return new DebugTraceTransactionResult(transactionTrace, result);
+    };
+  }
+
+  private static Function<TransactionTrace, DebugTraceTransactionResult>
+      createCallTracerResultFunction(final OperationTracer tracer) {
+    if (!(tracer instanceof CallTracer callTracer)) {
+      throw new IllegalArgumentException("CALL_TRACER requires CallTracer");
+    }
     return transactionTrace ->
-        CompletableFuture.supplyAsync(
-            () -> create(traceOptions, protocolSpec).apply(transactionTrace));
+        new DebugTraceTransactionResult(
+            transactionTrace,
+            callTracer.buildResult(
+                transactionTrace.getTransaction(), transactionTrace.getResult()));
   }
 
   public static class UnimplementedTracerResult {

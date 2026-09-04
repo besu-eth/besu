@@ -88,6 +88,7 @@
 - Engine API timestamps above `2^63-1` are no longer treated as negative: `engine_newPayload` rejected such a payload's withdrawals as pre-Shanghai, `engine_forkchoiceUpdated` failed to parse the payload attributes timestamp at all, and post-merge header validation saw the block as older than its parent.
 
 ### Additions and Improvements
+- Implement native `callTracer` execution tracing, reducing memory use for `debug_trace*`. [#11077](https://github.com/besu-eth/besu/pull/11077)
 - Add JMH `GasProfiler` that emits `mgas_per_s` as a secondary metric on each benchmark iteration using Besu's own `GasCalculator`. Enable with `-PgasProfiler=true`; override the EVM fork with `-PgasProfilerFork=<fork>` (defaults to Osaka). [#10807](https://github.com/besu-eth/besu/pull/10807)
 - Align Kotlin runtime dependencies to 2.4.0 to support plugins compiled against the Kotlin 2.4 API. [#10983](https://github.com/besu-eth/besu/pull/10983)
 - Upgrade log4j to 2.25.5 [#11075](https://github.com/besu-eth/besu/pull/11075)

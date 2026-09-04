@@ -27,7 +27,6 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.ImmutableTransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
-import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder.OpCodeTracerConfig;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
@@ -68,7 +67,7 @@ public class TransactionTracer {
       final Tracer.TraceableState mutableWorldState,
       final Hash blockHash,
       final Hash transactionHash,
-      final DebugOperationTracer tracer) {
+      final OperationTracer tracer) {
     return blockReplay.beforeTransactionInBlock(
         mutableWorldState,
         blockHash,

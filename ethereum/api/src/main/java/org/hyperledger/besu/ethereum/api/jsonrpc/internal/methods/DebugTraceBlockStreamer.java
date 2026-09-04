@@ -41,6 +41,8 @@ import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.evm.tracing.TraceFrame;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -327,8 +329,7 @@ public class DebugTraceBlockStreamer {
       final BlockHeader header,
       final Wei blobGasPrice,
       final BlockHashLookup blockHashLookup) {
-    final DebugOperationTracer tracer =
-        new DebugOperationTracer(traceOptions.opCodeTracerConfig(), true);
+    final OperationTracer tracer = DebugOperationTracerFactory.create(traceOptions, true);
 
     final AccessLocationTracker accessListTracker =
         BlockAccessList.BlockAccessListBuilder.createTransactionAccessLocationTracker(0);
@@ -345,16 +346,23 @@ public class DebugTraceBlockStreamer {
             blobGasPrice,
             Optional.of(accessListTracker));
 
+    final List<TraceFrame> traceFrames;
+    if (tracer instanceof DebugOperationTracer debugTracer) {
+      traceFrames = debugTracer.copyTraceFrames();
+      debugTracer.reset();
+    } else {
+      traceFrames = List.of();
+    }
+
     final TransactionTrace transactionTrace =
         new TransactionTrace(
             transaction,
             result,
-            tracer.copyTraceFrames(),
+            traceFrames,
             Optional.empty(),
             accessListTracker.getTouchedAccounts());
-    tracer.reset();
 
-    return DebugTraceTransactionStepFactory.create(traceOptions, protocolSpec)
+    return DebugTraceTransactionStepFactory.create(traceOptions, protocolSpec, tracer)
         .apply(transactionTrace);
   }
 
