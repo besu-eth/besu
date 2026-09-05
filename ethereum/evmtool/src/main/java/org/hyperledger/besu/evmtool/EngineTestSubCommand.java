@@ -15,6 +15,7 @@
 package org.hyperledger.besu.evmtool;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.util.Objects.requireNonNull;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PARIS;
@@ -87,6 +88,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.vertx.core.Vertx;
 import org.apache.tuweni.bytes.Bytes;
+import org.jspecify.annotations.Nullable;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.IExitCodeGenerator;
 import picocli.CommandLine.Option;
@@ -126,7 +128,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
       description =
           "Limit execution to tests whose name contains the given substring, or matches the given"
               + " pattern (a regex, with * and ? as wildcards).")
-  private String testName = null;
+  private @Nullable String testName = null;
 
   @Option(
       names = {"--test-name-regex"},
@@ -135,10 +137,10 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
               + " hive --sim.limit value: anchored at the start of the id, open at the end and"
               + " case-sensitive, as re.match is. Nothing is escaped or rewritten, so a published"
               + " hive filter can be passed exactly as it appears.")
-  private String testNameRegex = null;
+  private @Nullable String testNameRegex = null;
 
   // Compiled up front so a malformed expression fails before any fixture is read
-  private TestNameFilter nameFilter;
+  private @Nullable TestNameFilter nameFilter;
 
   @Option(
       names = {"--workers"},
@@ -167,7 +169,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
   @Parameters private final List<Path> engineTestFiles = new ArrayList<>();
 
   /** Required by PicoCLI, which instantiates subcommands reflectively with no arguments. */
-  @SuppressWarnings("unused")
+  @SuppressWarnings({"unused", "NullAway"}) // Picocli injects the parent after construction.
   public EngineTestSubCommand() {
     this(null);
   }
@@ -376,7 +378,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
   private void executeEngineTests(
       final Map<String, EngineTestCaseSpec> tests, final FixtureRunner.TestResults results) {
     for (final Map.Entry<String, EngineTestCaseSpec> entry : tests.entrySet()) {
-      if (nameFilter != null && !nameFilter.matches(entry.getKey())) continue;
+      if (nameFilter != null && !requireNonNull(nameFilter).matches(entry.getKey())) continue;
       try {
         runSingleEngineTest(entry.getKey(), entry.getValue(), results);
       } catch (final RuntimeException e) {
@@ -398,8 +400,8 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
    * @param actualCode the error code the engine method returned
    * @return {@code null} when the outcome matches expectations, otherwise a failure reason
    */
-  private static String checkExpectedErrorCode(
-      final int payloadIndex, final String expectedErrorCode, final int actualCode) {
+  private static @Nullable String checkExpectedErrorCode(
+      final int payloadIndex, final @Nullable String expectedErrorCode, final int actualCode) {
     if (expectedErrorCode == null) {
       return String.format(
           "payload %d: unexpected Engine API error code %d", payloadIndex, actualCode);
@@ -821,7 +823,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
   private void recordResult(
       final String test,
       final EngineTestCaseSpec spec,
-      final MutableBlockchain blockchain,
+      final @Nullable MutableBlockchain blockchain,
       final boolean testPassed,
       final String failureReason,
       final FixtureRunner.TestResults results) {
@@ -841,7 +843,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
   private void recordResult(
       final String test,
       final EngineTestCaseSpec spec,
-      final MutableBlockchain blockchain,
+      final @Nullable MutableBlockchain blockchain,
       final boolean testPassed,
       final String failureReason,
       final EngineStatus lastPayloadStatus,
