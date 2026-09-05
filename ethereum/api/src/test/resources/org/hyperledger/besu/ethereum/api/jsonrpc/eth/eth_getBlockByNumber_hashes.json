@@ -24,7 +24,6 @@
       "receiptsRoot": "0x3e5fff5f6eaeee82841547e049b6bdb980c4e6bd8539fb072a346a30ee72a25d",
       "miner": "0x8888f1f195afa192cfee860698584c030f4c9db1",
       "difficulty": "0x203c0",
-      "totalDifficulty": "0x221e00",
       "extraData": "0x",
       "size": "0x288",
       "gasLimit": "0x2fefd8",
