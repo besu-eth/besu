@@ -29,6 +29,7 @@ import java.util.Optional;
 
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,8 +41,8 @@ public class RocksDBPlugin implements BesuPlugin {
 
   private final RocksDBCLIOptions options;
   private final List<SegmentIdentifier> ignorableSegments = new ArrayList<>();
-  private ServiceManager context;
-  private RocksDBKeyValueStorageFactory factory;
+  private @Nullable ServiceManager context;
+  private @Nullable RocksDBKeyValueStorageFactory factory;
 
   /** Instantiates a newRocksDb plugin. */
   public RocksDBPlugin() {
@@ -158,7 +159,11 @@ public class RocksDBPlugin implements BesuPlugin {
   }
 
   private void createFactoriesAndRegisterWithStorageService() {
-    context
+    final ServiceManager serviceManager = context;
+    if (serviceManager == null) {
+      throw new IllegalStateException("RocksDB plugin must be registered before it can be started");
+    }
+    serviceManager
         .getService(StorageService.class)
         .ifPresentOrElse(
             this::createAndRegister,
