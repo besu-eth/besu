@@ -272,6 +272,12 @@ public sealed class EngineNewPayloadV1<
       return respondWith(reqId, blockParam, newBlockHeader.getHash(), VALID);
     } else {
       logger().debug("New payload is invalid: {}", executionResult);
+      if (executionResult.isWorldStateUnavailable()) {
+        // we respond with SYNCING here to ensure a VALID newPayload is not marked INVALID.
+        // however besu should not trigger a worldstate resync until/unless this chain is
+        // finalized via forkchoiceUpdated.
+        return respondWith(reqId, blockParam, null, SYNCING);
+      }
       if (executionResult.causedBy().isPresent()) {
         Throwable causedBy = executionResult.causedBy().get();
         if (causedBy instanceof StorageException || causedBy instanceof MerkleTrieException) {
