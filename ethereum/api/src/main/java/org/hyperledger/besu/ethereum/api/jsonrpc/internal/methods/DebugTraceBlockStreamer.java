@@ -281,9 +281,9 @@ public class DebugTraceBlockStreamer {
         new StreamingDebugOperationTracer(
             traceOptions.opCodeTracerConfig(),
             true,
-            (pc, opcode, gasRemaining, gasCost, depth, stack, frame, halt, revert) ->
+            (pc, opcode, gasRemaining, gasCost, depth, stack, memory, frame, halt, revert) ->
                 writeStructLog(
-                    pc, opcode, gasRemaining, gasCost, depth, stack, frame, halt, revert));
+                    pc, opcode, gasRemaining, gasCost, depth, stack, memory, frame, halt, revert));
 
     try {
       if (!firstTx) writeByte(COMMA);
@@ -367,6 +367,7 @@ public class DebugTraceBlockStreamer {
       final long gasCost,
       final int depth,
       final Bytes[] stack,
+      final Bytes[] memory,
       final MessageFrame frame,
       final ExceptionalHaltReason haltReason,
       final Bytes revertReason) {
@@ -406,13 +407,12 @@ public class DebugTraceBlockStreamer {
         writeByte(ARR_CLOSE);
       }
 
-      if (traceOptions.opCodeTracerConfig().traceMemory() && frame.memoryWordSize() > 0) {
+      if (memory != null) {
         writeBytes(SL_MEMORY);
-        final int wordCount = frame.memoryWordSize();
-        for (int i = 0; i < wordCount; i++) {
+        for (int i = 0; i < memory.length; i++) {
           if (i > 0) writeByte(COMMA);
           writeByte(QUOTE);
-          writeHex(frame.readMutableMemory(i * 32L, 32).toArrayUnsafe(), false);
+          writeHex(memory[i].toArrayUnsafe(), false);
           writeByte(QUOTE);
         }
         writeByte(ARR_CLOSE);

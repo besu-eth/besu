@@ -456,17 +456,47 @@ class DebugOperationTracerTest {
 
     traceFrame(frame, tracer, anOperation);
     traceFrame(frame, tracer, MSTORE_OPERATION);
+    traceFrame(frame, tracer, anOperation);
+
+    final List<TraceFrame> frames = tracer.getTraceFrames();
+    assertThat(frames).hasSize(3);
+    assertThat(frames.get(0).getMemory()).isPresent();
+    assertThat(frames.get(1).getMemory()).isPresent();
+    assertThat(frames.get(2).getMemory()).isPresent();
+
+    final Bytes[] before = frames.get(0).getMemory().get();
+    final Bytes[] mstore = frames.get(1).getMemory().get();
+    final Bytes[] after = frames.get(2).getMemory().get();
+
+    assertThat(mstore)
+        .as("A memory-writing opcode still reports the memory it started with")
+        .isSameAs(before);
+    assertThat(after)
+        .as("After a memory-writing opcode, a new memory snapshot must be taken")
+        .isNotSameAs(before);
+    assertThat(before[0]).isEqualTo(WORD_1);
+    assertThat(after[0]).isEqualTo(WORD_2);
+  }
+
+  @Test
+  void shouldTakeNewMemorySnapshotAfterAnUntracedMemoryWrite() {
+    final MessageFrame frame = validMessageFrameWithInitiatedMemory(WORD_1);
+    final DebugOperationTracer tracer = createDebugOperationTracerWithMemory();
+
+    traceFrame(frame, tracer, anOperation);
+
+    // A child call returning output, or a precompile writing its result, updates the parent frame's
+    // memory outside of any traced operation and without changing its size.
+    frame.writeMemory(0L, 32, WORD_2, true);
+    traceFrame(frame, tracer, anOperation);
 
     final List<TraceFrame> frames = tracer.getTraceFrames();
     assertThat(frames).hasSize(2);
-    assertThat(frames.get(0).getMemory()).isPresent();
-    assertThat(frames.get(1).getMemory()).isPresent();
-
-    final Bytes[] before = frames.get(0).getMemory().get();
-    final Bytes[] after = frames.get(1).getMemory().get();
+    final Bytes[] before = frames.get(0).getMemory().orElseThrow();
+    final Bytes[] after = frames.get(1).getMemory().orElseThrow();
 
     assertThat(after)
-        .as("After a memory-writing opcode, a new memory snapshot must be taken")
+        .as("A memory write from outside a traced operation must invalidate the snapshot")
         .isNotSameAs(before);
     assertThat(before[0]).isEqualTo(WORD_1);
     assertThat(after[0]).isEqualTo(WORD_2);
