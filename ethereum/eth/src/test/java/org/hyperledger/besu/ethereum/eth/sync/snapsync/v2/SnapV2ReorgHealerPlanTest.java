@@ -45,29 +45,9 @@ import org.mockito.Mockito;
  * real reorging {@link org.hyperledger.besu.ethereum.chain.DefaultBlockchain} over in-memory
  * storage.
  */
-class SnapV2ReorgHealerPlanTest {
-
-  private static final Address ALICE =
-      Address.fromHexString("0x1111111111111111111111111111111111111111");
-  private static final Address BOB =
-      Address.fromHexString("0x2222222222222222222222222222222222222222");
-  private static final Address CHARLIE =
-      Address.fromHexString("0x3333333333333333333333333333333333333333");
-  private static final Address DAVE =
-      Address.fromHexString("0x4444444444444444444444444444444444444444");
-  private static final Address EVE =
-      Address.fromHexString("0x5555555555555555555555555555555555555555");
-  private static final Address FRANK =
-      Address.fromHexString("0x6666666666666666666666666666666666666666");
-  private static final Address GRACE =
-      Address.fromHexString("0x7777777777777777777777777777777777777777");
-  private static final Address NEW_CONTRACT =
-      Address.fromHexString("0x9999999999999999999999999999999999999999");
+class SnapV2ReorgHealerPlanTest extends SnapV2TestFixtures {
 
   private final ReorgBlockchainBuilder b = new ReorgBlockchainBuilder();
-
-  private static final Bytes32 MAX_KEY =
-      Bytes32.fromHexString("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
 
   // ---------------------------------------------------------------------------
   // Comprehensive reorg scenarios.
@@ -121,7 +101,7 @@ class SnapV2ReorgHealerPlanTest {
     // ---- Canonical chain (wins the reorg when block2c is appended) ----
     // Block 2c: Alice=80, Charlie=100 (Charlie is canonical-only -> applied if persisted)
     final BlockAccessList block2cBal =
-        b.balWithBalances(Map.of(ALICE, Wei.of(80), CHARLIE, Wei.of(100)));
+        b.balWithBalances(Map.of(ALICE, Wei.of(80), CAROL, Wei.of(100)));
     final Block block2c = b.appendCanonical(ancestor.getHeader(), block2cBal, 2L);
 
     // Block 3c: Dave=40 (overlaps with stale 3s — Eve and NewContract are absent -> diverged)
@@ -154,7 +134,7 @@ class SnapV2ReorgHealerPlanTest {
     assertAccountsToRefetch(plan, BOB, EVE, NEW_CONTRACT);
 
     // Alice, Charlie, Dave, Frank, Grace — none of these are diverged.
-    assertNoAccountsToRefetch(plan, ALICE, CHARLIE, DAVE, FRANK, GRACE);
+    assertNoAccountsToRefetch(plan, ALICE, CAROL, DAVE, FRANK, GRACE);
 
     // --- Diverged slots ---
     // Frank's slot 2 (100->200 in stale 4s, absent from canonical 4c).
@@ -191,13 +171,13 @@ class SnapV2ReorgHealerPlanTest {
         b.merge(
             b.balWithStorageChanges(
                 NEW_CONTRACT, Map.of(slot1, UInt256.valueOf(100), slot2, UInt256.valueOf(200))),
-            b.balWithBalanceTouches(ALICE, CHARLIE, DAVE, FRANK));
+            b.balWithBalanceTouches(ALICE, CAROL, DAVE, FRANK));
     final Block staleBlock = b.appendStale(ancestor.getHeader(), staleBal, 2L);
 
     // Canonical block: touches Alice, Charlie, Frank, Grace. Dave and NewContract are untouched.
     final Block canonicalBlock =
         b.appendCanonical(
-            ancestor.getHeader(), b.balWithBalanceTouches(ALICE, CHARLIE, FRANK, GRACE), 2L);
+            ancestor.getHeader(), b.balWithBalanceTouches(ALICE, CAROL, FRANK, GRACE), 2L);
 
     assertThat(b.blockchain().blockIsOnCanonicalChain(staleBlock.getHash())).isFalse();
     assertThat(b.blockchain().blockIsOnCanonicalChain(canonicalBlock.getHash())).isTrue();
@@ -214,7 +194,7 @@ class SnapV2ReorgHealerPlanTest {
     // NewContract changed only storage on the stale block: no scalar field diverged, so its
     // account record needs no re-fetch — the diverged slots below suffice. Alice, Charlie, and
     // Frank overlap on both forks; Grace is canonical-only; Bob and Eve are untouched.
-    assertNoAccountsToRefetch(plan, NEW_CONTRACT, ALICE, CHARLIE, FRANK, GRACE, BOB, EVE);
+    assertNoAccountsToRefetch(plan, NEW_CONTRACT, ALICE, CAROL, FRANK, GRACE, BOB, EVE);
 
     // NewContract's slots were touched only in the stale block -> diverged.
     assertThat(plan.slotsToRefetch()).containsOnlyKeys(NEW_CONTRACT.addressHash());
@@ -415,7 +395,7 @@ class SnapV2ReorgHealerPlanTest {
         plan(
             staleBlock,
             canonicalBlock,
-            persistedAccounts(ALICE),
+            accountRangeTracker(true, ALICE),
             new DownloadedStorageRangeTracker());
 
     // Dave was touched only in the stale fork but its range hasn't been downloaded yet -> excluded.
@@ -459,7 +439,11 @@ class SnapV2ReorgHealerPlanTest {
     // for pending ranges does per-slot tracking survive; completing a range wipes it.
     // Storage tracker covers ONLY slot 1 for Alice. Slot 5's hash is outside the downloaded range.
     final ReorgPlan plan =
-        plan(staleBlock, canonicalBlock, pendingAccounts(ALICE), singleSlotRange(ALICE, slot1));
+        plan(
+            staleBlock,
+            canonicalBlock,
+            accountRangeTracker(false, ALICE),
+            downloadedSlots(ALICE, slot1));
 
     // Alice is pending with touched storage -> its record must be re-fetched (root can't
     // recompute).
@@ -837,7 +821,7 @@ class SnapV2ReorgHealerPlanTest {
 
     final DownloadedStorageRangeTracker storageTracker = fullStorageFor(FRANK);
     final DownloadedAccountRangeTracker accountTracker = completeFullAccountRange(storageTracker);
-    assertThat(storageTracker.isSlotHashDownloaded(accountHash(FRANK), slotHashBytes(slot5)))
+    assertThat(storageTracker.isSlotHashDownloaded(accountHash(FRANK), slotHash(slot5)))
         .isFalse(); // slot entries were wiped on completion, as in production
 
     final ReorgPlan plan = plan(staleBlock, canonicalBlock, accountTracker, storageTracker);
@@ -875,7 +859,10 @@ class SnapV2ReorgHealerPlanTest {
     // A persisted-but-pending account must still be reported as diverged.
     final ReorgPlan plan =
         plan(
-            staleBlock, canonicalBlock, pendingAccounts(DAVE), new DownloadedStorageRangeTracker());
+            staleBlock,
+            canonicalBlock,
+            accountRangeTracker(false, DAVE),
+            new DownloadedStorageRangeTracker());
 
     assertAccountsToRefetch(plan, DAVE);
     assertThat(plan.isClean()).isFalse();
@@ -911,7 +898,11 @@ class SnapV2ReorgHealerPlanTest {
     // Only Alice's account range is persisted. The slot tracker claims coverage for NewContract,
     // but with no persisted account leaves there is nothing to heal at the slot level either.
     final ReorgPlan plan =
-        plan(staleBlock, canonicalBlock, persistedAccounts(ALICE), fullStorageFor(NEW_CONTRACT));
+        plan(
+            staleBlock,
+            canonicalBlock,
+            accountRangeTracker(true, ALICE),
+            fullStorageFor(NEW_CONTRACT));
 
     assertClean(plan);
   }
@@ -1230,7 +1221,7 @@ class SnapV2ReorgHealerPlanTest {
         plan(
             staleBlock,
             canonicalBlock,
-            persistedAccounts(BOB),
+            accountRangeTracker(true, BOB),
             new DownloadedStorageRangeTracker());
 
     assertClean(plan);
@@ -1343,7 +1334,7 @@ class SnapV2ReorgHealerPlanTest {
         plan(
             staleBlock,
             canonicalBlock,
-            pendingAccounts(FRANK),
+            accountRangeTracker(false, FRANK),
             new DownloadedStorageRangeTracker());
 
     assertAccountsToRefetch(plan, FRANK);
@@ -1377,7 +1368,7 @@ class SnapV2ReorgHealerPlanTest {
         plan(
             staleBlock,
             canonicalBlock,
-            persistedAccounts(FRANK),
+            accountRangeTracker(true, FRANK),
             new DownloadedStorageRangeTracker());
 
     assertNoAccountsToRefetch(plan, FRANK);
@@ -1411,7 +1402,7 @@ class SnapV2ReorgHealerPlanTest {
         plan(
             staleBlock,
             canonicalBlock,
-            persistedAccounts(ALICE),
+            accountRangeTracker(true, ALICE),
             new DownloadedStorageRangeTracker());
 
     assertNoAccountsToRefetch(plan, FRANK);
@@ -1421,12 +1412,6 @@ class SnapV2ReorgHealerPlanTest {
   // ---------------------------------------------------------------------------
   // Shared test plumbing: plan invocation, tracker factories and plan assertions.
   // ---------------------------------------------------------------------------
-
-  private static DownloadedAccountRangeTracker fullAccountRange() {
-    final DownloadedAccountRangeTracker tracker = new DownloadedAccountRangeTracker();
-    tracker.registerPending(Bytes32.ZERO, MAX_KEY, 0);
-    return tracker;
-  }
 
   private static DownloadedStorageRangeTracker fullStorageFor(final Address... accounts) {
     final DownloadedStorageRangeTracker tracker = new DownloadedStorageRangeTracker();
@@ -1450,14 +1435,6 @@ class SnapV2ReorgHealerPlanTest {
         unusedStorageCoordinator(),
         ReorgBlockchainBuilder.balEnabledSchedule(),
         ReorgBlockchainBuilder.neverCalledFetcher());
-  }
-
-  private static DownloadedStorageRangeTracker singleSlotRange(
-      final Address account, final UInt256 slotKey) {
-    final DownloadedStorageRangeTracker tracker = new DownloadedStorageRangeTracker();
-    final Bytes32 slotHash = slotHashBytes(slotKey);
-    tracker.registerSlotRange(accountHash(account), slotHash, slotHash);
-    return tracker;
   }
 
   private static WorldStateStorageCoordinator unusedStorageCoordinator() {
@@ -1491,32 +1468,6 @@ class SnapV2ReorgHealerPlanTest {
       final DownloadedAccountRangeTracker accountTracker,
       final DownloadedStorageRangeTracker storageTracker) {
     return healer.planReorg(stale, canonical, accountTracker, storageTracker);
-  }
-
-  private static Bytes32 accountHash(final Address account) {
-    return Bytes32.wrap(account.addressHash().getBytes());
-  }
-
-  private static Bytes32 slotHashBytes(final UInt256 slot) {
-    return Bytes32.wrap(ReorgBlockchainBuilder.slotHash(slot).getBytes());
-  }
-
-  /** Completed single-account ranges: leaves persisted, no outstanding child requests. */
-  private static DownloadedAccountRangeTracker persistedAccounts(final Address... accounts) {
-    final DownloadedAccountRangeTracker tracker = new DownloadedAccountRangeTracker();
-    for (final Address account : accounts) {
-      tracker.registerPending(accountHash(account), accountHash(account), 0);
-    }
-    return tracker;
-  }
-
-  /** Pending single-account ranges: leaves persisted, child requests still outstanding. */
-  private static DownloadedAccountRangeTracker pendingAccounts(final Address... accounts) {
-    final DownloadedAccountRangeTracker tracker = new DownloadedAccountRangeTracker();
-    for (final Address account : accounts) {
-      tracker.registerPending(accountHash(account), accountHash(account), 1);
-    }
-    return tracker;
   }
 
   private static Hash[] addressHashes(final Address... addresses) {
