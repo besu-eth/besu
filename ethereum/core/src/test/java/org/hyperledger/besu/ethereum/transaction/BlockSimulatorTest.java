@@ -14,7 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.transaction;
 
-import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -41,6 +41,7 @@ import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor;
+import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.MiningBeneficiaryCalculator;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
@@ -54,6 +55,10 @@ import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallExcept
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.account.MutableAccount;
+import org.hyperledger.besu.evm.log.EIP7708TransferLogEmitter;
+import org.hyperledger.besu.evm.log.TransferLogEmitter;
+import org.hyperledger.besu.evm.tracing.EthTransferLogOperationTracer;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.data.BlockOverrides;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
@@ -90,6 +95,7 @@ public class BlockSimulatorTest {
   @Mock private Blockchain blockchain;
   @Mock private WorldUpdater updater;
   @Mock private ProtocolSpec protocolSpec;
+  @Mock private MainnetTransactionProcessor transactionProcessor;
 
   private BlockHeader blockHeader;
   private BlockSimulator blockSimulator;
@@ -108,6 +114,8 @@ public class BlockSimulatorTest {
     when(miningConfiguration.getCoinbase()).thenReturn(Optional.of(Address.fromHexString("0x1")));
     when(protocolSchedule.getForNextBlockHeader(any(), anyLong())).thenReturn(protocolSpec);
     when(protocolSchedule.getByBlockHeader(any())).thenReturn(protocolSpec);
+    when(protocolSpec.getTransactionProcessor()).thenReturn(transactionProcessor);
+    when(transactionProcessor.getTransferLogEmitter()).thenReturn(TransferLogEmitter.NOOP);
     when(protocolSpec.getMiningBeneficiaryCalculator())
         .thenReturn(mock(MiningBeneficiaryCalculator.class));
     GasLimitCalculator gasLimitCalculator = mock(GasLimitCalculator.class);
@@ -632,6 +640,91 @@ public class BlockSimulatorTest {
     return new BlockSimulationParameter.BlockSimulationParameterBuilder()
         .blockStateCalls(List.of(blockStateCall))
         .build();
+  }
+
+  @Test
+  public void shouldUseEthTransferLogTracerForPreAmsterdamWhenTraceTransfersTrue() {
+    // Pre-Amsterdam: TransferLogEmitter is NOOP, so traceTransfers=true should activate the
+    // legacy EthTransferLogOperationTracer (which emits at 0xeeee...).
+    when(transactionProcessor.getTransferLogEmitter()).thenReturn(TransferLogEmitter.NOOP);
+    when(mutableWorldState.updater()).thenReturn(updater);
+
+    CallParameter callParameter = mock(CallParameter.class);
+    when(callParameter.getGas()).thenReturn(OptionalLong.empty());
+    BlockStateCall blockStateCall = new BlockStateCall(List.of(callParameter), null, null);
+
+    ArgumentCaptor<OperationTracer> tracerCaptor = ArgumentCaptor.forClass(OperationTracer.class);
+    when(transactionSimulator.processWithWorldUpdater(
+            any(),
+            any(),
+            any(),
+            tracerCaptor.capture(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any()))
+        .thenReturn(Optional.empty());
+
+    BlockSimulationParameter parameter =
+        new BlockSimulationParameter.BlockSimulationParameterBuilder()
+            .blockStateCalls(List.of(blockStateCall))
+            .traceTransfers(true)
+            .build();
+
+    assertThrows(
+        BlockStateCallException.class,
+        () -> blockSimulator.process(blockHeader, parameter, mutableWorldState));
+
+    assertThat(tracerCaptor.getValue()).isInstanceOf(EthTransferLogOperationTracer.class);
+  }
+
+  @Test
+  public void shouldNotUseEthTransferLogTracerForAmsterdamWhenTraceTransfersTrue() {
+    // Amsterdam+: the transaction processor already emits EIP-7708 transfer logs into receipts
+    // via its wired-in TransferLogEmitter. The legacy traceTransfers flag must be ignored so that
+    // receipt logs (at 0xffff...) are returned rather than the old tracer logs (at 0xeeee...).
+    when(transactionProcessor.getTransferLogEmitter())
+        .thenReturn(EIP7708TransferLogEmitter.INSTANCE);
+    when(mutableWorldState.updater()).thenReturn(updater);
+
+    CallParameter callParameter = mock(CallParameter.class);
+    when(callParameter.getGas()).thenReturn(OptionalLong.empty());
+    BlockStateCall blockStateCall = new BlockStateCall(List.of(callParameter), null, null);
+
+    ArgumentCaptor<OperationTracer> tracerCaptor = ArgumentCaptor.forClass(OperationTracer.class);
+    when(transactionSimulator.processWithWorldUpdater(
+            any(),
+            any(),
+            any(),
+            tracerCaptor.capture(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any()))
+        .thenReturn(Optional.empty());
+
+    BlockSimulationParameter parameter =
+        new BlockSimulationParameter.BlockSimulationParameterBuilder()
+            .blockStateCalls(List.of(blockStateCall))
+            .traceTransfers(true)
+            .build();
+
+    assertThrows(
+        BlockStateCallException.class,
+        () -> blockSimulator.process(blockHeader, parameter, mutableWorldState));
+
+    assertThat(tracerCaptor.getValue()).isNotInstanceOf(EthTransferLogOperationTracer.class);
+    assertThat(tracerCaptor.getValue()).isEqualTo(OperationTracer.NO_TRACING);
   }
 
   private BlockSimulationParameter buildParameterWithOverrides(

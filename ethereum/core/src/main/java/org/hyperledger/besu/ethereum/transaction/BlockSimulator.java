@@ -61,6 +61,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWo
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.log.TransferLogEmitter;
 import org.hyperledger.besu.evm.tracing.EthTransferLogOperationTracer;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
@@ -417,13 +418,17 @@ public class BlockSimulator {
       final WorldUpdater transactionUpdater = blockUpdater.updater();
       final CallParameter callParameter = blockStateCall.getCalls().get(transactionLocation);
 
-      // Custom tracer and EthTraceTransfers are mutually exclusive
+      // For Amsterdam+, EIP-7708 transfer logs are emitted into transaction receipts by the
+      // protocol-level TransferLogEmitter wired into the transaction processor. The legacy
+      // traceTransfers/EthTransferLogOperationTracer mechanism is only meaningful for
+      // pre-Amsterdam forks where no protocol-level transfer log exists.
+      final boolean protocolEmitsTransferLogs =
+          transactionProcessor.getTransferLogEmitter() != TransferLogEmitter.NOOP;
       OperationTracer finalOperationTracer = operationTracer;
-      if (isTraceTransfers) {
+      if (isTraceTransfers && !protocolEmitsTransferLogs) {
         if (finalOperationTracer == OperationTracer.NO_TRACING) {
           finalOperationTracer = new EthTransferLogOperationTracer();
         } else {
-          // this shouldn't happen, and isTraceTransfers will go away with Glamsterdam
           throw new IllegalArgumentException(
               "A custom tracer and traceTransfers cannot be used together."
                   + " Disable traceTransfers or omit the custom tracer.");

@@ -746,6 +746,10 @@ public class MainnetTransactionProcessor {
     return gasCalculator;
   }
 
+  public TransferLogEmitter getTransferLogEmitter() {
+    return transferLogEmitter;
+  }
+
   /**
    * A top-frame state-gas charge, split into the total consumed and the part that spilled out of
    * gasRemaining. The split decides where a refund lands, and so who ends up paying it.
