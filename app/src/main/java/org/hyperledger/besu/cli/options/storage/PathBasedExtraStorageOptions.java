@@ -20,6 +20,8 @@ import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConf
 import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.DEFAULT_PARALLEL_TX_PROCESSING;
 import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.DEFAULT_TRIE_LOG_PRUNING_WINDOW_SIZE;
 import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.MINIMUM_TRIE_LOG_RETENTION_LIMIT;
+import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.PathBasedUnstable.DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL;
+import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.PathBasedUnstable.DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL;
 import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.PathBasedUnstable.DEFAULT_BONSAI_ARCHIVE_STATE_PROOFS_ENABLED;
 import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.PathBasedUnstable.DEFAULT_BONSAI_CROSS_BLOCK_CACHE_ACCOUNT_SIZE;
 import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.PathBasedUnstable.DEFAULT_BONSAI_CROSS_BLOCK_CACHE_ENABLED;
@@ -29,6 +31,7 @@ import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConf
 
 import org.hyperledger.besu.cli.options.CLIOptions;
 import org.hyperledger.besu.cli.util.CommandLineUtils;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore;
 import org.hyperledger.besu.ethereum.worldstate.ImmutablePathBasedExtraStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
@@ -68,6 +71,18 @@ public class PathBasedExtraStorageOptions
   /** The bonsai parallel state root computation enabled option name. */
   public static final String PARALLEL_STATE_ROOT_COMPUTATION_ENABLED =
       "--bonsai-parallel-state-root-computation-enabled";
+
+  /** The bonsai archive shallow checkpoint interval option name. */
+  public static final String SHALLOW_CHECKPOINT_INTERVAL =
+      "--Xbonsai-archive-state-proofs-shallow-checkpoint-interval";
+
+  /** The bonsai archive deep checkpoint interval option name. */
+  public static final String DEEP_CHECKPOINT_INTERVAL =
+      "--Xbonsai-archive-state-proofs-deep-checkpoint-interval";
+
+  /** Upper bound for the checkpoint intervals: the diff-chain counter is a single unsigned byte. */
+  public static final int MAX_BONSAI_ARCHIVE_CHECKPOINT_INTERVAL =
+      ArchiveNodeHistoryStore.MAX_COUNTER + 1;
 
   @Option(
       names = {LIMIT_TRIE_LOGS_ENABLED},
@@ -152,6 +167,28 @@ public class PathBasedExtraStorageOptions
             "Enables eth_getProof for historical blocks backed by the bonsai archive trie-node store. Requires --data-storage-format=X_BONSAI_ARCHIVE and trie-node capture during initial sync. (default: ${DEFAULT-VALUE})")
     private Boolean bonsaiArchiveStateProofsEnabled = DEFAULT_BONSAI_ARCHIVE_STATE_PROOFS_ENABLED;
 
+    @Option(
+        hidden = true,
+        names = {SHALLOW_CHECKPOINT_INTERVAL},
+        paramLabel = "<INTEGER>",
+        description =
+            "Full trie-node checkpoint every N versions for shallow archive nodes (root, trie levels 1-2), the rest stored as diffs. Higher values reduce storage but slow proof reconstruction. Must be in [1, "
+                + MAX_BONSAI_ARCHIVE_CHECKPOINT_INTERVAL
+                + "]. (default: ${DEFAULT-VALUE})")
+    private Integer bonsaiArchiveShallowCheckpointInterval =
+        DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL;
+
+    @Option(
+        hidden = true,
+        names = {DEEP_CHECKPOINT_INTERVAL},
+        paramLabel = "<INTEGER>",
+        description =
+            "Full trie-node checkpoint every N versions for deep archive nodes (trie levels 3+), the rest stored as diffs. Higher values reduce storage but slow proof reconstruction. Must be in [1, "
+                + MAX_BONSAI_ARCHIVE_CHECKPOINT_INTERVAL
+                + "]. (default: ${DEFAULT-VALUE})")
+    private Integer bonsaiArchiveDeepCheckpointInterval =
+        DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL;
+
     /** Default Constructor. */
     Unstable() {}
   }
@@ -201,6 +238,28 @@ public class PathBasedExtraStorageOptions
         }
       }
     }
+    if (DataStorageFormat.X_BONSAI_ARCHIVE == dataStorageFormat) {
+      validateCheckpointInterval(
+          commandLine,
+          SHALLOW_CHECKPOINT_INTERVAL,
+          unstableOptions.bonsaiArchiveShallowCheckpointInterval);
+      validateCheckpointInterval(
+          commandLine,
+          DEEP_CHECKPOINT_INTERVAL,
+          unstableOptions.bonsaiArchiveDeepCheckpointInterval);
+    }
+  }
+
+  private static void validateCheckpointInterval(
+      final CommandLine commandLine, final String optionName, final int value) {
+    if (value < 1 || value > MAX_BONSAI_ARCHIVE_CHECKPOINT_INTERVAL) {
+      throw new CommandLine.ParameterException(
+          commandLine,
+          String.format(
+              optionName + "=%d must be in [1, %d]",
+              value,
+              MAX_BONSAI_ARCHIVE_CHECKPOINT_INTERVAL));
+    }
   }
 
   /**
@@ -227,6 +286,10 @@ public class PathBasedExtraStorageOptions
         domainObject.getUnstable().getBonsaiCrossBlockCacheStorageSize();
     dataStorageOptions.unstableOptions.bonsaiArchiveStateProofsEnabled =
         domainObject.getUnstable().getBonsaiArchiveStateProofsEnabled();
+    dataStorageOptions.unstableOptions.bonsaiArchiveShallowCheckpointInterval =
+        domainObject.getUnstable().getBonsaiArchiveShallowCheckpointInterval();
+    dataStorageOptions.unstableOptions.bonsaiArchiveDeepCheckpointInterval =
+        domainObject.getUnstable().getBonsaiArchiveDeepCheckpointInterval();
     dataStorageOptions.isParallelTxProcessingEnabled =
         domainObject.getParallelTxProcessingEnabled();
     dataStorageOptions.isParallelStateRootComputationEnabled =
@@ -251,6 +314,10 @@ public class PathBasedExtraStorageOptions
                 .bonsaiCrossBlockCacheAccountSize(unstableOptions.bonsaiCrossBlockCacheAccountSize)
                 .bonsaiCrossBlockCacheStorageSize(unstableOptions.bonsaiCrossBlockCacheStorageSize)
                 .bonsaiArchiveStateProofsEnabled(unstableOptions.bonsaiArchiveStateProofsEnabled)
+                .bonsaiArchiveShallowCheckpointInterval(
+                    unstableOptions.bonsaiArchiveShallowCheckpointInterval)
+                .bonsaiArchiveDeepCheckpointInterval(
+                    unstableOptions.bonsaiArchiveDeepCheckpointInterval)
                 .build())
         .build();
   }

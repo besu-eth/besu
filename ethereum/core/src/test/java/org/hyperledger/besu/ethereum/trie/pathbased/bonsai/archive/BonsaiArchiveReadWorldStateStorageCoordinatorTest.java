@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveHistoryReader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeKey;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveTrieNodeCodec;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
@@ -65,7 +66,10 @@ class BonsaiArchiveReadWorldStateStorageCoordinatorTest {
   private void writeAccountNode(final Bytes location, final Bytes node, final long block) {
     final ArchiveNodeHistoryStore store = new ArchiveNodeHistoryStore(archiveStorage);
     final SegmentedKeyValueStorageTransaction tx = archiveStorage.startTransaction();
-    store.put(tx, ArchiveNodeKey.account(location), block, node);
+    store.putEncoded(
+        tx,
+        ArchiveNodeKey.historyKey(ArchiveNodeKey.account(location), block),
+        ArchiveNodeHistoryStore.encodeStoredValue(0, ArchiveTrieNodeCodec.encodeFull(node)));
     tx.commit();
   }
 
@@ -73,7 +77,10 @@ class BonsaiArchiveReadWorldStateStorageCoordinatorTest {
       final Hash accountHash, final Bytes location, final Bytes node, final long block) {
     final ArchiveNodeHistoryStore store = new ArchiveNodeHistoryStore(archiveStorage);
     final SegmentedKeyValueStorageTransaction tx = archiveStorage.startTransaction();
-    store.put(tx, ArchiveNodeKey.storage(accountHash.getBytes(), location), block, node);
+    store.putEncoded(
+        tx,
+        ArchiveNodeKey.historyKey(ArchiveNodeKey.storage(accountHash.getBytes(), location), block),
+        ArchiveNodeHistoryStore.encodeStoredValue(0, ArchiveTrieNodeCodec.encodeFull(node)));
     tx.commit();
   }
 
