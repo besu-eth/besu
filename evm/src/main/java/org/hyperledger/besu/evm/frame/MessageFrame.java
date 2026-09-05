@@ -1040,6 +1040,25 @@ public class MessageFrame {
     }
     decrementStateGasUsed(amount);
   }
+  /**
+   * EIP-8037: settle state gas into gas_left after a successful child frame merges its spill.
+   *
+   * <p>When a child succeeds, its {@code state_gas_from_gas_left} is absorbed into the parent's
+   * before this step runs. The reservoir may now hold gas that was originally drawn from
+   * {@code gas_left} (charged in a different frame), so it has to be moved from the reservoir to the parent's
+   * execution gas.
+   * {@code evm_state_gas_used} is unchanged — no state creation is undone by this step.
+   */
+  public void settleStateGasOnChildSuccess() {
+    final long reservoir = txValues.stateGasReservoir().get();
+    final long spilled = stateGasSpilled;
+    final long d = Math.min(reservoir, spilled);
+    if (d > 0L) {
+      gasRemaining += d;
+      txValues.stateGasReservoir().set(reservoir - d);
+      stateGasSpilled = spilled - d;
+    }
+  }
 
   // ============================================================
   // End EIP-8037 state gas accounting

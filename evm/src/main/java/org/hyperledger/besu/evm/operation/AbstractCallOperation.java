@@ -353,6 +353,7 @@ public abstract class AbstractCallOperation extends AbstractOperation {
     // failure the child already returned it, and no account was created, so undo that charge.
     if (childFrame.getState() == State.COMPLETED_SUCCESS) {
       frame.incrementStateGasSpilled(childFrame.getStateGasSpilled());
+      frame.settleStateGasOnChildSuccess();
     } else {
       refundCallNewAccountStateGas(frame, childFrame.getRecipientAddress(), childFrame.getValue());
     }
