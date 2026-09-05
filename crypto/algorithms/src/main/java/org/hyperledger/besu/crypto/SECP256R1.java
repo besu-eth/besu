@@ -26,6 +26,7 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.bouncycastle.crypto.signers.DSAKCalculator;
 import org.bouncycastle.crypto.signers.RandomDSAKCalculator;
 import org.bouncycastle.math.ec.custom.sec.SecP256R1Curve;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -157,7 +158,7 @@ public class SECP256R1 extends AbstractSECP256 {
   }
 
   @Override
-  protected BigInteger recoverFromSignature(
+  protected @Nullable BigInteger recoverFromSignature(
       final int recId, final BigInteger r, final BigInteger s, final Bytes32 dataHash) {
     if (useNative) {
       return recoverPublicKeyFromSignatureNative(dataHash, new SECPSignature(r, s, (byte) recId))
