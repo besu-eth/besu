@@ -518,6 +518,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
           pendingCodeRequests.outstandingTaskCount());
       pivotCatchupFuture = new CompletableFuture<>();
       pivotCatchupStartMillis = System.currentTimeMillis();
+      syncDurationMetrics.startTimer(SyncDurationMetrics.Labels.SNAP_V2_PIVOT_CATCHUP_DURATION);
       maybeCompleteInFlightTasks(); // handle case of 0 in-flight tasks when catchup starts
     }
 
@@ -550,6 +551,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
   }
 
   private synchronized void failPivotCatchup(final Throwable error) {
+    syncDurationMetrics.stopTimer(SyncDurationMetrics.Labels.SNAP_V2_PIVOT_CATCHUP_DURATION);
     pivotCatchupStartMillis = 0;
     pivotCatchupFuture = null;
     chainCatchupFuture = null;
@@ -561,6 +563,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
       final BlockHeader currentPivotBlockHeader, final BlockHeader newPivotBlockHeader) {
     synchronized (this) {
       if (isStateDownloadFinished()) {
+        syncDurationMetrics.stopTimer(SyncDurationMetrics.Labels.SNAP_V2_PIVOT_CATCHUP_DURATION);
         return;
       }
       // Drain in-flight tasks started when dequeue was allowed while the chain catch-up ran.
@@ -599,6 +602,8 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
           correctRoots = rootsFuture.join();
           final int patched = blockAccessListApplier.patchStorageRoots(batch, correctRoots);
           batch.commit();
+          metricsManager.incrementPivotCatchups();
+          metricsManager.addBalStats(batch.stats());
           LOG.debug(
               "snap/2 pivot catch-up ({} -> {}): {} storage roots patched",
               currentPivotBlockHeader.getNumber(),
@@ -630,6 +635,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
               newPivotBlockHeader.getNumber(),
               recovery.deletedAccounts().size(),
               purged);
+          metricsManager.incrementReorgRecoveries();
           correctRoots = recovery.correctedStorageRoots();
         }
         retargetQueuedRequests(newPivotBlockHeader, correctRoots);
@@ -643,6 +649,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
         failPivotCatchup(e);
         return;
       }
+      syncDurationMetrics.stopTimer(SyncDurationMetrics.Labels.SNAP_V2_PIVOT_CATCHUP_DURATION);
       pivotCatchupFuture = null;
       chainCatchupFuture = null;
       pivotCatchupStartMillis = 0;

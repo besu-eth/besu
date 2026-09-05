@@ -104,6 +104,8 @@ public class SyncDurationMetrics {
     /** Time taken to heal the world state, after the initial download. */
     SNAP_WORLD_STATE_HEALING_DURATION,
     /** Time taken to do the flat database heal. */
-    FLAT_DB_HEAL;
+    FLAT_DB_HEAL,
+    /** Time taken by a snap/2 pivot catch-up cycle. Multiple catch-ups may occur during a sync. */
+    SNAP_V2_PIVOT_CATCHUP_DURATION;
   }
 }
