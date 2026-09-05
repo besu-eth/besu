@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.transaction.CallParameter;
 import org.hyperledger.besu.ethereum.transaction.PreCloseStateHandler;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
@@ -98,7 +99,7 @@ public abstract class AbstractTraceCall extends AbstractTraceByBlock {
         .process(
             callParams,
             Optional.ofNullable(effectiveTraceOptions.stateOverrides()),
-            buildTransactionValidationParams(),
+            buildTransactionValidationParams(maybeBlockHeader.get(), callParams),
             tracer,
             getSimulatorResultHandler(requestContext, tracer, protocolSpec),
             maybeBlockHeader.get())
@@ -132,6 +133,11 @@ public abstract class AbstractTraceCall extends AbstractTraceByBlock {
         newConfig,
         traceOptions.tracerConfig(),
         traceOptions.stateOverrides());
+  }
+
+  protected TransactionValidationParams buildTransactionValidationParams(
+      final BlockHeader header, final CallParameter callParams) {
+    return buildTransactionValidationParams();
   }
 
   protected abstract TraceOptions getTraceOptions(final JsonRpcRequestContext requestContext);

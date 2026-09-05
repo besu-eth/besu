@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Breaking Changes
+- `debug_traceCall` now applies the same balance-check rules as `eth_call`, so calls that previously returned a trace may now be rejected. An explicit `strict` flag is honoured, and when it is absent the balance is checked unless the call supplies no (or zero) gas pricing; previously the balance check was unconditionally skipped, contrary to the documented default. The non-strict path no longer permits the sender's balance to underflow either, so a call whose `value` exceeds the sender's balance is now rejected up front (matching `eth_call`) instead of failing part-way through execution with an internal error. [#11069](https://github.com/besu-eth/besu/issues/11069)
 - `eth_feeHistory` now rejects reward percentiles outside `[0, 100]`, not strictly increasing, or more than 100 values (`-32602`), instead of sorting unordered input or silently omitting `reward` for oversize lists. [#11055](https://github.com/besu-eth/besu/issues/11055)
 
 ### Upcoming Breaking Changes
