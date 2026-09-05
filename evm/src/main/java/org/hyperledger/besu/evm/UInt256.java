@@ -389,83 +389,21 @@ public record UInt256(long u3, long u2, long u1, long u0) {
   /**
    * Bitwise shift left.
    *
-   * @param shift The number of bits to shift left (at most 64).
+   * @param shift The number of bits to shift left (at most 0-256 (inclusive)).
    * @return The shifted UInt256.
    */
   public UInt256 shiftLeft(final int shift) {
-    // Unchecked: 0 <= shift < 64
-    if (shift == 0) return this;
-    int invShift = (N_BITS_PER_LIMB - shift);
-    long z0 = (u0 << shift);
-    long z1 = (u1 << shift) | u0 >>> invShift;
-    long z2 = (u2 << shift) | u1 >>> invShift;
-    long z3 = (u3 << shift) | u2 >>> invShift;
-    return new UInt256(z3, z2, z1, z0);
+    return shl0(shift);
   }
 
   /**
    * Bitwise shift right.
    *
-   * @param shift The number of bits to shift right (at most 64).
+   * @param shift The number of bits to shift right (at most 0-256 (inclusive)).
    * @return The shifted UInt256.
    */
   public UInt256 shiftRight(final int shift) {
-    // Unchecked: 0 <= shift < 64
-    if (shift == 0) return this;
-    int invShift = (N_BITS_PER_LIMB - shift);
-    long z3 = (u3 >>> shift);
-    long z2 = (u2 >>> shift) | u3 << invShift;
-    long z1 = (u1 >>> shift) | u2 << invShift;
-    long z0 = (u0 >>> shift) | u1 << invShift;
-    return new UInt256(z3, z2, z1, z0);
-  }
-
-  /**
-   * Multi-limb right-shift; used by the power-of-two fast path in {@link #div(UInt256)}.
-   *
-   * @param n number of bits to shift right; caller guarantees {@code 1 <= n < 256}.
-   * @return {@code this >> n}.
-   */
-  private UInt256 shiftRightWide(final int n) {
-    final int limbShift = n >>> 6;
-    final int bitShift = n & 63;
-    long s0, s1, s2, s3;
-    switch (limbShift) {
-      case 0 -> {
-        s0 = u0;
-        s1 = u1;
-        s2 = u2;
-        s3 = u3;
-      }
-      case 1 -> {
-        s0 = u1;
-        s1 = u2;
-        s2 = u3;
-        s3 = 0;
-      }
-      case 2 -> {
-        s0 = u2;
-        s1 = u3;
-        s2 = 0;
-        s3 = 0;
-      }
-      case 3 -> {
-        s0 = u3;
-        s1 = 0;
-        s2 = 0;
-        s3 = 0;
-      }
-      default -> {
-        return ZERO;
-      }
-    }
-    if (bitShift == 0) return new UInt256(s3, s2, s1, s0);
-    final int inv = 64 - bitShift;
-    return new UInt256(
-        s3 >>> bitShift,
-        (s2 >>> bitShift) | (s3 << inv),
-        (s1 >>> bitShift) | (s2 << inv),
-        (s0 >>> bitShift) | (s1 << inv));
+    return sar0(shift, 0);
   }
 
   /**
@@ -628,25 +566,25 @@ public record UInt256(long u3, long u2, long u1, long u0) {
     // x / 2^N == x >> N
     if (divisor.u3 != 0) {
       if ((divisor.u3 & (divisor.u3 - 1)) == 0 && (divisor.u2 | divisor.u1 | divisor.u0) == 0) {
-        return shiftRightWide(192 + Long.numberOfTrailingZeros(divisor.u3));
+        return shiftRight(192 + Long.numberOfTrailingZeros(divisor.u3));
       }
       return divisor.divReduce(this);
     }
     if (divisor.u2 != 0) {
       if ((divisor.u2 & (divisor.u2 - 1)) == 0 && (divisor.u1 | divisor.u0) == 0) {
-        return shiftRightWide(128 + Long.numberOfTrailingZeros(divisor.u2));
+        return shiftRight(128 + Long.numberOfTrailingZeros(divisor.u2));
       }
       return divisor.asUInt192().divReduce(this);
     }
     if (divisor.u1 != 0) {
       if ((divisor.u1 & (divisor.u1 - 1)) == 0 && divisor.u0 == 0) {
-        return shiftRightWide(64 + Long.numberOfTrailingZeros(divisor.u1));
+        return shiftRight(64 + Long.numberOfTrailingZeros(divisor.u1));
       }
       return divisor.asUInt128().divReduce(this);
     }
     if ((divisor.u0 == 0) || (divisor.u0 == 1)) return (divisor.u0 == 1) ? this : ZERO;
     if ((divisor.u0 & (divisor.u0 - 1)) == 0) {
-      return shiftRightWide(Long.numberOfTrailingZeros(divisor.u0));
+      return shiftRight(Long.numberOfTrailingZeros(divisor.u0));
     }
     return divisor.asUInt64().divReduce(this);
   }
@@ -831,14 +769,13 @@ public record UInt256(long u3, long u2, long u1, long u0) {
   }
 
   /**
-   * Arithmetic right-shifts a 256-bit value in place by 0..255 bits, sign-extending with {@code
+   * Arithmetic right-shifts a 256-bit value in place by 0..256 bits, sign-extending with {@code
    * fill}.
    *
    * @param shift number of bits to shift
    * @param fill value to prepend while shifting
    * @return the result
    */
-  // TODO: check perf - wiring shiftRight callers with this one
   private UInt256 sar0(final int shift, final long fill) {
     long w3 = u3, w2 = u2, w1 = u1, w0 = u0;
     if (shift == 256) {
@@ -905,12 +842,11 @@ public record UInt256(long u3, long u2, long u1, long u0) {
   }
 
   /**
-   * Left-shifts a 256-bit value in place by 1..255 bits, zero-filling from the right.
+   * Left-shifts a 256-bit value in place by 0..256 bits, zero-filling from the right.
    *
    * @param shift number of bits to shift
    * @return the result
    */
-  // TODO: check perf - wiring shiftLeft callers with this one
   private UInt256 shl0(final int shift) {
     long w3 = u3, w2 = u2, w1 = u1, w0 = u0;
     if (shift == 256) {
@@ -1036,10 +972,6 @@ public record UInt256(long u3, long u2, long u1, long u0) {
     return new UInt320(z4, z3, z2, z1, z0);
   }
 
-  private UInt256 shiftDigitsRight() {
-    return new UInt256(0, u3, u2, u1);
-  }
-
   // Add with carry
   private UInt257 adc(final UInt256 other) {
     // Limb 0: no incoming carry, so a plain unsigned-wrap check suffices.
@@ -1070,7 +1002,7 @@ public record UInt256(long u3, long u2, long u1, long u0) {
   private UInt256 mac128(final long multiplier, final UInt256 carryIn) {
     // Multiply accumulate for 128bits integer (this):
     // <p1, p0> = <u1, u0> * multiplier + carryIn
-    if (multiplier == 0) return carryIn.shiftDigitsRight();
+    if (multiplier == 0) return carryIn.shiftRight(64);
 
     long p0 = u0 * multiplier;
     long p1 = Math.unsignedMultiplyHigh(u0, multiplier);
@@ -1093,7 +1025,7 @@ public record UInt256(long u3, long u2, long u1, long u0) {
     // Multiply accumulate for 192bits integer (this):
     // Returns this * multiplier + (carryIn >>> 64)
     // <p1, p0> = <u1, u0> * multiplier + carryIn
-    if (multiplier == 0) return carryIn.shiftDigitsRight();
+    if (multiplier == 0) return carryIn.shiftRight(64);
 
     long p0 = u0 * multiplier;
     long p1 = Math.unsignedMultiplyHigh(u0, multiplier);

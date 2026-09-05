@@ -28,6 +28,7 @@
 - The Engine API JWT fast-path cache now compares the presented bearer token against the cached one with `MessageDigest.isEqual` over UTF-8 bytes instead of `String.equals`, so the comparison does not return early on the first differing byte.
 - Fix ENR fork ID not updating after timestamp-scheduled forks when no block lands exactly on the fork timestamp. [#10882](https://github.com/besu-eth/besu/issues/10882)
 - Besu no longer announces the EIP-4844 version 0 size of a blob transaction while serving the EIP-7594 version 1 (cell proofs) encoding. From Osaka on, a locally submitted version 0 blob transaction is upgraded to version 1 before it is pooled, but the pre-upgrade transaction was the one broadcast, so `NewPooledTransactionHashes` under-announced it by 6,226 bytes per blob against what `GetPooledTransactions` then served, and go-ethereum peers responded with `dropPeer()`. [#11203](https://github.com/besu-eth/besu/pull/11203)
+- `admin_logsRemoveCache` no longer reports `Cache Removed` when nothing was removed. `TransactionLogBloomCacher.removeSegments` skips the whole deletion while log bloom caching is in progress, so the RPC returned success while every cache file was still on disk. It now returns an error in that case. [#11080](https://github.com/besu-eth/besu/pull/11080)
 
 ### Additions and Improvements
 
@@ -88,6 +89,7 @@
 - Engine API timestamps above `2^63-1` are no longer treated as negative: `engine_newPayload` rejected such a payload's withdrawals as pre-Shanghai, `engine_forkchoiceUpdated` failed to parse the payload attributes timestamp at all, and post-merge header validation saw the block as older than its parent.
 
 ### Additions and Improvements
+- Add `eth_getRawTransactionByHash` JSON-RPC method. [#11170](https://github.com/besu-eth/besu/pull/11170)
 - Add JMH `GasProfiler` that emits `mgas_per_s` as a secondary metric on each benchmark iteration using Besu's own `GasCalculator`. Enable with `-PgasProfiler=true`; override the EVM fork with `-PgasProfilerFork=<fork>` (defaults to Osaka). [#10807](https://github.com/besu-eth/besu/pull/10807)
 - Align Kotlin runtime dependencies to 2.4.0 to support plugins compiled against the Kotlin 2.4 API. [#10983](https://github.com/besu-eth/besu/pull/10983)
 - Upgrade log4j to 2.25.5 [#11075](https://github.com/besu-eth/besu/pull/11075)
