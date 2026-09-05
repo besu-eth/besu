@@ -106,6 +106,9 @@ public class ProtocolScheduleBuilder {
     // At this stage, all milestones are flagged with the correct modifier, but ProtocolSpecs must
     // be inserted _AT_ the modifier block entry.
     if (!builders.isEmpty()) {
+      final boolean hasBlockNumberMilestone =
+          builders.values().stream()
+              .anyMatch(entry -> entry.milestoneType == MilestoneType.BLOCK_NUMBER);
       protocolSpecAdapters.stream()
           .forEach(
               entry -> {
@@ -114,11 +117,13 @@ public class ProtocolScheduleBuilder {
                     Optional.ofNullable(builders.floorEntry(modifierBlock))
                         .orElse(builders.firstEntry())
                         .getValue();
+                final MilestoneType milestoneType =
+                    hasBlockNumberMilestone ? parent.milestoneType : MilestoneType.BLOCK_NUMBER;
                 builders.put(
                     modifierBlock,
                     new BuilderMapEntry(
                         parent.hardforkId,
-                        parent.milestoneType,
+                        milestoneType,
                         modifierBlock,
                         parent.builder(),
                         entry.getValue()));
