@@ -564,7 +564,12 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       return new BlockProcessingResult(
           Optional.of(
               new BlockProcessingOutputs(
-                  worldState, receipts, maybeRequests, maybeBlockAccessList, gasMetered)),
+                  worldState,
+                  receipts,
+                  maybeRequests,
+                  maybeBlockAccessList,
+                  gasMetered,
+                  blockHashLookup.getAccessedAncestors())),
           parallelizedTxFound ? Optional.of(nbParallelTx) : Optional.empty());
     } finally {
       stateRootCommitter.cancel();

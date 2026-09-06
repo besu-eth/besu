@@ -1,5 +1,8 @@
 name: bft-soak-test
 on:
+  schedule:
+    # Run once a day at 06:00 UTC
+    - cron: '0 6 * * *'
   workflow_dispatch:
     inputs:
       consensus-type:
@@ -30,10 +33,13 @@ env:
   GRADLE_OPTS: "-Xmx6g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=true"
   BESU_REF: ${{ inputs.besu_ref  || 'main' }}
   BESU_REPO: ${{ inputs.besu_repo  || github.repository }}
+  # Defaults applied when there are no dispatch inputs (e.g. the daily scheduled run).
+  CONSENSUS_TYPE: ${{ inputs.consensus-type || 'qbft' }}
+  SOAK_TIME_MINS: ${{ inputs.soak-time-mins || '70' }}
 
 jobs:
   bft-soak-test:
-    name: "BFT Soak Test (${{ inputs.consensus-type }})"
+    name: "BFT Soak Test (${{ inputs.consensus-type || 'qbft' }})"
     runs-on: ubuntu-latest
     timeout-minutes: 180
     permissions:
@@ -41,11 +47,27 @@ jobs:
       statuses: write
       checks: write
     steps:
+      - name: Log ref being tested
+        run: |
+          echo "Repository: $BESU_REPO"
+          echo "Ref (branch/commit): $BESU_REF"
+          {
+            echo "### BFT soak test target"
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Repository | $BESU_REPO |"
+            echo "| Ref (branch/commit) | $BESU_REF |"
+            echo "| Consensus | $CONSENSUS_TYPE |"
+            echo "| Soak minutes | $SOAK_TIME_MINS |"
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Checkout Repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ env.BESU_REF }}
           repository: ${{ env.BESU_REPO }}
+          # Full history so the on-failure step can list commits merged in the last 24h.
+          fetch-depth: 0
       - name: Set up Java
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
@@ -56,16 +78,52 @@ jobs:
         with:
           cache-disabled: true
       - name: run BFT soak test
-        run: ./gradlew :acceptance-tests:tests:acceptanceTestBftSoak -Dacctests.soakTimeMins=${{ inputs['soak-time-mins'] }} -Dacctests.consensusType=${{ inputs.consensus-type }}
+        run: ./gradlew :acceptance-tests:tests:acceptanceTestBftSoak -Dacctests.soakTimeMins=${{ env.SOAK_TIME_MINS }} -Dacctests.consensusType=${{ env.CONSENSUS_TYPE }}
+      - name: Diagnose failure - recent commits
+        if: failure()
+        run: |
+          TESTED_SHA=$(git rev-parse HEAD)
+          # First-parent view = what actually landed on this branch (PR merges / squashes).
+          RECENT=$(git log --first-parent --since='25 hours ago' --pretty=format:'- %h %s (%an, %cr)')
+          {
+            echo "## ❌ BFT soak test failed"
+            echo ""
+            echo "**Repository:** $BESU_REPO"
+            echo "**Ref:** $BESU_REF"
+            echo "**Tested commit:** $TESTED_SHA"
+            echo ""
+            echo "### Commits merged in the last 24h (candidate causes)"
+            echo ""
+            if [ -n "$RECENT" ]; then
+              echo "$RECENT"
+            else
+              echo "No commits in the last 24h - showing the 20 most recent, but this may indicate the test is unreliable:"
+              echo ""
+              git log --first-parent -20 --pretty=format:'- %h %s (%an, %cr)'
+            fi
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+          # Also emit to the step log, plus a file-level summary of what changed.
+          echo "===== Tested commit ====="
+          echo "$TESTED_SHA"
+          echo "===== Commits merged in the last 24h ====="
+          echo "${RECENT:-<none>}"
+          echo "===== Files changed in the last 24h ====="
+          SINCE_SHA=$(git rev-list -1 --before='24 hours ago' HEAD)
+          if [ -n "$SINCE_SHA" ]; then
+            git diff --stat "$SINCE_SHA"..HEAD
+          else
+            echo "<no commit older than 24h found>"
+          fi
       - name: Upload BFT Soak Test HTML Reports
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         if: always()
         with:
-          name: bft-soak-test-html-reports-${{ inputs.consensus-type }}
+          name: bft-soak-test-html-reports-${{ env.CONSENSUS_TYPE }}
           path: 'acceptance-tests/tests/build/reports/tests/**'
       - name: Upload BFT Soak Test Results
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         if: always()
         with:
-          name: bft-soak-test-results-${{ inputs.consensus-type }}
+          name: bft-soak-test-results-${{ env.CONSENSUS_TYPE }}
           path: 'acceptance-tests/tests/build/test-results/**/TEST-*.xml'
