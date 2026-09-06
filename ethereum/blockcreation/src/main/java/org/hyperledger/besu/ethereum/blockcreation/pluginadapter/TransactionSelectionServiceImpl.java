@@ -42,6 +42,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.jspecify.annotations.Nullable;
 
 /** The Transaction Selection service implementation. */
 public class TransactionSelectionServiceImpl implements TransactionSelectionService {
@@ -49,7 +50,7 @@ public class TransactionSelectionServiceImpl implements TransactionSelectionServ
   /** Default Constructor. */
   public TransactionSelectionServiceImpl() {}
 
-  private List<PluginTransactionSelectorFactory> factories;
+  private @Nullable List<PluginTransactionSelectorFactory> factories;
 
   @Override
   public PluginTransactionSelector createPluginTransactionSelector(

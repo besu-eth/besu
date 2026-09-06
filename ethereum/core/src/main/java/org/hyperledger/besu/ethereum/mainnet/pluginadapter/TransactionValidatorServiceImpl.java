@@ -12,14 +12,13 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.services;
+package org.hyperledger.besu.ethereum.mainnet.pluginadapter;
 
 import org.hyperledger.besu.plugin.services.TransactionValidatorService;
 import org.hyperledger.besu.plugin.services.txvalidator.TransactionValidationRule;
 
 import java.util.ArrayList;
 import java.util.List;
-import javax.inject.Inject;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,7 +30,6 @@ public class TransactionValidatorServiceImpl implements TransactionValidatorServ
   private final List<TransactionValidationRule> transactionValidationRules = new ArrayList<>();
 
   /** Default Constructor. */
-  @Inject
   public TransactionValidatorServiceImpl() {}
 
   @Override
