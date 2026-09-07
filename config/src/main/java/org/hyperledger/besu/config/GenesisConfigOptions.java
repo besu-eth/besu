@@ -364,18 +364,47 @@ public interface GenesisConfigOptions {
   Optional<Hash> getTerminalBlockHash();
 
   /**
-   * Gets fork block numbers.
+   * Gets the fork block numbers this config declares.
+   *
+   * <p>Schedule construction reads this: it is the set of forks Besu itself builds specs for. Use
+   * {@link #getForkIdBlockNumbers()} to advertise a fork ID.
    *
    * @return the fork block numbers
    */
   List<Long> getForkBlockNumbers();
 
   /**
-   * Gets fork block timestamps.
+   * Gets the block activations to advertise under EIP-2124.
+   *
+   * <p>The declared fork blocks plus any activation contributed from outside the genesis config.
+   *
+   * @return the fork-ID block activations
+   */
+  default List<Long> getForkIdBlockNumbers() {
+    return getForkBlockNumbers();
+  }
+
+  /**
+   * Gets the fork block timestamps this config declares.
+   *
+   * <p>Schedule construction reads this: it is the set of forks Besu itself builds specs for. Use
+   * {@link #getForkIdBlockTimestamps()} to advertise a fork ID.
    *
    * @return the fork block timestamps
    */
   List<Long> getForkBlockTimestamps();
+
+  /**
+   * Gets the timestamp activations to advertise under EIP-2124.
+   *
+   * <p>The declared fork timestamps plus any activation contributed from outside the genesis
+   * config.
+   *
+   * @return the fork-ID timestamp activations
+   */
+  default List<Long> getForkIdBlockTimestamps() {
+    return getForkBlockTimestamps();
+  }
 
   /**
    * Gets chain id.
