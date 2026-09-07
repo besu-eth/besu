@@ -20,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -152,6 +153,28 @@ public class JsonGenesisConfigOptionsTest {
 
     assertThat(options.getForkIdBlockNumbers()).containsExactly(10L, 11L);
     assertThat(options.getForkIdBlockTimestamps()).containsExactly(1000L, 2000L);
+  }
+
+  @Test
+  public void customConfigLongReadsKeysBesuDoesNotDefine() {
+    // keys arrive lowercased, as genesis parsing normalizes them
+    final ObjectNode config =
+        JsonUtil.objectNodeFromString("{\"customforkblock\":3000000,\"customerarounds\":5000000}");
+    final GenesisConfigOptions options = JsonGenesisConfigOptions.fromJsonObject(config);
+
+    assertThat(options.getCustomConfigLong("customForkBlock")).hasValue(3_000_000L);
+    assertThat(options.getCustomConfigLong("customEraRounds")).hasValue(5_000_000L);
+    assertThat(options.getCustomConfigLong("absentBlock")).isEmpty();
+  }
+
+  @Test
+  public void customConfigLongHonoursConfigOverrides() {
+    final ObjectNode config = JsonUtil.objectNodeFromString("{\"customforkblock\":3000000}");
+    final GenesisConfigOptions options =
+        JsonGenesisConfigOptions.fromJsonObjectWithOverrides(
+            config, Map.of("customForkBlock", "0"));
+
+    assertThat(options.getCustomConfigLong("customForkBlock")).hasValue(0L);
   }
 
   @Test
