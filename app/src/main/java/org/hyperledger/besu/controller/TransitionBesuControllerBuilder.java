@@ -52,6 +52,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfigurati
 import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleCustomization;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
@@ -191,6 +192,19 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
             mergeBesuControllerBuilder.createProtocolSchedule(),
             mergeBesuControllerBuilder.getPostMergeContext());
     return transitionProtocolSchedule;
+  }
+
+  @Override
+  BesuControllerBuilder protocolScheduleCustomization(
+      final ProtocolScheduleCustomization protocolScheduleCustomization) {
+    super.protocolScheduleCustomization(protocolScheduleCustomization);
+    return propagateConfig(z -> z.protocolScheduleCustomization(protocolScheduleCustomization));
+  }
+
+  @Override
+  protected boolean supportsProtocolScheduleCustomization() {
+    return preMergeBesuControllerBuilder.supportsProtocolScheduleCustomization()
+        && mergeBesuControllerBuilder.supportsProtocolScheduleCustomization();
   }
 
   @Override
