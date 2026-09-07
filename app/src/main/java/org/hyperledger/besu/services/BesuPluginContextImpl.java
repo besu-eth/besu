@@ -17,8 +17,11 @@ package org.hyperledger.besu.services;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 
+import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.ethereum.core.plugins.PluginConfiguration;
 import org.hyperledger.besu.ethereum.core.plugins.PluginProvidedServices;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleCustomization;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleService;
 import org.hyperledger.besu.plugin.BesuPlugin;
 import org.hyperledger.besu.plugin.RegistrationClosedException;
 import org.hyperledger.besu.plugin.RegistrationContext;
@@ -122,6 +125,8 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
   private volatile Lifecycle state = Lifecycle.UNINITIALIZED;
   private final Map<Class<?>, BesuService> besuServices = new ConcurrentHashMap<>();
   private final Map<Class<?>, ServiceWithProvider> pluginServices = new ConcurrentHashMap<>();
+  private final ProtocolScheduleServiceImpl protocolScheduleService =
+      new ProtocolScheduleServiceImpl();
 
   /** The ids of every plugin found in the plugins directory, in load order, unloadable last. */
   private List<String> detectedPluginIds = List.of();
@@ -152,8 +157,10 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
   private PluginConfiguration config;
   private URLClassLoader pluginClassLoader;
 
-  /** Instantiates a new Besu plugin context. */
-  public BesuPluginContextImpl() {}
+  /** Instantiates a new Besu plugin context with services required during plugin registration. */
+  public BesuPluginContextImpl() {
+    besuServices.put(ProtocolScheduleService.class, protocolScheduleService);
+  }
 
   /**
    * Adds a Besu-provided service. Called by Besu when the service's dependencies exist, before the
@@ -168,6 +175,9 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
     checkArgument(
         serviceType.isInstance(service),
         "The service registered with a type must implement that type");
+    checkArgument(
+        !ProtocolScheduleService.class.equals(serviceType),
+        "ProtocolScheduleService is Besu-owned and cannot be replaced");
     besuServices.put(serviceType, service);
   }
 
@@ -364,6 +374,17 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
     return config.isContinueOnPluginError() && isBuiltIn(plugin)
         ? failure + "; a built-in plugin failure is fatal regardless of --plugin-continue-on-error"
         : failure;
+  }
+
+  /**
+   * Resolves protocol-schedule customizers through Besu's internal lifecycle.
+   *
+   * @param config the uncustomized genesis configuration
+   * @return the single matching customization, or the empty one
+   */
+  public ProtocolScheduleCustomization resolveProtocolScheduleCustomization(
+      final GenesisConfigOptions config) {
+    return protocolScheduleService.resolve(config);
   }
 
   /**
@@ -630,6 +651,7 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
         "BesuContext should be in state %s but it was in %s",
         Lifecycle.REGISTERING,
         state);
+    protocolScheduleService.freeze();
     state = Lifecycle.REGISTERED;
   }
 
@@ -1176,6 +1198,7 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
             + " first",
         Lifecycle.REGISTERED,
         state);
+    protocolScheduleService.reset();
     pluginServices.clear();
     state = Lifecycle.OPTIONS_DEFINED;
   }
