@@ -23,6 +23,7 @@ import org.hyperledger.besu.datatypes.Wei;
 
 import java.math.BigInteger;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -584,6 +585,11 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
     }
 
     return builder.build();
+  }
+
+  @Override
+  public OptionalLong getCustomConfigLong(final String key) {
+    return getOptionalLong(key.toLowerCase(Locale.ROOT));
   }
 
   private OptionalLong getOptionalLong(final String key) {
