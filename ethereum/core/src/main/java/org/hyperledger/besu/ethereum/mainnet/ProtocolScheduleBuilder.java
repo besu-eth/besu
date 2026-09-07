@@ -85,6 +85,9 @@ public class ProtocolScheduleBuilder {
   }
 
   public void initSchedule(final ProtocolSchedule protocolSchedule) {
+    // Refuse activations this chain cannot honor before building anything, beside the fork-order
+    // validation below: every path that reaches a schedule passes through here.
+    protocolSpecAdapters.customization().validateAgainst(config);
 
     final MainnetProtocolSpecFactory specFactory =
         new MainnetProtocolSpecFactory(
