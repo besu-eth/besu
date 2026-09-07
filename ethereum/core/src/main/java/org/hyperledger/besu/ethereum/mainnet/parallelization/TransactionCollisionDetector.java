@@ -67,15 +67,21 @@ public class TransactionCollisionDetector {
           getAddressTouchedByBlock(next, Optional.of(blockAccumulator));
       if (maybeAddressTouchedByBlock.isPresent()) {
         if (maybeAddressTouchedByBlock.get().areAccountDetailsEqualExcludingStorage()) {
-          final Set<StorageSlotKey> slotsTouchedByBlockAndByAddress =
-              getSlotsTouchedByBlockAndByAddress(Optional.of(blockAccumulator), next);
-          final Set<StorageSlotKey> slotsTouchedByTransactionAndByAddress =
-              getSlotsTouchedByTransactionAndByAddress(
-                  Optional.of(parallelizedTransactionContext.transactionAccumulator()), next);
-          for (final StorageSlotKey touchedByTransactionAndByAddress :
-              slotsTouchedByTransactionAndByAddress) {
-            if (slotsTouchedByBlockAndByAddress.contains(touchedByTransactionAndByAddress)) {
-              return true;
+          final StorageConsumingMap<StorageSlotKey, BonsaiValue<UInt256>> txStorage =
+              parallelizedTransactionContext
+                  .transactionAccumulator()
+                  .getStorageToUpdate()
+                  .get(next);
+          if (txStorage != null && !txStorage.isEmpty()) {
+            final StorageConsumingMap<StorageSlotKey, BonsaiValue<UInt256>> blockStorage =
+                blockAccumulator.getStorageToUpdate().get(next);
+            if (blockStorage != null) {
+              for (final StorageSlotKey key : txStorage.keySet()) {
+                final BonsaiValue<UInt256> blockValue = blockStorage.get(key);
+                if (blockValue != null && !blockValue.isUnchanged()) {
+                  return true;
+                }
+              }
             }
           }
         } else {
@@ -118,39 +124,6 @@ public class TransactionCollisionDetector {
   }
 
   /**
-   * Retrieves the set of storage slot keys that have been touched by the given transaction for the
-   * specified address, based on the provided world state update accumulator.
-   *
-   * <p>This method checks if the accumulator contains storage updates for the specified address. If
-   * such updates are found, it adds the touched storage slot keys to the returned set. The method
-   * does not distinguish between changes or unchanged slots; it simply collects all the storage
-   * slot keys that have been touched by the transaction for the given address.
-   *
-   * @param accumulator An {@link Optional} containing the world state update accumulator, which
-   *     holds the updates for storage slots.
-   * @param address The address for which the touched storage slots are being retrieved.
-   * @return A set of storage slot keys that have been touched by the transaction for the given
-   *     address. If no updates are found, or the address has no associated updates, an empty set is
-   *     returned.
-   */
-  private Set<StorageSlotKey> getSlotsTouchedByTransactionAndByAddress(
-      final Optional<PathBasedWorldStateUpdateAccumulator<?>> accumulator, final Address address) {
-    HashSet<StorageSlotKey> slots = new HashSet<>();
-    accumulator.ifPresent(
-        pathBasedWorldStateUpdateAccumulator -> {
-          final StorageConsumingMap<StorageSlotKey, BonsaiValue<UInt256>> map =
-              pathBasedWorldStateUpdateAccumulator.getStorageToUpdate().get(address);
-          if (map != null) {
-            map.forEach(
-                (storageSlotKey, slot) -> {
-                  slots.add(storageSlotKey);
-                });
-          }
-        });
-    return slots;
-  }
-
-  /**
    * Retrieves the update context for the given address from the block's world state update
    * accumulator.
    *
@@ -186,39 +159,6 @@ public class TransactionCollisionDetector {
       }
     }
     return Optional.empty();
-  }
-
-  /**
-   * Retrieves the set of storage slot keys that have been updated in the block accumulator for the
-   * specified address.
-   *
-   * <p>This method checks if the accumulator contains a storage map for the provided address. If
-   * the address has associated storage updates, it iterates over the storage slots and add it to
-   * the list only if the corresponding storage value has been modified (i.e., is not unchanged).
-   *
-   * @param accumulator An Optional containing the world state block update accumulator, which holds
-   *     the storage updates.
-   * @param address The address for which the storage slots are being queried.
-   * @return A set of storage slot keys that have been updated for the given address. If no updates
-   *     are found, or the address has no associated updates, an empty set is returned.
-   */
-  private Set<StorageSlotKey> getSlotsTouchedByBlockAndByAddress(
-      final Optional<PathBasedWorldStateUpdateAccumulator<?>> accumulator, final Address address) {
-    HashSet<StorageSlotKey> slots = new HashSet<>();
-    accumulator.ifPresent(
-        pathBasedWorldStateUpdateAccumulator -> {
-          final StorageConsumingMap<StorageSlotKey, BonsaiValue<UInt256>> map =
-              pathBasedWorldStateUpdateAccumulator.getStorageToUpdate().get(address);
-          if (map != null) {
-            map.forEach(
-                (storageSlotKey, slot) -> {
-                  if (!slot.isUnchanged()) {
-                    slots.add(storageSlotKey);
-                  }
-                });
-          }
-        });
-    return slots;
   }
 
   /**
