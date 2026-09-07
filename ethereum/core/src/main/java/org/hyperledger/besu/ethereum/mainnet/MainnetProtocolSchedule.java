@@ -20,9 +20,11 @@ import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.difficulty.fixed.FixedDifficultyCalculators;
 import org.hyperledger.besu.ethereum.difficulty.fixed.FixedDifficultyProtocolSchedule;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
+import org.hyperledger.besu.plugin.Unstable;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
 import java.math.BigInteger;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 
@@ -59,6 +61,44 @@ public class MainnetProtocolSchedule {
       final boolean isParallelTxProcessingEnabled,
       final BalConfiguration balConfiguration,
       final MetricsSystem metricsSystem) {
+    return fromConfig(
+        config,
+        isRevertReasonEnabled,
+        evmConfiguration,
+        miningConfiguration,
+        badBlockManager,
+        isParallelTxProcessingEnabled,
+        balConfiguration,
+        metricsSystem,
+        ProtocolScheduleCustomization.none());
+  }
+
+  /**
+   * Create a Mainnet protocol schedule from a config object and one already-resolved customization.
+   *
+   * @param config {@link GenesisConfigOptions} containing the config options for the milestone
+   *     starting points
+   * @param isRevertReasonEnabled whether storing the revert reason is for failed transactions
+   * @param evmConfiguration how to configure the EVMs jumpdest cache
+   * @param miningConfiguration the mining parameters
+   * @param badBlockManager the cache to use to keep invalid blocks
+   * @param isParallelTxProcessingEnabled indicates whether parallel transaction is enabled
+   * @param balConfiguration configuration related to block access lists
+   * @param metricsSystem A metricSystem instance to expose metrics in the underlying calls
+   * @param customization the customization resolved centrally by the controller builder
+   * @return A configured mainnet protocol schedule
+   */
+  @Unstable
+  public static ProtocolSchedule fromConfig(
+      final GenesisConfigOptions config,
+      final Optional<Boolean> isRevertReasonEnabled,
+      final Optional<EvmConfiguration> evmConfiguration,
+      final MiningConfiguration miningConfiguration,
+      final BadBlockManager badBlockManager,
+      final boolean isParallelTxProcessingEnabled,
+      final BalConfiguration balConfiguration,
+      final MetricsSystem metricsSystem,
+      final ProtocolScheduleCustomization customization) {
     if (FixedDifficultyCalculators.isFixedDifficultyInConfig(config)) {
       LOG.warn(
           "Genesis config contains ethash.fixedDifficulty. "
@@ -71,12 +111,14 @@ public class MainnetProtocolSchedule {
           badBlockManager,
           isParallelTxProcessingEnabled,
           balConfiguration,
-          metricsSystem);
+          metricsSystem,
+          customization);
     }
+
     return new ProtocolScheduleBuilder(
             config,
             Optional.of(DEFAULT_CHAIN_ID),
-            ProtocolSpecAdapters.create(0, Function.identity()),
+            ProtocolSpecAdapters.compose(Map.of(0L, Function.identity()), customization),
             isRevertReasonEnabled.orElse(false),
             evmConfiguration.orElse(EvmConfiguration.DEFAULT),
             miningConfiguration,

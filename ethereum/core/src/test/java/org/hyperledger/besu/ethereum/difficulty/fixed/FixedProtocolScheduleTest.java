@@ -15,16 +15,23 @@
 package org.hyperledger.besu.ethereum.difficulty.fixed;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleActivation.blockNumber;
 
 import org.hyperledger.besu.config.GenesisConfig;
+import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleCustomization;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpecModification;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
@@ -66,6 +73,38 @@ public class FixedProtocolScheduleTest {
                 .getByBlockHeader(blockHeader(500_000))
                 .getDifficultyCalculator()
                 .nextDifficulty(1, parentHeader))
+        .isEqualTo(FixedDifficultyCalculators.DEFAULT_DIFFICULTY);
+  }
+
+  @Test
+  public void customizerAdaptersAreAppliedAndComposedWithTheFixedDifficultyCalculator() {
+    final Wei customReward = Wei.of(42_000_000L);
+    final long activationBlock = 7L;
+    final ProtocolSpecModification modification =
+        new ProtocolSpecModification(
+            blockNumber(activationBlock), builder -> builder.blockReward(customReward));
+    final ProtocolScheduleCustomization customization =
+        new ProtocolScheduleCustomization("test", List.of(modification));
+
+    final ProtocolSchedule schedule =
+        FixedDifficultyProtocolSchedule.create(
+            GenesisConfig.fromResource("/dev.json").getConfigOptions(),
+            false,
+            EvmConfiguration.DEFAULT,
+            MiningConfiguration.MINING_DISABLED,
+            new BadBlockManager(),
+            false,
+            BalConfiguration.DEFAULT,
+            new NoOpMetricsSystem(),
+            customization);
+
+    final ProtocolSpec spec = schedule.getByBlockHeader(blockHeader(activationBlock));
+    final BlockHeader parentHeader = new BlockHeaderTestFixture().number(1).buildHeader();
+
+    // the customizer's rule is enforced on the fixed-difficulty path...
+    assertThat(spec.getBlockReward()).isEqualTo(customReward);
+    // ...composed on top of (not replacing) the earlier fixed-difficulty modifier.
+    assertThat(spec.getDifficultyCalculator().nextDifficulty(1, parentHeader))
         .isEqualTo(FixedDifficultyCalculators.DEFAULT_DIFFICULTY);
   }
 
