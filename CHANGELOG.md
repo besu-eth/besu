@@ -23,6 +23,7 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
+- Reject malformed RLPx ECIES handshake payloads under 32 bytes cleanly with `InvalidCipherTextException` instead of raising an unhandled `NegativeArraySizeException`. [#11218](https://github.com/besu-eth/besu/pull/11218)
 - GraphQL `logs(filter: ...)` no longer fails when the filter's `topics` field is omitted or explicitly null, on both the top-level `logs` query and the block-scoped one. The schema declares `topics` nullable and documents "[] or nil matches any topic list", but the field was dereferenced unguarded, so a documented-valid query returned a `DataFetchingException` and `data: null`. [#11188](https://github.com/besu-eth/besu/pull/11188)
 - The Engine API JWT fast-path cache now compares the presented bearer token against the cached one with `MessageDigest.isEqual` over UTF-8 bytes instead of `String.equals`, so the comparison does not return early on the first differing byte.
 - Fix ENR fork ID not updating after timestamp-scheduled forks when no block lands exactly on the fork timestamp. [#10882](https://github.com/besu-eth/besu/issues/10882)
@@ -162,6 +163,7 @@
 - Cap pre-STATUS RLPx connections and close them on eviction to prevent resource exhaustion.
 - Fix txpool incorrectly evicting authority pending transactions when EIP-7702 delegation tuples are skipped during block execution
 - Reject RLP-wrapped typed transactions in block-body opaque decoding, preventing a potential consensus divergence.
+- Reject an EIP-7928 block access list whose `uint256` fields are not minimally encoded, and report an undecodable `blockAccessList` as an invalid payload rather than an invalid-params error, per [execution-apis#869](https://github.com/ethereum/execution-apis/pull/869); re-applies [#11177](https://github.com/besu-eth/besu/pull/11177) (reverted in [#11219](https://github.com/besu-eth/besu/pull/11219)) with a narrower trigger.
 
 ### Additions and Improvements
 - Align Kotlin runtime dependencies to 2.4.0 to support plugins compiled against the Kotlin 2.4 API. [#10983](https://github.com/besu-eth/besu/pull/10983)
