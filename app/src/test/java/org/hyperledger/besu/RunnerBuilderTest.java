@@ -139,8 +139,8 @@ public final class RunnerBuilderTest {
     when(besuController.getMiningCoordinator()).thenReturn(new NoopMiningCoordinator());
     when(besuController.getMiningCoordinator()).thenReturn(mock(MergeMiningCoordinator.class));
     when(besuController.getEthPeers()).thenReturn(mock(EthPeers.class));
-    when(genesisConfigOptions.getForkBlockNumbers()).thenReturn(Collections.emptyList());
-    when(genesisConfigOptions.getForkBlockTimestamps()).thenReturn(Collections.emptyList());
+    when(genesisConfigOptions.getForkIdBlockNumbers()).thenReturn(Collections.emptyList());
+    when(genesisConfigOptions.getForkIdBlockTimestamps()).thenReturn(Collections.emptyList());
     when(besuController.getGenesisConfigOptions()).thenReturn(genesisConfigOptions);
   }
 
@@ -201,7 +201,7 @@ public final class RunnerBuilderTest {
     // forkId returned by ForkIdManager.getForkIdForChainHead(). Without this the
     // NodeRecordManager equality check (compressed pubkey + wrapped forkId + endpoint)
     // would correctly reuse the existing ENR and seqno would stay at 1.
-    when(genesisConfigOptions.getForkBlockNumbers()).thenReturn(List.of(1L, 2L));
+    when(genesisConfigOptions.getForkIdBlockNumbers()).thenReturn(List.of(1L, 2L));
     final Runner runner =
         new RunnerBuilder()
             .discoveryEnabled(true)
@@ -281,7 +281,7 @@ public final class RunnerBuilderTest {
     final MutableBlockchain inMemoryBlockchain =
         createInMemoryBlockchain(genesisBlock, new MainnetBlockHeaderFunctions());
     when(protocolContext.getBlockchain()).thenReturn(inMemoryBlockchain);
-    when(genesisConfigOptions.getForkBlockTimestamps()).thenReturn(List.of(forkTimestamp));
+    when(genesisConfigOptions.getForkIdBlockTimestamps()).thenReturn(List.of(forkTimestamp));
 
     final Runner runner =
         new RunnerBuilder()

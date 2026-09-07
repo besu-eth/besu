@@ -15,9 +15,11 @@
 package org.hyperledger.besu.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -68,6 +70,88 @@ public class JsonGenesisConfigOptionsTest {
     ((ObjectNode) ibftNode.get(0)).remove("validators");
 
     return configNode;
+  }
+
+  @Test
+  public void additionalForkActivationsAreMergedIntoTheForkSchedule() {
+    final ObjectNode config =
+        JsonUtil.objectNodeFromString("{\"homesteadblock\":10,\"shanghaitime\":1000}");
+
+    // no additional activations: just the genesis-declared forks
+    assertThat(JsonGenesisConfigOptions.fromJsonObject(config).getForkBlockNumbers())
+        .containsExactly(10L);
+    assertThat(JsonGenesisConfigOptions.fromJsonObject(config).getForkBlockTimestamps())
+        .containsExactly(1000L);
+
+    // additional activations are unioned in, sorted and de-duplicated; genesis forks remain
+    final GenesisConfigOptions merged =
+        JsonGenesisConfigOptions.fromJsonObject(
+            config, new ForkIdActivations(List.of(22L, 11L, 10L), List.of(2000L)));
+    assertThat(merged.getForkIdBlockNumbers()).containsExactly(10L, 11L, 22L);
+    assertThat(merged.getForkIdBlockTimestamps()).containsExactly(1000L, 2000L);
+
+    // the forks the config itself declares are what schedule construction reads, and additional
+    // activations must not appear there
+    assertThat(merged.getForkBlockNumbers()).containsExactly(10L);
+    assertThat(merged.getForkBlockTimestamps()).containsExactly(1000L);
+  }
+
+  @Test
+  public void equalsAndHashCodeAccountForAdditionalForkActivations() {
+    final ObjectNode config =
+        JsonUtil.objectNodeFromString("{\"homesteadblock\":10,\"shanghaitime\":1000}");
+
+    final GenesisConfigOptions noExtras = JsonGenesisConfigOptions.fromJsonObject(config);
+    final GenesisConfigOptions withBlocks =
+        JsonGenesisConfigOptions.fromJsonObject(
+            config, new ForkIdActivations(List.of(11L), List.of()));
+    final GenesisConfigOptions withTimestamps =
+        JsonGenesisConfigOptions.fromJsonObject(
+            config, new ForkIdActivations(List.of(), List.of(2000L)));
+    final GenesisConfigOptions sameAsWithBlocks =
+        JsonGenesisConfigOptions.fromJsonObject(
+            config, new ForkIdActivations(List.of(11L), List.of()));
+
+    // the additional activations are part of the object's identity: differing only by them
+    // must not compare equal, otherwise a cache keyed on the options could serve a stale fork ID
+    assertThat(withBlocks).isNotEqualTo(noExtras);
+    assertThat(withTimestamps).isNotEqualTo(noExtras);
+    assertThat(withBlocks).isNotEqualTo(withTimestamps);
+
+    // same config and same activations remain equal, with a consistent hashCode
+    assertThat(withBlocks).isEqualTo(sameAsWithBlocks);
+    assertThat(withBlocks).hasSameHashCodeAs(sameAsWithBlocks);
+  }
+
+  @Test
+  public void additionalForkActivationsHaveCanonicalValueSemantics() {
+    final ForkIdActivations canonical =
+        new ForkIdActivations(List.of(10L, 11L), List.of(1000L, 2000L));
+    final ForkIdActivations reorderedWithDuplicates =
+        new ForkIdActivations(List.of(11L, 10L, 11L), List.of(2000L, 1000L, 2000L));
+
+    assertThat(reorderedWithDuplicates).isEqualTo(canonical);
+    assertThat(reorderedWithDuplicates.blockNumbers()).containsExactly(10L, 11L);
+    assertThat(reorderedWithDuplicates.timestamps()).containsExactly(1000L, 2000L);
+  }
+
+  @Test
+  public void additionalForkActivationsRejectNegativeValues() {
+    assertThatIllegalArgumentException()
+        .isThrownBy(() -> new ForkIdActivations(List.of(-1L), List.of()))
+        .withMessageContaining("negative");
+  }
+
+  @Test
+  public void repeatedAdditionalForkActivationsAreMerged() {
+    final GenesisConfigOptions options =
+        GenesisConfig.fromConfig("{\"config\":{}}")
+            .withAdditionalForkIdActivations(new ForkIdActivations(List.of(10L), List.of(1000L)))
+            .withAdditionalForkIdActivations(new ForkIdActivations(List.of(11L), List.of(2000L)))
+            .getConfigOptions();
+
+    assertThat(options.getForkIdBlockNumbers()).containsExactly(10L, 11L);
+    assertThat(options.getForkIdBlockTimestamps()).containsExactly(1000L, 2000L);
   }
 
   @Test
