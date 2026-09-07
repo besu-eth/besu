@@ -46,9 +46,14 @@ public class WorldStateProof {
   }
 
   public WorldStateProof(final Proof<Bytes> accountProof) {
+    this(accountProof, new HashMap<>());
+  }
+
+  public WorldStateProof(
+      final Proof<Bytes> accountProof, final Map<UInt256, Proof<Bytes>> storageProofs) {
     this.stateTrieAccountValue = Optional.empty();
     this.accountProof = accountProof;
-    this.storageProofs = new HashMap<>();
+    this.storageProofs = storageProofs;
   }
 
   public Optional<PmtStateTrieAccountValue> getStateTrieAccountValue() {

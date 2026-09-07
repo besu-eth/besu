@@ -89,15 +89,27 @@ public class GetProofResult {
                   worldStateProof.getAccountProof(),
                   storageEntries);
             })
-        .orElse(
-            new GetProofResult(
-                address,
-                Wei.ZERO,
-                Bytes32.wrap(Hash.EMPTY.getBytes()),
-                0L,
-                Bytes32.wrap(Hash.EMPTY_TRIE_HASH.getBytes()),
-                worldStateProof.getAccountProof(),
-                new ArrayList<>()));
+        .orElseGet(
+            () -> {
+              final List<StorageEntryProof> storageEntries = new ArrayList<>();
+              worldStateProof
+                  .getStorageKeys()
+                  .forEach(
+                      key ->
+                          storageEntries.add(
+                              new StorageEntryProof(
+                                  key,
+                                  worldStateProof.getStorageValue(key),
+                                  worldStateProof.getStorageProof(key))));
+              return new GetProofResult(
+                  address,
+                  Wei.ZERO,
+                  Bytes32.wrap(Hash.EMPTY.getBytes()),
+                  0L,
+                  Bytes32.wrap(Hash.EMPTY_TRIE_HASH.getBytes()),
+                  worldStateProof.getAccountProof(),
+                  storageEntries);
+            });
   }
 
   @JsonGetter(value = "address")

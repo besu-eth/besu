@@ -118,6 +118,39 @@ public class WorldStateProofProviderTest {
   }
 
   @Test
+  public void getProofForNonExistentAccountReturnsStorageProofEntryPerRequestedKey() {
+    final MerkleTrie<Bytes32, Bytes> worldStateTrie = emptyWorldStateTrie();
+
+    final ForestWorldStateKeyValueStorage.Updater updater = worldStateKeyValueStorage.updater();
+
+    // Add a different account so the world state is non-empty (state root is known)
+    final Address otherAddress =
+        Address.fromHexString("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
+    final PmtStateTrieAccountValue otherAccount =
+        new PmtStateTrieAccountValue(0L, Wei.ZERO, Hash.EMPTY_TRIE_HASH, Hash.EMPTY);
+    worldStateTrie.put(
+        Bytes32.wrap(otherAddress.addressHash().getBytes()), RLP.encode(otherAccount::writeTo));
+    worldStateTrie.commit((location, hash, value) -> updater.putAccountStateTrieNode(hash, value));
+    updater.commit();
+
+    final List<UInt256> storageKeys =
+        Arrays.asList(UInt256.ONE, UInt256.valueOf(2L), UInt256.valueOf(3L));
+    final Optional<WorldStateProof> proof =
+        worldStateProofProvider.getAccountProof(
+            Hash.wrap(worldStateTrie.getRootHash()), address, storageKeys);
+
+    assertThat(proof).isPresent();
+    assertThat(proof.get().getStateTrieAccountValue()).isEmpty();
+    // EIP-1186: must return one entry per requested key even for non-existent accounts
+    assertThat(proof.get().getStorageKeys()).containsExactlyInAnyOrderElementsOf(storageKeys);
+    // All values must be zero (account doesn't exist)
+    storageKeys.forEach(
+        key -> assertThat(proof.get().getStorageValue(key)).isEqualTo(UInt256.ZERO));
+    // Proof nodes are empty (absence proof against empty trie)
+    storageKeys.forEach(key -> assertThat(proof.get().getStorageProof(key)).isEmpty());
+  }
+
+  @Test
   public void getProofWhenStateTrieAccountUnavailable() {
     final Hash addressHash = address.addressHash();
     final MerkleTrie<Bytes32, Bytes> worldStateTrie = emptyWorldStateTrie();
