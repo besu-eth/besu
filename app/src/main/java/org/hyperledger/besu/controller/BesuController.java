@@ -33,6 +33,7 @@ import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.Checkpoint;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleCustomization;
 import org.hyperledger.besu.ethereum.p2p.config.SubProtocolConfiguration;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
@@ -321,6 +322,8 @@ public class BesuController implements java.io.Closeable {
   public static class Builder {
 
     private Optional<Checkpoint> checkpoint = Optional.empty();
+    private ProtocolScheduleCustomization protocolScheduleCustomization =
+        ProtocolScheduleCustomization.none();
 
     /** Instantiates a new Builder. */
     public Builder() {}
@@ -333,6 +336,18 @@ public class BesuController implements java.io.Closeable {
      */
     public Builder checkpoint(final Optional<Checkpoint> checkpoint) {
       this.checkpoint = checkpoint;
+      return this;
+    }
+
+    /**
+     * Sets the protocol-schedule customization resolved from the registered plugins.
+     *
+     * @param protocolScheduleCustomization the resolved customization, or the empty one
+     * @return this builder
+     */
+    public Builder protocolScheduleCustomization(
+        final ProtocolScheduleCustomization protocolScheduleCustomization) {
+      this.protocolScheduleCustomization = protocolScheduleCustomization;
       return this;
     }
 
@@ -358,8 +373,18 @@ public class BesuController implements java.io.Closeable {
      */
     public BesuControllerBuilder fromGenesisFile(
         final GenesisConfig genesisConfig, final SyncMode syncMode) {
+      // Contribute the activations before anything reads the config: the builder's copy of the
+      // options, taken in genesisConfig(GenesisConfig), is what the advertised fork ID is built
+      // from. Selecting the builder below is unaffected either way -- it reads the consensus keys
+      // and the forks the config declares, and a customization moves neither.
+      if (!protocolScheduleCustomization.modifications().isEmpty()) {
+        genesisConfig.withAdditionalForkIdActivations(
+            protocolScheduleCustomization.toForkIdActivations());
+      }
       final GenesisConfigOptions configOptions = genesisConfig.getConfigOptions();
-      return createControllerBuilder(genesisConfig, configOptions, syncMode).checkpoint(checkpoint);
+      return createControllerBuilder(genesisConfig, configOptions, syncMode)
+          .protocolScheduleCustomization(protocolScheduleCustomization)
+          .checkpoint(checkpoint);
     }
 
     private BesuControllerBuilder createControllerBuilder(

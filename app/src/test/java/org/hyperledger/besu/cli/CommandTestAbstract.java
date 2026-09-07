@@ -278,6 +278,8 @@ public abstract class CommandTestAbstract {
     lenient()
         .when(mockControllerBuilderFactory.checkpoint(any()))
         .thenReturn(mockControllerBuilderFactory);
+    when(mockControllerBuilderFactory.protocolScheduleCustomization(any()))
+        .thenReturn(mockControllerBuilderFactory);
     when(mockControllerBuilderFactory.fromEthNetworkConfig(any(), any()))
         .thenReturn(mockControllerBuilder);
     when(mockControllerBuilder.build()).thenReturn(mockController);
