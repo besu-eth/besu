@@ -15,6 +15,7 @@
 package org.hyperledger.besu.controller;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
 
 import org.hyperledger.besu.chainimport.BlockHeadersCachePreload;
@@ -84,6 +85,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolFactory;
 import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleCustomization;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.SubProtocolConfiguration;
@@ -143,6 +145,10 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
 
   /** The genesis config options; */
   protected GenesisConfigOptions genesisConfigOptions;
+
+  /** The one plugin protocol-schedule contribution resolved for this chain. */
+  protected ProtocolScheduleCustomization protocolScheduleCustomization =
+      ProtocolScheduleCustomization.none();
 
   /** The is genesis state hash from data. */
   protected boolean genesisStateHashCacheEnabled;
@@ -678,6 +684,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
     checkNotNull(dataStorageConfiguration, "Missing data storage configuration");
     checkNotNull(besuComponent, "Must supply a BesuComponent");
 
+    verifyProtocolScheduleCustomizationIsSupported();
+
     this.codeCache = besuComponent.map(BesuComponent::getCodeCache).orElse(new BonsaiCodeCache());
     this.codeCache.setupMetricsSystem(metricsSystem);
 
@@ -1048,6 +1056,51 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
         storageProvider,
         dataStorageConfiguration,
         transactionSimulator);
+  }
+
+  /**
+   * Sets the protocol-schedule customization resolved for this chain.
+   *
+   * <p>Resolution happens once, where the builder is selected, so the value and the activations it
+   * contributes to the genesis config travel down the same path every other setting does.
+   *
+   * @param protocolScheduleCustomization the resolved customization
+   * @return the besu controller builder
+   */
+  BesuControllerBuilder protocolScheduleCustomization(
+      final ProtocolScheduleCustomization protocolScheduleCustomization) {
+    this.protocolScheduleCustomization = checkNotNull(protocolScheduleCustomization);
+    return this;
+  }
+
+  /**
+   * Refuses a customization this builder would not apply.
+   *
+   * <p>Its activations are already in the advertised fork ID by the time a builder is selected, so
+   * a builder that does not apply the matching rules must not start rather than announce a boundary
+   * it does not keep.
+   */
+  final void verifyProtocolScheduleCustomizationIsSupported() {
+    checkState(
+        protocolScheduleCustomization.modifications().isEmpty()
+            || supportsProtocolScheduleCustomization(),
+        "Protocol-schedule customization '%s' matched a chain whose consensus mechanism (%s) does"
+            + " not support customization",
+        protocolScheduleCustomization.name(),
+        getClass().getSimpleName());
+  }
+
+  /**
+   * Whether this builder applies protocol-schedule customizations to the schedule it creates.
+   *
+   * <p>Builders that do not must leave this {@code false}: a resolved customization already
+   * contributes its activations to the advertised fork ID, so accepting one without applying its
+   * modifications would announce forks the node does not enforce. Resolution fails fast instead.
+   *
+   * @return true if the created protocol schedule honors customizations
+   */
+  protected boolean supportsProtocolScheduleCustomization() {
+    return false;
   }
 
   private void preloadBlockHeaderCache(

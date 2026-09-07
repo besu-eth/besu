@@ -203,7 +203,13 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
         isParallelTxProcessingEnabled,
         balConfiguration,
         metricsSystem,
-        evmConfiguration);
+        evmConfiguration,
+        protocolScheduleCustomization);
+  }
+
+  @Override
+  protected boolean supportsProtocolScheduleCustomization() {
+    return true;
   }
 
   /**
