@@ -69,6 +69,7 @@ public class TraceFrame {
   private final Optional<SoftFailureReason> softFailureReason;
   private final OptionalLong gasAvailableForChildCall;
   private final Optional<Bytes> returnData;
+  private final Optional<Bytes> callInputData;
 
   /** Private constructor - only accessible through Builder */
   private TraceFrame(final Builder builder) {
@@ -105,6 +106,7 @@ public class TraceFrame {
     this.softFailureReason = builder.softFailureReason;
     this.gasAvailableForChildCall = builder.gasAvailableForChildCall;
     this.returnData = builder.returnData;
+    this.callInputData = builder.callInputData;
   }
 
   /**
@@ -161,6 +163,7 @@ public class TraceFrame {
     private Optional<SoftFailureReason> softFailureReason = Optional.empty();
     private OptionalLong gasAvailableForChildCall = OptionalLong.empty();
     private Optional<Bytes> returnData = Optional.empty();
+    private Optional<Bytes> callInputData = Optional.empty();
 
     /** Default constructor */
     public Builder() {}
@@ -204,6 +207,7 @@ public class TraceFrame {
       this.softFailureReason = traceFrame.softFailureReason;
       this.gasAvailableForChildCall = traceFrame.gasAvailableForChildCall;
       this.returnData = traceFrame.returnData;
+      this.callInputData = traceFrame.callInputData;
     }
 
     /**
@@ -595,6 +599,17 @@ public class TraceFrame {
     }
 
     /**
+     * Sets the call argument data declared in this frame's memory by a call or create operation.
+     *
+     * @param callInputData the call argument data, or empty if it is not recorded for this opcode
+     * @return this builder instance for method chaining
+     */
+    public Builder setCallInputData(final Optional<Bytes> callInputData) {
+      this.callInputData = callInputData;
+      return this;
+    }
+
+    /**
      * Builds the TraceFrame instance.
      *
      * @return the constructed TraceFrame
@@ -904,6 +919,17 @@ public class TraceFrame {
    */
   public Optional<Bytes> getReturnData() {
     return returnData;
+  }
+
+  /**
+   * The argument data a call or create operation declared in this frame's memory: the callee input
+   * data for CALL/CALLCODE/DELEGATECALL/STATICCALL, or the initcode for CREATE/CREATE2. Only
+   * populated for an operation that never spawned a callee frame to carry them.
+   *
+   * @return the call argument data, or empty if it is not recorded for this opcode
+   */
+  public Optional<Bytes> getCallInputData() {
+    return callInputData;
   }
 
   @Override

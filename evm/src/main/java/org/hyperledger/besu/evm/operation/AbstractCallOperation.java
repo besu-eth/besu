@@ -110,7 +110,7 @@ public abstract class AbstractCallOperation extends AbstractOperation {
    * @param frame The current message frame
    * @return the memory offset the input data starts at
    */
-  protected abstract long inputDataOffset(MessageFrame frame);
+  public abstract long inputDataOffset(MessageFrame frame);
 
   /**
    * Returns the length of the input data to read from memory.
@@ -118,7 +118,7 @@ public abstract class AbstractCallOperation extends AbstractOperation {
    * @param frame The current message frame
    * @return the length of the input data to read from memory.
    */
-  protected abstract long inputDataLength(MessageFrame frame);
+  public abstract long inputDataLength(MessageFrame frame);
 
   /**
    * Returns the memory offset the offset data starts at.

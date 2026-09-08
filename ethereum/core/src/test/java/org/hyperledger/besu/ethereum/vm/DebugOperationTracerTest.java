@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.vm;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
@@ -28,6 +29,8 @@ import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.CancunGasCalculator;
 import org.hyperledger.besu.evm.operation.AbstractOperation;
 import org.hyperledger.besu.evm.operation.CallOperation;
+import org.hyperledger.besu.evm.operation.Create2Operation;
+import org.hyperledger.besu.evm.operation.CreateOperation;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.operation.Operation.OperationResult;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder;
@@ -616,11 +619,137 @@ class DebugOperationTracerTest {
     return frame;
   }
 
+  /** CALL's stack, from the top down, is gas, to, value, inOffset, inSize, outOffset, outSize. */
+  private MessageFrame callFrameWithInputRange(
+      final Bytes memoryContents, final long inOffset, final long inSize) {
+    final MessageFrame frame = validMessageFrameBuilder().build();
+    frame.writeMemory(0L, memoryContents.size(), memoryContents);
+    frame.pushStackItem(Bytes.EMPTY); // outSize
+    frame.pushStackItem(Bytes.EMPTY); // outOffset
+    frame.pushStackItem(Bytes.ofUnsignedLong(inSize));
+    frame.pushStackItem(Bytes.ofUnsignedLong(inOffset));
+    frame.pushStackItem(Bytes.EMPTY); // value
+    frame.pushStackItem(Address.ZERO.getBytes()); // to
+    frame.pushStackItem(Bytes.ofUnsignedLong(INITIAL_GAS)); // gas
+    frame.setCurrentOperation(callOperation);
+    frame.setPC(10);
+    return frame;
+  }
+
+  /** Drives the tracer hooks around an operation without executing it. */
+  private TraceFrame traceWithoutExecuting(
+      final MessageFrame frame, final OperationResult operationResult) {
+    final DebugOperationTracer tracer = new DebugOperationTracer(OpCodeTracerConfig.DEFAULT, false);
+    tracer.tracePreExecution(frame);
+    tracer.tracePostExecution(frame, operationResult);
+    return getOnlyTraceFrame(tracer);
+  }
+
   private MessageFrame validCallFrame() {
     final MessageFrame frame = validMessageFrameBuilder().build();
     frame.setCurrentOperation(callOperation);
     frame.setPC(10);
     return frame;
+  }
+
+  @Test
+  void shouldCaptureCallInputDataWhenMemoryTracingIsDisabled() {
+    final Bytes memoryContents = Bytes.fromHexString("0x" + "ab".repeat(32));
+    final MessageFrame frame = callFrameWithInputRange(memoryContents, 4L, 8L);
+
+    final TraceFrame traceFrame = traceWithoutExecuting(frame, new OperationResult(100L, null));
+
+    assertThat(OpCodeTracerConfig.DEFAULT.traceMemory()).isFalse();
+    assertThat(traceFrame.getMemory()).isEmpty();
+    assertThat(traceFrame.getCallInputData()).contains(memoryContents.slice(4, 8));
+  }
+
+  @Test
+  void shouldNotCaptureCallInputDataForNonCallOperations() {
+    final TraceFrame traceFrame =
+        traceWithoutExecuting(validMessageFrame(), new OperationResult(20L, null));
+
+    assertThat(traceFrame.getCallInputData()).isEmpty();
+  }
+
+  @Test
+  void shouldNotCaptureCallInputDataForZeroLengthInput() {
+    final MessageFrame frame =
+        callFrameWithInputRange(Bytes.fromHexString("0x" + "ab".repeat(32)), 0L, 0L);
+
+    final TraceFrame traceFrame = traceWithoutExecuting(frame, new OperationResult(100L, null));
+
+    assertThat(traceFrame.getCallInputData()).isEmpty();
+  }
+
+  @Test
+  void shouldNotCaptureCallInputDataWhenTheCallSpawnedACallee() {
+    final MessageFrame frame =
+        callFrameWithInputRange(Bytes.fromHexString("0x" + "ab".repeat(32)), 4L, 8L);
+    frame.setState(MessageFrame.State.CODE_SUSPENDED);
+
+    final TraceFrame traceFrame = traceWithoutExecuting(frame, new OperationResult(100L, null));
+
+    assertThat(traceFrame.getCallInputData()).isEmpty();
+  }
+
+  @Test
+  void shouldCaptureCallInputDataWhenTheOperationHalted() {
+    final Bytes memoryContents = Bytes.fromHexString("0x" + "ab".repeat(32));
+    final MessageFrame frame = callFrameWithInputRange(memoryContents, 4L, 8L);
+
+    final TraceFrame traceFrame =
+        traceWithoutExecuting(
+            frame, new OperationResult(100L, ExceptionalHaltReason.INSUFFICIENT_GAS));
+
+    assertThat(traceFrame.getCallInputData()).contains(memoryContents.slice(4, 8));
+  }
+
+  @Test
+  void shouldNotCaptureCallInputDataBeyondActiveMemory() {
+    // Memory past the active words was never expanded, so the transaction never paid for it.
+    final MessageFrame frame =
+        callFrameWithInputRange(Bytes.fromHexString("0x" + "ab".repeat(32)), 16L, 32L);
+
+    final TraceFrame traceFrame = traceWithoutExecuting(frame, new OperationResult(100L, null));
+
+    assertThat(traceFrame.getCallInputData()).isEmpty();
+
+    final MessageFrame unaffordable =
+        callFrameWithInputRange(Bytes.fromHexString("0x" + "ab".repeat(32)), 0L, Integer.MAX_VALUE);
+    assertThat(
+            traceWithoutExecuting(unaffordable, new OperationResult(100L, null)).getCallInputData())
+        .isEmpty();
+  }
+
+  @Test
+  void shouldCaptureCreateInitCodeFromTheSameStackSlotsForCreateAndCreate2() {
+    final Bytes memoryContents = Bytes.fromHexString("0x" + "cd".repeat(32));
+
+    // CREATE stack, top down: value, offset, size
+    final MessageFrame createFrame = validMessageFrameBuilder().build();
+    createFrame.writeMemory(0L, memoryContents.size(), memoryContents);
+    createFrame.pushStackItem(Bytes.ofUnsignedLong(6L)); // size
+    createFrame.pushStackItem(Bytes.ofUnsignedLong(2L)); // offset
+    createFrame.pushStackItem(Bytes.EMPTY); // value
+    createFrame.setCurrentOperation(new CreateOperation(new CancunGasCalculator()));
+
+    // CREATE2 stack, top down: value, offset, size, salt
+    final MessageFrame create2Frame = validMessageFrameBuilder().build();
+    create2Frame.writeMemory(0L, memoryContents.size(), memoryContents);
+    create2Frame.pushStackItem(Bytes.EMPTY); // salt
+    create2Frame.pushStackItem(Bytes.ofUnsignedLong(6L)); // size
+    create2Frame.pushStackItem(Bytes.ofUnsignedLong(2L)); // offset
+    create2Frame.pushStackItem(Bytes.EMPTY); // value
+    create2Frame.setCurrentOperation(new Create2Operation(new CancunGasCalculator()));
+
+    final Bytes expected = memoryContents.slice(2, 6);
+    assertThat(
+            traceWithoutExecuting(createFrame, new OperationResult(100L, null)).getCallInputData())
+        .contains(expected);
+    assertThat(
+            traceWithoutExecuting(create2Frame, new OperationResult(100L, null)).getCallInputData())
+        .contains(expected);
   }
 
   private TraceFrame getOnlyTraceFrame(final DebugOperationTracer tracer) {

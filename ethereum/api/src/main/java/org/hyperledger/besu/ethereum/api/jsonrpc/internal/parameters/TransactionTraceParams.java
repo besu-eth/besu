@@ -131,10 +131,6 @@ public interface TransactionTraceParams {
       builder.traceMemory(enableMemory());
     } else if (disableMemoryNullable() != null) {
       builder.traceMemory(!disableMemory());
-    } else if (tracerType != TracerType.OPCODE_TRACER) {
-      // Non-opcode tracers (e.g. callTracer) need memory capture enabled for internal
-      // operations such as extracting CREATE init code, even when disableMemory is not set
-      builder.traceMemory(true);
     }
     if (disableStackNullable() != null) {
       builder.traceStack(!disableStack());

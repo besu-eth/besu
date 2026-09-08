@@ -188,8 +188,18 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
    * @param frame the message frame the operation executed in
    * @return the requested initcode size
    */
-  protected long getInputSize(final MessageFrame frame) {
+  public long getInputSize(final MessageFrame frame) {
     return clampedToLong(frame.getStackItem(2));
+  }
+
+  /**
+   * Returns the memory offset the initcode is read from, clamped to a long.
+   *
+   * @param frame the message frame the operation executed in
+   * @return the memory offset the initcode starts at
+   */
+  public long getInputOffset(final MessageFrame frame) {
+    return clampedToLong(frame.getStackItem(1));
   }
 
   /**
@@ -199,9 +209,7 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
    * @param frame the current execution frame
    */
   protected void fail(final MessageFrame frame) {
-    final long inputOffset = clampedToLong(frame.getStackItem(1));
-    final long inputSize = clampedToLong(frame.getStackItem(2));
-    frame.readMutableMemory(inputOffset, inputSize);
+    frame.readMutableMemory(getInputOffset(frame), getInputSize(frame));
     frame.popStackItems(getStackItemsConsumed());
     frame.pushStackItem(Bytes.EMPTY);
   }

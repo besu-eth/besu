@@ -52,12 +52,12 @@ public class CallOperation extends AbstractCallOperation {
   }
 
   @Override
-  protected long inputDataOffset(final MessageFrame frame) {
+  public long inputDataOffset(final MessageFrame frame) {
     return clampedToLong(frame.getStackItem(3));
   }
 
   @Override
-  protected long inputDataLength(final MessageFrame frame) {
+  public long inputDataLength(final MessageFrame frame) {
     return clampedToLong(frame.getStackItem(4));
   }
 

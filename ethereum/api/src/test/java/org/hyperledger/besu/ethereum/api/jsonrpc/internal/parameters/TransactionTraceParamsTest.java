@@ -62,15 +62,25 @@ public class TransactionTraceParamsTest {
   }
 
   @Test
-  public void nonOpcodeTracerShouldEnableMemoryByDefault() throws Exception {
-    // Non-opcode tracers (e.g. callTracer) need memory for internal operations
-    // such as extracting CREATE init code, so memory should be enabled by default
+  public void nonOpcodeTracerShouldNotEnableMemoryByDefault() throws Exception {
     final TransactionTraceParams callTracerParams =
         MAPPER.readValue("{\"tracer\": \"callTracer\"}", TransactionTraceParams.class);
     final OpCodeTracerConfig config = callTracerParams.traceOptions().opCodeTracerConfig();
 
     assertThat(config.traceMemory())
-        .describedAs("callTracer should have memory enabled by default")
+        .describedAs("callTracer should not force memory capture on")
+        .isFalse();
+  }
+
+  @Test
+  public void nonOpcodeTracerShouldRespectExplicitEnableMemory() throws Exception {
+    final TransactionTraceParams params =
+        MAPPER.readValue(
+            "{\"tracer\": \"callTracer\", \"enableMemory\": true}", TransactionTraceParams.class);
+    final OpCodeTracerConfig config = params.traceOptions().opCodeTracerConfig();
+
+    assertThat(config.traceMemory())
+        .describedAs("explicit enableMemory=true should be respected")
         .isTrue();
   }
 

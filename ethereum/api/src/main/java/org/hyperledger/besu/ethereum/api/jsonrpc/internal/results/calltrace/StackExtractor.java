@@ -48,23 +48,18 @@ import org.slf4j.LoggerFactory;
 public final class StackExtractor {
   private static final Logger LOG = LoggerFactory.getLogger(StackExtractor.class);
 
-  // Stack position constants for CALL operations
-  // Stack layout (from top): gas, to, value, inOffset, inSize, outOffset, outSize
-  private static final int CALL_STACK_VALUE_OFFSET = 3; // 3rd from top
-  private static final int CALL_STACK_TO_OFFSET = 2; // 2nd from top
-  private static final int CALL_STACK_IN_OFFSET_POS = 4; // 4th from top
-  private static final int CALL_STACK_IN_SIZE_POS = 3; // 3rd from top (for size, after value)
+  // Stack indices, counted from the top as the EVM indexes the operand stack.
+  // CALL/CALLCODE:            gas, to, value, inOffset, inSize, outOffset, outSize
+  // DELEGATECALL/STATICCALL:  gas, to,        inOffset, inSize, outOffset, outSize
+  private static final int CALL_TO_INDEX = 1;
+  private static final int CALL_VALUE_INDEX = 2;
+  private static final int CALL_IN_OFFSET_INDEX = 3;
+  private static final int DELEGATECALL_IN_OFFSET_INDEX = 2;
 
-  // Stack position constants for CREATE operations
-  // CREATE stack layout (from top of stack): value, offset, size
-  // When accessed as stack[length-N], this translates to:
-  private static final int CREATE_STACK_VALUE_POS = 1; // Top of stack (stack[length-1])
-  private static final int CREATE_STACK_OFFSET_POS = 2; // 2nd from top
-  private static final int CREATE_STACK_SIZE_POS = 3; // 3rd from top
-
-  // CREATE2 stack layout: value, offset, size, salt
-  private static final int CREATE2_STACK_OFFSET_POS = 3; // 3rd from top
-  private static final int CREATE2_STACK_SIZE_POS = 2; // 2nd from top
+  // CREATE: value, offset, size          CREATE2: value, offset, size, salt
+  private static final int CREATE_VALUE_INDEX = 0;
+  private static final int CREATE_OFFSET_INDEX = 1;
+  private static final int CREATE_SIZE_INDEX = 2;
 
   private static final String ZERO_VALUE = "0x0";
 
@@ -81,8 +76,8 @@ public final class StackExtractor {
   public static String extractCallValue(final TraceFrame frame) {
     return frame
         .getStack()
-        .filter(stack -> stack.length >= CALL_STACK_VALUE_OFFSET)
-        .map(stack -> Wei.wrap(stack[stack.length - CALL_STACK_VALUE_OFFSET]).toShortHexString())
+        .filter(stack -> stack.length > CALL_VALUE_INDEX)
+        .map(stack -> Wei.wrap(stackItem(stack, CALL_VALUE_INDEX)).toShortHexString())
         .orElse(ZERO_VALUE);
   }
 
@@ -97,8 +92,8 @@ public final class StackExtractor {
   public static String extractCreateValue(final TraceFrame frame) {
     return frame
         .getStack()
-        .filter(stack -> stack.length >= 3) // CREATE has at least 3 items: value, offset, size
-        .map(stack -> Wei.wrap(stack[stack.length - CREATE_STACK_VALUE_POS]).toShortHexString())
+        .filter(stack -> stack.length > CREATE_SIZE_INDEX)
+        .map(stack -> Wei.wrap(stackItem(stack, CREATE_VALUE_INDEX)).toShortHexString())
         .orElse(ZERO_VALUE);
   }
 
@@ -111,47 +106,53 @@ public final class StackExtractor {
   public static String extractCallToAddress(final TraceFrame frame) {
     return frame
         .getStack()
-        .filter(
-            stack ->
-                stack.length >= CALL_STACK_TO_OFFSET
-                    && stack[stack.length - CALL_STACK_TO_OFFSET] != null)
-        .map(
-            stack -> toAddress(stack[stack.length - CALL_STACK_TO_OFFSET]).getBytes().toHexString())
+        .filter(stack -> stack.length > CALL_TO_INDEX && stackItem(stack, CALL_TO_INDEX) != null)
+        .map(stack -> toAddress(stackItem(stack, CALL_TO_INDEX)).getBytes().toHexString())
         .orElse(null);
   }
 
   /**
-   * Extracts the input data for a CALL operation from memory.
-   *
-   * <p>This method reads the inOffset and inSize from the stack, then extracts the corresponding
-   * bytes from memory.
+   * Extracts the input data for a CALL operation.
    *
    * @param frame the trace frame containing stack and memory
+   * @param opcode the call opcode, which fixes where the arguments sit on the stack
    * @return the input data bytes, or the frame's input data as fallback
    */
-  public static Bytes extractCallInputFromMemory(final TraceFrame frame) {
+  public static Bytes extractCallInputFromMemory(final TraceFrame frame, final String opcode) {
+    final Optional<Bytes> callInputData = frame.getCallInputData();
+    if (callInputData.isPresent()) {
+      return callInputData.get();
+    }
+
+    final int offsetIndex =
+        OpcodeCategory.hasValueArgument(opcode)
+            ? CALL_IN_OFFSET_INDEX
+            : DELEGATECALL_IN_OFFSET_INDEX;
+
     return frame
         .getStack()
-        .filter(stack -> stack.length >= CALL_STACK_IN_OFFSET_POS)
+        .filter(stack -> stack.length > offsetIndex + 1)
         .map(
             stack -> {
-              int inOffset = bytesToInt(stack[stack.length - CALL_STACK_IN_OFFSET_POS]);
-              int inSize = bytesToInt(stack[stack.length - CALL_STACK_IN_SIZE_POS]);
+              final int inOffset = bytesToInt(stackItem(stack, offsetIndex));
+              final int inSize = bytesToInt(stackItem(stack, offsetIndex + 1));
               return extractFromMemory(frame, inOffset, inSize);
             })
         .orElse(frame.getInputData());
+  }
+
+  private static Bytes stackItem(final Bytes[] stack, final int indexFromTop) {
+    return stack[stack.length - 1 - indexFromTop];
   }
 
   /**
    * Extracts the initialization code for a CREATE or CREATE2 operation.
    *
    * @param frame the trace frame containing stack and memory
-   * @param opcode the opcode ("CREATE" or "CREATE2")
    * @param entered whether the CREATE operation successfully entered (depth increased)
    * @return the initialization code bytes, or empty if extraction fails
    */
-  public static Bytes extractCreateInitCode(
-      final TraceFrame frame, final String opcode, final boolean entered) {
+  public static Bytes extractCreateInitCode(final TraceFrame frame, final boolean entered) {
     // Only try getMaybeCode() if the CREATE entered successfully
     // When CREATE doesn't enter (soft failure), getMaybeCode() contains the parent's code, not the
     // init code
@@ -159,7 +160,11 @@ public final class StackExtractor {
       return frame.getMaybeCode().get().getBytes();
     }
 
-    // Extract from memory for soft-failed CREATEs or as fallback
+    final Optional<Bytes> callInputData = frame.getCallInputData();
+    if (callInputData.isPresent()) {
+      return callInputData.get();
+    }
+
     if (LOG.isTraceEnabled()) {
       LOG.trace(
           "Using memory extraction for CREATE input data at depth {} (entered: {})",
@@ -169,7 +174,7 @@ public final class StackExtractor {
 
     return frame
         .getStack()
-        .map(stack -> extractCreateInitCodeFromStack(frame, stack, opcode))
+        .map(stack -> extractCreateInitCodeFromStack(frame, stack))
         .orElse(Bytes.EMPTY);
   }
 
@@ -217,7 +222,7 @@ public final class StackExtractor {
     if (OpcodeCategory.isCreateOp(opcode)) {
       // Check if the CREATE entered (depth increased)
       boolean entered = nextTrace != null && nextTrace.getDepth() > frame.getDepth();
-      return extractCreateInitCode(frame, opcode, entered);
+      return extractCreateInitCode(frame, entered);
     }
 
     // Prefer callee frame's input data for calls
@@ -231,34 +236,21 @@ public final class StackExtractor {
         LOG.trace(
             "Falling back to memory extraction for CALL input data at depth {}", frame.getDepth());
       }
-      return extractCallInputFromMemory(frame);
+      return extractCallInputFromMemory(frame, opcode);
     }
 
     return frame.getInputData();
   }
 
-  private static Bytes extractCreateInitCodeFromStack(
-      final TraceFrame frame, final Bytes[] stack, final String opcode) {
-
-    if ("CREATE".equals(opcode)) {
-      if (stack.length < CREATE_STACK_OFFSET_POS) {
-        return Bytes.EMPTY;
-      }
-
-      int offset = bytesToInt(stack[stack.length - CREATE_STACK_OFFSET_POS]);
-      int length = bytesToInt(stack[stack.length - CREATE_STACK_SIZE_POS]);
-
-      return extractFromMemory(frame, offset, length);
-    } else { // CREATE2
-      if (stack.length < CREATE2_STACK_OFFSET_POS) {
-        return Bytes.EMPTY;
-      }
-
-      int offset = bytesToInt(stack[stack.length - CREATE2_STACK_OFFSET_POS]);
-      int length = bytesToInt(stack[stack.length - CREATE2_STACK_SIZE_POS]);
-
-      return extractFromMemory(frame, offset, length);
+  private static Bytes extractCreateInitCodeFromStack(final TraceFrame frame, final Bytes[] stack) {
+    if (stack.length <= CREATE_SIZE_INDEX) {
+      return Bytes.EMPTY;
     }
+
+    final int offset = bytesToInt(stackItem(stack, CREATE_OFFSET_INDEX));
+    final int length = bytesToInt(stackItem(stack, CREATE_SIZE_INDEX));
+
+    return extractFromMemory(frame, offset, length);
   }
 
   private static Bytes extractFromMemory(

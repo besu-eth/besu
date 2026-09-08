@@ -50,12 +50,12 @@ public class StaticCallOperation extends AbstractCallOperation {
   }
 
   @Override
-  protected long inputDataOffset(final MessageFrame frame) {
+  public long inputDataOffset(final MessageFrame frame) {
     return clampedToLong(frame.getStackItem(2));
   }
 
   @Override
-  protected long inputDataLength(final MessageFrame frame) {
+  public long inputDataLength(final MessageFrame frame) {
     return clampedToLong(frame.getStackItem(3));
   }
 

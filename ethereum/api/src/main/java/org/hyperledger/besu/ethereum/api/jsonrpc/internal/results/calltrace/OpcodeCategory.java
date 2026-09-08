@@ -97,6 +97,17 @@ public enum OpcodeCategory {
   }
 
   /**
+   * Checks whether a call opcode takes a value argument, which shifts every argument below it one
+   * slot deeper on the stack.
+   *
+   * @param opcode the opcode string
+   * @return true if it's CALL or CALLCODE
+   */
+  public static boolean hasValueArgument(final String opcode) {
+    return CALL_OP.equals(opcode) || CALLCODE_OP.equals(opcode);
+  }
+
+  /**
    * Checks if the opcode is a return operation.
    *
    * @param opcode the opcode string

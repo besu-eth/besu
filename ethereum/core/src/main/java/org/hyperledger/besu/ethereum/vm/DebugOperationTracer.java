@@ -19,6 +19,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.operation.AbstractCallOperation;
 import org.hyperledger.besu.evm.operation.AbstractCreateOperation;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.operation.Operation.OperationResult;
@@ -45,6 +46,9 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
   private Bytes inputData;
   private int stepCount;
   private boolean limitReached;
+
+  private long callInputOffset;
+  private long callInputLength;
 
   /**
    * Creates the operation tracer.
@@ -74,6 +78,7 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
 
   @Override
   protected void capturePreExecutionState(final MessageFrame frame) {
+    captureCallInputRange(frame);
     if (options.limit() > 0 && stepCount >= options.limit()) {
       limitReached = true;
       return;
@@ -92,15 +97,7 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
     final int opcodeNumber = (opcode != null) ? currentOperation.getOpcode() : Integer.MAX_VALUE;
     final WorldUpdater worldUpdater = frame.getWorldUpdater();
     final Bytes outputData = frame.getOutputData();
-    // Always capture memory for soft-failed CREATE/CREATE2 ops so callTracer can extract init code
-    final Optional<Bytes[]> memory =
-        captureMemory(frame)
-            .or(
-                () ->
-                    operationResult.getSoftFailureReason().isPresent()
-                            && currentOperation instanceof AbstractCreateOperation
-                        ? forceCaptureMem(frame)
-                        : Optional.empty());
+    final Optional<Bytes[]> memory = captureMemory(frame);
     final Optional<Bytes> returnData = captureReturnData(frame);
     final Optional<Bytes[]> stackPostExecution = captureStack(frame);
 
@@ -142,6 +139,7 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
             .setReturnData(returnData)
             .setStack(preExecutionStack)
             .setMemory(memory)
+            .setCallInputData(captureCallInputData(frame))
             .setStorage(storage)
             .setWorldUpdater(worldUpdater)
             .setRevertReason(frame.getRevertReason())
@@ -301,6 +299,46 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
     return Optional.empty();
   }
 
+  /**
+   * Records where a call or create operation declared its argument data, while those arguments are
+   * still on the stack. The operations are the authority on their own stack layout, so none is
+   * duplicated here.
+   */
+  private void captureCallInputRange(final MessageFrame frame) {
+    final Operation currentOperation = frame.getCurrentOperation();
+    if (currentOperation != null && frame.stackSize() >= currentOperation.getStackItemsConsumed()) {
+      if (currentOperation instanceof AbstractCallOperation callOperation) {
+        callInputOffset = callOperation.inputDataOffset(frame);
+        callInputLength = callOperation.inputDataLength(frame);
+        return;
+      }
+      if (currentOperation instanceof AbstractCreateOperation createOperation) {
+        callInputOffset = createOperation.getInputOffset(frame);
+        callInputLength = createOperation.getInputSize(frame);
+        return;
+      }
+    }
+    callInputOffset = 0;
+    callInputLength = 0;
+  }
+
+  /** Copies the argument slice a call or create operation declared in memory. */
+  private Optional<Bytes> captureCallInputData(final MessageFrame frame) {
+    // A call that spawned a callee carries its arguments on that callee's frame, so only calls that
+    // never spawned one need them recovered from memory here.
+    if (callInputLength <= 0 || frame.getState() == MessageFrame.State.CODE_SUSPENDED) {
+      return Optional.empty();
+    }
+    // Only memory the operation expanded has been paid for. Reading past it would let a declared
+    // length the transaction cannot afford drive the allocation.
+    final long activeBytes = frame.memoryWordSize() * 32L;
+    if (callInputOffset > activeBytes - callInputLength) {
+      return Optional.empty();
+    }
+    // shadowReadMemory does not grow the active word count, so tracing cannot perturb execution.
+    return Optional.of(frame.shadowReadMemory(callInputOffset, callInputLength));
+  }
+
   private Optional<Bytes[]> captureMemory(final MessageFrame frame) {
     if (!options.traceMemory() || frame.memoryWordSize() == 0) {
       return Optional.empty();
@@ -341,6 +379,8 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
     stepCount = 0;
     limitReached = false;
     preExecutionStorageKey = Optional.empty();
+    callInputOffset = 0;
+    callInputLength = 0;
   }
 
   public List<TraceFrame> copyTraceFrames() {
