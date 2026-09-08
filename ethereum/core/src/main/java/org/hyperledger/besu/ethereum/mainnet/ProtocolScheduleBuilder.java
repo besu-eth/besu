@@ -34,6 +34,7 @@ import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.TreeMap;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
@@ -104,25 +105,17 @@ public class ProtocolScheduleBuilder {
     final NavigableMap<Long, BuilderMapEntry> builders = buildFlattenedMilestoneMap(mileStones);
 
     // At this stage, all milestones are flagged with the correct modifier, but ProtocolSpecs must
-    // be inserted _AT_ the modifier block entry.
+    // be inserted _AT_ the modifier activation.
     if (!builders.isEmpty()) {
-      protocolSpecAdapters.stream()
-          .forEach(
-              entry -> {
-                final long modifierBlock = entry.getKey();
-                final BuilderMapEntry parent =
-                    Optional.ofNullable(builders.floorEntry(modifierBlock))
-                        .orElse(builders.firstEntry())
-                        .getValue();
-                builders.put(
-                    modifierBlock,
-                    new BuilderMapEntry(
-                        parent.hardforkId,
-                        parent.milestoneType,
-                        modifierBlock,
-                        parent.builder(),
-                        entry.getValue()));
-              });
+      protocolSpecAdapters
+          .structuralActivations()
+          .forEach(activation -> insertStructuralModifier(builders, activation));
+      protocolSpecAdapters
+          .customBlockActivations()
+          .forEach(activation -> insertCustomBlockModifier(builders, activation));
+      protocolSpecAdapters
+          .customTimestampActivations()
+          .forEach(activation -> insertCustomTimestampModifier(builders, activation));
     }
 
     // Create the ProtocolSchedule, such that the Dao/fork milestones can be inserted
@@ -134,7 +127,7 @@ public class ProtocolScheduleBuilder {
                     protocolSchedule,
                     e.milestoneType,
                     e.blockIdentifier(),
-                    e.builder(),
+                    e.sharedBuilder(),
                     e.modifier));
 
     // NOTE: It is assumed that Daofork blocks will not be used for private networks
@@ -148,7 +141,7 @@ public class ProtocolScheduleBuilder {
               final ProtocolSpec originalProtocolSpec =
                   getProtocolSpec(
                       protocolSchedule,
-                      previousSpecBuilder.builder(),
+                      previousSpecBuilder.sharedBuilder(),
                       previousSpecBuilder.modifier());
               addProtocolSpec(
                   protocolSchedule,
@@ -167,6 +160,90 @@ public class ProtocolScheduleBuilder {
             });
 
     LOG.info("Protocol schedule created with milestones: {}", protocolSchedule.listMilestones());
+  }
+
+  private void insertStructuralModifier(
+      final NavigableMap<Long, BuilderMapEntry> builders, final long activation) {
+    // A structural modifier carries one number without saying which domain it belongs to -- BFT and
+    // Clique read transitions from the genesis config, which states one number -- so it takes the
+    // domain of the milestone it falls on, read the way the schedule itself reads them.
+    final BuilderMapEntry parent =
+        Optional.ofNullable(builders.floorEntry(activation))
+            .orElse(builders.firstEntry())
+            .getValue();
+    // Shares the parent's instance: a structural modifier may read what an earlier one set on it,
+    // see BuilderMapEntry. Alongside a customization that instance also carries the contributed
+    // overlay in force at the parent, which a later contributed modification may have replaced, so
+    // sharing is only sound where this entry replaces its parent outright.
+    final ProtocolScheduleCustomization customization = protocolSpecAdapters.customization();
+    if (parent.blockIdentifier() != activation && !customization.modifications().isEmpty()) {
+      throw new IllegalStateException(
+          "Protocol-schedule customization '"
+              + customization.name()
+              + "' cannot be combined with a structural modifier at "
+              + activation
+              + ": alongside a customization, structural modifiers must activate at a milestone the"
+              + " genesis config declares "
+              + builders.keySet());
+    }
+    insertModifier(builders, parent.milestoneType(), activation, parent, parent.sharedBuilder());
+  }
+
+  private void insertCustomBlockModifier(
+      final NavigableMap<Long, BuilderMapEntry> builders, final long activation) {
+    final BuilderMapEntry parent =
+        lastMilestoneOf(builders, MilestoneType.BLOCK_NUMBER, activation)
+            .orElseThrow(() -> noEraFor(activation, "block"));
+    insertModifier(
+        builders, MilestoneType.BLOCK_NUMBER, activation, parent, parent.definition().get());
+  }
+
+  private void insertCustomTimestampModifier(
+      final NavigableMap<Long, BuilderMapEntry> builders, final long activation) {
+    // With no timestamp milestone below it, the era a timestamp modification overlays is the last
+    // block-number one.
+    final BuilderMapEntry parent =
+        lastMilestoneOf(builders, MilestoneType.TIMESTAMP, activation)
+            .or(() -> lastMilestoneOf(builders, MilestoneType.BLOCK_NUMBER, Long.MAX_VALUE))
+            .orElseThrow(() -> noEraFor(activation, "timestamp"));
+    insertModifier(
+        builders, MilestoneType.TIMESTAMP, activation, parent, parent.definition().get());
+  }
+
+  private Optional<BuilderMapEntry> lastMilestoneOf(
+      final NavigableMap<Long, BuilderMapEntry> builders,
+      final MilestoneType domain,
+      final long activation) {
+    return builders.headMap(activation, true).descendingMap().values().stream()
+        .filter(entry -> entry.milestoneType() == domain)
+        .findFirst();
+  }
+
+  private IllegalStateException noEraFor(final long activation, final String domain) {
+    // unreachable: the customization is validated against this config before anything is built,
+    // and genesis is a block milestone unless a fork timestamp displaced it, which validation
+    // refuses to combine with a block activation
+    return new IllegalStateException(
+        "No era precedes the contributed " + domain + " activation " + activation);
+  }
+
+  private void insertModifier(
+      final NavigableMap<Long, BuilderMapEntry> builders,
+      final MilestoneType domain,
+      final long activation,
+      final BuilderMapEntry parent,
+      final ProtocolSpecBuilder builder) {
+    builders.put(
+        activation,
+        new BuilderMapEntry(
+            parent.hardforkId(),
+            domain,
+            activation,
+            parent.definition(),
+            builder,
+            domain == MilestoneType.BLOCK_NUMBER
+                ? protocolSpecAdapters.getModifierForBlock(activation)
+                : protocolSpecAdapters.getModifierForTimestamp(activation)));
   }
 
   private long validateForkOrder(
@@ -235,8 +312,11 @@ public class ProtocolScheduleBuilder {
             milestoneDefinition.hardforkId(),
             milestoneDefinition.milestoneType(),
             numberOrTimestamp,
+            milestoneDefinition.specBuilder(),
             milestoneDefinition.specBuilder().get(),
-            protocolSpecAdapters.getModifierForBlock(numberOrTimestamp)));
+            milestoneDefinition.milestoneType() == MilestoneType.BLOCK_NUMBER
+                ? protocolSpecAdapters.getModifierForBlock(numberOrTimestamp)
+                : protocolSpecAdapters.getModifierForTimestamp(numberOrTimestamp)));
   }
 
   private ProtocolSpec getProtocolSpec(
@@ -271,11 +351,36 @@ public class ProtocolScheduleBuilder {
     }
   }
 
+  /**
+   * A milestone to be built, and the two ways its builder can be reached.
+   *
+   * <p>{@code sharedBuilder} is the instance the milestone was built from. A structural modifier
+   * inserted at its own activation is handed that same instance, so it may read what an earlier one
+   * left on it -- {@code BaseBftProtocolScheduleBuilder} reads the gas-limit calculator back when a
+   * fork omits the per-transaction cap -- and consecutive structural modifiers accumulate until the
+   * next milestone the genesis config defines, which is built fresh. Consensus fork configs inherit
+   * omitted keys themselves, in their {@code ForksSchedulesFactory}, so no shipped chain rests on
+   * this; it is upstream's behaviour, and {@code
+   * QbftProtocolScheduleBuilderTest#forkOmittingKeyRetainsPriorValue} pins it.
+   *
+   * <p>Because the shared instance also carries whatever contributed overlay was in force where it
+   * was last built, a structural modifier may only share it where it activates at a milestone the
+   * genesis config declares, and so replaces that milestone's entry rather than borrowing another
+   * one's. The builder refuses any other combination while a customization is present.
+   *
+   * <p>{@code definition} yields a fresh builder instead. A contributed modification is the whole
+   * overlay for its era, and {@link ProtocolSpecAdapters#getModifierForBlock} applies exactly one
+   * of them -- the floor -- to each milestone the genesis config defines, which is always built
+   * from a fresh definition. Sharing here would make contributed modifications accumulate within an
+   * era and silently reset at every fork Besu defines; building fresh is the only choice that
+   * behaves the same on both sides of such a fork.
+   */
   private record BuilderMapEntry(
       HardforkId hardforkId,
       MilestoneType milestoneType,
       long blockIdentifier,
-      ProtocolSpecBuilder builder,
+      Supplier<ProtocolSpecBuilder> definition,
+      ProtocolSpecBuilder sharedBuilder,
       Function<ProtocolSpecBuilder, ProtocolSpecBuilder> modifier) {}
 
   public Optional<BigInteger> getDefaultChainId() {
