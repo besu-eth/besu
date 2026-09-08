@@ -111,9 +111,7 @@ class TransactionBuilderTest {
 
   @Test
   void emptyCodeDelegationListBuilds() {
-    // EIP-7702 makes an empty authorization_list a transaction validity rule, not an encoding one,
-    // so building one succeeds and MainnetTransactionValidator rejects it -- see
-    // MainnetTransactionValidatorTest.shouldRejectCodeDelegationTransactionWithEmptyDelegationList.
+    // an empty authorization_list is a validity rule, not an encoding one, so building succeeds
     TransactionTestFixture ttf =
         new TransactionTestFixture()
             .type(TransactionType.DELEGATE_CODE)
