@@ -32,10 +32,8 @@ public record Request(RequestType type, Bytes data)
 
   @JsonCreator
   public static Request fromBytes(final Bytes bytes) {
-    // Length is checked before the type byte is resolved because the two failures are reported
-    // differently over the Engine API: a request of 1 byte or shorter is -32602 (execution-apis
-    // prague.md, engine_newPayloadV4), while an unrecognised request_type is an INVALID payload.
-    // Resolving the type first would report a bare type byte as the latter.
+    // The length has to fail before the type byte does: the Engine API answers a request of 1 byte
+    // or shorter with -32602, but an unrecognised request type with an INVALID payload status.
     checkArgument(bytes.size() > 1, "Request must be longer than 1 byte, but is %s", bytes.size());
 
     return new Request(RequestType.of(bytes.get(0)), bytes.slice(1));

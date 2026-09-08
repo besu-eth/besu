@@ -251,9 +251,8 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
 
   @Test
   public void shouldReturnInvalidParamsIfARequestIsOnlyItsTypeByte() {
-    // execution-apis prague.md: an executionRequests element "1-byte or shorter" is -32602, and
-    // that applies whether or not the type byte is one this client recognises. An unrecognised
-    // type must not be reported first and turn this into an INVALID payload status.
+    // 0x05 is deliberately an unrecognised type: the length rule outranks it, so this stays -32602
+    // rather than becoming an INVALID payload status.
     BlockHeader blockHeader =
         setupPayloadV4(
             getMinSupportedTimestamp(),
