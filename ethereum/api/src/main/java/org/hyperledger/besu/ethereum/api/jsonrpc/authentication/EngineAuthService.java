@@ -182,7 +182,7 @@ public class EngineAuthService implements AuthenticationService {
                     lastValidToken.set(new CachedToken(tokenUtf8, iat, r.result()));
                     handler.handle(Optional.of(r.result()));
                   } else {
-                    LOG.warn("Client sent stale token: {}", r.result().attributes());
+                    LOG.warn("Client sent stale Engine API token with iat: {}", iat);
                     handler.handle(Optional.empty());
                   }
                 } else {

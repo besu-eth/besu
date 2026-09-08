@@ -15,11 +15,15 @@
 package org.hyperledger.besu.ethereum.vm.operations;
 
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.operation.SwapNOperation;
 
+import org.openjdk.jmh.infra.BenchmarkParams;
+
 /** JMH benchmark for the SWAPN operation (EIP-8024). */
-public class SwapNOperationBenchmark extends ImmediateByteOperationBenchmark {
+public class SwapNOperationBenchmark extends ImmediateByteOperationBenchmark
+    implements GasCostBenchmark {
 
   @Override
   protected int getOpcode() {
@@ -42,5 +46,10 @@ public class SwapNOperationBenchmark extends ImmediateByteOperationBenchmark {
   protected int getStackDelta() {
     // SWAPN does not change stack size
     return 0;
+  }
+
+  @Override
+  public long getGasCost(final BenchmarkParams params, final GasCalculator calc) {
+    return new SwapNOperation(calc).getGasCost();
   }
 }

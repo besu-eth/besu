@@ -15,12 +15,15 @@
 package org.hyperledger.besu.ethereum.vm.operations;
 
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.operation.MulOperation;
 import org.hyperledger.besu.evm.operation.Operation;
 
 import org.openjdk.jmh.annotations.Param;
+import org.openjdk.jmh.infra.BenchmarkParams;
 
-public class MulOperationBenchmark extends BinaryArithmeticOperationBenchmark {
+public class MulOperationBenchmark extends BinaryArithmeticOperationBenchmark
+    implements GasCostBenchmark {
   @Param("MUL_RANDOM_RANDOM")
   private String caseName;
 
@@ -37,5 +40,10 @@ public class MulOperationBenchmark extends BinaryArithmeticOperationBenchmark {
   @Override
   protected String opCode() {
     return "MUL";
+  }
+
+  @Override
+  public long getGasCost(final BenchmarkParams params, final GasCalculator calc) {
+    return new MulOperation(calc).getGasCost();
   }
 }

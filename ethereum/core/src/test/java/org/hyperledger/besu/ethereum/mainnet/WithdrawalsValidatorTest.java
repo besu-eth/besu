@@ -198,4 +198,17 @@ public class WithdrawalsValidatorTest {
                 .validateWithdrawals(Optional.of(List.of(w, w))))
         .isFalse();
   }
+
+  @Test
+  public void rejectsByzantineWithdrawalsRootPresentButWithdrawalsAbsentFromBody() {
+    // Post-Shanghai block: header has withdrawalsRoot but body has no withdrawals field.
+    // Previously both validators would pass if the root happened to be EMPTY_TRIE_HASH.
+    final BlockDataGenerator.BlockOptions blockOptions =
+        BlockDataGenerator.BlockOptions.create().setWithdrawalsRoot(Hash.EMPTY_TRIE_HASH);
+    final Block block = blockDataGenerator.block(blockOptions);
+    assertThat(block.getHeader().getWithdrawalsRoot()).isPresent();
+    assertThat(block.getBody().getWithdrawals()).isEmpty();
+    assertThat(new WithdrawalsValidator.NotApplicableWithdrawals().validateWithdrawalsRoot(block))
+        .isFalse();
+  }
 }

@@ -270,13 +270,11 @@ public class SnapProtocolManager implements ProtocolManager {
    * @return true if reserved; false if a cap was hit (request answered empty instead).
    */
   private boolean reserveSnapRequestSlot(final EthPeer ethPeer) {
-    if (maxConcurrentRequestsGlobal > 0) {
-      final int reservedGlobal = globalInFlightRequests.incrementAndGet();
-      if (reservedGlobal > maxConcurrentRequestsGlobal) {
-        globalInFlightRequests.decrementAndGet();
-        rejectSnapRequest(ethPeer, "global");
-        return false;
-      }
+    final int reservedGlobal = globalInFlightRequests.incrementAndGet();
+    if (maxConcurrentRequestsGlobal > 0 && reservedGlobal > maxConcurrentRequestsGlobal) {
+      globalInFlightRequests.decrementAndGet();
+      rejectSnapRequest(ethPeer, "global");
+      return false;
     }
     if (maxConcurrentRequestsPerPeer > 0) {
       final AtomicInteger perPeerCount =
@@ -285,9 +283,7 @@ public class SnapProtocolManager implements ProtocolManager {
       final int reservedPerPeer = perPeerCount.incrementAndGet();
       if (reservedPerPeer > maxConcurrentRequestsPerPeer) {
         perPeerCount.decrementAndGet();
-        if (maxConcurrentRequestsGlobal > 0) {
-          globalInFlightRequests.decrementAndGet();
-        }
+        globalInFlightRequests.decrementAndGet();
         rejectSnapRequest(ethPeer, "per-peer");
         return false;
       }
@@ -296,9 +292,7 @@ public class SnapProtocolManager implements ProtocolManager {
   }
 
   private void releaseSnapRequestSlot(final EthPeer ethPeer) {
-    if (maxConcurrentRequestsGlobal > 0) {
-      globalInFlightRequests.decrementAndGet();
-    }
+    globalInFlightRequests.decrementAndGet();
     if (maxConcurrentRequestsPerPeer > 0) {
       final AtomicInteger perPeerCount = perPeerInFlightRequests.get(ethPeer.getConnection());
       if (perPeerCount != null) {

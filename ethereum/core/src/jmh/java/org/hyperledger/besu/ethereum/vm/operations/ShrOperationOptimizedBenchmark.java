@@ -15,14 +15,23 @@
 package org.hyperledger.besu.ethereum.vm.operations;
 
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.operation.ShrOperationOptimized;
 
+import org.openjdk.jmh.infra.BenchmarkParams;
+
 /** JMH benchmark for the optimized SHR (Shift Right Logical) operation. */
-public class ShrOperationOptimizedBenchmark extends AbstractShiftOperationBenchmark {
+public class ShrOperationOptimizedBenchmark extends AbstractShiftOperationBenchmark
+    implements GasCostBenchmark {
 
   @Override
   protected Operation.OperationResult invoke(final MessageFrame frame) {
     return ShrOperationOptimized.staticOperation(frame);
+  }
+
+  @Override
+  public long getGasCost(final BenchmarkParams params, final GasCalculator calc) {
+    return new ShrOperationOptimized(calc).getGasCost();
   }
 }

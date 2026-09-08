@@ -31,6 +31,7 @@ import javax.inject.Inject;
 import javax.inject.Singleton;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.ethereum.beacon.discovery.util.DecodeException;
 
 @Singleton
 public class PacketDeserializer {
@@ -89,11 +90,11 @@ public class PacketDeserializer {
       final PacketData packetData =
           deserializer.readFrom(RLP.input(message.slice(Packet.PACKET_DATA_INDEX)));
       return packetFactory.create(packetType, packetData, message);
-    } catch (final RLPException e) {
+    } catch (final RLPException
+        | org.apache.tuweni.rlp.RLPException
+        | DecodeException
+        | IllegalArgumentException e) {
       throw new PeerDiscoveryPacketDecodingException("Malformed packet of type: " + packetType, e);
-    } catch (final IllegalArgumentException e) {
-      throw new PeerDiscoveryPacketDecodingException(
-          "Failed decoding packet of type: " + packetType, e);
     }
   }
 }
