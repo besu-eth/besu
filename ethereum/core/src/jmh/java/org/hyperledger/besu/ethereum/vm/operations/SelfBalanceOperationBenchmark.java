@@ -41,6 +41,7 @@ import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.Warmup;
+import org.openjdk.jmh.infra.BenchmarkParams;
 import org.openjdk.jmh.infra.Blackhole;
 
 @State(Scope.Thread)
@@ -48,7 +49,7 @@ import org.openjdk.jmh.infra.Blackhole;
 @OutputTimeUnit(value = TimeUnit.NANOSECONDS)
 @Measurement(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
 @BenchmarkMode(Mode.AverageTime)
-public class SelfBalanceOperationBenchmark {
+public class SelfBalanceOperationBenchmark implements GasCostBenchmark {
 
   private SelfBalanceOperation operation;
   private MessageFrame frame;
@@ -82,9 +83,15 @@ public class SelfBalanceOperationBenchmark {
     worldUpdater.get(address);
   }
 
+  @Override
   @Benchmark
   public void executeOperation(final Blackhole blackhole) {
     blackhole.consume(operation.execute(frame, null));
     frame.popStackItem();
+  }
+
+  @Override
+  public long getGasCost(final BenchmarkParams params, final GasCalculator calc) {
+    return new SelfBalanceOperation(calc).getGasCost();
   }
 }

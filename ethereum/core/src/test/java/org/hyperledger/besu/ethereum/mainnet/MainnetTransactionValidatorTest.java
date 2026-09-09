@@ -432,6 +432,43 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
   }
 
   @Test
+  public void shouldRejectCodeDelegationTransactionWithEmptyDelegationList() {
+    final TransactionValidator validator =
+        createTransactionValidator(
+            gasCalculator,
+            GasLimitCalculator.constant(),
+            FeeMarket.london(0L),
+            false,
+            Optional.of(BigInteger.ONE),
+            Set.of(TransactionType.DELEGATE_CODE),
+            Integer.MAX_VALUE);
+    final Transaction transaction =
+        Transaction.builder()
+            .type(TransactionType.DELEGATE_CODE)
+            .nonce(0)
+            .maxPriorityFeePerGas(Wei.of(1))
+            .maxFeePerGas(Wei.of(2))
+            .gasLimit(21_000)
+            .to(Address.ZERO)
+            .value(Wei.ZERO)
+            .payload(Bytes.EMPTY)
+            .chainId(BigInteger.ONE)
+            .codeDelegations(List.of())
+            .signAndBuild(senderKeys);
+
+    final ValidationResult<TransactionInvalidReason> validationResult =
+        validator.validate(
+            transaction, Optional.of(Wei.ONE), Optional.empty(), transactionPoolParams);
+
+    assertThat(validationResult.isValid()).isFalse();
+    assertThat(validationResult.getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.EMPTY_CODE_DELEGATION);
+    assertThat(validationResult.getErrorMessage())
+        .isEqualTo(
+            "transaction code delegation transactions must have a non-empty code delegation list");
+  }
+
+  @Test
   public void shouldRejectCodeDelegationTransactionWhenAuthorizationChainIdIsOutOfRange() {
     final TransactionValidator validator =
         createTransactionValidator(
@@ -893,6 +930,9 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
     return Stream.of(
         Arguments.of(ValidationParamsVariant.PROCESSING, 16_777_216L, true),
         Arguments.of(ValidationParamsVariant.PROCESSING, 16_777_217L, false),
+        // Long.MIN_VALUE == 2^63 in unsigned representation; signed '>' comparison would treat
+        // it as negative and incorrectly pass the cap check — must be rejected unsigned
+        Arguments.of(ValidationParamsVariant.PROCESSING, Long.MIN_VALUE, false),
         Arguments.of(ValidationParamsVariant.SIMULATING, 16_777_216L, true),
         Arguments.of(ValidationParamsVariant.SIMULATING, 16_777_217L, true));
   }

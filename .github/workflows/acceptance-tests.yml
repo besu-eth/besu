@@ -14,17 +14,25 @@ jobs:
     name: "Acceptance Runner"
     permissions:
       contents: read
-      statuses: write
-      checks: write
+      actions: read # the timing baseline is fetched through the Actions artifact API
     strategy:
       fail-fast: true
       matrix:
         runner_index: [0,1,2,3,4,5,6,7,8,9,10,11,12,13]
     steps:
+      # total-runners drives the split; the matrix drives which slice each job asks for. Nothing
+      # ties them together, and if they drift the extra slices are simply never requested.
+      - name: Check the matrix size matches total-runners
+        run: |
+          if [ "${{ strategy.job-total }}" != "${{ env.total-runners }}" ]; then
+            echo "::error::total-runners is ${{ env.total-runners }} but the matrix has ${{ strategy.job-total }} jobs"
+            exit 1
+          fi
       - name: Checkout Repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          persist-credentials: false
       - name: Set up Java
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
@@ -35,32 +43,69 @@ jobs:
         with:
           cache-disabled: true
       - name: Install required packages
-        run:  sudo apt-get install -y xmlstarlet
+        run:  sudo apt-get install -y xmlstarlet bc
       - name: setup gradle
         uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
         with:
           cache-disabled: true
       - name: List all acceptance tests
         run: ./gradlew acceptanceTest --test-dry-run -Dorg.gradle.parallel=true -Dorg.gradle.caching=true
+      # Scoped to the acceptance suite's own output
       - name: Extract current test list
-        run: mkdir tmp; find . -type f -name TEST-*.xml | xargs -I{} bash -c "xmlstarlet sel -t -v '/testsuite/testcase[1]/@classname' '{}'; echo ' acceptanceTest'" | tee tmp/currentTests.list
+        shell: bash
+        run: |
+          mkdir -p tmp
+          reports_dir=acceptance-tests/tests/build/test-results
+          if [ ! -d "$reports_dir" ]; then
+            echo "::error::$reports_dir does not exist, so the dry run produced no test reports"
+            exit 1
+          fi
+          find "$reports_dir" -type f -name 'TEST-*.xml' -print0 \
+            | while IFS= read -r -d '' report
+              do
+                xmlstarlet sel -t -v '/testsuite/testcase[1]/@classname' "$report"
+                echo ' acceptanceTest'
+              done > tmp/currentTests.list
+          if [ ! -s tmp/currentTests.list ]; then
+            echo "::error::no acceptance tests were listed, refusing to split an empty suite"
+            exit 1
+          fi
+          cat tmp/currentTests.list
       # Downloads the timing baseline produced by update-acceptance-tests-timing-reports.yml on the last merge to main.
       # `splitTestsByTime.sh` uses the per-test durations in  these XMLs to distribute tests across parallel runners by historical wall-clock time rather than a naive split.
       # If the artifact is missing # (e.g. first run), splitting falls back to round-robin for all tests.
       - name: Get acceptance test reports
-        uses: dawidd6/action-download-artifact@e7466d1a7587ed14867642c2ca74b5bcc1e19a2d
+        uses: dawidd6/action-download-artifact@7f871e041ed7fe12467d2d4196da8a466c5311ff # v22
         continue-on-error: true
         with:
           branch: main
+          # The producing workflow only ever runs on push to main.
+          event: push
           workflow: acceptance-tests-timing-reports-update.yml
+          workflow_conclusion: success
           name: acceptance-tests-timing-reports
           path: tmp/junit-xml-reports-downloaded
-          if_no_artifact_found: ignore
+          if_no_artifact_found: warn
+          # allow_forks is deliberately left at its default of false.
       - name: Split tests
         run: .github/scripts/splitTestsByTime.sh tmp/junit-xml-reports-downloaded "tmp/junit-xml-reports-downloaded/acceptance-node-.*-test-results" "TEST-" ${{env.total-runners}} ${{ matrix.runner_index }} > testList.txt
+      - name: Report a missing timing baseline
+        if: matrix.runner_index == 0
+        run: |
+          if [ ! -s tmp/timing.tsv ]; then
+            echo "::warning::No timing baseline was available, so tests were split round-robin. Check the acceptance-tests-timing-reports-update workflow on main."
+          fi
       - name: format gradle args
         # we do not need the module task here
         run:  cat testList.txt | cut -f 2- -d ' ' | tee gradleArgs.txt
+      # An empty group would otherwise reach the unfiltered `./gradlew acceptanceTest` below,
+      # which runs the entire suite on every affected runner instead of this runner's slice.
+      - name: Check the split produced a test list
+        run: |
+          if [ ! -s gradleArgs.txt ]; then
+            echo "::error::The split produced no tests for runner ${{ matrix.runner_index }}"
+            exit 1
+          fi
       - name: Upload Timing
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         if: matrix.runner_index == 0
@@ -100,8 +145,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [ acceptanceTests ]
     permissions:
-      checks: write
-      statuses: write
+      contents: read
     if: always()
     steps:
       # Fail if any `needs` job was not a success.

@@ -38,9 +38,12 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.api.query.LogsQuery;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -58,7 +61,7 @@ public class EthNewFilterTest {
 
   @BeforeEach
   public void setUp() {
-    method = new EthNewFilter(filterManager, blockchainQueries, 0);
+    method = new EthNewFilter(filterManager, blockchainQueries, 0, 0);
   }
 
   @Test
@@ -170,7 +173,7 @@ public class EthNewFilterTest {
   @Test
   public void filterWithRangeExceedingMaxLogRangeReturnsError() {
     when(blockchainQueries.headBlockNumber()).thenReturn(10000L);
-    final EthNewFilter methodWithLimit = new EthNewFilter(filterManager, blockchainQueries, 100);
+    final EthNewFilter methodWithLimit = new EthNewFilter(filterManager, blockchainQueries, 100, 0);
     final FilterParameter filterParameter =
         new FilterParameter(
             new BlockParameter(0L),
@@ -189,6 +192,85 @@ public class EthNewFilterTest {
     final JsonRpcResponse response = methodWithLimit.response(request);
 
     assertThat(response).usingRecursiveComparison().isEqualTo(expectedResponse);
+  }
+
+  @Test
+  public void filterWithAddressCountExceedingCapReturnsError() {
+    final EthNewFilter methodWithCap = new EthNewFilter(filterManager, blockchainQueries, 0, 1000);
+    final List<Address> addresses =
+        IntStream.range(0, 1001)
+            .mapToObj(i -> Address.fromHexString(String.format("0x%040x", i)))
+            .collect(Collectors.toCollection(ArrayList::new));
+    final FilterParameter filterParameter =
+        new FilterParameter(
+            BlockParameter.LATEST,
+            BlockParameter.LATEST,
+            null,
+            null,
+            addresses,
+            null,
+            null,
+            null,
+            null);
+    final JsonRpcRequestContext request = ethNewFilter(filterParameter);
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcErrorResponse(null, RpcErrorType.EXCEEDS_RPC_MAX_FILTER_ADDRESSES);
+
+    final JsonRpcResponse response = methodWithCap.response(request);
+
+    assertThat(response).usingRecursiveComparison().isEqualTo(expectedResponse);
+  }
+
+  @Test
+  public void filterWithAddressCountAtCapIsAccepted() {
+    final EthNewFilter methodWithCap = new EthNewFilter(filterManager, blockchainQueries, 0, 1000);
+    final List<Address> addresses =
+        IntStream.range(0, 1000)
+            .mapToObj(i -> Address.fromHexString(String.format("0x%040x", i)))
+            .collect(Collectors.toCollection(ArrayList::new));
+    final FilterParameter filterParameter =
+        new FilterParameter(
+            BlockParameter.LATEST,
+            BlockParameter.LATEST,
+            null,
+            null,
+            addresses,
+            null,
+            null,
+            null,
+            null);
+    final JsonRpcRequestContext request = ethNewFilter(filterParameter);
+    when(filterManager.installLogFilter(any(), any(), any())).thenReturn("0x1");
+
+    final JsonRpcResponse response = methodWithCap.response(request);
+
+    assertThat(response).isInstanceOf(JsonRpcSuccessResponse.class);
+  }
+
+  @Test
+  public void filterWithAddressesAndNoCap() {
+    final List<Address> addresses =
+        IntStream.range(0, 5000)
+            .mapToObj(i -> Address.fromHexString(String.format("0x%040x", i)))
+            .collect(Collectors.toCollection(ArrayList::new));
+    final FilterParameter filterParameter =
+        new FilterParameter(
+            BlockParameter.LATEST,
+            BlockParameter.LATEST,
+            null,
+            null,
+            addresses,
+            null,
+            null,
+            null,
+            null);
+    final JsonRpcRequestContext request = ethNewFilter(filterParameter);
+    when(filterManager.installLogFilter(any(), any(), any())).thenReturn("0x1");
+
+    // default method has maxFilterAddresses=0 (no limit)
+    final JsonRpcResponse response = method.response(request);
+
+    assertThat(response).isInstanceOf(JsonRpcSuccessResponse.class);
   }
 
   @Test

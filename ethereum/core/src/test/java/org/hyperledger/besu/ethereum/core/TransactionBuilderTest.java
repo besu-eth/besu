@@ -110,7 +110,8 @@ class TransactionBuilderTest {
   }
 
   @Test
-  void emptyCodeDelegationListIsInvalid() {
+  void emptyCodeDelegationListBuilds() {
+    // an empty authorization_list is a validity rule, not an encoding one, so building succeeds
     TransactionTestFixture ttf =
         new TransactionTestFixture()
             .type(TransactionType.DELEGATE_CODE)
@@ -118,13 +119,8 @@ class TransactionBuilderTest {
             .maxFeePerGas(Optional.of(Wei.of(5)))
             .maxPriorityFeePerGas(Optional.of(Wei.of(5)))
             .codeDelegations(List.of());
-    try {
-      ttf.createTransaction(senderKeys);
-      fail();
-    } catch (IllegalArgumentException iea) {
-      assertThat(iea)
-          .hasMessage("Code delegation transaction must have at least one authorization");
-    }
+
+    assertThat(ttf.createTransaction(senderKeys).getCodeDelegationList()).contains(List.of());
   }
 
   @Test

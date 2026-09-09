@@ -21,7 +21,6 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.json.QuantityJson;
-import org.hyperledger.besu.ethereum.core.json.TransactionJson;
 
 import java.util.List;
 
@@ -163,7 +162,6 @@ public sealed class ExecutionPayloadV1 permits ExecutionPayloadV2 {
   }
 
   @JsonSetter("transactions")
-  @JsonDeserialize(contentUsing = TransactionJson.BlockBodyDeserializer.class)
   public void setTransactions(final List<Transaction> transactions) {
     this.transactions = transactions;
   }
@@ -224,7 +222,6 @@ public sealed class ExecutionPayloadV1 permits ExecutionPayloadV2 {
     return prevRandao;
   }
 
-  @JsonSerialize(contentUsing = TransactionJson.BlockBodySerializer.class)
   public List<Transaction> getTransactions() {
     return transactions;
   }

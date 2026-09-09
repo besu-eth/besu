@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.consensus.ibft.payload;
 
+import org.hyperledger.besu.consensus.common.bft.messagewrappers.BftMessage;
 import org.hyperledger.besu.consensus.common.bft.payload.SignedData;
 import org.hyperledger.besu.consensus.ibft.messagewrappers.RoundChange;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
@@ -42,16 +43,21 @@ public class RoundChangeCertificate {
   }
 
   /**
-   * Read from rlp input and return round change certificate.
+   * Read from rlp input and return round change certificate limited to supplied decode budget.
    *
    * @param rlpInput the rlp input
+   * @param decodeBudget the per-message decode budget
    * @return the round change certificate
    */
-  public static RoundChangeCertificate readFrom(final RLPInput rlpInput) {
+  public static RoundChangeCertificate readFrom(
+      final RLPInput rlpInput, final DecodeBudget decodeBudget) {
     final List<SignedData<RoundChangePayload>> roundChangePayloads;
 
     rlpInput.enterList();
-    roundChangePayloads = rlpInput.readList(PayloadDeserializers::readSignedRoundChangePayloadFrom);
+    roundChangePayloads =
+        rlpInput.readList(
+            r -> PayloadDeserializers.readSignedRoundChangePayloadFrom(r, decodeBudget),
+            BftMessage.MAX_LIST_ENTRIES);
     rlpInput.leaveList();
 
     return new RoundChangeCertificate(roundChangePayloads);

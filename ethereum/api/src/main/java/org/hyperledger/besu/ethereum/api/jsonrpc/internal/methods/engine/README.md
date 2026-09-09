@@ -5,67 +5,35 @@ This package implements the [Engine API](https://github.com/ethereum/execution-a
 version of a method — or a brand-new method series — is always added the same way. Read this before
 changing anything in this package, in the related parameter/result classes, or in their tests.
 
-## Migration status
+## Architecture
 
-The migration landed series by series, each in its own PR, to keep changes reviewable. Every series
-is now on the pattern below:
+Each method series (`engine_newPayloadV*`, `engine_getPayloadV*`, `engine_forkchoiceUpdatedV*`, ...)
+is a **sealed class hierarchy mirroring the specification**: version N extends version N−1 and
+overrides only what its spec version adds or changes.
 
-| Series | Constructor takes `ConstructorArguments`? | Registered via `VersionScheduler`? |
-|---|---|---|
-| `engine_forkchoiceUpdatedV*` | Yes | Yes |
-| `engine_newPayloadV*` | Yes | Yes |
-| `engine_getPayloadV*` | Yes | Yes |
-| `engine_getPayloadBodiesBy*` | Yes | Yes |
-| `engine_exchangeCapabilities`, `engine_getClientVersionV1`, `engine_exchangeTransitionConfigurationV1` | Yes | Yes |
-| `engine_getBlobsV1`–`V3`, `engine_getBlobsV4` | Yes | Yes |
-
-Nothing is left to migrate, so a new series must follow the pattern below from the start. The
-TRANSITIONAL SHIM constructors on `ExecutionEngineJsonRpcMethod` (and the matching
-`Optional<Long>` overload on `ForkSupportHelper`) no longer have callers and are removed in the
-cleanup PR that closes this stack — do not write new code against them.
-
-## Architecture (migrated series)
-
-Each migrated series that has more than one version (`engine_forkchoiceUpdatedV*`,
-`engine_newPayloadV*`, `engine_getPayloadV*`, `engine_getPayloadBodiesBy*`, `engine_getBlobsV1`–`V3`
-— see the migration status table above) is a **sealed class hierarchy mirroring the
-specification**: version N extends version N−1 and overrides only what its spec version adds or
-changes.
-
-- `EngineForkchoiceUpdatedV1 permits EngineForkchoiceUpdatedV2`, `... V3 permits
-  EngineForkchoiceUpdatedV4`; `EngineNewPayloadV1 permits EngineNewPayloadV2`, `... V4 permits
-  EngineNewPayloadV5`; `EngineGetPayloadV1 permits EngineGetPayloadV2`, `... V5 permits
-  EngineGetPayloadV6`; `EngineGetPayloadBodiesByHashV1 permits EngineGetPayloadBodiesByHashV2` and
-  `EngineGetPayloadBodiesByRangeV1 permits EngineGetPayloadBodiesByRangeV2`;
-  `EngineGetBlobsV1 permits EngineGetBlobsV2 permits EngineGetBlobsV3`; and the latest version of
-  each is `final`. Future migrated series follow the same shape.
-- The remaining migrated series (`engine_exchangeCapabilities`, `engine_getClientVersionV1`,
-  `engine_exchangeTransitionConfigurationV1`, `engine_getBlobsV4`) have a single spec version so
-  far, so they are plain (non-`sealed`, no `permits`) classes extending
-  `ExecutionEngineJsonRpcMethod` directly. They become sealed hierarchies the day a V2 is
-  specified — everything else about them (constructor shape, registration) is already the
-  migrated pattern. Note that `engine_getBlobsV4` is a *series of its own* despite its name: see
-  "Registration and scheduling" below.
+- Engine methods execute concurrently by default. Engine methods that require ordering (FIFO)
+  must extend `OrderedExecutionJsonRpcMethod` — for example `EngineNewPayloadV1`,
+  `EngineForkchoiceUpdatedV1`, and their sealed version hierarchies.
+- `EngineGetPayloadV1 permits EngineGetPayloadV2`, `... V5 permits EngineGetPayloadV6`, and the
+  latest version is `final`. The same applies to the other series.
 - All versions extend `ExecutionEngineJsonRpcMethod`, which owns the fork-window validation
   (`minSupportedFork` / `firstUnsupportedFork` constructor arguments, `validateForkSupported`,
   see also `ForkSupportHelper`). Concrete versions never check fork timestamps themselves.
-- Engine methods execute concurrently by default. Engine methods that require ordering (FIFO)
-  must extend `OrderedExecutionJsonRpcMethod`. Examples being `EngineNewPayloadV1` and `EngineForkchoiceUpdatedV1`
-- and associated sealed version hierarchies.
-- Migrated series take a single `ExecutionEngineJsonRpcMethod.ConstructorArguments` record (built
+- Each method takes a single `ExecutionEngineJsonRpcMethod.ConstructorArguments` record (built
   via the generated `ConstructorArgumentsBuilder`) plus `(minSupportedFork, firstUnsupportedFork)`,
   instead of a bespoke positional argument list per series — this is what lets `VersionScheduler`
   build every version through one shared factory shape (see below). `ConstructorArguments` only
   carries the fields the series actually need — mark a field `@Nullable` if only some series read
   it (e.g. `mergeCoordinator` is absent for `engine_exchangeTransitionConfigurationV1`) — and
   extend it (and its builder) when adding a series that needs a field it doesn't have yet.
-- The JSON data structures relevant to migrated series are sealed hierarchies too, mirroring the
-  spec versions: request parameters in `..internal.parameters` (`ExecutionPayloadV1..V4`,
+- The JSON data structures are sealed hierarchies too, mirroring the spec versions: request
+  parameters in `..internal.parameters` (`ExecutionPayloadV1..V4`,
   `NewPayloadRequestParametersV1..V3`, `ForkchoiceStateV1`, `PayloadAttributesV1..V4`), results in
   `..internal.results` (`PayloadStatusV1`, `ForkchoiceUpdatedResultV1`,
-  `EngineGetPayloadResultV1..V6`, `ExecutionPayloadBodiesV1..V2`, `BlobAndProofV1..V2`). Result
-  classes reuse the request-side payload hierarchy rather than re-declaring header fields:
-  `EngineGetPayloadResultV1` wraps an `ExecutionPayloadV1` via `@JsonValue`.
+  `EngineGetPayloadResultV1..V6`, `ExecutionPayloadBodiesV1..V2`, `BlobAndProofV1..V2`,
+  `BlobsBundleV1/V2`). Result classes reuse the request-side payload hierarchy rather than
+  re-declaring header fields: `EngineGetPayloadResultV1` wraps an `ExecutionPayloadV1` via
+  `@JsonValue`.
 - A version class overrides narrow, protected hooks of its parent (e.g. `createResponse`,
   `createExecutionPayload`, `validateParameters`, `validatePayloadAttributes`) — it never
   re-implements the request flow.
@@ -73,14 +41,15 @@ changes.
 ### Registration and scheduling
 
 `org.hyperledger.besu.ethereum.api.jsonrpc.methods.ExecutionEngineJsonRpcMethods` declares, per
-migrated series, which version is active in which fork window via the `VersionScheduler` DSL, using
+series, which version is active in which fork window via the `VersionScheduler` DSL, using
 constructor references (not reflection — see `VersionScheduler.EngineMethodFactory`):
 
 ```java
-VersionScheduler.startsFromBeginningUntil(EngineForkchoiceUpdatedV1::new, SHANGHAI)
-    .thenAlsoFromBeginning(EngineForkchoiceUpdatedV2::new)
-    .thenFrom(CANCUN, EngineForkchoiceUpdatedV3::new)
-    .thenFrom(AMSTERDAM, EngineForkchoiceUpdatedV4::new)
+VersionScheduler.startsFromBeginningUntil(EngineGetPayloadV1::new, SHANGHAI)
+    .thenAlsoFromBeginning(EngineGetPayloadV2::new)
+    .thenFrom(CANCUN, EngineGetPayloadV3::new)
+    ...
+    .thenFrom(AMSTERDAM, EngineGetPayloadV6::new)
     .build(constructorArguments);
 ```
 
@@ -120,9 +89,9 @@ pair derived from the chain. Method names live in the `RpcMethod` enum;
 
 ## Test pattern (src/test, same package)
 
-Tests are layered exactly like the production classes: `EngineForkchoiceUpdatedV4Test extends
-EngineForkchoiceUpdatedV3Test extends ... V1Test`, so **every version class runs all the tests of
-the previous versions plus its own**.
+Tests are layered exactly like the production classes: `EngineGetPayloadV6Test extends
+EngineGetPayloadV5Test extends ... V1Test`, so **every version class runs all the tests of the
+previous versions plus its own**.
 
 - The V1 test class owns the generic scenarios, written against protected hooks:
   `createMethodInstance()`, `getMinSupportedTimestamp()` / `getMaxSupportedTimestamp()`,
@@ -142,7 +111,7 @@ Acceptance tests are fixture-driven, one directory per fork:
 `genesis.json` and `test-cases/` with JSON request/response pairs (see also the
 `*AcceptanceTestHelper` classes under `acceptance-tests/.../acceptance/ethereum/`).
 
-## Checklist: add version N+1 to an existing migrated series
+## Checklist: add version N+1 to an existing series
 
 Use the commits that introduced the current latest version as the exemplar
 (`git log --oneline -- <path to latest version class>`), then:
@@ -164,11 +133,11 @@ Use the commits that introduced the current latest version as the exemplar
 6. Add/extend the acceptance-test fixtures for the activation fork.
 7. Update `CHANGELOG.md`.
 
-## Checklist: add a brand-new method series (migrated pattern)
+## Checklist: add a brand-new method series
 
-1. Create `EngineBarV1 extends ExecutionEngineJsonRpcMethod` (sealed once V2 exists), taking
-   `ConstructorArguments` plus the fork window in its constructor; add its parameter/result classes
-   as (future-sealed) hierarchies from the start.
+1. Create `EngineBarV1 extends ExecutionEngineJsonRpcMethod` (sealed once V2 exists), passing the
+   fork window to the super constructor; add its parameter/result classes as (future-sealed)
+   hierarchies from the start.
 2. Register it in `RpcMethod` and in `ExecutionEngineJsonRpcMethods` via `VersionScheduler`
    (`startsFrom(<FORK>, EngineBarV1::new)` or `alwaysActive(...)`).
 3. Create `EngineBarV1Test` with all scenarios written against protected hooks from day one, so

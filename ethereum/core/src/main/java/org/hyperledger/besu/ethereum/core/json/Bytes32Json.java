@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.core.json;
 
+import org.hyperledger.besu.util.HexUtils;
+
 import java.io.IOException;
 
 import com.fasterxml.jackson.core.JsonGenerator;
@@ -38,7 +40,7 @@ public final class Bytes32Json {
     public void serialize(
         final Bytes32 value, final JsonGenerator gen, final SerializerProvider provider)
         throws IOException {
-      gen.writeString(value.toHexString());
+      gen.writeString(HexUtils.toFastHex(value, true));
     }
   }
 

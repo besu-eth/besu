@@ -43,6 +43,12 @@ public class JWTAuthOptionsFactory {
 
   public JWTAuthOptions createForExternalPublicKeyWithAlgorithm(
       final File externalPublicKeyFile, final JwtAlgorithm algorithm) {
+    if (algorithm.toString().startsWith("H")) {
+      throw new IllegalArgumentException(
+          "Cannot use a public key file with HMAC algorithm "
+              + algorithm
+              + "; use an asymmetric algorithm (RS256, ES256) or supply a secret key file");
+    }
     final byte[] externalJwtPublicKey = readPublicKey(externalPublicKeyFile);
     return new JWTAuthOptions()
         .addPubSecKey(

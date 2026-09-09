@@ -20,12 +20,14 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV4;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV3;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 
 import java.util.Optional;
 
@@ -110,11 +112,19 @@ public final class EngineNewPayloadV5<
         final String jsonPath = maybeJsonPath.get();
 
         if (jsonPath.equals("blockAccessList")) {
-          return respondWithInvalid(
-              reqId,
+          final String validationError =
               "Failed to decode block access list payload parameter ("
                   + fieldEx.getOriginalMessage()
-                  + ")");
+                  + ")";
+          // An undecodable block access list is an invalid payload (engine_newPayloadV5 rule 3);
+          // a value that is not hex is still a malformed parameter.
+          if (extractCauseByType(fieldEx, RLPException.class).isPresent()) {
+            return respondWithInvalid(reqId, validationError);
+          }
+          return new JsonRpcErrorResponse(
+              reqId,
+              ValidationResult.invalid(
+                  RpcErrorType.INVALID_BLOCK_ACCESS_LIST_PARAMS, validationError));
         }
       }
     }

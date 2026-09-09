@@ -240,7 +240,9 @@ public class BftMiningCoordinator implements MiningCoordinator, BlockAddedObserv
   }
 
   @Override
-  public boolean enable() {
+  public synchronized boolean enable() {
+    // Synchronized with start()/stop() so the multi-step state checks below cannot interleave
+    // with a concurrent lifecycle transition (see #10877).
     // Return true if we're already running or idle, or successfully switch to idle. UNINITIALIZED
     // (the initial state) is treated the same as PAUSED here: neither has ever been started.
     return state.get() == State.RUNNING
@@ -250,7 +252,9 @@ public class BftMiningCoordinator implements MiningCoordinator, BlockAddedObserv
   }
 
   @Override
-  public boolean disable() {
+  public synchronized boolean disable() {
+    // Synchronized with start()/stop() so the multi-step state checks below cannot interleave
+    // with a concurrent lifecycle transition (see #10877).
     // UNINITIALIZED (the initial state) is already at rest, same as PAUSED: report success
     // without transitioning, there being nothing to disable.
     return state.get() == State.PAUSED

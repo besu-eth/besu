@@ -171,7 +171,7 @@ public class WebSocketServiceLoginTest {
 
     final Map<String, JsonRpcMethod> websocketMethods =
         new WebSocketMethodsFactory(
-                new SubscriptionManager(new NoOpMetricsSystem()), new HashMap<>())
+                new SubscriptionManager(new NoOpMetricsSystem()), new HashMap<>(), 0)
             .methods();
 
     // mocks so that genesis hash is populated

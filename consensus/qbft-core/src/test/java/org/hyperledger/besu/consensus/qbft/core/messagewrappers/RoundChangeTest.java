@@ -15,11 +15,13 @@
 package org.hyperledger.besu.consensus.qbft.core.messagewrappers;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.common.bft.ConsensusRoundIdentifier;
+import org.hyperledger.besu.consensus.common.bft.messagewrappers.BftMessage;
 import org.hyperledger.besu.consensus.common.bft.payload.SignedData;
 import org.hyperledger.besu.consensus.qbft.core.QbftBlockTestFixture;
 import org.hyperledger.besu.consensus.qbft.core.messagedata.QbftV1;
@@ -31,8 +33,10 @@ import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockCodec;
 import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.cryptoservices.NodeKeyUtils;
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Util;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 
@@ -243,6 +247,63 @@ public class RoundChangeTest {
     final org.hyperledger.besu.ethereum.rlp.RLPInput rlpIn =
         org.hyperledger.besu.ethereum.rlp.RLP.input(roundChange.encode());
     assertThat(rlpIn.enterList()).isEqualTo(4);
+  }
+
+  @Test
+  public void decodeAcceptsPreparesListAtMaxEntries() {
+    final NodeKey key = NodeKeyUtils.generate();
+    final RoundChangePayload rcPayload =
+        new RoundChangePayload(new ConsensusRoundIdentifier(1, 0), Optional.empty());
+    final SignedData<RoundChangePayload> signedRc =
+        SignedData.create(
+            rcPayload, key.sign(Bytes32.wrap(rcPayload.hashForSignature().getBytes())));
+
+    final PreparePayload preparePayload =
+        new PreparePayload(new ConsensusRoundIdentifier(1, 0), Hash.ZERO);
+    final SignedData<PreparePayload> onePrepare =
+        SignedData.create(
+            preparePayload, key.sign(Bytes32.wrap(preparePayload.hashForSignature().getBytes())));
+
+    final Bytes atLimit =
+        new RoundChange(
+                signedRc,
+                Optional.empty(),
+                Optional.empty(),
+                blockEncoder,
+                Collections.nCopies(BftMessage.MAX_LIST_ENTRIES, onePrepare))
+            .encode();
+
+    final RoundChange decoded = RoundChange.decode(atLimit, blockEncoder);
+    assertThat(decoded.getPrepares()).hasSize(BftMessage.MAX_LIST_ENTRIES);
+  }
+
+  @Test
+  public void decodeRejectsPreparesListExceedingMaxEntries() {
+    final NodeKey key = NodeKeyUtils.generate();
+    final RoundChangePayload rcPayload =
+        new RoundChangePayload(new ConsensusRoundIdentifier(1, 0), Optional.empty());
+    final SignedData<RoundChangePayload> signedRc =
+        SignedData.create(
+            rcPayload, key.sign(Bytes32.wrap(rcPayload.hashForSignature().getBytes())));
+
+    final PreparePayload preparePayload =
+        new PreparePayload(new ConsensusRoundIdentifier(1, 0), Hash.ZERO);
+    final SignedData<PreparePayload> onePrepare =
+        SignedData.create(
+            preparePayload, key.sign(Bytes32.wrap(preparePayload.hashForSignature().getBytes())));
+
+    final Bytes oversized =
+        new RoundChange(
+                signedRc,
+                Optional.empty(),
+                Optional.empty(),
+                blockEncoder,
+                Collections.nCopies(BftMessage.MAX_LIST_ENTRIES + 1, onePrepare))
+            .encode();
+
+    assertThatThrownBy(() -> RoundChange.decode(oversized, blockEncoder))
+        .isInstanceOf(RLPException.class)
+        .hasMessageContaining("exceeds the maximum permitted size");
   }
 
   @Test

@@ -38,6 +38,12 @@ import org.apache.tuweni.bytes.Bytes;
  */
 public class BftMessage<P extends Payload> implements Authored, RoundSpecific {
 
+  /**
+   * Maximum number of entries permitted in any embedded list (round-changes, prepares) when
+   * decoding a BFT message.
+   */
+  public static final int MAX_LIST_ENTRIES = 512;
+
   private final SignedData<P> payload;
 
   /**

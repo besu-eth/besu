@@ -213,6 +213,12 @@ public class EthSendRawTransactionTest {
         TransactionInvalidReason.TX_FEECAP_EXCEEDED, RpcErrorType.TX_FEECAP_EXCEEDED);
   }
 
+  @Test
+  public void transactionTooBigIsRejected() {
+    verifyErrorForInvalidTransaction(
+        TransactionInvalidReason.EXCEEDS_MAX_TX_BYTES, RpcErrorType.EXCEEDS_MAX_TX_BYTES);
+  }
+
   private void verifyErrorForInvalidTransaction(
       final TransactionInvalidReason transactionInvalidReason, final RpcErrorType expectedError) {
     when(transactionPool.addTransactionViaApi(any(Transaction.class)))

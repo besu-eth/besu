@@ -26,19 +26,21 @@ public class PayloadDeserializers {
   protected PayloadDeserializers() {}
 
   /**
-   * Read signed proposal payload from rlp input.
+   * Read signed proposal payload from rlp input limited to supplied decode budget.
    *
    * @param rlpInput the rlp input
+   * @param decodeBudget the per-message decode budget
    * @return the signed data
    */
-  public static SignedData<ProposalPayload> readSignedProposalPayloadFrom(final RLPInput rlpInput) {
+  public static SignedData<ProposalPayload> readSignedProposalPayloadFrom(
+      final RLPInput rlpInput, final DecodeBudget decodeBudget) {
 
     rlpInput.enterList();
     final ProposalPayload unsignedMessageData = ProposalPayload.readFrom(rlpInput);
     final SECPSignature signature = readSignature(rlpInput);
     rlpInput.leaveList();
 
-    return from(unsignedMessageData, signature);
+    return from(unsignedMessageData, signature, decodeBudget);
   }
 
   /**
@@ -48,13 +50,25 @@ public class PayloadDeserializers {
    * @return the signed data
    */
   public static SignedData<PreparePayload> readSignedPreparePayloadFrom(final RLPInput rlpInput) {
+    return readSignedPreparePayloadFrom(rlpInput, DecodeBudget.forSingleMessage());
+  }
+
+  /**
+   * Read signed prepare payload from rlp input limited to supplied decode budget.
+   *
+   * @param rlpInput the rlp input
+   * @param decodeBudget the per-message decode budget
+   * @return the signed data
+   */
+  public static SignedData<PreparePayload> readSignedPreparePayloadFrom(
+      final RLPInput rlpInput, final DecodeBudget decodeBudget) {
 
     rlpInput.enterList();
     final PreparePayload unsignedMessageData = PreparePayload.readFrom(rlpInput);
     final SECPSignature signature = readSignature(rlpInput);
     rlpInput.leaveList();
 
-    return from(unsignedMessageData, signature);
+    return from(unsignedMessageData, signature, decodeBudget);
   }
 
   /**
@@ -81,13 +95,26 @@ public class PayloadDeserializers {
    */
   public static SignedData<RoundChangePayload> readSignedRoundChangePayloadFrom(
       final RLPInput rlpInput) {
+    return readSignedRoundChangePayloadFrom(rlpInput, DecodeBudget.forSingleMessage());
+  }
+
+  /**
+   * Read signed round change payload from rlp input limited to supplied decode budget.
+   *
+   * @param rlpInput the rlp input
+   * @param decodeBudget the per-message decode budget
+   * @return the signed data
+   */
+  public static SignedData<RoundChangePayload> readSignedRoundChangePayloadFrom(
+      final RLPInput rlpInput, final DecodeBudget decodeBudget) {
 
     rlpInput.enterList();
-    final RoundChangePayload unsignedMessageData = RoundChangePayload.readFrom(rlpInput);
+    final RoundChangePayload unsignedMessageData =
+        RoundChangePayload.readFrom(rlpInput, decodeBudget);
     final SECPSignature signature = readSignature(rlpInput);
     rlpInput.leaveList();
 
-    return from(unsignedMessageData, signature);
+    return from(unsignedMessageData, signature, decodeBudget);
   }
 
   /**
@@ -101,6 +128,21 @@ public class PayloadDeserializers {
   protected static <M extends Payload> SignedData<M> from(
       final M unsignedMessageData, final SECPSignature signature) {
     return SignedData.create(unsignedMessageData, signature);
+  }
+
+  /**
+   * Create signed payload data from unsigned message data limited to supplied decode budget.
+   *
+   * @param <M> the type parameter
+   * @param unsignedMessageData the unsigned message data
+   * @param signature the signature
+   * @param decodeBudget the per-message decode budget
+   * @return the signed data
+   */
+  protected static <M extends Payload> SignedData<M> from(
+      final M unsignedMessageData, final SECPSignature signature, final DecodeBudget decodeBudget) {
+    decodeBudget.chargeSignedPayload();
+    return from(unsignedMessageData, signature);
   }
 
   /**

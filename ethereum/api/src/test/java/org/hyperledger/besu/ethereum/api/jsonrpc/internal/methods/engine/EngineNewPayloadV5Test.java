@@ -31,7 +31,6 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ConstructorArgumentsBuilder;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadStatusV1;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
@@ -56,6 +55,8 @@ public class EngineNewPayloadV5Test extends EngineNewPayloadV4Test {
   private static final BlockAccessList BLOCK_ACCESS_LIST = createSampleBlockAccessList();
   private static final String INVALID_BLOCK_ACCESS_LIST_ENCODING = "0xzz";
   private static final String INVALID_BLOCK_ACCESS_LIST_RLP = "0x01";
+  private static final Address BALANCE_CHANGE_ADDRESS =
+      Address.fromHexString("0x0000000000000000000000000000000000000002");
 
   @BeforeEach
   @Override
@@ -131,10 +132,11 @@ public class EngineNewPayloadV5Test extends EngineNewPayloadV4Test {
 
     final JsonRpcResponse resp = respV5(payloadParam);
 
-    final PayloadStatusV1 res = fromSuccessResp(resp);
-    assertThat(res.getStatusAsString()).isEqualTo(INVALID.name());
-    assertThat(res.getLatestValidHash()).isEmpty();
-    assertThat(res.getError())
+    final var errorResp = fromErrorResp(resp);
+    assertThat(errorResp.getCode()).isEqualTo(INVALID_BLOCK_ACCESS_LIST_PARAMS.getCode());
+    assertThat(errorResp.getMessage())
+        .isEqualTo("Invalid block access list params (missing or invalid)");
+    assertThat(errorResp.getData())
         .isEqualTo(
             "Failed to decode block access list payload parameter (Illegal character 'z' found at index 0 in hex binary representation)");
     verify(engineCallListener, times(1)).executionEngineCalled();
@@ -151,12 +153,11 @@ public class EngineNewPayloadV5Test extends EngineNewPayloadV4Test {
 
     payloadParam.put("blockAccessList", INVALID_BLOCK_ACCESS_LIST_RLP);
 
-    final JsonRpcResponse resp = respV5(payloadParam);
+    final var resp = fromSuccessResp(respV5(payloadParam));
 
-    final PayloadStatusV1 res = fromSuccessResp(resp);
-    assertThat(res.getStatusAsString()).isEqualTo(INVALID.name());
-    assertThat(res.getLatestValidHash()).isEmpty();
-    assertThat(res.getError())
+    assertThat(resp.getStatus()).isEqualTo(INVALID);
+    assertThat(resp.getLatestValidHash()).isEmpty();
+    assertThat(resp.getError())
         .isEqualTo(
             "Failed to decode block access list payload parameter (Expected current item to be a list, but it is: BYTE_ELEMENT (at bytes 0-1: [01]))");
     verify(engineCallListener, times(1)).executionEngineCalled();
@@ -261,6 +262,68 @@ public class EngineNewPayloadV5Test extends EngineNewPayloadV4Test {
     var rlpOutput = new BytesValueRLPOutput();
     blockAccessList.writeTo(rlpOutput);
     return rlpOutput.encoded().toHexString();
+  }
+
+  @Test
+  public void shouldReturnInvalidIfBlockAccessListIsNotMinimallyEncoded() {
+    final BlockAccessList blockAccessList = createSingleBalanceChangeBlockAccessList();
+    final BlockHeader header =
+        setupPayloadV5(
+            getMinSupportedTimestamp(),
+            new BlockProcessingResult(Optional.empty()),
+            blockAccessList,
+            0L);
+
+    final Map<String, Object> payloadParam =
+        mockEnginePayloadParam(header, emptyList(), blockAccessList, 0L);
+    payloadParam.put("blockAccessList", encodeWithNonMinimalBalance().toHexString());
+
+    final var resp = fromSuccessResp(respV5(payloadParam));
+
+    assertThat(resp.getStatus()).isEqualTo(INVALID);
+    assertThat(resp.getLatestValidHash()).isEmpty();
+    assertThat(resp.getError()).contains("Invalid scalar, has leading zeros bytes");
+    verify(engineCallListener, times(1)).executionEngineCalled();
+  }
+
+  private static BlockAccessList createSingleBalanceChangeBlockAccessList() {
+    return new BlockAccessList(
+        List.of(
+            new BlockAccessList.AccountChanges(
+                BALANCE_CHANGE_ADDRESS,
+                List.of(),
+                List.of(),
+                List.of(new BlockAccessList.BalanceChange(0, Wei.ONE)),
+                List.of(),
+                List.of())));
+  }
+
+  /**
+   * The same access list as {@link #createSingleBalanceChangeBlockAccessList()}, with the one wei
+   * post-balance written as {@code 0x0001} rather than the minimal {@code 0x01}.
+   */
+  private static Bytes encodeWithNonMinimalBalance() {
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    out.startList();
+    out.startList();
+    out.writeBytes(BALANCE_CHANGE_ADDRESS.getBytes());
+    out.startList(); // storage changes
+    out.endList();
+    out.startList(); // storage reads
+    out.endList();
+    out.startList(); // balance changes
+    out.startList();
+    out.writeUnsignedInt(0);
+    out.writeBytes(Bytes.of(0, 1));
+    out.endList();
+    out.endList();
+    out.startList(); // nonce changes
+    out.endList();
+    out.startList(); // code changes
+    out.endList();
+    out.endList();
+    out.endList();
+    return out.encoded();
   }
 
   private static BlockAccessList createSampleBlockAccessList() {

@@ -95,7 +95,7 @@ public class JsonRpcJWTTest {
 
     websocketMethods =
         new WebSocketMethodsFactory(
-                new SubscriptionManager(new NoOpMetricsSystem()), new HashMap<>())
+                new SubscriptionManager(new NoOpMetricsSystem()), new HashMap<>(), 0)
             .methods();
 
     bufferDir = null;

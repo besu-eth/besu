@@ -274,7 +274,7 @@ class JsonRpcIpcServiceTest {
     vertx.deployVerticle(subscriptionManager);
 
     final Map<String, JsonRpcMethod> methods =
-        new WebSocketMethodsFactory(subscriptionManager, new HashMap<>()).methods();
+        new WebSocketMethodsFactory(subscriptionManager, new HashMap<>(), 0).methods();
 
     final JsonRpcIpcService service =
         new JsonRpcIpcService(
@@ -320,7 +320,7 @@ class JsonRpcIpcServiceTest {
     vertx.deployVerticle(subscriptionManager);
 
     final Map<String, JsonRpcMethod> methods =
-        new WebSocketMethodsFactory(subscriptionManager, new HashMap<>()).methods();
+        new WebSocketMethodsFactory(subscriptionManager, new HashMap<>(), 0).methods();
 
     final JsonRpcIpcService service =
         new JsonRpcIpcService(
@@ -377,7 +377,7 @@ class JsonRpcIpcServiceTest {
     vertx.deployVerticle(subscriptionManager);
 
     final Map<String, JsonRpcMethod> methods =
-        new WebSocketMethodsFactory(subscriptionManager, new HashMap<>()).methods();
+        new WebSocketMethodsFactory(subscriptionManager, new HashMap<>(), 0).methods();
 
     final JsonRpcIpcService service =
         new JsonRpcIpcService(

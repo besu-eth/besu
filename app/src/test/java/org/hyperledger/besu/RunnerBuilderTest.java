@@ -60,6 +60,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.mainnet.pluginadapter.TransactionValidatorServiceImpl;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.SubProtocolConfiguration;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
@@ -73,7 +74,6 @@ import org.hyperledger.besu.nat.NatMethod;
 import org.hyperledger.besu.plugin.data.EnodeURL;
 import org.hyperledger.besu.plugin.data.ProcessableBlockHeader;
 import org.hyperledger.besu.services.BesuPluginContextImpl;
-import org.hyperledger.besu.services.TransactionValidatorServiceImpl;
 
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
@@ -169,7 +169,7 @@ public final class RunnerBuilderTest {
             .inProcessRpcConfiguration(mock(InProcessRpcConfiguration.class))
             .metricsConfiguration(mock(MetricsConfiguration.class))
             .vertx(vertx)
-            .dataDir(dataDir.getRoot())
+            .dataDir(dataDir)
             .storageProvider(mock(KeyValueStorageProvider.class, RETURNS_DEEP_STUBS))
             .rpcEndpointService(new RpcEndpointServiceImpl())
             .apiConfiguration(ImmutableApiConfiguration.builder().build())
@@ -221,7 +221,7 @@ public final class RunnerBuilderTest {
             .inProcessRpcConfiguration(mock(InProcessRpcConfiguration.class))
             .metricsConfiguration(mock(MetricsConfiguration.class))
             .vertx(Vertx.vertx())
-            .dataDir(dataDir.getRoot())
+            .dataDir(dataDir)
             .storageProvider(storageProvider)
             .rpcEndpointService(new RpcEndpointServiceImpl())
             .apiConfiguration(ImmutableApiConfiguration.builder().build())
@@ -390,7 +390,7 @@ public final class RunnerBuilderTest {
             .inProcessRpcConfiguration(mock(InProcessRpcConfiguration.class))
             .metricsConfiguration(mock(MetricsConfiguration.class))
             .vertx(Vertx.vertx())
-            .dataDir(dataDir.getRoot())
+            .dataDir(dataDir)
             .storageProvider(mock(KeyValueStorageProvider.class, RETURNS_DEEP_STUBS))
             .rpcEndpointService(new RpcEndpointServiceImpl())
             .besuPluginContext(mock(BesuPluginContextImpl.class))
@@ -435,7 +435,7 @@ public final class RunnerBuilderTest {
             .graphQLConfiguration(mock(GraphQLConfiguration.class))
             .metricsConfiguration(mock(MetricsConfiguration.class))
             .vertx(Vertx.vertx())
-            .dataDir(dataDir.getRoot())
+            .dataDir(dataDir)
             .storageProvider(mock(KeyValueStorageProvider.class, RETURNS_DEEP_STUBS))
             .rpcEndpointService(new RpcEndpointServiceImpl())
             .besuPluginContext(mock(BesuPluginContextImpl.class))
@@ -479,7 +479,7 @@ public final class RunnerBuilderTest {
             .graphQLConfiguration(mock(GraphQLConfiguration.class))
             .metricsConfiguration(mock(MetricsConfiguration.class))
             .vertx(Vertx.vertx())
-            .dataDir(dataDir.getRoot())
+            .dataDir(dataDir)
             .storageProvider(mock(KeyValueStorageProvider.class, RETURNS_DEEP_STUBS))
             .rpcEndpointService(new RpcEndpointServiceImpl())
             .besuPluginContext(mock(BesuPluginContextImpl.class))
@@ -524,7 +524,7 @@ public final class RunnerBuilderTest {
             .inProcessRpcConfiguration(mock(InProcessRpcConfiguration.class))
             .metricsConfiguration(mock(MetricsConfiguration.class))
             .vertx(Vertx.vertx())
-            .dataDir(dataDir.getRoot())
+            .dataDir(dataDir)
             .storageProvider(mock(KeyValueStorageProvider.class, RETURNS_DEEP_STUBS))
             .rpcEndpointService(new RpcEndpointServiceImpl())
             .besuPluginContext(mock(BesuPluginContextImpl.class))

@@ -119,6 +119,13 @@ public class ApiConfigurationOptions {
           "Server-side cap on EVM steps captured per debug_trace*/trace_call request. Callers may request fewer steps but not more. Must be >=0. 0 disables the cap (default: ${DEFAULT-VALUE})")
   private final Long rpcMaxTraceSteps = ApiConfiguration.DEFAULT_DEBUG_TRACE_STEP_LIMIT;
 
+  @CommandLine.Option(
+      names = {"--rpc-max-log-filter-addresses"},
+      description =
+          "Maximum number of addresses permitted in a single eth_newFilter or eth_subscribe logs "
+              + "request. Must be >=0. 0 specifies no limit (default: ${DEFAULT-VALUE})")
+  private final Integer rpcMaxLogFilterAddresses = ApiConfiguration.DEFAULT_MAX_FILTER_ADDRESSES;
+
   /**
    * Validates the API options.
    *
@@ -136,6 +143,10 @@ public class ApiConfigurationOptions {
     if (rpcMaxActiveFilters < 0) {
       throw new CommandLine.ParameterException(
           commandLine, "--rpc-max-active-filters must be >= 0 (0 specifies no limit)");
+    }
+    if (rpcMaxLogFilterAddresses < 0) {
+      throw new CommandLine.ParameterException(
+          commandLine, "--rpc-max-log-filter-addresses must be >= 0 (0 specifies no limit)");
     }
     if (rpcFilterTimeoutSeconds <= 0) {
       throw new CommandLine.ParameterException(
@@ -173,7 +184,8 @@ public class ApiConfigurationOptions {
             .maxTraceFilterRange(maxTraceFilterRange)
             .maxFilterCount(rpcMaxActiveFilters)
             .filterTimeout(Duration.ofSeconds(rpcFilterTimeoutSeconds))
-            .debugTraceStepLimit(rpcMaxTraceSteps);
+            .debugTraceStepLimit(rpcMaxTraceSteps)
+            .maxFilterAddresses(rpcMaxLogFilterAddresses);
     if (apiGasAndPriorityFeeLimitingEnabled) {
       builder
           .lowerBoundGasAndPriorityFeeCoefficient(apiGasAndPriorityFeeLowerBoundCoefficient)

@@ -15,11 +15,13 @@
 package org.hyperledger.besu.consensus.qbft.core.messagewrappers;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.common.bft.ConsensusRoundIdentifier;
+import org.hyperledger.besu.consensus.common.bft.messagewrappers.BftMessage;
 import org.hyperledger.besu.consensus.common.bft.payload.SignedData;
 import org.hyperledger.besu.consensus.qbft.core.QbftBlockTestFixture;
 import org.hyperledger.besu.consensus.qbft.core.messagedata.QbftV1;
@@ -36,9 +38,11 @@ import org.hyperledger.besu.ethereum.core.Util;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLP;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -213,6 +217,136 @@ public class ProposalTest {
 
     final RLPInput rlpIn = RLP.input(out.encoded());
     assertThat(rlpIn.enterList()).isEqualTo(3);
+  }
+
+  @Test
+  public void decodeAcceptsRoundChangesListAtMaxEntries() {
+    doAnswer(
+            inv -> {
+              inv.getArgument(1, RLPOutput.class).writeNull();
+              return null;
+            })
+        .when(blockEncoder)
+        .writeTo(any(QbftBlock.class), any(RLPOutput.class));
+    when(blockEncoder.readFrom(any()))
+        .thenAnswer(
+            inv -> {
+              inv.<RLPInput>getArgument(0).skipNext();
+              return BLOCK;
+            });
+
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final ProposalPayload payload = createProposalPayload(Optional.empty());
+    final SignedData<ProposalPayload> signedPayload =
+        SignedData.create(
+            payload, nodeKey.sign(Bytes32.wrap(payload.hashForSignature().getBytes())));
+    final Bytes atLimit =
+        new Proposal(
+                signedPayload,
+                Collections.nCopies(BftMessage.MAX_LIST_ENTRIES, createRoundChange(nodeKey)),
+                List.of())
+            .encode();
+
+    final Proposal decoded = Proposal.decode(atLimit, blockEncoder);
+    assertThat(decoded.getRoundChanges()).hasSize(BftMessage.MAX_LIST_ENTRIES);
+  }
+
+  @Test
+  public void decodeAcceptsPreparesListAtMaxEntries() {
+    doAnswer(
+            inv -> {
+              inv.getArgument(1, RLPOutput.class).writeNull();
+              return null;
+            })
+        .when(blockEncoder)
+        .writeTo(any(QbftBlock.class), any(RLPOutput.class));
+    when(blockEncoder.readFrom(any()))
+        .thenAnswer(
+            inv -> {
+              inv.<RLPInput>getArgument(0).skipNext();
+              return BLOCK;
+            });
+
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final ProposalPayload payload = createProposalPayload(Optional.empty());
+    final SignedData<ProposalPayload> signedPayload =
+        SignedData.create(
+            payload, nodeKey.sign(Bytes32.wrap(payload.hashForSignature().getBytes())));
+    final Bytes atLimit =
+        new Proposal(
+                signedPayload,
+                List.of(),
+                Collections.nCopies(BftMessage.MAX_LIST_ENTRIES, createPrepare(nodeKey)))
+            .encode();
+
+    final Proposal decoded = Proposal.decode(atLimit, blockEncoder);
+    assertThat(decoded.getPrepares()).hasSize(BftMessage.MAX_LIST_ENTRIES);
+  }
+
+  @Test
+  public void decodeRejectsPreparesListExceedingMaxEntries() {
+    doAnswer(
+            inv -> {
+              inv.getArgument(1, RLPOutput.class).writeNull();
+              return null;
+            })
+        .when(blockEncoder)
+        .writeTo(any(QbftBlock.class), any(RLPOutput.class));
+    when(blockEncoder.readFrom(any()))
+        .thenAnswer(
+            inv -> {
+              inv.<RLPInput>getArgument(0).skipNext();
+              return BLOCK;
+            });
+
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final ProposalPayload payload = createProposalPayload(Optional.empty());
+    final SignedData<ProposalPayload> signedPayload =
+        SignedData.create(
+            payload, nodeKey.sign(Bytes32.wrap(payload.hashForSignature().getBytes())));
+    final Bytes oversized =
+        new Proposal(
+                signedPayload,
+                List.of(),
+                Collections.nCopies(BftMessage.MAX_LIST_ENTRIES + 1, createPrepare(nodeKey)))
+            .encode();
+
+    assertThatThrownBy(() -> Proposal.decode(oversized, blockEncoder))
+        .isInstanceOf(RLPException.class)
+        .hasMessageContaining("exceeds the maximum permitted size");
+  }
+
+  @Test
+  public void decodeRejectsRoundChangesListExceedingMaxEntries() {
+    doAnswer(
+            inv -> {
+              inv.getArgument(1, RLPOutput.class).writeNull();
+              return null;
+            })
+        .when(blockEncoder)
+        .writeTo(any(QbftBlock.class), any(RLPOutput.class));
+    when(blockEncoder.readFrom(any()))
+        .thenAnswer(
+            inv -> {
+              inv.<RLPInput>getArgument(0).skipNext();
+              return BLOCK;
+            });
+
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final ProposalPayload payload = createProposalPayload(Optional.empty());
+    final SignedData<ProposalPayload> signedPayload =
+        SignedData.create(
+            payload, nodeKey.sign(Bytes32.wrap(payload.hashForSignature().getBytes())));
+    final Bytes oversized =
+        new Proposal(
+                signedPayload,
+                Collections.nCopies(BftMessage.MAX_LIST_ENTRIES + 1, createRoundChange(nodeKey)),
+                List.of())
+            .encode();
+
+    assertThatThrownBy(() -> Proposal.decode(oversized, blockEncoder))
+        .isInstanceOf(RLPException.class)
+        .hasMessageContaining("exceeds the maximum permitted size");
   }
 
   @Test

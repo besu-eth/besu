@@ -109,11 +109,16 @@ public class MainnetTransactionValidator implements TransactionValidator {
           TransactionInvalidReason.NONCE_OVERFLOW, "Nonce must be less than 2^64-1");
     }
 
+    final long txGasLimitCap = gasLimitCalculator.transactionGasLimitCap();
     if (!transactionValidationParams.isAllowExceedingGasLimit()
-        && transaction.getGasLimit() > gasLimitCalculator.transactionGasLimitCap()) {
+        // Long.MAX_VALUE is the sentinel for "no cap" (pre-Osaka). Only apply unsigned
+        // comparison when a real cap is in effect; unsigned would incorrectly reject
+        // transactions with gas >= 2^63 on pre-Osaka forks where no cap applies.
+        && txGasLimitCap != Long.MAX_VALUE
+        && Long.compareUnsigned(transaction.getGasLimit(), txGasLimitCap) > 0) {
       return ValidationResult.invalid(
           TransactionInvalidReason.EXCEEDS_TRANSACTION_GAS_LIMIT,
-          "Transaction gas limit must be at most " + gasLimitCalculator.transactionGasLimitCap());
+          "Transaction gas limit must be at most " + txGasLimitCap);
     }
 
     if (transactionType.supportsBlob()) {

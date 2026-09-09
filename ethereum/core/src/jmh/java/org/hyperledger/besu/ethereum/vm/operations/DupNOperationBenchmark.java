@@ -15,11 +15,15 @@
 package org.hyperledger.besu.ethereum.vm.operations;
 
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.operation.DupNOperation;
 import org.hyperledger.besu.evm.operation.Operation;
 
+import org.openjdk.jmh.infra.BenchmarkParams;
+
 /** JMH benchmark for the DUPN operation (EIP-8024). */
-public class DupNOperationBenchmark extends ImmediateByteOperationBenchmark {
+public class DupNOperationBenchmark extends ImmediateByteOperationBenchmark
+    implements GasCostBenchmark {
 
   @Override
   protected int getOpcode() {
@@ -42,5 +46,10 @@ public class DupNOperationBenchmark extends ImmediateByteOperationBenchmark {
   protected int getStackDelta() {
     // DUPN adds one item to the stack
     return 1;
+  }
+
+  @Override
+  public long getGasCost(final BenchmarkParams params, final GasCalculator calc) {
+    return new DupNOperation(calc).getGasCost();
   }
 }

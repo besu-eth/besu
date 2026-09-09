@@ -76,6 +76,18 @@ public class EngineAuthServiceTest {
   }
 
   @Test
+  public void throwsWhenEphemeralKeyCannotBePersisted() throws IOException {
+    Vertx vertx = mock(Vertx.class);
+    // Deliberately make jwt.hex a directory so Files.writeString raises IOException.
+    Path dataDir = Files.createTempDirectory("besuUnitTest");
+    dataDir.resolve(EngineAuthService.EPHEMERAL_JWT_FILE).toFile().mkdir();
+
+    assertThatThrownBy(() -> new EngineAuthService(vertx, Optional.empty(), dataDir))
+        .isInstanceOf(UnsecurableEngineApiException.class)
+        .hasMessageContaining("--engine-jwt-secret");
+  }
+
+  @Test
   public void throwsOnShortKey() throws IOException, URISyntaxException {
     Vertx vertx = mock(Vertx.class);
     final Path userKey =

@@ -258,6 +258,15 @@ public abstract class BaseBftController implements BftEventHandler {
     return bftFinalState.getValidators().contains(msg.getAuthor());
   }
 
+  /**
+   * Gets the current validator count.
+   *
+   * @return the number of validators in the current validator set
+   */
+  protected int currentValidatorCount() {
+    return bftFinalState.getValidators().size();
+  }
+
   private boolean isMsgForCurrentHeight(final ConsensusRoundIdentifier roundIdentifier) {
     return roundIdentifier.getSequenceNumber() == getCurrentHeightManager().getChainHeight();
   }
