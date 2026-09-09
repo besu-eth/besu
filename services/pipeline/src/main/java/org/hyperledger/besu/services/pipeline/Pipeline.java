@@ -35,6 +35,7 @@ import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.api.trace.StatusCode;
 import io.opentelemetry.api.trace.Tracer;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -64,7 +65,7 @@ public class Pipeline<I> {
   private final CompletableFuture<Void> overallFuture = new CompletableFuture<>();
   private final String name;
   private final boolean tracingEnabled;
-  private volatile List<Future<?>> futures;
+  private volatile @Nullable List<Future<?>> futures;
 
   /**
    * Instantiates a new Pipeline.
@@ -158,6 +159,8 @@ public class Pipeline<I> {
    * <p>A best effort is made to halt all processing by the pipeline immediately by interrupting
    * each execution thread and pipes connecting each stage will no longer accept or provide further
    * items.
+   *
+   * @throws IllegalStateException if the pipeline has not been started
    */
   public void abort() {
     final CancellationException exception = new CancellationException("Pipeline aborted");
@@ -167,22 +170,21 @@ public class Pipeline<I> {
   private Future<?> runWithErrorHandling(final ExecutorService executorService, final Stage task) {
     return executorService.submit(
         () -> {
-          Span taskSpan = null;
-          if (tracingEnabled) {
-            taskSpan =
-                tracer
-                    .spanBuilder(task.getName())
-                    .setAttribute("pipeline", name)
-                    .setSpanKind(SpanKind.INTERNAL)
-                    .startSpan();
-          }
+          final @Nullable Span taskSpan =
+              tracingEnabled
+                  ? tracer
+                      .spanBuilder(task.getName())
+                      .setAttribute("pipeline", name)
+                      .setSpanKind(SpanKind.INTERNAL)
+                      .startSpan()
+                  : null;
           final Thread thread = Thread.currentThread();
           final String originalName = thread.getName();
           try {
             thread.setName(originalName + " (" + task.getName() + ")");
             task.run();
           } catch (final Throwable t) {
-            if (tracingEnabled) {
+            if (taskSpan != null) {
               taskSpan.setStatus(StatusCode.ERROR);
             }
             if (t instanceof CompletionException
@@ -204,7 +206,7 @@ public class Pipeline<I> {
               LOG.error("Failed to abort pipeline after error", t2);
             }
           } finally {
-            if (tracingEnabled) {
+            if (taskSpan != null) {
               taskSpan.end();
             }
             thread.setName(originalName);
@@ -213,10 +215,14 @@ public class Pipeline<I> {
   }
 
   private synchronized void abort(final Throwable error) {
+    final List<Future<?>> runningFutures = futures;
+    if (runningFutures == null) {
+      throw new IllegalStateException("Pipeline must be started before it can be aborted");
+    }
     if (completing.compareAndSet(false, true)) {
       inputPipe.abort();
       pipes.forEach(Pipe::abort);
-      futures.forEach(future -> future.cancel(true));
+      runningFutures.forEach(future -> future.cancel(true));
       overallFuture.completeExceptionally(error);
     }
   }
