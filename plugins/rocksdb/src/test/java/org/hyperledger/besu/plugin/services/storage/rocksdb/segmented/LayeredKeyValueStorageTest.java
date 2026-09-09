@@ -18,7 +18,6 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.atMostOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -305,42 +304,39 @@ public class LayeredKeyValueStorageTest {
   }
 
   @Test
-  void isClosedReturnsFalseWhenRootIsOpen() {
-    when(parentStorage.isClosed()).thenReturn(false);
+  void isClosedReturnsFalseForOpenLayer() {
     assertFalse(layeredKeyValueStorage.isClosed());
   }
 
   @Test
-  void isClosedReturnsTrueWhenRootIsClosed() {
-    when(parentStorage.isClosed()).thenReturn(true);
+  void isClosedReturnsTrueAfterExplicitClose() {
+    layeredKeyValueStorage.close();
     assertTrue(layeredKeyValueStorage.isClosed());
   }
 
   /**
-   * Verifies that isClosed() on a deep chain only queries the root storage once after the closed
-   * state has been cached, regardless of chain depth. This is the O(1) correctness test for the
-   * volatile closedCache fix that eliminates the O(N) recursion hot path (besu-eth/besu#10498).
+   * Verifies that isClosed() is O(1): closing a layer does not recurse into the parent chain, and
+   * parent closed state does not propagate to open child layers. This eliminates the O(N) recursion
+   * hot path identified in besu-eth/besu#10498.
    */
   @Test
-  void isClosedCachesResultOnDeepChainAndQueriesRootAtMostOnce() {
-    // build a chain of depth 100: top -> layer99 -> ... -> layer1 -> parentStorage (the mock root)
+  void isClosedIsO1AndDoesNotRecurseIntoParent() {
+    // build a chain of depth 100
     int depth = 100;
-    LayeredKeyValueStorage top = layeredKeyValueStorage; // wraps parentStorage directly
+    LayeredKeyValueStorage top = layeredKeyValueStorage;
     for (int i = 0; i < depth - 1; i++) {
       top = new LayeredKeyValueStorage(top);
     }
 
-    when(parentStorage.isClosed()).thenReturn(true);
-
-    // First call at the top of the chain should propagate down to the root and cache at each layer
+    // closing the top layer makes it closed without touching the parent mock
+    top.close();
     assertTrue(top.isClosed());
 
-    // Second call on the same instance must NOT reach the root again (cache hit)
-    assertTrue(top.isClosed());
+    // parent was never queried
+    verify(parentStorage, org.mockito.Mockito.never()).isClosed();
 
-    // The root mock should have been queried at most once across both top-level calls because the
-    // intermediate layers cache the result and short-circuit before reaching the root
-    verify(parentStorage, atMostOnce()).isClosed();
+    // open layers below are unaffected
+    assertFalse(layeredKeyValueStorage.isClosed());
   }
 
   /**
