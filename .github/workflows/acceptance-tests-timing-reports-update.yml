@@ -6,20 +6,44 @@ name: acceptance-tests-timing-reports-update
 # That artifact is the timing baseline that acceptance-tests.yml downloads on every PR to split 
 # tests across parallel runners by historical duration. The data is always one merge behind — a PR's
 # own results only feed the *next* PR's split.
+#
+# The reports are produced by a run of the merged PR's head commit, which for most contributions
+# happens inside the contributor's fork. Promoting them here is bounded by the fact that the PR is
+# already merged, so the code that produced them has been reviewed; the file names themselves have
+# not, which is why they are filtered below before becoming a main branch artifact.
 
 on:
   push:
     branches:
       - main
 
+concurrency:
+  group: acceptance-timing-baseline
+  cancel-in-progress: false
+
 jobs:
   syncTestReports:
     if: github.repository == 'besu-eth/besu'
     runs-on: ubuntu-latest
+    permissions:
+      actions: read # reads the merged PR's workflow run artifacts
+      contents: read
+      pull-requests: read # resolves the pushed commit back to its pull request
     steps:
+      # Resolve the PR from the commit that was just pushed. Asking for the most recently merged
+      # PR instead would search only the 30 most recently *updated* ones, so a comment on an older
+      # PR could change the answer, and two merges in quick succession race.
       - name: Get latest merge PR number
         id: latest_merged_pr_number
-        run: echo "PULL_REQUEST_NUMBER=$(gh pr list --repo besu-eth/besu --base main --state merged --json "number,mergedAt" --search "sort:updated-desc" --jq 'max_by(.mergedAt)|.number')" >> "$GITHUB_OUTPUT"
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" --jq '.[0].number // empty')
+          if [[ ! $pr =~ ^[0-9]+$ ]]; then
+            echo "::error::could not resolve a merged pull request for ${{ github.sha }}"
+            exit 1
+          fi
+          echo "PULL_REQUEST_NUMBER=$pr" >> "$GITHUB_OUTPUT"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Get acceptance test reports from latest merged PR
@@ -27,13 +51,38 @@ jobs:
         with:
           workflow: ci.yml
           workflow_conclusion: success
+          # An empty value here would drop the head SHA filter entirely and match the most recent
+          # successful ci.yml run on any ref, so the step above must fail rather than return one.
           pr: ${{ env.LATEST_MERGED_PR_NUMBER }}
           name_is_regexp: true
-          name: 'acceptance-node-\d+-test-results'
+          name: '^acceptance-node-\d+-test-results$' # anchored: the action matches with String.match
           path: acceptance-tests-timing-reports
           if_no_artifact_found: fail
+          search_artifacts: true # skip runs of this commit that carry no matching artifact
+          # Besu takes most contributions from forks, so without this the only run for the merged
+          # commit is skipped and no baseline is ever published. Safe here, and only here, because
+          # `pr` pins the search to the head commit of a PR that has already been merged.
+          allow_forks: true
         env:
           LATEST_MERGED_PR_NUMBER: ${{ steps.latest_merged_pr_number.outputs.PULL_REQUEST_NUMBER }}
+      # Names chosen inside a fork's runner become names on a main branch artifact here. The
+      # consumer passes them to xmlstarlet as arguments rather than to a shell, so this is defence
+      # in depth; losing one report's timing only means that test is placed round-robin instead.
+      - name: Drop reports with unexpected names
+        shell: bash
+        run: |
+          set -euo pipefail
+          dropped=0
+          while IFS= read -r -d '' report
+          do
+            if printf '%s' "$report" | LC_ALL=C grep -q '[^A-Za-z0-9._/$-]'
+            then
+              echo "::warning::dropping acceptance test report with an unexpected name: $report"
+              rm -f -- "$report"
+              dropped=$((dropped + 1))
+            fi
+          done < <(find acceptance-tests-timing-reports -type f -print0)
+          echo "dropped $dropped report(s) with unexpected names"
       - name: Upload acceptance test results
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:

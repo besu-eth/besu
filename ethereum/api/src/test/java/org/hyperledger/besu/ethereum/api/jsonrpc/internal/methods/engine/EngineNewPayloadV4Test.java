@@ -250,6 +250,26 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
   }
 
   @Test
+  public void shouldReturnInvalidParamsIfARequestIsOnlyItsTypeByte() {
+    // 0x8f is deliberately an unrecognised type, far enough from the assigned range to stay
+    // unrecognised as new types are added: the length rule outranks it, so this stays -32602
+    // rather than becoming an INVALID payload status.
+    BlockHeader blockHeader =
+        setupPayloadV4(
+            getMinSupportedTimestamp(),
+            new BlockProcessingResult(
+                Optional.of(new BlockProcessingOutputs(null, List.of(), Optional.of(List.of())))),
+            List.of());
+
+    var resp = respV4(mockEnginePayloadParam(blockHeader, emptyList()), List.of("0x8f"));
+
+    assertThat(fromErrorResp(resp).getCode()).isEqualTo(INVALID_PARAMS.getCode());
+    assertThat(fromErrorResp(resp).getMessage())
+        .isEqualTo(INVALID_EXECUTION_REQUESTS_PARAMS.getMessage());
+    verify(engineCallListener, times(1)).executionEngineCalled();
+  }
+
+  @Test
   public void shouldReturnInvalidParamsIfRequestsAreOutOfOrder() {
     // Requests must be in strictly ascending order by type; reverse order is invalid
     final List<Request> outOfOrderRequests =
