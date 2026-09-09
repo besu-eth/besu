@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.plugin.services.storage.rocksdb.configuration;
 
+import static java.util.Objects.requireNonNull;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_BACKGROUND_THREAD_COUNT;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_CACHE_CAPACITY;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_ENABLE_READ_CACHE_FOR_SNAPSHOTS;
@@ -23,10 +24,12 @@ import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration
 import java.nio.file.Path;
 import java.util.Optional;
 
+import org.jspecify.annotations.Nullable;
+
 /** The RocksDb configuration builder. */
 public class RocksDBConfigurationBuilder {
 
-  private Path databaseDir;
+  private @Nullable Path databaseDir;
   private String label = "blockchain";
   private int maxOpenFiles = DEFAULT_MAX_OPEN_FILES;
   private long cacheCapacity = DEFAULT_CACHE_CAPACITY;
@@ -180,7 +183,7 @@ public class RocksDBConfigurationBuilder {
    */
   public RocksDBConfiguration build() {
     return new RocksDBConfiguration(
-        databaseDir,
+        requireNonNull(databaseDir, "RocksDB database directory is required"),
         maxOpenFiles,
         backgroundThreadCount,
         cacheCapacity,
