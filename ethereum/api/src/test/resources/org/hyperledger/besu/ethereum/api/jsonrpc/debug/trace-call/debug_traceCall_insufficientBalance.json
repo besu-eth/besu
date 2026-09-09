@@ -1,0 +1,29 @@
+{
+  "comment": "A traceCall from a zero-balance sender with a non-zero gasPrice must fail the balance check, since strict defaults to on as it does for eth_call.",
+  "request" : {
+    "jsonrpc" : "2.0",
+    "method" : "debug_traceCall",
+    "params" : [ {
+      "from" : "0x000000000000000000000000000000000000dead",
+      "to" : "0x000000000000000000000000000000000000beef",
+      "gas" : "0xfffff2",
+      "gasPrice" : "0xef",
+      "value" : "0x0",
+      "data" : "0x"
+    }, "latest",
+    {
+      "disableMemory": true, "disableStack": true, "disableStorage": true
+    } ],
+    "id" : 1
+  },
+  "response": {
+    "jsonrpc":"2.0",
+    "id":1,
+    "error":{
+      "code":-32603,
+      "message":"Internal error",
+      "data":"transaction up-front cost 0xeefff2ee exceeds transaction sender account balance 0x0 for sender 0x000000000000000000000000000000000000dead"
+    }
+  },
+  "statusCode": 200
+}

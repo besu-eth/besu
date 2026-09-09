@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Breaking Changes
+- `debug_traceCall` now applies the same balance-check rules as `eth_call` [#11230](https://github.com/besu-eth/besu/issues/11230)
 - `eth_feeHistory` now rejects reward percentiles outside `[0, 100]`, not strictly increasing, or more than 100 values (`-32602`), instead of sorting unordered input or silently omitting `reward` for oversize lists. [#11055](https://github.com/besu-eth/besu/issues/11055)
 
 ### Upcoming Breaking Changes
