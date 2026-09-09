@@ -42,6 +42,8 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.mainnet.blockhash.PreExecutionProcessor;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.AccountStorageEntry;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
@@ -75,6 +77,8 @@ public class DebugStorageRangeAtTest {
   private final Account account = mock(Account.class);
   private final MainnetTransactionProcessor transactionProcessor =
       mock(MainnetTransactionProcessor.class);
+  private final ProtocolSpec protocolSpec = mock(ProtocolSpec.class);
+  private final PreExecutionProcessor preExecutionProcessor = mock(PreExecutionProcessor.class);
   private final Transaction transaction = mock(Transaction.class);
 
   private final BlockHeader blockHeader = mock(BlockHeader.class, Answers.RETURNS_DEEP_STUBS);
@@ -88,6 +92,8 @@ public class DebugStorageRangeAtTest {
   @BeforeEach
   public void setUp() {
     when(transaction.getHash()).thenReturn(transactionHash);
+    when(blockchainQueries.getProtocolSpec(blockHeader)).thenReturn(protocolSpec);
+    when(protocolSpec.getPreExecutionProcessor()).thenReturn(preExecutionProcessor);
   }
 
   @Test
