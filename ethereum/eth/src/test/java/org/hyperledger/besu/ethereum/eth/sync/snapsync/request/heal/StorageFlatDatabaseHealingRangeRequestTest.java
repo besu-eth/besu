@@ -26,22 +26,18 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapWorldDownloadState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.rlp.RLP;
-import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
-import org.hyperledger.besu.ethereum.trie.RangeStorageEntriesCollector;
-import org.hyperledger.besu.ethereum.trie.TrieIterator;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
-import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
-import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableMap;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -80,13 +76,8 @@ class StorageFlatDatabaseHealingRangeRequestTest {
 
   @BeforeEach
   public void setup() {
-    final StorageProvider storageProvider = new InMemoryKeyValueStorageProvider();
-
     worldStateKeyValueStorage =
-        new BonsaiWorldStateKeyValueStorage(
-            storageProvider,
-            new NoOpMetricsSystem(),
-            DataStorageConfiguration.DEFAULT_BONSAI_CONFIG);
+        InMemoryKeyValueStorageProvider.createBonsaiInMemoryWorldStateStorage();
     worldStateStorageCoordinator = new WorldStateStorageCoordinator(worldStateKeyValueStorage);
     proofProvider = new WorldStateProofProvider(worldStateStorageCoordinator);
     trie =
@@ -113,21 +104,9 @@ class StorageFlatDatabaseHealingRangeRequestTest {
             b -> b,
             b -> b);
 
-    // Create a collector to gather slot entries within a specific range
-    final RangeStorageEntriesCollector collector =
-        RangeStorageEntriesCollector.createCollector(
-            Bytes32.ZERO, RangeManager.MAX_RANGE, 1, Integer.MAX_VALUE);
-
-    // Create a visitor for the range collector
-    final TrieIterator<Bytes> visitor = RangeStorageEntriesCollector.createVisitor(collector);
-
     // Collect the slot entries within the specified range using the trie and range collector
-    final TreeMap<Bytes32, Bytes> slots =
-        (TreeMap<Bytes32, Bytes>)
-            storageTrie.entriesFrom(
-                root ->
-                    RangeStorageEntriesCollector.collectEntries(
-                        collector, visitor, root, Bytes32.ZERO));
+    final NavigableMap<Bytes32, Bytes> slots =
+        TrieGenerator.collectEntries(storageTrie, Bytes32.ZERO, RangeManager.MAX_RANGE, 1);
 
     // Retrieve the proof related nodes for the account trie
     final List<Bytes> proofs =
@@ -172,21 +151,10 @@ class StorageFlatDatabaseHealingRangeRequestTest {
             b -> b,
             b -> b);
 
-    // Create a collector to gather slot entries within a specific range
-    final RangeStorageEntriesCollector collector =
-        RangeStorageEntriesCollector.createCollector(
-            Bytes32.ZERO, RangeManager.MAX_RANGE, Integer.MAX_VALUE, Integer.MAX_VALUE);
-
-    // Create a visitor for the range collector
-    final TrieIterator<Bytes> visitor = RangeStorageEntriesCollector.createVisitor(collector);
-
     // Collect the slots entries within the specified range using the trie and range collector
-    final TreeMap<Bytes32, Bytes> slots =
-        (TreeMap<Bytes32, Bytes>)
-            storageTrie.entriesFrom(
-                root ->
-                    RangeStorageEntriesCollector.collectEntries(
-                        collector, visitor, root, Bytes32.ZERO));
+    final NavigableMap<Bytes32, Bytes> slots =
+        TrieGenerator.collectEntries(
+            storageTrie, Bytes32.ZERO, RangeManager.MAX_RANGE, Integer.MAX_VALUE);
 
     // Create a request for healing the flat database with no more slots
     final StorageFlatDatabaseHealingRangeRequest request =
@@ -217,21 +185,10 @@ class StorageFlatDatabaseHealingRangeRequestTest {
             b -> b,
             b -> b);
 
-    // Create a collector to gather slots entries within a specific range
-    final RangeStorageEntriesCollector collector =
-        RangeStorageEntriesCollector.createCollector(
-            Bytes32.ZERO, RangeManager.MAX_RANGE, Integer.MAX_VALUE, Integer.MAX_VALUE);
-
-    // Create a visitor for the range collector
-    final TrieIterator<Bytes> visitor = RangeStorageEntriesCollector.createVisitor(collector);
-
     // Collect the slot entries within the specified range using the trie and range collector
-    final TreeMap<Bytes32, Bytes> slots =
-        (TreeMap<Bytes32, Bytes>)
-            storageTrie.entriesFrom(
-                root ->
-                    RangeStorageEntriesCollector.collectEntries(
-                        collector, visitor, root, Bytes32.ZERO));
+    final NavigableMap<Bytes32, Bytes> slots =
+        TrieGenerator.collectEntries(
+            storageTrie, Bytes32.ZERO, RangeManager.MAX_RANGE, Integer.MAX_VALUE);
 
     // Retrieve the proof related nodes for the account trie
     final List<Bytes> proofs =
@@ -274,21 +231,10 @@ class StorageFlatDatabaseHealingRangeRequestTest {
             b -> b,
             b -> b);
 
-    // Create a collector to gather slots entries within a specific range
-    final RangeStorageEntriesCollector collector =
-        RangeStorageEntriesCollector.createCollector(
-            Bytes32.ZERO, RangeManager.MAX_RANGE, Integer.MAX_VALUE, Integer.MAX_VALUE);
-
-    // Create a visitor for the range collector
-    final TrieIterator<Bytes> visitor = RangeStorageEntriesCollector.createVisitor(collector);
-
     // Collect the slot entries within the specified range using the trie and range collector
-    final TreeMap<Bytes32, Bytes> slots =
-        (TreeMap<Bytes32, Bytes>)
-            storageTrie.entriesFrom(
-                root ->
-                    RangeStorageEntriesCollector.collectEntries(
-                        collector, visitor, root, Bytes32.ZERO));
+    final NavigableMap<Bytes32, Bytes> slots =
+        TrieGenerator.collectEntries(
+            storageTrie, Bytes32.ZERO, RangeManager.MAX_RANGE, Integer.MAX_VALUE);
 
     // Retrieve the proof related nodes for the account trie
     final List<Bytes> proofs =
