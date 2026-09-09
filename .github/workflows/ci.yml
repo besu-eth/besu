@@ -38,6 +38,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          persist-credentials: false
       - name: Check for binary files
         run: |
           binaries=$(git ls-files -z | xargs -0 file | awk -F': ' 'tolower($2) ~ /elf|mach-o|pe32|ms-dos|compiled/' || true)
@@ -46,6 +47,17 @@ jobs:
             echo "Binary files found:"
             [ -n "$binaries" ] && echo "$binaries"
             [ -n "$extensions" ] && echo "$extensions"
+            exit 1
+          fi
+      # CI steps glob and shell out over checked-out paths.
+      - name: Check for unsafe file names
+        run: |
+          unsafe=$(git ls-files | LC_ALL=C grep -vE '^[A-Za-z0-9._/-]+$' || true)
+          reports=$(git ls-files | grep -E '(^|/)TEST-.*\.xml$' || true)
+          if [ -n "$unsafe" ] || [ -n "$reports" ]; then
+            echo "Unsafe or unexpected file names found:"
+            [ -n "$unsafe" ] && echo "$unsafe"
+            [ -n "$reports" ] && echo "$reports"
             exit 1
           fi
 
@@ -183,8 +195,6 @@ jobs:
     permissions:
       actions: read
       contents: read
-      checks: write
-      statuses: write
     uses: ./.github/workflows/unit-tests.yml
 
   integrationTests:
@@ -193,8 +203,6 @@ jobs:
     permissions:
       actions: read
       contents: read
-      checks: write
-      statuses: write      
     uses: ./.github/workflows/integration-tests.yml
 
   referenceTests:
@@ -204,10 +212,7 @@ jobs:
       actions: read
       contents: read
       packages: read
-      checks: write
-      statuses: write
     uses: ./.github/workflows/reference-tests.yml
-    secrets: inherit
 
   acceptanceTests:
     if: github.event_name == 'pull_request'
@@ -215,10 +220,7 @@ jobs:
     permissions:
       actions: read
       contents: read
-      checks: write
-      statuses: write
     uses: ./.github/workflows/acceptance-tests.yml
-    secrets: inherit
 
   dockerBuildTest:
     needs: build
@@ -229,7 +231,6 @@ jobs:
     with:
       assemble_run_id: ${{ github.run_id }}
       cache_scope: ci-pr-build
-    secrets: inherit
 
   # only fires on merge to main, so 'develop' is kept up to date
   dockerPublish:
