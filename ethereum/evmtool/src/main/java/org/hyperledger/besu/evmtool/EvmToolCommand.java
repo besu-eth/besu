@@ -15,6 +15,7 @@
 package org.hyperledger.besu.evmtool;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.util.Objects.requireNonNull;
 import static picocli.CommandLine.ScopeType.INHERIT;
 
 import org.hyperledger.besu.config.NetworkDefinition;
@@ -66,6 +67,7 @@ import io.vertx.core.json.JsonObject;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
+import org.jspecify.annotations.Nullable;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -245,12 +247,12 @@ public class EvmToolCommand implements Runnable {
   @Option(
       names = {"--prestate", "--genesis"},
       description = "The genesis file containing account data for this invocation.")
-  private final File genesisFile = null;
+  private final @Nullable File genesisFile = null;
 
   @Option(
       names = {"--chain"},
       description = "Name of a well known network that will be used for this invocation.")
-  private final NetworkDefinition network = null;
+  private final @Nullable NetworkDefinition network = null;
 
   @Option(
       names = {"--repeat"},
@@ -324,8 +326,8 @@ public class EvmToolCommand implements Runnable {
             .build());
 
     // Enumerate forks to support execution-spec-tests
-    addForkHelp(commandLine.getSubcommands().get("t8n"));
-    addForkHelp(commandLine.getSubcommands().get("t8n-server"));
+    addForkHelp(requireNonNull(commandLine.getSubcommands().get("t8n")));
+    addForkHelp(requireNonNull(commandLine.getSubcommands().get("t8n-server")));
 
     commandLine.setExecutionStrategy(
         parseResult -> {

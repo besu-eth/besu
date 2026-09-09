@@ -15,6 +15,7 @@
 package org.hyperledger.besu.evmtool;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.util.Objects.requireNonNull;
 import static org.hyperledger.besu.ethereum.referencetests.ReferenceTestProtocolSchedules.shouldClearEmptyAccounts;
 import static org.hyperledger.besu.evmtool.StateTestSubCommand.COMMAND_NAME;
 
@@ -64,6 +65,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.base.Stopwatch;
 import org.apache.tuweni.bytes.Bytes;
+import org.jspecify.annotations.Nullable;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.IExitCodeGenerator;
 import picocli.CommandLine.Option;
@@ -102,14 +104,14 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
   @Option(
       names = {"--fork"},
       description = "Force the state tests to run on a specific fork.")
-  private String fork = null;
+  private @Nullable String fork = null;
 
   @Option(
       names = {"--test-name"},
       description =
           "Limit execution to tests whose name contains the given substring, or matches the given"
               + " pattern (a regex, with * and ? as wildcards).")
-  private String testName = null;
+  private @Nullable String testName = null;
 
   @Option(
       names = {"--test-name-regex"},
@@ -118,10 +120,10 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
               + " hive --sim.limit value: anchored at the start of the id, open at the end and"
               + " case-sensitive, as re.match is. Nothing is escaped or rewritten, so a published"
               + " hive filter can be passed exactly as it appears.")
-  private String testNameRegex = null;
+  private @Nullable String testNameRegex = null;
 
   // Compiled up front so a malformed expression fails before any fixture is read
-  private TestNameFilter nameFilter;
+  private @Nullable TestNameFilter nameFilter;
 
   @Option(
       names = {"--workers"},
@@ -133,22 +135,22 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
   @Option(
       names = {"--data-index"},
       description = "Limit execution to one data variable.")
-  private Integer dataIndex = null;
+  private @Nullable Integer dataIndex = null;
 
   @Option(
       names = {"--gas-index"},
       description = "Limit execution to one gas variable.")
-  private Integer gasIndex = null;
+  private @Nullable Integer gasIndex = null;
 
   @Option(
       names = {"--value-index"},
       description = "Limit execution to one value variable.")
-  private Integer valueIndex = null;
+  private @Nullable Integer valueIndex = null;
 
   @Option(
       names = {"--fork-index"},
       description = "Limit execution to one fork.")
-  private String forkIndex = null;
+  private @Nullable String forkIndex = null;
 
   @Option(
       names = {"--cache-precompiles"},
@@ -182,7 +184,7 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
   private final List<String> unreadableFiles = Collections.synchronizedList(new ArrayList<>());
 
   // Cached across all tests; guarded by getSchedules()
-  private ReferenceTestProtocolSchedules cachedSchedules;
+  private @Nullable ReferenceTestProtocolSchedules cachedSchedules;
 
   // Shared for summary output; createObjectNode() is thread safe
   private static final ObjectMapper SHARED_OBJECT_MAPPER = JsonUtils.createObjectMapper();
@@ -194,7 +196,7 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
    * Default constructor for the StateTestSubCommand class. This constructor doesn't take any
    * arguments and initializes the parentCommand to null. PicoCLI requires this constructor.
    */
-  @SuppressWarnings("unused")
+  @SuppressWarnings({"unused", "NullAway"}) // Picocli injects the parent after construction.
   public StateTestSubCommand() {
     // PicoCLI requires this
     this(null);
@@ -359,7 +361,7 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
 
   /** Whether {@code --test-name} selects the given test. With no filter, everything is selected. */
   private boolean selects(final String test) {
-    return nameFilter == null || nameFilter.matches(test);
+    return nameFilter == null || requireNonNull(nameFilter).matches(test);
   }
 
   /**
