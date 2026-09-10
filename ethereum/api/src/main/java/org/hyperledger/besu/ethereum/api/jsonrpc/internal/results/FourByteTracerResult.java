@@ -14,10 +14,10 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
-import java.util.Collections;
 import java.util.Map;
 
 import com.fasterxml.jackson.annotation.JsonValue;
+import org.jspecify.annotations.NonNull;
 
 /**
  * Represents the result format for Ethereum's 4byteTracer as specified in the Geth documentation.
@@ -38,37 +38,9 @@ import com.fasterxml.jackson.annotation.JsonValue;
  * }
  * }</pre>
  *
+ * @param selectorCounts map of selector-size keys to occurrence counts
  * @see <a
  *     href="https://geth.ethereum.org/docs/developers/evm-tracing/built-in-tracers#4byte-tracer">
  *     Geth 4byteTracer Documentation</a>
  */
-public class FourByteTracerResult {
-
-  /**
-   * Map of function selector + call data size to occurrence count. Key format:
-   * "0x[4-byte-selector]-[calldata-size]"
-   */
-  private final Map<String, Integer> selectorCounts;
-
-  /**
-   * Constructs a FourByteTracerResult with the given selector counts.
-   *
-   * @param selectorCounts map of selector-size keys to occurrence counts
-   */
-  public FourByteTracerResult(final Map<String, Integer> selectorCounts) {
-    this.selectorCounts = selectorCounts != null ? selectorCounts : Collections.emptyMap();
-  }
-
-  /**
-   * Gets the map of function selectors and their occurrence counts.
-   *
-   * <p>The {@link JsonValue} annotation causes Jackson to serialize this object directly as the
-   * map, without wrapping it in an object. This matches Geth's output format.
-   *
-   * @return the map of selector-size keys to occurrence counts
-   */
-  @JsonValue
-  public Map<String, Integer> getSelectorCounts() {
-    return selectorCounts;
-  }
-}
+public record FourByteTracerResult(@JsonValue @NonNull Map<String, Integer> selectorCounts) {}
