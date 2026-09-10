@@ -47,18 +47,12 @@ public class FlatCallTracer implements OperationTracer {
   private static final String EXECUTION_REVERTED = "execution reverted";
 
   private static final Map<String, String> PARITY_ERRORS =
-      Map.ofEntries(
-          Map.entry("execution reverted", "Reverted"),
-          Map.entry("Out of gas", "Out of gas"),
-          Map.entry("Code is too large", "Out of gas"),
-          Map.entry("Bad jump destination", "Bad jump destination"),
-          Map.entry("Bad instruction", "Bad instruction"),
-          Map.entry("Stack underflow", "Stack underflow"),
-          Map.entry("Out of stack", "Out of stack"),
-          Map.entry("Out of bounds", "Out of bounds"),
-          Map.entry("Precompile error", "Built-in failed"),
-          Map.entry("precompile failed", "Built-in failed"),
-          Map.entry("precompiled failed", "Built-in failed"));
+      Map.of(
+          "execution reverted", "Reverted",
+          "Code is too large", "Out of gas",
+          "Precompile error", "Built-in failed",
+          "precompile failed", "Built-in failed",
+          "precompiled failed", "Built-in failed");
 
   record Context(
       String blockHash,
