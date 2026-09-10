@@ -36,6 +36,7 @@
 
 ### Additions and Improvements
 - Implement native `callTracer` execution tracing, reducing memory use for `debug_trace*`. [#11077](https://github.com/besu-eth/besu/pull/11077)
+- Add `flatCallTracer` for `debug_trace*` methods, matching geth output. [#NNNN](https://github.com/besu-eth/besu/pull/NNNN)
 
 ## 26.8.1
 

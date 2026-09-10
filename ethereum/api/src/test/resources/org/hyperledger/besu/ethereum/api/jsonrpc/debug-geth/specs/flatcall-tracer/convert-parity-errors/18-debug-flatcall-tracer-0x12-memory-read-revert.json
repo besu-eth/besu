@@ -1,0 +1,76 @@
+{
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "debug_traceBlockByNumber",
+    "params": [
+      "0x12",
+      {
+        "tracer": "flatCallTracer",
+        "tracerConfig": {
+          "convertParityErrors": true
+        }
+      }
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": [
+      {
+        "txHash": "0x9fe9e841f8f2450168f9daf25e79a0d23a0297d257f57cbf4f5a1293ab4ed7b2",
+        "result": [
+          {
+            "action": {
+              "callType": "call",
+              "from": "0xfe3b557e8fb62b89f4916b721be55ceb828dbd73",
+              "gas": "0xfffff2",
+              "input": "0x",
+              "to": "0x0100000000000000000000000000000000000000",
+              "value": "0x0"
+            },
+            "blockHash": "0x5866d33474993d4c87747be514b6819f577b26dffc1637463f781cf7338e87af",
+            "blockNumber": 18,
+            "result": {
+              "gasUsed": "0x5226",
+              "output": "0x"
+            },
+            "subtraces": 0,
+            "traceAddress": [],
+            "transactionHash": "0x9fe9e841f8f2450168f9daf25e79a0d23a0297d257f57cbf4f5a1293ab4ed7b2",
+            "transactionPosition": 0,
+            "type": "call"
+          }
+        ]
+      },
+      {
+        "txHash": "0xd7077263a86965efdf3073ac0d48b4fabe4d0728e7a20fb54aac54601d336805",
+        "result": [
+          {
+            "action": {
+              "callType": "call",
+              "from": "0xfe3b557e8fb62b89f4916b721be55ceb828dbd73",
+              "gas": "0xfffff2",
+              "input": "0x",
+              "to": "0x0110000000000000000000000000000000000000",
+              "value": "0x0"
+            },
+            "blockHash": "0x5866d33474993d4c87747be514b6819f577b26dffc1637463f781cf7338e87af",
+            "blockNumber": 18,
+            "error": "Reverted",
+            "result": {
+              "gasUsed": "0x5226",
+              "output": "0x7d88c1856cc95352"
+            },
+            "subtraces": 0,
+            "traceAddress": [],
+            "transactionHash": "0xd7077263a86965efdf3073ac0d48b4fabe4d0728e7a20fb54aac54601d336805",
+            "transactionPosition": 1,
+            "type": "call"
+          }
+        ]
+      }
+    ]
+  },
+  "statusCode": 200
+}

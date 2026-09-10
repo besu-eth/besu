@@ -86,7 +86,8 @@ public class TransactionTracer {
                   transactionProcessor,
                   tracer,
                   blobGasPrice);
-          return new TransactionTrace(transaction, result, tracer.getTraceFrames());
+          return new TransactionTrace(
+              transaction, result, tracer.getTraceFrames(), blockchain.getBlockByHash(blockHash));
         });
   }
 
