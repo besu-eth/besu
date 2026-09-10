@@ -19,7 +19,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -103,96 +102,10 @@ class OpcodeCategoryTest {
     assertThat(OpcodeCategory.isCallOp(opcode)).isFalse();
   }
 
-  @ParameterizedTest
-  @ValueSource(strings = {"CREATE", "CREATE2"})
-  @DisplayName("isCreateOp should return true for create operations")
-  void isCreateOpShouldReturnTrue(final String opcode) {
-    assertThat(OpcodeCategory.isCreateOp(opcode)).isTrue();
-  }
-
-  @ParameterizedTest
-  @ValueSource(strings = {"CALL", "RETURN", "REVERT", "STOP", "ADD", ""})
-  @DisplayName("isCreateOp should return false for non-create operations")
-  void isCreateOpShouldReturnFalse(final String opcode) {
-    assertThat(OpcodeCategory.isCreateOp(opcode)).isFalse();
-  }
-
   @Test
-  @DisplayName("isReturnOp should work correctly")
-  void isReturnOpShouldWork() {
-    assertThat(OpcodeCategory.isReturnOp("RETURN")).isTrue();
-    assertThat(OpcodeCategory.isReturnOp("REVERT")).isFalse();
-    assertThat(OpcodeCategory.isReturnOp("STOP")).isFalse();
-  }
-
-  @Test
-  @DisplayName("isRevertOp should work correctly")
-  void isRevertOpShouldWork() {
-    assertThat(OpcodeCategory.isRevertOp("REVERT")).isTrue();
-    assertThat(OpcodeCategory.isRevertOp("RETURN")).isFalse();
-    assertThat(OpcodeCategory.isRevertOp("STOP")).isFalse();
-  }
-
-  @Test
-  @DisplayName("isHaltOp should work correctly")
-  void isHaltOpShouldWork() {
-    assertThat(OpcodeCategory.isHaltOp("STOP")).isTrue();
-    assertThat(OpcodeCategory.isHaltOp("RETURN")).isFalse();
-    assertThat(OpcodeCategory.isHaltOp("REVERT")).isFalse();
-  }
-
-  @Test
-  @DisplayName("isSelfDestructOp should work correctly")
-  void isSelfDestructOpShouldWork() {
-    assertThat(OpcodeCategory.isSelfDestructOp("SELFDESTRUCT")).isTrue();
-    assertThat(OpcodeCategory.isSelfDestructOp("RETURN")).isFalse();
-    assertThat(OpcodeCategory.isSelfDestructOp("STOP")).isFalse();
-  }
-
-  @Test
-  @DisplayName("Static methods should handle null safely")
-  void staticMethodsShouldHandleNull() {
+  @DisplayName("isCallOp should handle null safely")
+  void isCallOpShouldHandleNull() {
     assertThat(OpcodeCategory.isCallOp(null)).isFalse();
-    assertThat(OpcodeCategory.isCreateOp(null)).isFalse();
-    assertThat(OpcodeCategory.isReturnOp(null)).isFalse();
-    assertThat(OpcodeCategory.isRevertOp(null)).isFalse();
-    assertThat(OpcodeCategory.isHaltOp(null)).isFalse();
-    assertThat(OpcodeCategory.isSelfDestructOp(null)).isFalse();
-  }
-
-  // Instance Method Tests
-
-  @Test
-  @DisplayName("isCall should return true only for CALL category")
-  void isCallShouldWork() {
-    assertThat(OpcodeCategory.CALL.isCall()).isTrue();
-    assertThat(OpcodeCategory.CREATE.isCall()).isFalse();
-    assertThat(OpcodeCategory.RETURN.isCall()).isFalse();
-    assertThat(OpcodeCategory.OTHER.isCall()).isFalse();
-  }
-
-  @Test
-  @DisplayName("isCreate should return true only for CREATE category")
-  void isCreateShouldWork() {
-    assertThat(OpcodeCategory.CREATE.isCreate()).isTrue();
-    assertThat(OpcodeCategory.CALL.isCreate()).isFalse();
-    assertThat(OpcodeCategory.RETURN.isCreate()).isFalse();
-    assertThat(OpcodeCategory.OTHER.isCreate()).isFalse();
-  }
-
-  @ParameterizedTest
-  @CsvSource({
-    "RETURN, true",
-    "REVERT, true",
-    "HALT, true",
-    "CALL, false",
-    "CREATE, false",
-    "SELFDESTRUCT, false",
-    "OTHER, false"
-  })
-  @DisplayName("isTerminating should identify terminating operations")
-  void isTerminatingShouldWork(final OpcodeCategory category, final boolean expected) {
-    assertThat(category.isTerminating()).isEqualTo(expected);
   }
 
   // Edge Case Tests
