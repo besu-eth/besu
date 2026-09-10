@@ -74,6 +74,18 @@ public class SnapSyncMetricsManager {
   /** Represents the number of trie nodes healed during the healing process. */
   private final AtomicLong nbTrieNodesHealed;
 
+  private final AtomicLong nbPivotCatchups;
+
+  private final AtomicLong nbReorgRecoveries;
+
+  private final AtomicLong nbBalBlocksApplied;
+
+  private final AtomicLong nbBalAccountsApplied;
+
+  private final AtomicLong nbBalStorageSlotsApplied;
+
+  private final AtomicLong nbBalStorageRootsApplied;
+
   private long startSyncTime;
 
   private final Map<Bytes32, BigInteger> lastRangeIndex = new HashMap<>();
@@ -91,6 +103,12 @@ public class SnapSyncMetricsManager {
     nbFlatAccountsHealed = new AtomicLong(0);
     nbFlatSlotsHealed = new AtomicLong(0);
     nbTrieNodesHealed = new AtomicLong(0);
+    nbPivotCatchups = new AtomicLong(0);
+    nbReorgRecoveries = new AtomicLong(0);
+    nbBalBlocksApplied = new AtomicLong(0);
+    nbBalAccountsApplied = new AtomicLong(0);
+    nbBalStorageSlotsApplied = new AtomicLong(0);
+    nbBalStorageRootsApplied = new AtomicLong(0);
     metricsSystem.createCounter(
         BesuMetricCategory.SYNCHRONIZER,
         "snap_world_state_generated_nodes_total",
@@ -126,6 +144,36 @@ public class SnapSyncMetricsManager {
         "snap_world_state_codes_total",
         "Total number of codes downloaded as part of snap sync world state",
         nbCodes::get);
+    metricsSystem.createCounter(
+        BesuMetricCategory.SYNCHRONIZER,
+        "snap_v2_pivot_catchups_total",
+        "Total number of snap/2 pivot catch-up cycles completed without a reorg",
+        nbPivotCatchups::get);
+    metricsSystem.createCounter(
+        BesuMetricCategory.SYNCHRONIZER,
+        "snap_v2_reorg_recoveries_total",
+        "Total number of snap/2 pivot catch-up cycles that triggered reorg recovery",
+        nbReorgRecoveries::get);
+    metricsSystem.createCounter(
+        BesuMetricCategory.SYNCHRONIZER,
+        "snap_v2_bal_blocks_applied_total",
+        "Total number of non-empty BALs applied during snap/2 catch-up",
+        nbBalBlocksApplied::get);
+    metricsSystem.createCounter(
+        BesuMetricCategory.SYNCHRONIZER,
+        "snap_v2_bal_accounts_applied_total",
+        "Total number of accounts applied from BALs during snap/2 catch-up",
+        nbBalAccountsApplied::get);
+    metricsSystem.createCounter(
+        BesuMetricCategory.SYNCHRONIZER,
+        "snap_v2_bal_storage_slots_applied_total",
+        "Total number of storage slots applied from BALs during snap/2 catch-up",
+        nbBalStorageSlotsApplied::get);
+    metricsSystem.createCounter(
+        BesuMetricCategory.SYNCHRONIZER,
+        "snap_v2_bal_storage_roots_applied_total",
+        "Total number of storage roots updated from BALs during snap/2 catch-up",
+        nbBalStorageRootsApplied::get);
   }
 
   public void initRange(final Map<Bytes32, Bytes32> ranges) {
@@ -173,6 +221,21 @@ public class SnapSyncMetricsManager {
   public void notifyTrieNodesHealed(final long nbNodes) {
     this.nbTrieNodesHealed.getAndAdd(nbNodes);
     print(HEAL_TRIE);
+  }
+
+  public void incrementPivotCatchups() {
+    this.nbPivotCatchups.incrementAndGet();
+  }
+
+  public void incrementReorgRecoveries() {
+    this.nbReorgRecoveries.incrementAndGet();
+  }
+
+  public void addBalStats(final BalStats stats) {
+    this.nbBalBlocksApplied.getAndAdd(stats.blocksApplied());
+    this.nbBalAccountsApplied.getAndAdd(stats.accounts());
+    this.nbBalStorageSlotsApplied.getAndAdd(stats.storageSlots());
+    this.nbBalStorageRootsApplied.getAndAdd(stats.storageRoots());
   }
 
   private void print(final Step step) {
@@ -226,6 +289,17 @@ public class SnapSyncMetricsManager {
         duration.toMinutesPart(),
         duration.toSecondsPart(),
         duration.toMillisPart());
+    if (nbPivotCatchups.get() > 0 || nbReorgRecoveries.get() > 0) {
+      LOG.info(
+          "snap/2 catch-up summary: pivot catch-ups={}, reorg recoveries={}, BAL blocks applied={}, "
+              + "accounts applied={}, storage slots applied={}, storage roots updated={}",
+          nbPivotCatchups.get(),
+          nbReorgRecoveries.get(),
+          nbBalBlocksApplied.get(),
+          nbBalAccountsApplied.get(),
+          nbBalStorageSlotsApplied.get(),
+          nbBalStorageRootsApplied.get());
+    }
   }
 
   public MetricsSystem getMetricsSystem() {
