@@ -93,7 +93,6 @@ class FlatCallTracerTest {
         .isEqualTo("insufficient balance for transfer");
     assertThat(FlatCallTracer.toParityError("Precompile error")).isEqualTo("Built-in failed");
     assertThat(FlatCallTracer.toParityError("precompile failed")).isEqualTo("Built-in failed");
-    assertThat(FlatCallTracer.toParityError("precompiled failed")).isEqualTo("Built-in failed");
     assertThat(FlatCallTracer.toParityError("execution reverted")).isEqualTo("Reverted");
     assertThat(FlatCallTracer.toParityError("Out of gas")).isEqualTo("Out of gas");
     assertThat(FlatCallTracer.toParityError("Code is too large")).isEqualTo("Out of gas");

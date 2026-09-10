@@ -51,8 +51,7 @@ public class FlatCallTracer implements OperationTracer {
           "execution reverted", "Reverted",
           "Code is too large", "Out of gas",
           "Precompile error", "Built-in failed",
-          "precompile failed", "Built-in failed",
-          "precompiled failed", "Built-in failed");
+          "precompile failed", "Built-in failed");
 
   record Context(
       String blockHash,
