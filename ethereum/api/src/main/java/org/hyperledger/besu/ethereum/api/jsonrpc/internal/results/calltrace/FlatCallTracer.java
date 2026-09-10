@@ -181,63 +181,67 @@ public class FlatCallTracer implements OperationTracer {
     String error = null;
 
     final String rawType = node.getType();
-    if ("CREATE".equalsIgnoreCase(rawType) || "CREATE2".equalsIgnoreCase(rawType)) {
-      type = "create";
-      action =
-          new FlatCallTracerResult.Action(
-              null,
-              null,
-              null,
-              rawType.toLowerCase(Locale.ROOT),
-              node.getFrom(),
-              node.getGas(),
-              orEmptyHex(node.getInput()),
-              null,
-              null,
-              null,
-              orZeroHex(node.getValue()));
-      result =
-          new FlatCallTracerResult.Result(
-              node.getTo(), orEmptyHex(node.getOutput()), node.getGasUsed(), null);
-    } else if ("SELFDESTRUCT".equalsIgnoreCase(rawType)) {
-      type = "suicide";
-      action =
-          new FlatCallTracerResult.Action(
-              node.getFrom(),
-              orZeroHex(node.getValue()),
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              node.getTo(),
-              null,
-              null);
-      result = null;
-    } else if ("CALL".equalsIgnoreCase(rawType)
-        || "CALLCODE".equalsIgnoreCase(rawType)
-        || "DELEGATECALL".equalsIgnoreCase(rawType)
-        || "STATICCALL".equalsIgnoreCase(rawType)) {
-      type = "call";
-      action =
-          new FlatCallTracerResult.Action(
-              null,
-              null,
-              rawType.toLowerCase(Locale.ROOT),
-              null,
-              node.getFrom(),
-              node.getGas(),
-              null,
-              orEmptyHex(node.getInput()),
-              null,
-              node.getTo(),
-              orZeroHex(node.getValue()));
-      result =
-          new FlatCallTracerResult.Result(
-              null, null, node.getGasUsed(), orEmptyHex(node.getOutput()));
-    } else {
-      throw new IllegalStateException("unrecognized call frame type: " + rawType);
+    if (rawType == null) {
+      throw new IllegalStateException("unrecognized call frame type: null");
+    }
+
+    switch (rawType.toUpperCase(Locale.ROOT)) {
+      case "CREATE", "CREATE2" -> {
+        type = "create";
+        action =
+            new FlatCallTracerResult.Action(
+                null,
+                null,
+                null,
+                rawType.toLowerCase(Locale.ROOT),
+                node.getFrom(),
+                node.getGas(),
+                orEmptyHex(node.getInput()),
+                null,
+                null,
+                null,
+                orZeroHex(node.getValue()));
+        result =
+            new FlatCallTracerResult.Result(
+                node.getTo(), orEmptyHex(node.getOutput()), node.getGasUsed(), null);
+      }
+      case "SELFDESTRUCT" -> {
+        type = "suicide";
+        action =
+            new FlatCallTracerResult.Action(
+                node.getFrom(),
+                orZeroHex(node.getValue()),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                node.getTo(),
+                null,
+                null);
+        result = null;
+      }
+      case "CALL", "CALLCODE", "DELEGATECALL", "STATICCALL" -> {
+        type = "call";
+        action =
+            new FlatCallTracerResult.Action(
+                null,
+                null,
+                rawType.toLowerCase(Locale.ROOT),
+                null,
+                node.getFrom(),
+                node.getGas(),
+                null,
+                orEmptyHex(node.getInput()),
+                null,
+                node.getTo(),
+                orZeroHex(node.getValue()));
+        result =
+            new FlatCallTracerResult.Result(
+                null, null, node.getGasUsed(), orEmptyHex(node.getOutput()));
+      }
+      default -> throw new IllegalStateException("unrecognized call frame type: " + rawType);
     }
 
     if (!"suicide".equals(type)) {
