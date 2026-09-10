@@ -34,7 +34,6 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
-import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
 import org.hyperledger.besu.ethereum.vm.StreamingDebugOperationTracer;
 import org.hyperledger.besu.evm.ModificationNotAllowedException;
 import org.hyperledger.besu.evm.account.MutableAccount;
@@ -327,9 +326,7 @@ public class DebugTraceBlockStreamer {
       final BlockHeader header,
       final Wei blobGasPrice,
       final BlockHashLookup blockHashLookup) {
-    final DebugOperationTracer tracer =
-        new DebugOperationTracer(traceOptions.opCodeTracerConfig(), true);
-
+    final DebugTraceTransactionStep step = DebugTraceTransactionStep.of(traceOptions, protocolSpec);
     final AccessLocationTracker accessListTracker =
         BlockAccessList.BlockAccessListBuilder.createTransactionAccessLocationTracker(0);
 
@@ -339,7 +336,7 @@ public class DebugTraceBlockStreamer {
             header,
             transaction,
             header.getCoinbase(),
-            tracer,
+            step.getOperationTracer(),
             blockHashLookup,
             ImmutableTransactionValidationParams.builder().build(),
             blobGasPrice,
@@ -349,13 +346,11 @@ public class DebugTraceBlockStreamer {
         new TransactionTrace(
             transaction,
             result,
-            tracer.copyTraceFrames(),
+            step.getOperationTracer().getTraceFrames(),
             Optional.empty(),
             accessListTracker.getTouchedAccounts());
-    tracer.reset();
 
-    return DebugTraceTransactionStepFactory.create(traceOptions, protocolSpec)
-        .apply(transactionTrace);
+    return step.buildResult(transactionTrace);
   }
 
   // ── struct log writer (hot path) ──────────────────────────────────

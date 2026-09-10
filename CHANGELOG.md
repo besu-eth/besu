@@ -35,6 +35,7 @@
 - `engine_newPayloadV4`+ now returns `-32602` for an `executionRequests` element consisting only of a type byte, as execution-apis requires, including when that type byte is one Besu does not recognize. Such an element was previously answered with an `INVALID` payload status. [#11194](https://github.com/besu-eth/besu/pull/11194)
 
 ### Additions and Improvements
+- Implement native `callTracer` execution tracing, reducing memory use for `debug_trace*`. [#11077](https://github.com/besu-eth/besu/pull/11077)
 
 ## 26.8.1
 

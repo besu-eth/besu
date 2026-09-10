@@ -21,6 +21,51 @@ geth init --datadir ./data genesis.json
 geth import --datadir ./data blocks.bin
 ```
 
+## Manually regenerating `blocks.bin`
+
+`../chain-data/blocks.json` is the source of the test transactions. Append blocks instead of changing existing ones so existing hashes remain stable.
+
+1. Initialize a clean Geth data directory from `genesis.json`:
+
+   ```bash
+   cd ../chain-data
+   geth init --datadir ./data genesis.json
+   ```
+
+2. Start Geth with deterministic periodic mining and the required RPC APIs:
+
+   ```bash
+   geth --datadir ./data --dev --dev.period 5 \
+     --http --http.api eth,net,web3,debug,miner,txpool \
+     --nodiscover --maxpeers 0 --gcmode archive
+   ```
+
+3. Replay `blocks.json` in block-number order. For every transaction:
+
+   - derive the sender from `secretKey`;
+   - use the exact `gasLimit`, `gasPrice`, `to`, `value`, and `data` values;
+   - sign with the chain ID from `genesis.json` and the sender's next nonce;
+   - submit the signed bytes with `eth_sendRawTransaction`.
+
+   Submit all transactions assigned to one block within the same five-second mining interval. Use raw transaction submission because some fixtures intentionally revert. For an empty block, wait for the next mining interval without submitting a transaction. After each interval, verify the block number, transaction count, and transaction order before continuing.
+
+4. Stop Geth immediately after the final configured block, then export blocks 1 through that block:
+
+   ```bash
+   geth export blocks.bin 1 <last-block-number> --datadir ./data
+   ```
+
+5. Initialize a second clean data directory, import the new `blocks.bin`, and confirm its final block and transaction hashes before replacing the checked-in file.
+
+6. Query Geth's `debug_traceBlockByNumber` for the new block and each required tracer configuration. Store the complete JSON-RPC request, response, and HTTP status in the matching `specs/` directory. For `callTracer`, generate both the default result and `{"tracerConfig":{"onlyTopCall":true}}` variant.
+
+7. Verify the regenerated chain and specs in Besu:
+
+   ```bash
+   ./gradlew :ethereum:api:test \
+     --tests 'org.hyperledger.besu.ethereum.api.jsonrpc.bonsai.DebugGethTraceJsonRpcHttpBySpecTest'
+   ```
+
 ## Directory Structure
 
 Each tracer has its own directory under `specs/`:

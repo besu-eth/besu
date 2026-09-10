@@ -31,7 +31,6 @@ import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.api.query.TransactionWithMetadata;
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
-import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
 
 import java.util.Optional;
 
@@ -102,25 +101,23 @@ public class DebugTraceTransaction implements JsonRpcMethod {
       final TransactionWithMetadata transactionWithMetadata,
       final TraceOptions traceOptions) {
     final Hash blockHash = transactionWithMetadata.getBlockHash().get();
-
-    final DebugOperationTracer execTracer =
-        new DebugOperationTracer(traceOptions.opCodeTracerConfig(), true);
-
     return blockchain
         .getBlockchain()
         .getBlockHeader(blockHash)
         .map(protocolSchedule::getByBlockHeader)
         .flatMap(
-            protocolSpec ->
-                Tracer.processTracing(
-                    blockchain,
-                    blockHash,
-                    mutableWorldState ->
-                        transactionTracer
-                            .traceTransaction(mutableWorldState, blockHash, txHash, execTracer)
-                            .map(
-                                DebugTraceTransactionStepFactory.create(
-                                    traceOptions, protocolSpec))))
+            protocolSpec -> {
+              final DebugTraceTransactionStep step =
+                  DebugTraceTransactionStep.of(traceOptions, protocolSpec);
+              return Tracer.processTracing(
+                  blockchain,
+                  blockHash,
+                  mutableWorldState ->
+                      transactionTracer
+                          .traceTransaction(
+                              mutableWorldState, blockHash, txHash, step.getOperationTracer())
+                          .map(step::buildResult));
+            })
         .orElse(null);
   }
 }
