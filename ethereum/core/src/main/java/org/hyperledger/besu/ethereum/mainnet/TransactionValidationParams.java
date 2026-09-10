@@ -77,8 +77,13 @@ public interface TransactionValidationParams {
     return false;
   }
 
+  /**
+   * Only applies to gas fee costs, value transfer is not affected
+   *
+   * @return false by default
+   */
   @Value.Default
-  default boolean allowUnderpriced() {
+  default boolean allowUnderpricedGas() {
     return false;
   }
 
