@@ -42,6 +42,7 @@ public class DebugGethTraceJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpBySp
           "debug-geth/specs/prestate-tracer/diff-mode-true",
           "debug-geth/specs/prestate-tracer/diff-mode-false",
           "debug-geth/specs/call-tracer",
+          "debug-geth/specs/flatcall-tracer",
           "debug-geth/specs/4byte-tracer"
         });
   }
