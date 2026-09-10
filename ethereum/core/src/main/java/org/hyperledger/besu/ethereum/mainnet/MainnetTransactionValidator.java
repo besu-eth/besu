@@ -202,7 +202,7 @@ public class MainnetTransactionValidator implements TransactionValidator {
 
     if (maybeBaseFee.isPresent()) {
       final Wei price = feeMarket.getTransactionPriceCalculator().price(transaction, maybeBaseFee);
-      if (!transactionValidationParams.allowUnderpriced()
+      if (!transactionValidationParams.allowUnderpricedGas()
           && !transactionValidationParams.isAllowExceedingBalance()
           && price.compareTo(maybeBaseFee.orElseThrow()) < 0) {
         return ValidationResult.invalid(
@@ -237,7 +237,7 @@ public class MainnetTransactionValidator implements TransactionValidator {
         throw new IllegalArgumentException(
             "blob fee must be provided from blocks containing blobs");
         // tx.getMaxFeePerBlobGas can be empty for eth_call
-      } else if (!transactionValidationParams.allowUnderpriced()
+      } else if (!transactionValidationParams.allowUnderpricedGas()
           && maybeBlobFee.get().compareTo(transaction.getMaxFeePerBlobGas().get()) > 0) {
         return ValidationResult.invalid(
             TransactionInvalidReason.BLOB_GAS_PRICE_BELOW_CURRENT_BLOB_BASE_FEE,
@@ -304,7 +304,7 @@ public class MainnetTransactionValidator implements TransactionValidator {
 
     final Wei upfrontCost =
         transaction.getUpfrontCost(gasCalculator.blobGasCost(transaction.getBlobCount()));
-    if (!validationParams.allowUnderpriced() && upfrontCost.compareTo(senderBalance) > 0) {
+    if (!validationParams.allowUnderpricedGas() && upfrontCost.compareTo(senderBalance) > 0) {
       return ValidationResult.invalid(
           TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE,
           String.format(

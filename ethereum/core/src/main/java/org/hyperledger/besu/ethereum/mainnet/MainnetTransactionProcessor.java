@@ -34,6 +34,7 @@ import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
+import org.hyperledger.besu.evm.account.MutableAccount.BalanceUnderflowException;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
@@ -260,11 +261,11 @@ public class MainnetTransactionProcessor {
             upfrontGasCost,
             previousBalance,
             sender.getBalance());
-      } catch (final IllegalStateException ise) {
-        if (transactionValidationParams.allowUnderpriced()) {
-          LOG.trace("Allowing account balance underflow as requested");
+      } catch (final BalanceUnderflowException bue) {
+        if (transactionValidationParams.allowUnderpricedGas()) {
+          LOG.trace("Allowing account balance underflow as requested", bue);
         } else {
-          throw ise;
+          throw bue;
         }
       }
 
@@ -566,7 +567,7 @@ public class MainnetTransactionProcessor {
       if (blockHeader.getBaseFee().isPresent()) {
         final Wei baseFee = blockHeader.getBaseFee().get();
         final boolean gasPriceBelowBaseFee = transactionGasPrice.compareTo(baseFee) < 0;
-        if (transactionValidationParams.allowUnderpriced()
+        if (transactionValidationParams.allowUnderpricedGas()
             || transactionValidationParams.isPreserveCallerGasPricing()) {
           coinbaseCalculator =
               gasPriceBelowBaseFee ? (a, b, c) -> Wei.ZERO : coinbaseFeePriceCalculator;
@@ -691,6 +692,20 @@ public class MainnetTransactionProcessor {
 
       // need to throw to trigger the heal
       throw re;
+    } catch (final BalanceUnderflowException bue) {
+      // if this happens when simulating allowing underpriced gas, then it could happen that the
+      // sender has insufficient funds for the transfer, so return invalid as a result. Otherwise,
+      // rethrow.
+      if (transactionValidationParams.allowUnderpricedGas()) {
+        LOG.trace(
+            "Balance underflow exception occurred when simulating, returning invalid transaction processing result.",
+            bue);
+        return TransactionProcessingResult.invalid(
+            ValidationResult.invalid(
+                TransactionInvalidReason.INSUFFICIENT_FUNDS_FOR_TRANSFER, bue.getMessage()));
+      } else {
+        throw bue;
+      }
     } catch (final RuntimeException re) {
       final var cause = re.getCause();
       // in case of an interruption then just return without calling any other tracing method
