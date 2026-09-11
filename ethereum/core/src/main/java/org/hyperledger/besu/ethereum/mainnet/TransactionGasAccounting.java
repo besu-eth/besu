@@ -38,13 +38,14 @@ public abstract class TransactionGasAccounting {
    * Result of the gas accounting calculation.
    *
    * @param effectiveStateGas the state gas dimension
-   * @param gasUsedByTransaction floored 2D gas (max(regular, floor) + state) for
+   * @param gasUsedByTransaction floored 2D gas (max(execution, floor) + state) for
    *     estimation/receipts
    * @param usedGas post-refund gas the sender pays
-   * @param regularGas the regular gas dimension for block accounting: max(execution - state, floor)
+   * @param executionGas the execution gas dimension for block accounting: max(consumed - state,
+   *     floor)
    */
   public record GasResult(
-      long effectiveStateGas, long gasUsedByTransaction, long usedGas, long regularGas) {}
+      long effectiveStateGas, long gasUsedByTransaction, long usedGas, long executionGas) {}
 
   /** The transaction gas limit. */
   public abstract long txGasLimit();
@@ -64,8 +65,8 @@ public abstract class TransactionGasAccounting {
   /** Transaction floor cost (EIP-7623), 0 for pre-Prague. */
   public abstract long floorCost();
 
-  /** Whether the regular gas limit was exceeded (EIP-8037). */
-  public abstract boolean regularGasLimitExceeded();
+  /** Whether the execution gas limit was exceeded (EIP-8037). */
+  public abstract boolean executionGasLimitExceeded();
 
   /** Creates a new builder. */
   public static ImmutableTransactionGasAccounting.Builder builder() {
@@ -76,10 +77,10 @@ public abstract class TransactionGasAccounting {
    * Calculate gas accounting for a completed transaction.
    *
    * @return the gas result containing effectiveStateGas, gasUsedByTransaction, usedGas and
-   *     regularGas
+   *     executionGas
    */
   public GasResult calculate() {
-    if (regularGasLimitExceeded()) {
+    if (executionGasLimitExceeded()) {
       return new GasResult(
           stateGasUsed(),
           txGasLimit(),
@@ -87,21 +88,21 @@ public abstract class TransactionGasAccounting {
           Math.max(txGasLimit() - stateGasUsed(), floorCost()));
     }
 
-    final long executionGas = txGasLimit() - remainingGas() - stateGasReservoir();
+    final long consumedGas = txGasLimit() - remainingGas() - stateGasReservoir();
     final long stateGas = stateGasUsed();
-    final long regularGas = executionGas - stateGas;
-    if (regularGas < 0) {
+    final long executionGas = consumedGas - stateGas;
+    if (executionGas < 0) {
       LOG.error(
-          "Negative regularGas={} (executionGas={}, stateGas={})",
-          regularGas,
+          "Negative executionGas={} (consumedGas={}, stateGas={})",
           executionGas,
+          consumedGas,
           stateGas);
     }
-    // EIP-8037: the floor binds the regular-gas dimension, and state gas is out of regularGas
+    // EIP-8037: the floor binds the execution-gas dimension, and state gas is out of executionGas
     // before the max is taken, so state spending cannot discount the floor.
-    final long flooredRegularGas = Math.max(regularGas, floorCost());
-    final long gasUsedByTransaction = flooredRegularGas + stateGas;
+    final long flooredExecutionGas = Math.max(executionGas, floorCost());
+    final long gasUsedByTransaction = flooredExecutionGas + stateGas;
     final long usedGas = txGasLimit() - refundedGas();
-    return new GasResult(stateGas, gasUsedByTransaction, usedGas, flooredRegularGas);
+    return new GasResult(stateGas, gasUsedByTransaction, usedGas, flooredExecutionGas);
   }
 }

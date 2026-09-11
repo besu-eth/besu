@@ -31,11 +31,11 @@ public class TransactionGasAccountingTest {
         .stateGasUsed(0L)
         .refundedGas(0L)
         .floorCost(0L)
-        .regularGasLimitExceeded(false);
+        .executionGasLimitExceeded(false);
   }
 
   @Test
-  public void normalPath_regularGasComputedCorrectly() {
+  public void normalPath_executionGasComputedCorrectly() {
     // Simple execution: 100k gas limit, 30k remaining, no reservoir, no state gas
     final var result =
         baseBuilder()
@@ -45,8 +45,8 @@ public class TransactionGasAccountingTest {
             .build()
             .calculate();
 
-    // executionGas = 100k - 30k - 0 = 70k
-    // stateGas = 0, regularGas = 70k
+    // consumedGas = 100k - 30k - 0 = 70k
+    // stateGas = 0, executionGas = 70k
     // gasUsedByTransaction = max(70k, 0) + 0 = 70k
     // usedGas = 100k - 5k = 95k
     assertThat(result.gasUsedByTransaction()).isEqualTo(70_000L);
@@ -66,8 +66,8 @@ public class TransactionGasAccountingTest {
             .build()
             .calculate();
 
-    // executionGas = 100k - 20k - 10k = 70k
-    // stateGas = 10k, regularGas = 70k - 10k = 60k
+    // consumedGas = 100k - 20k - 10k = 70k
+    // stateGas = 10k, executionGas = 70k - 10k = 60k
     // gasUsedByTransaction = max(60k, 0) + 10k = 70k
     // usedGas = 100k - 5k = 95k
     assertThat(result.gasUsedByTransaction()).isEqualTo(70_000L);
@@ -75,8 +75,8 @@ public class TransactionGasAccountingTest {
   }
 
   @Test
-  public void floorCostOverridesRegularGas() {
-    // Floor cost higher than actual regular gas
+  public void floorCostOverridesExecutionGas() {
+    // Floor cost higher than actual execution gas
     final var result =
         baseBuilder()
             .txGasLimit(100_000L)
@@ -85,8 +85,8 @@ public class TransactionGasAccountingTest {
             .build()
             .calculate();
 
-    // executionGas = 100k - 60k - 0 = 40k
-    // regularGas = 40k, floorCost = 50k -> max(40k, 50k) = 50k
+    // consumedGas = 100k - 60k - 0 = 40k
+    // executionGas = 40k, floorCost = 50k -> max(40k, 50k) = 50k
     // gasUsedByTransaction = 50k + 0 = 50k
     assertThat(result.gasUsedByTransaction()).isEqualTo(50_000L);
     assertThat(result.usedGas()).isEqualTo(100_000L);
@@ -102,8 +102,8 @@ public class TransactionGasAccountingTest {
             .build()
             .calculate();
 
-    // executionGas = 100k - 40k = 60k
-    // regularGas = 60k, gasUsedByTransaction = 60k, usedGas = 100k - 10k = 90k
+    // consumedGas = 100k - 40k = 60k
+    // executionGas = 60k, gasUsedByTransaction = 60k, usedGas = 100k - 10k = 90k
     assertThat(result.gasUsedByTransaction()).isEqualTo(60_000L);
     assertThat(result.usedGas()).isEqualTo(90_000L);
   }

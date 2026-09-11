@@ -463,16 +463,16 @@ public interface GasCalculator {
       UInt256 newValue, Supplier<UInt256> currentValue, Supplier<UInt256> originalValue);
 
   /**
-   * Returns the regular-gas cost of an SSTORE, i.e. the portion charged as regular gas (as opposed
-   * to state gas). Through Osaka this is the whole SSTORE cost, so it delegates to {@link
-   * #calculateStorageCost}. EIP-8038 (Amsterdam) splits the cost into regular and state gas and
-   * overrides this to return only the regular portion; a future fork that moves the remaining
-   * regular portion to state gas can zero it out.
+   * Returns the execution-gas cost of an SSTORE, i.e. the portion charged as execution gas (as
+   * opposed to state gas). Through Osaka this is the whole SSTORE cost, so it delegates to {@link
+   * #calculateStorageCost}. EIP-8038 (Amsterdam) splits the cost into execution and state gas and
+   * overrides this to return only the execution portion; a future fork that moves the remaining
+   * execution portion to state gas can zero it out.
    *
    * @param newValue the new value to be stored
    * @param currentValue the supplier of the current value
    * @param originalValue the supplier of the original value
-   * @return the regular-gas cost for the SSTORE operation
+   * @return the execution-gas cost for the SSTORE operation
    */
   default long slotAccessCost(
       final UInt256 newValue,
@@ -529,11 +529,11 @@ public interface GasCalculator {
   }
 
   /**
-   * Returns the regular gas charged for the first write to an account leaf (EIP-2780
+   * Returns the execution gas charged for the first write to an account leaf (EIP-2780
    * ACCOUNT_WRITE), used for the top-frame EIP-7702 authorization charge. Zero for forks without
    * state-gas metering.
    *
-   * @return the ACCOUNT_WRITE regular gas cost
+   * @return the ACCOUNT_WRITE execution gas cost
    */
   default long getAccountWriteGasCost() {
     return 0L;
@@ -589,18 +589,18 @@ public interface GasCalculator {
   long transactionIntrinsicGasCost(Transaction transaction, long baselineGas);
 
   /**
-   * Returns the regular-dimension intrinsic gas cost of a transaction, including the gas for its
+   * Returns the execution-dimension intrinsic gas cost of a transaction, including the gas for its
    * access list and EIP-7702 code-delegation authorizations.
    *
    * <p>This is the single entry point for callers that have a {@link Transaction} and want the full
-   * regular intrinsic cost: it derives the access-list and code-delegation baseline internally and
-   * delegates to {@link #transactionIntrinsicGasCost(Transaction, long)}, so the summing lives in
-   * one place rather than at every call site.
+   * intrinsic execution cost: it derives the access-list and code-delegation baseline internally
+   * and delegates to {@link #transactionIntrinsicGasCost(Transaction, long)}, so the summing lives
+   * in one place rather than at every call site.
    *
    * @param transaction the transaction
-   * @return the transaction's regular intrinsic gas cost
+   * @return the transaction's intrinsic execution gas cost
    */
-  default long transactionIntrinsicRegularGas(final Transaction transaction) {
+  default long transactionIntrinsicExecutionGas(final Transaction transaction) {
     final long accessListGas = accessListGasCost(transaction.getAccessList().orElse(List.of()));
     final long codeDelegationGas = delegateCodeGasCost(transaction.codeDelegationListSize());
     return transactionIntrinsicGasCost(transaction, clampedAdd(accessListGas, codeDelegationGas));

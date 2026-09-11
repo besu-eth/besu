@@ -290,7 +290,7 @@ public class TxValues {
   }
 
   /**
-   * Returns the accumulated regular-gas refund counter.
+   * Returns the accumulated execution-gas refund counter.
    *
    * @return the gas refunds
    */

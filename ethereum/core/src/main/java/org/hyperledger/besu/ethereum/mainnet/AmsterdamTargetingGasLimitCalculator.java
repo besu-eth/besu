@@ -21,7 +21,7 @@ import java.util.OptionalInt;
 
 /**
  * EIP-8037: Amsterdam relaxes the EIP-7825 cap on {@code tx.gas} itself and instead caps {@code
- * max(intrinsic_regular, calldata_floor)} at the former cap value.
+ * max(intrinsic_execution, calldata_floor)} at the former cap value.
  */
 public class AmsterdamTargetingGasLimitCalculator extends OsakaTargetingGasLimitCalculator {
 

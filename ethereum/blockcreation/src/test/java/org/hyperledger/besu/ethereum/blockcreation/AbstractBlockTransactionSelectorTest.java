@@ -258,7 +258,7 @@ public abstract class AbstractBlockTransactionSelectorTest {
     assertThat(results.getSelectedTransactions()).isEmpty();
     assertThat(results.getNotSelectedTransactions()).isEmpty();
     assertThat(results.getReceipts()).isEmpty();
-    assertThat(results.getCumulativeRegularGasUsed()).isEqualTo(0);
+    assertThat(results.getCumulativeExecutionGasUsed()).isEqualTo(0);
   }
 
   @Test
@@ -284,7 +284,7 @@ public abstract class AbstractBlockTransactionSelectorTest {
     assertThat(results.getSelectedTransactions()).containsExactly(transaction);
     assertThat(results.getNotSelectedTransactions()).isEmpty();
     assertThat(results.getReceipts().size()).isEqualTo(1);
-    assertThat(results.getCumulativeRegularGasUsed()).isEqualTo(99995L);
+    assertThat(results.getCumulativeExecutionGasUsed()).isEqualTo(99995L);
   }
 
   @Test
@@ -312,7 +312,7 @@ public abstract class AbstractBlockTransactionSelectorTest {
     assertThat(results.getNotSelectedTransactions())
         .containsOnly(entry(transaction, TransactionSelectionResult.SELECTION_CANCELLED));
     assertThat(results.getReceipts().size()).isEqualTo(0);
-    assertThat(results.getCumulativeRegularGasUsed()).isEqualTo(0L);
+    assertThat(results.getCumulativeExecutionGasUsed()).isEqualTo(0L);
   }
 
   @Test
@@ -353,7 +353,7 @@ public abstract class AbstractBlockTransactionSelectorTest {
     assertThat(results.getSelectedTransactions().size()).isEqualTo(4);
     assertThat(results.getSelectedTransactions().contains(invalidTx)).isFalse();
     assertThat(results.getReceipts().size()).isEqualTo(4);
-    assertThat(results.getCumulativeRegularGasUsed()).isEqualTo(400_000);
+    assertThat(results.getCumulativeExecutionGasUsed()).isEqualTo(400_000);
   }
 
   @Test
@@ -386,7 +386,7 @@ public abstract class AbstractBlockTransactionSelectorTest {
     assertThat(results.getNotSelectedTransactions())
         .containsOnly(entry(transactionsToInject.get(3), TransactionSelectionResult.BLOCK_FULL));
     assertThat(results.getReceipts().size()).isEqualTo(3);
-    assertThat(results.getCumulativeRegularGasUsed()).isEqualTo(300_000);
+    assertThat(results.getCumulativeExecutionGasUsed()).isEqualTo(300_000);
 
     // Ensure receipts have the correct cumulative gas
     assertThat(results.getReceipts().get(0).getCumulativeGasUsed()).isEqualTo(100_000);
@@ -521,7 +521,7 @@ public abstract class AbstractBlockTransactionSelectorTest {
                 transactionsToInject.get(1),
                 TransactionSelectionResult.TX_TOO_LARGE_FOR_REMAINING_GAS),
             entry(transactionsToInject.get(4), TransactionSelectionResult.BLOCK_FULL));
-    assertThat(results.getCumulativeRegularGasUsed()).isEqualTo(blockHeader.getGasLimit());
+    assertThat(results.getCumulativeExecutionGasUsed()).isEqualTo(blockHeader.getGasLimit());
   }
 
   @Test
@@ -574,7 +574,7 @@ public abstract class AbstractBlockTransactionSelectorTest {
                 transactionsToInject.get(1),
                 TransactionSelectionResult.TX_TOO_LARGE_FOR_REMAINING_GAS),
             entry(transactionsToInject.get(3), TransactionSelectionResult.BLOCK_FULL));
-    assertThat(blockHeader.getGasLimit() - results.getCumulativeRegularGasUsed())
+    assertThat(blockHeader.getGasLimit() - results.getCumulativeExecutionGasUsed())
         .isLessThan(minTxGasCost);
   }
 
@@ -1474,7 +1474,7 @@ public abstract class AbstractBlockTransactionSelectorTest {
         .isTrue();
 
     assertThat(results.getReceipts().size()).isEqualTo(2);
-    assertThat(results.getCumulativeRegularGasUsed()).isEqualTo(200_000);
+    assertThat(results.getCumulativeExecutionGasUsed()).isEqualTo(200_000);
 
     // Ensure receipts have the correct cumulative gas
     assertThat(results.getReceipts().get(0).getCumulativeGasUsed()).isEqualTo(100_000);

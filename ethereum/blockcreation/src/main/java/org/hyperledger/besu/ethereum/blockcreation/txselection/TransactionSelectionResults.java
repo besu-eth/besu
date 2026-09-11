@@ -49,9 +49,9 @@ public class TransactionSelectionResults {
       new ConcurrentHashMap<>();
 
   // EIP-7778: Track two separate cumulative gas values
-  // cumulativeRegularGasUsed: For block gas limit enforcement (uses protocol-specific strategy)
+  // cumulativeExecutionGasUsed: For block gas limit enforcement (uses protocol-specific strategy)
   // cumulativeReceiptGasUsed: For receipt cumulativeGasUsed field (always post-refund)
-  private long cumulativeRegularGasUsed = 0;
+  private long cumulativeExecutionGasUsed = 0;
   private long cumulativeReceiptGasUsed = 0;
   // EIP-8037: Track cumulative state gas used for multidimensional gas metering
   private long cumulativeStateGasUsed = 0;
@@ -72,7 +72,7 @@ public class TransactionSelectionResults {
         .computeIfAbsent(transaction.getType(), type -> new ArrayList<>())
         .add(transaction);
     receipts.add(receipt);
-    cumulativeRegularGasUsed += blockGasUsed;
+    cumulativeExecutionGasUsed += blockGasUsed;
     cumulativeReceiptGasUsed += receiptGasUsed;
     cumulativeStateGasUsed += stateGasUsed;
     selectedTxsEvaluationTimeNanos += evaluationTimeNanos;
@@ -81,7 +81,7 @@ public class TransactionSelectionResults {
             "New selected transaction {}, total transactions {}, cumulative block gas {}, cumulative receipt gas {}, cumulative selection time {}ms")
         .addArgument(transaction::toTraceLog)
         .addArgument(selectedTransactions::size)
-        .addArgument(cumulativeRegularGasUsed)
+        .addArgument(cumulativeExecutionGasUsed)
         .addArgument(cumulativeReceiptGasUsed)
         .addArgument(() -> TimeUnit.NANOSECONDS.toMillis(selectedTxsEvaluationTimeNanos))
         .log();
@@ -104,8 +104,8 @@ public class TransactionSelectionResults {
     return receipts;
   }
 
-  public long getCumulativeRegularGasUsed() {
-    return cumulativeRegularGasUsed;
+  public long getCumulativeExecutionGasUsed() {
+    return cumulativeExecutionGasUsed;
   }
 
   public long getCumulativeReceiptGasUsed() {
@@ -157,7 +157,7 @@ public class TransactionSelectionResults {
       return false;
     }
     TransactionSelectionResults that = (TransactionSelectionResults) o;
-    return cumulativeRegularGasUsed == that.cumulativeRegularGasUsed
+    return cumulativeExecutionGasUsed == that.cumulativeExecutionGasUsed
         && cumulativeReceiptGasUsed == that.cumulativeReceiptGasUsed
         && cumulativeStateGasUsed == that.cumulativeStateGasUsed
         && selectedTransactions.equals(that.selectedTransactions)
@@ -171,14 +171,14 @@ public class TransactionSelectionResults {
         selectedTransactions,
         notSelectedTransactions,
         receipts,
-        cumulativeRegularGasUsed,
+        cumulativeExecutionGasUsed,
         cumulativeReceiptGasUsed,
         cumulativeStateGasUsed);
   }
 
   public String toTraceLog() {
-    return "cumulativeRegularGasUsed="
-        + cumulativeRegularGasUsed
+    return "cumulativeExecutionGasUsed="
+        + cumulativeExecutionGasUsed
         + ", cumulativeReceiptGasUsed="
         + cumulativeReceiptGasUsed
         + ", cumulativeStateGasUsed="

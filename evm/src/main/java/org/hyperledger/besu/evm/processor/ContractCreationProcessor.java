@@ -192,7 +192,7 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
       return;
     }
 
-    // Check and charge code deposit gas (regular gas) before state gas
+    // Check and charge code deposit gas (execution gas) before state gas
     final long depositFee = evm.getGasCalculator().codeDepositGasCost(contractCode.size());
     if (frame.getRemainingGas() < depositFee) {
       LOG.trace(

@@ -222,7 +222,7 @@ class SStoreOperationTest {
 
     // EIP-8037: state gas refund is credited directly to
     // state_gas_reservoir (not refund_counter, bypassing the 20% cap) and stateGasUsed is
-    // decremented. EIP-8038: the regular refund for 0→X→0 is the flat STORAGE_WRITE (10,000)
+    // decremented. EIP-8038: the execution-gas refund for 0→X→0 is the flat STORAGE_WRITE (10,000)
     // charged on the first change, refunded when the slot is restored to its original (zero) value;
     // it still goes via refund_counter.
     assertThat(frame.getGasRefund()).isEqualTo(10_000L);
@@ -297,7 +297,7 @@ class SStoreOperationTest {
             .address(address)
             .worldUpdater(txUpdater)
             .blockValues(new FakeBlockValues(1337))
-            // EIP-8038: the regular SSTORE cost for a cold 0->nonzero set is now 13,000
+            // EIP-8038: the execution-gas SSTORE cost for a cold 0->nonzero set is now 13,000
             // (2,900 cold access + 100 warm base + 10,000 STORAGE_WRITE), up from 5,000. The frame
             // must retain enough gas after that deduction to absorb the state-gas spill
             // (97,920 - 10,000 = 87,920), so initialGas is raised accordingly.
@@ -309,7 +309,7 @@ class SStoreOperationTest {
     final long gasBeforeSstore = frame.getRemainingGas();
 
     // SSTORE 0 -> nonzero: state gas demand exceeds the 10k reservoir, the excess must spill to
-    // regular gas.
+    // execution gas.
     frame.pushStackItem(UInt256.valueOf(42));
     frame.pushStackItem(UInt256.ONE);
     final OperationResult result = operation.execute(frame, null);
@@ -322,7 +322,7 @@ class SStoreOperationTest {
     assertThat(frame.getStateGasReservoir()).isEqualTo(0L);
     // Total state gas consumed
     assertThat(frame.getStateGasUsed()).isEqualTo(expectedStateGas);
-    // gasRemaining decreased by the spill amount only (regular SSTORE cost is deducted by the
+    // gasRemaining decreased by the spill amount only (execution-gas SSTORE cost is deducted by the
     // EVM after execute returns, not by the operation itself)
     final long expectedRemainingGas = gasBeforeSstore - expectedSpill;
     assertThat(frame.getRemainingGas()).isEqualTo(expectedRemainingGas);

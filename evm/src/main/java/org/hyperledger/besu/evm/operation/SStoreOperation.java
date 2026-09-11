@@ -114,8 +114,8 @@ public class SStoreOperation extends AbstractOperation {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 
-    // EIP-8037: Deduct regular gas before charging state gas (ordering requirement).
-    // State gas draws from the reservoir first, then from gasRemaining; deducting regular
+    // EIP-8037: Deduct execution gas before charging state gas (ordering requirement).
+    // State gas draws from the reservoir first, then from gasRemaining; deducting execution
     // gas first ensures the reservoir/gasRemaining split is correct.
     frame.decrementRemainingGas(cost);
 
@@ -148,7 +148,7 @@ public class SStoreOperation extends AbstractOperation {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 
-    // Add regular gas back — the EVM loop will deduct it via the OperationResult.
+    // Add execution gas back — the EVM loop will deduct it via the OperationResult.
     frame.incrementRemainingGas(cost);
 
     account.setStorageValue(key, newValue);
