@@ -347,7 +347,7 @@ public class DebugTraceBlockStreamer {
             transaction,
             result,
             step.getOperationTracer().getTraceFrames(),
-            Optional.empty(),
+            Optional.of(block),
             accessListTracker.getTouchedAccounts());
 
     return step.buildResult(transactionTrace);

@@ -85,11 +85,19 @@ public class CallTracer implements OperationTracer {
   /**
    * Instantiates a new Call tracer.
    *
+   * @param onlyTopCall whether to trace only the top-level call
+   */
+  public CallTracer(final boolean onlyTopCall) {
+    this.onlyTopCall = onlyTopCall;
+  }
+
+  /**
+   * Instantiates a new Call tracer.
+   *
    * @param traceOptions the trace options containing the tracer configuration
    */
   public CallTracer(final TraceOptions traceOptions) {
-    this.onlyTopCall =
-        Boolean.TRUE.equals(traceOptions.tracerConfig().getOrDefault("onlyTopCall", false));
+    this(Boolean.TRUE.equals(traceOptions.tracerConfig().getOrDefault("onlyTopCall", false)));
   }
 
   @Override
