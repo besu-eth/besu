@@ -652,7 +652,7 @@ public class Transaction
    *
    * @return the max up-front cost for the gas the transaction can use.
    */
-  private Wei getMaxUpfrontGasCost(final long blobGasPerBlock) {
+  public Wei getMaxUpfrontGasCost(final long blobGasPerBlock) {
     return getUpfrontGasCost(
         getMaxGasPrice(), getMaxFeePerBlobGas().orElse(Wei.ZERO), blobGasPerBlock);
   }

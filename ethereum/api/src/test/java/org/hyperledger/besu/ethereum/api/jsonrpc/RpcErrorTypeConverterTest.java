@@ -38,8 +38,8 @@ public class RpcErrorTypeConverterTest {
             RpcErrorType.INTRINSIC_GAS_EXCEEDS_LIMIT
           },
           {
-            TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE,
-            RpcErrorType.TRANSACTION_UPFRONT_COST_EXCEEDS_BALANCE
+            TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE,
+            RpcErrorType.TRANSACTION_UPFRONT_GAS_COST_EXCEEDS_BALANCE
           },
           {TransactionInvalidReason.EXCEEDS_BLOCK_GAS_LIMIT, RpcErrorType.EXCEEDS_BLOCK_GAS_LIMIT},
           {TransactionInvalidReason.WRONG_CHAIN_ID, RpcErrorType.WRONG_CHAIN_ID},

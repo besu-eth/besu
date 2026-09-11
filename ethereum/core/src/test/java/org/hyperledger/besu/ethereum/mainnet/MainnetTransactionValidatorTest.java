@@ -22,7 +22,7 @@ import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.GAS_PRICE_BELOW_CURRENT_BASE_FEE;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.INVALID_TRANSACTION_FORMAT;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.MAX_PRIORITY_FEE_PER_GAS_EXCEEDS_MAX_FEE_PER_GAS;
-import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE;
+import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
@@ -237,7 +237,8 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
         createTransactionValidator(
             gasCalculator, GasLimitCalculator.constant(), false, Optional.of(BigInteger.ONE));
     assertThat(validator.validateForSender(basicTransaction, null, processingBlockParams))
-        .isEqualTo(ValidationResult.invalid(TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE));
+        .isEqualTo(
+            ValidationResult.invalid(TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE));
   }
 
   @Test
@@ -364,7 +365,8 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
   static List<Arguments> transactionWithMaxFeeTimesGasLimitGreaterThanBalanceArguments =
       List.of(
           Arguments.of(
-              transactionSimulationParams, ValidationResult.invalid(UPFRONT_COST_EXCEEDS_BALANCE)),
+              transactionSimulationParams,
+              ValidationResult.invalid(UPFRONT_GAS_COST_EXCEEDS_BALANCE)),
           Arguments.of(transactionPoolParams, ValidationResult.valid()));
 
   @ParameterizedTest

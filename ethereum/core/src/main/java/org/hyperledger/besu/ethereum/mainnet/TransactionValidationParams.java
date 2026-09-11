@@ -78,7 +78,13 @@ public interface TransactionValidationParams {
   }
 
   /**
-   * Only applies to gas fee costs, value transfer is not affected
+   * When true, the sender is allowed to have an account balance insufficient to cover the
+   * transaction's gas fees: the upfront-gas-cost-vs-balance check is skipped, and the value
+   * transfer (if any) is validated against the full account balance instead of the balance net of
+   * gas costs. This does not allow the value transfer itself to exceed the sender's balance; that
+   * is still rejected, as {@code INSUFFICIENT_FUNDS_FOR_TRANSFER}, either at this validation step
+   * or, if gas costs end up consuming more of the balance than expected, when the transfer is
+   * attempted during simulation.
    *
    * @return false by default
    */
