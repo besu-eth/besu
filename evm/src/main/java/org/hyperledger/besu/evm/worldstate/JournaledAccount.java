@@ -320,18 +320,6 @@ public class JournaledAccount implements MutableAccount, Undoable {
   }
 
   /**
-   * Does this account have any storage slots that are set to non-zero values?
-   *
-   * @return true if the account has no storage values set to non-zero values. False if any storage
-   *     is set.
-   */
-  @Override
-  public boolean isStorageEmpty() {
-    return updatedStorage.isEmpty()
-        && (storageWasCleared || account == null || account.isStorageEmpty());
-  }
-
-  /**
    * Gets storage was cleared.
    *
    * @return boolean if storage was cleared

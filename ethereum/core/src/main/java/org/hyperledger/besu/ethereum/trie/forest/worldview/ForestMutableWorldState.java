@@ -338,18 +338,6 @@ public class ForestMutableWorldState implements MutableWorldState {
       return storageEntries;
     }
 
-    /**
-     * Does this account have any storage slots that are set to non-zero values?
-     *
-     * @return true if the account has no storage values set to non-zero values. False if any
-     *     storage is set.
-     */
-    @Override
-    public boolean isStorageEmpty() {
-      return Hash.EMPTY_TRIE_HASH.equals(
-          storageTrie == null ? getStorageRoot() : storageTrie.getRootHash());
-    }
-
     @Override
     public String toString() {
       final StringBuilder builder = new StringBuilder();

@@ -31,6 +31,9 @@
     "BlockException.INVALID_BAL_EXTRA_ACCOUNT":                  "Block access list validation failed for block",
     "BlockException.INVALID_BAL_MISSING_ACCOUNT":                "Block access list hash mismatch",
 
+    "_comment_tx_signature": "Transaction signature / replay protection errors",
+    "TransactionException.INVALID_CHAINID":                      "transaction invalid transaction was meant for chain id",
+
     "_comment_tx_gas": "Transaction gas/fee errors — rejected by MainnetTransactionValidator",
     "TransactionException.GASLIMIT_PRICE_PRODUCT_OVERFLOW":      "invalid Upfront gas cost cannot exceed 2^256 Wei",
     "TransactionException.GAS_ALLOWANCE_EXCEEDED":               "provided gas insufficient",
@@ -91,6 +94,9 @@
     "_comment_tx_nonce": "Transaction nonce errors",
     "TransactionException.NONCE_MISMATCH_TOO_HIGH":              "transaction invalid transaction nonce \\d+ does not match sender account nonce \\d+",
     "TransactionException.NONCE_MISMATCH_TOO_LOW":               "transaction invalid transaction nonce \\d+ below sender account nonce \\d+",
+
+    "_comment_tx_signature_regex": "Transaction signature errors — a signature whose s is at or beyond the curve order is rejected while decoding, a merely non-canonical one while validating",
+    "TransactionException.INVALID_SIGNATURE_VRS":                "Failed to decode transactions from block parameter|transaction invalid Signature s value should be less than \\d+, but got \\d+",
 
     "_comment_tx_sender": "Transaction sender errors",
     "TransactionException.SENDER_NOT_EOA":                       "transaction invalid Sender 0x[0-9a-f]+ has deployed code and so is not authorized to send transactions",

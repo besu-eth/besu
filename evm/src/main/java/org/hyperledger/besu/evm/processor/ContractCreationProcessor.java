@@ -119,9 +119,11 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
   }
 
   private static boolean accountExists(final Account account) {
-    // The account exists if it has sent a transaction
-    // or already has its code initialized.
-    return account.getNonce() != 0 || !account.getCode().isEmpty() || !account.isStorageEmpty();
+    // EIP-684: the account exists if it has sent a transaction or already has its code
+    // initialized. Non-empty storage is deliberately not a collision condition: EIP-7610 was
+    // declined for inclusion in Glamsterdam (EIP-7773) and the storage check has been dropped
+    // from the execution specs retroactively for every fork.
+    return account.getNonce() != 0 || !account.getCode().isEmpty();
   }
 
   @Override

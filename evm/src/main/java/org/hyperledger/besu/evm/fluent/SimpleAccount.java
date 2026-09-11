@@ -183,17 +183,6 @@ public class SimpleAccount implements MutableAccount {
     return storage;
   }
 
-  /**
-   * Does this account have any storage slots that are set to non-zero values?
-   *
-   * @return true if the account has no storage values set to non-zero values. False if any storage
-   *     is set.
-   */
-  @Override
-  public boolean isStorageEmpty() {
-    return storage.isEmpty();
-  }
-
   @Override
   public void becomeImmutable() {
     immutable = true;

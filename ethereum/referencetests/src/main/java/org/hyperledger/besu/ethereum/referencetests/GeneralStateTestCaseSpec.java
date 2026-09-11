@@ -19,6 +19,8 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
 import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
+import org.hyperledger.besu.ethereum.core.encoding.TransactionDecoder;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 
 import java.util.ArrayList;
@@ -32,6 +34,7 @@ import java.util.function.Supplier;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import org.apache.tuweni.bytes.Bytes;
 import org.jspecify.annotations.Nullable;
 
 /** A Transaction test case specification. */
@@ -73,7 +76,10 @@ public class GeneralStateTestCaseSpec {
                 .blockHeaderFunctions(MAINNET_FUNCTIONS)
                 .buildBlockHeader();
         final List<Supplier<Transaction>> txSupplierList =
-            List.of(() -> versionedTransaction.get(p.indexes));
+            List.of(
+                versionedTransaction.isSignable()
+                    ? () -> versionedTransaction.get(p.indexes)
+                    : () -> decodeRawTransaction(p.txBytes));
         specs.add(
             new GeneralStateTestCaseEipSpec(
                 eip,
@@ -90,6 +96,23 @@ public class GeneralStateTestCaseSpec {
       res.put(eip, specs);
     }
     return res;
+  }
+
+  /**
+   * Decodes the raw transaction bytes a post section carries. Used for the fixtures that describe a
+   * transaction which cannot be produced by signing, so no secret key is given. Bytes that do not
+   * decode at all are just as invalid a transaction as bytes that decode into one the validator
+   * rejects, so both end up as a null transaction that the test then expects to be rejected.
+   */
+  private static Transaction decodeRawTransaction(final Bytes txBytes) {
+    if (txBytes == null) {
+      return null;
+    }
+    try {
+      return TransactionDecoder.decodeOpaqueBytes(txBytes, EncodingContext.BLOCK_BODY);
+    } catch (final RuntimeException e) {
+      return null;
+    }
   }
 
   public Map<String, List<GeneralStateTestCaseEipSpec>> finalStateSpecs() {
@@ -139,6 +162,7 @@ public class GeneralStateTestCaseSpec {
     @Nullable private final Hash logsHash;
     private final Indexes indexes;
     private final String expectException;
+    @Nullable private final Bytes txBytes;
 
     @JsonCreator
     public PostSection(
@@ -146,11 +170,12 @@ public class GeneralStateTestCaseSpec {
         @JsonProperty("hash") final String hash,
         @JsonProperty("indexes") final Indexes indexes,
         @JsonProperty("logs") final String logs,
-        @JsonProperty("txbytes") final String txbytes) {
+        @JsonProperty("txbytes") final String txBytes) {
       this.rootHash = Hash.fromHexString(hash);
       this.logsHash = Optional.ofNullable(logs).map(Hash::fromHexString).orElse(null);
       this.indexes = indexes;
       this.expectException = expectException;
+      this.txBytes = Optional.ofNullable(txBytes).map(Bytes::fromHexString).orElse(null);
     }
   }
 }
