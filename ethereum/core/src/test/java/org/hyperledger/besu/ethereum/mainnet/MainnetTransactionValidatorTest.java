@@ -30,6 +30,7 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SECP256K1;
+import org.hyperledger.besu.crypto.SECPSignature;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
@@ -166,6 +167,24 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
                 transaction, Optional.empty(), Optional.empty(), transactionProcessingParams))
         .isEqualTo(
             ValidationResult.invalid(TransactionInvalidReason.INTRINSIC_GAS_EXCEEDS_GAS_LIMIT));
+  }
+
+  @Test
+  public void shouldRejectTransactionWithIllegalStateExceptionAsInvalidSignature() {
+    final TransactionValidator validator =
+        createTransactionValidator(
+            gasCalculator, GasLimitCalculator.constant(), false, Optional.of(BigInteger.ONE));
+
+    final Transaction transaction = mock(Transaction.class);
+    final SECPSignature signature = new SECPSignature(BigInteger.ONE, BigInteger.ONE, (byte) 0);
+    when(transaction.getChainId()).thenReturn(Optional.of(BigInteger.ONE));
+    when(transaction.getSignature()).thenReturn(signature);
+    when(transaction.getSender()).thenThrow(new IllegalStateException("key recovery returned empty"));
+
+    assertThat(
+            validator.validate(
+                transaction, Optional.empty(), Optional.empty(), transactionProcessingParams))
+        .isEqualTo(ValidationResult.invalid(TransactionInvalidReason.INVALID_SIGNATURE));
   }
 
   @Test
