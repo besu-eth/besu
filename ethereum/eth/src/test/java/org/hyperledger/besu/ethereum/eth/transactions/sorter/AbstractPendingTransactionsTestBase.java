@@ -418,7 +418,8 @@ public abstract class AbstractPendingTransactionsTestBase {
                         Function.identity(),
                         pt ->
                             TransactionSelectionResult.invalid(
-                                TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE.name()))));
+                                TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE
+                                    .name()))));
 
     assertThat(transactions.size()).isZero();
   }

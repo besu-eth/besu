@@ -252,6 +252,55 @@ class MainnetTransactionProcessorTest {
         .isEqualTo(expectedValidationParams);
   }
 
+  @Test
+  void shouldReturnInsufficientFundsForTransferWhenValueTransferUnderflowsDuringSimulation() {
+    // Reproduces the eth_estimateGas crash where the upfront gas cost is affordable (so the
+    // gas deduction in this class does not underflow) but the value transfer performed later,
+    // deep inside message processing, cannot be covered by what remains of the sender balance.
+    Optional<Address> toAddress =
+        Optional.of(Address.fromHexString("0x2222222222222222222222222222222222222222"));
+    Address senderAddress = Address.fromHexString("0x5555555555555555555555555555555555555555");
+    Address coinbaseAddress = Address.fromHexString("0x4242424242424242424242424242424242424242");
+
+    when(transaction.getType()).thenReturn(TransactionType.EIP1559);
+    when(transaction.getTo()).thenReturn(toAddress);
+    when(transaction.getPayload()).thenReturn(Bytes.EMPTY);
+    when(transaction.getGasLimit()).thenReturn(100_000L);
+    when(transaction.getSender()).thenReturn(senderAddress);
+    when(transaction.getValue()).thenReturn(Wei.of(90));
+    when(transactionValidatorFactory.get().validate(any(), any(), any(), any()))
+        .thenReturn(ValidationResult.valid());
+    when(transactionValidatorFactory.get().validateForSender(any(), any(), any()))
+        .thenReturn(ValidationResult.valid());
+    when(worldState.getOrCreateSenderAccount(senderAddress)).thenReturn(senderAccount);
+    when(worldState.get(toAddress.get())).thenReturn(receiverAccount);
+    when(worldState.updater()).thenReturn(worldState);
+    doAnswer(
+            invocation -> {
+              throw new MutableAccount.BalanceUnderflowException(
+                  String.format(
+                      "Cannot remove %s wei from account, balance is only %s",
+                      Wei.of(90), Wei.of(80)));
+            })
+        .when(messageCallProcessor)
+        .process(any(), any());
+
+    var transactionProcessor = createTransactionProcessor(true);
+    final var result =
+        transactionProcessor.processTransaction(
+            worldState,
+            blockHeader,
+            transaction,
+            coinbaseAddress,
+            blockHashLookup,
+            ImmutableTransactionValidationParams.builder().allowUnderpricedGas(true).build(),
+            Wei.ZERO);
+
+    assertThat(result.isInvalid()).isTrue();
+    assertThat(result.getValidationResult().getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.INSUFFICIENT_FUNDS_FOR_TRANSFER);
+  }
+
   private ArgumentCaptor<TransactionValidationParams> transactionValidationParamCaptor() {
     final ArgumentCaptor<TransactionValidationParams> txValidationParamCaptor =
         ArgumentCaptor.forClass(TransactionValidationParams.class);

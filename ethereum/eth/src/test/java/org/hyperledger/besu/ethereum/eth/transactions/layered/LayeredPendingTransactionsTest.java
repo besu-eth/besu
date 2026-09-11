@@ -27,7 +27,7 @@ import static org.hyperledger.besu.ethereum.eth.transactions.layered.LayeredRemo
 import static org.hyperledger.besu.ethereum.eth.transactions.layered.LayeredRemovalReason.PoolRemovalReason.INVALIDATED;
 import static org.hyperledger.besu.ethereum.eth.transactions.layered.LayeredRemovalReason.PoolRemovalReason.REPLACED;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.GAS_PRICE_BELOW_CURRENT_BASE_FEE;
-import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE;
+import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE;
 import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.SELECTED;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -487,7 +487,8 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
         pendingTxs -> {
           assertThat(pendingTxs).containsExactly(pendingTx0);
           return Map.of(
-              pendingTx0, TransactionSelectionResult.invalid(UPFRONT_COST_EXCEEDS_BALANCE.name()));
+              pendingTx0,
+              TransactionSelectionResult.invalid(UPFRONT_GAS_COST_EXCEEDS_BALANCE.name()));
         });
 
     // assert that first tx is removed from the pool

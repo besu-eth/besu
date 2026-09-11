@@ -143,7 +143,7 @@ public class EthEstimateGasIntegrationTest {
 
     final JsonRpcRequestContext request = requestWithParams(callParameter);
     final JsonRpcResponse expectedResponse =
-        new JsonRpcErrorResponse(null, RpcErrorType.TRANSACTION_UPFRONT_COST_EXCEEDS_BALANCE);
+        new JsonRpcErrorResponse(null, RpcErrorType.TRANSACTION_UPFRONT_GAS_COST_EXCEEDS_BALANCE);
 
     final JsonRpcResponse response = method.response(request);
     assertThat(response).usingRecursiveComparison().isEqualTo(expectedResponse);

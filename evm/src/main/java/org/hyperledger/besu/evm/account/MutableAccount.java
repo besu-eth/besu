@@ -36,7 +36,7 @@ public interface MutableAccount extends Account {
   }
 
   /**
-   * Sets the nonce of this account to the provide value.
+   * Sets the nonce of this account to the provided value.
    *
    * @param value the value to set the nonce to.
    */
@@ -60,12 +60,12 @@ public interface MutableAccount extends Account {
    * @param value The amount to decrement
    * @return the previous balance (before decrement). The account must have enough funds or an
    *     exception is thrown.
-   * @throws IllegalStateException if the account balance is strictly less than {@code value}.
+   * @throws BalanceUnderflowException if the account balance is strictly less than {@code value}.
    */
   default Wei decrementBalance(final Wei value) {
     final Wei current = getBalance();
     if (current.compareTo(value) < 0) {
-      throw new IllegalStateException(
+      throw new BalanceUnderflowException(
           String.format("Cannot remove %s wei from account, balance is only %s", value, current));
     }
     setBalance(current.subtract(value));
@@ -110,4 +110,20 @@ public interface MutableAccount extends Account {
    * Make this instance immutable. Used for private world state interactions with public contracts.
    */
   void becomeImmutable();
+
+  /**
+   * Exception thrown to indicate an attempt to decrement an account balance below the available
+   * value.
+   */
+  class BalanceUnderflowException extends IllegalStateException {
+    /**
+     * Constructs a new BalanceUnderflowException to indicate an attempt to decrement an account
+     * balance below the available value.
+     *
+     * @param message A detailed message describing the reason for the exception.
+     */
+    public BalanceUnderflowException(final String message) {
+      super(message);
+    }
+  }
 }
