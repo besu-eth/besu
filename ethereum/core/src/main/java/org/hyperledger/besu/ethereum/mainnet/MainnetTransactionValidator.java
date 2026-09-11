@@ -377,7 +377,7 @@ public class MainnetTransactionValidator implements TransactionValidator {
     // IllegalArgumentException for "Invalid point compression" for bad signatures.
     try {
       transaction.getSender();
-    } catch (final IllegalArgumentException e) {
+    } catch (final IllegalArgumentException | IllegalStateException e) {
       return ValidationResult.invalid(
           TransactionInvalidReason.INVALID_SIGNATURE,
           "sender could not be extracted from transaction signature");
