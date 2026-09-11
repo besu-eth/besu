@@ -17,7 +17,6 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 import java.util.Map;
 
 import com.fasterxml.jackson.annotation.JsonValue;
-import org.jspecify.annotations.NonNull;
 
 /**
  * Represents the result format for Ethereum's 4byteTracer as specified in the Geth documentation.
@@ -43,4 +42,8 @@ import org.jspecify.annotations.NonNull;
  *     href="https://geth.ethereum.org/docs/developers/evm-tracing/built-in-tracers#4byte-tracer">
  *     Geth 4byteTracer Documentation</a>
  */
-public record FourByteTracerResult(@JsonValue @NonNull Map<String, Integer> selectorCounts) {}
+public record FourByteTracerResult(@JsonValue Map<String, Integer> selectorCounts) {
+  public FourByteTracerResult(final Map<String, Integer> selectorCounts) {
+    this.selectorCounts = selectorCounts == null ? Map.of() : selectorCounts;
+  }
+}
