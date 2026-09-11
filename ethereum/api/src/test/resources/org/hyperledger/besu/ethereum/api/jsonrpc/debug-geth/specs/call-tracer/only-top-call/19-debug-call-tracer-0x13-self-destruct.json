@@ -1,0 +1,98 @@
+{
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "debug_traceBlockByNumber",
+    "params": [
+      "0x13",
+      {
+        "tracer": "callTracer",
+        "tracerConfig": {
+          "onlyTopCall": true
+        }
+      }
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": [
+      {
+        "txHash": "0x19c45aa6439f878b264ab055e055eb2a776ae954a05c87aba9960eaf99a84908",
+        "result": {
+          "from": "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+          "gas": "0xfffff2",
+          "gasUsed": "0xd31e",
+          "to": "0x8f0483125fcb9aaaefa9209d8e9d7b9c8b9fb90f",
+          "input": "0x6004600c60003960046000f3600035ff",
+          "output": "0x600035ff",
+          "value": "0x0",
+          "type": "CREATE"
+        }
+      },
+      {
+        "txHash": "0x98495096b07bb76ad0449e8a9b684f4791ab2b07ee6d57165a5dc410a410abca",
+        "result": {
+          "from": "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+          "gas": "0xfffff2",
+          "gasUsed": "0x1070b",
+          "to": "0x9fbda871d559710256a2502a2517b794b482db40",
+          "input": "0x60006000600060006000738f0483125fcb9aaaefa9209d8e9d7b9c8b9fb90f5af1600060006000600060007300a00000000000000000000000000000000000005af1",
+          "value": "0x0",
+          "type": "CREATE"
+        }
+      },
+      {
+        "txHash": "0x352bd56f213c80ebe0b9b17a228534c23794d57b3a50a302a361bdf439a9df55",
+        "result": {
+          "from": "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+          "gas": "0xfffff2",
+          "gasUsed": "0xd31e",
+          "to": "0x2c2b9c9a4a25e24b174f26114e8926a9f2128fe4",
+          "input": "0x6004600c60003960046000f3600035ff",
+          "output": "0x600035ff",
+          "value": "0x0",
+          "type": "CREATE"
+        }
+      },
+      {
+        "txHash": "0x13d41c773c2edc78e6e8400767f70a18d0779329b0adbef5b15bc931eb30598a",
+        "result": {
+          "from": "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+          "gas": "0xfffff2",
+          "gasUsed": "0x1070b",
+          "to": "0x30753e4a8aad7f8597332e813735def5dd395028",
+          "input": "0x60006000600060006000732c2b9c9a4a25e24b174f26114e8926a9f2128fe45af2600060006000600060007300a00000000000000000000000000000000000005af2",
+          "value": "0x0",
+          "type": "CREATE"
+        }
+      },
+      {
+        "txHash": "0x88bf37661d67e7d2e25a436ce6461044d13afe4e19a45c8099ff7cd2dce4c1bd",
+        "result": {
+          "from": "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+          "gas": "0xfffff2",
+          "gasUsed": "0xd31e",
+          "to": "0xfb88de099e13c3ed21f80a7a1e49f8caecf10df6",
+          "input": "0x6004600c60003960046000f3600035ff",
+          "output": "0x600035ff",
+          "value": "0x0",
+          "type": "CREATE"
+        }
+      },
+      {
+        "txHash": "0x48a26d1ec46089754838aa7380823a507b76752e955a4b5ec2d54328d5d72879",
+        "result": {
+          "from": "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+          "gas": "0xfffff2",
+          "gasUsed": "0x106db",
+          "to": "0xaa588d3737b611bafd7bd713445b314bd453a5c8",
+          "input": "0x600060006000600073fb88de099e13c3ed21f80a7a1e49f8caecf10df65af460006000600060007300a00000000000000000000000000000000000005af4",
+          "value": "0x0",
+          "type": "CREATE"
+        }
+      }
+    ]
+  },
+  "statusCode": 200
+}
