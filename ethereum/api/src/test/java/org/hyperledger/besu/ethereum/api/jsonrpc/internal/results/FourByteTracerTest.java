@@ -20,7 +20,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.datatypes.Transaction;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.precompile.PrecompileContractRegistry;
 import org.hyperledger.besu.evm.precompile.PrecompiledContract;
@@ -108,26 +107,6 @@ class FourByteTracerTest {
     tracer.traceContextEnter(frame);
 
     assertThat(tracer.buildResult().selectorCounts()).isEmpty();
-  }
-
-  @Test
-  void resetsBetweenTransactions() {
-    final MessageFrame frame =
-        mockFrame(
-            MessageFrame.Type.MESSAGE_CALL,
-            Address.fromHexString("0x1111"),
-            Bytes.concatenate(Bytes.fromHexString("0x12345678"), Bytes.repeat((byte) 0x00, 32)));
-
-    tracer.traceContextEnter(frame);
-
-    final FourByteTracerResult firstResult = tracer.buildResult();
-    assertThat(firstResult.selectorCounts()).hasSize(1);
-
-    tracer.traceStartTransaction(null, mock(Transaction.class));
-
-    final FourByteTracerResult secondResult = tracer.buildResult();
-    assertThat(secondResult.selectorCounts()).isEmpty();
-    assertThat(firstResult.selectorCounts()).hasSize(1);
   }
 
   @Test

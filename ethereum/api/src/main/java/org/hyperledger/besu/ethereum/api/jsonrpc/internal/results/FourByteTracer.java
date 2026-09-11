@@ -14,12 +14,11 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
-import org.hyperledger.besu.datatypes.Transaction;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.precompile.PrecompileContractRegistry;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
-import org.hyperledger.besu.evm.worldstate.WorldView;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -32,9 +31,7 @@ import org.apache.tuweni.bytes.Bytes;
  * <p>Collects function selectors (the first 4 bytes of call data) from all non-precompile message
  * calls entered during transaction execution, along with the size of the remaining call data.
  *
- * <p>One instance traces exactly one transaction and is not thread-safe; {@link
- * #traceStartTransaction} resets all per-transaction state so an instance may be reused
- * sequentially, matching {@code DebugOperationTracer.reset()} semantics.
+ * <p>One instance traces exactly one transaction and is not thread-safe.
  *
  * @see <a
  *     href="https://geth.ethereum.org/docs/developers/evm-tracing/built-in-tracers#4byte-tracer">
@@ -45,15 +42,10 @@ public class FourByteTracer implements OperationTracer {
   private static final int FUNCTION_SELECTOR_LENGTH = 4;
 
   private final PrecompileContractRegistry precompiles;
-  private final Map<String, Integer> selectorCounts = new TreeMap<>();
+  private final Map<String, Integer> selectorCounts = new HashMap<>();
 
   public FourByteTracer(final PrecompileContractRegistry precompiles) {
     this.precompiles = precompiles;
-  }
-
-  @Override
-  public void traceStartTransaction(final WorldView worldView, final Transaction transaction) {
-    selectorCounts.clear();
   }
 
   @Override
