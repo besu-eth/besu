@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.methods.WebSocketMeth
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.SubscriptionManager;
 import org.hyperledger.besu.ethereum.api.util.TestJsonRpcMethodsUtil;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
+import org.hyperledger.besu.metrics.StubMetricsSystem;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.util.Arrays;
@@ -68,6 +69,7 @@ public class WebSocketServiceTest {
   private WebSocketMessageHandler webSocketMessageHandlerSpy;
   private Map<String, JsonRpcMethod> websocketMethods;
   private WebSocketService websocketService;
+  private StubMetricsSystem metricsSystem;
   private HttpClient httpClient;
   private WebSocketClient webSocketClient;
   private final int maxConnections = 5;
@@ -77,6 +79,7 @@ public class WebSocketServiceTest {
   public void before() {
     vertx = Vertx.vertx();
     testContext = new VertxTestContext();
+    metricsSystem = new StubMetricsSystem();
 
     websocketConfiguration = WebSocketConfiguration.createDefault();
     websocketConfiguration.setPort(0);
@@ -120,7 +123,7 @@ public class WebSocketServiceTest {
 
     websocketService =
         new WebSocketService(
-            vertx, websocketConfiguration, webSocketMessageHandlerSpy, new NoOpMetricsSystem());
+            vertx, websocketConfiguration, webSocketMessageHandlerSpy, metricsSystem);
     websocketService.start().join();
   }
 
@@ -170,6 +173,10 @@ public class WebSocketServiceTest {
     rejectionLatch.await(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
     assertThat(successLatch.getCount()).isEqualTo(0);
     assertThat(rejectionLatch.getCount()).isEqualTo(0);
+
+    assertThat(metricsSystem.getGaugeValue("active_ws_connection_count"))
+        .as("rejected connections should not increase the active connection count")
+        .isEqualTo(maxConnections);
   }
 
   @Test
