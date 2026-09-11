@@ -18,6 +18,7 @@ import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcApis;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.testing.TestingBuildBlockV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.testing.TestingCommitBlockV1;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
@@ -59,6 +60,8 @@ public class TestingJsonRpcMethods extends ApiGroupJsonRpcMethods {
   protected Map<String, JsonRpcMethod> create() {
     return mapOf(
         new TestingBuildBlockV1(
+            protocolContext, protocolSchedule, miningConfiguration, transactionPool, ethScheduler),
+        new TestingCommitBlockV1(
             protocolContext, protocolSchedule, miningConfiguration, transactionPool, ethScheduler));
   }
 }
