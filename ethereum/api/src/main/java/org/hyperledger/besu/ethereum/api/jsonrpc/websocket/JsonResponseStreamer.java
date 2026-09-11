@@ -18,6 +18,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.StreamBackpressure;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.channels.ClosedChannelException;
 import java.util.concurrent.atomic.AtomicReference;
 
 import io.vertx.core.buffer.Buffer;
@@ -58,7 +59,7 @@ class JsonResponseStreamer extends OutputStream {
     stopOnFailureOrClosed();
 
     if (buffer != EMPTY_BUFFER) {
-      StreamBackpressure.awaitDrain(response);
+      StreamBackpressure.awaitDrain(response, this::stopOnFailureOrClosed);
       writeFrame(buffer, false);
     }
     Buffer buf = Buffer.buffer(len);
@@ -88,6 +89,12 @@ class JsonResponseStreamer extends OutputStream {
     }
   }
 
+  /**
+   * Guards both the next write and a thread blocked on backpressure. The original failure is
+   * rethrown as-is so a write error stays distinguishable from a client that hung up.
+   *
+   * @throws IOException if writing should be abandoned
+   */
   private void stopOnFailureOrClosed() throws IOException {
     if (closed) {
       throw new IOException("Stream closed");
@@ -97,6 +104,10 @@ class JsonResponseStreamer extends OutputStream {
     if (t != null) {
       LOG.debug("Stop writing to remote address {} due to a failure", response.remoteAddress(), t);
       throw (t instanceof IOException ioException) ? ioException : new IOException(t);
+    }
+
+    if (response.isClosed()) {
+      throw new ClosedChannelException();
     }
   }
 
