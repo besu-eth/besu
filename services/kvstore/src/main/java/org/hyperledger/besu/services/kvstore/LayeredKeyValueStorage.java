@@ -38,7 +38,6 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
-import com.google.common.collect.Streams;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.tuweni.bytes.Bytes;
 import org.slf4j.Logger;
@@ -220,14 +219,16 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
 
     PeekingIterator<Map.Entry<Bytes, Optional<byte[]>>> ourIterator =
         new PeekingIterator<>(ourLayerState.entrySet().stream().iterator());
+    final Stream<Pair<byte[], byte[]>> parentStream = parent.stream(segmentId);
     PeekingIterator<Pair<byte[], byte[]>> parentIterator =
-        new PeekingIterator<>(parent.stream(segmentId).iterator());
+        new PeekingIterator<>(parentStream.iterator());
 
     return StreamSupport.stream(
             Spliterators.spliteratorUnknownSize(
                 new LayeredIterator(ourIterator, parentIterator), ORDERED | SORTED | DISTINCT),
             false)
-        .filter(e -> e.getValue() != null);
+        .filter(e -> e.getValue() != null)
+        .onClose(parentStream::close);
   }
 
   private static class LayeredIterator implements Iterator<Pair<byte[], byte[]>> {
@@ -304,12 +305,11 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
               .map(HashMap::new)
               .orElse(new HashMap<>());
 
-      return Streams.concat(
+      // Use Stream.concat (not Guava's Streams.concat) so close() propagates to the parent stream.
+      return Stream.concat(
           ourLayerState.entrySet().stream()
               .filter(entry -> entry.getValue().isPresent())
-              .map(bytesEntry -> bytesEntry.getKey().toArrayUnsafe())
-          // since we are layered, concat a parent stream filtered by our map entries:
-          ,
+              .map(bytesEntry -> bytesEntry.getKey().toArrayUnsafe()),
           parent.streamKeys(segmentId).filter(e -> !ourLayerState.containsKey(Bytes.of(e))));
 
     } finally {

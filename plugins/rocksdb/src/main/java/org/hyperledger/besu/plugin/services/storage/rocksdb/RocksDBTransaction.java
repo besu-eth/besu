@@ -19,6 +19,7 @@ import org.hyperledger.besu.plugin.services.metrics.OperationTimer;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 
+import java.util.concurrent.locks.ReadWriteLock;
 import java.util.function.Function;
 
 import org.rocksdb.ColumnFamilyHandle;
@@ -39,6 +40,7 @@ public class RocksDBTransaction implements SegmentedKeyValueStorageTransaction {
   private final Transaction innerTx;
   private final WriteOptions options;
   private final Function<SegmentIdentifier, ColumnFamilyHandle> columnFamilyMapper;
+  private final ReadWriteLock columnFamilyResetLock;
 
   /**
    * Instantiates a new RocksDb transaction.
@@ -52,15 +54,18 @@ public class RocksDBTransaction implements SegmentedKeyValueStorageTransaction {
       final Function<SegmentIdentifier, ColumnFamilyHandle> columnFamilyMapper,
       final Transaction innerTx,
       final WriteOptions options,
-      final RocksDBMetrics metrics) {
+      final RocksDBMetrics metrics,
+      final ReadWriteLock columnFamilyResetLock) {
     this.columnFamilyMapper = columnFamilyMapper;
     this.innerTx = innerTx;
     this.options = options;
     this.metrics = metrics;
+    this.columnFamilyResetLock = columnFamilyResetLock;
   }
 
   @Override
   public void put(final SegmentIdentifier segmentId, final byte[] key, final byte[] value) {
+    columnFamilyResetLock.readLock().lock();
     try (final OperationTimer.TimingContext ignored = metrics.getWriteLatency().startTimer()) {
       innerTx.put(columnFamilyMapper.apply(segmentId), key, value);
     } catch (final RocksDBException e) {
@@ -69,11 +74,14 @@ public class RocksDBTransaction implements SegmentedKeyValueStorageTransaction {
         System.exit(DISK_FULL_EXIT_CODE);
       }
       throw new StorageException(e);
+    } finally {
+      columnFamilyResetLock.readLock().unlock();
     }
   }
 
   @Override
   public void remove(final SegmentIdentifier segmentId, final byte[] key) {
+    columnFamilyResetLock.readLock().lock();
     try (final OperationTimer.TimingContext ignored = metrics.getRemoveLatency().startTimer()) {
       innerTx.delete(columnFamilyMapper.apply(segmentId), key);
     } catch (final RocksDBException e) {
@@ -82,6 +90,8 @@ public class RocksDBTransaction implements SegmentedKeyValueStorageTransaction {
         System.exit(DISK_FULL_EXIT_CODE);
       }
       throw new StorageException(e);
+    } finally {
+      columnFamilyResetLock.readLock().unlock();
     }
   }
 

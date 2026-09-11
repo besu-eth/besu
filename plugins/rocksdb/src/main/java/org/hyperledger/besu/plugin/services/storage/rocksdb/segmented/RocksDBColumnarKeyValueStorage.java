@@ -37,6 +37,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -97,6 +99,14 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
 
   /** atomic boolean to track if the storage is closed */
   protected final AtomicBoolean closed = new AtomicBoolean(false);
+
+  /**
+   * Guards column-family handle lifecycle. All operations that load and use a ColumnFamilyHandle
+   * across a JNI boundary hold the read lock for the duration of that call. clear() holds the write
+   * lock while reset() drops, recreates, and closes the old native handle — ensuring no in-flight
+   * reader holds a stale pointer when the native object is freed.
+   */
+  protected final ReadWriteLock columnFamilyResetLock = new ReentrantReadWriteLock();
 
   private final WriteOptions tryDeleteOptions =
       new WriteOptions().setNoSlowdown(true).setIgnoreMissingColumnFamilies(true);
@@ -423,10 +433,13 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
       throws StorageException {
     throwIfClosed();
 
+    columnFamilyResetLock.readLock().lock();
     try (final OperationTimer.TimingContext ignored = metrics.getReadLatency().startTimer()) {
       return Optional.ofNullable(getDB().get(safeColumnHandle(segment), readOptions, key));
     } catch (final RocksDBException e) {
       throw new StorageException(e);
+    } finally {
+      columnFamilyResetLock.readLock().unlock();
     }
   }
 
@@ -434,12 +447,15 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   public Optional<NearestKeyValue> getNearestBefore(
       final SegmentIdentifier segmentIdentifier, final Bytes key) throws StorageException {
 
+    columnFamilyResetLock.readLock().lock();
     try (final RocksIterator rocksIterator =
         getDB().newIterator(safeColumnHandle(segmentIdentifier))) {
       rocksIterator.seekForPrev(key.toArrayUnsafe());
       return Optional.of(rocksIterator)
           .filter(AbstractRocksIterator::isValid)
           .map(it -> new NearestKeyValue(Bytes.of(it.key()), Optional.of(it.value())));
+    } finally {
+      columnFamilyResetLock.readLock().unlock();
     }
   }
 
@@ -447,50 +463,85 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   public Optional<NearestKeyValue> getNearestAfter(
       final SegmentIdentifier segmentIdentifier, final Bytes key) throws StorageException {
 
+    columnFamilyResetLock.readLock().lock();
     try (final RocksIterator rocksIterator =
         getDB().newIterator(safeColumnHandle(segmentIdentifier))) {
       rocksIterator.seek(key.toArrayUnsafe());
       return Optional.of(rocksIterator)
           .filter(AbstractRocksIterator::isValid)
           .map(it -> new NearestKeyValue(Bytes.of(it.key()), Optional.of(it.value())));
+    } finally {
+      columnFamilyResetLock.readLock().unlock();
     }
   }
 
   @Override
   public Stream<Pair<byte[], byte[]>> stream(final SegmentIdentifier segmentIdentifier) {
-    final RocksIterator rocksIterator = getDB().newIterator(safeColumnHandle(segmentIdentifier));
-    rocksIterator.seekToFirst();
-    return RocksDbIterator.create(rocksIterator).toStream();
+    columnFamilyResetLock.readLock().lock();
+    try {
+      final RocksIterator rocksIterator = getDB().newIterator(safeColumnHandle(segmentIdentifier));
+      rocksIterator.seekToFirst();
+      return RocksDbIterator.create(rocksIterator)
+          .toStream()
+          .onClose(columnFamilyResetLock.readLock()::unlock);
+    } catch (final Exception e) {
+      columnFamilyResetLock.readLock().unlock();
+      throw e;
+    }
   }
 
   @Override
   public Stream<Pair<byte[], byte[]>> streamFromKey(
       final SegmentIdentifier segmentIdentifier, final byte[] startKey) {
-    final RocksIterator rocksIterator = getDB().newIterator(safeColumnHandle(segmentIdentifier));
-    rocksIterator.seek(startKey);
-    return RocksDbIterator.create(rocksIterator).toStream();
+    columnFamilyResetLock.readLock().lock();
+    try {
+      final RocksIterator rocksIterator = getDB().newIterator(safeColumnHandle(segmentIdentifier));
+      rocksIterator.seek(startKey);
+      return RocksDbIterator.create(rocksIterator)
+          .toStream()
+          .onClose(columnFamilyResetLock.readLock()::unlock);
+    } catch (final Exception e) {
+      columnFamilyResetLock.readLock().unlock();
+      throw e;
+    }
   }
 
   @Override
   public Stream<Pair<byte[], byte[]>> streamFromKey(
       final SegmentIdentifier segmentIdentifier, final byte[] startKey, final byte[] endKey) {
     final Bytes endKeyBytes = Bytes.wrap(endKey);
-    final RocksIterator rocksIterator = getDB().newIterator(safeColumnHandle(segmentIdentifier));
-    rocksIterator.seek(startKey);
-    return RocksDbIterator.create(rocksIterator)
-        .toStream()
-        .takeWhile(e -> endKeyBytes.compareTo(Bytes.wrap(e.getKey())) >= 0);
+    columnFamilyResetLock.readLock().lock();
+    try {
+      final RocksIterator rocksIterator = getDB().newIterator(safeColumnHandle(segmentIdentifier));
+      rocksIterator.seek(startKey);
+      return RocksDbIterator.create(rocksIterator)
+          .toStream()
+          .takeWhile(e -> endKeyBytes.compareTo(Bytes.wrap(e.getKey())) >= 0)
+          .onClose(columnFamilyResetLock.readLock()::unlock);
+    } catch (final Exception e) {
+      columnFamilyResetLock.readLock().unlock();
+      throw e;
+    }
   }
 
   @Override
   public Stream<byte[]> streamKeys(final SegmentIdentifier segmentIdentifier) {
-    final RocksIterator rocksIterator = getDB().newIterator(safeColumnHandle(segmentIdentifier));
-    rocksIterator.seekToFirst();
-    return RocksDbIterator.create(rocksIterator).toStreamKeys();
+    columnFamilyResetLock.readLock().lock();
+    try {
+      final RocksIterator rocksIterator = getDB().newIterator(safeColumnHandle(segmentIdentifier));
+      rocksIterator.seekToFirst();
+      return RocksDbIterator.create(rocksIterator)
+          .toStreamKeys()
+          .onClose(columnFamilyResetLock.readLock()::unlock);
+    } catch (final Exception e) {
+      columnFamilyResetLock.readLock().unlock();
+      throw e;
+    }
   }
 
   @Override
   public boolean tryDelete(final SegmentIdentifier segmentIdentifier, final byte[] key) {
+    columnFamilyResetLock.readLock().lock();
     try {
       getDB().delete(safeColumnHandle(segmentIdentifier), tryDeleteOptions, key);
       return true;
@@ -500,31 +551,40 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
       } else {
         throw new StorageException(e);
       }
+    } finally {
+      columnFamilyResetLock.readLock().unlock();
     }
   }
 
   @Override
   public Set<byte[]> getAllKeysThat(
       final SegmentIdentifier segmentIdentifier, final Predicate<byte[]> returnCondition) {
-    return stream(segmentIdentifier)
-        .filter(pair -> returnCondition.test(pair.getKey()))
-        .map(Pair::getKey)
-        .collect(toUnmodifiableSet());
+    try (final Stream<Pair<byte[], byte[]>> s = stream(segmentIdentifier)) {
+      return s.filter(pair -> returnCondition.test(pair.getKey()))
+          .map(Pair::getKey)
+          .collect(toUnmodifiableSet());
+    }
   }
 
   @Override
   public Set<byte[]> getAllValuesFromKeysThat(
       final SegmentIdentifier segmentIdentifier, final Predicate<byte[]> returnCondition) {
-    return stream(segmentIdentifier)
-        .filter(pair -> returnCondition.test(pair.getKey()))
-        .map(Pair::getValue)
-        .collect(toUnmodifiableSet());
+    try (final Stream<Pair<byte[], byte[]>> s = stream(segmentIdentifier)) {
+      return s.filter(pair -> returnCondition.test(pair.getKey()))
+          .map(Pair::getValue)
+          .collect(toUnmodifiableSet());
+    }
   }
 
   @Override
   public void clear(final SegmentIdentifier segmentIdentifier) {
-    Optional.ofNullable(columnHandlesBySegmentIdentifier.get(segmentIdentifier))
-        .ifPresent(RocksDbSegmentIdentifier::reset);
+    columnFamilyResetLock.writeLock().lock();
+    try {
+      Optional.ofNullable(columnHandlesBySegmentIdentifier.get(segmentIdentifier))
+          .ifPresent(RocksDbSegmentIdentifier::reset);
+    } finally {
+      columnFamilyResetLock.writeLock().unlock();
+    }
   }
 
   @Override

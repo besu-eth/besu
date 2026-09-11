@@ -109,6 +109,10 @@ public interface SegmentedKeyValueStorage extends Closeable {
   /**
    * Returns a stream of all keys for the segment.
    *
+   * <p>The caller <strong>must</strong> close the returned stream (e.g. via try-with-resources).
+   * Implementations may hold locks or native resources for the stream's lifetime; failure to close
+   * will cause resource leaks or deadlocks.
+   *
    * @param segmentIdentifier The segment identifier whose keys we want to stream.
    * @return A stream of all keys in the specified segment.
    */
@@ -141,6 +145,10 @@ public interface SegmentedKeyValueStorage extends Closeable {
 
   /**
    * Stream keys.
+   *
+   * <p>The caller <strong>must</strong> close the returned stream (e.g. via try-with-resources).
+   * Implementations may hold locks or native resources for the stream's lifetime; failure to close
+   * will cause resource leaks or deadlocks.
    *
    * @param segmentIdentifier the segment identifier
    * @return the stream
