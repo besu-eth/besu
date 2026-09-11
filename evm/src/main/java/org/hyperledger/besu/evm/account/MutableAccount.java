@@ -65,7 +65,8 @@ public interface MutableAccount extends Account {
   default Wei decrementBalance(final Wei value) {
     final Wei current = getBalance();
     if (current.compareTo(value) < 0) {
-      throw new BalanceUnderflowException(value, current);
+      throw new BalanceUnderflowException(
+          String.format("Cannot remove %s wei from account, balance is only %s", value, current));
     }
     setBalance(current.subtract(value));
     return current;
@@ -116,41 +117,13 @@ public interface MutableAccount extends Account {
    */
   class BalanceUnderflowException extends IllegalStateException {
     /**
-     * Represents the amount of Wei being removed from an account during an operation that resulted
-     * in a BalanceUnderflowException.
-     */
-    private final Wei value;
-
-    /** Represents the current balance of the account in Wei. */
-    private final Wei balance;
-
-    /**
      * Constructs a new BalanceUnderflowException to indicate an attempt to decrement an account
      * balance below the available value.
      *
-     * @param value The amount of Wei being removed from the account.
-     * @param balance The current balance of the account in Wei.
+     * @param message A detailed message describing the reason for the exception.
      */
-    public BalanceUnderflowException(final Wei value, final Wei balance) {
-      super();
-      this.value = value;
-      this.balance = balance;
-    }
-
-    /**
-     * Returns a detailed message describing the reason for the exception. Specifically, it
-     * indicates an attempt to withdraw a certain amount of Wei from an account when the account's
-     * balance is insufficient. String formatting is delayed here to avoid interfering with EVM
-     * performance.
-     *
-     * @return A formatted string that specifies the amount being removed and the current account
-     *     balance, both in Wei.
-     */
-    @Override
-    public String getMessage() {
-      return String.format(
-          "Cannot remove %s wei from account, balance is only %s wei",
-          value.toShortHexString(), balance.toShortHexString());
+    public BalanceUnderflowException(final String message) {
+      super(message);
     }
   }
 }
