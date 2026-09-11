@@ -277,7 +277,10 @@ class MainnetTransactionProcessorTest {
     when(worldState.updater()).thenReturn(worldState);
     doAnswer(
             invocation -> {
-              throw new MutableAccount.BalanceUnderflowException(Wei.of(90), Wei.of(80));
+              throw new MutableAccount.BalanceUnderflowException(
+                  String.format(
+                      "Cannot remove %s wei from account, balance is only %s",
+                      Wei.of(90), Wei.of(80)));
             })
         .when(messageCallProcessor)
         .process(any(), any());
