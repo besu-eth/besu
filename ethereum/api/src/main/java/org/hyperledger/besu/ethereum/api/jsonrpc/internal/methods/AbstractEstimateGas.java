@@ -82,7 +82,8 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
     final var minTxCost = getBlockchainQueries().getMinimumTransactionCost(pendingBlockHeader);
     final var gasLimitUpperBound = calculateGasLimitUpperBound(callParameter, pendingBlockHeader);
     if (gasLimitUpperBound < minTxCost) {
-      return errorResponse(requestContext, RpcErrorType.TRANSACTION_UPFRONT_COST_EXCEEDS_BALANCE);
+      return errorResponse(
+          requestContext, RpcErrorType.TRANSACTION_UPFRONT_GAS_COST_EXCEEDS_BALANCE);
     }
     final TransactionSimulationFunction simulationFunction =
         (cp, op) ->
@@ -118,7 +119,8 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
     final var minTxCost = getBlockchainQueries().getMinimumTransactionCost(blockHeader);
     final var gasLimitUpperBound = calculateGasLimitUpperBound(callParameter, blockHeader);
     if (gasLimitUpperBound < minTxCost) {
-      return errorResponse(requestContext, RpcErrorType.TRANSACTION_UPFRONT_COST_EXCEEDS_BALANCE);
+      return errorResponse(
+          requestContext, RpcErrorType.TRANSACTION_UPFRONT_GAS_COST_EXCEEDS_BALANCE);
     }
     final TransactionSimulationFunction simulationFunction =
         (cp, op) ->

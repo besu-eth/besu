@@ -302,16 +302,34 @@ public class MainnetTransactionValidator implements TransactionValidator {
       if (sender.getCodeHash() != null) codeHash = sender.getCodeHash();
     }
 
-    final Wei upfrontCost =
-        transaction.getUpfrontCost(gasCalculator.blobGasCost(transaction.getBlobCount()));
-    if (!validationParams.allowUnderpricedGas() && upfrontCost.compareTo(senderBalance) > 0) {
+    // check if the sender has enough balance to pay for the gas
+    final Wei maxUpfrontGasCost =
+        transaction.getMaxUpfrontGasCost(gasCalculator.blobGasCost(transaction.getBlobCount()));
+    if (!validationParams.allowUnderpricedGas() && maxUpfrontGasCost.compareTo(senderBalance) > 0) {
       return ValidationResult.invalid(
-          TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE,
+          TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE,
           String.format(
-              "transaction up-front cost %s exceeds transaction sender account balance %s for sender %s",
-              upfrontCost.toQuantityHexString(),
+              "transaction up-front gas cost %s exceeds transaction sender account balance %s for sender %s",
+              maxUpfrontGasCost.toQuantityHexString(),
               senderBalance.toQuantityHexString(),
               transaction.getSender()));
+    }
+
+    // then check if the sender has enough balance to pay to the value transfer if present
+    if (!transaction.getValue().isZero()) {
+      final Wei actualCompareBalance =
+          validationParams.allowUnderpricedGas()
+              ? senderBalance // ignore gas cost when underpriced gas is allowed
+              : senderBalance.subtract(maxUpfrontGasCost);
+      if (transaction.getValue().compareTo(actualCompareBalance) > 0) {
+        return ValidationResult.invalid(
+            TransactionInvalidReason.INSUFFICIENT_FUNDS_FOR_TRANSFER,
+            String.format(
+                "transfer value %s exceeds transaction sender account balance %s for sender %s",
+                transaction.getValue().toQuantityHexString(),
+                senderBalance.toQuantityHexString(),
+                transaction.getSender()));
+      }
     }
 
     if (Long.compareUnsigned(transaction.getNonce(), senderNonce) < 0) {

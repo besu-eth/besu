@@ -267,7 +267,7 @@ class MainnetTransactionProcessorTest {
     when(transaction.getPayload()).thenReturn(Bytes.EMPTY);
     when(transaction.getGasLimit()).thenReturn(100_000L);
     when(transaction.getSender()).thenReturn(senderAddress);
-    when(transaction.getValue()).thenReturn(Wei.ZERO);
+    when(transaction.getValue()).thenReturn(Wei.of(90));
     when(transactionValidatorFactory.get().validate(any(), any(), any(), any()))
         .thenReturn(ValidationResult.valid());
     when(transactionValidatorFactory.get().validateForSender(any(), any(), any()))
