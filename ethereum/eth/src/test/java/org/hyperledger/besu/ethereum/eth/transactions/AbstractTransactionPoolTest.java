@@ -30,6 +30,7 @@ import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.TRANSACTION_REPLACEMENT_UNDERPRICED;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.TX_FEECAP_EXCEEDED;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.clearInvocations;
@@ -225,8 +226,11 @@ public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoo
     assertTransactionPending(transactionOtherSender);
     assertThat(getLocalTransactions()).contains(transaction0);
     assertThat(getLocalTransactions()).doesNotContain(transactionOtherSender);
-    verify(listener).onTransactionAdded(transaction0);
-    verify(listener).onTransactionAdded(transactionOtherSender);
+    verify(listener)
+        .onPendingTransactionAdded(argThat(pt -> pt.getTransaction().equals(transaction0)));
+    verify(listener)
+        .onPendingTransactionAdded(
+            argThat(pt -> pt.getTransaction().equals(transactionOtherSender)));
     verifyNoMoreInteractions(listener);
   }
 

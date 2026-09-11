@@ -30,6 +30,8 @@ import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE;
 import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.SELECTED;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -298,7 +300,8 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
     assertThat(smallLayers.evictedCollector.getEvictedTransactions())
         .map(PendingTransaction::getTransaction)
         .contains(firstTxs.get(0));
-    verify(droppedListener).onTransactionDropped(firstTxs.get(0), DROPPED);
+    verify(droppedListener)
+        .onPendingTransactionDropped(pendingTransactionOf(firstTxs.get(0)), eq(DROPPED));
   }
 
   @Test
@@ -378,7 +381,7 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
     pendingTransactions.addTransaction(
         createRemotePendingTransaction(transaction0), Optional.empty());
 
-    verify(listener).onTransactionAdded(transaction0);
+    verify(listener).onPendingTransactionAdded(pendingTransactionOf(transaction0));
   }
 
   @Test
@@ -388,7 +391,7 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
     pendingTransactions.addTransaction(
         createLocalPendingTransaction(transaction0), Optional.empty());
 
-    verify(listener).onTransactionAdded(transaction0);
+    verify(listener).onPendingTransactionAdded(pendingTransactionOf(transaction0));
   }
 
   @Test
@@ -398,7 +401,7 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
     pendingTransactions.addTransaction(
         createRemotePendingTransaction(transaction0), Optional.empty());
 
-    verify(listener).onTransactionAdded(transaction0);
+    verify(listener).onPendingTransactionAdded(pendingTransactionOf(transaction0));
 
     pendingTransactions.unsubscribePendingTransactions(id);
 
@@ -1004,12 +1007,17 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
       SparseTransactions sparseTransactions,
       EvictCollectorLayer evictedCollector) {}
 
+  static PendingTransaction pendingTransactionOf(final Transaction transaction) {
+    return argThat(pendingTransaction -> pendingTransaction.getTransaction().equals(transaction));
+  }
+
   static class DroppedTransactionCollector implements PendingTransactionDroppedListener {
     final SequencedMap<Transaction, RemovalReason> droppedTransactions = new LinkedHashMap<>();
 
     @Override
-    public void onTransactionDropped(final Transaction transaction, final RemovalReason reason) {
-      droppedTransactions.put(transaction, reason);
+    public void onPendingTransactionDropped(
+        final PendingTransaction pendingTransaction, final RemovalReason reason) {
+      droppedTransactions.put(pendingTransaction.getTransaction(), reason);
     }
   }
 }

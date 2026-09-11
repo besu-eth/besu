@@ -643,14 +643,13 @@ public abstract class AbstractTransactionsLayer implements TransactionsLayer {
   }
 
   protected void notifyTransactionAdded(final PendingTransaction pendingTransaction) {
-    onAddedListeners.forEach(
-        listener -> listener.onTransactionAdded(pendingTransaction.getTransaction()));
+    onAddedListeners.forEach(listener -> listener.onPendingTransactionAdded(pendingTransaction));
   }
 
   protected void notifyTransactionDropped(
       final PendingTransaction pendingTransaction, final LayeredRemovalReason reason) {
     onDroppedListeners.forEach(
-        listener -> listener.onTransactionDropped(pendingTransaction.getTransaction(), reason));
+        listener -> listener.onPendingTransactionDropped(pendingTransaction, reason));
   }
 
   @Override
