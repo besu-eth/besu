@@ -27,9 +27,11 @@ import org.hyperledger.besu.plugin.services.txvalidator.TransactionValidationRul
 
 import java.math.BigInteger;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Predicate;
 
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,7 +42,7 @@ public class TransitionProtocolSchedule implements ProtocolSchedule {
   private final ProtocolSchedule preMergeProtocolSchedule;
   private final ProtocolSchedule postMergeProtocolSchedule;
   private final MergeContext mergeContext;
-  private ProtocolContext protocolContext;
+  private @Nullable ProtocolContext protocolContext;
 
   /**
    * Instantiates a new Transition protocol schedule.
@@ -113,7 +115,7 @@ public class TransitionProtocolSchedule implements ProtocolSchedule {
 
       // otherwise check to see if this block represents a re-org TTD block:
       Difficulty parentDifficulty =
-          protocolContext
+          Objects.requireNonNull(protocolContext, "Protocol context must be initialized before use")
               .getBlockchain()
               .getTotalDifficultyByHash(blockHeader.getParentHash())
               .orElse(Difficulty.ZERO);
