@@ -38,9 +38,7 @@ import org.apache.tuweni.bytes.Bytes;
  * An OperationTracer that collects call frames during transaction execution and produces a flat
  * list of trace frames matching Geth's flatCallTracer.
  *
- * <p>One instance traces exactly one transaction and is not thread-safe; {@link
- * #traceStartTransaction} resets all per-transaction state so an instance may be reused
- * sequentially, matching {@code DebugOperationTracer.reset()} semantics.
+ * <p>One instance traces exactly one transaction and is not thread-safe.
  */
 public class FlatCallTracer implements OperationTracer {
 
