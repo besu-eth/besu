@@ -33,6 +33,10 @@ public class BlockProcessingResult extends BlockValidationResult {
   /** A result indicating that processing failed. */
   public static final BlockProcessingResult FAILED = new BlockProcessingResult("processing failed");
 
+  /** A result indicating that a transaction's gas limit does not fit the block's gas budget. */
+  public static final BlockProcessingResult INSUFFICIENT_BLOCK_GAS =
+      new BlockProcessingResult("provided gas insufficient");
+
   /**
    * Creates a result indicating that the parent world state was not available when attempting to
    * process the block. This is distinct from a bad block — the block itself may be valid; the node
