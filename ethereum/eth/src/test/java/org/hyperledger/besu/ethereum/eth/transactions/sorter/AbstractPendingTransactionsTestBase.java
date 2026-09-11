@@ -261,18 +261,20 @@ public abstract class AbstractPendingTransactionsTestBase {
   public void shouldNotifyListenerWhenRemoteTransactionAdded() {
     transactions.subscribePendingTransactions(listener);
 
-    transactions.addTransaction(createRemotePendingTransaction(transaction1), Optional.empty());
+    final PendingTransaction pendingTransaction1 = createRemotePendingTransaction(transaction1);
+    transactions.addTransaction(pendingTransaction1, Optional.empty());
 
-    verify(listener).onTransactionAdded(transaction1);
+    verify(listener).onPendingTransactionAdded(pendingTransaction1);
   }
 
   @Test
   public void shouldNotNotifyListenerAfterUnsubscribe() {
     final long id = transactions.subscribePendingTransactions(listener);
 
-    transactions.addTransaction(createRemotePendingTransaction(transaction1), Optional.empty());
+    final PendingTransaction pendingTransaction1 = createRemotePendingTransaction(transaction1);
+    transactions.addTransaction(pendingTransaction1, Optional.empty());
 
-    verify(listener).onTransactionAdded(transaction1);
+    verify(listener).onPendingTransactionAdded(pendingTransaction1);
 
     transactions.unsubscribePendingTransactions(id);
 
@@ -285,49 +287,54 @@ public abstract class AbstractPendingTransactionsTestBase {
   public void shouldNotifyListenerWhenLocalTransactionAdded() {
     transactions.subscribePendingTransactions(listener);
 
-    transactions.addTransaction(createLocalPendingTransaction(transaction1), Optional.empty());
+    final PendingTransaction pendingTransaction1 = createLocalPendingTransaction(transaction1);
+    transactions.addTransaction(pendingTransaction1, Optional.empty());
 
-    verify(listener).onTransactionAdded(transaction1);
+    verify(listener).onPendingTransactionAdded(pendingTransaction1);
   }
 
   @Test
   public void shouldNotifyDroppedListenerWhenRemoteTransactionDropped() {
-    transactions.addTransaction(createRemotePendingTransaction(transaction1), Optional.empty());
+    final PendingTransaction pendingTransaction1 = createRemotePendingTransaction(transaction1);
+    transactions.addTransaction(pendingTransaction1, Optional.empty());
 
     transactions.subscribeDroppedTransactions(droppedListener);
 
-    transactions.removeTransaction(transaction1, TIMED_EVICTION);
+    transactions.removeTransaction(pendingTransaction1, TIMED_EVICTION);
 
-    verify(droppedListener).onTransactionDropped(transaction1, TIMED_EVICTION);
+    verify(droppedListener).onPendingTransactionDropped(pendingTransaction1, TIMED_EVICTION);
   }
 
   @Test
   public void shouldNotNotifyDroppedListenerAfterUnsubscribe() {
-    transactions.addTransaction(createRemotePendingTransaction(transaction1), Optional.empty());
-    transactions.addTransaction(createRemotePendingTransaction(transaction2), Optional.empty());
+    final PendingTransaction pendingTransaction1 = createRemotePendingTransaction(transaction1);
+    final PendingTransaction pendingTransaction2 = createRemotePendingTransaction(transaction2);
+    transactions.addTransaction(pendingTransaction1, Optional.empty());
+    transactions.addTransaction(pendingTransaction2, Optional.empty());
 
     final long id = transactions.subscribeDroppedTransactions(droppedListener);
 
-    transactions.removeTransaction(transaction1, EVICTED);
+    transactions.removeTransaction(pendingTransaction1, EVICTED);
 
-    verify(droppedListener).onTransactionDropped(transaction1, EVICTED);
+    verify(droppedListener).onPendingTransactionDropped(pendingTransaction1, EVICTED);
 
     transactions.unsubscribeDroppedTransactions(id);
 
-    transactions.removeTransaction(transaction2, EVICTED);
+    transactions.removeTransaction(pendingTransaction2, EVICTED);
 
     verifyNoMoreInteractions(droppedListener);
   }
 
   @Test
   public void shouldNotifyDroppedListenerWhenLocalTransactionDropped() {
-    transactions.addTransaction(createLocalPendingTransaction(transaction1), Optional.empty());
+    final PendingTransaction pendingTransaction1 = createLocalPendingTransaction(transaction1);
+    transactions.addTransaction(pendingTransaction1, Optional.empty());
 
     transactions.subscribeDroppedTransactions(droppedListener);
 
-    transactions.removeTransaction(transaction1, REPLACED);
+    transactions.removeTransaction(pendingTransaction1, REPLACED);
 
-    verify(droppedListener).onTransactionDropped(transaction1, REPLACED);
+    verify(droppedListener).onPendingTransactionDropped(pendingTransaction1, REPLACED);
   }
 
   @Test
@@ -431,8 +438,9 @@ public abstract class AbstractPendingTransactionsTestBase {
   @Test
   public void shouldReturnEmptyOptionalAsMaximumNonceWhenLastTransactionForSenderRemoved() {
     final Transaction transaction = transactionWithNonceAndSender(1, KEYS1);
-    transactions.addTransaction(createRemotePendingTransaction(transaction), Optional.empty());
-    transactions.removeTransaction(transaction, INVALID);
+    final PendingTransaction pendingTransaction = createRemotePendingTransaction(transaction);
+    transactions.addTransaction(pendingTransaction, Optional.empty());
+    transactions.removeTransaction(pendingTransaction, INVALID);
     assertThat(transactions.getNextNonceForSender(SENDER1)).isEmpty();
   }
 
@@ -817,8 +825,9 @@ public abstract class AbstractPendingTransactionsTestBase {
 
     twoHourEvictionTransactionPool.subscribeDroppedTransactions(droppedListener);
 
-    twoHourEvictionTransactionPool.addTransaction(
-        createRemotePendingTransaction(transaction1, clock.millis()), Optional.empty());
+    final PendingTransaction pendingTransaction1 =
+        createRemotePendingTransaction(transaction1, clock.millis());
+    twoHourEvictionTransactionPool.addTransaction(pendingTransaction1, Optional.empty());
     assertThat(twoHourEvictionTransactionPool.size()).isEqualTo(1);
     clock.step(3L, ChronoUnit.HOURS);
     twoHourEvictionTransactionPool.addTransaction(
@@ -827,7 +836,7 @@ public abstract class AbstractPendingTransactionsTestBase {
     twoHourEvictionTransactionPool.evictOldTransactions();
     assertThat(twoHourEvictionTransactionPool.size()).isEqualTo(1);
     assertThat(metricsSystem.getCounterValue(REMOVED_COUNTER, REMOTE, DROPPED)).isEqualTo(1);
-    verify(droppedListener).onTransactionDropped(transaction1, TIMED_EVICTION);
+    verify(droppedListener).onPendingTransactionDropped(pendingTransaction1, TIMED_EVICTION);
   }
 
   @Test
@@ -945,8 +954,9 @@ public abstract class AbstractPendingTransactionsTestBase {
   public void shouldPrioritizeGasPriceThenTimeAddedToPool() {
     // Make sure the 100 gas price TX isn't dropped
     transactions.subscribeDroppedTransactions(
-        (transaction, reason) ->
-            assertThat(transaction.getGasPrice().get().toLong()).isLessThan(100));
+        (pendingTransaction, reason) ->
+            assertThat(pendingTransaction.getTransaction().getGasPrice().get().toLong())
+                .isLessThan(100));
 
     // Fill the pool with transactions from random senders
     final List<Transaction> lowGasPriceTransactions =
