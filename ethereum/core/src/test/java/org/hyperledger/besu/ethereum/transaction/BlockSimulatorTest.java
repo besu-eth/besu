@@ -93,6 +93,7 @@ public class BlockSimulatorTest {
 
   private BlockHeader blockHeader;
   private BlockSimulator blockSimulator;
+  private GasLimitCalculator gasLimitCalculator;
 
   @BeforeEach
   public void setUp() {
@@ -110,9 +111,8 @@ public class BlockSimulatorTest {
     when(protocolSchedule.getByBlockHeader(any())).thenReturn(protocolSpec);
     when(protocolSpec.getMiningBeneficiaryCalculator())
         .thenReturn(mock(MiningBeneficiaryCalculator.class));
-    GasLimitCalculator gasLimitCalculator = mock(GasLimitCalculator.class);
+    gasLimitCalculator = mock(GasLimitCalculator.class);
     when(protocolSpec.getGasLimitCalculator()).thenReturn(gasLimitCalculator);
-    when(gasLimitCalculator.nextGasLimit(anyLong(), anyLong(), anyLong())).thenReturn(1L);
     when(protocolSpec.getFeeMarket()).thenReturn(mock(FeeMarket.class));
     when(protocolSpec.getPreExecutionProcessor()).thenReturn(mock(PreExecutionProcessor.class));
     when(protocolSpec.getSlotDuration()).thenReturn(Duration.ofSeconds(12));
@@ -370,7 +370,9 @@ public class BlockSimulatorTest {
   public void shouldThrowBlockGasLimitExceededWhenTxGasExceedsBlockLimitWithValidationDisabled() {
     when(mutableWorldState.updater()).thenReturn(updater);
 
-    // gasLimitCalculator.nextGasLimit returns 1L (from setUp), so block gas limit = 1
+    // Parent block has gasLimit=1; simulated block inherits it, so tx requesting 1M gas is rejected
+    BlockHeader smallGasLimitHeader =
+        BlockHeaderBuilder.createDefault().gasLimit(1L).buildBlockHeader();
     CallParameter callParameter = mock(CallParameter.class);
     when(callParameter.getGas()).thenReturn(OptionalLong.of(1_000_000L));
     BlockStateCall blockStateCall = new BlockStateCall(List.of(callParameter), null, null);
@@ -384,7 +386,7 @@ public class BlockSimulatorTest {
     BlockStateCallException exception =
         assertThrows(
             BlockStateCallException.class,
-            () -> blockSimulator.process(blockHeader, parameter, mutableWorldState));
+            () -> blockSimulator.process(smallGasLimitHeader, parameter, mutableWorldState));
 
     assertThat(exception.getError()).isEqualTo(BlockStateCallError.BLOCK_GAS_LIMIT_EXCEEDED);
     assertThat(exception.getError().getCode()).isEqualTo(-38015);
@@ -394,7 +396,9 @@ public class BlockSimulatorTest {
   public void shouldThrowBlockGasLimitExceededWhenTxGasExceedsBlockLimitWithValidationEnabled() {
     when(mutableWorldState.updater()).thenReturn(updater);
 
-    // gasLimitCalculator.nextGasLimit returns 1L (from setUp), so block gas limit = 1
+    // Parent block has gasLimit=1; simulated block inherits it, so tx requesting 1M gas is rejected
+    BlockHeader smallGasLimitHeader =
+        BlockHeaderBuilder.createDefault().gasLimit(1L).buildBlockHeader();
     CallParameter callParameter = mock(CallParameter.class);
     when(callParameter.getGas()).thenReturn(OptionalLong.of(1_000_000L));
     BlockStateCall blockStateCall = new BlockStateCall(List.of(callParameter), null, null);
@@ -408,7 +412,7 @@ public class BlockSimulatorTest {
     BlockStateCallException exception =
         assertThrows(
             BlockStateCallException.class,
-            () -> blockSimulator.process(blockHeader, parameter, mutableWorldState));
+            () -> blockSimulator.process(smallGasLimitHeader, parameter, mutableWorldState));
 
     assertThat(exception.getError()).isEqualTo(BlockStateCallError.BLOCK_GAS_LIMIT_EXCEEDED);
     assertThat(exception.getError().getCode()).isEqualTo(-38015);
@@ -419,9 +423,7 @@ public class BlockSimulatorTest {
       shouldThrowBlockGasLimitExceededWhenSecondTxGasExceedsRemainingAfterFirstTxConsumed() {
     // Block gas limit = 30,000. First tx consumes 21,000 (leaving 9,000 remaining).
     // Second tx explicitly requests 10,000 gas, which exceeds the 9,000 remaining.
-    GasLimitCalculator gasLimitCalculator = mock(GasLimitCalculator.class);
-    when(protocolSpec.getGasLimitCalculator()).thenReturn(gasLimitCalculator);
-    when(gasLimitCalculator.nextGasLimit(anyLong(), anyLong(), anyLong())).thenReturn(30_000L);
+    BlockHeader header30k = BlockHeaderBuilder.createDefault().gasLimit(30_000L).buildBlockHeader();
     when(gasLimitCalculator.computeExcessBlobGas(anyLong(), anyLong(), anyLong())).thenReturn(0L);
 
     WorldUpdater transactionUpdater = mock(WorldUpdater.class);
@@ -474,7 +476,7 @@ public class BlockSimulatorTest {
     BlockStateCallException exception =
         assertThrows(
             BlockStateCallException.class,
-            () -> blockSimulator.process(blockHeader, parameter, mutableWorldState));
+            () -> blockSimulator.process(header30k, parameter, mutableWorldState));
 
     assertThat(exception.getError()).isEqualTo(BlockStateCallError.BLOCK_GAS_LIMIT_EXCEEDED);
     assertThat(exception.getError().getCode()).isEqualTo(-38015);

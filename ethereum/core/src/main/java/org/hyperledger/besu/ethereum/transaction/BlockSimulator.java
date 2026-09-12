@@ -107,7 +107,6 @@ public class BlockSimulator {
   private final TransactionSimulator transactionSimulator;
   private final WorldStateArchive worldStateArchive;
   private final ProtocolSchedule protocolSchedule;
-  private final MiningConfiguration miningConfiguration;
   private final Blockchain blockchain;
   private final long rpcGasCap;
 
@@ -120,7 +119,6 @@ public class BlockSimulator {
       final long rpcGasCap) {
     this.worldStateArchive = worldStateArchive;
     this.protocolSchedule = protocolSchedule;
-    this.miningConfiguration = miningConfiguration;
     this.transactionSimulator = transactionSimulator;
     this.blockchain = blockchain;
     this.rpcGasCap = rpcGasCap;
@@ -675,10 +673,7 @@ public class BlockSimulator {
             .coinbase(blockOverrides.getFeeRecipient().orElse(header.getCoinbase()))
             .difficulty(
                 blockOverrides.getDifficulty().map(Difficulty::of).orElseGet(header::getDifficulty))
-            .gasLimit(
-                blockOverrides
-                    .getGasLimit()
-                    .orElseGet(() -> getNextGasLimit(newProtocolSpec, header, blockNumber)))
+            .gasLimit(blockOverrides.getGasLimit().orElse(header.getGasLimit()))
             .extraData(blockOverrides.getExtraData().orElse(Bytes.EMPTY))
             .prevRandao(blockOverrides.getMixHashOrPrevRandao().orElse(Bytes32.ZERO));
 
@@ -731,16 +726,6 @@ public class BlockSimulator {
                   .map(parent -> calculateExcessBlobGasForParent(protocolSpec, parent))
                   .orElse(BlobGas.ZERO));
     };
-  }
-
-  private long getNextGasLimit(
-      final ProtocolSpec protocolSpec, final BlockHeader parentHeader, final long blockNumber) {
-    return protocolSpec
-        .getGasLimitCalculator()
-        .nextGasLimit(
-            parentHeader.getGasLimit(),
-            miningConfiguration.getTargetGasLimit().orElse(parentHeader.getGasLimit()),
-            blockNumber);
   }
 
   private Wei getNextBaseFee(
