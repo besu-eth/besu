@@ -25,10 +25,7 @@ import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksD
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -58,20 +55,15 @@ public class RocksDBPlugin implements BesuPlugin {
   }
 
   @Override
+  public void defineOptions(final PicoCLIOptions cmdlineOptions) {
+    cmdlineOptions.addPicoCLIOptions(NAME, options);
+  }
+
+  @Override
   public void register(final ServiceManager context) {
     LOG.debug("Registering plugin");
     this.context = context;
-
-    final Optional<PicoCLIOptions> cmdlineOptions = context.getService(PicoCLIOptions.class);
-
-    if (cmdlineOptions.isEmpty()) {
-      throw new IllegalStateException(
-          "Expecting a PicoCLI options to register CLI options with, but none found.");
-    }
-
-    cmdlineOptions.get().addPicoCLIOptions(NAME, options);
     createFactoriesAndRegisterWithStorageService();
-
     LOG.debug("Plugin registered.");
   }
 
@@ -145,11 +137,11 @@ public class RocksDBPlugin implements BesuPlugin {
   private void createAndRegister(final StorageService service) {
     final List<SegmentIdentifier> segments = service.getAllSegmentIdentifiers();
 
-    final Supplier<RocksDBFactoryConfiguration> configuration =
-        Suppliers.memoize(options::toDomainObject);
+    // Options are bound before register(), so the configuration can be built right away
+    final RocksDBFactoryConfiguration configuration = options.toDomainObject();
     factory =
         new RocksDBKeyValueStorageFactory(
-            configuration,
+            () -> configuration,
             segments,
             ignorableSegments,
             RocksDBMetricsFactory.PUBLIC_ROCKS_DB_METRICS);

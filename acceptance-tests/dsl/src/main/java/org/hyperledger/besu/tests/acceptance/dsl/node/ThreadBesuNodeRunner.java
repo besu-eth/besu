@@ -208,7 +208,6 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
         .inProcessRpcConfiguration(inProcessRpcConfiguration)
         .transactionValidatorService(component.getTransactionValidatorService());
     node.engineRpcConfiguration().ifPresent(runnerBuilder::engineJsonRpcConfiguration);
-    besuPluginContext.beforeExternalServices();
     final Runner runner = runnerBuilder.build();
 
     runner.startExternalServices();
@@ -609,7 +608,8 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
         final @Named("RequestedPlugins") List<String> requestedPlugins,
         final BesuPluginContextImpl besuPluginContext) {
       final CommandLine commandLine = new CommandLine(CommandSpec.create());
-      besuPluginContext.addService(PicoCLIOptions.class, new PicoCLIOptionsImpl(commandLine));
+      final PicoCLIOptionsImpl picoCLIOptions = new PicoCLIOptionsImpl(commandLine);
+      besuPluginContext.addService(PicoCLIOptions.class, picoCLIOptions);
       besuPluginContext.addService(BesuConfiguration.class, commonPluginConfiguration);
       besuPluginContext.addService(CoreConfiguration.class, commonPluginConfiguration);
       besuPluginContext.addService(StorageConfiguration.class, commonPluginConfiguration);
@@ -646,11 +646,16 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
               .pluginsDir(pluginsPath)
               .requestedPluginsInfo(requestedPlugins.stream().map(PluginInfo::new).toList())
               .build());
-      besuPluginContext.registerPlugins();
+      // Same phases as BesuCommand: every plugin declares its options, the command line is parsed
+      // once, then every plugin registers with its options bound. External plugins keep going
+      // before the built-in RocksDB plugin, as this runner always did.
+      final RocksDBPlugin rocksDBPlugin = new RocksDBPlugin();
+      besuPluginContext.defineOptions(picoCLIOptions);
+      rocksDBPlugin.defineOptions(picoCLIOptions);
+      picoCLIOptions.optionsDefinitionCompleted();
       commandLine.parseArgs(extraCLIOptions.toArray(new String[0]));
-
-      // register built-in plugins
-      new RocksDBPlugin().register(besuPluginContext);
+      besuPluginContext.registerPlugins();
+      rocksDBPlugin.register(besuPluginContext);
     }
 
     @Provides

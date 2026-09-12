@@ -36,7 +36,7 @@ public class TestCoreConfigurationPlugin implements BesuPlugin {
   public void register(final ServiceManager serviceManager) {
     LOG.info("Registering TestCoreConfigurationPlugin");
     this.serviceManager = serviceManager;
-    callbackDir = new File(System.getProperty("besu.plugins.dir", "plugins"));
+    callbackDir = PluginCallbackDir.of(serviceManager);
   }
 
   @Override
