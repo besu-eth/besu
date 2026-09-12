@@ -14,25 +14,41 @@
  */
 package org.hyperledger.besu.ethereum.chain.pluginadapter;
 
+import static org.hyperledger.besu.ethereum.core.plugins.Subscriptions.unsubscribeOnClose;
 import static org.hyperledger.besu.ethereum.mainnet.feemarket.ExcessBlobGasCalculator.calculateExcessBlobGasForParent;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BlobGas;
 import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.LogTopic;
 import org.hyperledger.besu.datatypes.Transaction;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
+import org.hyperledger.besu.ethereum.core.Difficulty;
+import org.hyperledger.besu.ethereum.core.LogWithMetadata;
+import org.hyperledger.besu.ethereum.core.PropagatedBlockSource;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.BaseFeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.plugin.Unstable;
+import org.hyperledger.besu.plugin.data.AddedBlockContext;
+import org.hyperledger.besu.plugin.data.AddedBlockContext.EventType;
 import org.hyperledger.besu.plugin.data.BlockBody;
 import org.hyperledger.besu.plugin.data.BlockContext;
 import org.hyperledger.besu.plugin.data.BlockHeader;
+import org.hyperledger.besu.plugin.data.PropagatedBlockContext;
 import org.hyperledger.besu.plugin.data.TransactionReceipt;
 import org.hyperledger.besu.plugin.services.BlockchainService;
+import org.hyperledger.besu.plugin.services.Subscription;
+import org.hyperledger.besu.plugin.services.chain.spi.BadBlockListener;
+import org.hyperledger.besu.plugin.services.chain.spi.BlockAddedListener;
+import org.hyperledger.besu.plugin.services.chain.spi.BlockPropagatedListener;
+import org.hyperledger.besu.plugin.services.chain.spi.BlockReorgListener;
+import org.hyperledger.besu.plugin.services.chain.spi.LogListener;
 
 import java.math.BigInteger;
 import java.util.List;
@@ -40,12 +56,17 @@ import java.util.Optional;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+import org.apache.tuweni.bytes.Bytes32;
+import org.apache.tuweni.units.bigints.UInt256;
+
 /** The Blockchain service implementation. */
 @Unstable
 public class BlockchainServiceImpl implements BlockchainService {
 
   private ProtocolSchedule protocolSchedule;
   private MutableBlockchain blockchain;
+  private PropagatedBlockSource propagatedBlockSource;
+  private BadBlockManager badBlockManager;
 
   /** Instantiates a new Blockchain service implementation. */
   public BlockchainServiceImpl() {}
@@ -55,10 +76,18 @@ public class BlockchainServiceImpl implements BlockchainService {
    *
    * @param blockchain the blockchain
    * @param protocolSchedule the protocol schedule
+   * @param propagatedBlockSource the source of block-propagated events
+   * @param badBlockManager the bad block manager
    */
-  public void init(final MutableBlockchain blockchain, final ProtocolSchedule protocolSchedule) {
+  public void init(
+      final MutableBlockchain blockchain,
+      final ProtocolSchedule protocolSchedule,
+      final PropagatedBlockSource propagatedBlockSource,
+      final BadBlockManager badBlockManager) {
     this.protocolSchedule = protocolSchedule;
     this.blockchain = blockchain;
+    this.propagatedBlockSource = propagatedBlockSource;
+    this.badBlockManager = badBlockManager;
   }
 
   /**
@@ -208,6 +237,147 @@ public class BlockchainServiceImpl implements BlockchainService {
         .map(Block::getHeader)
         .map(protocolSchedule::getByBlockHeader)
         .orElseThrow(() -> new IllegalArgumentException("Block not found: " + blockHash));
+  }
+
+  @Override
+  public Subscription subscribeBlockPropagated(final BlockPropagatedListener listener) {
+    final long id =
+        propagatedBlockSource.subscribe(
+            (block, totalDifficulty) ->
+                listener.onBlockPropagated(
+                    propagatedBlockContext(
+                        block::getHeader, block::getBody, () -> totalDifficulty)));
+    return unsubscribeOnClose(() -> propagatedBlockSource.unsubscribe(id));
+  }
+
+  @Override
+  public Subscription subscribeBlockAdded(final BlockAddedListener listener) {
+    final long id =
+        blockchain.observeBlockAdded(
+            event ->
+                listener.onBlockAdded(
+                    addedBlockContext(
+                        event.getEventType(),
+                        event::getHeader,
+                        () -> event.getBlock().getBody(),
+                        event::getTransactionReceipts)));
+    return unsubscribeOnClose(() -> blockchain.removeObserver(id));
+  }
+
+  @Override
+  public Subscription subscribeBlockReorg(final BlockReorgListener listener) {
+    final long id =
+        blockchain.observeChainReorg(
+            (blockWithReceipts, chain) ->
+                listener.onBlockReorg(
+                    addedBlockContext(
+                        EventType.CHAIN_REORG,
+                        blockWithReceipts::getHeader,
+                        blockWithReceipts.getBlock()::getBody,
+                        blockWithReceipts::getReceipts)));
+    return unsubscribeOnClose(() -> blockchain.removeChainReorgObserver(id));
+  }
+
+  @Override
+  public Subscription subscribeLogs(
+      final List<Address> addresses, final List<List<Bytes32>> topics, final LogListener listener) {
+    final List<List<LogTopic>> topicCriteria =
+        topics.stream()
+            .map(
+                position ->
+                    position.stream()
+                        .map(topic -> topic == null ? null : LogTopic.wrap(topic))
+                        .toList())
+            .toList();
+    final long id =
+        blockchain.observeLogs(
+            logWithMetadata -> {
+              if (matches(logWithMetadata, addresses, topicCriteria)) {
+                listener.onLogEmitted(logWithMetadata);
+              }
+            });
+    return unsubscribeOnClose(() -> blockchain.removeObserver(id));
+  }
+
+  @Override
+  public Subscription subscribeBadBlock(final BadBlockListener listener) {
+    final long id = badBlockManager.subscribeToBadBlocks(listener::onBadBlockAdded);
+    return unsubscribeOnClose(() -> badBlockManager.unsubscribeFromBadBlocks(id));
+  }
+
+  // Same matching rules as eth_getLogs: any address when the list is empty, topics matched by
+  // position, an empty or null-containing position accepting anything there.
+  private static boolean matches(
+      final LogWithMetadata log,
+      final List<Address> addresses,
+      final List<List<LogTopic>> topicCriteria) {
+    if (!addresses.isEmpty() && !addresses.contains(log.getLogger())) {
+      return false;
+    }
+    if (topicCriteria.isEmpty()) {
+      return true;
+    }
+    final List<LogTopic> logTopics = log.getTopics();
+    if (logTopics.size() < topicCriteria.size()) {
+      return false;
+    }
+    for (int i = 0; i < topicCriteria.size(); i++) {
+      final List<LogTopic> accepted = topicCriteria.get(i);
+      if (!accepted.isEmpty() && !accepted.contains(null) && !accepted.contains(logTopics.get(i))) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private static PropagatedBlockContext propagatedBlockContext(
+      final Supplier<BlockHeader> blockHeaderSupplier,
+      final Supplier<BlockBody> blockBodySupplier,
+      final Supplier<Difficulty> totalDifficultySupplier) {
+    return new PropagatedBlockContext() {
+      @Override
+      public BlockHeader getBlockHeader() {
+        return blockHeaderSupplier.get();
+      }
+
+      @Override
+      public BlockBody getBlockBody() {
+        return blockBodySupplier.get();
+      }
+
+      @Override
+      public UInt256 getTotalDifficulty() {
+        return totalDifficultySupplier.get().toUInt256();
+      }
+    };
+  }
+
+  private static AddedBlockContext addedBlockContext(
+      final EventType eventType,
+      final Supplier<BlockHeader> blockHeaderSupplier,
+      final Supplier<BlockBody> blockBodySupplier,
+      final Supplier<List<? extends TransactionReceipt>> transactionReceiptsSupplier) {
+    return new AddedBlockContext() {
+      @Override
+      public BlockHeader getBlockHeader() {
+        return blockHeaderSupplier.get();
+      }
+
+      @Override
+      public BlockBody getBlockBody() {
+        return blockBodySupplier.get();
+      }
+
+      @Override
+      public List<? extends TransactionReceipt> getTransactionReceipts() {
+        return transactionReceiptsSupplier.get();
+      }
+
+      @Override
+      public EventType getEventType() {
+        return eventType;
+      }
+    };
   }
 
   private static BlockContext blockContext(

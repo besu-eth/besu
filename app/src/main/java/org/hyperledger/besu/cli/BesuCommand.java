@@ -1415,7 +1415,10 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
   private void startPlugins(final Runner runner) {
     blockchainServiceImpl.init(
-        besuController.getProtocolContext().getBlockchain(), besuController.getProtocolSchedule());
+        besuController.getProtocolContext().getBlockchain(),
+        besuController.getProtocolSchedule(),
+        besuController.getProtocolManager().getBlockBroadcaster(),
+        besuController.getProtocolContext().getBadBlockManager());
     transactionSimulationServiceImpl.init(
         besuController.getProtocolContext().getBlockchain(),
         besuController.getTransactionSimulator());
