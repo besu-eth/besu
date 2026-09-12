@@ -52,6 +52,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
+import org.rocksdb.BlockBasedTableConfig;
+import org.rocksdb.IndexType;
 
 public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValueStorageTest {
 
@@ -61,6 +63,21 @@ public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValu
   @Mock private OperationTimer operationTimerMock;
 
   @TempDir public Path folder;
+
+  @Test
+  public void configuresNonPartitionedBloomFilters() throws Exception {
+    try (final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore()) {
+      assertThat(store.columnDescriptors)
+          .allSatisfy(
+              descriptor -> {
+                final BlockBasedTableConfig tableConfig =
+                    (BlockBasedTableConfig) descriptor.getOptions().tableFormatConfig();
+                assertThat(tableConfig.indexType()).isEqualTo(IndexType.kBinarySearch);
+                assertThat(tableConfig.partitionFilters()).isFalse();
+              });
+    }
+  }
 
   @Test
   public void assertClear() throws Exception {
