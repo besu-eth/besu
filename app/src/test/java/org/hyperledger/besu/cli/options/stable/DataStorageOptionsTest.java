@@ -209,6 +209,113 @@ public class DataStorageOptionsTest
   }
 
   @Test
+  public void bonsaiArchiveCheckpointIntervalsCanBeConfigured() {
+    internalTestSuccess(
+        dataStorageConfiguration -> {
+          assertThat(
+                  dataStorageConfiguration
+                      .getPathBasedExtraStorageConfiguration()
+                      .getUnstable()
+                      .getBonsaiArchiveShallowCheckpointInterval())
+              .isEqualTo(24);
+          assertThat(
+                  dataStorageConfiguration
+                      .getPathBasedExtraStorageConfiguration()
+                      .getUnstable()
+                      .getBonsaiArchiveDeepCheckpointInterval())
+              .isEqualTo(8);
+        },
+        "--Xbonsai-archive-state-proofs-shallow-checkpoint-interval",
+        "24",
+        "--Xbonsai-archive-state-proofs-deep-checkpoint-interval",
+        "8");
+  }
+
+  @Test
+  public void bonsaiArchiveCheckpointIntervalsDefaultTo32And16() {
+    internalTestSuccess(
+        dataStorageConfiguration -> {
+          assertThat(
+                  dataStorageConfiguration
+                      .getPathBasedExtraStorageConfiguration()
+                      .getUnstable()
+                      .getBonsaiArchiveShallowCheckpointInterval())
+              .isEqualTo(32);
+          assertThat(
+                  dataStorageConfiguration
+                      .getPathBasedExtraStorageConfiguration()
+                      .getUnstable()
+                      .getBonsaiArchiveDeepCheckpointInterval())
+              .isEqualTo(16);
+        });
+  }
+
+  @Test
+  public void bonsaiArchiveCheckpointIntervalAcceptsMaxBoundary() {
+    internalTestSuccess(
+        dataStorageConfiguration -> {
+          assertThat(
+                  dataStorageConfiguration
+                      .getPathBasedExtraStorageConfiguration()
+                      .getUnstable()
+                      .getBonsaiArchiveShallowCheckpointInterval())
+              .isEqualTo(256);
+          assertThat(
+                  dataStorageConfiguration
+                      .getPathBasedExtraStorageConfiguration()
+                      .getUnstable()
+                      .getBonsaiArchiveDeepCheckpointInterval())
+              .isEqualTo(256);
+        },
+        "--data-storage-format",
+        "X_BONSAI_ARCHIVE",
+        "--Xbonsai-archive-state-proofs-shallow-checkpoint-interval",
+        "256",
+        "--Xbonsai-archive-state-proofs-deep-checkpoint-interval",
+        "256");
+  }
+
+  @Test
+  public void bonsaiArchiveShallowCheckpointIntervalMustBePositive() {
+    internalTestFailure(
+        "--Xbonsai-archive-state-proofs-shallow-checkpoint-interval=0 must be in [1, 256]",
+        "--data-storage-format",
+        "X_BONSAI_ARCHIVE",
+        "--Xbonsai-archive-state-proofs-shallow-checkpoint-interval",
+        "0");
+  }
+
+  @Test
+  public void bonsaiArchiveShallowCheckpointIntervalMustNotExceedMax() {
+    internalTestFailure(
+        "--Xbonsai-archive-state-proofs-shallow-checkpoint-interval=300 must be in [1, 256]",
+        "--data-storage-format",
+        "X_BONSAI_ARCHIVE",
+        "--Xbonsai-archive-state-proofs-shallow-checkpoint-interval",
+        "300");
+  }
+
+  @Test
+  public void bonsaiArchiveDeepCheckpointIntervalMustBePositive() {
+    internalTestFailure(
+        "--Xbonsai-archive-state-proofs-deep-checkpoint-interval=0 must be in [1, 256]",
+        "--data-storage-format",
+        "X_BONSAI_ARCHIVE",
+        "--Xbonsai-archive-state-proofs-deep-checkpoint-interval",
+        "0");
+  }
+
+  @Test
+  public void bonsaiArchiveDeepCheckpointIntervalMustNotExceedMax() {
+    internalTestFailure(
+        "--Xbonsai-archive-state-proofs-deep-checkpoint-interval=257 must be in [1, 256]",
+        "--data-storage-format",
+        "X_BONSAI_ARCHIVE",
+        "--Xbonsai-archive-state-proofs-deep-checkpoint-interval",
+        "257");
+  }
+
+  @Test
   public void receiptCompactionCanBeEnabledWithImplicitTrueValue() {
     internalTestSuccess(
         dataStorageConfiguration ->
@@ -264,6 +371,11 @@ public class DataStorageOptionsTest
                 .trieLogPruningWindowSize(514)
                 .parallelTxProcessingEnabled(true)
                 .parallelStateRootComputationEnabled(true)
+                .unstable(
+                    ImmutablePathBasedExtraStorageConfiguration.PathBasedUnstable.builder()
+                        .bonsaiArchiveShallowCheckpointInterval(24)
+                        .bonsaiArchiveDeepCheckpointInterval(8)
+                        .build())
                 .build())
         .revertReasonEnabled(true)
         .build();

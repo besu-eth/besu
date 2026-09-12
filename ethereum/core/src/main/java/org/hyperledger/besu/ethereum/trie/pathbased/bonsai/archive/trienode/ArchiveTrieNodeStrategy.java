@@ -18,78 +18,145 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.WORLD_BLOCK_NUMBER_KEY;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.core.Synchronizer;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.TrieNodeStrategy;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 
+import java.io.Closeable;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
 /**
  * A {@link TrieNodeStrategy} that archives every trie-node write into {@code
- * TRIE_BRANCH_STORAGE_ARCHIVE} so that historical {@code eth_getProof} requests can be served
- * without replaying trie-log diffs.
+ * TRIE_BRANCH_STORAGE_ARCHIVE} so historical {@code eth_getProof} requests don't need trie-log
+ * replay.
  *
- * <p>Each put is delegated to the wrapped {@code base} strategy first (live flat DB), then, if the
- * archive gate is open, the full bare-RLP node is written into the archive column family in the
- * same transaction under an {@link ArchiveNodeKey} that encodes the block number. Progress is
- * recorded atomically in the same transaction on the first archive write per transaction.
+ * <p>Each put delegates to {@code base} (live flat DB) first, then — if the archive gate is open —
+ * reads the prior node value from storage (where it is typically hot in the top few in-memory
+ * layers) and calls {@link ArchiveTrieNodeWriter#capture} to queue an async history-entry write.
+ * Workers compute the history entry ({@link ArchiveNodeHistoryStore#getLatestBefore} + encode
+ * FULL/DIFF) off the import thread. Results are joined and applied to the transaction in {@link
+ * #onBeforeCommit}, which runs immediately before commit.
  *
- * <p>The gate returns {@code true} while the node is behind the network head ({@code
- * !syncState.isInSync()}) and {@code false} once at the head, preventing live blocks within the
- * reorg window from entering the archive. Block 0 (genesis) is always archived.
+ * <p>Reading the prior node on the calling thread — rather than inside a worker — avoids disk I/O
+ * in the common case (the prior value is hot in the in-memory layered chain) and eliminates any
+ * need for worker threads to access the layered storage. An archiving gap — gate closed then
+ * reopened, or a restart — forces the next block to write FULL, since the newest archive entry no
+ * longer matches the flat DB.
  */
-public class ArchiveTrieNodeStrategy implements TrieNodeStrategy {
+public class ArchiveTrieNodeStrategy
+    implements TrieNodeStrategy, Synchronizer.InSyncListener, Closeable {
 
   private final TrieNodeStrategy base;
-  private final ArchiveNodeHistoryStore historyStore;
-  private final ArchiveCoverageTracker coverageTracker;
-  private final BooleanSupplier archiveGate;
+  private final ArchiveTrieNodeWriter trieNodeWriter;
 
-  // Tracks the last transaction that recorded progress so that record() is called at most once per
-  // transaction rather than once per trie-node write.
-  private SegmentedKeyValueStorageTransaction lastRecordedTx;
+  // Starts true (archive everything) until the first in-sync event. Safe default for initial sync
+  // and no-peers startup
+  private final AtomicBoolean archiving = new AtomicBoolean(true);
 
+  // True when a remote chain estimate exists (we have a peer that knows the chain head)
+  private volatile BooleanSupplier hasRemoteChainEstimate;
+
+  // Block number is constant within a transaction; cache it to avoid a storage read per node write.
+  private final Cache<SegmentedKeyValueStorageTransaction, Long> txBlockNumberCache =
+      Caffeine.newBuilder().weakKeys().build();
+
+  /**
+   * Builds an archiving strategy over {@code liveStorage}, owning a worker pool for async
+   * history-entry computation.
+   *
+   * @param liveStorage the live world-state storage to archive writes from
+   * @param trieCapturePool the worker pool, owned and shut down by the returned strategy
+   * @param shallowCheckpointInterval FULL-checkpoint interval for shallow nodes
+   * @param deepCheckpointInterval FULL-checkpoint interval for deep nodes
+   * @return an archiving {@link TrieNodeStrategy} ready to install via {@code setTrieNodeStrategy}
+   */
+  public static ArchiveTrieNodeStrategy createArchiveStrategy(
+      final SegmentedKeyValueStorage liveStorage,
+      final ExecutorService trieCapturePool,
+      final int shallowCheckpointInterval,
+      final int deepCheckpointInterval) {
+    return new ArchiveTrieNodeStrategy(
+        new BonsaiTrieNodeStrategy(),
+        new ArchiveTrieNodeWriter(
+            new ArchiveNodeHistoryStore(liveStorage),
+            new ArchiveCoverageTracker(liveStorage),
+            trieCapturePool,
+            shallowCheckpointInterval,
+            deepCheckpointInterval),
+        () -> false);
+  }
+
+  /**
+   * Supplies whether a remote chain estimate exists. Must be set before the in-sync subscription is
+   * registered, since it is consulted from {@link #onInSyncStatusChange(boolean)}.
+   *
+   * @param hasRemoteChainEstimate true when a peer with a known chain head is available
+   */
+  public void setHasRemoteChainEstimate(final BooleanSupplier hasRemoteChainEstimate) {
+    this.hasRemoteChainEstimate =
+        Objects.requireNonNull(hasRemoteChainEstimate, "hasRemoteChainEstimate must not be null");
+  }
+
+  /**
+   * @param base the delegate strategy for the live flat DB
+   * @param trieNodeWriter the writer that persists archived history entries
+   * @param hasRemoteChainEstimate supplies whether a remote chain estimate exists (see field)
+   */
+  @VisibleForTesting
   public ArchiveTrieNodeStrategy(
       final TrieNodeStrategy base,
-      final ArchiveNodeHistoryStore historyStore,
-      final ArchiveCoverageTracker coverageTracker,
-      final BooleanSupplier gate) {
+      final ArchiveTrieNodeWriter trieNodeWriter,
+      final BooleanSupplier hasRemoteChainEstimate) {
     this.base = Objects.requireNonNull(base);
-    this.historyStore = Objects.requireNonNull(historyStore);
-    this.coverageTracker = Objects.requireNonNull(coverageTracker);
-    // Latch: once the gate returns false it stays false and never reopens.
-    final AtomicBoolean latched = new AtomicBoolean(false);
-    this.archiveGate =
-        () -> {
-          final boolean open = !latched.get() && gate.getAsBoolean();
-          if (!open) latched.set(true);
-          return open;
-        };
+    this.trieNodeWriter = Objects.requireNonNull(trieNodeWriter);
+    this.hasRemoteChainEstimate =
+        Objects.requireNonNull(hasRemoteChainEstimate, "hasRemoteChainEstimate must not be null");
   }
 
-  private boolean shouldArchive(final long block) {
-    return block == 0L || archiveGate.getAsBoolean();
+  @Override
+  public void onInSyncStatusChange(final boolean inSync) {
+    // A peer-less node reports "in sync" forever, so only trust a corroborated in-sync signal.
+    archiving.set(!inSync || !hasRemoteChainEstimate.getAsBoolean());
   }
 
-  private long currentBlockNumber(final SegmentedKeyValueStorage storage) {
+  @VisibleForTesting
+  void setArchiving(final boolean archive) {
+    this.archiving.set(archive);
+  }
+
+  private static long readBlockNumber(final SegmentedKeyValueStorage storage) {
     return storage
         .get(TRIE_BRANCH_STORAGE, WORLD_BLOCK_NUMBER_KEY)
         .map(b -> Bytes.wrap(b).toLong() + 1L)
         .orElse(0L);
   }
 
-  private void maybeRecordProgress(
-      final SegmentedKeyValueStorageTransaction transaction, final long block) {
-    if (lastRecordedTx != transaction) {
-      coverageTracker.record(transaction, block);
-      lastRecordedTx = transaction;
-    }
+  private boolean shouldCaptureBlock(final long block) {
+    return block == 0L || archiving.get();
+  }
+
+  /**
+   * A no-op re-write: the node is being written with the exact bytes already committed at this
+   * location (e.g. a storage slot set to its existing value, which Bonsai still re-commits along
+   * the touched path). Its history is already captured by the last real change — {@code
+   * getLatestBefore} resolves to that entry — so archiving an empty-diff entry here is redundant
+   * and would count toward the diff-chain length that forces FULL checkpoints. Creations ({@code
+   * prior == null}) are never no-ops.
+   */
+  private boolean isNoOpRewrite(final Bytes prior, final Bytes node) {
+    return prior != null && prior.equals(node);
   }
 
   @Override
@@ -114,11 +181,18 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy {
       final Bytes location,
       final Bytes32 nodeHash,
       final Bytes node) {
+    final long block = txBlockNumberCache.get(transaction, ignored -> readBlockNumber(storage));
     base.putFlatAccountTrieNode(storage, transaction, location, nodeHash, node);
-    final long block = currentBlockNumber(storage);
-    if (shouldArchive(block)) {
-      historyStore.put(transaction, ArchiveNodeKey.account(location), block, node);
-      maybeRecordProgress(transaction, block);
+    if (shouldCaptureBlock(block)) {
+      final Bytes prior =
+          block == 0L
+              ? null
+              : base.getFlatAccountTrieNode(location, Bytes32.ZERO, storage).orElse(null);
+      if (isNoOpRewrite(prior, node)) {
+        return;
+      }
+      trieNodeWriter.capture(
+          ArchiveNodeKey.account(location), location, block, node, prior, transaction);
     }
   }
 
@@ -130,12 +204,24 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy {
       final Bytes location,
       final Bytes32 nodeHash,
       final Bytes node) {
+    final long block = txBlockNumberCache.get(transaction, ignored -> readBlockNumber(storage));
     base.putFlatStorageTrieNode(storage, transaction, accountHash, location, nodeHash, node);
-    final long block = currentBlockNumber(storage);
-    if (shouldArchive(block)) {
-      historyStore.put(
-          transaction, ArchiveNodeKey.storage(accountHash.getBytes(), location), block, node);
-      maybeRecordProgress(transaction, block);
+    if (shouldCaptureBlock(block)) {
+      final Bytes prior =
+          block == 0L
+              ? null
+              : base.getFlatStorageTrieNode(accountHash, location, Bytes32.ZERO, storage)
+                  .orElse(null);
+      if (isNoOpRewrite(prior, node)) {
+        return;
+      }
+      trieNodeWriter.capture(
+          ArchiveNodeKey.storage(accountHash.getBytes(), location),
+          location,
+          block,
+          node,
+          prior,
+          transaction);
     }
   }
 
@@ -144,6 +230,37 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy {
       final SegmentedKeyValueStorage storage,
       final SegmentedKeyValueStorageTransaction transaction,
       final Bytes location) {
+    final long block = txBlockNumberCache.get(transaction, ignored -> readBlockNumber(storage));
     base.removeFlatAccountStateTrieNode(storage, transaction, location);
+    if (shouldCaptureBlock(block)) {
+      final Bytes prior =
+          block == 0L
+              ? null
+              : base.getFlatAccountTrieNode(location, Bytes32.ZERO, storage).orElse(null);
+      if (prior != null) {
+        // Removing a node that doesn't exist is a no-op for the archive.
+        trieNodeWriter.capture(
+            ArchiveNodeKey.account(location), location, block, null, prior, transaction);
+      }
+    }
+  }
+
+  @Override
+  public void onBeforeCommit(
+      final SegmentedKeyValueStorage storage,
+      final SegmentedKeyValueStorageTransaction transaction) {
+    txBlockNumberCache.invalidate(transaction);
+    trieNodeWriter.onBeforeCommit(transaction);
+  }
+
+  @Override
+  public void onRollback(final SegmentedKeyValueStorageTransaction transaction) {
+    txBlockNumberCache.invalidate(transaction);
+    trieNodeWriter.onRollback(transaction);
+  }
+
+  @Override
+  public void close() {
+    trieNodeWriter.close();
   }
 }
