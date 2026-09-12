@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
@@ -48,11 +49,15 @@ import org.apache.tuweni.bytes.Bytes;
 
 public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
   protected final TransactionSimulator transactionSimulator;
+  protected final ProtocolSchedule protocolSchedule;
 
   public AbstractEstimateGas(
-      final BlockchainQueries blockchainQueries, final TransactionSimulator transactionSimulator) {
+      final BlockchainQueries blockchainQueries,
+      final TransactionSimulator transactionSimulator,
+      final ProtocolSchedule protocolSchedule) {
     super(blockchainQueries);
     this.transactionSimulator = transactionSimulator;
+    this.protocolSchedule = protocolSchedule;
   }
 
   @Override
