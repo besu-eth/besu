@@ -33,7 +33,7 @@ jobs:
         with:
           cache-disabled: true
       - name: Run integration tests and compile JMH benchmarks
-        run: ./gradlew integrationTest compileJmh
+        run: ./gradlew integrationTest compileJmh -PdisableTestReports
 
   integrationTestsPassed:
     name: integrationTestsPassed

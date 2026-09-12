@@ -38,7 +38,7 @@ jobs:
         env:
           # limit forks to reduce JVM setup overhead (SignatureAlgorithm etc)
           GRADLE_MAX_TEST_FORKS: 2
-        run: ./gradlew test
+        run: ./gradlew test -PdisableTestReports
 
       - name: Upload test results
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
@@ -46,14 +46,6 @@ jobs:
         with:
           name: unit-test-results
           path: '**/test-results/**/TEST-*.xml'
-          retention-days: 1
-
-      - name: Upload HTML reports
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
-        if: success() || failure()
-        with:
-          name: unit-test-html-reports
-          path: '**/build/reports/tests/test/**'
           retention-days: 1
 
   unitTestsPassed:

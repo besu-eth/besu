@@ -416,7 +416,9 @@ configure(allprojects - project(':platform')) {
       }
     }
     useJUnitPlatform {}
-    finalizedBy jacocoTestReport // report is always generated after tests run
+    if (!project.hasProperty('disableTestReports')) {
+      finalizedBy jacocoTestReport // report is always generated after tests run
+    }
   }
 
   javadoc {
@@ -885,6 +887,14 @@ subprojects {
   tasks.withType(Test) {
     // If GRADLE_MAX_TEST_FORKS is not set, use half the available processors
     maxParallelForks = (System.getenv('GRADLE_MAX_TEST_FORKS') ?: (Runtime.runtime.availableProcessors().intdiv(2) ?: 1)).toInteger()
+
+    // -PdisableTestReports drops everything except the JUnit XML, which is the only output CI
+    // reads back. The HTML report and the coverage data behind it are otherwise generated on
+    // every test task and thrown away with the runner.
+    if (project.hasProperty('disableTestReports')) {
+      it.reports.html.required = false
+      it.jacoco.enabled = false
+    }
   }
 
   tasks.withType(JavaCompile) {
