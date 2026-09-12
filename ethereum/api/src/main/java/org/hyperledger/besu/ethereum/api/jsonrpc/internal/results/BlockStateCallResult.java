@@ -61,12 +61,6 @@ public class BlockStateCallResult extends BlockResult {
     return callProcessingResults;
   }
 
-  @JsonGetter(value = "totalDifficulty")
-  @Override
-  public String getTotalDifficulty() {
-    return null; // Not applicable for this result type.
-  }
-
   @JsonGetter(value = "trieLog")
   @JsonInclude(JsonInclude.Include.NON_ABSENT)
   public Optional<String> getTrieLog() {
