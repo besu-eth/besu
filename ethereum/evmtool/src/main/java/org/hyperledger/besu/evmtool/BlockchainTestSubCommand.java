@@ -15,6 +15,7 @@
 package org.hyperledger.besu.evmtool;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.util.Objects.requireNonNull;
 import static org.hyperledger.besu.evmtool.BlockchainTestSubCommand.COMMAND_NAME;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -71,6 +72,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.base.Stopwatch;
 import org.apache.tuweni.bytes.Bytes32;
+import org.jspecify.annotations.Nullable;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.IExitCodeGenerator;
 import picocli.CommandLine.Option;
@@ -111,7 +113,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       description =
           "Limit execution to tests whose name contains the given substring, or matches the given"
               + " pattern (a regex, with * and ? as wildcards).")
-  private String testName = null;
+  private @Nullable String testName = null;
 
   @Option(
       names = {"--test-name-regex"},
@@ -120,15 +122,15 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
               + " hive --sim.limit value: anchored at the start of the id, open at the end and"
               + " case-sensitive, as re.match is. Nothing is escaped or rewritten, so a published"
               + " hive filter can be passed exactly as it appears.")
-  private String testNameRegex = null;
+  private @Nullable String testNameRegex = null;
 
   // Compiled up front so a malformed expression fails before any fixture is read
-  private TestNameFilter nameFilter;
+  private @Nullable TestNameFilter nameFilter;
 
   @Option(
       names = {"--trace-output"},
       description = "Output file for traces (default: stderr). Requires --json or --trace flag.")
-  private String traceOutput = null;
+  private @Nullable String traceOutput = null;
 
   @Option(
       names = {"--workers"},
@@ -165,7 +167,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
    * Default constructor for the BlockchainTestSubCommand class. This constructor doesn't take any
    * arguments and initializes the parentCommand to null. PicoCLI requires this constructor.
    */
-  @SuppressWarnings("unused")
+  @SuppressWarnings({"unused", "NullAway"}) // Picocli injects the parent after construction.
   public BlockchainTestSubCommand() {
     // PicoCLI requires this
     this(null);
@@ -318,7 +320,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
   }
 
   private boolean matchesTestName(final String test) {
-    return nameFilter.matches(test);
+    return requireNonNull(nameFilter).matches(test);
   }
 
   private void traceTestSpecs(
@@ -481,14 +483,15 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
 
     if (parentCommand.showJsonResults) {
       final long testDuration = System.currentTimeMillis() - testStartTime;
-      tracerManager.writeTestEnd(
-          test,
-          testPassed,
-          spec.getNetwork(),
-          testDuration,
-          totalGasUsed,
-          totalTxCount,
-          blockCount);
+      requireNonNull(tracerManager)
+          .writeTestEnd(
+              test,
+              testPassed,
+              spec.getNetwork(),
+              testDuration,
+              totalGasUsed,
+              totalTxCount,
+              blockCount);
     }
 
     if (!testPassed) {
@@ -645,7 +648,6 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
     private final boolean showStack;
     private final boolean showReturnData;
     private final boolean showStorage;
-    private StreamingOperationTracer currentTracer;
 
     /**
      * Constructs a BlockTestTracerManager with specified tracing options.
@@ -675,17 +677,15 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
      * @return a new StreamingOperationTracer instance
      */
     public StreamingOperationTracer createTracer() {
-      currentTracer =
-          new StreamingOperationTracer(
-              output,
-              OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
-                  .traceMemory(showMemory)
-                  .traceStack(showStack)
-                  .traceReturnData(showReturnData)
-                  .traceStorage(showStorage)
-                  .eip3155Strict(true)
-                  .build());
-      return currentTracer;
+      return new StreamingOperationTracer(
+          output,
+          OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
+              .traceMemory(showMemory)
+              .traceStack(showStack)
+              .traceReturnData(showReturnData)
+              .traceStorage(showStorage)
+              .eip3155Strict(true)
+              .build());
     }
 
     /**

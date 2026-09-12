@@ -18,6 +18,8 @@ import org.hyperledger.besu.ethereum.referencetests.BlockExceptionMatcher;
 
 import java.util.Set;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * Checks a fixture's expected validation error against the message Besu returned, reproducing
  * hive's strict exception matching: when a fixture expects an {@code INVALID} payload with a
@@ -39,7 +41,8 @@ final class EngineTestExceptionMapper {
    * @return {@code null} when the actual error matches one of the expected alternatives, otherwise
    *     a failure reason
    */
-  static String mismatch(final String expectedValidationError, final String besuMessage) {
+  static @Nullable String mismatch(
+      final String expectedValidationError, final @Nullable String besuMessage) {
     if (besuMessage != null
         && BlockExceptionMatcher.matchesEngine(expectedValidationError, besuMessage)) {
       return null;
