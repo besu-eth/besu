@@ -20,6 +20,7 @@ import org.hyperledger.besu.plugin.data.SyncStatus;
 import org.hyperledger.besu.plugin.services.BesuEvents;
 import org.hyperledger.besu.plugin.services.HealthCheckService;
 import org.hyperledger.besu.plugin.services.p2p.P2PService;
+import org.hyperledger.besu.plugin.services.sync.SynchronizationService;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -82,6 +83,11 @@ public class ReadinessCheckPlugin implements BesuPlugin {
   // (node treated as sync-healthy) to avoid a false-negative at startup.
   private volatile Optional<SyncStatus> cachedSyncStatus = Optional.empty();
   private long syncListenerId = -1;
+  // Pull model: the initial sync phase is queried per check rather than tracked from an event,
+  // because the completion event fires when the synchronizer starts and would be missed by a
+  // listener on a node whose synchronizer never starts (P2P disabled). Empty when the service is
+  // unavailable, in which case the check is skipped.
+  private volatile Optional<SynchronizationService> synchronizationService = Optional.empty();
 
   @Override
   public void register(final ServiceManager context) {
@@ -108,6 +114,7 @@ public class ReadinessCheckPlugin implements BesuPlugin {
             .orElseThrow(() -> new IllegalStateException("Required service missing: BesuEvents"));
 
     syncListenerId = besuEvents.addSyncStatusListener(status -> cachedSyncStatus = status);
+    synchronizationService = context.getService(SynchronizationService.class);
   }
 
   private HealthCheckService.HealthCheckResult checkReadiness(
@@ -142,6 +149,18 @@ public class ReadinessCheckPlugin implements BesuPlugin {
         healthy = false;
       }
     }
+    // A snap syncing node is not ready until its chain download, world state download, trie heal
+    // and flat database heal have all finished — it cannot serve state before then. Checked
+    // separately from the block distance below, which is skipped entirely while no sync status has
+    // been reported (snap sync's stage 1 reports no progress).
+    if (synchronizationService.filter(service -> !service.isInitialSyncPhaseDone()).isPresent()) {
+      final Map<String, Object> initialSyncDetail = new LinkedHashMap<>();
+      initialSyncDetail.put("status", false);
+      initialSyncDetail.put("complete", false);
+      checks.put("initialSync", initialSyncDetail);
+      healthy = false;
+    }
+
     final String maxBlocksStr = params.getParam("maxBlocksBehind");
     final Optional<Long> maxBlocksBehind =
         parseNonNegativeLong(maxBlocksStr, DEFAULT_MAX_BLOCKS_BEHIND);

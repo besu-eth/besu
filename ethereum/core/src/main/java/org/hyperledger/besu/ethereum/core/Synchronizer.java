@@ -49,6 +49,15 @@ public interface Synchronizer {
   boolean isInSync();
 
   /**
+   * Whether the initial sync phase has finished. For a snap syncing node this stays false until the
+   * chain download, the world state download, the trie heal and the flat database heal have all
+   * completed; a node with no initial sync phase reports true from start-up.
+   *
+   * @return true once the initial sync phase is done
+   */
+  boolean isInitialSyncPhaseDone();
+
+  /**
    * Returns the best known block height of the network.
    *
    * @return the best known block height of the network, or empty if not known

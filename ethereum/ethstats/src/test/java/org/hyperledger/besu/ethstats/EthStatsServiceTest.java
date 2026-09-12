@@ -18,20 +18,24 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
 import org.hyperledger.besu.ethereum.api.query.BlockWithMetadata;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.api.query.TransactionWithMetadata;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
+import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
+import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManager;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
@@ -44,11 +48,13 @@ import org.hyperledger.besu.ethstats.util.EthStatsConnectOptions;
 import org.hyperledger.besu.ethstats.util.ImmutableEthStatsConnectOptions;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.math.BigInteger;
 import java.time.Duration;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -312,6 +318,57 @@ public class EthStatsServiceTest {
     final Field field = EthStatsService.class.getDeclaredField(fieldName);
     field.setAccessible(true);
     field.set(ethStatsService, value);
+  }
+
+  @Test
+  public void nodeStatsReportsSyncingTrueWhenNodeIsNotInSync() throws Exception {
+    when(syncState.isInSync()).thenReturn(false);
+
+    assertThat(reportedSyncingField()).isTrue();
+  }
+
+  @Test
+  public void nodeStatsReportsSyncingFalseWhenNodeIsInSync() throws Exception {
+    when(syncState.isInSync()).thenReturn(true);
+
+    assertThat(reportedSyncingField()).isFalse();
+  }
+
+  /**
+   * Drives a node stats report and returns the {@code syncing} field of the emitted ethstats
+   * message, so the assertion is made against the real serialized protocol message.
+   */
+  private boolean reportedSyncingField() throws Exception {
+    final EthPeers ethPeers = mock(EthPeers.class);
+    when(ethPeers.streamAvailablePeers()).thenReturn(Stream.empty());
+    when(ethContext.getEthPeers()).thenReturn(ethPeers);
+
+    final Blockchain blockchain = mock(Blockchain.class);
+    when(blockchain.getChainHeadBlock()).thenReturn(new BlockDataGenerator().block());
+    when(blockchainQueries.getBlockchain()).thenReturn(blockchain);
+    when(miningCoordinator.getMinTransactionGasPrice()).thenReturn(Wei.ONE);
+    when(miningCoordinator.isMining()).thenReturn(false);
+    when(p2PNetwork.getLocalEnode()).thenReturn(Optional.of(node));
+
+    ethStatsService.start();
+
+    final Method sendNodeStatsReport =
+        EthStatsService.class.getDeclaredMethod("sendNodeStatsReport");
+    sendNodeStatsReport.setAccessible(true);
+    sendNodeStatsReport.invoke(ethStatsService);
+
+    final ArgumentCaptor<String> messagesCaptor = ArgumentCaptor.forClass(String.class);
+    verify(webSocket, times(2)).writeTextMessage(messagesCaptor.capture());
+
+    final String statsMessage = messagesCaptor.getAllValues().getLast();
+    final ObjectMapper objectMapper = new ObjectMapper().registerModule(new Jdk8Module());
+    return objectMapper
+        .readTree(statsMessage)
+        .get("emit")
+        .get(1)
+        .get("stats")
+        .get("syncing")
+        .asBoolean();
   }
 
   @Test

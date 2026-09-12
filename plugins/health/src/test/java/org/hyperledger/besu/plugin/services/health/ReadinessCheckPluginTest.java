@@ -26,6 +26,7 @@ import org.hyperledger.besu.plugin.data.SyncStatus;
 import org.hyperledger.besu.plugin.services.BesuEvents;
 import org.hyperledger.besu.plugin.services.HealthCheckService;
 import org.hyperledger.besu.plugin.services.p2p.P2PService;
+import org.hyperledger.besu.plugin.services.sync.SynchronizationService;
 
 import java.util.Optional;
 
@@ -38,6 +39,7 @@ public class ReadinessCheckPluginTest {
   private HealthCheckService healthCheckService;
   private P2PService p2pService;
   private BesuEvents besuEvents;
+  private SynchronizationService synchronizationService;
 
   @BeforeEach
   void setUp() {
@@ -49,6 +51,72 @@ public class ReadinessCheckPluginTest {
         .thenReturn(java.util.Optional.of(healthCheckService));
     when(serviceManager.getService(P2PService.class)).thenReturn(java.util.Optional.of(p2pService));
     when(serviceManager.getService(BesuEvents.class)).thenReturn(java.util.Optional.of(besuEvents));
+    synchronizationService = mock(SynchronizationService.class);
+    when(serviceManager.getService(SynchronizationService.class))
+        .thenReturn(java.util.Optional.of(synchronizationService));
+    // Most cases here are about the peer and block-distance checks; default to a node past its
+    // initial sync phase so that gate does not mask them.
+    when(synchronizationService.isInitialSyncPhaseDone()).thenReturn(true);
+  }
+
+  @Test
+  void shouldFailWhileInitialSyncPhaseIsNotDone() {
+    // Covers the world state download, the trie heal and the flat database heal: a snap syncing
+    // node cannot serve state until all of them have finished.
+    final ReadinessCheckPlugin plugin = new ReadinessCheckPlugin();
+    plugin.register(serviceManager);
+    plugin.start();
+
+    final var captor =
+        org.mockito.ArgumentCaptor.forClass(HealthCheckService.HealthCheckProvider.class);
+    verify(healthCheckService).registerHealthCheck(eq("/readiness"), captor.capture());
+
+    final HealthCheckService.HealthCheckProvider provider = captor.getValue();
+
+    when(synchronizationService.isInitialSyncPhaseDone()).thenReturn(false);
+    final SyncStatus syncStatus = mock(SyncStatus.class);
+    when(syncStatus.getCurrentBlock()).thenReturn(100L);
+    when(syncStatus.getHighestBlock()).thenReturn(100L);
+    triggerSyncStatusUpdate(syncStatus);
+
+    final HealthCheckService.ParamSource params = mock(HealthCheckService.ParamSource.class);
+    when(params.getParam("minPeers")).thenReturn("1");
+    when(params.getParam("maxBlocksBehind")).thenReturn("2");
+    when(p2pService.isP2pEnabled()).thenReturn(true);
+    when(p2pService.getPeerCount()).thenReturn(1);
+
+    final var result = provider.check(params);
+    assertThat(result.isHealthy()).isFalse();
+    final var initialSync = (java.util.Map<?, ?>) result.getDetails().get("initialSync");
+    assertThat(initialSync.get("status")).isEqualTo(false);
+    assertThat(initialSync.get("complete")).isEqualTo(false);
+  }
+
+  @Test
+  void shouldFailWhileInitialSyncPhaseIsNotDoneAndNoSyncStatusIsReported() {
+    // Snap sync's stage 1 reports no progress at all, which leaves the block-distance check
+    // skipped. Without the initial sync gate the node would report ready on the peer check alone.
+    final ReadinessCheckPlugin plugin = new ReadinessCheckPlugin();
+    plugin.register(serviceManager);
+    plugin.start();
+
+    final var captor =
+        org.mockito.ArgumentCaptor.forClass(HealthCheckService.HealthCheckProvider.class);
+    verify(healthCheckService).registerHealthCheck(eq("/readiness"), captor.capture());
+
+    final HealthCheckService.HealthCheckProvider provider = captor.getValue();
+
+    when(synchronizationService.isInitialSyncPhaseDone()).thenReturn(false);
+
+    final HealthCheckService.ParamSource params = mock(HealthCheckService.ParamSource.class);
+    when(params.getParam("minPeers")).thenReturn("1");
+    when(params.getParam("maxBlocksBehind")).thenReturn("2");
+    when(p2pService.isP2pEnabled()).thenReturn(true);
+    when(p2pService.getPeerCount()).thenReturn(1);
+
+    final var result = provider.check(params);
+    assertThat(result.isHealthy()).isFalse();
+    assertThat(result.getDetails()).doesNotContainKey("sync");
   }
 
   @Test

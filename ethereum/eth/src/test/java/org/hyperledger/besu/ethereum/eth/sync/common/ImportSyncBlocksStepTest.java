@@ -73,6 +73,6 @@ public class ImportSyncBlocksStepTest {
     importSyncBlocksStep.accept(blocksWithReceipts);
 
     verify(blockchain).unsafeImportSyncBodiesAndReceipts(blocksWithReceipts, false);
-    verify(syncState).setSyncProgress(0L, blocksWithReceipts.getLast().getNumber(), 10L);
+    verify(syncState).setSyncProgress(0L, blocksWithReceipts.getLast().getNumber());
   }
 }

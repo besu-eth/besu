@@ -28,6 +28,7 @@ jar {
 
 dependencies {
   api project(':plugin-api')
+  api project(':ethereum:eth:plugin-api-sync')
   api 'org.slf4j:slf4j-api'
 
   testImplementation project(':testutil')

@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import io.vertx.core.json.JsonObject;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 public class ReadinessCheckTest {
@@ -40,6 +41,57 @@ public class ReadinessCheckTest {
   private final HealthService.ParamSource paramSource = params::get;
 
   private final ReadinessCheck readinessCheck = new ReadinessCheck(p2pNetwork, synchronizer);
+
+  @BeforeEach
+  public void setUp() {
+    // Most cases here are about the peer and block-distance checks; default to a node past its
+    // initial sync phase so that gate does not mask them.
+    when(synchronizer.isInitialSyncPhaseDone()).thenReturn(true);
+  }
+
+  @Test
+  public void shouldNotBeReadyWhileInitialSyncPhaseIsNotDone() {
+    // Covers the world state download, the trie heal and the flat database heal: a snap syncing
+    // node cannot serve state until all of them have finished.
+    when(p2pNetwork.isP2pEnabled()).thenReturn(true);
+    when(p2pNetwork.getPeerCount()).thenReturn(5);
+    when(synchronizer.isInitialSyncPhaseDone()).thenReturn(false);
+    when(synchronizer.getSyncStatus()).thenReturn(createSyncStatus(1000, 1000));
+
+    final HealthService.HealthCheckResult result = readinessCheck.checkHealth(paramSource);
+
+    assertThat(result.isHealthy()).isFalse();
+    final JsonObject initialSync = result.getDetails().getJsonObject("initialSync");
+    assertThat(initialSync.getBoolean("status")).isFalse();
+    assertThat(initialSync.getBoolean("complete")).isFalse();
+  }
+
+  @Test
+  public void shouldNotBeReadyWhileInitialSyncPhaseIsNotDoneAndNoSyncStatusIsReported() {
+    // Snap sync's stage 1 reports no progress at all, which leaves the block-distance check
+    // skipped. Without the initial sync gate the node would report ready on the peer check alone.
+    when(p2pNetwork.isP2pEnabled()).thenReturn(true);
+    when(p2pNetwork.getPeerCount()).thenReturn(5);
+    when(synchronizer.isInitialSyncPhaseDone()).thenReturn(false);
+    when(synchronizer.getSyncStatus()).thenReturn(Optional.empty());
+
+    final HealthService.HealthCheckResult result = readinessCheck.checkHealth(paramSource);
+
+    assertThat(result.isHealthy()).isFalse();
+    assertThat(result.getDetails().containsKey("sync")).isFalse();
+  }
+
+  @Test
+  public void shouldOmitInitialSyncDetailOnceInitialSyncPhaseIsDone() {
+    when(p2pNetwork.isP2pEnabled()).thenReturn(true);
+    when(p2pNetwork.getPeerCount()).thenReturn(5);
+    when(synchronizer.getSyncStatus()).thenReturn(createSyncStatus(1000, 1000));
+
+    final HealthService.HealthCheckResult result = readinessCheck.checkHealth(paramSource);
+
+    assertThat(result.isHealthy()).isTrue();
+    assertThat(result.getDetails().containsKey("initialSync")).isFalse();
+  }
 
   @Test
   public void shouldBeReadyWhenDefaultLimitsUsedAndReached() {
