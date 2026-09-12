@@ -92,7 +92,7 @@ public class QbftBlockHeaderValidationRulesetFactoryTest {
 
     final BlockHeaderValidator validator =
         QbftBlockHeaderValidationRulesetFactory.blockHeaderValidator(
-                Duration.ofSeconds(5), false, Optional.of(FeeMarket.london(1)))
+                Duration.ofSeconds(5), false, false, Optional.of(FeeMarket.london(1)))
             .build();
 
     assertThat(
@@ -365,9 +365,76 @@ public class QbftBlockHeaderValidationRulesetFactoryTest {
         .isFalse();
   }
 
+  @Test
+  public void bftValidateHeaderFailsOnGasLimitDeltaByDefault() {
+    // Parent gas limit is the preset default (5000); the child jumps to 6000, far beyond the
+    // permitted delta of parentGasLimit/1024. The gas-limit change is applied via the header
+    // modifier so the commit seals are computed over the final header and remain valid, leaving
+    // the gas-limit delta rule as the only failing rule.
+    final NodeKey proposerNodeKey = NodeKeyUtils.generate();
+    final Address proposerAddress = Util.publicKeyToAddress(proposerNodeKey.getPublicKey());
+
+    final List<Address> validators = singletonList(proposerAddress);
+
+    final BlockHeader parentHeader =
+        QbftBlockHeaderUtils.createPresetHeaderBuilder(
+                1, proposerNodeKey, validators, null, Optional.empty())
+            .buildHeader();
+    final BlockHeader blockHeader =
+        QbftBlockHeaderUtils.createPresetHeaderBuilder(
+                2,
+                proposerNodeKey,
+                validators,
+                parentHeader,
+                builder -> builder.gasLimit(6_000),
+                Optional.empty())
+            .buildHeader();
+
+    final BlockHeaderValidator validator = getBlockHeaderValidator();
+
+    assertThat(
+            validator.validateHeader(
+                blockHeader, parentHeader, protocolContext(validators), HeaderValidationMode.FULL))
+        .isFalse();
+  }
+
+  @Test
+  public void bftValidateHeaderPassesOnGasLimitDeltaWhenGoQuorumCompatible() {
+    // The same header that fails the gas-limit delta rule by default validates when goQuorum
+    // compatibility mode is enabled, because that rule is not applied.
+    final NodeKey proposerNodeKey = NodeKeyUtils.generate();
+    final Address proposerAddress = Util.publicKeyToAddress(proposerNodeKey.getPublicKey());
+
+    final List<Address> validators = singletonList(proposerAddress);
+
+    final BlockHeader parentHeader =
+        QbftBlockHeaderUtils.createPresetHeaderBuilder(
+                1, proposerNodeKey, validators, null, Optional.empty())
+            .buildHeader();
+    final BlockHeader blockHeader =
+        QbftBlockHeaderUtils.createPresetHeaderBuilder(
+                2,
+                proposerNodeKey,
+                validators,
+                parentHeader,
+                builder -> builder.gasLimit(6_000),
+                Optional.empty())
+            .buildHeader();
+
+    final BlockHeaderValidator validator =
+        QbftBlockHeaderValidationRulesetFactory.blockHeaderValidator(
+                Duration.ofSeconds(5), false, true, Optional.empty())
+            .build();
+
+    assertThat(
+            validator.validateHeader(
+                blockHeader, parentHeader, protocolContext(validators), HeaderValidationMode.FULL))
+        .isTrue();
+  }
+
   public BlockHeaderValidator getBlockHeaderValidator() {
     return QbftBlockHeaderValidationRulesetFactory.blockHeaderValidator(
-            Duration.ofSeconds(5), false, Optional.empty())
+            Duration.ofSeconds(5), false, false, Optional.empty())
         .build();
   }
 }
