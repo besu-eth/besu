@@ -70,6 +70,7 @@
 
 ### Bug fixes
 - GraphQL `logs(filter: ...)` no longer fails when the filter's `topics` field is omitted or explicitly null, on both the top-level `logs` query and the block-scoped one. The schema declares `topics` nullable and documents "[] or nil matches any topic list", but the field was dereferenced unguarded, so a documented-valid query returned a `DataFetchingException` and `data: null`. [#11188](https://github.com/besu-eth/besu/pull/11188)
+- The `debug_trace*` methods now report `memory` as of before the operation executed, as documented, rather than after it. [#11206](https://github.com/besu-eth/besu/pull/11206)
 - `engine_newPayloadV5` now returns `{status: INVALID}` instead of a `-32602` JSON-RPC error when a present `blockAccessList` cannot be decoded; a missing `blockAccessList` still returns `-32602`. [#11177](https://github.com/besu-eth/besu/pull/11177)
 - `debug_getRawReceipts` now accepts a block hash as well as a block number or tag. [#11156](https://github.com/besu-eth/besu/pull/11156)
 - Support dynamic reorg tracking for transaction receipt logs in `eth_getTransactionReceipt` and `eth_getBlockReceipts` by populating the `removed` field. [#11076](https://github.com/besu-eth/besu/pull/11076)
