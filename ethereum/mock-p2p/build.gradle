@@ -15,6 +15,19 @@
 
 apply plugin: 'java-library'
 
+compileJava {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.ERROR)
+    option('NullAway:AnnotatedPackages', 'org.hyperledger.besu.ethereum.p2p.testing')
+  }
+}
+
+tasks.named('compileTestJava', JavaCompile).configure {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.OFF)
+  }
+}
+
 jar {
   archiveBaseName = calculateArtifactId(project)
   manifest {
@@ -30,6 +43,10 @@ jar {
 
 dependencies {
   api project(':plugin-api')
+
+  errorprone 'com.uber.nullaway:nullaway'
+
+  compileOnly 'org.jspecify:jspecify'
 
   implementation project(':ethereum:p2p')
   implementation project(':ethereum:permissioning')
