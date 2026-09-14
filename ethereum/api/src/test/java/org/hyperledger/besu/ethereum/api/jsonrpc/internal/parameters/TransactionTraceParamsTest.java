@@ -170,4 +170,17 @@ public class TransactionTraceParamsTest {
         .describedAs("traceReturnData should default to false when enableReturnData is absent")
         .isFalse();
   }
+
+  @Test
+  public void prestateTracerShouldRejectDiffModeWithIncludeEmpty() throws Exception {
+    final TransactionTraceParams params =
+        MAPPER.readValue(
+            "{\"tracer\": \"prestateTracer\", \"tracerConfig\": {\"diffMode\": true,"
+                + " \"includeEmpty\": true}}",
+            TransactionTraceParams.class);
+
+    assertThatThrownBy(params::traceOptions)
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("cannot use diffMode with includeEmpty");
+  }
 }

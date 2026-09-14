@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.evm.EvmSpecVersion;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.internal.Words;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
@@ -85,6 +86,8 @@ public class PrestateTracer implements OperationTracer {
   private final boolean includeEmpty;
   private final boolean eip6780;
   private final boolean eip7702;
+  private final GasCalculator gasCalculator;
+  private final int maxInitcodeSize;
 
   private final Map<Address, AccountState> pre = new HashMap<>();
   private final Map<Address, AccountState> post = new HashMap<>();
@@ -108,14 +111,11 @@ public class PrestateTracer implements OperationTracer {
         Boolean.TRUE.equals(traceOptions.tracerConfig().getOrDefault("disableStorage", false));
     this.includeEmpty =
         Boolean.TRUE.equals(traceOptions.tracerConfig().getOrDefault("includeEmpty", false));
-    // Diff mode has special semantics around account creation and deletion which
-    // requires it to include empty accounts and storage.
-    if (diffMode && includeEmpty) {
-      throw new IllegalArgumentException("cannot use diffMode with includeEmpty");
-    }
     final EvmSpecVersion evmVersion = protocolSpec.getEvm().getEvmVersion();
     this.eip6780 = evmVersion.compareTo(EvmSpecVersion.CANCUN) >= 0;
     this.eip7702 = evmVersion.compareTo(EvmSpecVersion.PRAGUE) >= 0;
+    this.gasCalculator = protocolSpec.getGasCalculator();
+    this.maxInitcodeSize = protocolSpec.getEvm().getMaxInitcodeSize();
   }
 
   @Override
@@ -148,6 +148,17 @@ public class PrestateTracer implements OperationTracer {
 
   @Override
   public void traceContextEnter(final MessageFrame frame) {
+    lookupCoinbase(frame);
+  }
+
+  @Override
+  public void traceContextReEnter(final MessageFrame frame) {
+    // The top frame is dispatched straight to re-enter when transaction preparation already
+    // halted it (EIP-8037 state-gas out-of-gas), so this is the first hook Besu fires for it.
+    lookupCoinbase(frame);
+  }
+
+  private void lookupCoinbase(final MessageFrame frame) {
     if (!coinbaseLookedUp) {
       coinbaseLookedUp = true;
       lookupAccount(frame.getWorldUpdater(), frame.getMiningBeneficiary());
@@ -204,11 +215,21 @@ public class PrestateTracer implements OperationTracer {
         pending = new Pending(accounts, null, null, null, addr, null);
       }
       case CREATE2 -> {
-        final long offset = Words.clampedToLong(frame.getStackItem(1));
-        final long size = Words.clampedToLong(frame.getStackItem(2));
-        if (offset > Integer.MAX_VALUE
-            || size > Integer.MAX_VALUE
-            || offset + size > Integer.MAX_VALUE) {
+        final int offset = Words.clampedToInt(frame.getStackItem(1));
+        final int size = Words.clampedToInt(frame.getStackItem(2));
+        // Mirror AbstractCreateOperation's early aborts: Geth's OnOpcode fires only after gas
+        // and initcode-size validation, and reading initcode before it would allocate memory
+        // the EVM will refuse to expand.
+        final long cost =
+            Words.clampedAdd(
+                Words.clampedAdd(
+                    gasCalculator.txCreateCost(),
+                    gasCalculator.memoryExpansionGasCost(frame, offset, size)),
+                Words.clampedAdd(
+                    gasCalculator.createKeccakCost(size), gasCalculator.initcodeCost(size)));
+        if (frame.getRemainingGas() < cost
+            || size > maxInitcodeSize
+            || (long) offset + size > Integer.MAX_VALUE) {
           return;
         }
         final Bytes initCode = size == 0 ? Bytes.EMPTY : frame.shadowReadMemory(offset, size);

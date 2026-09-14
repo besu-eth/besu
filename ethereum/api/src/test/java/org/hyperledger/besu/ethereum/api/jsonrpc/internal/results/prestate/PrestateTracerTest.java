@@ -15,9 +15,11 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.prestate;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -31,9 +33,11 @@ import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.EvmSpecVersion;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.gascalculator.CancunGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.operation.BalanceOperation;
 import org.hyperledger.besu.evm.operation.CallOperation;
+import org.hyperledger.besu.evm.operation.Create2Operation;
 import org.hyperledger.besu.evm.operation.CreateOperation;
 import org.hyperledger.besu.evm.operation.SLoadOperation;
 import org.hyperledger.besu.evm.operation.SelfDestructOperation;
@@ -45,6 +49,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -76,6 +81,8 @@ class PrestateTracerTest {
     evm = mock(EVM.class);
     when(protocolSpec.getEvm()).thenReturn(evm);
     when(evm.getEvmVersion()).thenReturn(EvmSpecVersion.CANCUN);
+    when(protocolSpec.getGasCalculator()).thenReturn(new CancunGasCalculator());
+    when(evm.getMaxInitcodeSize()).thenReturn(0xC000);
     world = mock(WorldUpdater.class);
   }
 
@@ -138,6 +145,22 @@ class PrestateTracerTest {
     when(frame.getStackItem(0)).thenReturn(UInt256.ZERO);
     when(frame.getStackItem(1)).thenReturn(UInt256.ZERO);
     when(frame.getStackItem(2)).thenReturn(UInt256.ZERO);
+    return frame;
+  }
+
+  private MessageFrame create2Frame(final Address self, final long size, final long remainingGas) {
+    final MessageFrame frame = mock(MessageFrame.class);
+    final Create2Operation operation = new Create2Operation(new CancunGasCalculator());
+    when(frame.getCurrentOperation()).thenReturn(operation);
+    when(frame.getWorldUpdater()).thenReturn(world);
+    when(frame.getRecipientAddress()).thenReturn(self);
+    when(frame.stackSize()).thenReturn(4);
+    when(frame.getStackItem(0)).thenReturn(UInt256.ZERO); // value
+    when(frame.getStackItem(1)).thenReturn(UInt256.ZERO); // offset
+    when(frame.getStackItem(2)).thenReturn(UInt256.valueOf(size)); // size
+    when(frame.getStackItem(3)).thenReturn(UInt256.ZERO); // salt
+    when(frame.getRemainingGas()).thenReturn(remainingGas);
+    when(frame.getState()).thenReturn(MessageFrame.State.CODE_EXECUTING);
     return frame;
   }
 
@@ -293,13 +316,6 @@ class PrestateTracerTest {
   }
 
   @Test
-  void diffModeWithIncludeEmptyIsRejected() {
-    assertThatThrownBy(() -> newTracer(Map.of("diffMode", true, "includeEmpty", true)))
-        .isInstanceOf(IllegalArgumentException.class)
-        .hasMessage("cannot use diffMode with includeEmpty");
-  }
-
-  @Test
   void balanceOpcodeLooksUpTarget() {
     final PrestateTracer tracer = newTracer(Map.of());
     startTransaction(tracer, RECIPIENT);
@@ -393,5 +409,91 @@ class PrestateTracerTest {
     final PrestateTracerResult.Prestate result =
         (PrestateTracerResult.Prestate) tracer.buildResult();
     assertThat(result.accounts().get(authority.toHexString()).balance()).isEqualTo("0x2");
+  }
+
+  @Test
+  void coinbaseLookedUpWhenTopFrameIsReEnteredWithoutEnter() {
+    final PrestateTracer tracer = newTracer(Map.of());
+    final Address coinbase = Address.fromHexString("0x5555");
+    final Account coinbaseAccount = mockAccount(coinbase, Wei.of(11), 0, Bytes.EMPTY);
+    when(world.get(coinbase)).thenReturn(coinbaseAccount);
+    final Account recipientAccount = mockAccount(RECIPIENT, Wei.ONE, 0, Bytes.EMPTY);
+    when(world.get(RECIPIENT)).thenReturn(recipientAccount);
+    startTransaction(tracer, RECIPIENT);
+
+    final MessageFrame frame = mock(MessageFrame.class);
+    when(frame.getWorldUpdater()).thenReturn(world);
+    when(frame.getMiningBeneficiary()).thenReturn(coinbase);
+    tracer.traceContextReEnter(frame);
+    endTransaction(tracer);
+
+    final PrestateTracerResult.Prestate result =
+        (PrestateTracerResult.Prestate) tracer.buildResult();
+    assertThat(result.accounts()).containsKey(coinbase.toHexString());
+    assertThat(result.accounts().get(coinbase.toHexString()).balance()).isEqualTo("0xb");
+  }
+
+  @Test
+  void create2SkipsShadowReadWhenInitcodeExceedsMaxSize() {
+    final PrestateTracer tracer = newTracer(Map.of());
+    startTransaction(tracer, RECIPIENT);
+
+    final MessageFrame frame = create2Frame(RECIPIENT, 0xC001, Long.MAX_VALUE);
+    tracer.tracePreExecution(frame);
+    tracer.tracePostExecution(frame, null);
+
+    verify(frame, never()).shadowReadMemory(anyLong(), anyLong());
+    final PrestateTracerResult.Prestate result =
+        (PrestateTracerResult.Prestate) tracer.buildResult();
+    assertThat(result.accounts()).containsOnlyKeys(SENDER.toHexString(), RECIPIENT.toHexString());
+  }
+
+  @Test
+  void create2SkipsShadowReadWhenGasInsufficient() {
+    final PrestateTracer tracer = newTracer(Map.of());
+    startTransaction(tracer, RECIPIENT);
+
+    // Cost is txCreateCost (32000) + createKeccakCost + initcodeCost for a 32-byte initcode,
+    // comfortably above 1_000 remaining gas.
+    final MessageFrame frame = create2Frame(RECIPIENT, 32, 1_000L);
+    tracer.tracePreExecution(frame);
+    tracer.tracePostExecution(frame, null);
+
+    verify(frame, never()).shadowReadMemory(anyLong(), anyLong());
+    final PrestateTracerResult.Prestate result =
+        (PrestateTracerResult.Prestate) tracer.buildResult();
+    assertThat(result.accounts()).containsOnlyKeys(SENDER.toHexString(), RECIPIENT.toHexString());
+  }
+
+  @Test
+  void create2SnapshotsTargetWhenAffordable() {
+    final PrestateTracer tracer = newTracer(Map.of());
+    startTransaction(tracer, RECIPIENT);
+
+    final Bytes initCode = Bytes.repeat((byte) 0x60, 32);
+    final MessageFrame frame = create2Frame(RECIPIENT, 32, 100_000L);
+    when(frame.shadowReadMemory(0, 32)).thenReturn(initCode);
+
+    final Bytes32 create2Hash =
+        Bytes32.wrap(
+            Hash.hash(
+                    Bytes.concatenate(
+                        Bytes.of((byte) 0xff),
+                        RECIPIENT.getBytes(),
+                        Bytes32.ZERO,
+                        Hash.hash(initCode).getBytes()))
+                .getBytes());
+    final Address expected = Address.extract(create2Hash);
+    final Account expectedAccount = mockAccount(expected, Wei.of(3), 0, Bytes.EMPTY);
+    when(world.get(expected)).thenReturn(expectedAccount);
+
+    tracer.tracePreExecution(frame);
+    tracer.tracePostExecution(frame, null);
+    endTransaction(tracer);
+
+    final PrestateTracerResult.Prestate result =
+        (PrestateTracerResult.Prestate) tracer.buildResult();
+    assertThat(result.accounts()).containsKey(expected.toHexString());
+    assertThat(result.accounts().get(expected.toHexString()).balance()).isEqualTo("0x3");
   }
 }

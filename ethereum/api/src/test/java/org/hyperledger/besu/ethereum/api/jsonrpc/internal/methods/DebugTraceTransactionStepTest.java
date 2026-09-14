@@ -34,6 +34,7 @@ import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.EvmSpecVersion;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.gascalculator.CancunGasCalculator;
 import org.hyperledger.besu.evm.precompile.PrecompileContractRegistry;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 
@@ -70,6 +71,8 @@ class DebugTraceTransactionStepTest {
     final EVM mockEvm = mock(EVM.class);
     when(mockProtocolSpec.getEvm()).thenReturn(mockEvm);
     when(mockEvm.getEvmVersion()).thenReturn(EvmSpecVersion.CANCUN);
+    when(mockEvm.getMaxInitcodeSize()).thenReturn(0xC000);
+    when(mockProtocolSpec.getGasCalculator()).thenReturn(new CancunGasCalculator());
 
     PrecompileContractRegistry mockRegistry = mock(PrecompileContractRegistry.class);
     when(mockProtocolSpec.getPrecompileContractRegistry()).thenReturn(mockRegistry);
