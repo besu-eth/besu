@@ -119,9 +119,8 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
   }
 
   private static boolean accountExists(final Account account) {
-    // The account exists if it has sent a transaction
-    // or already has its code initialized.
-    return account.getNonce() != 0 || !account.getCode().isEmpty() || !account.isStorageEmpty();
+    // EIP-684: a sent transaction or deployed code blocks creation; storage alone does not
+    return account.getNonce() != 0 || !account.getCode().isEmpty();
   }
 
   @Override

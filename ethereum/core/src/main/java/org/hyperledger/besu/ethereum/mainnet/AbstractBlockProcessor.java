@@ -310,7 +310,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
             cumulativeRegularGasUsed,
             cumulativeStateGasUsed,
             protocolSpec)) {
-          return new BlockProcessingResult(Optional.empty(), "provided gas insufficient");
+          return BlockProcessingResult.INSUFFICIENT_BLOCK_GAS;
         }
 
         final Optional<AccessLocationTracker> transactionLocationTracker =

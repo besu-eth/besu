@@ -20,6 +20,7 @@ import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Request;
+import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.BlockAccessListValidator;
 import org.hyperledger.besu.ethereum.mainnet.BlockBodyValidator;
@@ -197,6 +198,14 @@ public class MainnetBlockValidator implements BlockValidator {
         return retval;
       }
 
+      // A transaction whose gas limit does not fit an otherwise empty block can never fit, whatever
+      // ran before it, so no execution can make the block valid and the gas limit is the reason.
+      if (transactionsExceedBlockGasLimit(block)) {
+        final var result = BlockProcessingResult.INSUFFICIENT_BLOCK_GAS;
+        handleFailedBlockProcessing(block, blockAccessList, result, shouldRecordBadBlock, context);
+        return result;
+      }
+
       if (!blockAccessListValidator.validate(
           blockAccessList, block.getHeader(), block.getBody().getTransactions().size())) {
         var result =
@@ -316,6 +325,16 @@ public class MainnetBlockValidator implements BlockValidator {
         LOG.debug("Invalid block {} not added to badBlockManager ", failedBlock.toLogString());
       }
     }
+  }
+
+  private static boolean transactionsExceedBlockGasLimit(final Block block) {
+    final long blockGasLimit = block.getHeader().getGasLimit();
+    for (final Transaction transaction : block.getBody().getTransactions()) {
+      if (transaction.getGasLimit() > blockGasLimit) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
