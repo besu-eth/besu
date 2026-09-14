@@ -115,7 +115,7 @@ public interface MutableAccount extends Account {
    * Exception thrown to indicate an attempt to decrement an account balance below the available
    * value.
    */
-  class BalanceUnderflowException extends IllegalStateException {
+  class BalanceUnderflowException extends RuntimeException {
     /**
      * Constructs a new BalanceUnderflowException to indicate an attempt to decrement an account
      * balance below the available value.

@@ -694,20 +694,6 @@ public class MainnetTransactionProcessor {
 
       // need to throw to trigger the heal
       throw re;
-    } catch (final BalanceUnderflowException bue) {
-      // if this happens when simulating allowing underpriced gas, then it could happen that the
-      // sender has insufficient funds for the transfer, so return invalid as a result. Otherwise,
-      // rethrow.
-      if (transactionValidationParams.allowUnderpricedGas()) {
-        LOG.trace(
-            "Balance underflow exception occurred when simulating, returning invalid transaction processing result.",
-            bue);
-        return TransactionProcessingResult.invalid(
-            ValidationResult.invalid(
-                TransactionInvalidReason.INSUFFICIENT_FUNDS_FOR_TRANSFER, bue.getMessage()));
-      } else {
-        throw bue;
-      }
     } catch (final RuntimeException re) {
       final var cause = re.getCause();
       // in case of an interruption then just return without calling any other tracing method
@@ -729,6 +715,15 @@ public class MainnetTransactionProcessor {
           0,
           EMPTY_ADDRESS_SET,
           0L);
+
+      // if this happens when simulating allowing underpriced gas, then it could happen that the
+      // sender has insufficient funds for the transfer, so return invalid as a result.
+      if (re instanceof BalanceUnderflowException
+          && transactionValidationParams.allowUnderpricedGas()) {
+        return TransactionProcessingResult.invalid(
+            ValidationResult.invalid(
+                TransactionInvalidReason.INSUFFICIENT_FUNDS_FOR_TRANSFER, re.getMessage()));
+      }
 
       LOG.error("Critical Exception Processing Transaction", re);
       return TransactionProcessingResult.invalid(
