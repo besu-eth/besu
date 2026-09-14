@@ -29,7 +29,7 @@ The [Besu documentation](https://docs.besu-eth.org/) answers many common questio
 * [Troubleshoot performance](https://docs.besu-eth.org/public-networks/how-to/troubleshoot/performance)
 * [Configure ports](https://docs.besu-eth.org/public-networks/how-to/connect/configure-ports)
 * [Understand metrics](https://docs.besu-eth.org/public-networks/how-to/monitor/understand-metrics)
-* [Configure the JVM](https://docs.besu-eth.org/public-networks/how-to/configure-jvm)
+* [Configure the JVM](https://docs.besu-eth.org/public-networks/how-to/configure-java/pass-jvm-options)
 
 ### Chat
 
