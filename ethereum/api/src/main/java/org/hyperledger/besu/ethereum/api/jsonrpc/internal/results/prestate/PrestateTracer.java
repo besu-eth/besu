@@ -174,13 +174,13 @@ public class PrestateTracer implements OperationTracer {
     }
     final WorldUpdater world = frame.getWorldUpdater();
     final Address self = frame.getRecipientAddress();
-    final List<Map.Entry<Address, AccountState>> accounts = new ArrayList<>(1);
     switch (op.getName()) {
       case SLOAD, SSTORE -> {
         if (disableStorage) {
           return;
         }
         final UInt256 key = UInt256.fromBytes(frame.getStackItem(0));
+        final List<Map.Entry<Address, AccountState>> accounts = new ArrayList<>(1);
         snapshotInto(accounts, world, self);
         final AccountState existing = pre.get(self);
         if (existing != null && existing.storage != null && existing.storage.containsKey(key)) {
@@ -192,17 +192,20 @@ public class PrestateTracer implements OperationTracer {
       }
       case EXTCODECOPY, EXTCODEHASH, EXTCODESIZE, BALANCE -> {
         final Address target = Words.toAddress(frame.getStackItem(0));
+        final List<Map.Entry<Address, AccountState>> accounts = new ArrayList<>(1);
         snapshotInto(accounts, world, target);
         pending = new Pending(accounts, null, null, null, null, null);
       }
       case SELFDESTRUCT -> {
         final Address target = Words.toAddress(frame.getStackItem(0));
+        final List<Map.Entry<Address, AccountState>> accounts = new ArrayList<>(1);
         snapshotInto(accounts, world, target);
         final Address deletedAddress = (!eip6780 || created.contains(self)) ? self : null;
         pending = new Pending(accounts, null, null, null, null, deletedAddress);
       }
       case CALL, CALLCODE, DELEGATECALL, STATICCALL -> {
         final Address target = Words.toAddress(frame.getStackItem(1));
+        final List<Map.Entry<Address, AccountState>> accounts = new ArrayList<>(1);
         snapshotInto(accounts, world, target);
         // Lookup the delegation target
         delegationTarget(world, target).ifPresent(t -> snapshotInto(accounts, world, t));
@@ -211,6 +214,7 @@ public class PrestateTracer implements OperationTracer {
       case CREATE -> {
         final Account caller = world.get(self);
         final Address addr = Address.contractAddress(self, caller == null ? 0L : caller.getNonce());
+        final List<Map.Entry<Address, AccountState>> accounts = new ArrayList<>(1);
         snapshotInto(accounts, world, addr);
         pending = new Pending(accounts, null, null, null, addr, null);
       }
@@ -244,6 +248,7 @@ public class PrestateTracer implements OperationTracer {
                             Hash.hash(initCode).getBytes()))
                     .getBytes());
         final Address addr = Address.extract(create2Hash);
+        final List<Map.Entry<Address, AccountState>> accounts = new ArrayList<>(1);
         snapshotInto(accounts, world, addr);
         pending = new Pending(accounts, null, null, null, addr, null);
       }
