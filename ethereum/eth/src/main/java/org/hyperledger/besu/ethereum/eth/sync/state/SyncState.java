@@ -69,6 +69,22 @@ public class SyncState implements NewPayloadListener {
   private volatile long lastPayloadBlockNumber = 0L;
   private volatile boolean payloadReceived = false;
 
+  // Progress reported by a sync that does not use a sync target, i.e. snap sync. Retained so that
+  // eth_syncing can report progress during the initial sync phase; cleared once that phase ends.
+  // Null until the first report. Only the blocks are retained: the highest block is resolved per
+  // read, see targetlessSyncStatus().
+  private volatile TargetlessSyncProgress targetlessSyncProgress;
+
+  // Set once markInitialSyncPhaseAsDone() has run, so that any later progress report can be
+  // dropped rather than reinstating targetlessSyncProgress. Tracked separately from
+  // isInitialSyncPhaseDone, which is already true from construction on a node that has no initial
+  // sync phase.
+  private boolean initialSyncPhaseCompleted;
+
+  // Guards the two fields above together, so that a progress report cannot interleave with
+  // markInitialSyncPhaseAsDone() clearing the progress.
+  private final Object targetlessSyncProgressLock = new Object();
+
   public SyncState(final Blockchain blockchain, final EthPeers ethPeers) {
     this(blockchain, ethPeers, false, Optional.empty());
   }
@@ -161,8 +177,39 @@ public class SyncState implements NewPayloadListener {
     return completionListenerSubscribers.unsubscribe(listenerId);
   }
 
+  /**
+   * The current sync status, or empty when this node is not syncing.
+   *
+   * <p>Falls back to {@link #setSyncProgress(long, long)} reporting when no sync target is set.
+   * Snap sync does not use a sync target — only {@code PipelineChainDownloader}, used by full sync,
+   * sets one — so without this fallback {@code eth_syncing} reports "not syncing" for the whole of
+   * a snap sync.
+   *
+   * @return the current sync status, or empty when not syncing
+   */
   public Optional<SyncStatus> syncStatus() {
-    return syncStatus(syncTarget);
+    return syncStatus(syncTarget).or(this::targetlessSyncStatus);
+  }
+
+  /**
+   * The status of a sync that does not use a sync target, built from the last reported progress.
+   *
+   * <p>The highest block is resolved on every read rather than stored, because snap sync reports
+   * progress only while a stage 2 pipeline is running. Between cycles — in particular while the
+   * chain download waits for the world state heal to finish — no report arrives, and a stored
+   * height would stay frozen at the pivot the last cycle reached, making the node look fully caught
+   * up.
+   */
+  private Optional<SyncStatus> targetlessSyncStatus() {
+    return Optional.ofNullable(targetlessSyncProgress)
+        .map(
+            progress ->
+                new DefaultSyncStatus(
+                    progress.startingBlock(),
+                    progress.currentBlock(),
+                    bestChainHeight(),
+                    Optional.empty(),
+                    Optional.empty()));
   }
 
   public Optional<SyncTarget> syncTarget() {
@@ -174,12 +221,27 @@ public class SyncState implements NewPayloadListener {
     replaceSyncTarget(Optional.of(syncTarget));
   }
 
-  public void setSyncProgress(
-      final long startingBlock, final long currentBlock, final long highestBlock) {
-    final SyncStatus status =
-        new DefaultSyncStatus(
-            startingBlock, currentBlock, highestBlock, Optional.empty(), Optional.empty());
-    syncStatusListeners.forEach(c -> c.onSyncStatusChanged(Optional.of(status)));
+  /**
+   * Reports the progress of a sync that does not use a sync target, i.e. snap sync.
+   *
+   * <p>Progress reported after {@link #markInitialSyncPhaseAsDone()} is ignored: only that method
+   * clears the retained progress, so a later report would make {@code syncStatus()} non-empty for
+   * the rest of the process lifetime, leaving {@code eth_syncing} claiming an in-progress sync with
+   * no way to recover short of a restart. Callers are expected to report only while the initial
+   * sync phase is running; this guard keeps the consequence of getting that wrong proportionate.
+   *
+   * @param startingBlock the block the sync started from
+   * @param currentBlock the block the sync has reached
+   */
+  public void setSyncProgress(final long startingBlock, final long currentBlock) {
+    synchronized (targetlessSyncProgressLock) {
+      if (initialSyncPhaseCompleted) {
+        return;
+      }
+      targetlessSyncProgress = new TargetlessSyncProgress(startingBlock, currentBlock);
+    }
+    final Optional<SyncStatus> status = targetlessSyncStatus();
+    syncStatusListeners.forEach(c -> c.onSyncStatusChanged(status));
   }
 
   public void setWorldStateDownloadStatus(final WorldStateDownloadStatus worldStateDownloadStatus) {
@@ -358,6 +420,12 @@ public class SyncState implements NewPayloadListener {
   public void markInitialSyncPhaseAsDone() {
     isInitialSyncPhaseDone = true;
     isResyncNeeded = false;
+    synchronized (targetlessSyncProgressLock) {
+      initialSyncPhaseCompleted = true;
+      // Otherwise the last progress reported by snap sync would be returned by syncStatus()
+      // forever, making eth_syncing report a permanently in-progress sync.
+      targetlessSyncProgress = null;
+    }
     completionListenerSubscribers.forEach(InitialSyncCompletionListener::onInitialSyncCompleted);
   }
 
@@ -371,6 +439,17 @@ public class SyncState implements NewPayloadListener {
 
   public void markInitialSyncRestart() {
     isInitialSyncPhaseDone = false;
+    synchronized (targetlessSyncProgressLock) {
+      initialSyncPhaseCompleted = false;
+    }
     completionListenerSubscribers.forEach(InitialSyncCompletionListener::onInitialSyncRestart);
   }
+
+  /**
+   * The blocks last reported by a sync that does not use a sync target.
+   *
+   * @param startingBlock the block the sync started from
+   * @param currentBlock the block the sync had reached when it last reported
+   */
+  private record TargetlessSyncProgress(long startingBlock, long currentBlock) {}
 }

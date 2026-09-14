@@ -434,7 +434,9 @@ public class EthStatsService {
     final WebSocket activeWebSocket = requireWebSocket();
     final EnodeURL localEnodeURL = requireEnodeURL();
     final boolean isMiningEnabled = miningCoordinator.isMining();
-    final boolean isSyncing = syncState.isInSync();
+    // The ethstats "syncing" field means the node is still catching up, which is the negation of
+    // SyncState.isInSync().
+    final boolean isSyncing = !syncState.isInSync();
     final long gasPrice = suggestGasPrice(blockchainQueries.getBlockchain().getChainHeadBlock());
     // safe to cast to int since it isn't realistic to have more than max int peers
     final int peersNumber =

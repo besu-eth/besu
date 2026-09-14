@@ -111,9 +111,20 @@ public class BackwardSyncContext {
     this.maxBadChainEventEntries = maxBadChainEventEntries;
   }
 
+  /**
+   * Whether a backward sync session is currently in flight.
+   *
+   * <p>A session is represented by a non-null {@code currentBackwardSyncStatus} whose future has
+   * not yet completed. The status is cleared from within the completion handler of that same future
+   * (see {@link #prepareBackwardSyncFutureWithRetry()}), so the {@code isDone} check also guards
+   * the case where a synchronously completing future is overwritten by {@link
+   * #getOrStartSyncSession()} after the handler has already cleared the status.
+   *
+   * @return true while a backward sync session is running, false otherwise
+   */
   public synchronized boolean isSyncing() {
     return Optional.ofNullable(currentBackwardSyncStatus.get())
-        .map(status -> status.currentFuture.isDone())
+        .map(status -> !status.currentFuture.isDone())
         .orElse(Boolean.FALSE);
   }
 
@@ -166,13 +177,38 @@ public class BackwardSyncContext {
     return status.currentFuture;
   }
 
+  /**
+   * The current backward sync session, starting one when there is none in flight.
+   *
+   * <p>A session whose future has already completed is not reused: {@code
+   * BackwardSyncAlgorithm.pickNextStep()} can finish a session on the calling thread, in which case
+   * the completion handler in {@link #prepareBackwardSyncFutureWithRetry()} clears the status
+   * before it is even published. Handing that finished session back would make every later {@code
+   * syncBackwardsUntil} return an already-completed future, so no backward sync would ever start
+   * again.
+   */
   private Status getOrStartSyncSession() {
-    Optional<Status> maybeCurrentStatus = Optional.ofNullable(this.currentBackwardSyncStatus.get());
+    Optional<Status> maybeCurrentStatus =
+        Optional.ofNullable(this.currentBackwardSyncStatus.get())
+            .filter(status -> !status.currentFuture.isDone());
     return maybeCurrentStatus.orElseGet(
         () -> {
           LOG.info("Starting a new backward sync session");
           Status newStatus = new Status(prepareBackwardSyncFutureWithRetry());
-          this.currentBackwardSyncStatus.set(newStatus);
+          // Only publish a session that is still running. A synchronously completed one has
+          // already had the status cleared by its own handler, and publishing it would park a
+          // finished session in the field for other readers — getStatus() hands it to
+          // BackwardSyncStep's progress logging, and maybeUpdateTargetHeight would mutate it.
+          if (!newStatus.currentFuture.isDone()) {
+            this.currentBackwardSyncStatus.set(newStatus);
+            // The future can complete between the check above and the publish, in which case its
+            // handler has already cleared the field and we have just re-published a finished
+            // session. compareAndSet retracts only our own status, so a session started in the
+            // meantime is left alone.
+            if (newStatus.currentFuture.isDone()) {
+              this.currentBackwardSyncStatus.compareAndSet(newStatus, null);
+            }
+          }
           return newStatus;
         });
   }

@@ -63,7 +63,7 @@ public class ImportSyncBlocksStep implements Consumer<List<SyncBlockWithReceipts
         .unsafeImportSyncBodiesAndReceipts(blocksWithReceipts, transactionIndexingEnabled);
     final long lastBlock = blocksWithReceipts.getLast().getNumber();
 
-    syncState.setSyncProgress(startBlock, lastBlock, pivotHeaderNumber);
+    syncState.setSyncProgress(startBlock, lastBlock);
 
     if (isTimeToUpdate.get()) {
       int peerCount = -1; // ethContext is not available in tests

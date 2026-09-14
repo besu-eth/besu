@@ -453,6 +453,119 @@ public class SyncStateTest {
   }
 
   @Test
+  public void syncStatus_reportsProgressWhileSnapSyncingWithNoSyncTarget() {
+    // Snap sync never sets a sync target; it reports progress via setSyncProgress instead.
+    updateChainState(syncTargetPeer.getEthPeer(), TARGET_CHAIN_HEIGHT, TARGET_DIFFICULTY);
+    doReturn(Optional.of(syncTargetPeer.getEthPeer())).when(ethPeers).bestPeerWithHeightEstimate();
+
+    syncState.setSyncProgress(10L, 42L);
+
+    final Optional<SyncStatus> syncStatus = syncState.syncStatus();
+
+    assertThat(syncStatus).isPresent();
+    assertThat(syncStatus.get().getStartingBlock()).isEqualTo(10L);
+    assertThat(syncStatus.get().getCurrentBlock()).isEqualTo(42L);
+    // The highest block comes from the same height that backs the blocks-behind signal, not from
+    // the pivot the reporting cycle was targeting.
+    assertThat(syncStatus.get().getHighestBlock()).isEqualTo(TARGET_CHAIN_HEIGHT);
+  }
+
+  @Test
+  public void syncStatus_reportsPayloadHeightAsHighestBlockOnceDrivenByConsensusLayer() {
+    syncState.setSyncProgress(10L, 42L);
+    syncState.onNewPayload(
+        new BlockHeaderTestFixture().number(TARGET_CHAIN_HEIGHT + 50).buildHeader());
+
+    assertThat(syncState.syncStatus()).isPresent();
+    assertThat(syncState.syncStatus().get().getHighestBlock()).isEqualTo(TARGET_CHAIN_HEIGHT + 50);
+  }
+
+  @Test
+  public void syncStatus_highestBlockAdvancesWithoutAFurtherProgressReport() {
+    // Snap sync reports progress only while a stage 2 pipeline runs. Between cycles — notably
+    // while the chain download waits for the world state heal — nothing reports, so the highest
+    // block must be resolved per read or the node looks fully caught up.
+    syncState.setSyncProgress(10L, 42L);
+    syncState.onNewPayload(new BlockHeaderTestFixture().number(200L).buildHeader());
+    assertThat(syncState.syncStatus().get().getHighestBlock()).isEqualTo(200L);
+
+    syncState.onNewPayload(new BlockHeaderTestFixture().number(400L).buildHeader());
+
+    final Optional<SyncStatus> syncStatus = syncState.syncStatus();
+    assertThat(syncStatus.get().getCurrentBlock()).isEqualTo(42L);
+    assertThat(syncStatus.get().getHighestBlock()).isEqualTo(400L);
+  }
+
+  @Test
+  public void syncStatus_isEmptyOnceInitialSyncPhaseIsDone() {
+    syncState.setSyncProgress(10L, 42L);
+    assertThat(syncState.syncStatus()).isPresent();
+
+    syncState.markInitialSyncPhaseAsDone();
+
+    assertThat(syncState.syncStatus()).isEmpty();
+  }
+
+  @Test
+  public void syncStatus_staysEmptyWhenProgressIsReportedAfterInitialSyncPhaseIsDone() {
+    // markInitialSyncPhaseAsDone() is the only thing that clears the retained progress, so a later
+    // report must not reinstate it: that would wedge eth_syncing at "syncing" for the rest of the
+    // process lifetime.
+    syncState.setSyncProgress(10L, 42L);
+    syncState.markInitialSyncPhaseAsDone();
+
+    syncState.setSyncProgress(10L, 43L);
+
+    assertThat(syncState.syncStatus()).isEmpty();
+  }
+
+  @Test
+  public void syncStatusListener_isNotNotifiedOfProgressReportedAfterInitialSyncPhaseIsDone() {
+    syncState.markInitialSyncPhaseAsDone();
+
+    syncState.setSyncProgress(10L, 42L);
+
+    verify(syncStatusListener, never()).onSyncStatusChanged(any());
+  }
+
+  @Test
+  public void syncStatus_reportsProgressAgainAfterInitialSyncRestart() {
+    syncState.markInitialSyncPhaseAsDone();
+    syncState.markInitialSyncRestart();
+
+    syncState.setSyncProgress(10L, 42L);
+
+    assertThat(syncState.syncStatus()).isPresent();
+    assertThat(syncState.syncStatus().get().getCurrentBlock()).isEqualTo(42L);
+  }
+
+  @Test
+  public void syncStatus_prefersSyncTargetOverReportedProgress() {
+    syncState.setSyncProgress(10L, 42L);
+    syncState.setSyncTarget(syncTargetPeer.getEthPeer(), blockchain.getBlockHeader(3L).get());
+
+    final Optional<SyncStatus> syncStatus = syncState.syncStatus();
+
+    assertThat(syncStatus).isPresent();
+    assertThat(syncStatus.get().getStartingBlock()).isEqualTo(3L);
+    assertThat(syncStatus.get().getCurrentBlock()).isEqualTo(OUR_CHAIN_HEAD_NUMBER);
+    assertThat(syncStatus.get().getHighestBlock()).isEqualTo(TARGET_CHAIN_HEIGHT);
+  }
+
+  @Test
+  public void syncStatusListener_stillReceivesEmptyOnClearedTargetDespiteReportedProgress() {
+    // The syncStatus() fallback must not leak into listener notifications: an empty event is how
+    // subscribers learn that the sync target is gone.
+    syncState.setSyncProgress(10L, 42L);
+    syncState.setSyncTarget(syncTargetPeer.getEthPeer(), blockchain.getBlockHeader(3L).get());
+    syncState.clearSyncTarget();
+
+    verify(syncStatusListener, times(3)).onSyncStatusChanged(syncStatusCaptor.capture());
+
+    assertThat(syncStatusCaptor.getAllValues().getLast()).isEmpty();
+  }
+
+  @Test
   public void syncStatusListener_receivesEventWhenSyncTargetSet() {
     syncState.setSyncTarget(syncTargetPeer.getEthPeer(), blockchain.getBlockHeader(3L).get());
 
@@ -780,9 +893,9 @@ public class SyncStateTest {
     SyncStatusListener listener = mock(SyncStatusListener.class);
     syncState.subscribeSyncStatus(listener);
 
-    syncState.setSyncProgress(0, 10, 100);
-    syncState.setSyncProgress(0, 50, 100);
-    syncState.setSyncProgress(0, 100, 100);
+    syncState.setSyncProgress(0, 10);
+    syncState.setSyncProgress(0, 50);
+    syncState.setSyncProgress(0, 100);
 
     verify(listener, times(3)).onSyncStatusChanged(syncStatusCaptor.capture());
 

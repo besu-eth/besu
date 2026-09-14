@@ -293,6 +293,11 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
     return syncState.isInSync();
   }
 
+  @Override
+  public boolean isInitialSyncPhaseDone() {
+    return syncState.isInitialSyncPhaseDone();
+  }
+
   /**
    * Returns the best known block height of the network.
    *
