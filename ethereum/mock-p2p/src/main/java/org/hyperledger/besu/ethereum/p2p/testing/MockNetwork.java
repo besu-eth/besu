@@ -278,10 +278,8 @@ public final class MockNetwork {
     public void send(final Capability capability, final MessageData message)
         throws PeerNotConnected {
       synchronized (network) {
-        final MockNetwork.MockP2PNetwork target = network.nodes.get(to);
-        if (target == null) {
-          throw new PeerNotConnected(String.format("%s not connected to %s", to, from));
-        }
+        final MockNetwork.MockP2PNetwork target =
+            Objects.requireNonNull(network.nodes.get(to), () -> "Unknown peer " + to);
         final MockNetwork.MockPeerConnection backChannel = target.connections.get(from);
         if (backChannel != null) {
           final Message msg = new DefaultMessage(backChannel, message);

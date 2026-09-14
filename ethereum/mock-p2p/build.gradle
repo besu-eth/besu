@@ -46,8 +46,6 @@ dependencies {
 
   errorprone 'com.uber.nullaway:nullaway'
 
-  compileOnly 'org.jspecify:jspecify'
-
   implementation project(':ethereum:p2p')
   implementation project(':ethereum:permissioning')
   implementation project(':util')
