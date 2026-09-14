@@ -59,10 +59,6 @@ public class AccessLocationTracker implements Eip7928AccessList {
     touchedAccounts.computeIfAbsent(address, AccountAccessList::new).addSlotAccess(slotKey);
   }
 
-  public Collection<AccountAccessList> getTouchedAccounts() {
-    return touchedAccounts.values();
-  }
-
   public static final class AccountAccessList {
     private final Address address;
     private final Set<UInt256> slots = ConcurrentHashMap.newKeySet();

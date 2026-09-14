@@ -57,7 +57,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -148,7 +147,6 @@ public class TransactionTracerTest {
     when(tracer.getTraceFrames()).thenReturn(traceFrames);
     final WorldUpdater updater = mock(WorldUpdater.class);
     when(mutableWorldState.updater()).thenReturn(updater);
-    when(updater.updater()).thenReturn(mock(WorldUpdater.class));
 
     final Optional<TransactionTrace> transactionTrace =
         transactionTracer.traceTransaction(mutableWorldState, blockHash, transactionHash, tracer);
@@ -168,7 +166,6 @@ public class TransactionTracerTest {
     when(tracer.getTraceFrames()).thenReturn(traceFrames);
     final WorldUpdater updater = mock(WorldUpdater.class);
     when(mutableWorldState.updater()).thenReturn(updater);
-    when(updater.updater()).thenReturn(mock(WorldUpdater.class));
 
     final Optional<TransactionTrace> transactionTrace =
         transactionTracer.traceTransaction(mutableWorldState, blockHash, transactionHash, tracer);
@@ -187,11 +184,9 @@ public class TransactionTracerTest {
     when(blockchain.getBlockBody(blockHash)).thenReturn(Optional.of(blockBody));
 
     final WorldUpdater updater = mock(WorldUpdater.class);
-    final WorldUpdater stackedUpdater = mock(WorldUpdater.class);
     when(mutableWorldState.updater()).thenReturn(updater);
-    when(updater.updater()).thenReturn(stackedUpdater);
     when(transactionProcessor.processTransaction(
-            eq(stackedUpdater),
+            eq(updater),
             eq(blockHeader),
             eq(transaction),
             eq(null),
@@ -205,47 +200,6 @@ public class TransactionTracerTest {
         transactionTracer.traceTransaction(mutableWorldState, blockHash, transactionHash, tracer);
 
     assertThat(transactionTrace.map(TransactionTrace::getResult)).contains(result);
-  }
-
-  @Test
-  public void traceTransactionShouldProcessAgainstUpdaterWithParentForStateDiffTracer() {
-    final TransactionProcessingResult result = mock(TransactionProcessingResult.class);
-
-    when(blockchain.getBlockHeader(blockHash)).thenReturn(Optional.of(blockHeader));
-    when(blockchain.getBlockHeader(previousBlockHash)).thenReturn(Optional.of(previousBlockHeader));
-
-    when(blockBody.getTransactions()).thenReturn(Collections.singletonList(transaction));
-    when(blockchain.getBlockBody(blockHash)).thenReturn(Optional.of(blockBody));
-
-    // Model the real layering: the world state's updater has no parent, but stacking a second
-    // updater on top gives a child whose parentUpdater() is present. The prestate/diffMode tracer
-    // walks this chain via parentUpdater() to reach the pre-transaction state.
-    final WorldUpdater updater = mock(WorldUpdater.class);
-    final WorldUpdater stackedUpdater = mock(WorldUpdater.class);
-    when(mutableWorldState.updater()).thenReturn(updater);
-    when(updater.updater()).thenReturn(stackedUpdater);
-    when(updater.parentUpdater()).thenReturn(Optional.empty());
-    when(stackedUpdater.parentUpdater()).thenReturn(Optional.of(updater));
-
-    final ArgumentCaptor<WorldUpdater> updaterCaptor = ArgumentCaptor.forClass(WorldUpdater.class);
-    when(transactionProcessor.processTransaction(
-            updaterCaptor.capture(),
-            eq(blockHeader),
-            eq(transaction),
-            eq(null),
-            eq(tracer),
-            any(),
-            any(),
-            eq(Wei.ZERO)))
-        .thenReturn(result);
-
-    transactionTracer.traceTransaction(mutableWorldState, blockHash, transactionHash, tracer);
-
-    // Regression for the prestateTracer NoSuchElementException: the updater handed to
-    // processTransaction must have a parent so parentUpdater().get() in StateTraceGenerator
-    // resolves. Before the fix a single-layer updater was passed and this parent was empty.
-    assertThat(updaterCaptor.getValue().parentUpdater()).isPresent();
-    assertThat(updaterCaptor.getValue().parentUpdater()).contains(updater);
   }
 
   @Test

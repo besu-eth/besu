@@ -23,43 +23,44 @@ geth import --datadir ./data blocks.bin
 
 ## Manually regenerating `blocks.bin`
 
-`../chain-data/blocks.json` is the source of the test transactions. Append blocks instead of changing existing ones so existing hashes remain stable.
+`../chain-data/blocks.json` declaratively describes every transaction in `blocks.bin` (sender
+key, gas params, `to`/`value`/`data`, and for EIP-7702 `SetCodeTransaction`s the
+`authorizationList`) so the chain can be reproduced or extended without Besu itself parsing the
+file — no Besu code reads `blocks.json`; it exists purely as checked-in provenance for
+`blocks.bin`. Append blocks instead of changing existing ones so existing hashes remain stable.
 
-1. Initialize a clean Geth data directory from `genesis.json`:
+1. Start a Geth node (matching `genesis.json`'s configured forks) in `--dev --dev.period 0` mode
+   with debug/admin RPC APIs enabled, having already imported the current `blocks.bin` so the
+   chain continues from its tip.
 
-   ```bash
-   cd ../chain-data
-   geth init --datadir ./data genesis.json
-   ```
+2. Append one or more block entries to `blocks.json`. Legacy transactions use
+   `secretKey`/`gasLimit`/`gasPrice`/`to`/`value`/`data`; EIP-7702 `SetCodeTransaction`s
+   additionally set `"type": 4`, `maxFeePerGas`/`maxPriorityFeePerGas`, and `authorizationList`
+   (each entry carrying its own `chainId`/`address`/`nonce` plus an `authoritySecretKey` so the
+   authorization signature is reproducible from the file alone).
 
-2. Start Geth with deterministic periodic mining and the required RPC APIs:
+3. Replay the new block(s) against the running node: for each transaction, derive the sender
+   from `secretKey`, build the transaction from its declared fields (signing any
+   `authorizationList` entries with their own `authoritySecretKey`), sign with the chain ID from
+   `genesis.json` and the sender's next pending nonce, and submit via `eth_sendRawTransaction`
+   one transaction at a time — waiting for each to be mined and confirming it landed in the
+   expected block number before submitting the next.
 
-   ```bash
-   geth --datadir ./data --dev --dev.period 5 \
-     --http --http.api eth,net,web3,debug,miner,txpool \
-     --nodiscover --maxpeers 0 --gcmode archive
-   ```
-
-3. Replay `blocks.json` in block-number order. For every transaction:
-
-   - derive the sender from `secretKey`;
-   - use the exact `gasLimit`, `gasPrice`, `to`, `value`, and `data` values;
-   - sign with the chain ID from `genesis.json` and the sender's next nonce;
-   - submit the signed bytes with `eth_sendRawTransaction`.
-
-   Submit all transactions assigned to one block within the same five-second mining interval. Use raw transaction submission because some fixtures intentionally revert. For an empty block, wait for the next mining interval without submitting a transaction. After each interval, verify the block number, transaction count, and transaction order before continuing.
-
-4. Stop Geth immediately after the final configured block, then export blocks 1 through that block:
+4. Export the extended chain and replace the checked-in `blocks.bin`:
 
    ```bash
-   geth export blocks.bin 1 <last-block-number> --datadir ./data
+   curl -s http://localhost:8545 -X POST -H "Content-Type: application/json" \
+     --data '{"jsonrpc":"2.0","method":"admin_exportChain","params":["/chain-data/blocks.bin"],"id":1}'
    ```
 
-5. Initialize a second clean data directory, import the new `blocks.bin`, and confirm its final block and transaction hashes before replacing the checked-in file.
+5. Regenerate specs for every tracer sharing this chain (`prestateTracer`, `callTracer`,
+   `4byteTracer`, including every `tracerConfig` variant already present under `specs/`) by
+   querying `debug_traceBlockByNumber` for each block. Diff the regenerated output against the
+   currently-committed specs first — every existing block's spec file must stay byte-identical;
+   only the new block's files should differ (appear as new files).
 
-6. Query Geth's `debug_traceBlockByNumber` for the new block and each required tracer configuration. Store the complete JSON-RPC request, response, and HTTP status in the matching `specs/` directory. For `callTracer`, generate both the default result and `{"tracerConfig":{"onlyTopCall":true}}` variant.
-
-7. Verify the regenerated chain and specs in Besu:
+6. Copy the new `blocks.bin`, `blocks.json`, and the new-block spec files into Besu's
+   `debug-geth/chain-data/` and `debug-geth/specs/` directories, and verify:
 
    ```bash
    ./gradlew :ethereum:api:test \
@@ -71,9 +72,13 @@ geth import --datadir ./data blocks.bin
 Each tracer has its own directory under `specs/`:
 
 - **`call-tracer/`** - Call tracer specs
+  - `only-top-call/` - `{"tracerConfig":{"onlyTopCall":true}}` variant
 - **`prestate-tracer/`** - Pre-state tracer specs
   - `diff-mode-false/` - Pre-state only
   - `diff-mode-true/` - Pre and post state
+  - `disable-code/` - `{"tracerConfig":{"disableCode":true}}` variant
+  - `disable-storage/` - `{"tracerConfig":{"disableStorage":true}}` variant
+  - `include-empty/` - `{"tracerConfig":{"includeEmpty":true}}` variant
 - **`4byte-tracer/`** - Function signature tracer
 
 ## Tracer Types
