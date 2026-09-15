@@ -35,9 +35,15 @@ import org.hyperledger.besu.evm.worldstate.WorldView;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
@@ -59,6 +65,10 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
 
   private final TransactionCollisionDetector transactionCollisionDetector;
 
+  // Index the serial loop has reached. A speculative run for that index or an earlier one can no
+  // longer be used, so workers skip it instead of competing with the import for cores.
+  private final AtomicInteger serialLoopPosition = new AtomicInteger(-1);
+
   /**
    * Constructs a PreloadConcurrentTransactionProcessor with a specified transaction processor. This
    * processor is responsible for the individual processing of transactions.
@@ -79,6 +89,133 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
     this.transactionCollisionDetector = transactionCollisionDetector;
   }
 
+  /**
+   * Transactions of one sender are chained on one worker so that each sees the nonce and balance
+   * left by the previous one; run alone against the parent state they would fail the nonce check
+   * before touching any state. The chained results are only ever warm-ups, since the serial loop
+   * always finds the sender changed, but they turn cold re-executions into warm ones. Senders not
+   * recovered yet are left alone rather than recovered here on the importing thread.
+   */
+  @Override
+  @SuppressWarnings({"unchecked", "rawtypes"})
+  public void runAsyncBlock(
+      final ProtocolContext protocolContext,
+      final BlockHeader blockHeader,
+      final List<Transaction> transactions,
+      final Address miningBeneficiary,
+      final BlockHashLookup blockHashLookup,
+      final Wei blobGasPrice,
+      final Executor executor,
+      final Optional<BlockAccessListBuilder> blockAccessListBuilder,
+      final Optional<BlockHeader> maybeParentHeader) {
+
+    final Map<Address, List<Integer>> bySender = new HashMap<>();
+    for (int i = 0; i < transactions.size(); i++) {
+      final int txIndex = i;
+      transactions
+          .get(i)
+          .getSenderIfKnown()
+          .ifPresent(
+              sender -> bySender.computeIfAbsent(sender, k -> new ArrayList<>(1)).add(txIndex));
+    }
+
+    futures = new CompletableFuture[transactions.size()];
+    for (int i = 0; i < transactions.size(); i++) {
+      final Transaction transaction = transactions.get(i);
+      final List<Integer> chain = transaction.getSenderIfKnown().map(bySender::get).orElse(null);
+      if (chain == null || chain.size() == 1) {
+        final int txIndex = i;
+        futures[i] =
+            CompletableFuture.supplyAsync(
+                () ->
+                    serialLoopHasPassed(txIndex)
+                        ? null
+                        : runTransaction(
+                            protocolContext,
+                            blockHeader,
+                            txIndex,
+                            transaction,
+                            miningBeneficiary,
+                            blockHashLookup,
+                            blobGasPrice,
+                            blockAccessListBuilder,
+                            maybeParentHeader,
+                            null),
+                executor);
+      } else if (chain.get(0) == i) {
+        final List<CompletableFuture<ParallelizedTransactionContext>> chainFutures =
+            new ArrayList<>(chain.size());
+        for (final int member : chain) {
+          futures[member] = new CompletableFuture<>();
+          chainFutures.add(futures[member]);
+        }
+        executor.execute(
+            () ->
+                runChain(
+                    protocolContext,
+                    blockHeader,
+                    transactions,
+                    chain,
+                    chainFutures,
+                    miningBeneficiary,
+                    blockHashLookup,
+                    blobGasPrice,
+                    blockAccessListBuilder,
+                    maybeParentHeader));
+      }
+    }
+  }
+
+  private void runChain(
+      final ProtocolContext protocolContext,
+      final BlockHeader blockHeader,
+      final List<Transaction> transactions,
+      final List<Integer> chain,
+      final List<CompletableFuture<ParallelizedTransactionContext>> chainFutures,
+      final Address miningBeneficiary,
+      final BlockHashLookup blockHashLookup,
+      final Wei blobGasPrice,
+      final Optional<BlockAccessListBuilder> blockAccessListBuilder,
+      final Optional<BlockHeader> maybeParentHeader) {
+    PathBasedWorldStateUpdateAccumulator<?> previous = null;
+    for (int k = 0; k < chain.size(); k++) {
+      final int txIndex = chain.get(k);
+      final CompletableFuture<ParallelizedTransactionContext> future = chainFutures.get(k);
+      // Once the serial loop has reached a member, the rest of the chain would run without the
+      // state that member leaves behind, so the whole remainder is dropped.
+      if (future.isCancelled() || serialLoopHasPassed(txIndex)) {
+        for (int j = k; j < chain.size(); j++) {
+          chainFutures.get(j).complete(null);
+        }
+        return;
+      }
+      final ParallelizedTransactionContext context =
+          runTransaction(
+              protocolContext,
+              blockHeader,
+              txIndex,
+              transactions.get(txIndex),
+              miningBeneficiary,
+              blockHashLookup,
+              blobGasPrice,
+              blockAccessListBuilder,
+              maybeParentHeader,
+              previous);
+      future.complete(context);
+      if (context == null) {
+        for (int j = k + 1; j < chain.size(); j++) {
+          chainFutures.get(j).complete(null);
+        }
+        return;
+      }
+      previous = context.transactionAccumulator();
+    }
+  }
+
+  private boolean serialLoopHasPassed(final int txIndex) {
+    return txIndex <= serialLoopPosition.get();
+  }
+
   @Override
   @VisibleForTesting
   protected ParallelizedTransactionContext runTransaction(
@@ -91,6 +228,30 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       final Wei blobGasPrice,
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
       final Optional<BlockHeader> maybeParentHeader) {
+    return runTransaction(
+        protocolContext,
+        blockHeader,
+        transactionLocation,
+        transaction,
+        miningBeneficiary,
+        blockHashLookup,
+        blobGasPrice,
+        blockAccessListBuilder,
+        maybeParentHeader,
+        null);
+  }
+
+  private ParallelizedTransactionContext runTransaction(
+      final ProtocolContext protocolContext,
+      final BlockHeader blockHeader,
+      final int transactionLocation,
+      final Transaction transaction,
+      final Address miningBeneficiary,
+      final BlockHashLookup blockHashLookup,
+      final Wei blobGasPrice,
+      final Optional<BlockAccessListBuilder> blockAccessListBuilder,
+      final Optional<BlockHeader> maybeParentHeader,
+      final PathBasedWorldStateUpdateAccumulator<?> previousInChain) {
 
     if (maybeParentHeader.isEmpty()) {
       return null;
@@ -107,6 +268,10 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
           new ParallelizedTransactionContext.Builder();
       final PathBasedWorldStateUpdateAccumulator<?> roundWorldStateUpdater =
           (PathBasedWorldStateUpdateAccumulator<?>) ws.updater();
+      if (previousInChain != null) {
+        ((PathBasedWorldStateUpdateAccumulator) roundWorldStateUpdater)
+            .importStateChangesFromSource(previousInChain);
+      }
       final WorldUpdater transactionUpdater = roundWorldStateUpdater.updater();
       final Optional<AccessLocationTracker> transactionLocationTracker =
           blockAccessListBuilder.map(
@@ -211,6 +376,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       final Optional<Counter> confirmedParallelizedTransactionCounter,
       final Optional<Counter> conflictingButCachedTransactionCounter) {
 
+    serialLoopPosition.set(transactionLocation);
     final CompletableFuture<ParallelizedTransactionContext> future =
         removeFuture(transactionLocation);
 
