@@ -74,12 +74,15 @@ class JsonRpcIpcServiceTest {
 
   @AfterEach
   public void after() throws Throwable {
-    assertThat(testContext.awaitCompletion(5, TimeUnit.SECONDS))
-        .describedAs("Test completed on time")
-        .isTrue();
-    netClient.close();
-    if (testContext.failed()) {
-      throw testContext.causeOfFailure();
+    try {
+      assertThat(testContext.awaitCompletion(5, TimeUnit.SECONDS))
+          .describedAs("Test completed on time")
+          .isTrue();
+      if (testContext.failed()) {
+        throw testContext.causeOfFailure();
+      }
+    } finally {
+      netClient.close();
     }
   }
 
