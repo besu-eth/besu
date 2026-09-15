@@ -40,6 +40,7 @@ import org.hyperledger.besu.cli.options.P2PDiscoveryOptions;
 import org.hyperledger.besu.cli.options.SynchronizerOptions;
 import org.hyperledger.besu.cli.options.TransactionPoolOptions;
 import org.hyperledger.besu.cli.options.storage.DataStorageOptions;
+import org.hyperledger.besu.cli.util.DevnetConfigResolver;
 import org.hyperledger.besu.components.BesuComponent;
 import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.config.NetworkDefinition;
@@ -348,6 +349,8 @@ public abstract class CommandTestAbstract {
     environment.put(name, value);
   }
 
+  protected String devnetConfigBaseUrl = DevnetConfigResolver.DEFAULT_BASE_URL;
+
   protected TestBesuCommand parseCommand(final String... args) {
     return parseCommand(System.in, args);
   }
@@ -375,6 +378,7 @@ public abstract class CommandTestAbstract {
 
     final TestBesuCommand besuCommand = getTestBesuCommand(testType);
     besuCommands.add(besuCommand);
+    besuCommand.devnetConfigBaseUrl = devnetConfigBaseUrl;
 
     besuCommand.setBesuConfiguration(commonPluginConfiguration);
 

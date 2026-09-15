@@ -64,6 +64,7 @@ net-restrict=["none"]
 # chain
 network="MAINNET"
 genesis-file="~/genesis.json"
+devnet="glamsterdam-devnet-11"
 genesis-state-hash-cache-enabled=false
 sync-mode="fast"
 sync-min-peers=5

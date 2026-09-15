@@ -88,6 +88,7 @@ import org.hyperledger.besu.util.platform.PlatformDetector;
 import java.io.File;
 import java.io.IOException;
 import java.math.BigInteger;
+import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
@@ -107,6 +108,7 @@ import java.util.stream.Stream;
 
 import com.google.common.base.Splitter;
 import com.google.common.io.Resources;
+import com.sun.net.httpserver.HttpServer;
 import io.vertx.core.json.JsonObject;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.toml.Toml;
@@ -136,6 +138,7 @@ public class BesuCommandTest extends CommandTestAbstract {
   private static final ApiConfiguration DEFAULT_API_CONFIGURATION;
 
   private static final int GENESIS_CONFIG_TEST_CHAINID = 3141592;
+  private static final String DEVNET = "glamsterdam-devnet-11";
   private static final JsonObject GENESIS_VALID_JSON =
       (new JsonObject())
           .put("config", (new JsonObject()).put("chainId", GENESIS_CONFIG_TEST_CHAINID));
@@ -643,6 +646,120 @@ public class BesuCommandTest extends CommandTestAbstract {
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8))
         .startsWith("--network option and --genesis-file option can't be used at the same time.");
+  }
+
+  @Test
+  public void devnetAndNetworkMustNotBeUsedTogether() {
+    parseCommand("--devnet", DEVNET, "--network", "mainnet");
+
+    verifyNoInteractions(mockRunnerBuilder);
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .startsWith("--devnet option can't be used together with --network or --genesis-file.");
+  }
+
+  @Test
+  public void devnetAndGenesisFileMustNotBeUsedTogether() throws Exception {
+    final Path genesisFile = createFakeGenesisFile(GENESIS_VALID_JSON);
+
+    parseCommand("--devnet", DEVNET, "--genesis-file", genesisFile.toString());
+
+    verifyNoInteractions(mockRunnerBuilder);
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .startsWith("--devnet option can't be used together with --network or --genesis-file.");
+  }
+
+  @Test
+  public void devnetUsesDownloadedGenesisAndBootnodes(final @TempDir Path dataDir)
+      throws IOException {
+    final HttpServer server = startDevnetServer();
+    devnetConfigBaseUrl = "http://localhost:" + server.getAddress().getPort();
+    try {
+      parseCommand("--devnet", DEVNET, "--data-path", dataDir.toString());
+    } finally {
+      server.stop(0);
+    }
+
+    final ArgumentCaptor<EthNetworkConfig> networkArg =
+        ArgumentCaptor.forClass(EthNetworkConfig.class);
+    verify(mockControllerBuilderFactory)
+        .fromEthNetworkConfig(networkArg.capture(), eq(SyncMode.FULL));
+    verify(mockControllerBuilder).build();
+
+    final EthNetworkConfig config = networkArg.getValue();
+    assertThat(config.genesisConfig())
+        .isEqualTo(GenesisConfig.fromConfig(encodeJsonGenesis(GENESIS_VALID_JSON)));
+    assertThat(config.networkId()).isEqualTo(GENESIS_CONFIG_TEST_CHAINID);
+    assertThat(config.enodeBootNodes()).hasSize(1);
+    assertThat(config.enrBootNodes()).hasSize(1);
+    assertThat(dataDir.resolve("devnet").resolve(DEVNET).resolve("genesis.json")).exists();
+
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void bootnodesCliArgTakesPrecedenceOverDevnet(final @TempDir Path dataDir)
+      throws IOException {
+    final URI bootnode =
+        URI.create(
+            "enode://d2567893371ea5a6fa6371d483891ed0d129e79a8fc74d6df95a00a6545444cd4a6960bbffe0b4e2edcf35135271de57ee559c0909236bbc2074346ef2b5b47c@127.0.0.1:30304");
+    final HttpServer server = startDevnetServer();
+    devnetConfigBaseUrl = "http://localhost:" + server.getAddress().getPort();
+    try {
+      parseCommand(
+          "--devnet",
+          DEVNET,
+          "--data-path",
+          dataDir.toString(),
+          "--bootnodes",
+          bootnode.toString());
+    } finally {
+      server.stop(0);
+    }
+
+    final ArgumentCaptor<EthNetworkConfig> networkArg =
+        ArgumentCaptor.forClass(EthNetworkConfig.class);
+    verify(mockControllerBuilderFactory).fromEthNetworkConfig(networkArg.capture(), any());
+    verify(mockControllerBuilder).build();
+
+    final EthNetworkConfig config = networkArg.getValue();
+    assertThat(config.enodeBootNodes()).extracting(EnodeURL::toURI).containsExactly(bootnode);
+    assertThat(config.enrBootNodes()).isEmpty();
+
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  private HttpServer startDevnetServer() throws IOException {
+    final Map<String, String> files =
+        Map.of(
+            "genesis.json",
+            encodeJsonGenesis(GENESIS_VALID_JSON),
+            "enodes.txt",
+            "enode://0fcfecff57e5200d31e23f057217e6a81e340c0b9645f7abc31f8560184615a1ed0f86221f8111031de977d22fca7d2bb124dbf2b41798e8a3e38887ea502617@188.166.23.5:30303?discport=30303\n",
+            "el_enrs.txt",
+            "enr:-Iu4QD3wy38adtNiGE3jc02YEDE4grbxiOc7snmWw8ILlKOcOkViIOtAIGXuf7E-zVh3y1h-RZhp3h_lRPa5mIIr9lqAgmlkgnY0gmlwhLymFwWJc2VjcDI1NmsxoQMPz-z_V-UgDTHiPwVyF-aoHjQMC5ZF96vDH4VgGEYVoYN0Y3CCdl-DdWRwgnZf\n");
+    final String metadata = "/glamsterdam-devnets/master/network-configs/devnet-11/metadata/";
+    final HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+    server.createContext(
+        "/",
+        exchange -> {
+          final String path = exchange.getRequestURI().getPath();
+          final String body =
+              path.startsWith(metadata) ? files.get(path.substring(metadata.length())) : null;
+          if (body == null) {
+            exchange.sendResponseHeaders(404, -1);
+          } else {
+            final byte[] bytes = body.getBytes(UTF_8);
+            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.getResponseBody().write(bytes);
+          }
+          exchange.close();
+        });
+    server.start();
+    return server;
   }
 
   @Test

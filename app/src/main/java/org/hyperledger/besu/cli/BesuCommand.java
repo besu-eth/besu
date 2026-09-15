@@ -88,6 +88,8 @@ import org.hyperledger.besu.cli.util.BootnodeResolver;
 import org.hyperledger.besu.cli.util.BootnodeResolver.BootnodeResolutionException;
 import org.hyperledger.besu.cli.util.CommandLineUtils;
 import org.hyperledger.besu.cli.util.ConfigDefaultValueProviderStrategy;
+import org.hyperledger.besu.cli.util.DevnetConfigResolver;
+import org.hyperledger.besu.cli.util.DevnetConfigResolver.DevnetConfig;
 import org.hyperledger.besu.cli.util.VersionProvider;
 import org.hyperledger.besu.components.BesuComponent;
 import org.hyperledger.besu.config.CheckpointConfigOptions;
@@ -403,7 +405,19 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       paramLabel = MANDATORY_FILE_FORMAT_HELP,
       description =
           "Genesis file for your custom network. Setting this option requires --network-id to be set. (Cannot be used with --network)")
-  private final File genesisFile = null;
+  private File genesisFile = null;
+
+  @Option(
+      names = {"--devnet"},
+      paramLabel = "<NAME>",
+      description =
+          "Join an ethpandaops devnet, e.g. glamsterdam-devnet-11. Downloads its genesis and bootnodes into <data-path>/devnet/<NAME>. (Cannot be used with --network or --genesis-file)")
+  private String devnet = null; // picocli rejects final String option fields
+
+  private DevnetConfig devnetConfig = null;
+
+  // replaced in tests so they don't depend on GitHub
+  String devnetConfigBaseUrl = DevnetConfigResolver.DEFAULT_BASE_URL;
 
   @Option(
       names = {"--genesis-state-hash-cache-enabled"},
@@ -1036,6 +1050,9 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     try {
       configureLogging(true);
 
+      // must run before anything reads the genesis file
+      resolveDevnet();
+
       if (printPathsAndExit) {
         // Print configured paths requiring read/write permissions to be adjusted
         checkPermissionsAndPrintPaths(besuUserName);
@@ -1098,6 +1115,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     }
 
     besuController = buildController();
+    verifyDevnetGenesisHash();
 
     besuPluginContext.beforeExternalServices();
 
@@ -2622,6 +2640,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       } catch (final BootnodeResolutionException | IllegalArgumentException e) {
         throw new ParameterException(commandLine, e.getMessage(), e);
       }
+    } else if (devnetConfig != null) {
+      rawBootnodes = devnetConfig.bootnodes();
     } else {
       rawBootnodes =
           genesisConfigOptionsSupplier.get().getDiscoveryOptions().getBootNodes().orElse(null);
@@ -2728,6 +2748,44 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     logger.info("Connecting to {} static nodes.", staticNodes.size());
     logger.debug("Static Nodes = {}", staticNodes);
     return staticNodes;
+  }
+
+  private void resolveDevnet() {
+    if (devnet == null) {
+      return;
+    }
+    if (commandLine.getParseResult().hasMatchedOption("network") || genesisFile != null) {
+      throw new ParameterException(
+          this.commandLine,
+          "--devnet option can't be used together with --network or --genesis-file.");
+    }
+    devnetConfig =
+        DevnetConfigResolver.resolve(
+            devnet, dataDir().resolve("devnet").resolve(devnet), devnetConfigBaseUrl);
+    genesisFile = devnetConfig.genesisFile().toFile();
+    logger.info(
+        "Joining devnet {} using genesis {} and {} bootnodes",
+        devnet,
+        genesisFile,
+        devnetConfig.bootnodes().size());
+  }
+
+  // A genesis that differs from the devnet's would silently start an unrelated chain.
+  private void verifyDevnetGenesisHash() {
+    if (devnetConfig == null || devnetConfig.expectedGenesisHash().isEmpty()) {
+      return;
+    }
+    final Hash expected = devnetConfig.expectedGenesisHash().get();
+    final Hash actual =
+        besuController.getProtocolContext().getBlockchain().getGenesisBlock().getHash();
+    if (!expected.equals(actual)) {
+      throw new ParameterException(
+          this.commandLine,
+          String.format(
+              "Genesis block hash %s does not match the hash %s published for devnet %s",
+              actual, expected, devnet));
+    }
+    logger.info("Genesis block hash {} matches devnet {}", actual, devnet);
   }
 
   private void warnOnBootnodeMismatch(
