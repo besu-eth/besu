@@ -38,7 +38,9 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 
 import java.time.Duration;
 import java.util.Collections;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -154,6 +156,102 @@ public class BftMiningCoordinatorTest {
     inOrder.verify(bftExecutors).start();
     inOrder.verify(bftExecutors).executeBftProcessor(bftProcessor);
     inOrder.verify(bftExecutors).stop();
+  }
+
+  @Test
+  public void enableWaitsForAnInProgressStop() throws Exception {
+    final CountDownLatch stopEntered = new CountDownLatch(1);
+    final CountDownLatch releaseStop = new CountDownLatch(1);
+
+    // Block stop() inside its synchronized section (bftProcessor.stop() runs while the
+    // coordinator's monitor is held) so a concurrent enable() has to wait for the whole
+    // transition instead of interleaving with it.
+    doAnswer(
+            invocation -> {
+              stopEntered.countDown();
+              releaseStop.await(5, TimeUnit.SECONDS);
+              return null;
+            })
+        .when(bftProcessor)
+        .stop();
+
+    bftMiningCoordinator.enable();
+    bftMiningCoordinator.start();
+
+    final Thread stopper = new Thread(bftMiningCoordinator::stop, "stopper");
+    stopper.start();
+    assertThat(stopEntered.await(5, TimeUnit.SECONDS)).isTrue();
+
+    final AtomicBoolean enableResult = new AtomicBoolean();
+    final CountDownLatch enableReturned = new CountDownLatch(1);
+    final Thread enabler =
+        new Thread(
+            () -> {
+              enableResult.set(bftMiningCoordinator.enable());
+              enableReturned.countDown();
+            },
+            "enabler");
+    enabler.start();
+
+    // enable() must not observe the half-completed stop(): without the shared monitor it would
+    // return immediately while stop() is still mid-transition.
+    assertThat(enableReturned.await(500, TimeUnit.MILLISECONDS)).isFalse();
+
+    releaseStop.countDown();
+    assertThat(enableReturned.await(5, TimeUnit.SECONDS)).isTrue();
+    stopper.join(TimeUnit.SECONDS.toMillis(5));
+    enabler.join(TimeUnit.SECONDS.toMillis(5));
+
+    // Serialized behind the completed stop(), enable() sees STOPPED and reports failure instead
+    // of racing the transition.
+    assertThat(enableResult.get()).isFalse();
+    assertThat(bftMiningCoordinator.isMining()).isFalse();
+  }
+
+  @Test
+  public void disableWaitsForAnInProgressStart() throws Exception {
+    final CountDownLatch startEntered = new CountDownLatch(1);
+    final CountDownLatch releaseStart = new CountDownLatch(1);
+
+    // Block start() inside its synchronized body (bftProcessor.start() runs while the
+    // coordinator's monitor is held) so a concurrent disable() has to wait for the whole
+    // transition. Without the shared monitor, disable() would flip RUNNING -> PAUSED while
+    // start() is still wiring up the processor.
+    doAnswer(
+            invocation -> {
+              startEntered.countDown();
+              releaseStart.await(5, TimeUnit.SECONDS);
+              return null;
+            })
+        .when(bftProcessor)
+        .start();
+
+    bftMiningCoordinator.enable();
+    final Thread starter = new Thread(bftMiningCoordinator::start, "starter");
+    starter.start();
+    assertThat(startEntered.await(5, TimeUnit.SECONDS)).isTrue();
+
+    final AtomicBoolean disableResult = new AtomicBoolean();
+    final CountDownLatch disableReturned = new CountDownLatch(1);
+    final Thread disabler =
+        new Thread(
+            () -> {
+              disableResult.set(bftMiningCoordinator.disable());
+              disableReturned.countDown();
+            },
+            "disabler");
+    disabler.start();
+
+    assertThat(disableReturned.await(500, TimeUnit.MILLISECONDS)).isFalse();
+
+    releaseStart.countDown();
+    assertThat(disableReturned.await(5, TimeUnit.SECONDS)).isTrue();
+    starter.join(TimeUnit.SECONDS.toMillis(5));
+    disabler.join(TimeUnit.SECONDS.toMillis(5));
+
+    // Serialized behind the completed start(), disable() sees RUNNING and pauses it.
+    assertThat(disableResult.get()).isTrue();
+    assertThat(bftMiningCoordinator.isMining()).isFalse();
   }
 
   @Test

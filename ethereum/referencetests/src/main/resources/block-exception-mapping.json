@@ -130,7 +130,10 @@
       "TransactionException.TYPE_3_TX_ZERO_BLOBS":               "Failed to decode transactions from block parameter",
 
       "_comment_versioned_hash": "VersionedHash rejects a version byte other than 0x01 while the payload's transaction list is being decoded, and EngineNewPayloadV1 appends that cause to the decode failure above — so the message identifies the versioned hash rather than only the element that failed to decode.",
-      "TransactionException.TYPE_3_TX_INVALID_BLOB_VERSIONED_HASH": "Invalid versionedHash"
+      "TransactionException.TYPE_3_TX_INVALID_BLOB_VERSIONED_HASH": "Invalid versionedHash",
+
+      "_comment_bal": "EngineNewPayloadV5 decodes the payload's blockAccessList field; an undecodable list is an invalid payload, so it never reaches the BAL validation the block-import messages above come from",
+      "BlockException.INVALID_BLOCK_ACCESS_LIST":                "Failed to decode block access list payload parameter"
     },
 
     "regex": {
