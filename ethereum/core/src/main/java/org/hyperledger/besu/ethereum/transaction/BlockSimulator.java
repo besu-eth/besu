@@ -107,6 +107,7 @@ public class BlockSimulator {
   private final TransactionSimulator transactionSimulator;
   private final WorldStateArchive worldStateArchive;
   private final ProtocolSchedule protocolSchedule;
+  private final MiningConfiguration miningConfiguration;
   private final Blockchain blockchain;
   private final long rpcGasCap;
 
@@ -120,6 +121,7 @@ public class BlockSimulator {
     this.worldStateArchive = worldStateArchive;
     this.protocolSchedule = protocolSchedule;
     this.transactionSimulator = transactionSimulator;
+    this.miningConfiguration = miningConfiguration;
     this.blockchain = blockchain;
     this.rpcGasCap = rpcGasCap;
   }
@@ -205,6 +207,7 @@ public class BlockSimulator {
               resolveValidationParams(simulationParameter),
               simulationParameter.isTraceTransfers(),
               simulationParameter.isReturnTrieLog(),
+              simulationParameter.isEnforceConsensusGasLimit(),
               simulationParameter::getFakeSignature,
               blockHashCache,
               simulationCumulativeGasUsed,
@@ -223,7 +226,7 @@ public class BlockSimulator {
     if (!simulationParameter.isValidation()) {
       return NON_STRICT_PARAMS;
     }
-    return simulationParameter.isEnforceConsensusGasLimitCaps()
+    return simulationParameter.isEnforceConsensusGasLimit()
         ? CONSENSUS_STRICT_VALIDATION_PARAMS
         : STRICT_VALIDATION_PARAMS;
   }
@@ -244,6 +247,7 @@ public class BlockSimulator {
       final TransactionValidationParams validationParams,
       final boolean isTraceTransfers,
       final boolean returnTrieLog,
+      final boolean enforceConsensusGasLimit,
       final Supplier<SECPSignature> signatureSupplier,
       final Map<Long, Hash> blockHashCache,
       final long simulationCumulativeGasUsed,
@@ -265,7 +269,12 @@ public class BlockSimulator {
     ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(syntheticNextBlockHeader);
 
     BlockHeader overridenBaseBlockHeader =
-        overrideBlockHeader(baseBlockHeader, protocolSpec, blockOverrides, shouldValidate);
+        overrideBlockHeader(
+            baseBlockHeader,
+            protocolSpec,
+            blockOverrides,
+            shouldValidate,
+            enforceConsensusGasLimit);
 
     blockStateCall
         .getStateOverrideMap()
@@ -657,7 +666,8 @@ public class BlockSimulator {
       final BlockHeader header,
       final ProtocolSpec newProtocolSpec,
       final BlockOverrides blockOverrides,
-      final boolean shouldValidate) {
+      final boolean shouldValidate,
+      final boolean enforceConsensusGasLimit) {
     long timestamp = blockOverrides.getTimestamp().orElseThrow();
     long blockNumber = blockOverrides.getBlockNumber().orElseThrow();
 
@@ -673,7 +683,14 @@ public class BlockSimulator {
             .coinbase(blockOverrides.getFeeRecipient().orElse(header.getCoinbase()))
             .difficulty(
                 blockOverrides.getDifficulty().map(Difficulty::of).orElseGet(header::getDifficulty))
-            .gasLimit(blockOverrides.getGasLimit().orElse(header.getGasLimit()))
+            .gasLimit(
+                blockOverrides
+                    .getGasLimit()
+                    .orElseGet(
+                        () ->
+                            enforceConsensusGasLimit
+                                ? getNextGasLimit(newProtocolSpec, header, blockNumber)
+                                : header.getGasLimit()))
             .extraData(blockOverrides.getExtraData().orElse(Bytes.EMPTY))
             .prevRandao(blockOverrides.getMixHashOrPrevRandao().orElse(Bytes32.ZERO));
 
@@ -726,6 +743,16 @@ public class BlockSimulator {
                   .map(parent -> calculateExcessBlobGasForParent(protocolSpec, parent))
                   .orElse(BlobGas.ZERO));
     };
+  }
+
+  private long getNextGasLimit(
+      final ProtocolSpec protocolSpec, final BlockHeader parentHeader, final long blockNumber) {
+    return protocolSpec
+        .getGasLimitCalculator()
+        .nextGasLimit(
+            parentHeader.getGasLimit(),
+            miningConfiguration.getTargetGasLimit().orElse(parentHeader.getGasLimit()),
+            blockNumber);
   }
 
   private Wei getNextBaseFee(

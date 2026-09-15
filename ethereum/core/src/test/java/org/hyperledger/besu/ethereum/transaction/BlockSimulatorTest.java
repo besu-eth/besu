@@ -285,7 +285,7 @@ public class BlockSimulatorTest {
             .build();
 
     BlockHeader result =
-        blockSimulator.overrideBlockHeader(blockHeader, protocolSpec, blockOverrides, true);
+        blockSimulator.overrideBlockHeader(blockHeader, protocolSpec, blockOverrides, true, false);
 
     assertNotNull(result);
     assertEquals(expectedTimestamp, result.getTimestamp());
@@ -315,7 +315,8 @@ public class BlockSimulatorTest {
             .build();
 
     BlockHeader block1Header =
-        blockSimulator.overrideBlockHeader(blockHeader, protocolSpec, block1Overrides, false);
+        blockSimulator.overrideBlockHeader(
+            blockHeader, protocolSpec, block1Overrides, false, false);
     assertEquals(expectedFeeRecipient, block1Header.getCoinbase());
 
     // Block 2: no feeRecipient override — should inherit from block 1
@@ -323,7 +324,8 @@ public class BlockSimulatorTest {
         BlockOverrides.builder().timestamp(13L).blockNumber(2L).build();
 
     BlockHeader block2Header =
-        blockSimulator.overrideBlockHeader(block1Header, protocolSpec, block2Overrides, false);
+        blockSimulator.overrideBlockHeader(
+            block1Header, protocolSpec, block2Overrides, false, false);
     assertEquals(expectedFeeRecipient, block2Header.getCoinbase());
   }
 
@@ -486,11 +488,11 @@ public class BlockSimulatorTest {
   public void
       shouldCapAutoFilledGasToTransactionGasLimitCapWhenEnforcingConsensusAndBlockLimitIsHigher() {
     // Regression: BlockSimulatorServiceImpl (e.g. Linea state recovery plugin) uses rpcGasCap=0
-    // and enforceConsensusGasLimitCaps=true. On Osaka, txGasLimitCap (EIP-7825) = 16,777,216
+    // and enforceConsensusGasLimit=true. On Osaka, txGasLimitCap (EIP-7825) = 16,777,216
     // while blockGasLimit can be 30M. Without a fix, the auto-filled gasLimit passed to
     // processWithWorldUpdater is blockGasLimit (30M), and the consensus-strict validator then
     // rejects it with EXCEEDS_TRANSACTION_GAS_LIMIT. The gasLimit must be bounded by
-    // txGasLimitCap when enforceConsensusGasLimitCaps=true.
+    // txGasLimitCap when enforceConsensusGasLimit=true.
     final long blockGasLimit = 30_000_000L;
     final long txGasLimitCap = 16_777_216L;
 
@@ -533,7 +535,7 @@ public class BlockSimulatorTest {
         new BlockSimulationParameter.BlockSimulationParameterBuilder()
             .blockStateCalls(List.of(blockStateCall))
             .validation(true)
-            .enforceConsensusGasLimitCaps(true)
+            .enforceConsensusGasLimit(true)
             .build();
 
     assertThrows(
@@ -547,7 +549,7 @@ public class BlockSimulatorTest {
 
   @Test
   public void shouldEnforceConsensusGasLimitCapsWhenFlagIsTrue() {
-    // enforceConsensusGasLimitCaps=true is the path used by BlockSimulatorServiceImpl (e.g. Linea
+    // enforceConsensusGasLimit=true is the path used by BlockSimulatorServiceImpl (e.g. Linea
     // state recovery plugin). It must pass CONSENSUS_STRICT_VALIDATION_PARAMS so that EIP-7825 /
     // EIP-8037 transaction gas limit caps are enforced during block-building simulation.
     when(mutableWorldState.updater()).thenReturn(updater);
@@ -578,7 +580,7 @@ public class BlockSimulatorTest {
         new BlockSimulationParameter.BlockSimulationParameterBuilder()
             .blockStateCalls(List.of(blockStateCall))
             .validation(true)
-            .enforceConsensusGasLimitCaps(true)
+            .enforceConsensusGasLimit(true)
             .build();
 
     assertThrows(
@@ -590,7 +592,7 @@ public class BlockSimulatorTest {
 
   @Test
   public void shouldNotEnforceConsensusGasLimitCapsWhenFlagIsFalse() {
-    // enforceConsensusGasLimitCaps=false is the eth_simulateV1 path. EIP-7825 / EIP-8037 caps
+    // enforceConsensusGasLimit=false is the eth_simulateV1 path. EIP-7825 / EIP-8037 caps
     // must NOT apply so that callers can simulate transactions with gas above the cap.
     when(mutableWorldState.updater()).thenReturn(updater);
 
@@ -620,7 +622,7 @@ public class BlockSimulatorTest {
         new BlockSimulationParameter.BlockSimulationParameterBuilder()
             .blockStateCalls(List.of(blockStateCall))
             .validation(true)
-            .enforceConsensusGasLimitCaps(false)
+            .enforceConsensusGasLimit(false)
             .build();
 
     assertThrows(
