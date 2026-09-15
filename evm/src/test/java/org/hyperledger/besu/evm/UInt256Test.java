@@ -750,6 +750,78 @@ public class UInt256Test {
         .toList();
   }
 
+  // Shift amounts covering all word-shift branches (0-3) with intra-word shifts of
+  // 0, 1 and 63, plus the 0 and 256 special cases.
+  private static final int[] SHIFT_AMOUNTS = {
+    0, 1, 7, 8, 31, 32, 63, 64, 65, 100, 127, 128, 129, 191, 192, 193, 255, 256
+  };
+
+  private static final BigInteger TWO_POW_256 = BigInteger.ONE.shiftLeft(256);
+
+  private static Stream<Arguments> shiftTestCases() {
+    String[] values = {
+      "0x00",
+      "0x01",
+      "0xdeadbeef",
+      "0x8000000000000000",
+      "0xffffffffffffffff",
+      "0x010000000000000000",
+      "0x80000000000000000000000000000000",
+      "0xdeadbeefcafebabedeadbeefcafebabe",
+      "0x0100000000000000000000000000000000",
+      "0x800000000000000000000000000000000000000000000000",
+      "0x01000000000000000000000000000000000000000000000000",
+      "0x8000000000000000000000000000000000000000000000000000000000000000",
+      "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+      "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    };
+    return Arrays.stream(values)
+        .flatMap(v -> IntStream.of(SHIFT_AMOUNTS).mapToObj(s -> Arguments.of(v, s)));
+  }
+
+  @ParameterizedTest
+  @MethodSource("shiftTestCases")
+  void shiftLeft(final String value, final int shift) {
+    byte[] array = Bytes32.leftPad(Bytes.fromHexString(value)).toArray();
+    UInt256 x = UInt256.fromBytesBE(array);
+    BigInteger xInt = new BigInteger(1, array);
+    Bytes32 result = Bytes32.leftPad(Bytes.wrap(x.shiftLeft(shift).toBytesBE()));
+    Bytes32 expected = bigIntTo32B(xInt.shiftLeft(shift).mod(TWO_POW_256));
+    assertThat(result)
+        .withFailMessage(String.format("Failure detected:\n%s.SHL(%d)\n", x.toHexString(), shift))
+        .isEqualTo(expected);
+  }
+
+  @ParameterizedTest
+  @MethodSource("shiftTestCases")
+  void shiftRight(final String value, final int shift) {
+    byte[] array = Bytes32.leftPad(Bytes.fromHexString(value)).toArray();
+    UInt256 x = UInt256.fromBytesBE(array);
+    BigInteger xInt = new BigInteger(1, array);
+    Bytes32 result = Bytes32.leftPad(Bytes.wrap(x.shiftRight(shift).toBytesBE()));
+    Bytes32 expected = bigIntTo32B(xInt.shiftRight(shift));
+    assertThat(result)
+        .withFailMessage(String.format("Failure detected:\n%s.SHR(%d)\n", x.toHexString(), shift))
+        .isEqualTo(expected);
+  }
+
+  private static Stream<Arguments> selectedShiftAmounts() {
+    return Arrays.stream(
+            new int[] {0, 1, 7, 8, 31, 32, 63, 64, 65, 100, 127, 128, 129, 191, 192, 193})
+        .mapToObj(Arguments::of);
+  }
+
+  @ParameterizedTest
+  @MethodSource("selectedShiftAmounts")
+  void shiftRoundTrip(final int shift) {
+    // For a value with only low bits set, shifting left then right by the same amount
+    // must be lossless.
+    UInt256 x = UInt256.fromLong(0xdeadbeefL);
+    assertThat(x.shiftLeft(shift).shiftRight(shift))
+        .withFailMessage(String.format("Round trip failed for shift %d", shift))
+        .isEqualTo(x);
+  }
+
   @Test
   void compare() {
     assertThat(UInt256.compare(null, UInt256.ONE)).isEqualTo(-1);

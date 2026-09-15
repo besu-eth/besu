@@ -27,14 +27,16 @@ public class WebSocketMethodsFactory {
 
   public WebSocketMethodsFactory(
       final SubscriptionManager subscriptionManager,
-      final Map<String, JsonRpcMethod> jsonRpcMethods) {
+      final Map<String, JsonRpcMethod> jsonRpcMethods,
+      final int maxFilterAddresses) {
     this.methods.putAll(jsonRpcMethods);
-    buildWebsocketMethods(subscriptionManager);
+    buildWebsocketMethods(subscriptionManager, maxFilterAddresses);
   }
 
-  private void buildWebsocketMethods(final SubscriptionManager subscriptionManager) {
+  private void buildWebsocketMethods(
+      final SubscriptionManager subscriptionManager, final int maxFilterAddresses) {
     addMethods(
-        new EthSubscribe(subscriptionManager, new SubscriptionRequestMapper()),
+        new EthSubscribe(subscriptionManager, new SubscriptionRequestMapper(), maxFilterAddresses),
         new EthUnsubscribe(subscriptionManager, new SubscriptionRequestMapper()));
   }
 

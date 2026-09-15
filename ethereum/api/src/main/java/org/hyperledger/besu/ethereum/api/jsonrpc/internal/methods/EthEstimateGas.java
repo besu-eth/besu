@@ -83,10 +83,23 @@ public class EthEstimateGas extends AbstractEstimateGas {
     }
 
     final var result = maybeResult.get();
+    final long estimateGasUsed = result.result().getEstimateGasUsedByTransaction();
     long high = gasLimitUpperBound;
     long mid;
 
-    long low = result.result().getEstimateGasUsedByTransaction() - 1;
+    long low = estimateGasUsed - 1;
+
+    if (isPlainValueTransfer(callParams)) {
+      // gas used at a high limit is not always a sufficient limit (63/64 rule), so confirm it
+      final var exactResult =
+          simulationFunction.simulate(
+              overrideGasLimit(callParams, estimateGasUsed), OperationTracer.NO_TRACING);
+      if (exactResult.isPresent() && exactResult.get().isSuccessful()) {
+        return Quantity.create(estimateGasUsed);
+      }
+      low = estimateGasUsed;
+    }
+
     var optimisticGasLimit = processEstimateGas(result);
 
     final var optimisticResult =

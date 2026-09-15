@@ -15,8 +15,8 @@
 package org.hyperledger.besu.ethereum.vm.operations;
 
 import org.hyperledger.besu.evm.frame.MessageFrame;
-import org.hyperledger.besu.evm.gascalculator.CancunGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
+import org.hyperledger.besu.evm.gascalculator.OsakaGasCalculator;
 import org.hyperledger.besu.evm.operation.CallDataCopyOperation;
 
 import java.util.concurrent.TimeUnit;
@@ -77,7 +77,7 @@ public class CallDataCopyOperationBenchmark implements GasCostBenchmark {
 
   @Setup
   public void setUp() {
-    callDataCopyOperation = new CallDataCopyOperation(new CancunGasCalculator());
+    callDataCopyOperation = new CallDataCopyOperation(new OsakaGasCalculator());
     callData = BenchmarkHelper.createCallData(dataSize, nonZeroData);
     frame = BenchmarkHelper.createMessageCallFrameWithCallData(callData);
 
@@ -93,18 +93,7 @@ public class CallDataCopyOperationBenchmark implements GasCostBenchmark {
     index = 0;
   }
 
-  @Benchmark
-  public void baseline() {
-    frame.pushStackItem(sizePool[index]);
-    frame.pushStackItem(srcOffsetPool[index]);
-    frame.pushStackItem(destOffsetPool[index]);
-
-    frame.popStackItem();
-    frame.popStackItem();
-    frame.popStackItem();
-    index = (index + 1) % SAMPLE_SIZE;
-  }
-
+  @Override
   @Benchmark
   public void executeOperation(final Blackhole blackhole) {
     frame.pushStackItem(sizePool[index]);

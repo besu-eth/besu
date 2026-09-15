@@ -74,105 +74,276 @@ For example:
 
 > **Note:** These hardfork/EIP filters apply only to execution-spec-tests. The legacy `GeneralStateReferenceTest` and `BlockchainReferenceTest` classes still use sequential numbering. For those, use the runtime system properties `test.ethereum.state.eips` and `test.ethereum.include` instead.
 
-## Devnet / Pre-release Execution Spec Tests
+## Devnet (pre-release) Reference Tests
 
-In addition to the stable execution-spec-tests fixtures, Besu supports a second set of **pre-release (devnet) fixtures** from upstream. These contain tests for upcoming hardforks (e.g., Amsterdam).
-
-### Running devnet tests
+`referenceTests` runs the released fixtures. The pre-release devnet fixtures — the tarball pinned by
+`devnetTarConfig` in `ethereum/referencetests/build.gradle` — are a separate source set with its own
+task:
 
 ```bash
-# Run all devnet/pre-release reference tests
 ./gradlew referenceTestsDevnet
+```
 
-# Run only Amsterdam devnet tests
+It takes the same `--tests` filters as `referenceTests`, over classes named
+`ExecutionSpecDevnet{Blockchain,State}Test_{hardfork}_{eip_or_topic}_{batch_index}`:
+
+```bash
 ./gradlew referenceTestsDevnet --tests "*_amsterdam_*"
-
-# Run both stable + devnet
-./gradlew referenceTests referenceTestsDevnet
+./gradlew referenceTestsDevnet --tests "*_amsterdam_eip7928_*"
 ```
 
-The default `referenceTests` task excludes devnet tests, so CI is unaffected.
+This is the only runner that drives the devnet fixtures through the JUnit reference-test harness, so
+it is the one to reach for when you need that harness's tracing (see [Enabling JSON
+Tracing](#enabling-json-tracing)) — the evmtool runners below do not go through it.
 
-### Generated class name format
+> `referenceTestsDevnet` is **not** a CI gate and is frequently red on `main` while a devnet is in
+> flight. Get a baseline on `main` before reading a failure on your branch as your own regression.
 
-Devnet test classes follow the same pattern as stable ones, but with an `ExecutionSpecDevnet` prefix:
+## Hive-Equivalent Fixture Runners (evmtool)
 
-```
-ExecutionSpecDevnet{Blockchain,State}Test_{hardfork}_{eip_or_topic}_{batch_index}
-```
+The `referenceTests` task above drives **block import** and **state transition** directly. It never
+touches the Engine API, so payload schema, JSON-RPC error codes, fork support and the blob schedule
+have no coverage there at all. Upstream, that gap is filled by hive's `consume-engine` simulator —
+which spins up a Besu container per fixture group and takes hours.
 
-### Bumping the pre-release version
+`evmtool` replays the same fixture trees through the same Besu code, in process, in minutes:
 
-1. Update the `version` in the `devnetTarConfig` dependency in `ethereum/referencetests/build.gradle`
-2. Make any required infrastructure changes (new header fields, etc.)
-3. Run `./gradlew --write-verification-metadata sha256` to update checksums
-4. Commit all changes together
+| hive | Gradle task | Besu code path |
+|------|-------------|----------------|
+| `--sim ethereum/eels/consume-engine` | `consumeEngineTests` | `engine_newPayloadVX` + `engine_forkchoiceUpdatedVX` over `blockchain_tests_engine` |
+| `--sim ethereum/eels/consume-rlp` | `consumeRlpTests` | RLP block import over `blockchain_tests` |
 
-### Configuration
-
-The devnet fixtures are resolved from the same GitHub Ivy repository as stable fixtures. The dependency is declared separately via the `devnetTarConfig` configuration in `ethereum/referencetests/build.gradle`.
-
-## Fast State Test Runner (evmtool)
-
-The `referenceTests*` tasks above generate one JUnit test per fixture. The `evmtool` `state-test` subcommand instead consumes the `state_tests` fixtures directly, with no per-fixture code generation, so a whole fixture tree runs in seconds rather than needing a build.
-
-### Gradle task
-
-`stateTestsDevnet` reuses the same devnet fixture download and extract as `referenceTestsDevnet` (the `extractDevnetFixtures` task, so there is no separate download) and fails the build on any test failure.
+Both reuse the same devnet fixture download/extract as the reference tests (`extractDevnetFixtures`
+— no separate download) and **fail the build on any fixture failure**.
 
 ```bash
-./gradlew :ethereum:evmtool:stateTestsDevnet
+# Full consume-engine equivalent
+./gradlew consumeEngineTests
+
+# Full consume-rlp equivalent
+./gradlew consumeRlpTests
+
+# Both, in one command
+./gradlew consumeEngineTests consumeRlpTests
 ```
 
-| Property | Meaning |
-|----------|---------|
-| `-PstateTestWorkers=N` | Limit parallelism (the runner already defaults to all available cores) |
-| `-PstateTestPath=<subdir>` | Scope to a subdirectory, e.g. `for_amsterdam` |
-| `-PstateTestFilter=<substr>` | Only run tests whose node id matches; see [Filter syntax](#filter-syntax) |
+`consume-rlp` is not redundant with `consume-engine`: `blockchain_tests_engine` has no pre-merge
+fork groups, so `for_frontier`, `for_homestead`, `for_tangerinewhistle`, `for_spuriousdragon`,
+`for_byzantium`, `for_constantinoplefix`, `for_istanbul`, `for_berlin` and `for_london` exist only
+in `blockchain_tests`.
+
+### Translating a hive invocation
+
+The properties are named after the hive flags they stand in for, and are shared by both tasks, so
+one command covers both simulators.
+
+| hive flag | Gradle property |
+|-----------|-----------------|
+| `--sim.limit=<regex>` (with `--sim.limit.exact=false`) | `-PsimLimit=<regex>`, taken verbatim |
+| `--sim.parallelism=N` | `-PsimParallelism=N` (default: available processors) |
+| *no equivalent* | `-PsimPath=<subdir>` — scope to one fixture subdirectory, e.g. `for_amsterdam` |
+
+So this hive run:
 
 ```bash
-./gradlew :ethereum:evmtool:stateTestsDevnet -PstateTestPath=for_amsterdam -PstateTestWorkers=8
+./hive --sim ethereum/eels/consume-engine --client besu --sim.parallelism=6 \
+  --sim.limit='.*(7928|8282).*' --sim.limit.exact=false ...
 ```
 
-### Filter syntax
+becomes:
 
-`--test-name` (and the `-PstateTestFilter` property) accepts two forms, and means the same thing in `state-test` and `block-test`:
+```bash
+./gradlew consumeEngineTests -PsimParallelism=6 -PsimLimit='.*(7928|8282).*'
+```
 
-- No `*` or `?`: a case-insensitive substring match against the node id.
-- Contains `*` or `?`: a case-insensitive regex that must match the whole node id. `*` is rewritten to `.*`, `?` to any single character, and `.` is escaped to a literal (node ids contain `.py`). The rest is passed to `java.util.regex`, so alternation and character classes work.
+and swapping the task for `consumeRlpTests` covers `--sim ethereum/eels/consume-rlp`. Quote the
+pattern — the shell would otherwise glob it.
 
-In the second form the `[`, `]`, `(` and `)` common in pytest node ids are regex metacharacters, not literals. Escape them to match literally:
+`-PsimPath` has no hive counterpart but is worth reaching for: scoping to a fork group is far
+cheaper than filtering the whole tree, since a filter still has to read every fixture file.
+
+```bash
+./gradlew consumeEngineTests -PsimPath=for_amsterdam -PsimLimit='.*(7928|8282).*'
+```
+
+#### How `-PsimLimit` matches
+
+The value is a hive regex and is passed to `evmtool`'s `--test-name-regex` **verbatim** — nothing is
+rewritten, nothing is escaped, so a published `--sim.limit` can be copied character for character,
+escapes and all. Match semantics agree with hive's too: the EELS simulators apply the filter with
+Python's `re.match`, which is anchored at the start of the pytest node id, open at the end and
+case-sensitive, and `--test-name-regex` does the same.
+
+That is why the leading and trailing `.*` in the conventional `.*(7928|8282).*` matter: without the
+leading one the pattern would have to match from the first character of the node id.
+
+A malformed pattern is compiled before any fixture is read, so it fails immediately with exit 1
+rather than silently running nothing. An empty run is an error too: a run that executed no test
+never reports success.
+
+The `[`, `]`, `(` and `)` common in pytest node ids are regex metacharacters. `(` and `)` are what
+make the `(a|b|c)` alternation work; escape them when you want them literal:
 
 ```bash
 # WRONG: '[' opens a character class -> rejected before any test runs
-$EVM state-test --test-name '*[fork_Amsterdam*' <fixtures>
-#   Invalid --test-name pattern '*[fork_Amsterdam*': Unclosed character class. …
+./gradlew consumeEngineTests -PsimLimit='.*[fork_Amsterdam.*'
+#   Invalid --test-name-regex pattern: Unclosed character class. …
 
-# RIGHT: escape it, or just use the substring form
-$EVM state-test --test-name '*\[fork_Amsterdam*' <fixtures>
-$EVM state-test --test-name 'fork_Amsterdam' <fixtures>
+# RIGHT
+./gradlew consumeEngineTests -PsimLimit='.*\[fork_Amsterdam.*'
 ```
 
-The pattern is compiled before any fixture is read, so a malformed expression fails immediately with exit 1 rather than running nothing. An empty run is an error too, whether or not a filter was given: a run that executed no test never reports success.
+`evmtool` also has a `--test-name` option, which is the friendlier form used when driving the binary
+by hand: a bare substring, or a `*`/`?` glob in which `.` is a literal. The Gradle tasks never use
+it — `-PsimLimit` is always a regex.
 
-### Running the evmtool binary directly
+> `stateTestsDevnet` used to take `-PstateTestFilter`, `-PstateTestPath` and `-PstateTestWorkers`.
+> Those names are gone; the task now shares `-PsimLimit` / `-PsimPath` / `-PsimParallelism` with the
+> other runners. Passing an old one fails the build rather than running the whole tree unfiltered.
+> Note that `-PsimLimit` is a regex where `-PstateTestFilter` was a substring or a `*?`-glob.
+
+### Reproducing a published hive run
+
+The devnet hive runs published at [hive.ethpandaops.io](https://hive.ethpandaops.io) each pin a
+`--sim.limit`. Four tasks carry those filters so that reproducing a run is a task name rather than a
+regex copied out of a web UI:
+
+| Task | Mirrors |
+|------|---------|
+| `consumeEngineTestsGlamsterdam` | the `glamsterdam` group's `consume-engine` run |
+| `consumeRlpTestsGlamsterdam` | the same filter, `consume-rlp` |
+| `consumeEngineTestsGlamsterdamQuick` | the `glamsterdam-quick` group's `consume-engine` run |
+| `consumeRlpTestsGlamsterdamQuick` | the same filter, `consume-rlp` |
+
+```bash
+./gradlew consumeEngineTestsGlamsterdam        # the full published sweep
+./gradlew consumeEngineTestsGlamsterdamQuick   # the EIP-scoped sweep
+```
+
+The `Glamsterdam` filter selects by fork and currently spans more than one, so the task is not an
+Amsterdam-only run. The `GlamsterdamQuick` filter selects by EIP number instead, which cuts across
+forks. Read the constants for what each covers today.
+
+A preset ignores `-PsimLimit`: overriding half of it would report a number against a scope nobody
+can reconstruct. `-PsimParallelism` still applies. Use the plain `consumeEngineTests` /
+`consumeRlpTests` tasks when you want your own filter.
+
+> When comparing against the hive UI, note that the figure it shows most prominently is the *pass*
+> count, not the number of tests run.
+
+#### Keeping the presets current
+
+Fork names change with every devnet (a transition fork is renamed, added or dropped) and the quick
+run's EIP list is edited as EIPs are scheduled in or out. A filter left behind does not fail — it
+selects the old set and goes green — so re-read it from the newest published run rather than
+assuming. Both live in one place, as `GLAMSTERDAM_SIM_LIMIT` and `GLAMSTERDAM_QUICK_SIM_LIMIT` at
+the top of `ethereum/evmtool/build.gradle`.
+
+The suite JSON records the exact invocation under `runMetadata.hiveCommand`. `listing.jsonl` is not
+in chronological order, so sort by `start` rather than taking the last line:
+
+```bash
+GROUP=glamsterdam          # or glamsterdam-quick
+SIM=eels/consume-engine    # or eels/consume-rlp
+
+FILE=$(curl -sS "https://hive.ethpandaops.io/$GROUP/listing.jsonl" \
+  | jq -rs --arg sim "$SIM" 'map(select(.name==$sim)) | sort_by(.start) | last | .fileName')
+
+# The suite JSON is far too large to fetch whole; runMetadata precedes testCases, so a range
+# request over the head of it is enough
+curl -sS --range 0-65535 "https://hive.ethpandaops.io/$GROUP/results/$FILE" \
+  | grep -oE '"(--sim\.limit=[^"]*|fixtures=[^"]*)"'
+```
+
+That prints both things worth checking:
+
+- **`--sim.limit=…`** — copy it verbatim into the matching constant. It needs no editing: the tasks
+  take a hive regex exactly as written (see [How `-PsimLimit` matches](#how--psimlimit-matches)).
+- **`fixtures=…`** — the tarball the run used. If its version differs from `devnetTarConfig` the two
+  are not selecting from the same test set and counts will not line up; see
+  [Fixture version](#fixture-version).
+
+After changing a constant, run the task and sanity-check the test count against the run you copied
+from. A filter that matches nothing fails the build rather than reporting success, but a filter that
+matches the *wrong* set will happily go green.
+
+### Worked example
+
+Against the pinned fixtures, scoped to one fork group and filtered to a set of EIPs:
+
+```bash
+L='.*(7928|8282).*'
+./gradlew consumeEngineTests -PsimPath=for_amsterdam -PsimLimit="$L" -PsimParallelism=12
+./gradlew consumeRlpTests    -PsimPath=for_amsterdam -PsimLimit="$L" -PsimParallelism=12
+```
+
+Running both is worth the extra minute: where they disagree, the difference is Engine API behaviour
+rather than block validity — a payload the engine should have rejected with a JSON-RPC error code,
+or an `INVALID` whose validation error does not map to the exception the fixture names. Those are
+exactly the failures neither `consumeRlpTests` nor `referenceTests` can see, and they are the reason
+the engine runner exists.
+
+### Fixture version
+
+Both tasks run against the tarball pinned by `devnetTarConfig` in
+`ethereum/referencetests/build.gradle`. A hive run pins its own via `--sim.buildarg fixtures=<url>`,
+so check the two match before comparing results. To move the pinned version:
+
+1. Update `version` in the `devnetTarConfig` dependency.
+2. Run `./gradlew --write-verification-metadata sha256` — Besu uses dependency verification, and
+   without a matching checksum in `gradle/verification-metadata.xml` the extract fails outright.
+3. Commit both together.
+
+To try a different tarball without repinning, extract it yourself and point the binary at it (see
+below).
+
+### What these tasks do not cover
+
+`state_tests` are the EVM/state-transition-only slice, consumed by no hive simulator and by neither
+task above. `stateTestsDevnet` runs them, taking the same `-PsimLimit` / `-PsimParallelism` /
+`-PsimPath` properties:
+
+```bash
+./gradlew stateTestsDevnet -PsimPath=for_amsterdam
+```
+
+Fixture files that cannot be read as a test of the expected kind are reported separately under
+"Unreadable" and do **not** count as failures — a fixture this harness cannot build says nothing
+about Besu, and counting it as a failure would make a fixture format change look like a regression.
+
+### Running the binary directly
+
+For an ad-hoc run against any fixtures directory — a tarball you extracted yourself, or a single
+file — build the `evm` binary once and call the subcommands:
 
 ```bash
 ./gradlew :ethereum:evmtool:installDist
-EVM=./ethereum/evmtool/build/install/evmtool/bin/evmtool
+EVM=ethereum/evmtool/build/install/evmtool/bin/evmtool
 
-$EVM state-test <path-to>/state_tests/
+$EVM engine-test --workers 8 <path-to>/blockchain_tests_engine/    # consume-engine
+$EVM block-test  --workers 8 <path-to>/blockchain_tests/           # consume-rlp
 ```
 
-A directory argument is expanded recursively and spread over one worker per available core. Pass `--workers N` to use fewer, for instance to keep the output of a multi-file run in a predictable order.
+A directory argument is walked recursively and spread over `--workers` workers. `--test-name-regex`
+is the raw form of `-PsimLimit` and takes the same expression (`.*(7928|8282).*`); `--test-name` is
+the glob form described above. `--json-array` emits machine-readable results (`[{name, pass, fork,
+lastBlockHash, error}]`) and nothing else, so the exit code is what reports an empty or failed run.
 
-Flags: `--workers N`, `--test-name <substr-or-regex>`, `--json-array` to emit machine-readable results (`[{name, pass, fork, stateRoot, error}]`), and `--summary-only` to suppress the per-test JSON line that external tooling parses (which remains the default). Under `--json-array` nothing but the array is printed, so the exit code is what reports an empty or failed run.
+A single fixture file can also be piped in as `stdin`, which all three subcommands accept:
 
-`--workers`, `--test-name` and `--json-array` work the same way on `block-test`.
+```bash
+$EVM engine-test stdin < <path-to>/one_fixture.json
+```
 
-The subcommand exits non-zero if any test fails, if no test ran at all, or if the `--test-name` pattern is malformed.
+`engine-test` prints failures and a final summary only; `--verbose` adds a line per test.
+`block-test` logs every imported block, so pipe through `grep -v 'Imported in'` for a quiet run.
 
-> The gradle-extracted fixtures live at `ethereum/referencetests/build/execution-spec-devnet-tests/fixtures/state_tests/`, so you can point the binary there after running `referenceTestsDevnet` (or `extractDevnetFixtures`) once.
+> The Gradle-extracted fixtures live at
+> `ethereum/referencetests/build/execution-spec-devnet-tests/fixtures/`, so you can point the binary
+> there after running `extractDevnetFixtures` once.
+
+> **Tip:** if a verbose run makes the terminal flicker (Gradle's animated console repainting as
+> output streams), add `--console=plain`.
 
 ## Enabling JSON Tracing
 

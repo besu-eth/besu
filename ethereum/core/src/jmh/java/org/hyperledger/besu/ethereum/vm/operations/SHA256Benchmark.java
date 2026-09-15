@@ -21,7 +21,6 @@ import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.tuweni.bytes.Bytes;
-import org.apache.tuweni.bytes.Bytes32;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Measurement;
@@ -33,6 +32,7 @@ import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.Warmup;
 import org.openjdk.jmh.infra.BenchmarkParams;
+import org.openjdk.jmh.infra.Blackhole;
 
 @State(Scope.Thread)
 @Warmup(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
@@ -60,8 +60,9 @@ public class SHA256Benchmark implements GasCostBenchmark {
     bytes = Bytes.wrap(byteArray);
   }
 
+  @Override
   @Benchmark
-  public Bytes32 sha256() {
-    return Hash.sha256(bytes);
+  public void executeOperation(final Blackhole blackhole) {
+    blackhole.consume(Hash.sha256(bytes));
   }
 }

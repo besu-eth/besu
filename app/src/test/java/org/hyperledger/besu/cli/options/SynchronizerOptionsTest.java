@@ -81,6 +81,8 @@ public class SynchronizerOptionsTest
                 .build())
         .snapSyncSavePreCheckpointHeadersOnlyEnabled(
             SnapSyncConfiguration.DEFAULT_SNAP_SYNC_SAVE_PRE_MERGE_HEADERS_ONLY_ENABLED)
+        .snapSyncHeadersToCheckpointOnly(
+            !SynchronizerConfiguration.DEFAULT_SNAP_SYNC_HEADERS_TO_CHECKPOINT_ONLY)
         .era1ImportPrepipelineEnabled(true)
         .era1DataUri(URI.create("sepolia.era1.nimbus.team/"));
   }

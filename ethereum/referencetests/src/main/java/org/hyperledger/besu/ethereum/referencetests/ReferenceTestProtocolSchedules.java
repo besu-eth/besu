@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.referencetests;
 
 import org.hyperledger.besu.config.BlobScheduleOptions;
 import org.hyperledger.besu.config.GenesisConfigOptions;
+import org.hyperledger.besu.config.JsonUtil;
 import org.hyperledger.besu.config.StubGenesisConfigOptions;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -32,6 +33,7 @@ import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.math.BigInteger;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -39,6 +41,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 /**
  * Loads all available protocol schedules into memory and lets users select the appropriate one.
@@ -63,6 +67,12 @@ public class ReferenceTestProtocolSchedules {
           "eip158",
           "eip158tobyzantiumat5");
 
+  /** Guarded by {@link #cached(EvmConfiguration, BlobScheduleOptions)}, which is synchronized. */
+  private static final Map<CacheKey, ReferenceTestProtocolSchedules> CACHED_SCHEDULES =
+      new HashMap<>();
+
+  private record CacheKey(EvmConfiguration evmConfiguration, ObjectNode blobSchedule) {}
+
   public static ReferenceTestProtocolSchedules create() {
     return create(new StubGenesisConfigOptions(), EvmConfiguration.DEFAULT);
   }
@@ -86,6 +96,41 @@ public class ReferenceTestProtocolSchedules {
       genesisStub.blobScheduleOptions(blobScheduleOptions);
     }
     return create(genesisStub, evmConfiguration);
+  }
+
+  /**
+   * As {@link #create(EvmConfiguration, BlobScheduleOptions)}, but built once per distinct blob
+   * schedule and shared by every caller. Fixture runners hand each fixture's own blob schedule in,
+   * and a fixture tree holds only a handful of distinct ones, so building a schedule set per
+   * fixture is pure waste.
+   *
+   * <p>Synchronized rather than a {@code ConcurrentHashMap.computeIfAbsent}: the map holds a key
+   * per distinct blob schedule, so per-key serialisation would still let several threads into
+   * {@code create()} at once, and {@code create()} initialises the KZG trusted setup, which is
+   * process-wide state guarded by a {@code compareAndSet} that lets the losing thread proceed
+   * before the setup is loaded. The check-then-act has to be atomic across keys, not merely
+   * visible.
+   *
+   * <p>The key is the blob schedule's whole config root rather than {@link
+   * BlobScheduleOptions#asMap()}, which enumerates only the fork keys this Besu version has a
+   * getter for and would silently collide two schedules differing only outside that set — the
+   * devnet forks these runners exist to test. {@link
+   * com.fasterxml.jackson.databind.node.ObjectNode} equality is by content and insensitive to field
+   * order.
+   *
+   * @param evmConfiguration the EVM configuration
+   * @param blobScheduleOptions the blob schedule from the fixture config, or null for defaults
+   * @return the schedules
+   */
+  public static synchronized ReferenceTestProtocolSchedules cached(
+      final EvmConfiguration evmConfiguration, final BlobScheduleOptions blobScheduleOptions) {
+    final ObjectNode key =
+        blobScheduleOptions == null
+            ? JsonUtil.createEmptyObjectNode()
+            : blobScheduleOptions.getConfigRoot().deepCopy();
+    return CACHED_SCHEDULES.computeIfAbsent(
+        new CacheKey(evmConfiguration, key),
+        ignored -> create(evmConfiguration, blobScheduleOptions));
   }
 
   public static ReferenceTestProtocolSchedules create(

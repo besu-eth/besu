@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.ACCEPTED;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID_BLOCK_HASH;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.SYNCING;
@@ -204,7 +203,6 @@ public sealed class EngineNewPayloadV1<
     }
 
     final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(newBlockHeader);
-    final var maybeLatestValidAncestor = mergeCoordinator.getLatestValidAncestor(newBlockHeader);
 
     // 4. Client software MUST validate the payload if it extends the canonical chain, and requisite
     // data for the validation is locally available. The validation process is specified in the
@@ -244,24 +242,17 @@ public sealed class EngineNewPayloadV1<
       return respondWith(reqId, blockParam, null, SYNCING);
     }
 
-    if (mergeContext.get().isSyncing()) {
-      logger().debug("We are syncing");
-      return respondWith(reqId, blockParam, null, SYNCING);
-    }
-
-    // 6. Client software MUST respond to this method call in the following way:
-    // {status: ACCEPTED, latestValidHash: null, validationError: null} if the following conditions
-    // are met:
-    //    all transactions have non-zero length
-    //    the blockHash of the payload is valid
-    //    the payload doesn't extend the canonical chain
-    //    the payload hasn't been fully validated
-    //    ancestors of a payload are known and comprise a well-formed chain.
-    if (maybeLatestValidAncestor.isEmpty()) {
-      return respondWith(reqId, blockParam, null, ACCEPTED);
-    }
-
-    final Hash latestValidAncestor = maybeLatestValidAncestor.get();
+    // an ancestor is always found here: the parent header is present in the chain (needsSync is
+    // false) and getLatestValidAncestor only returns empty when it is not; this is also why Besu
+    // never responds with ACCEPTED — a payload whose parent is known is always fully validated,
+    // even when it does not extend the canonical chain
+    final Hash latestValidAncestor =
+        mergeCoordinator
+            .getLatestValidAncestor(newBlockHeader)
+            .orElseThrow(
+                () ->
+                    new IllegalStateException(
+                        "Internal error: latestValidAncestor should always be present at this point"));
 
     // async precompute sender to improve performance during transaction processing
     asyncPrecomputeSenders(blockParam.getTransactions());
@@ -276,6 +267,12 @@ public sealed class EngineNewPayloadV1<
       return respondWith(reqId, blockParam, newBlockHeader.getHash(), VALID);
     } else {
       logger().debug("New payload is invalid: {}", executionResult);
+      if (executionResult.isWorldStateUnavailable()) {
+        // we respond with SYNCING here to ensure a VALID newPayload is not marked INVALID.
+        // however besu should not trigger a worldstate resync until/unless this chain is
+        // finalized via forkchoiceUpdated.
+        return respondWith(reqId, blockParam, null, SYNCING);
+      }
       if (executionResult.causedBy().isPresent()) {
         Throwable causedBy = executionResult.causedBy().get();
         if (causedBy instanceof StorageException || causedBy instanceof MerkleTrieException) {
@@ -547,14 +544,10 @@ public sealed class EngineNewPayloadV1<
         if (jsonPath.equals("transactions")) {
           return respondWithInvalid(
               reqId,
-              "Failed to decode transactions from block parameter ("
-                  + fieldEx.getOriginalMessage()
-                  + ")");
+              "Failed to decode transactions from block parameter (" + describe(fieldEx) + ")");
         } else if (jsonPath.equals("extraData")) {
           customMessage =
-              "Failed to decode extraData from block parameter ("
-                  + fieldEx.getOriginalMessage()
-                  + ")";
+              "Failed to decode extraData from block parameter (" + describe(fieldEx) + ")";
         }
       }
     }
@@ -565,6 +558,26 @@ public sealed class EngineNewPayloadV1<
             RpcErrorType.INVALID_ENGINE_NEW_PAYLOAD_PARAMS,
             Objects.requireNonNullElse(
                 customMessage, "Failed to decode block parameter (" + e.getMessage() + ")")));
+  }
+
+  /**
+   * Describes a decoding failure, appending the root cause to the mapping exception's own message.
+   *
+   * <p>The outermost message is the generic wrapper the decoder adds — for a transaction list,
+   * "Error applying element decoding function on element N of the list" — which says where the
+   * failure was but nothing about what was wrong with it. The cause carries that, so a caller is
+   * told the versioned hash was invalid rather than only that decoding stopped at element 0.
+   */
+  private static String describe(final JsonMappingException fieldEx) {
+    final String message = fieldEx.getOriginalMessage();
+    Throwable cause = fieldEx.getCause();
+    while (cause != null && cause.getCause() != null && cause.getCause() != cause) {
+      cause = cause.getCause();
+    }
+    final String rootMessage = cause == null ? null : cause.getMessage();
+    return rootMessage == null || rootMessage.isBlank() || rootMessage.equals(message)
+        ? message
+        : message + ": " + rootMessage;
   }
 
   protected static class InvalidRequestParametersException extends InvalidJsonRpcRequestException {

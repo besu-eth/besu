@@ -112,6 +112,9 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
   private static final String SNAP_SYNC_SAVE_PRE_CHECKPOINT_HEADERS_ONLY_FLAG =
       "--snapsync-synchronizer-pre-checkpoint-headers-only-enabled";
 
+  private static final String SNAP_SYNC_SKIP_PRE_CHECKPOINT_HEADERS_FLAG =
+      "--snapsync-synchronizer-skip-pre-checkpoint-headers-enabled";
+
   private static final String ERA1_IMPORT_PREPIPELINE_ENABLED_FLAG =
       "--era1-import-prepipeline-enabled";
   private static final String ERA1_DATA_URI_FLAG = "--era1-data-uri";
@@ -452,6 +455,18 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
       DEFAULT_SNAP_SYNC_SAVE_PRE_MERGE_HEADERS_ONLY_ENABLED;
 
   @CommandLine.Option(
+      names = {SNAP_SYNC_SKIP_PRE_CHECKPOINT_HEADERS_FLAG},
+      paramLabel = "<Boolean>",
+      arity = "0..1",
+      fallbackValue = "true",
+      description =
+          "During SNAP sync, download headers only back to the trusted checkpoint instead of all "
+              + "the way to genesis. Requires a checkpoint (from the genesis file or --checkpoint). "
+              + "Pre-checkpoint headers (before the checkpoint) will not be stored. (default: ${DEFAULT-VALUE})")
+  private Boolean snapSyncHeadersToCheckpointOnly =
+      SynchronizerConfiguration.DEFAULT_SNAP_SYNC_HEADERS_TO_CHECKPOINT_ONLY;
+
+  @CommandLine.Option(
       names = ERA1_IMPORT_PREPIPELINE_ENABLED_FLAG,
       paramLabel = "<Boolean>",
       arity = "0..1",
@@ -486,6 +501,16 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
    */
   public boolean isSnapsyncServerEnabled() {
     return snapsyncServerEnabled;
+  }
+
+  /**
+   * Whether SNAP sync should download headers only down to the trusted checkpoint instead of
+   * genesis.
+   *
+   * @return true if pre-checkpoint headers are skipped
+   */
+  public boolean isSnapSyncHeadersToCheckpointOnly() {
+    return snapSyncHeadersToCheckpointOnly;
   }
 
   /**
@@ -553,6 +578,7 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
     options.backwardHeadersDownloadStepTimeoutMillis =
         config.getBackwardHeadersDownloadStepTimeoutMillis();
     options.bodiesDownloadStepTimeoutMillis = config.getBodiesDownloadStepTimeoutMillis();
+    options.snapSyncHeadersToCheckpointOnly = config.isSnapSyncHeadersToCheckpointOnly();
     return options;
   }
 
@@ -598,6 +624,7 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
     builder.era1ImportPrepipelineEnabled(era1ImportPrepipelineEnabled);
     builder.era1DataUri(era1DataUri);
     builder.era1ImportPrepipelineConcurrency(era1ImportPrepipelineConcurrency);
+    builder.snapSyncHeadersToCheckpointOnly(snapSyncHeadersToCheckpointOnly);
     return builder;
   }
 
@@ -674,7 +701,9 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
             ERA1_DATA_URI_FLAG,
             OptionParser.format(era1DataUri),
             ERA1_IMPORT_PREPIPELINE_CONCURRENCY_FLAG,
-            OptionParser.format(era1ImportPrepipelineConcurrency));
+            OptionParser.format(era1ImportPrepipelineConcurrency),
+            SNAP_SYNC_SKIP_PRE_CHECKPOINT_HEADERS_FLAG,
+            OptionParser.format(snapSyncHeadersToCheckpointOnly));
     return value;
   }
 }

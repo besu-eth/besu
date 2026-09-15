@@ -18,6 +18,13 @@ import org.hyperledger.besu.plugin.Unstable;
 
 import org.apache.tuweni.bytes.Bytes;
 
-/** An interface for {@link Bytes} that also represents a signature */
+/**
+ * An interface for {@link Bytes} that also represents a signature
+ *
+ * @deprecated This type is scheduled for removal in a future release, with no replacement. It is
+ *     not referenced by any plugin contract; signing uses {@code
+ *     org.hyperledger.besu.plugin.services.securitymodule.data.Signature}.
+ */
+@Deprecated(forRemoval = true)
 @Unstable
 public interface Signature extends Bytes {}

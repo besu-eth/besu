@@ -72,4 +72,56 @@ class TestNameFilterTest {
     assertThat(TestNameFilter.compile("*\\[fork_BPO2ToAmsterdamAtTime15k*").matches(NODE_ID))
         .isTrue();
   }
+
+  @Test
+  void regexTakesAHiveSimLimitVerbatim() {
+    // The published glamsterdam run's --sim.limit, copied character for character.
+    assertThat(
+            TestNameFilter.compileRegex(".*fork_(Amsterdam|BPO2ToAmsterdamAtTime15k|Osaka).*")
+                .matches(NODE_ID))
+        .isTrue();
+    assertThat(TestNameFilter.compileRegex(".*(7708|7928|8282).*").matches(NODE_ID)).isFalse();
+    assertThat(TestNameFilter.compileRegex(".*(2780|7928).*").matches(NODE_ID)).isTrue();
+  }
+
+  @Test
+  void regexDoesNotEscapeTheDot() {
+    // The case --test-name cannot express: an escaped dot stays an escaped dot, and a bare dot
+    // stays a wildcard. Under --test-name both are rewritten and select nothing.
+    assertThat(TestNameFilter.compileRegex(".*test_fork_transition\\.py.*").matches(NODE_ID))
+        .isTrue();
+    assertThat(TestNameFilter.compileRegex(".*test_fork_transition.py.*").matches(NODE_ID))
+        .isTrue();
+  }
+
+  @Test
+  void regexIsAnchoredAtTheStartAndOpenAtTheEnd() {
+    // Python's re.match, which is how the EELS simulators apply --sim.limit.
+    assertThat(TestNameFilter.compileRegex("tests/amsterdam").matches(NODE_ID)).isTrue();
+    assertThat(TestNameFilter.compileRegex("eip2780").matches(NODE_ID)).isFalse();
+  }
+
+  @Test
+  void regexIsCaseSensitive() {
+    assertThat(TestNameFilter.compileRegex(".*fork_BPO2ToAmsterdam.*").matches(NODE_ID)).isTrue();
+    assertThat(TestNameFilter.compileRegex(".*FORK_BPO2TOAMSTERDAM.*").matches(NODE_ID)).isFalse();
+  }
+
+  @Test
+  void malformedRegexIsRejectedWhenCompiled() {
+    assertThatThrownBy(() -> TestNameFilter.compileRegex(".*[fork_Amsterdam.*"))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("Invalid --test-name-regex pattern");
+  }
+
+  @Test
+  void fromOptionsPicksTheGivenOptionAndRejectsBoth() {
+    assertThat(TestNameFilter.fromOptions(null, null)).isNull();
+    assertThat(TestNameFilter.fromOptions("fork_BPO2ToAmsterdam", null).matches(NODE_ID)).isTrue();
+    assertThat(TestNameFilter.fromOptions(null, ".*fork_BPO2ToAmsterdam.*").matches(NODE_ID))
+        .isTrue();
+    assertThatThrownBy(() -> TestNameFilter.fromOptions("a", "b"))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("mutually exclusive");
+  }
 }

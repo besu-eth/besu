@@ -295,4 +295,21 @@ public class PacketDeserializerTest {
         IdentitySchemaInterpreter.V4.getScheme(), actualPacketData.getEnr().getIdentityScheme());
     Assertions.assertEquals(UInt64.valueOf(567), actualPacketData.getEnr().getSeq());
   }
+
+  @Test
+  public void testDecodeForEnrResponsePacketWithMalformedEnrThrowsDecodingException() {
+    final Bytes sig =
+        Bytes.concatenate(
+            Bytes.repeat((byte) 0x01, 32), Bytes.repeat((byte) 0x01, 32), Bytes.of(0x00));
+    final Bytes type = Bytes.of(PacketType.ENR_RESPONSE.getValue());
+    // RLP list containing request-hash and a malformed/truncated ENR list (claims 45 bytes, has 10)
+    final Bytes body =
+        Bytes.concatenate(
+            Bytes.fromHexString("0xe0821234"), Bytes.fromHexString("0xf82d0102030405060708090a"));
+    final Bytes rest = Bytes.concatenate(sig, type, body);
+    final Bytes packet = Bytes.concatenate(Hash.keccak256(rest), rest);
+
+    Assertions.assertThrows(
+        PeerDiscoveryPacketDecodingException.class, () -> packetDeserializer.decode(packet));
+  }
 }

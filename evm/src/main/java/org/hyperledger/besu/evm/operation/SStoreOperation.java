@@ -124,14 +124,16 @@ public class SStoreOperation extends AbstractOperation {
         gasCalculator()
             .calculateStorageRefundAmount(newValue, currentValueSupplier, originalValueSupplier));
 
-    LOG.trace(
-        "EIP-8037 REC_STORAGE depth={} addr={} key={} txEntryIsZero={} beforeIsZero={} afterIsZero={}",
-        frame.getDepth(),
-        address.toHexString(),
-        "0x" + key.toHexString().substring(2),
-        originalValueSupplier.get().isZero(),
-        currentValueSupplier.get().isZero(),
-        newValue.isZero());
+    if (LOG.isTraceEnabled()) {
+      LOG.trace(
+          "EIP-8037 REC_STORAGE depth={} addr={} key={} txEntryIsZero={} beforeIsZero={} afterIsZero={}",
+          frame.getDepth(),
+          address.toHexString(),
+          "0x" + key.toHexString().substring(2),
+          originalValueSupplier.get().isZero(),
+          currentValueSupplier.get().isZero(),
+          newValue.isZero());
+    }
 
     final StateGasCostCalculator stateGasCalc = gasCalculator().stateGasCostCalculator();
     final StorageTransition transition =

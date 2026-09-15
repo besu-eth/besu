@@ -591,6 +591,26 @@
           "data": "0xb4de1e58"
         }
       ]
+    },
+    {
+      "number": "0x23",
+      "transactions": [
+        {
+          "comment": "Deploy contract whose runtime executes CREATE2 with three stack operands",
+          "secretKey": "0x8f2a55949038a9610f50fb23b5883af3b4ecb3c3bb792cbcefbd1542c692be63",
+          "gasLimit": "0xFFFFF2",
+          "gasPrice": "0xEF",
+          "data": "0x6005600c60003960056000f35f5f5ff500"
+        },
+        {
+          "comment": "Call the faulty contract through the generic proxy so the outer transaction succeeds",
+          "secretKey": "0x8f2a55949038a9610f50fb23b5883af3b4ecb3c3bb792cbcefbd1542c692be63",
+          "gasLimit": "0xFFFFF2",
+          "gasPrice": "0xEF",
+          "to": "0x0040000000000000000000000000000000000000",
+          "data": "0x000000000000000000000000834ade89f14b5a724cd4bee5c5b5883c65ae46ba"
+        }
+      ]
     }
   ]
 }

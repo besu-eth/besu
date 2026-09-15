@@ -116,6 +116,19 @@ public class BlobScheduleOptions {
   }
 
   /**
+   * The config root this instance was built from.
+   *
+   * <p>Carries every fork key the config supplied, including any this class exposes no getter for.
+   * {@link #asMap()} enumerates only the known keys and so cannot be used to tell two blob
+   * schedules apart; this can. Treat the returned node as read-only.
+   *
+   * @return the blob schedule config root
+   */
+  public ObjectNode getConfigRoot() {
+    return blobScheduleOptionsConfigRoot;
+  }
+
+  /**
    * As map.
    *
    * @return the map

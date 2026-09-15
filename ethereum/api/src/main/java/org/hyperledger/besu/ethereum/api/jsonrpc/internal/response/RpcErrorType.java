@@ -61,6 +61,7 @@ public enum RpcErrorType implements RpcMethodError {
   INVALID_ENODE_PARAMS(INVALID_PARAMS_ERROR_CODE, "Invalid enode params"),
   INVALID_EXCESS_BLOB_GAS_PARAMS(
       INVALID_PARAMS_ERROR_CODE, "Invalid excess blob gas params (missing or invalid)"),
+  INVALID_EXECUTION_REQUESTS(INVALID_PARAMS_ERROR_CODE, "Invalid execution requests"),
   INVALID_EXECUTION_REQUESTS_PARAMS(INVALID_PARAMS_ERROR_CODE, "Invalid execution requests params"),
   INVALID_BLOCK_ACCESS_LIST_PARAMS(
       INVALID_PARAMS_ERROR_CODE, "Invalid block access list params (missing or invalid)"),
@@ -162,6 +163,7 @@ public enum RpcErrorType implements RpcMethodError {
   EXCEEDS_RPC_MAX_BLOCK_RANGE(-32005, "Requested range exceeds maximum RPC range limit"),
   EXCEEDS_RPC_MAX_BATCH_SIZE(-32005, "Number of requests exceeds max batch size"),
   EXCEEDS_RPC_MAX_ACTIVE_FILTERS(-32005, "Maximum number of active filters exceeded"),
+  EXCEEDS_RPC_MAX_FILTER_ADDRESSES(-32005, "Filter address count exceeds limit"),
   NONCE_TOO_HIGH(-32006, "Nonce too high"),
   TX_SENDER_NOT_AUTHORIZED(-32007, "Sender account not authorized to send transactions"),
   CHAIN_HEAD_WORLD_STATE_NOT_AVAILABLE(-32008, "Initial sync is still in progress"),
@@ -173,6 +175,7 @@ public enum RpcErrorType implements RpcMethodError {
   REPLAY_PROTECTED_SIGNATURES_NOT_SUPPORTED(-32000, "ChainId not supported"),
   REPLAY_PROTECTED_SIGNATURE_REQUIRED(-32000, "ChainId is required"),
   TX_FEECAP_EXCEEDED(-32000, "Transaction fee cap exceeded"),
+  EXCEEDS_MAX_TX_BYTES(-32000, "Transaction size exceeds the maximum allowed size"),
   REVERT_ERROR(
       3,
       "Execution reverted",
@@ -212,6 +215,10 @@ public enum RpcErrorType implements RpcMethodError {
 
   // Worldstate errors
   WORLD_STATE_UNAVAILABLE(-32000, "World state unavailable"),
+
+  // Log bloom cache errors
+  CACHE_REMOVAL_IN_PROGRESS(
+      -32000, "Cache removal is unavailable while log bloom caching is in progress"),
 
   // Debug failures
   BLOCK_NOT_FOUND(-32000, "Block not found"),

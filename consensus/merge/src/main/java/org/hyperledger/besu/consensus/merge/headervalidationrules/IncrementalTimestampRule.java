@@ -38,7 +38,9 @@ public class IncrementalTimestampRule extends MergeConsensusRule {
         && !isTerminalProofOfWorkBlock(header, protocolContext)) {
       final long blockTimestamp = header.getTimestamp();
       final long parentTimestamp = parent.getTimestamp();
-      final boolean isMoreRecent = blockTimestamp > parentTimestamp;
+      // Both timestamps are uint64 carried in longs, so they must be compared unsigned: a value
+      // above Long.MAX_VALUE is negative and would otherwise look older than its parent.
+      final boolean isMoreRecent = Long.compareUnsigned(blockTimestamp, parentTimestamp) > 0;
 
       LOG.trace(
           "Is block timestamp more recent that its parent? {}, [block timestamp {}, parent timestamp {}]",

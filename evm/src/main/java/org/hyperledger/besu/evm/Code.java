@@ -37,7 +37,7 @@ public class Code {
   /** The hash of the code, needed for accessing metadata about the bytecode */
   private Hash codeHash;
 
-  private Integer size;
+  private final int size;
 
   /** Bit mask for jump destinations, used to optimize JUMP/JUMPI operations */
   private long[] jumpDestBitMask = null;
@@ -60,6 +60,7 @@ public class Code {
   public Code(final Bytes byteCode, final Hash codeHash) {
     this.bytes = Bytes.wrap(byteCode.toArrayUnsafe());
     this.codeHash = codeHash;
+    this.size = this.bytes.size();
   }
 
   /**
@@ -88,10 +89,6 @@ public class Code {
    * @return The number of bytes in the code.
    */
   public int getSize() {
-    if (size == null) {
-      size = bytes.size();
-    }
-
     return size;
   }
 

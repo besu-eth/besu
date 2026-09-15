@@ -23,6 +23,8 @@ import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.operation.BlockHashOperation;
 
+import java.util.Collections;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -59,12 +61,19 @@ public class BlockchainBasedBlockHashLookup implements BlockHashLookup {
     this.searchStartHeader = currentBlock;
     this.blockchain = blockchain;
     this.hashByNumber = hashByNumber;
-    hashByNumber.putIfAbsent(currentBlock.getNumber() - 1, currentBlock.getParentHash());
+    if (currentBlock.getNumber() > 0) {
+      hashByNumber.putIfAbsent(currentBlock.getNumber() - 1, currentBlock.getParentHash());
+    }
   }
 
   @Override
   public BlockHashLookup forkForParallelWorker() {
     return new BlockchainBasedBlockHashLookup(anchorHeader, blockchain, hashByNumber);
+  }
+
+  @Override
+  public Map<Long, Hash> getAccessedAncestors() {
+    return Collections.unmodifiableMap(hashByNumber);
   }
 
   @Override

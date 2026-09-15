@@ -14,15 +14,21 @@
  */
 package org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.enrresponse;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import org.hyperledger.besu.ethereum.p2p.discovery.PeerDiscoveryPacketDecodingException;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 
 import java.util.Map;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.rlp.EndOfRLPException;
+import org.apache.tuweni.rlp.InvalidRLPEncodingException;
 import org.apache.tuweni.units.bigints.UInt64;
 import org.ethereum.beacon.discovery.schema.IdentitySchemaInterpreter;
 import org.ethereum.beacon.discovery.schema.NodeRecord;
 import org.ethereum.beacon.discovery.schema.NodeRecordFactory;
+import org.ethereum.beacon.discovery.util.DecodeException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -71,5 +77,50 @@ public class EnrResponsePacketDataRlpReaderTest {
     Assertions.assertNotNull(result);
     Assertions.assertEquals(requestHash, result.getRequestHash());
     Assertions.assertEquals(enr, result.getEnr());
+  }
+
+  @Test
+  public void testReadFromWithInvalidRlpEncodingThrowsDecodingException() {
+    final BytesValueRLPInput in =
+        new BytesValueRLPInput(
+            Bytes.fromHexString("0xd384deadbeefcd84feebdaed7b836b6579824567"), false);
+
+    Mockito.when(nodeRecordFactory.fromBytes(Mockito.any(Bytes.class)))
+        .thenThrow(new InvalidRLPEncodingException("Insufficient bytes in RLP encoding"));
+
+    assertThatThrownBy(() -> reader.readFrom(in))
+        .isInstanceOf(PeerDiscoveryPacketDecodingException.class)
+        .hasMessageContaining("Invalid ENR in ENR_RESPONSE packet")
+        .hasCauseInstanceOf(InvalidRLPEncodingException.class);
+  }
+
+  @Test
+  public void testReadFromWithEndOfRlpThrowsDecodingException() {
+    final BytesValueRLPInput in =
+        new BytesValueRLPInput(
+            Bytes.fromHexString("0xd384deadbeefcd84feebdaed7b836b6579824567"), false);
+
+    Mockito.when(nodeRecordFactory.fromBytes(Mockito.any(Bytes.class)))
+        .thenThrow(new EndOfRLPException());
+
+    assertThatThrownBy(() -> reader.readFrom(in))
+        .isInstanceOf(PeerDiscoveryPacketDecodingException.class)
+        .hasMessageContaining("Invalid ENR in ENR_RESPONSE packet")
+        .hasCauseInstanceOf(EndOfRLPException.class);
+  }
+
+  @Test
+  public void testReadFromWithDecodeExceptionThrowsDecodingException() {
+    final BytesValueRLPInput in =
+        new BytesValueRLPInput(
+            Bytes.fromHexString("0xd384deadbeefcd84feebdaed7b836b6579824567"), false);
+
+    Mockito.when(nodeRecordFactory.fromBytes(Mockito.any(Bytes.class)))
+        .thenThrow(new DecodeException("decode failed"));
+
+    assertThatThrownBy(() -> reader.readFrom(in))
+        .isInstanceOf(PeerDiscoveryPacketDecodingException.class)
+        .hasMessageContaining("Invalid ENR in ENR_RESPONSE packet")
+        .hasCauseInstanceOf(DecodeException.class);
   }
 }

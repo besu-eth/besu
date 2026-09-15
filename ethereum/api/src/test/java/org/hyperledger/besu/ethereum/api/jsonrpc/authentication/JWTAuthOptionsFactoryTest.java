@@ -147,6 +147,22 @@ public class JWTAuthOptionsFactoryTest {
   }
 
   @Test
+  public void rejectsHmacAlgorithmWithPublicKeyFile() throws URISyntaxException {
+    final JWTAuthOptionsFactory jwtAuthOptionsFactory = new JWTAuthOptionsFactory();
+    final File enclavePublicKeyFile =
+        Paths.get(ClassLoader.getSystemResource("authentication/jwt_public_key_rsa").toURI())
+            .toAbsolutePath()
+            .toFile();
+
+    assertThatThrownBy(
+            () ->
+                jwtAuthOptionsFactory.createForExternalPublicKeyWithAlgorithm(
+                    enclavePublicKeyFile, JwtAlgorithm.HS256))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("HS256");
+  }
+
+  @Test
   public void createsEphemeralHmacOptions() {
     final JWTAuthOptionsFactory factory = new JWTAuthOptionsFactory();
     JWTAuthOptions engineOptions = factory.engineApiJWTOptions(JwtAlgorithm.HS256);

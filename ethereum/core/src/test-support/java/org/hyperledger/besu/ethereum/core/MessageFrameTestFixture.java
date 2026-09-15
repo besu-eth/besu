@@ -158,7 +158,9 @@ public class MessageFrameTestFixture {
     final BlockHeader localBlockHeader =
         this.blockHeader.orElseGet(() -> localBlockchain.getBlockHeader(0).get());
     final ProtocolSpec protocolSpec =
-        executionContextTestFixture.getProtocolSchedule().getByBlockHeader(localBlockHeader);
+        getOrCreateExecutionContextTestFixture()
+            .getProtocolSchedule()
+            .getByBlockHeader(localBlockHeader);
     final MessageFrame frame =
         MessageFrame.builder()
             .parentMessageFrame(parentFrame)

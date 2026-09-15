@@ -152,6 +152,30 @@ class VersionSchedulerTest {
   }
 
   @Test
+  void startsFromBuildsTheVersionGatedOnItsOwnFork() {
+    when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.of(0L));
+
+    final List<ExecutionEngineJsonRpcMethod> builtMethods =
+        List.copyOf(VersionScheduler.startsFrom(AMSTERDAM, v1).build(constructorArguments));
+
+    assertThat(builtMethods).containsExactly(v1.instance);
+    assertThat(v1.invocations).isOne();
+    assertThat(v1.constructorArguments).isSameAs(constructorArguments);
+    v1.assertForkWindow(AMSTERDAM, null);
+  }
+
+  @Test
+  void startsFromSkipsTheVersionWhenItsForkIsNotScheduled() {
+    when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.empty());
+
+    final List<ExecutionEngineJsonRpcMethod> builtMethods =
+        List.copyOf(VersionScheduler.startsFrom(AMSTERDAM, v1).build(constructorArguments));
+
+    assertThat(builtMethods).isEmpty();
+    assertThat(v1.invocations).isZero();
+  }
+
+  @Test
   void alwaysActiveCanBeExtendedWithAForkGatedVersion() {
     when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.empty());
 

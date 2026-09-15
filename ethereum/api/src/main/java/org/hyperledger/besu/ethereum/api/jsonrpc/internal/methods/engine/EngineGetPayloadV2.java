@@ -68,7 +68,10 @@ public sealed class EngineGetPayloadV2 extends EngineGetPayloadV1 permits Engine
     // ExecutionPayloadV2 MUST be returned if the payload timestamp is greater or equal to the
     // Shanghai timestamp
     final long timestamp = block.getHeader().getTimestamp();
-    if (shanghaiTimestamp.isEmpty() || timestamp < shanghaiTimestamp.get()) {
+    // The timestamp is a uint64 carried in a long, so it must be compared unsigned: a payload built
+    // for a timestamp above Long.MAX_VALUE is negative and would otherwise look pre-Shanghai.
+    if (shanghaiTimestamp.isEmpty()
+        || Long.compareUnsigned(timestamp, shanghaiTimestamp.get()) < 0) {
       if (blockBody.getWithdrawals().isPresent()) {
         throw new IllegalStateException(
             "Withdrawals should not be present before Shanghai hardfork");

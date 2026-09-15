@@ -87,7 +87,10 @@ public sealed class EngineForkchoiceUpdatedV2<
     // Shanghai timestamp,
     // PayloadAttributesV2 MUST be used to build a payload with the timestamp value greater or equal
     // to the Shanghai timestamp,
-    if (shanghaiTimestamp.isEmpty() || attrs.getTimestamp() < shanghaiTimestamp.get()) {
+    // The timestamp is a uint64 carried in a long, so it must be compared unsigned: a value above
+    // Long.MAX_VALUE is negative and would otherwise look pre-Shanghai.
+    if (shanghaiTimestamp.isEmpty()
+        || Long.compareUnsigned(attrs.getTimestamp(), shanghaiTimestamp.get()) < 0) {
       if (attrs.getWithdrawals() != null) {
         return ValidationResult.invalid(
             RpcErrorType.INVALID_PAYLOAD_ATTRIBUTES,

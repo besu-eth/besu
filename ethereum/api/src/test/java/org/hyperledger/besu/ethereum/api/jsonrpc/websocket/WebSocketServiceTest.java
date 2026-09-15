@@ -107,7 +107,8 @@ public class WebSocketServiceTest {
     websocketMethods =
         new WebSocketMethodsFactory(
                 new SubscriptionManager(new NoOpMetricsSystem(), websocketConfiguration),
-                new HashMap<>())
+                new HashMap<>(),
+                0)
             .methods();
     webSocketMessageHandlerSpy =
         spy(

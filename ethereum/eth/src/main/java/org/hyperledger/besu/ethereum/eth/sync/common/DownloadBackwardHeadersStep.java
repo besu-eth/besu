@@ -84,6 +84,7 @@ public class DownloadBackwardHeadersStep
   private final PeerTaskExecutor peerTaskExecutor;
   private final int headerRequestSize;
   private final long trustAnchorBlockNumber;
+  private final long recoveryFloorBlockNumber;
   private final Duration timeoutDuration;
 
   /**
@@ -93,6 +94,8 @@ public class DownloadBackwardHeadersStep
    * @param ethContext the eth context
    * @param headerRequestSize the number of headers to request per batch
    * @param trustAnchorBlockNumber the lowest header that we want to download
+   * @param recoveryFloorBlockNumber the lowest header anchor recovery may walk down to: the trusted
+   *     checkpoint, or genesis when no checkpoint is configured
    * @param timeoutDuration the maximum time to wait including all retries
    */
   public DownloadBackwardHeadersStep(
@@ -100,6 +103,7 @@ public class DownloadBackwardHeadersStep
       final EthContext ethContext,
       final int headerRequestSize,
       final long trustAnchorBlockNumber,
+      final long recoveryFloorBlockNumber,
       final Duration timeoutDuration) {
     if (headerRequestSize < 1) throw new IllegalArgumentException("headerRequestSize must be >= 1");
     this.protocolSchedule = protocolSchedule;
@@ -107,6 +111,7 @@ public class DownloadBackwardHeadersStep
     this.peerTaskExecutor = ethContext.getPeerTaskExecutor();
     this.headerRequestSize = headerRequestSize;
     this.trustAnchorBlockNumber = trustAnchorBlockNumber;
+    this.recoveryFloorBlockNumber = recoveryFloorBlockNumber;
     this.timeoutDuration = timeoutDuration;
   }
 
@@ -126,9 +131,14 @@ public class DownloadBackwardHeadersStep
    */
   @Override
   public CompletableFuture<List<BlockHeader>> apply(final Long startBlockNumber) {
-    // In recovery mode the start can drop to or below the trust anchor, in which case we may walk
-    // all the way down to genesis (floor 0). See {@code BackwardHeaderDriver}.
-    final long floor = (startBlockNumber <= trustAnchorBlockNumber) ? 0 : trustAnchorBlockNumber;
+    // In recovery mode the start can drop to or below the trust anchor, in which case the walk
+    // continues down to the recovery floor. That floor is the trusted checkpoint (genesis when
+    // there is none): {@code BackwardHeaderDriver} refuses to reconnect below it, so requesting
+    // headers below it would only fetch data we are going to discard.
+    final long floor =
+        (startBlockNumber <= trustAnchorBlockNumber)
+            ? recoveryFloorBlockNumber
+            : trustAnchorBlockNumber;
     final long remainingHeaders = startBlockNumber - floor;
     final int headersToRequest = (int) Math.min(headerRequestSize, remainingHeaders);
     if (headersToRequest < 1) {

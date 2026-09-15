@@ -60,12 +60,13 @@ import org.jspecify.annotations.Nullable;
 public class StateTestVersionedTransaction {
 
   private final long nonce;
+  @Nullable private final BigInteger chainId;
   @Nullable private final Wei maxFeePerGas;
   @Nullable private final Wei maxPriorityFeePerGas;
   @Nullable private final Wei gasPrice;
   @Nullable private final Address to;
 
-  private final KeyPair keys;
+  @Nullable private final KeyPair keys;
 
   private final List<Long> gasLimits;
   private final List<Wei> values;
@@ -82,19 +83,24 @@ public class StateTestVersionedTransaction {
    * Constructor for populating a mock transaction with json data.
    *
    * @param nonce Nonce of the mock transaction.
+   * @param chainId Chain id the mock transaction is meant for. Can be null, in which case only
+   *     transaction types that require one are given a chain id.
    * @param gasPrice Gas price of the mock transaction, if not 1559 transaction.
    * @param maxFeePerGas Wei fee cap of the mock transaction, if a 1559 transaction.
    * @param maxPriorityFeePerGas Wei tip cap of the mock transaction, if a 1559 transaction.
    * @param gasLimit Gas Limit of the mock transaction.
    * @param to Recipient account of the mock transaction.
    * @param value Amount of ether transferred in the mock transaction.
-   * @param secretKey Secret Key of the mock transaction.
+   * @param secretKey Secret Key of the mock transaction. Can be null when the fixture describes a
+   *     transaction that cannot be produced by signing, in which case the raw transaction bytes of
+   *     the post section are used instead.
    * @param data Call data of the mock transaction.
    * @param maybeAccessLists List of access lists of the mock transaction. Can be null.
    */
   @JsonCreator
   public StateTestVersionedTransaction(
       @JsonProperty("nonce") final String nonce,
+      @JsonProperty("chainId") final String chainId,
       @JsonProperty("gasPrice") final String gasPrice,
       @JsonProperty("maxFeePerGas") final String maxFeePerGas,
       @JsonProperty("maxPriorityFeePerGas") final String maxPriorityFeePerGas,
@@ -111,6 +117,10 @@ public class StateTestVersionedTransaction {
           final List<org.hyperledger.besu.datatypes.CodeDelegation> authorizationList) {
 
     this.nonce = Bytes.fromHexStringLenient(nonce).toLong();
+    this.chainId =
+        Optional.ofNullable(chainId)
+            .map(id -> Bytes.fromHexStringLenient(id).toBigInteger())
+            .orElse(null);
     this.gasPrice = Optional.ofNullable(gasPrice).map(Wei::fromHexString).orElse(null);
     this.maxFeePerGas = Optional.ofNullable(maxFeePerGas).map(Wei::fromHexString).orElse(null);
     this.maxPriorityFeePerGas =
@@ -119,8 +129,10 @@ public class StateTestVersionedTransaction {
 
     SignatureAlgorithm signatureAlgorithm = SignatureAlgorithmFactory.getInstance();
     this.keys =
-        signatureAlgorithm.createKeyPair(
-            signatureAlgorithm.createPrivateKey(Bytes32.fromHexString(secretKey)));
+        secretKey == null
+            ? null
+            : signatureAlgorithm.createKeyPair(
+                signatureAlgorithm.createPrivateKey(Bytes32.fromHexString(secretKey)));
 
     this.gasLimits = parseArray(gasLimit, s -> UInt256.fromHexString(s).toLong());
     this.values = parseArray(value, Wei::fromHexString);
@@ -149,7 +161,21 @@ public class StateTestVersionedTransaction {
     return res;
   }
 
+  /**
+   * Whether this transaction can be assembled by signing. Fixtures for intentionally malformed
+   * signatures omit the sender's secret key, because no signing key produces the signature they
+   * describe; the raw transaction bytes of the post section have to be used for those.
+   *
+   * @return true if the fixture provides the sender's secret key
+   */
+  public boolean isSignable() {
+    return keys != null;
+  }
+
   public Transaction get(final GeneralStateTestCaseSpec.Indexes indexes) {
+    if (keys == null) {
+      return null;
+    }
     Long gasLimit = gasLimits.get(indexes.gas);
     Wei value = values.get(indexes.value);
     Bytes data = payloads.get(indexes.data);
@@ -179,7 +205,9 @@ public class StateTestVersionedTransaction {
     Optional.ofNullable(authorizationList).ifPresent(transactionBuilder::codeDelegations);
 
     transactionBuilder.guessType();
-    if (transactionBuilder.getTransactionType().requiresChainId()) {
+    if (chainId != null) {
+      transactionBuilder.chainId(chainId);
+    } else if (transactionBuilder.getTransactionType().requiresChainId()) {
       transactionBuilder.chainId(BigInteger.ONE);
     }
 

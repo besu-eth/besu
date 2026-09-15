@@ -1,0 +1,35 @@
+{
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "debug_traceBlockByNumber",
+    "params": [
+      "0x21",
+      {
+        "tracer": "callTracer",
+        "tracerConfig": {
+          "onlyTopCall": true
+        }
+      }
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": [
+      {
+        "txHash": "0x1b7eb66c75fb7f6a565a6e67f421f455cc4e86404f6bf563fb891586a84f944e",
+        "result": {
+          "from": "0xfe3b557e8fb62b89f4916b721be55ceb828dbd73",
+          "gas": "0x47b760",
+          "gasUsed": "0x47b760",
+          "input": "0x602af300",
+          "error": "stack underflow (1 <=> 2)",
+          "value": "0x0",
+          "type": "CREATE"
+        }
+      }
+    ]
+  },
+  "statusCode": 200
+}

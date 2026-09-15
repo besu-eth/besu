@@ -267,39 +267,59 @@ public class TransactionLogBloomCacher {
     return false;
   }
 
-  public void removeSegments(final Long startBlock, final Long stopBlock) {
-    if (!cachingStatus.isCaching()) {
+  /**
+   * Removes the cache segments covering the given block range.
+   *
+   * <p>Removal is skipped entirely while caching is in progress, so callers must not treat an
+   * invocation as proof that the segments are gone.
+   *
+   * @param startBlock the first block of the range to remove
+   * @param stopBlock the last block of the range to remove
+   * @return true if the removal ran, false if it was skipped because caching is in progress
+   */
+  public boolean removeSegments(final Long startBlock, final Long stopBlock) {
+    if (cachingStatus.isCaching()) {
       LOG.info(
-          "Deleting transaction log bloom cache from block {} to block {} in {}",
+          "Not deleting transaction log bloom cache from block {} to block {} in {}: caching is in progress",
           startBlock,
           stopBlock,
           cacheDir);
+      return false;
+    }
 
-      for (long blockNum = startBlock; blockNum <= stopBlock; blockNum += BLOCKS_PER_BLOOM_CACHE) {
-        try {
-          final long segmentNumber = blockNum / BLOCKS_PER_BLOOM_CACHE;
-          final long fromBlock = segmentNumber * BLOCKS_PER_BLOOM_CACHE;
-          final File cacheFile = calculateCacheFileName(fromBlock, cacheDir);
-          cachedSegments.remove(segmentNumber);
-          if (Files.deleteIfExists(cacheFile.toPath())) {
-            LOG.info(
-                "Deleted transaction log bloom cache file: {}/{}", cacheDir, cacheFile.getName());
-          } else {
-            LOG.info(
-                "Unable to delete transaction log bloom cache file: {}/{}",
-                cacheDir,
-                cacheFile.getName());
-          }
-        } catch (final IOException e) {
-          if (isDiskFull(e)) {
-            LOG.error(e.getMessage());
-            System.exit(DISK_FULL_EXIT_CODE);
-          }
-          LOG.error(
-              String.format("Unhandled exception removing cache for block number %d", blockNum), e);
+    LOG.info(
+        "Deleting transaction log bloom cache from block {} to block {} in {}",
+        startBlock,
+        stopBlock,
+        cacheDir);
+
+    for (long blockNum = startBlock; blockNum <= stopBlock; blockNum += BLOCKS_PER_BLOOM_CACHE) {
+      try {
+        final long segmentNumber = blockNum / BLOCKS_PER_BLOOM_CACHE;
+        final long fromBlock = segmentNumber * BLOCKS_PER_BLOOM_CACHE;
+        final File cacheFile = calculateCacheFileName(fromBlock, cacheDir);
+        cachedSegments.remove(segmentNumber);
+        if (Files.deleteIfExists(cacheFile.toPath())) {
+          LOG.info(
+              "Deleted transaction log bloom cache file: {}/{}", cacheDir, cacheFile.getName());
+        } else {
+          LOG.info(
+              "Unable to delete transaction log bloom cache file: {}/{}",
+              cacheDir,
+              cacheFile.getName());
         }
+      } catch (final IOException e) {
+        // TODO: partial failures still return true - see #11067 follow-up
+        if (isDiskFull(e)) {
+          LOG.error(e.getMessage());
+          System.exit(DISK_FULL_EXIT_CODE);
+        }
+        LOG.error(
+            String.format("Unhandled exception removing cache for block number %d", blockNum), e);
       }
     }
+
+    return true;
   }
 
   public void ensurePreviousSegmentsArePresent(

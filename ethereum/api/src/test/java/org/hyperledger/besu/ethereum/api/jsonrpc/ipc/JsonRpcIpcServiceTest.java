@@ -41,6 +41,7 @@ import io.vertx.core.VertxOptions;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
+import io.vertx.core.net.NetClient;
 import io.vertx.core.net.SocketAddress;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -59,20 +60,29 @@ class JsonRpcIpcServiceTest {
   @TempDir private Path tempDir;
   private Vertx vertx;
   private VertxTestContext testContext;
+  // Vertx 5 wraps NetClient in a CleanableNetClient backed by a Cleaner that closes all
+  // connections when the client becomes unreachable.  Tests must hold a strong reference to the
+  // NetClient for the entire duration of the test to prevent premature GC-driven disconnection.
+  private NetClient netClient;
 
   @BeforeEach
   public void setUp() {
     vertx = Vertx.vertx(new VertxOptions().setPreferNativeTransport(true));
     testContext = new VertxTestContext();
+    netClient = vertx.createNetClient();
   }
 
   @AfterEach
   public void after() throws Throwable {
-    assertThat(testContext.awaitCompletion(5, TimeUnit.SECONDS))
-        .describedAs("Test completed on time")
-        .isTrue();
-    if (testContext.failed()) {
-      throw testContext.causeOfFailure();
+    try {
+      assertThat(testContext.awaitCompletion(5, TimeUnit.SECONDS))
+          .describedAs("Test completed on time")
+          .isTrue();
+      if (testContext.failed()) {
+        throw testContext.causeOfFailure();
+      }
+    } finally {
+      netClient.close();
     }
   }
 
@@ -175,8 +185,7 @@ class JsonRpcIpcServiceTest {
         .onComplete(
             testContext.succeeding(
                 server ->
-                    vertx
-                        .createNetClient()
+                    netClient
                         .connect(SocketAddress.domainSocketAddress(socketPath.toString()))
                         .onComplete(
                             testContext.succeeding(
@@ -245,8 +254,7 @@ class JsonRpcIpcServiceTest {
         .onComplete(
             testContext.succeeding(
                 server ->
-                    vertx
-                        .createNetClient()
+                    netClient
                         .connect(SocketAddress.domainSocketAddress(socketPath.toString()))
                         .onComplete(
                             testContext.succeeding(
@@ -274,7 +282,7 @@ class JsonRpcIpcServiceTest {
     vertx.deployVerticle(subscriptionManager);
 
     final Map<String, JsonRpcMethod> methods =
-        new WebSocketMethodsFactory(subscriptionManager, new HashMap<>()).methods();
+        new WebSocketMethodsFactory(subscriptionManager, new HashMap<>(), 0).methods();
 
     final JsonRpcIpcService service =
         new JsonRpcIpcService(
@@ -291,8 +299,7 @@ class JsonRpcIpcServiceTest {
         .onComplete(
             testContext.succeeding(
                 server ->
-                    vertx
-                        .createNetClient()
+                    netClient
                         .connect(SocketAddress.domainSocketAddress(socketPath.toString()))
                         .onComplete(
                             testContext.succeeding(
@@ -320,7 +327,7 @@ class JsonRpcIpcServiceTest {
     vertx.deployVerticle(subscriptionManager);
 
     final Map<String, JsonRpcMethod> methods =
-        new WebSocketMethodsFactory(subscriptionManager, new HashMap<>()).methods();
+        new WebSocketMethodsFactory(subscriptionManager, new HashMap<>(), 0).methods();
 
     final JsonRpcIpcService service =
         new JsonRpcIpcService(
@@ -340,8 +347,7 @@ class JsonRpcIpcServiceTest {
         .onComplete(
             testContext.succeeding(
                 server ->
-                    vertx
-                        .createNetClient()
+                    netClient
                         .connect(SocketAddress.domainSocketAddress(socketPath.toString()))
                         .onComplete(
                             testContext.succeeding(
@@ -377,7 +383,7 @@ class JsonRpcIpcServiceTest {
     vertx.deployVerticle(subscriptionManager);
 
     final Map<String, JsonRpcMethod> methods =
-        new WebSocketMethodsFactory(subscriptionManager, new HashMap<>()).methods();
+        new WebSocketMethodsFactory(subscriptionManager, new HashMap<>(), 0).methods();
 
     final JsonRpcIpcService service =
         new JsonRpcIpcService(
@@ -395,8 +401,7 @@ class JsonRpcIpcServiceTest {
         .onComplete(
             testContext.succeeding(
                 server ->
-                    vertx
-                        .createNetClient()
+                    netClient
                         .connect(SocketAddress.domainSocketAddress(socketPath.toString()))
                         .onComplete(
                             testContext.succeeding(

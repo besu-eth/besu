@@ -325,7 +325,9 @@ public sealed class EngineForkchoiceUpdatedV1<
       final BlockHeader newHead, final PA attrs) {
     // 8.i. Verify that payloadAttributes.timestamp is greater than timestamp of a block referenced
     // by forkchoiceState.headBlockHash and return -38003: Invalid payload attributes on failure.
-    if (attrs.getTimestamp() <= newHead.getTimestamp()) {
+    // Both timestamps are uint64 carried in longs, so they must be compared unsigned: a value above
+    // Long.MAX_VALUE is negative and would otherwise look older than the head block.
+    if (Long.compareUnsigned(attrs.getTimestamp(), newHead.getTimestamp()) <= 0) {
       return ValidationResult.invalid(
           getInvalidPayloadAttributesError(),
           "Payload attributes timestamp %d not greater than head block timestamp %d"

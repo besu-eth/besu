@@ -74,7 +74,7 @@ public class WebSocketHostAllowlistTest {
 
     final Map<String, JsonRpcMethod> websocketMethods =
         new WebSocketMethodsFactory(
-                new SubscriptionManager(new NoOpMetricsSystem()), new HashMap<>())
+                new SubscriptionManager(new NoOpMetricsSystem()), new HashMap<>(), 0)
             .methods();
     webSocketMessageHandlerSpy =
         spy(

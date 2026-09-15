@@ -49,6 +49,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** The Besu plugin context implementation. */
+// PluginVersionsProvider is deprecated for removal from the plugin API
+@SuppressWarnings("removal")
 public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProvider {
 
   private static final Logger LOG = LoggerFactory.getLogger(BesuPluginContextImpl.class);

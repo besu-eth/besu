@@ -15,12 +15,15 @@
 package org.hyperledger.besu.ethereum.vm.operations;
 
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.operation.AddModOperationOptimized;
 import org.hyperledger.besu.evm.operation.Operation;
 
 import org.openjdk.jmh.annotations.Param;
+import org.openjdk.jmh.infra.BenchmarkParams;
 
-public class AddModOperationBenchmark extends TernaryArithmeticOperationBenchmark {
+public class AddModOperationBenchmark extends TernaryArithmeticOperationBenchmark
+    implements GasCostBenchmark {
 
   // Cases for (a + b) % c
   // Format "ADDMOD_a_b_c" - where a, b and c are the size in bits
@@ -86,5 +89,10 @@ public class AddModOperationBenchmark extends TernaryArithmeticOperationBenchmar
   @Override
   protected String caseName() {
     return caseName;
+  }
+
+  @Override
+  public long getGasCost(final BenchmarkParams params, final GasCalculator calc) {
+    return new AddModOperationOptimized(calc).getGasCost();
   }
 }

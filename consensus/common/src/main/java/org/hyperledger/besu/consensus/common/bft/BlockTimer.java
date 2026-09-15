@@ -40,6 +40,12 @@ public class BlockTimer {
   private long blockPeriodSeconds;
   private long emptyBlockPeriodSeconds;
 
+  // Metrics support. A chain producing no blocks for a long time is indistinguishable from
+  // a stalled one without this, so we expose whether the silence is deliberate and when it
+  // is due to end.
+  private volatile long emptyBlockWaitStartedMillis = 0L;
+  private volatile long emptyBlockPeriodExpiryMillis = 0L;
+
   /**
    * Construct a BlockTimer with primed executor service ready to start timers
    *
@@ -123,6 +129,10 @@ public class BlockTimer {
     final int emptyBlockPeriodSeconds = currentForkOptions.getEmptyBlockPeriodSeconds();
     setBlockTimes(currentBlockPeriodSeconds, emptyBlockPeriodSeconds);
 
+    // A new height is starting, so any previous empty-block wait is over.
+    emptyBlockWaitStartedMillis = 0L;
+    emptyBlockPeriodExpiryMillis = 0L;
+
     startTimer(round, expiryTime);
   }
 
@@ -161,6 +171,13 @@ public class BlockTimer {
         (headerTimestamp.get() + emptyBlockPeriodSeconds) * 1000;
     final long nextBlockPeriodExpiryTime = currentTimeInMillis + blockPeriodSeconds * 1000;
 
+    // Reached only when this node has decided there is nothing worth proposing yet, so the absence
+    // of blocks from here until the expiry time is intentional rather than a fault.
+    if (emptyBlockWaitStartedMillis == 0L) {
+      emptyBlockWaitStartedMillis = currentTimeInMillis;
+    }
+    emptyBlockPeriodExpiryMillis = emptyBlockPeriodExpiryTime;
+
     startTimer(roundIdentifier, Math.min(emptyBlockPeriodExpiryTime, nextBlockPeriodExpiryTime));
   }
 
@@ -186,6 +203,30 @@ public class BlockTimer {
       final int blockPeriodSeconds, final int emptyBlockPeriodSeconds) {
     this.blockPeriodSeconds = blockPeriodSeconds;
     this.emptyBlockPeriodSeconds = emptyBlockPeriodSeconds;
+  }
+
+  /**
+   * For healthy node metrics during an empty block period, returns how long this node has been
+   * continuously choosing not to propose because it has no reason to propose one but is healthy.
+   *
+   * @return seconds spent in the current empty-block wait, or 0 if not waiting
+   */
+  public long getEmptyBlockWaitSeconds() {
+    final long startedMillis = emptyBlockWaitStartedMillis;
+    if (startedMillis == 0L) {
+      return 0L;
+    }
+    return Math.max(0L, (clock.millis() - startedMillis) / 1000L);
+  }
+
+  /**
+   * To aid with metrics, returns the wall-clock time in milliseconds at which the current
+   * empty-block period ends.
+   *
+   * @return the empty block period expiry time in milliseconds, or 0 if not waiting
+   */
+  public long getEmptyBlockPeriodExpiryMillis() {
+    return emptyBlockPeriodExpiryMillis;
   }
 
   /**

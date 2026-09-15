@@ -17,20 +17,30 @@ package org.hyperledger.besu.ethereum.vm.operations;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
 import org.hyperledger.besu.ethereum.vm.BlockchainBasedBlockHashLookup;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.gascalculator.PetersburgGasCalculator;
 import org.hyperledger.besu.evm.operation.BlockHashOperation;
+
+import java.util.concurrent.TimeUnit;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.openjdk.jmh.annotations.Benchmark;
+import org.openjdk.jmh.annotations.BenchmarkMode;
+import org.openjdk.jmh.annotations.Mode;
+import org.openjdk.jmh.annotations.OutputTimeUnit;
 import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.TearDown;
+import org.openjdk.jmh.infra.BenchmarkParams;
+import org.openjdk.jmh.infra.Blackhole;
 
 @State(Scope.Thread)
-public class BlockHashOperationBenchmark {
+@BenchmarkMode(Mode.AverageTime)
+@OutputTimeUnit(TimeUnit.NANOSECONDS)
+public class BlockHashOperationBenchmark implements GasCostBenchmark {
 
   @Param({
     "1", // Worst-case scenario
@@ -55,11 +65,17 @@ public class BlockHashOperationBenchmark {
     operationBenchmarkHelper.cleanUp();
   }
 
+  @Override
+  public long getGasCost(final BenchmarkParams params, final GasCalculator calc) {
+    return calc.getBlockHashOperationGasCost();
+  }
+
+  @Override
   @Benchmark
-  public Bytes executeOperation() {
+  public void executeOperation(final Blackhole blackhole) {
     frame.pushStackItem(UInt256.valueOf(blockNumber));
     operation.execute(frame, null);
-    return frame.popStackItem();
+    blackhole.consume(frame.popStackItem());
   }
 
   @Benchmark

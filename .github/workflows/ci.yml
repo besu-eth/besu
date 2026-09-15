@@ -18,6 +18,11 @@ concurrency:
 env:
   GRADLE_OPTS: "-Xmx6g -Dorg.gradle.parallel=true"
 
+# Default for the jobs below that declare no permissions of their own; the reusable-workflow
+# callers each narrow this further.
+permissions:
+  contents: read
+
 # Job matrix:
 #
 #   push to main:      [gradleWrapper, spotless, checkLicense]
@@ -38,6 +43,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          persist-credentials: false
       - name: Check for binary files
         run: |
           binaries=$(git ls-files -z | xargs -0 file | awk -F': ' 'tolower($2) ~ /elf|mach-o|pe32|ms-dos|compiled/' || true)
@@ -48,6 +54,17 @@ jobs:
             [ -n "$extensions" ] && echo "$extensions"
             exit 1
           fi
+      # CI steps glob and shell out over checked-out paths.
+      - name: Check for unsafe file names
+        run: |
+          unsafe=$(git ls-files | LC_ALL=C grep -vE '^[A-Za-z0-9._/-]+$' || true)
+          reports=$(git ls-files | grep -E '(^|/)TEST-.*\.xml$' || true)
+          if [ -n "$unsafe" ] || [ -n "$reports" ]; then
+            echo "Unsafe or unexpected file names found:"
+            [ -n "$unsafe" ] && echo "$unsafe"
+            [ -n "$reports" ] && echo "$reports"
+            exit 1
+          fi
 
   gradleWrapper:
     name: "Gradle Wrapper Validation"
@@ -56,6 +73,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          persist-credentials: false
       - uses: gradle/actions/wrapper-validation@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
 
   spotless:
@@ -66,6 +84,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          persist-credentials: false
       - name: Set up Java
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
@@ -86,6 +105,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          persist-credentials: false
       - name: Set up Java
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
@@ -112,6 +132,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          persist-credentials: false
       - name: Set up Java
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
@@ -163,6 +184,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          persist-credentials: false
       - name: Set up Java
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
@@ -183,8 +205,6 @@ jobs:
     permissions:
       actions: read
       contents: read
-      checks: write
-      statuses: write
     uses: ./.github/workflows/unit-tests.yml
 
   integrationTests:
@@ -193,8 +213,6 @@ jobs:
     permissions:
       actions: read
       contents: read
-      checks: write
-      statuses: write      
     uses: ./.github/workflows/integration-tests.yml
 
   referenceTests:
@@ -204,10 +222,7 @@ jobs:
       actions: read
       contents: read
       packages: read
-      checks: write
-      statuses: write
     uses: ./.github/workflows/reference-tests.yml
-    secrets: inherit
 
   acceptanceTests:
     if: github.event_name == 'pull_request'
@@ -215,10 +230,7 @@ jobs:
     permissions:
       actions: read
       contents: read
-      checks: write
-      statuses: write
     uses: ./.github/workflows/acceptance-tests.yml
-    secrets: inherit
 
   dockerBuildTest:
     needs: build
@@ -229,7 +241,6 @@ jobs:
     with:
       assemble_run_id: ${{ github.run_id }}
       cache_scope: ci-pr-build
-    secrets: inherit
 
   # only fires on merge to main, so 'develop' is kept up to date
   dockerPublish:

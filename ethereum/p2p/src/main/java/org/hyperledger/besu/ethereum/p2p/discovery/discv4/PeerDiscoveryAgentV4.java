@@ -59,7 +59,7 @@ import java.util.stream.Stream;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.net.InetAddresses;
 import org.apache.tuweni.bytes.Bytes;
-import org.apache.tuweni.rlp.EndOfRLPException;
+import org.apache.tuweni.rlp.RLPException;
 import org.ethereum.beacon.discovery.schema.NodeRecord;
 import org.ethereum.beacon.discovery.util.DecodeException;
 import org.slf4j.Logger;
@@ -279,7 +279,7 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
                 } else {
                   if (err instanceof PeerDiscoveryPacketDecodingException
                       || err instanceof DecodeException
-                      || err instanceof EndOfRLPException) {
+                      || err instanceof RLPException) {
                     LOG.trace(
                         "Discarding invalid peer discovery packet: {}, {}", err.getMessage(), err);
                   } else {
