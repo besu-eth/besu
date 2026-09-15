@@ -8,6 +8,7 @@
 - `debug_traceCall` now applies the same balance-check rules as `eth_call` [#11230](https://github.com/besu-eth/besu/issues/11230)
 - `eth_feeHistory` now rejects reward percentiles outside `[0, 100]`, not strictly increasing, or more than 100 values (`-32602`), instead of sorting unordered input or silently omitting `reward` for oversize lists. [#11055](https://github.com/besu-eth/besu/issues/11055)
 - Removed the EIP-7610 storage collision check: contract creation no longer aborts when the destination address has non-empty storage but a zero nonce and no code, restoring the EIP-684 conditions for every fork. EIP-7610 was declined for inclusion in Glamsterdam (EIP-7773) and removed from the execution specs retroactively; no mainnet account is affected. `Account.isStorageEmpty()`, which existed only for this check, is removed from the `besu-evm` API. [#11175](https://github.com/besu-eth/besu/pull/11175)
+- Besu now exits on an `OutOfMemoryError`, as `-XX:+ExitOnOutOfMemoryError` is part of the default JVM options. After an OOM the JVM otherwise keeps running with state the failing threads left half updated. Run Besu with a restart policy, or add `-XX:-ExitOnOutOfMemoryError` to `BESU_OPTS` to keep the previous behaviour. [#11300](https://github.com/besu-eth/besu/pull/11300)
 
 ### Upcoming Breaking Changes
 - Plugin API
