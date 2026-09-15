@@ -235,6 +235,7 @@ public class VmTraceGenerator {
       case "MLOAD":
       case "MSTORE":
       case "MSTORE8":
+      case "MCOPY":
       case "RETURNDATACOPY":
         currentTraceFrame
             .getMaybeUpdatedMemory()

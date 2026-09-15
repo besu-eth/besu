@@ -26,6 +26,7 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
+- Include MCOPY destination memory updates in compressed VM traces. [#11286](https://github.com/besu-eth/besu/pull/11286)
 - Reject malformed RLPx ECIES handshake payloads under 32 bytes cleanly with `InvalidCipherTextException` instead of raising an unhandled `NegativeArraySizeException`. [#11218](https://github.com/besu-eth/besu/pull/11218)
 - GraphQL `logs(filter: ...)` no longer fails when the filter's `topics` field is omitted or explicitly null, on both the top-level `logs` query and the block-scoped one. The schema declares `topics` nullable and documents "[] or nil matches any topic list", but the field was dereferenced unguarded, so a documented-valid query returned a `DataFetchingException` and `data: null`. [#11188](https://github.com/besu-eth/besu/pull/11188)
 - The Engine API JWT fast-path cache now compares the presented bearer token against the cached one with `MessageDigest.isEqual` over UTF-8 bytes instead of `String.equals`, so the comparison does not return early on the first differing byte.
