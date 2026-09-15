@@ -48,7 +48,6 @@ public class BlockStateCallResult extends BlockResult {
         block.getHeader(),
         transactions,
         List.of(),
-        null,
         block.getSize(),
         false,
         block.getBody().getWithdrawals());
@@ -59,12 +58,6 @@ public class BlockStateCallResult extends BlockResult {
   @JsonGetter(value = "calls")
   public List<CallProcessingResult> getTransactionProcessingResults() {
     return callProcessingResults;
-  }
-
-  @JsonGetter(value = "totalDifficulty")
-  @Override
-  public String getTotalDifficulty() {
-    return null; // Not applicable for this result type.
   }
 
   @JsonGetter(value = "trieLog")

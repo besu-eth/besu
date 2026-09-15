@@ -79,9 +79,14 @@ def eipStateReferenceTests = tasks.register("eipStateReferenceTests")  {
     )
 }
 
+// Stable and devnet fixtures both come from the execution-specs module, so they are told apart by
+// their release tag: stable releases are tagged `tests@vX.Y.Z`, devnet ones `tests-<devnet>@vX.Y.Z`.
+def stableFixtureTarball = { file -> file.name.startsWith('execution-specs-tests@') }
+def devnetFixtureTarball = { file -> file.name.startsWith('execution-specs-tests-') }
+
 def extractStableFixtures = tasks.register("extractStableFixtures", Sync) {
   from {
-    tarTree(configurations.tarConfig.files.find { it.name.startsWith('execution-spec-tests') })
+    tarTree(configurations.tarConfig.files.find(stableFixtureTarball))
   }
   into layout.buildDirectory.dir("execution-spec-tests")
   finalizedBy("cleanReferenceTestCache")
@@ -125,28 +130,28 @@ def executionSpecTests = tasks.register("executionSpecTests") {
 
 def extractDevnetFixtures = tasks.register("extractDevnetFixtures", Sync) {
   from {
-    tarTree(configurations.devnetTarConfig.files.find { it.name.startsWith('execution-specs') })
+    tarTree(configurations.devnetTarConfig.files.find(devnetFixtureTarball))
   }
   into layout.buildDirectory.dir("execution-spec-devnet-tests")
   finalizedBy("cleanReferenceTestCache")
 }
 
-// Removes stale execution-spec(-tests) tarballs from the Gradle dependency cache,
-// keeping only the version currently declared in this build.
+// Removes stale execution-specs fixture tarballs from the Gradle dependency cache,
+// keeping only the versions currently declared in this build.
 tasks.register("cleanReferenceTestCache") {
-  description = "Deletes cached execution-spec(-tests) tarballs other than the currently declared versions."
+  description = "Deletes cached execution-specs fixture tarballs other than the currently declared versions."
   doLast {
-    [
-      configurations.tarConfig,
-      configurations.devnetTarConfig
-    ].each { config ->
-      def currentFile = config.files.find { it.name.endsWith('.tar.gz') }
-      if (currentFile == null) return
-        // Cache layout: <module>/<version>/<hash>/<file>.tar.gz
-        def versionDir = currentFile.parentFile.parentFile
-      def moduleDir = versionDir.parentFile
+    // Stable and devnet fixtures share the ethereum/execution-specs module directory, so both
+    // declared versions have to be collected before anything is deleted.
+    def keptVersionDirs = [
+      configurations.tarConfig.files.find(stableFixtureTarball),
+      configurations.devnetTarConfig.files.find(devnetFixtureTarball)
+      // Cache layout: <module>/<version>/<hash>/<file>.tar.gz
+    ].findAll { it != null }.collect { it.parentFile.parentFile }
+
+    keptVersionDirs.collect { it.parentFile }.unique().each { moduleDir ->
       moduleDir.listFiles()?.each { sibling ->
-        if (sibling.isDirectory() && sibling.name != versionDir.name) {
+        if (sibling.isDirectory() && !keptVersionDirs.any { it.absolutePath == sibling.absolutePath }) {
           logger.lifecycle("Deleting stale fixture cache: ${sibling}")
           delete sibling
         }
@@ -341,8 +346,8 @@ dependencies {
   referenceTestImplementation project(path: ':util')
   // the following will be resolved via custom ivy repository declared in root build.gradle
   referenceTestImplementation(
-    group: 'ethereum', name: 'execution-spec-tests',
-    version: 'v5.4.0', classifier: 'fixtures_develop', ext: 'tar.gz'
+    group: 'ethereum', name: 'execution-specs',
+    version: 'tests@v20.0.2', classifier: 'fixtures', ext: 'tar.gz'
     )
   devnetTarConfig(
     group: 'ethereum', name: 'execution-specs',
@@ -358,6 +363,14 @@ dependencies {
 
   referenceTestRuntimeOnly 'org.junit.jupiter:junit-jupiter'
   referenceTestRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+// A reference test worker parses every fixture of every test class it is handed, and the
+// execution-specs fixture set no longer fits in Gradle's default 512m test worker heap: the worker
+// dies mid-run, taking the test classes it had not reached yet with it, and Gradle reports that as
+// "Could not complete execution for Gradle Test Executor N" rather than as a test failure.
+tasks.withType(Test).configureEach {
+  maxHeapSize = '2g'
 }
 
 tasks.register('referenceTests', Test) {
