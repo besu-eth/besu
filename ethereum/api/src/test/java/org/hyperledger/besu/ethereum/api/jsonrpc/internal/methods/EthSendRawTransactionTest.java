@@ -185,8 +185,8 @@ public class EthSendRawTransactionTest {
   @Test
   public void transactionWithUpfrontGasExceedingAccountBalanceIsRejected() {
     verifyErrorForInvalidTransaction(
-        TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE,
-        RpcErrorType.TRANSACTION_UPFRONT_COST_EXCEEDS_BALANCE);
+        TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE,
+        RpcErrorType.TRANSACTION_UPFRONT_GAS_COST_EXCEEDS_BALANCE);
   }
 
   @Test

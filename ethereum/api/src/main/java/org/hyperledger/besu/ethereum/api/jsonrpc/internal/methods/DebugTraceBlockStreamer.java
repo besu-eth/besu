@@ -181,7 +181,9 @@ public class DebugTraceBlockStreamer {
 
             final boolean isOpcodeTracer = traceOptions.tracerType() == TracerType.OPCODE_TRACER;
 
-            for (final Transaction transaction : block.getBody().getTransactions()) {
+            final List<Transaction> transactions = block.getBody().getTransactions();
+            for (int i = 0; i < transactions.size(); i++) {
+              final Transaction transaction = transactions.get(i);
               if (isOpcodeTracer) {
                 streamOpcodeTransaction(
                     transaction,
@@ -196,6 +198,7 @@ public class DebugTraceBlockStreamer {
                       mapper.writeValueAsBytes(
                           buildTransactionResult(
                               transaction,
+                              i,
                               chainUpdater,
                               transactionProcessor,
                               protocolSpec,
@@ -247,10 +250,13 @@ public class DebugTraceBlockStreamer {
                   .getPreExecutionProcessor()
                   .createBlockHashLookup(blockchainQueries.getBlockchain(), header);
 
-          for (final Transaction transaction : block.getBody().getTransactions()) {
+          final List<Transaction> transactions = block.getBody().getTransactions();
+          for (int i = 0; i < transactions.size(); i++) {
+            final Transaction transaction = transactions.get(i);
             results.add(
                 buildTransactionResult(
                     transaction,
+                    i,
                     chainUpdater,
                     transactionProcessor,
                     protocolSpec,
@@ -318,6 +324,7 @@ public class DebugTraceBlockStreamer {
 
   private DebugTraceTransactionResult buildTransactionResult(
       final Transaction transaction,
+      final int transactionIndex,
       final TraceBlock.ChainUpdater chainUpdater,
       final MainnetTransactionProcessor transactionProcessor,
       final ProtocolSpec protocolSpec,
@@ -340,7 +347,11 @@ public class DebugTraceBlockStreamer {
 
     final TransactionTrace transactionTrace =
         new TransactionTrace(
-            transaction, result, step.getOperationTracer().getTraceFrames(), Optional.empty());
+            transaction,
+            result,
+            step.getOperationTracer().getTraceFrames(),
+            Optional.of(block),
+            transactionIndex);
 
     return step.buildResult(transactionTrace);
   }

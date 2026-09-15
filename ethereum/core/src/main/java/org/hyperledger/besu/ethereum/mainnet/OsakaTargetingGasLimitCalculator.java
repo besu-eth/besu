@@ -31,7 +31,7 @@ public class OsakaTargetingGasLimitCalculator extends CancunTargetingGasLimitCal
   /**
    * The EIP-7825 transaction gas limit cap value (2^24). Through Osaka this caps {@code tx.gas}
    * itself; EIP-8037 (Amsterdam) repurposes the same value as the cap on {@code
-   * max(intrinsic_regular, calldata_floor)}. See {@link #transactionGasLimitCap()} and {@link
+   * max(intrinsic_execution, calldata_floor)}. See {@link #transactionGasLimitCap()} and {@link
    * #transactionIntrinsicGasLimitCap()}.
    */
   public static final long EIP_7825_TRANSACTION_GAS_LIMIT_CAP = 16_777_216L;

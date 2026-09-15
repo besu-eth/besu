@@ -134,7 +134,7 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
       targetExists = existingTarget != null && !existingTarget.isEmpty();
     }
 
-    // EIP-8037: regular gas is deducted before state gas is charged (ordering requirement).
+    // EIP-8037: execution gas is deducted before state gas is charged (ordering requirement).
     frame.decrementRemainingGas(cost);
     if (!targetExists && !frame.consumeStateGas(stateGasCalc.newContractStateGas())) {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);

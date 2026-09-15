@@ -54,7 +54,8 @@ file — no Besu code reads `blocks.json`; it exists purely as checked-in proven
    ```
 
 5. Regenerate specs for every tracer sharing this chain (`prestateTracer`, `callTracer`,
-   `4byteTracer`, including every `tracerConfig` variant already present under `specs/`) by
+   `flatCallTracer`, `4byteTracer`, including every `tracerConfig` variant already present under
+   `specs/`) by
    querying `debug_traceBlockByNumber` for each block. Diff the regenerated output against the
    currently-committed specs first — every existing block's spec file must stay byte-identical;
    only the new block's files should differ (appear as new files).
@@ -73,6 +74,9 @@ Each tracer has its own directory under `specs/`:
 
 - **`call-tracer/`** - Call tracer specs
   - `only-top-call/` - `{"tracerConfig":{"onlyTopCall":true}}` variant
+- **`flatcall-tracer/`** - Flat call tracer specs
+  - `convert-parity-errors/` - Parity-style error strings
+  - `include-precompiles/` - Preserves precompile calls
 - **`prestate-tracer/`** - Pre-state tracer specs
   - `diff-mode-false/` - Pre-state only
   - `diff-mode-true/` - Pre and post state
@@ -92,6 +96,20 @@ Traces call execution including:
 - Value transfers
 
 **Files**: `{number}-debug-call-tracer-0x{block}-{description}.json`
+
+### flatCallTracer
+Reports call frame information of a transaction in a flat parity-style format:
+- Action (callType, creationMethod, from, to, gas, value, input, init, balance, refundAddress)
+- Result (gasUsed, output, address, code)
+- Subtraces count
+- Trace address path
+
+**Modes**:
+- Default: CALL/STATICCALL to precompiles are pruned, standard error strings
+- `convertParityErrors: true`: maps error strings to Parity format
+- `includePrecompiles: true`: includes calls to precompiled contracts
+
+**Files**: `{number}-debug-flatcall-tracer-0x{block}-{description}.json`
 
 ### prestateTracer
 Captures state before (and optionally after) transaction execution:

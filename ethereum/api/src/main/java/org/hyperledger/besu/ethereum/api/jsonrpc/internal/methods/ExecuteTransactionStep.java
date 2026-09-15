@@ -114,6 +114,10 @@ public class ExecuteTransactionStep implements Function<TransactionTrace, Transa
       tracer.reset();
     }
     return new TransactionTrace(
-        transactionTrace.getTransaction(), result, traceFrames, transactionTrace.getBlock());
+        transactionTrace.getTransaction(),
+        result,
+        traceFrames,
+        transactionTrace.getBlock(),
+        transactionTrace.getTransactionIndex());
   }
 }
