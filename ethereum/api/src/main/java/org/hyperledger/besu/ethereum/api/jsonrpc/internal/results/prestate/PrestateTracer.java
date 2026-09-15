@@ -103,14 +103,10 @@ public class PrestateTracer implements OperationTracer {
    * @param protocolSpec the protocol spec of the block containing the traced transaction
    */
   public PrestateTracer(final TraceOptions traceOptions, final ProtocolSpec protocolSpec) {
-    this.diffMode =
-        Boolean.TRUE.equals(traceOptions.tracerConfig().getOrDefault("diffMode", false));
-    this.disableCode =
-        Boolean.TRUE.equals(traceOptions.tracerConfig().getOrDefault("disableCode", false));
-    this.disableStorage =
-        Boolean.TRUE.equals(traceOptions.tracerConfig().getOrDefault("disableStorage", false));
-    this.includeEmpty =
-        Boolean.TRUE.equals(traceOptions.tracerConfig().getOrDefault("includeEmpty", false));
+    this.diffMode = traceOptions.tracerConfigFlag("diffMode");
+    this.disableCode = traceOptions.tracerConfigFlag("disableCode");
+    this.disableStorage = traceOptions.tracerConfigFlag("disableStorage");
+    this.includeEmpty = traceOptions.tracerConfigFlag("includeEmpty");
     final EvmSpecVersion evmVersion = protocolSpec.getEvm().getEvmVersion();
     this.eip6780 = evmVersion.compareTo(EvmSpecVersion.CANCUN) >= 0;
     this.eip7702 = evmVersion.compareTo(EvmSpecVersion.PRAGUE) >= 0;
