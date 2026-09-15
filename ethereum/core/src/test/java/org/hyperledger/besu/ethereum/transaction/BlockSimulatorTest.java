@@ -149,7 +149,7 @@ public class BlockSimulatorTest {
   @Test
   public void shouldStopWhenTransactionSimulationIsInvalid() {
     assertInvalidTransactionMapsToError(
-        TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE,
+        TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE,
         BlockStateCallError.UPFRONT_COST_EXCEEDS_BALANCE);
   }
 

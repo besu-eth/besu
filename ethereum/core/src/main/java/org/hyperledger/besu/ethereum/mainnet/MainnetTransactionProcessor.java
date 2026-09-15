@@ -34,6 +34,7 @@ import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
+import org.hyperledger.besu.evm.account.MutableAccount.BalanceUnderflowException;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
@@ -260,11 +261,11 @@ public class MainnetTransactionProcessor {
             upfrontGasCost,
             previousBalance,
             sender.getBalance());
-      } catch (final IllegalStateException ise) {
-        if (transactionValidationParams.allowUnderpriced()) {
-          LOG.trace("Allowing account balance underflow as requested");
+      } catch (final BalanceUnderflowException bue) {
+        if (transactionValidationParams.allowUnderpricedGas()) {
+          LOG.trace("Allowing account balance underflow as requested", bue);
         } else {
-          throw ise;
+          throw bue;
         }
       }
 
@@ -568,7 +569,7 @@ public class MainnetTransactionProcessor {
       if (blockHeader.getBaseFee().isPresent()) {
         final Wei baseFee = blockHeader.getBaseFee().get();
         final boolean gasPriceBelowBaseFee = transactionGasPrice.compareTo(baseFee) < 0;
-        if (transactionValidationParams.allowUnderpriced()
+        if (transactionValidationParams.allowUnderpricedGas()
             || transactionValidationParams.isPreserveCallerGasPricing()) {
           coinbaseCalculator =
               gasPriceBelowBaseFee ? (a, b, c) -> Wei.ZERO : coinbaseFeePriceCalculator;
@@ -714,6 +715,15 @@ public class MainnetTransactionProcessor {
           0,
           EMPTY_ADDRESS_SET,
           0L);
+
+      // if this happens when simulating allowing underpriced gas, then it could happen that the
+      // sender has insufficient funds for the transfer, so return invalid as a result.
+      if (re instanceof BalanceUnderflowException
+          && transactionValidationParams.allowUnderpricedGas()) {
+        return TransactionProcessingResult.invalid(
+            ValidationResult.invalid(
+                TransactionInvalidReason.INSUFFICIENT_FUNDS_FOR_TRANSFER, re.getMessage()));
+      }
 
       LOG.error("Critical Exception Processing Transaction", re);
       return TransactionProcessingResult.invalid(
