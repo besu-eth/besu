@@ -19,7 +19,6 @@ import static java.util.stream.Collectors.toList;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.WithdrawalParameter;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 
 import java.util.List;
@@ -99,16 +98,14 @@ public class BlockResult implements JsonRpcResult {
       final BlockHeader header,
       final List<TransactionResult> transactions,
       final List<JsonNode> ommers,
-      final Difficulty totalDifficulty,
       final int size) {
-    this(header, transactions, ommers, totalDifficulty, size, false, Optional.empty());
+    this(header, transactions, ommers, size, false, Optional.empty());
   }
 
   public BlockResult(
       final BlockHeader header,
       final List<TransactionResult> transactions,
       final List<JsonNode> ommers,
-      final Difficulty totalDifficulty,
       final int size,
       final boolean includeCoinbase,
       final Optional<List<Withdrawal>> withdrawals) {

@@ -48,7 +48,6 @@ public class BlockStateCallResult extends BlockResult {
         block.getHeader(),
         transactions,
         List.of(),
-        null,
         block.getSize(),
         false,
         block.getBody().getWithdrawals());
