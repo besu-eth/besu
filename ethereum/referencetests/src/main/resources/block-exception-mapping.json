@@ -85,8 +85,8 @@
     "TransactionException.GAS_LIMIT_EXCEEDS_MAXIMUM":            "transaction invalid Transaction gas limit must be at most \\d+",
     "TransactionException.INITCODE_SIZE_EXCEEDED":               "transaction invalid Initcode size of \\d+ exceeds maximum size of \\d+",
     "TransactionException.INSUFFICIENT_ACCOUNT_FUNDS":           "transaction invalid transaction up-front cost 0x[0-9a-f]+ exceeds transaction sender account balance 0x[0-9a-f]+|Header validation failed \\(LIGHT\\)",
-    "TransactionException.INTRINSIC_GAS_BELOW_FLOOR_GAS_COST":  "transaction invalid intrinsic gas cost \\d+( \\(regular \\d+ \\+ state \\d+\\))? exceeds gas limit \\d+",
-    "TransactionException.INTRINSIC_GAS_TOO_LOW":                "transaction invalid intrinsic gas cost \\d+( \\(regular \\d+ \\+ state \\d+\\))? exceeds gas limit \\d+",
+    "TransactionException.INTRINSIC_GAS_BELOW_FLOOR_GAS_COST":  "transaction invalid intrinsic gas cost \\d+( \\(execution \\d+ \\+ state \\d+\\))? exceeds gas limit \\d+",
+    "TransactionException.INTRINSIC_GAS_TOO_LOW":                "transaction invalid intrinsic gas cost \\d+( \\(execution \\d+ \\+ state \\d+\\))? exceeds gas limit \\d+",
 
     "_comment_tx_nonce": "Transaction nonce errors",
     "TransactionException.NONCE_MISMATCH_TOO_HIGH":              "transaction invalid transaction nonce \\d+ does not match sender account nonce \\d+",

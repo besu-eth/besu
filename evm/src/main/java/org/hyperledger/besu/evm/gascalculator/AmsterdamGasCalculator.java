@@ -33,9 +33,9 @@ import org.apache.tuweni.units.bigints.UInt256;
  * Gas Calculator for Amsterdam hard fork.
  *
  * <p>Introduces EIP-8037 multidimensional gas metering with state gas costs that depend on the
- * block gas limit. All state-creation costs that were previously charged as regular gas are split:
- * the state portion is charged as state gas (drawn from the reservoir), while the regular portion
- * is reduced.
+ * block gas limit. All state-creation costs that were previously charged as execution gas are
+ * split: the state portion is charged as state gas (drawn from the reservoir), while the execution
+ * portion is reduced.
  *
  * <UL>
  *   <LI>EIP-8038: state-access gas repricing (cold access, account/storage write, CALL value,
@@ -95,7 +95,7 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
       (STORAGE_WRITE + COLD_STORAGE_ACCESS) * 4800L / 5000L;
 
   /**
-   * Regular-gas state-access cost for {@code CREATE}/{@code CREATE2}: {@code ACCOUNT_WRITE +
+   * Execution-gas state-access cost for {@code CREATE}/{@code CREATE2}: {@code ACCOUNT_WRITE +
    * COLD_ACCOUNT_ACCESS}. The new-account state creation cost is charged separately as state gas
    * (see {@link Eip8037StateGasCostCalculator}).
    */
@@ -125,12 +125,12 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
   private static final long TX_VALUE_COST = 6_000L;
 
   /**
-   * EIP-2780: state-independent regular gas per EIP-7702 authorization, charged in intrinsic gas:
+   * EIP-2780: state-independent execution gas per EIP-7702 authorization, charged in intrinsic gas:
    * AUTH_TUPLE_BYTES(101) * TX_DATA_TOKEN_FLOOR(16) + ECRECOVER(3000) + COLD_ACCOUNT_ACCESS(3000) +
    * 2 * WARM_ACCESS(100) = 7,816. The state-dependent {@link #ACCOUNT_WRITE} is charged at the top
    * frame instead.
    */
-  private static final long REGULAR_PER_AUTH_BASE_COST =
+  private static final long EXECUTION_PER_AUTH_BASE_COST =
       101L * 16L + 3_000L + COLD_ACCOUNT_ACCESS + 2L * 100L;
 
   /** EIP-3860 init code word cost (2 gas per 32-byte word), charged in intrinsic for creations. */
@@ -189,10 +189,10 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
         transaction.getAccessList().map(AmsterdamGasCalculator::accessListBytes).orElse(0L);
     // EIP-3120: anchoring on the decomposed EIP-2780 base rather than TX_BASE alone keeps the
     // floor from undercutting the transaction's own intrinsic base.
-    final long baseRegularGas =
-        clampedAdd(getMinimumTransactionCost(), baseRecipientRegularGas(transaction));
+    final long baseExecutionGas =
+        clampedAdd(getMinimumTransactionCost(), baseRecipientExecutionGas(transaction));
     return clampedAdd(
-        baseRegularGas,
+        baseExecutionGas,
         clampedMultiply(clampedAdd(calldataBytes, accessListBytes), TOTAL_COST_FLOOR_PER_BYTE));
   }
 
@@ -219,10 +219,10 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
 
   @Override
   public long transactionIntrinsicGasCost(final Transaction transaction, final long baselineGas) {
-    // EIP-2780: regular intrinsic gas =
-    //   TX_BASE + data_cost + recipient_regular + access_list_cost + auth_regular
-    // where baselineGas already carries access_list_cost + auth_regular (accessListGasCost +
-    // delegateCodeGasCost from transactionIntrinsicRegularGas).
+    // EIP-2780: intrinsic execution gas =
+    //   TX_BASE + data_cost + recipient_execution + access_list_cost + auth_execution
+    // where baselineGas already carries access_list_cost + auth_execution (accessListGasCost +
+    // delegateCodeGasCost from transactionIntrinsicExecutionGas).
     final int payloadSize = transaction.getPayload().size();
     final long zeroBytes = transaction.getPayloadZeroBytes();
     final long nonZeroBytes = payloadSize - zeroBytes;
@@ -230,21 +230,21 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
     final long tokens = clampedAdd(zeroBytes, nonZeroBytes * 4L);
     final long dataCost = tokens * TX_DATA_TOKEN_STANDARD;
 
-    // EIP-3860 init code is added here rather than inside baseRecipientRegularGas() because it is
+    // EIP-3860 init code is added here rather than inside baseRecipientExecutionGas() because it is
     // not part of the EIP-3120 floor anchor.
-    final long recipientRegular =
-        baseRecipientRegularGas(transaction)
+    final long recipientExecution =
+        baseRecipientExecutionGas(transaction)
             + (transaction.isContractCreation() ? initCodeCost(payloadSize) : 0L);
 
-    return clampedAdd(clampedAdd(TX_BASE, dataCost), clampedAdd(recipientRegular, baselineGas));
+    return clampedAdd(clampedAdd(TX_BASE, dataCost), clampedAdd(recipientExecution, baselineGas));
   }
 
   /**
-   * EIP-2780/EIP-3120: the recipient's share of the regular-gas intrinsic base — its access and
+   * EIP-2780/EIP-3120: the recipient's share of the execution-gas intrinsic base — its access and
    * value primitives, nothing else. Shared with the calldata floor, which anchors on it so it
    * cannot undercut the transaction's own intrinsic base.
    */
-  private static long baseRecipientRegularGas(final Transaction transaction) {
+  private static long baseRecipientExecutionGas(final Transaction transaction) {
     if (transaction.isContractCreation()) {
       // CREATE_ACCESS covers the recipient balance write, and the EIP-7708 transfer log is now
       // folded into TX_VALUE_COST rather than charged on its own, so a creation costs the same
@@ -329,7 +329,7 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
 
   @Override
   public long txCreateCost() {
-    // EIP-8038: regular gas only; the new-account creation cost is charged as state gas.
+    // EIP-8038: execution gas only; the new-account creation cost is charged as state gas.
     return TX_CREATE_COST;
   }
 
@@ -366,10 +366,10 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
       final UInt256 newValue,
       final Supplier<UInt256> currentValue,
       final Supplier<UInt256> originalValue) {
-    // Regular gas only: the warm access base is always charged, plus a flat STORAGE_WRITE on the
+    // Execution gas only: the warm access base is always charged, plus a flat STORAGE_WRITE on the
     // first change to the slot this transaction (its current value still equals the original).
     // Dirty re-writes and no-ops pay the access base only. The set-from-zero surcharge is state
-    // gas, not regular. (originalValue is only read when the value actually changes.)
+    // gas, not execution gas. (originalValue is only read when the value actually changes.)
     final UInt256 localCurrentValue = currentValue.get();
     final boolean firstChange =
         !localCurrentValue.equals(newValue) && originalValue.get().equals(localCurrentValue);
@@ -401,7 +401,7 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
     // EIP-2780: only the state-independent part is intrinsic. ACCOUNT_WRITE, NEW_ACCOUNT and
     // AUTH_BASE are charged at the top frame against the authority's pre-transaction state, so
     // nothing worst-case is reserved and there is no refund to override.
-    return REGULAR_PER_AUTH_BASE_COST * delegateCodeListLength;
+    return EXECUTION_PER_AUTH_BASE_COST * delegateCodeListLength;
   }
 
   @Override
@@ -425,7 +425,7 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
         getSelfDestructRefundAmount() * initialFrame.getSelfDestructs().size();
     final long executionRefund =
         initialFrame.getGasRefund() + selfDestructRefund + codeDelegationRefund;
-    // 1/5 cap on total consumed gas (regular + state)
+    // 1/5 cap on total consumed gas (execution + state)
     final long maxRefundAllowance = totalConsumed / getMaxRefundQuotient();
     final long refundAllowance = Math.min(executionRefund, maxRefundAllowance);
 
@@ -439,7 +439,7 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
       final UInt256 newValue,
       final Supplier<UInt256> currentValue,
       final Supplier<UInt256> originalValue) {
-    // Regular-gas refunds (credited to the refund counter): the storage-clear refund is granted
+    // Execution-gas refunds (credited to the refund counter): the storage-clear refund is granted
     // when a slot is first cleared and reversed if that clear is later undone, and the flat
     // STORAGE_WRITE is refunded when the slot ends up back at its original value. There is no
     // per-set/reset distinction.
