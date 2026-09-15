@@ -330,6 +330,40 @@ public class BlockSimulatorTest {
   }
 
   @Test
+  public void shouldUseNextGasLimitWhenEnforceConsensusGasLimitIsTrue() {
+    final long parentGasLimit = 10_000_000L;
+    final long targetGasLimit = 20_000_000L;
+    final long nextGasLimit = 10_001_024L; // small EIP-1559 step toward target
+
+    BlockHeader parent =
+        BlockHeaderBuilder.createDefault().gasLimit(parentGasLimit).buildBlockHeader();
+    when(miningConfiguration.getTargetGasLimit()).thenReturn(OptionalLong.of(targetGasLimit));
+    when(gasLimitCalculator.nextGasLimit(anyLong(), anyLong(), anyLong())).thenReturn(nextGasLimit);
+
+    BlockOverrides overrides = BlockOverrides.builder().timestamp(1L).blockNumber(1L).build();
+
+    BlockHeader result =
+        blockSimulator.overrideBlockHeader(parent, protocolSpec, overrides, false, true);
+
+    assertEquals(nextGasLimit, result.getGasLimit());
+  }
+
+  @Test
+  public void shouldInheritParentGasLimitWhenEnforceConsensusGasLimitIsFalse() {
+    final long parentGasLimit = 10_000_000L;
+
+    BlockHeader parent =
+        BlockHeaderBuilder.createDefault().gasLimit(parentGasLimit).buildBlockHeader();
+
+    BlockOverrides overrides = BlockOverrides.builder().timestamp(1L).blockNumber(1L).build();
+
+    BlockHeader result =
+        blockSimulator.overrideBlockHeader(parent, protocolSpec, overrides, false, false);
+
+    assertEquals(parentGasLimit, result.getGasLimit());
+  }
+
+  @Test
   public void shouldDetectInvalidPrecompile() {
     var stateOverrideMap = new StateOverrideMap();
     var targetAddress = Address.fromHexString("0x3");
