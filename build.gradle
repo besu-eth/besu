@@ -976,9 +976,7 @@ application {
   mainClass = 'org.hyperledger.besu.Besu'
   applicationDefaultJvmArgs = [
     '-Dvertx.disableFileCPResolving=true',
-    // After an OutOfMemoryError the JVM keeps running with whatever state the failing threads left
-    // half updated, which can make the node reject valid blocks or stop importing. A restart
-    // recovers from the committed database state.
+    // A restart recovers from the committed database state; continuing after an OOM may not.
     '-XX:+ExitOnOutOfMemoryError',
     // BESU_HOME is replaced by a doFirst block in the run task.
     '-Dbesu.home=BESU_HOME',
