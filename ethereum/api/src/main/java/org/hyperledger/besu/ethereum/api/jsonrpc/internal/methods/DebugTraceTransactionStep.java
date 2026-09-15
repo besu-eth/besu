@@ -96,8 +96,7 @@ public interface DebugTraceTransactionStep {
             private final DebugOperationTracer tracer =
                 new DebugOperationTracer(traceOptions.opCodeTracerConfig(), recordChildCallGas);
             private final StateTraceGenerator generator = new StateTraceGenerator();
-            private final boolean diffMode =
-                Boolean.TRUE.equals(traceOptions.tracerConfig().getOrDefault("diffMode", false));
+            private final boolean diffMode = traceOptions.tracerConfigFlag("diffMode");
 
             @Override
             public OperationTracer getOperationTracer() {

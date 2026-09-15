@@ -18,6 +18,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Transaction;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTrace;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.CallTracerResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
@@ -68,14 +69,15 @@ public class FlatCallTracer implements OperationTracer {
   /**
    * Instantiates a new Flat call tracer.
    *
+   * <p>{@code onlyTopCall} is intentionally not forwarded to the inner {@link CallTracer}, matching
+   * geth's flatCallTracer.
+   *
    * @param traceOptions the trace options containing the tracer configuration
    * @param protocolSpec the protocol spec for the current block
    */
   public FlatCallTracer(final TraceOptions traceOptions, final ProtocolSpec protocolSpec) {
-    this.convertParityErrors =
-        Boolean.TRUE.equals(traceOptions.tracerConfig().getOrDefault("convertParityErrors", false));
-    this.includePrecompiles =
-        Boolean.TRUE.equals(traceOptions.tracerConfig().getOrDefault("includePrecompiles", false));
+    this.convertParityErrors = traceOptions.tracerConfigFlag("convertParityErrors");
+    this.includePrecompiles = traceOptions.tracerConfigFlag("includePrecompiles");
     this.precompileAddresses =
         protocolSpec != null && protocolSpec.getPrecompileContractRegistry() != null
             ? protocolSpec.getPrecompileContractRegistry().getPrecompileAddresses()
@@ -128,12 +130,18 @@ public class FlatCallTracer implements OperationTracer {
 
     if (trace.getBlock().isPresent()) {
       final Block block = trace.getBlock().get();
+      txPosition = trace.getTransactionIndex();
+      if (txPosition < 0) {
+        throw new IllegalStateException(
+            "transaction index unknown for block-scoped trace of "
+                + trace.getTransaction().getHash());
+      }
       blockHash = block.getHash().getBytes().toHexString();
       blockNumber = block.getHeader().getNumber();
       txHash = trace.getTransaction().getHash().getBytes().toHexString();
-      final int rawPos = block.getBody().getTransactions().indexOf(trace.getTransaction());
-      txPosition = Math.max(0, rawPos);
     } else {
+      // geth's TraceCall passes new(Context) to traceTx, so debug_traceCall emits null
+      // blockHash/txHash and 0 blockNumber/transactionPosition; keep that parity.
       blockHash = null;
       blockNumber = 0L;
       txHash = null;
@@ -182,8 +190,8 @@ public class FlatCallTracer implements OperationTracer {
       throw new IllegalStateException("unrecognized call frame type: null");
     }
 
-    switch (rawType.toUpperCase(Locale.ROOT)) {
-      case "CREATE", "CREATE2" -> {
+    switch (rawType) {
+      case CallTracer.CREATE, CallTracer.CREATE2 -> {
         type = "create";
         action =
             new FlatCallTracerResult.Action(
@@ -202,7 +210,7 @@ public class FlatCallTracer implements OperationTracer {
             new FlatCallTracerResult.Result(
                 node.getTo(), orEmptyHex(node.getOutput()), node.getGasUsed(), null);
       }
-      case "SELFDESTRUCT" -> {
+      case CallTracer.SELFDESTRUCT -> {
         type = "suicide";
         action =
             new FlatCallTracerResult.Action(
@@ -219,7 +227,7 @@ public class FlatCallTracer implements OperationTracer {
                 null);
         result = null;
       }
-      case "CALL", "CALLCODE", "DELEGATECALL", "STATICCALL" -> {
+      case CallTracer.CALL, CallTracer.CALLCODE, CallTracer.DELEGATECALL, CallTracer.STATICCALL -> {
         type = "call";
         action =
             new FlatCallTracerResult.Action(
@@ -274,7 +282,7 @@ public class FlatCallTracer implements OperationTracer {
 
   private static boolean isPrunedPrecompileCall(
       final CallTracerResult call, final Set<Address> precompiles) {
-    if (("CALL".equalsIgnoreCase(call.getType()) || "STATICCALL".equalsIgnoreCase(call.getType()))
+    if ((CallTracer.CALL.equals(call.getType()) || CallTracer.STATICCALL.equals(call.getType()))
         && call.getTo() != null) {
       try {
         return precompiles.contains(Address.fromHexString(call.getTo()));
@@ -314,6 +322,6 @@ public class FlatCallTracer implements OperationTracer {
   }
 
   private static String orZeroHex(final String s) {
-    return s == null ? "0x0" : s;
+    return s == null ? Quantity.HEX_ZERO : s;
   }
 }
