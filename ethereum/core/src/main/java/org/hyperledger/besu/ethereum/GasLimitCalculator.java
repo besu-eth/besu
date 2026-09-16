@@ -90,9 +90,9 @@ public interface GasLimitCalculator {
    * Return the cap on the transaction intrinsic gas.
    *
    * <p>EIP-8037 (Amsterdam) relaxes the EIP-7825 cap on {@code tx.gas} itself and instead caps
-   * {@code max(intrinsic_regular, calldata_floor)} at the same value. Forks that cap {@code tx.gas}
-   * directly leave this uncapped, since the intrinsic gas is then implicitly bounded by {@code
-   * tx.gas}.
+   * {@code max(intrinsic_execution, calldata_floor)} at the same value. Forks that cap {@code
+   * tx.gas} directly leave this uncapped, since the intrinsic gas is then implicitly bounded by
+   * {@code tx.gas}.
    *
    * @return the transaction intrinsic gas cap.
    */

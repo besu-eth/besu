@@ -57,7 +57,7 @@ geth import --datadir ./data blocks.bin
 
 5. Initialize a second clean data directory, import the new `blocks.bin`, and confirm its final block and transaction hashes before replacing the checked-in file.
 
-6. Query Geth's `debug_traceBlockByNumber` for the new block and each required tracer configuration. Store the complete JSON-RPC request, response, and HTTP status in the matching `specs/` directory. For `callTracer`, generate both the default result and `{"tracerConfig":{"onlyTopCall":true}}` variant.
+6. Query Geth's `debug_traceBlockByNumber` for the new block and each required tracer configuration. Store the complete JSON-RPC request, response, and HTTP status in the matching `specs/` directory. For `callTracer`, generate both the default result and `{"tracerConfig":{"onlyTopCall":true}}` variant. For `flatCallTracer`, generate the default result plus `{"tracerConfig":{"convertParityErrors":true}}` and `{"tracerConfig":{"includePrecompiles":true}}` variants.
 
 7. Verify the regenerated chain and specs in Besu:
 
@@ -71,6 +71,9 @@ geth import --datadir ./data blocks.bin
 Each tracer has its own directory under `specs/`:
 
 - **`call-tracer/`** - Call tracer specs
+- **`flatcall-tracer/`** - Flat call tracer specs
+  - `convert-parity-errors/` - Parity-style error strings
+  - `include-precompiles/` - Preserves precompile calls
 - **`prestate-tracer/`** - Pre-state tracer specs
   - `diff-mode-false/` - Pre-state only
   - `diff-mode-true/` - Pre and post state
@@ -87,6 +90,20 @@ Traces call execution including:
 - Value transfers
 
 **Files**: `{number}-debug-call-tracer-0x{block}-{description}.json`
+
+### flatCallTracer
+Reports call frame information of a transaction in a flat parity-style format:
+- Action (callType, creationMethod, from, to, gas, value, input, init, balance, refundAddress)
+- Result (gasUsed, output, address, code)
+- Subtraces count
+- Trace address path
+
+**Modes**:
+- Default: CALL/STATICCALL to precompiles are pruned, standard error strings
+- `convertParityErrors: true`: maps error strings to Parity format
+- `includePrecompiles: true`: includes calls to precompiled contracts
+
+**Files**: `{number}-debug-flatcall-tracer-0x{block}-{description}.json`
 
 ### prestateTracer
 Captures state before (and optionally after) transaction execution:

@@ -127,6 +127,7 @@ public class ExecuteTransactionStep implements Function<TransactionTrace, Transa
         result,
         traceFrames,
         transactionTrace.getBlock(),
+        transactionTrace.getTransactionIndex(),
         touchedAccounts);
   }
 }

@@ -107,7 +107,7 @@ public class ProcessingResultTransactionSelector extends AbstractTransactionSele
    * @return True if the invalid reason is transient, false otherwise.
    */
   private boolean isTransientValidationError(final TransactionInvalidReason invalidReason) {
-    return invalidReason.equals(TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE)
+    return invalidReason.equals(TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE)
         || invalidReason.equals(TransactionInvalidReason.GAS_PRICE_BELOW_CURRENT_BASE_FEE)
         || invalidReason.equals(TransactionInvalidReason.NONCE_TOO_HIGH)
         || invalidReason.equals(TransactionInvalidReason.EXECUTION_INTERRUPTED);

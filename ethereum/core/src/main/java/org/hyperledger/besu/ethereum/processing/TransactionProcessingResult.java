@@ -52,8 +52,8 @@ public class TransactionProcessingResult
 
   private final long stateGasUsed;
 
-  /** EIP-8037 block-accounting regular gas; {@link Long#MIN_VALUE} means "not set". */
-  private long regularGasUsedForBlock = Long.MIN_VALUE;
+  /** EIP-8037 block-accounting execution gas; {@link Long#MIN_VALUE} means "not set". */
+  private long executionGasUsedForBlock = Long.MIN_VALUE;
 
   private final List<Log> logs;
 
@@ -352,8 +352,8 @@ public class TransactionProcessingResult
    *
    * <p>This represents the gas consumed by state-creation operations (CREATE, SSTORE 0→nonzero,
    * CALL to new accounts, code deposits, EIP-7702 delegations). State gas is tracked separately
-   * from regular gas for multidimensional gas metering. EIP-7702 authorization refunds are already
-   * reflected in this value, so per-tx and block-level accounting use the same figure.
+   * from execution gas for multidimensional gas metering. EIP-7702 authorization refunds are
+   * already reflected in this value, so per-tx and block-level accounting use the same figure.
    *
    * @return the state gas used
    */
@@ -362,27 +362,27 @@ public class TransactionProcessingResult
   }
 
   /**
-   * Returns the regular gas dimension for EIP-8037 block accounting: {@code max(execution - state,
-   * calldata floor)}. State gas is out of the regular figure before the max is taken, so state
+   * Returns the execution gas dimension for EIP-8037 block accounting: {@code max(consumed - state,
+   * calldata floor)}. State gas is out of the execution figure before the max is taken, so state
    * spending cannot discount the floor. The fallback is equivalent while the floor is not binding.
    *
-   * @return the regular gas used for block accounting
+   * @return the execution gas used for block accounting
    */
-  public long getRegularGasUsedForBlock() {
-    return regularGasUsedForBlock == Long.MIN_VALUE
+  public long getExecutionGasUsedForBlock() {
+    return executionGasUsedForBlock == Long.MIN_VALUE
         ? estimateGasUsedByTransaction - stateGasUsed
-        : regularGasUsedForBlock;
+        : executionGasUsedForBlock;
   }
 
   /**
-   * Sets the regular gas dimension for EIP-8037 block accounting: {@code max(execution - state,
+   * Sets the execution gas dimension for EIP-8037 block accounting: {@code max(consumed - state,
    * calldata floor)}.
    *
-   * @param regularGasUsedForBlock the regular gas used for block accounting
+   * @param executionGasUsedForBlock the execution gas used for block accounting
    */
   @SuppressWarnings("checkstyle:HiddenField")
-  public void setRegularGasUsedForBlock(final long regularGasUsedForBlock) {
-    this.regularGasUsedForBlock = regularGasUsedForBlock;
+  public void setExecutionGasUsedForBlock(final long executionGasUsedForBlock) {
+    this.executionGasUsedForBlock = executionGasUsedForBlock;
   }
 
   /**

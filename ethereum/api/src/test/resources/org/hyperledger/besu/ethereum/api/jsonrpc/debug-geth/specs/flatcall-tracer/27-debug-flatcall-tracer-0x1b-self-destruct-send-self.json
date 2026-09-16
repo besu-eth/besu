@@ -1,0 +1,62 @@
+{
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "debug_traceBlockByNumber",
+    "params": [
+      "0x1b",
+      {
+        "tracer": "flatCallTracer"
+      }
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": [
+      {
+        "txHash": "0xfb08e4d8843b4038855b69f301a433b426add5d58430a54af4708b83cb5eb4fd",
+        "result": [
+          {
+            "action": {
+              "callType": "call",
+              "from": "0xfe3b557e8fb62b89f4916b721be55ceb828dbd73",
+              "gas": "0xfffff2",
+              "input": "0x0000000000000000000000000150000000000000",
+              "to": "0x0150000000000000000000000000000000000000",
+              "value": "0x0"
+            },
+            "blockHash": "0xcd5f081949c5c882399be3724c06e280ddd5840bf583a1a69e5002c5ec2dcacf",
+            "blockNumber": 27,
+            "result": {
+              "gasUsed": "0x65fe",
+              "output": "0x"
+            },
+            "subtraces": 1,
+            "traceAddress": [],
+            "transactionHash": "0xfb08e4d8843b4038855b69f301a433b426add5d58430a54af4708b83cb5eb4fd",
+            "transactionPosition": 0,
+            "type": "call"
+          },
+          {
+            "action": {
+              "address": "0x0150000000000000000000000000000000000000",
+              "balance": "0x300",
+              "refundAddress": "0x0150000000000000000000000000000000000000"
+            },
+            "blockHash": "0xcd5f081949c5c882399be3724c06e280ddd5840bf583a1a69e5002c5ec2dcacf",
+            "blockNumber": 27,
+            "subtraces": 0,
+            "traceAddress": [
+              0
+            ],
+            "transactionHash": "0xfb08e4d8843b4038855b69f301a433b426add5d58430a54af4708b83cb5eb4fd",
+            "transactionPosition": 0,
+            "type": "suicide"
+          }
+        ]
+      }
+    ]
+  },
+  "statusCode": 200
+}

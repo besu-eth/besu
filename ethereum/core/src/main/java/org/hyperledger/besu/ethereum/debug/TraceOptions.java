@@ -77,4 +77,15 @@ public record TraceOptions(
     this.tracerConfig = tracerConfig == null ? Map.of() : tracerConfig;
     this.stateOverrides = stateOverrides == null ? new StateOverrideMap() : stateOverrides;
   }
+
+  /**
+   * Reads a boolean flag from {@link #tracerConfig()}. Only a JSON {@code true} enables the flag;
+   * absent, {@code false}, or non-boolean values disable it.
+   *
+   * @param key the flag name
+   * @return whether the flag is enabled
+   */
+  public boolean tracerConfigFlag(final String key) {
+    return Boolean.TRUE.equals(tracerConfig.get(key));
+  }
 }

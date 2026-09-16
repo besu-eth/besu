@@ -30,6 +30,7 @@ public class TransactionTrace {
   private final TransactionProcessingResult result;
   private final List<TraceFrame> traceFrames;
   private final Optional<Block> block;
+  private final int transactionIndex;
   private final Optional<Collection<AccessLocationTracker.AccountAccessList>> touchedAccounts;
 
   public TransactionTrace(final Optional<Block> block) {
@@ -37,6 +38,7 @@ public class TransactionTrace {
     this.result = null;
     this.traceFrames = null;
     this.block = block;
+    this.transactionIndex = -1;
     this.touchedAccounts = Optional.empty();
   }
 
@@ -48,18 +50,7 @@ public class TransactionTrace {
     this.result = result;
     this.traceFrames = traceFrames;
     this.block = Optional.empty();
-    this.touchedAccounts = Optional.empty();
-  }
-
-  public TransactionTrace(
-      final Transaction transaction,
-      final TransactionProcessingResult result,
-      final List<TraceFrame> traceFrames,
-      final Optional<Block> block) {
-    this.transaction = transaction;
-    this.result = result;
-    this.traceFrames = traceFrames;
-    this.block = block;
+    this.transactionIndex = -1;
     this.touchedAccounts = Optional.empty();
   }
 
@@ -68,11 +59,27 @@ public class TransactionTrace {
       final TransactionProcessingResult result,
       final List<TraceFrame> traceFrames,
       final Optional<Block> block,
+      final int transactionIndex) {
+    this.transaction = transaction;
+    this.result = result;
+    this.traceFrames = traceFrames;
+    this.block = block;
+    this.transactionIndex = transactionIndex;
+    this.touchedAccounts = Optional.empty();
+  }
+
+  public TransactionTrace(
+      final Transaction transaction,
+      final TransactionProcessingResult result,
+      final List<TraceFrame> traceFrames,
+      final Optional<Block> block,
+      final int transactionIndex,
       final Collection<AccessLocationTracker.AccountAccessList> touchedAccounts) {
     this.transaction = transaction;
     this.result = result;
     this.traceFrames = traceFrames;
     this.block = block;
+    this.transactionIndex = transactionIndex;
     this.touchedAccounts = Optional.ofNullable(touchedAccounts);
   }
 
@@ -81,6 +88,7 @@ public class TransactionTrace {
     this.result = null;
     this.traceFrames = null;
     this.block = block;
+    this.transactionIndex = -1;
     this.touchedAccounts = Optional.empty();
   }
 
@@ -106,6 +114,15 @@ public class TransactionTrace {
 
   public Optional<Block> getBlock() {
     return block;
+  }
+
+  /**
+   * Ordinal position of the transaction in {@link #getBlock()}; {@code -1} when unknown.
+   *
+   * @return the transaction index
+   */
+  public int getTransactionIndex() {
+    return transactionIndex;
   }
 
   public Optional<Collection<AccessLocationTracker.AccountAccessList>> getTouchedAccounts() {
