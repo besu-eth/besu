@@ -593,9 +593,12 @@ public class DefaultBlockchain implements MutableBlockchain {
   public synchronized void storeBlock(
       final Block block,
       final List<TransactionReceipt> receipts,
-      final Optional<BlockAccessList> blockAccessList) {
+      final Optional<BlockAccessList> blockAccessList,
+      final Optional<StoredWithBlock> storedWithBlock) {
+    appendBlockHelper(
+        new BlockWithReceipts(block, receipts), blockAccessList, true, true, storedWithBlock);
+    // cached ahead of a failed commit, the block would only exist in memory
     cacheBlockData(block, receipts, blockAccessList);
-    appendBlockHelper(new BlockWithReceipts(block, receipts), blockAccessList, true, true);
   }
 
   @Override
@@ -667,8 +670,19 @@ public class DefaultBlockchain implements MutableBlockchain {
       final Optional<BlockAccessList> blockAccessList,
       final boolean storeOnly,
       final boolean transactionIndexing) {
+    appendBlockHelper(
+        blockWithReceipts, blockAccessList, storeOnly, transactionIndexing, Optional.empty());
+  }
+
+  private void appendBlockHelper(
+      final BlockWithReceipts blockWithReceipts,
+      final Optional<BlockAccessList> blockAccessList,
+      final boolean storeOnly,
+      final boolean transactionIndexing,
+      final Optional<StoredWithBlock> storedWithBlock) {
 
     if (!blockShouldBeProcessed(blockWithReceipts.getBlock(), blockWithReceipts.getReceipts())) {
+      storedWithBlock.ifPresent(this::storeWithoutBlock);
       return;
     }
 
@@ -695,8 +709,18 @@ public class DefaultBlockchain implements MutableBlockchain {
       }
     }
 
+    storedWithBlock.ifPresent(data -> data.writeWith(updater));
     updater.commit();
+    storedWithBlock.ifPresent(StoredWithBlock::onCommitted);
     blockAddedObservers.forEach(observer -> observer.onBlockAdded(blockAddedEvent));
+  }
+
+  private void storeWithoutBlock(final StoredWithBlock storedWithBlock) {
+    // the block is already stored, the data belonging to it may not be
+    final BlockchainStorage.Updater updater = blockchainStorage.updater();
+    storedWithBlock.writeWith(updater);
+    updater.commit();
+    storedWithBlock.onCommitted();
   }
 
   @Override
@@ -1028,9 +1052,10 @@ public class DefaultBlockchain implements MutableBlockchain {
       final BlockWithReceipts blockWithReceipts = getBlockWithReceipts(blockHeader).get();
 
       BlockAddedEvent newHeadEvent = handleNewHead(updater, blockWithReceipts, true);
-      updateCacheForNewCanonicalHead(
-          blockWithReceipts.getBlock(), calculateTotalDifficulty(blockHeader));
+      final Difficulty totalDifficulty = calculateTotalDifficulty(blockHeader);
       updater.commit();
+      // a head cached ahead of a failed commit makes the next forkchoiceUpdated skip writing it
+      updateCacheForNewCanonicalHead(blockWithReceipts.getBlock(), totalDifficulty);
       blockAddedObservers.forEach(observer -> observer.onBlockAdded(newHeadEvent));
       return true;
     } catch (final NoSuchElementException e) {

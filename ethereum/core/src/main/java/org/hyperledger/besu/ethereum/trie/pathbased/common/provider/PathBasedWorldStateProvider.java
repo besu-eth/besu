@@ -19,6 +19,7 @@ import static org.hyperledger.besu.ethereum.trie.pathbased.common.provider.World
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.chain.StoredWithBlock;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.ethereum.proof.WorldStateProof;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
@@ -184,10 +185,16 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
    * @return the stateful world state, if available
    */
   protected Optional<MutableWorldState> getFullWorldState(final WorldStateQueryParams queryParams) {
-    return queryParams.shouldWorldStateUpdateHead()
-        ? getFullWorldStateFromHead(queryParams.getBlockHash())
-        : getFullWorldStateFromCache(
+    if (queryParams.shouldWorldStateUpdateHead()) {
+      return getFullWorldStateFromHead(queryParams.getBlockHash());
+    }
+    final Optional<MutableWorldState> worldState =
+        getFullWorldStateFromCache(
             queryParams.getBlockHeader(), queryParams.getBlockAccessListOverlay());
+    if (queryParams.shouldDeferTrieLog()) {
+      worldState.map(PathBasedWorldState.class::cast).ifPresent(PathBasedWorldState::deferTrieLog);
+    }
+    return worldState;
   }
 
   /**
@@ -382,6 +389,13 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
 
   public PathBasedWorldStateCacheManager getWorldStateCacheManager() {
     return worldStateCacheManager;
+  }
+
+  @Override
+  public Optional<StoredWithBlock> takePendingTrieLog(final MutableWorldState worldState) {
+    return worldState instanceof PathBasedWorldState pathBasedWorldState
+        ? pathBasedWorldState.takePendingTrieLog().map(StoredWithBlock.class::cast)
+        : Optional.empty();
   }
 
   @Override

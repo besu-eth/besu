@@ -30,6 +30,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedLaye
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedSnapshotWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.StorageSubscriber;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.PendingTrieLog;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.cache.PathBasedWorldStateCacheManager;
@@ -94,6 +95,9 @@ public abstract class PathBasedWorldState
    * - All modifications are temporary and will be lost once the world state is discarded.
    */
   protected boolean isStorageFrozen;
+
+  private boolean deferTrieLog;
+  private Optional<PendingTrieLog> pendingTrieLog = Optional.empty();
 
   protected PathBasedWorldState(
       final PathBasedWorldStateKeyValueStorage worldStateKeyValueStorage,
@@ -176,6 +180,26 @@ public abstract class PathBasedWorldState
     worldStateRootHash = blockHeader.getStateRoot();
   }
 
+  /**
+   * Keeps the trie log of persisted blocks pending instead of storing it, so the caller can store
+   * it together with the block. Only for world states that do not modify the head, whose state
+   * commit relies on the trie log being stored first.
+   */
+  public void deferTrieLog() {
+    this.deferTrieLog = true;
+  }
+
+  /**
+   * Takes the trie log that the last persisted block left pending.
+   *
+   * @return the pending trie log, empty if there is none
+   */
+  public Optional<PendingTrieLog> takePendingTrieLog() {
+    final Optional<PendingTrieLog> taken = pendingTrieLog;
+    pendingTrieLog = Optional.empty();
+    return taken;
+  }
+
   @Override
   public PathBasedWorldStateKeyValueStorage getWorldStateStorage() {
     return worldStateKeyValueStorage;
@@ -207,38 +231,28 @@ public abstract class PathBasedWorldState
         .addArgument(() -> Optional.ofNullable(blockHeader))
         .log();
 
-    boolean success = false;
-
-    final PathBasedWorldStateKeyValueStorage.Updater stateUpdater =
-        worldStateKeyValueStorage.updater();
-    Runnable saveTrieLog = () -> {};
-    Runnable cacheWorldState = () -> {};
+    PathBasedWorldStateKeyValueStorage.Updater stateUpdater = null;
+    Hash calculatedRootHash = null;
+    boolean commitStarted = false;
 
     try {
+      stateUpdater = worldStateKeyValueStorage.updater();
       final StateRootComputation computation = committer.compute(this, blockHeader, accumulator);
       if (!isStorageFrozen()) {
         computation.applyTo(stateUpdater);
       }
-      final Hash calculatedRootHash = computation.root();
+      calculatedRootHash = computation.root();
 
       if (blockHeader != null) {
         verifyWorldStateRoot(calculatedRootHash, blockHeader);
-        saveTrieLog =
-            () -> {
-              trieLogManager.saveTrieLog(accumulator, calculatedRootHash, blockHeader, this);
-            };
-        cacheWorldState =
-            () -> worldStateCacheManager.addCachedLayer(blockHeader, calculatedRootHash, this);
         stateUpdater
             .getWorldStateTransaction()
             .put(
                 TRIE_BRANCH_STORAGE,
                 WORLD_BLOCK_HASH_KEY,
                 blockHeader.getBlockHash().getBytes().toArrayUnsafe());
-        worldStateBlockHash = blockHeader.getBlockHash();
       } else {
         stateUpdater.getWorldStateTransaction().remove(TRIE_BRANCH_STORAGE, WORLD_BLOCK_HASH_KEY);
-        worldStateBlockHash = null;
       }
 
       stateUpdater
@@ -255,24 +269,67 @@ public abstract class PathBasedWorldState
               WORLD_BLOCK_NUMBER_KEY,
               Bytes.ofUnsignedLong(blockHeader == null ? 0L : blockHeader.getNumber())
                   .toArrayUnsafe());
-      worldStateRootHash = calculatedRootHash;
-      success = true;
-    } finally {
-      if (success) {
+
+      if (blockHeader != null && deferTrieLog) {
+        pendingTrieLog =
+            trieLogManager.prepareTrieLogForBlock(accumulator, calculatedRootHash, blockHeader);
+      } else if (blockHeader != null) {
         // commit the trielog transaction ahead of the state, in case of an abnormal shutdown:
-        saveTrieLog.run();
-        // commit only the composed worldstate, as trielog transaction is already complete:
-        stateUpdater.commitComposedOnly();
-        if (!isStorageFrozen) {
-          // optionally save the committed worldstate state in the cache
-          cacheWorldState.run();
-        }
-        accumulator.reset();
-      } else {
-        stateUpdater.rollback();
-        accumulator.reset();
+        trieLogManager.saveTrieLog(accumulator, calculatedRootHash, blockHeader, this);
       }
+      commitStarted = true;
+      // commit only the composed worldstate, as trielog transaction is already complete:
+      stateUpdater.commitComposedOnly();
+    } catch (final RuntimeException | Error e) {
+      // the JVM keeps running after an OutOfMemoryError, so this world state must keep matching
+      // its storage or every following block is processed against the wrong state
+      discardFailedPersist(e, stateUpdater, commitStarted, blockHeader, calculatedRootHash);
+      throw e;
     }
+
+    worldStateBlockHash = blockHeader == null ? null : blockHeader.getBlockHash();
+    worldStateRootHash = calculatedRootHash;
+    try {
+      if (!isStorageFrozen && blockHeader != null) {
+        // optionally save the committed worldstate state in the cache
+        worldStateCacheManager.addCachedLayer(blockHeader, calculatedRootHash, this);
+      }
+    } finally {
+      accumulator.reset();
+    }
+  }
+
+  private void discardFailedPersist(
+      final Throwable failure,
+      final PathBasedWorldStateKeyValueStorage.Updater stateUpdater,
+      final boolean commitStarted,
+      final BlockHeader blockHeader,
+      final Hash calculatedRootHash) {
+    try {
+      // a transaction that started committing is closed and must not be rolled back
+      if (stateUpdater != null && !commitStarted) {
+        stateUpdater.rollback();
+      }
+      accumulator.reset();
+      pendingTrieLog = Optional.empty();
+      // the commit may have landed before the failure
+      if (commitStarted && isPersistedInStorage(blockHeader, calculatedRootHash)) {
+        worldStateBlockHash = blockHeader == null ? null : blockHeader.getBlockHash();
+        worldStateRootHash = calculatedRootHash;
+      }
+    } catch (final RuntimeException | Error cleanupFailure) {
+      failure.addSuppressed(cleanupFailure);
+    }
+  }
+
+  private boolean isPersistedInStorage(final BlockHeader blockHeader, final Hash rootHash) {
+    return worldStateKeyValueStorage
+            .getWorldStateBlockHash()
+            .equals(Optional.ofNullable(blockHeader).map(BlockHeader::getBlockHash))
+        && worldStateKeyValueStorage
+            .getWorldStateRootHash()
+            .map(root -> Hash.wrap(Bytes32.wrap(root)))
+            .equals(Optional.of(rootHash));
   }
 
   protected void verifyWorldStateRoot(final Hash calculatedStateRoot, final BlockHeader header) {

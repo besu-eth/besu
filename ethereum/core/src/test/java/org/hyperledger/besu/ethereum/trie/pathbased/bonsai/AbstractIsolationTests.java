@@ -207,6 +207,10 @@ public abstract class AbstractIsolationTests {
 
   // storage provider which uses a temporary directory based rocksdb
   protected StorageProvider createKeyValueStorageProvider() {
+    return createKeyValueStorageProvider(tempData);
+  }
+
+  protected StorageProvider createKeyValueStorageProvider(final Path dataDir) {
     return new KeyValueStorageProviderBuilder()
         .withStorageFactory(
             new RocksDBKeyValueStorageFactory(
@@ -242,12 +246,12 @@ public abstract class AbstractIsolationTests {
 
               @Override
               public Path getStoragePath() {
-                return tempData.resolve("database");
+                return dataDir.resolve("database");
               }
 
               @Override
               public Path getDataPath() {
-                return tempData;
+                return dataDir;
               }
 
               @Override

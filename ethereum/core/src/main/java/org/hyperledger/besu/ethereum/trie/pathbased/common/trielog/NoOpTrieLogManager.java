@@ -40,6 +40,16 @@ public class NoOpTrieLogManager extends TrieLogManager {
   }
 
   @Override
+  public synchronized Optional<PendingTrieLog> prepareTrieLogForBlock(
+      final PathBasedWorldStateUpdateAccumulator<?> localUpdater,
+      final Hash forWorldStateRootHash,
+      final BlockHeader forBlockHeader) {
+    // nothing is stored, so there is nothing to store with the block
+    saveTrieLog(localUpdater, forWorldStateRootHash, forBlockHeader, null);
+    return Optional.empty();
+  }
+
+  @Override
   public long getMaxLayersToLoad() {
     return 0;
   }

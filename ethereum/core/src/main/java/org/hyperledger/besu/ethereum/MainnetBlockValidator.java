@@ -138,6 +138,27 @@ public class MainnetBlockValidator implements BlockValidator {
       final Optional<BlockAccessList> blockAccessList,
       final boolean shouldUpdateHead,
       final boolean shouldRecordBadBlock) {
+    return validateAndProcessBlock(
+        context,
+        block,
+        headerValidationMode,
+        ommerValidationMode,
+        blockAccessList,
+        shouldUpdateHead,
+        shouldRecordBadBlock,
+        false);
+  }
+
+  @Override
+  public BlockProcessingResult validateAndProcessBlock(
+      final ProtocolContext context,
+      final Block block,
+      final HeaderValidationMode headerValidationMode,
+      final HeaderValidationMode ommerValidationMode,
+      final Optional<BlockAccessList> blockAccessList,
+      final boolean shouldUpdateHead,
+      final boolean shouldRecordBadBlock,
+      final boolean deferTrieLog) {
 
     final int blockSize = block.getSize();
     if (blockSize > maxRlpBlockSize) {
@@ -183,6 +204,7 @@ public class MainnetBlockValidator implements BlockValidator {
         WorldStateQueryParams.newBuilder()
             .withBlockHeader(parentHeader)
             .withShouldWorldStateUpdateHead(shouldUpdateHead)
+            .withDeferredTrieLog(deferTrieLog)
             .build();
     try (final var worldState =
         context.getWorldStateArchive().getWorldState(worldStateQueryParams).orElse(null)) {

@@ -635,11 +635,13 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
 
   @Override
   public BlockProcessingResult validateBlock(final Block block) {
-    return validateBlock(block, Optional.empty());
+    return validateBlock(block, Optional.empty(), false);
   }
 
   private BlockProcessingResult validateBlock(
-      final Block block, final Optional<BlockAccessList> blockAccessList) {
+      final Block block,
+      final Optional<BlockAccessList> blockAccessList,
+      final boolean deferTrieLog) {
     final var validationResult =
         protocolSchedule
             .getByBlockHeader(block.getHeader())
@@ -650,7 +652,9 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
                 HeaderValidationMode.FULL,
                 HeaderValidationMode.NONE,
                 blockAccessList,
-                false);
+                false,
+                true,
+                deferTrieLog);
 
     return validationResult;
   }
@@ -683,7 +687,9 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
       final Block block, final Optional<BlockAccessList> blockAccessList) {
     LOG.atDebug().setMessage("Remember block {}").addArgument(block::toLogString).log();
     final var chain = protocolContext.getBlockchain();
-    final var validationResult = validateBlock(block, blockAccessList);
+    // the trie log is stored in the same transaction as the block, so neither exists without the
+    // other
+    final var validationResult = validateBlock(block, blockAccessList, true);
     validationResult
         .getYield()
         .ifPresentOrElse(
@@ -691,7 +697,10 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
                 chain.storeBlock(
                     block,
                     result.getReceipts(),
-                    validationResult.getYield().flatMap(y -> y.getBlockAccessList())),
+                    validationResult.getYield().flatMap(y -> y.getBlockAccessList()),
+                    protocolContext
+                        .getWorldStateArchive()
+                        .takePendingTrieLog(result.getWorldState())),
             () -> LOG.debug("empty yield in blockProcessingResult"));
     return validationResult;
   }

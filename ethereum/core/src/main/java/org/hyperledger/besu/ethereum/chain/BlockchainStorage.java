@@ -24,6 +24,8 @@ import org.hyperledger.besu.ethereum.core.SyncBlockBody;
 import org.hyperledger.besu.ethereum.core.SyncTransactionReceipt;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
+import org.hyperledger.besu.plugin.services.storage.KeyValueStorageTransaction;
 
 import java.util.Collection;
 import java.util.List;
@@ -118,6 +120,17 @@ public interface BlockchainStorage {
     void removeTransactionHashBySenderAndNonce(Address sender, long nonce);
 
     void removeTotalDifficulty(final Hash blockHash);
+
+    /**
+     * Returns a transaction on {@code storage} that is committed together with this updater, so
+     * data kept in another storage can be written atomically with the block data.
+     *
+     * @param storage the storage to write to
+     * @return the transaction, empty if the storage cannot join the transaction of this updater
+     */
+    default Optional<KeyValueStorageTransaction> transactionFor(final KeyValueStorage storage) {
+      return Optional.empty();
+    }
 
     void commit();
 

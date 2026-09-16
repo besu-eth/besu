@@ -29,6 +29,7 @@ public class WorldStateQueryParams {
   private final Hash blockHash;
   private final Optional<Hash> stateRoot;
   private final Optional<BlockAccessListOverlay> blockAccessListOverlay;
+  private final boolean shouldDeferTrieLog;
 
   /**
    * Private constructor to enforce the use of the Builder.
@@ -41,6 +42,7 @@ public class WorldStateQueryParams {
     this.blockHash = builder.blockHash;
     this.stateRoot = builder.stateRoot;
     this.blockAccessListOverlay = builder.blockAccessListOverlay;
+    this.shouldDeferTrieLog = builder.shouldDeferTrieLog;
   }
 
   /**
@@ -82,6 +84,16 @@ public class WorldStateQueryParams {
   /** Optional BAL overlay applied when the queried world state's accumulator is created. */
   public Optional<BlockAccessListOverlay> getBlockAccessListOverlay() {
     return blockAccessListOverlay;
+  }
+
+  /**
+   * Checks if a world state that does not update the head should keep the trie logs of persisted
+   * blocks pending instead of storing them.
+   *
+   * @return true if trie logs should be kept pending, false otherwise
+   */
+  public boolean shouldDeferTrieLog() {
+    return shouldDeferTrieLog;
   }
 
   /**
@@ -182,6 +194,8 @@ public class WorldStateQueryParams {
     private Optional<Hash> stateRoot = Optional.empty();
     private Optional<BlockAccessListOverlay> blockAccessListOverlay = Optional.empty();
 
+    private boolean shouldDeferTrieLog = false;
+
     private Builder() {}
 
     /**
@@ -239,6 +253,11 @@ public class WorldStateQueryParams {
      */
     public Builder withBalOverlay(final BlockAccessListOverlay blockAccessListOverlay) {
       this.blockAccessListOverlay = Optional.of(blockAccessListOverlay);
+      return this;
+    }
+
+    public Builder withDeferredTrieLog(final boolean shouldDeferTrieLog) {
+      this.shouldDeferTrieLog = shouldDeferTrieLog;
       return this;
     }
 

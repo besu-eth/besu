@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.worldstate;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.chain.StoredWithBlock;
 import org.hyperledger.besu.ethereum.proof.WorldStateProof;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.evm.worldstate.WorldState;
@@ -43,6 +44,17 @@ public interface WorldStateArchive extends Closeable {
    */
   default void prepareWorldStateForBlock(
       final BlockHeader blockHeader, final MutableWorldState worldState) {}
+
+  /**
+   * Takes the trie log that processing a block on {@code worldState} left pending, so it can be
+   * stored together with the block.
+   *
+   * @param worldState the world state the block was processed on
+   * @return the pending trie log, empty if there is none
+   */
+  default Optional<StoredWithBlock> takePendingTrieLog(final MutableWorldState worldState) {
+    return Optional.empty();
+  }
 
   /**
    * Gets a mutable world state based on the provided query parameters.

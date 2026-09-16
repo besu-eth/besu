@@ -88,6 +88,32 @@ public interface BlockValidator {
       final boolean shouldRecordBadBlock);
 
   /**
+   * Validates and processes a block like {@link #validateAndProcessBlock(ProtocolContext, Block,
+   * HeaderValidationMode, HeaderValidationMode, Optional, boolean, boolean)}, optionally keeping
+   * the trie log of the block pending so the caller can store it together with the block.
+   *
+   * @param context the protocol context
+   * @param block the block to validate and process
+   * @param headerValidationMode the header validation mode
+   * @param ommerValidationMode the ommer validation mode
+   * @param blockAccessList optional block access list for validation and processing
+   * @param shouldPersist flag indicating whether the block should be persisted
+   * @param shouldRecordBadBlock flag indicating whether bad blocks should be recorded
+   * @param deferTrieLog keep the trie log pending instead of storing it, only when not persisting;
+   *     the caller takes it from the world state archive and stores it with the block
+   * @return the result of the block processing
+   */
+  BlockProcessingResult validateAndProcessBlock(
+      final ProtocolContext context,
+      final Block block,
+      final HeaderValidationMode headerValidationMode,
+      final HeaderValidationMode ommerValidationMode,
+      final Optional<BlockAccessList> blockAccessList,
+      final boolean shouldPersist,
+      final boolean shouldRecordBadBlock,
+      final boolean deferTrieLog);
+
+  /**
    * Performs fast block validation appropriate for use during syncing skipping transaction receipt
    * roots and receipts roots as these are done during the download of the blocks.
    *

@@ -141,6 +141,7 @@ public class SegmentedKeyValueStorageAdapter implements KeyValueStorage {
   public static class KeyValueStorageTransactionAdapter implements KeyValueStorageTransaction {
     private final SegmentedKeyValueStorageTransaction segmentedTransaction;
     private final SegmentIdentifier segmentIdentifier;
+    private final SegmentedKeyValueStorage storage;
 
     /**
      * Instantiates a new Key value storage transaction adapter.
@@ -150,8 +151,35 @@ public class SegmentedKeyValueStorageAdapter implements KeyValueStorage {
      */
     public KeyValueStorageTransactionAdapter(
         final SegmentIdentifier segmentIdentifier, final SegmentedKeyValueStorage storage) {
-      this.segmentedTransaction = storage.startTransaction();
+      this(segmentIdentifier, storage, storage.startTransaction());
+    }
+
+    private KeyValueStorageTransactionAdapter(
+        final SegmentIdentifier segmentIdentifier,
+        final SegmentedKeyValueStorage storage,
+        final SegmentedKeyValueStorageTransaction segmentedTransaction) {
+      this.segmentedTransaction = segmentedTransaction;
       this.segmentIdentifier = segmentIdentifier;
+      this.storage = storage;
+    }
+
+    /**
+     * Returns a transaction on another storage that is committed or rolled back together with this
+     * one, which is only possible when both storages adapt a segment of the same segmented storage.
+     * Commit or roll back this transaction, not the returned one.
+     *
+     * @param otherStorage the storage to write to as part of this transaction
+     * @return the joined transaction, empty if the storages do not share a segmented storage
+     */
+    public Optional<KeyValueStorageTransaction> joinedTransactionFor(
+        final KeyValueStorage otherStorage) {
+      if (otherStorage instanceof SegmentedKeyValueStorageAdapter adapter
+          && adapter.storage == storage) {
+        return Optional.of(
+            new KeyValueStorageTransactionAdapter(
+                adapter.segmentIdentifier, storage, segmentedTransaction));
+      }
+      return Optional.empty();
     }
 
     @Override

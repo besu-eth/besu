@@ -44,6 +44,7 @@ import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.SimpleNoCopyRlpEncoder;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorageTransaction;
+import org.hyperledger.besu.services.kvstore.SegmentedKeyValueStorageAdapter.KeyValueStorageTransactionAdapter;
 
 import java.util.Collection;
 import java.util.List;
@@ -478,6 +479,13 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
     public void rollback() {
       variablesUpdater.rollback();
       blockchainTransaction.rollback();
+    }
+
+    @Override
+    public Optional<KeyValueStorageTransaction> transactionFor(final KeyValueStorage storage) {
+      return blockchainTransaction instanceof KeyValueStorageTransactionAdapter adapter
+          ? adapter.joinedTransactionFor(storage)
+          : Optional.empty();
     }
 
     void set(final Bytes prefix, final Bytes key, final Bytes value) {

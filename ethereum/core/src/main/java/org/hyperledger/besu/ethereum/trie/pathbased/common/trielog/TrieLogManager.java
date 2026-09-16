@@ -77,7 +77,7 @@ public class TrieLogManager {
         persistTrieLog(forBlockHeader, forWorldStateRootHash, trieLog, stateUpdater);
 
         // notify trie log added observers, synchronously
-        trieLogObservers.forEach(o -> o.onTrieLogAdded(new TrieLogAddedEvent(trieLog)));
+        notifyTrieLogAdded(trieLog);
 
         success = true;
       } finally {
@@ -88,6 +88,41 @@ public class TrieLogManager {
         }
       }
     }
+  }
+
+  /**
+   * Prepares the trie log of a block so it can be stored in the same transaction as the block.
+   *
+   * @param localUpdater the accumulator holding the changes of the block
+   * @param forWorldStateRootHash the state root after the block
+   * @param forBlockHeader the header of the block
+   * @return the pending trie log, empty if the trie log of the block is already stored
+   */
+  public synchronized Optional<PendingTrieLog> prepareTrieLogForBlock(
+      final PathBasedWorldStateUpdateAccumulator<?> localUpdater,
+      final Hash forWorldStateRootHash,
+      final BlockHeader forBlockHeader) {
+    // do not overwrite a trielog layer that already exists in the database
+    if (rootWorldStateStorage.getTrieLog(forBlockHeader.getBlockHash()).isPresent()) {
+      return Optional.empty();
+    }
+    final TrieLog trieLog = prepareTrieLog(forBlockHeader, localUpdater);
+    LOG.atDebug()
+        .setMessage("Deferring trie log for block hash {} and world state root {}")
+        .addArgument(forBlockHeader::toLogString)
+        .addArgument(() -> forWorldStateRootHash.getBytes().toHexString())
+        .log();
+    return Optional.of(
+        new PendingTrieLog(
+            this,
+            rootWorldStateStorage.getTrieLogStorage(),
+            forBlockHeader.getBlockHash(),
+            trieLog,
+            trieLogFactory.serialize(trieLog)));
+  }
+
+  synchronized void notifyTrieLogAdded(final TrieLog trieLog) {
+    trieLogObservers.forEach(o -> o.onTrieLogAdded(new TrieLogAddedEvent(trieLog)));
   }
 
   public TrieLogFactory getTrieLogFactory() {

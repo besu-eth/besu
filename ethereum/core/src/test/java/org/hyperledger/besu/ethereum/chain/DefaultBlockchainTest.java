@@ -29,6 +29,7 @@ import org.hyperledger.besu.ethereum.core.LogWithMetadata;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
+import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStoragePrefixedKeyBlockchainStorage;
 import org.hyperledger.besu.ethereum.storage.keyvalue.VariablesKeyValueStorage;
 import org.hyperledger.besu.metrics.MetricsSystemFactory;
@@ -36,6 +37,8 @@ import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
+import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
+import org.hyperledger.besu.services.kvstore.SegmentedKeyValueStorageAdapter;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -1091,6 +1094,85 @@ public class DefaultBlockchainTest {
 
     // Check reported chainhead td
     assertThat(blockchain.getChainHead().getTotalDifficulty()).isEqualTo(td);
+  }
+
+  @Test
+  public void storeBlockCommitsDataStoredWithBlockInTheBlockTransaction() {
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final SegmentedInMemoryKeyValueStorage sharedStorage =
+        new SegmentedInMemoryKeyValueStorage(
+            List.of(
+                KeyValueSegmentIdentifier.BLOCKCHAIN, KeyValueSegmentIdentifier.TRIE_LOG_STORAGE));
+    final KeyValueStorage otherStorage =
+        new SegmentedKeyValueStorageAdapter(
+            KeyValueSegmentIdentifier.TRIE_LOG_STORAGE, sharedStorage);
+    final Block genesisBlock = gen.genesisBlock();
+    final DefaultBlockchain blockchain =
+        createMutableBlockchain(
+            new SegmentedKeyValueStorageAdapter(
+                KeyValueSegmentIdentifier.BLOCKCHAIN, sharedStorage),
+            new InMemoryKeyValueStorage(),
+            genesisBlock);
+    final Block block = gen.nextBlock(genesisBlock);
+    final RecordingStoredWithBlock storedWithBlock = new RecordingStoredWithBlock(otherStorage);
+
+    blockchain.storeBlock(
+        block, gen.receipts(block), Optional.empty(), Optional.of(storedWithBlock));
+
+    assertThat(storedWithBlock.visibleBeforeCommit).isFalse();
+    assertThat(storedWithBlock.visibleWhenCommitted).isTrue();
+    assertThat(blockchain.getBlockHeader(block.getHash())).isPresent();
+  }
+
+  @Test
+  public void storeBlockCommitsDataStoredWithBlockWhenTheBlockIsAlreadyStored() {
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final SegmentedInMemoryKeyValueStorage sharedStorage =
+        new SegmentedInMemoryKeyValueStorage(
+            List.of(
+                KeyValueSegmentIdentifier.BLOCKCHAIN, KeyValueSegmentIdentifier.TRIE_LOG_STORAGE));
+    final KeyValueStorage otherStorage =
+        new SegmentedKeyValueStorageAdapter(
+            KeyValueSegmentIdentifier.TRIE_LOG_STORAGE, sharedStorage);
+    final Block genesisBlock = gen.genesisBlock();
+    final DefaultBlockchain blockchain =
+        createMutableBlockchain(
+            new SegmentedKeyValueStorageAdapter(
+                KeyValueSegmentIdentifier.BLOCKCHAIN, sharedStorage),
+            new InMemoryKeyValueStorage(),
+            genesisBlock);
+    final Block block = gen.nextBlock(genesisBlock);
+    blockchain.storeBlock(block, gen.receipts(block));
+    final RecordingStoredWithBlock storedWithBlock = new RecordingStoredWithBlock(otherStorage);
+
+    blockchain.storeBlock(
+        block, gen.receipts(block), Optional.empty(), Optional.of(storedWithBlock));
+
+    assertThat(storedWithBlock.visibleWhenCommitted).isTrue();
+  }
+
+  private static final class RecordingStoredWithBlock implements StoredWithBlock {
+    private static final byte[] KEY = {1};
+    private static final byte[] VALUE = {2};
+
+    private final KeyValueStorage storage;
+    private boolean visibleBeforeCommit;
+    private boolean visibleWhenCommitted;
+
+    private RecordingStoredWithBlock(final KeyValueStorage storage) {
+      this.storage = storage;
+    }
+
+    @Override
+    public void writeWith(final BlockchainStorage.Updater blockUpdater) {
+      blockUpdater.transactionFor(storage).orElseThrow().put(KEY, VALUE);
+      visibleBeforeCommit = storage.containsKey(KEY);
+    }
+
+    @Override
+    public void onCommitted() {
+      visibleWhenCommitted = storage.containsKey(KEY);
+    }
   }
 
   private BlockchainStorage createStorage(

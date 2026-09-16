@@ -37,12 +37,14 @@
 - An EIP-7702 transaction with an empty `authorization_list` is now rejected by transaction validation rather than by RLP decoding. Over the Engine API such a transaction made the whole payload report `Failed to decode transactions from block parameter`, hiding both the rule that was broken and any other defect the transaction had. [#11193](https://github.com/besu-eth/besu/pull/11193)
 - `engine_newPayloadV4`+ now returns `-32602` for an `executionRequests` element consisting only of a type byte, as execution-apis requires, including when that type byte is one Besu does not recognize. Such an element was previously answered with an `INVALID` payload status. [#11194](https://github.com/besu-eth/besu/pull/11194)
 - A block carrying a transaction whose gas limit exceeds the block's is now rejected for that, rather than reported as an EIP-7928 block access list failure. The access list item budget is checked before the block runs, so it pre-empted the gas error. [#11195](https://github.com/besu-eth/besu/pull/11195)
+- Besu no longer keeps importing blocks on in-memory state that is out of step with the database after an `OutOfMemoryError` or another error during block import. Such an error could leave the head world state claiming a block that was never stored, so every retry failed with `Unable to load trie node`; make the retry reject the valid block as invalid; or, in `engine_forkchoiceUpdated`, leave that block missing from the canonical block number index. [#11301](https://github.com/besu-eth/besu/pull/11301)
 
 ### Additions and Improvements
 - Implement native `callTracer` execution tracing, reducing memory use for `debug_trace*`. [#11077](https://github.com/besu-eth/besu/pull/11077)
 - Implement native `4byteTracer` execution tracing, reducing memory use for `debug_trace*`. [#11271](https://github.com/besu-eth/besu/pull/11271)
 - Add `flatCallTracer` for `debug_trace*` methods, matching geth output. [#11273](https://github.com/besu-eth/besu/pull/11273)
 - Upgrade the stable reference tests to `tests@v20.0.2`, now published from the `ethereum/execution-specs` repository. [#11175](https://github.com/besu-eth/besu/pull/11175)
+- `engine_newPayload` stores the trie log of a block in the same database transaction as the block, so an interruption can no longer leave a trie log without its block. [#11302](https://github.com/besu-eth/besu/pull/11302)
 
 ## 26.8.1
 

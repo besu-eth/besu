@@ -74,8 +74,30 @@ public interface MutableBlockchain extends Blockchain {
    * @param block The block to append.
    * @param receipts The list of receipts associated with this block's transactions.
    */
+  default void storeBlock(
+      final Block block,
+      final List<TransactionReceipt> receipts,
+      final Optional<BlockAccessList> blockAccessList) {
+    storeBlock(block, receipts, blockAccessList, Optional.empty());
+  }
+
+  /**
+   * Adds a block to the blockchain, without updating the chain state, and commits the data that
+   * belongs to it in the same storage transaction where the storage allows it.
+   *
+   * <p>Block must be connected to the existing blockchain (its parent must already be stored),
+   * otherwise an {@link IllegalArgumentException} is thrown.
+   *
+   * @param block The block to append.
+   * @param receipts The list of receipts associated with this block's transactions.
+   * @param blockAccessList Block access list if not present in the block.
+   * @param storedWithBlock Data to commit together with the block.
+   */
   void storeBlock(
-      Block block, List<TransactionReceipt> receipts, Optional<BlockAccessList> blockAccessList);
+      Block block,
+      List<TransactionReceipt> receipts,
+      Optional<BlockAccessList> blockAccessList,
+      Optional<StoredWithBlock> storedWithBlock);
 
   default void storeBlock(final Block block, final List<TransactionReceipt> receipts) {
     storeBlock(block, receipts, Optional.empty());
