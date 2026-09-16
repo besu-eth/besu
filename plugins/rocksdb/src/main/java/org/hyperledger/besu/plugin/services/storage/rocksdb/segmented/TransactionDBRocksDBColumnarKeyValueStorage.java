@@ -88,7 +88,11 @@ public class TransactionDBRocksDBColumnarKeyValueStorage extends RocksDBColumnar
     writeOptions.setIgnoreMissingColumnFamilies(true);
     return new SegmentedKeyValueStorageTransactionValidatorDecorator(
         new RocksDBTransaction(
-            this::safeColumnHandle, db.beginTransaction(writeOptions), writeOptions, metrics),
+            this::safeColumnHandle,
+            db.beginTransaction(writeOptions),
+            writeOptions,
+            metrics,
+            columnFamilyResetLock),
         this.closed::get);
   }
 
@@ -100,7 +104,11 @@ public class TransactionDBRocksDBColumnarKeyValueStorage extends RocksDBColumnar
     writeOptions.setLowPri(true);
     return new SegmentedKeyValueStorageTransactionValidatorDecorator(
         new RocksDBTransaction(
-            this::safeColumnHandle, db.beginTransaction(writeOptions), writeOptions, metrics),
+            this::safeColumnHandle,
+            db.beginTransaction(writeOptions),
+            writeOptions,
+            metrics,
+            columnFamilyResetLock),
         this.closed::get);
   }
 }
