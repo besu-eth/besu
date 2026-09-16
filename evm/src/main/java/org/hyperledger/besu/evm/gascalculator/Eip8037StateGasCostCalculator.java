@@ -29,23 +29,23 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
   static final int STATE_BYTES_PER_AUTH = 23;
 
   /**
-   * Regular gas for storage set (GAS_STORAGE_UPDATE - GAS_COLD_SLOAD = 5000 - 2100 = 2900). The
+   * Execution gas for storage set (GAS_STORAGE_UPDATE - GAS_COLD_SLOAD = 5000 - 2100 = 2900). The
    * state portion ({@code STATE_BYTES_PER_STORAGE_SLOT * cpsb}) is charged separately.
    */
-  static final long STORAGE_SET_REGULAR_GAS = 2_900L;
+  static final long STORAGE_SET_EXECUTION_GAS = 2_900L;
 
   /**
-   * Regular gas for EIP-7702 auth base (calldata + ecrecover + cold access + warm write ≈ 7500).
+   * Execution gas for EIP-7702 auth base (calldata + ecrecover + cold access + warm write ≈ 7500).
    * The state portion ({@code STATE_BYTES_PER_AUTH * cpsb}) is charged separately.
    */
-  static final long AUTH_BASE_REGULAR_GAS = 7_500L;
+  static final long AUTH_BASE_EXECUTION_GAS = 7_500L;
 
   /** Keccak256 word gas cost for code deposit hashing. */
   static final long KECCAK256_WORD_GAS_COST = 6L;
 
   /**
-   * The mainnet transaction gas limit cap from EIP-7825 (2^24), enforced at runtime on regular gas.
-   * Mirrors {@code OsakaTargetingGasLimitCalculator.EIP_7825_TRANSACTION_GAS_LIMIT_CAP} in the
+   * The mainnet transaction gas limit cap from EIP-7825 (2^24), enforced at runtime on execution
+   * gas. Mirrors {@code OsakaTargetingGasLimitCalculator.EIP_7825_TRANSACTION_GAS_LIMIT_CAP} in the
    * ethereum/core module; the value is duplicated here because the evm module cannot depend on
    * ethereum/core. Keep the two in sync.
    */
@@ -93,8 +93,8 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
   }
 
   @Override
-  public long authBaseRegularGas() {
-    return AUTH_BASE_REGULAR_GAS;
+  public long authBaseExecutionGas() {
+    return AUTH_BASE_EXECUTION_GAS;
   }
 
   @Override
@@ -103,7 +103,7 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
   }
 
   @Override
-  public long transactionRegularGasLimit() {
+  public long transactionExecutionGasLimit() {
     return TX_MAX_GAS_LIMIT;
   }
 

@@ -826,15 +826,17 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
     final ChainPruningStrategy pruningMode = chainPrunerConfiguration.pruningMode();
     final boolean preMergeEnabled = dataStorageConfiguration.getHistoryExpiryPruneEnabled();
 
+    final Optional<ChainDataPruner> chainDataPruner;
     if (pruningMode != ChainPruningStrategy.NONE || preMergeEnabled) {
       LOG.info("Adding ChainDataPruner to observe block added events");
       final AtomicLong chainDataPrunerObserverId = new AtomicLong();
-      final ChainDataPruner chainDataPruner =
+      final ChainDataPruner pruner =
           createChainPruner(
               blockchainStorage,
               () -> blockchain.removeObserver(chainDataPrunerObserverId.get()),
               syncState);
-      chainDataPrunerObserverId.set(blockchain.observeBlockAdded(chainDataPruner));
+      chainDataPrunerObserverId.set(blockchain.observeBlockAdded(pruner));
+      chainDataPruner = Optional.of(pruner);
 
       if (pruningMode == ChainPruningStrategy.ALL) {
         LOG.info(
@@ -863,6 +865,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             chainPrunerConfiguration.chainPruningFrequency(),
             chainPrunerConfiguration.preMergePruningBlocksQuantity());
       }
+    } else {
+      chainDataPruner = Optional.empty();
     }
 
     final TransactionPool transactionPool =
@@ -907,7 +911,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             peerTaskExecutor,
             syncState,
             ethProtocolManager,
-            pivotBlockSelector);
+            pivotBlockSelector,
+            chainDataPruner);
 
     ethPeers.setTrailingPeerRequirementsSupplier(synchronizer::calculateTrailingPeerRequirements);
 
@@ -1127,6 +1132,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
    * @param syncState the sync state
    * @param ethProtocolManager the eth protocol manager
    * @param pivotBlockSelector the pivot block selector
+   * @param chainDataPruner the chain data pruner
    * @return the synchronizer
    */
   protected DefaultSynchronizer createSynchronizer(
@@ -1137,7 +1143,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
       final PeerTaskExecutor peerTaskExecutor,
       final SyncState syncState,
       final EthProtocolManager ethProtocolManager,
-      final PivotBlockSelector pivotBlockSelector) {
+      final PivotBlockSelector pivotBlockSelector,
+      final Optional<ChainDataPruner> chainDataPruner) {
 
     return new DefaultSynchronizer(
         syncConfig,
@@ -1153,7 +1160,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
         clock,
         metricsSystem,
         getFullSyncTerminationCondition(protocolContext.getBlockchain()),
-        pivotBlockSelector);
+        pivotBlockSelector,
+        chainDataPruner);
   }
 
   private PivotBlockSelector createPivotSelector(

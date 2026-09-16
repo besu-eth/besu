@@ -1,0 +1,19 @@
+{
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "debug_traceBlockByNumber",
+    "params": [
+      "0x1",
+      {
+        "tracer": "flatCallTracer"
+      }
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": []
+  },
+  "statusCode": 200
+}

@@ -14,7 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.transaction;
 
-import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -41,6 +41,7 @@ import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor;
+import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.MiningBeneficiaryCalculator;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
@@ -54,6 +55,10 @@ import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallExcept
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.account.MutableAccount;
+import org.hyperledger.besu.evm.log.EIP7708TransferLogEmitter;
+import org.hyperledger.besu.evm.log.TransferLogEmitter;
+import org.hyperledger.besu.evm.tracing.EthTransferLogOperationTracer;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.data.BlockOverrides;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
@@ -90,9 +95,11 @@ public class BlockSimulatorTest {
   @Mock private Blockchain blockchain;
   @Mock private WorldUpdater updater;
   @Mock private ProtocolSpec protocolSpec;
+  @Mock private MainnetTransactionProcessor transactionProcessor;
 
   private BlockHeader blockHeader;
   private BlockSimulator blockSimulator;
+  private GasLimitCalculator gasLimitCalculator;
 
   @BeforeEach
   public void setUp() {
@@ -108,11 +115,12 @@ public class BlockSimulatorTest {
     when(miningConfiguration.getCoinbase()).thenReturn(Optional.of(Address.fromHexString("0x1")));
     when(protocolSchedule.getForNextBlockHeader(any(), anyLong())).thenReturn(protocolSpec);
     when(protocolSchedule.getByBlockHeader(any())).thenReturn(protocolSpec);
+    when(protocolSpec.getTransactionProcessor()).thenReturn(transactionProcessor);
+    when(transactionProcessor.getTransferLogEmitter()).thenReturn(TransferLogEmitter.NOOP);
     when(protocolSpec.getMiningBeneficiaryCalculator())
         .thenReturn(mock(MiningBeneficiaryCalculator.class));
-    GasLimitCalculator gasLimitCalculator = mock(GasLimitCalculator.class);
+    gasLimitCalculator = mock(GasLimitCalculator.class);
     when(protocolSpec.getGasLimitCalculator()).thenReturn(gasLimitCalculator);
-    when(gasLimitCalculator.nextGasLimit(anyLong(), anyLong(), anyLong())).thenReturn(1L);
     when(protocolSpec.getFeeMarket()).thenReturn(mock(FeeMarket.class));
     when(protocolSpec.getPreExecutionProcessor()).thenReturn(mock(PreExecutionProcessor.class));
     when(protocolSpec.getSlotDuration()).thenReturn(Duration.ofSeconds(12));
@@ -149,7 +157,7 @@ public class BlockSimulatorTest {
   @Test
   public void shouldStopWhenTransactionSimulationIsInvalid() {
     assertInvalidTransactionMapsToError(
-        TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE,
+        TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE,
         BlockStateCallError.UPFRONT_COST_EXCEEDS_BALANCE);
   }
 
@@ -285,7 +293,7 @@ public class BlockSimulatorTest {
             .build();
 
     BlockHeader result =
-        blockSimulator.overrideBlockHeader(blockHeader, protocolSpec, blockOverrides, true);
+        blockSimulator.overrideBlockHeader(blockHeader, protocolSpec, blockOverrides, true, false);
 
     assertNotNull(result);
     assertEquals(expectedTimestamp, result.getTimestamp());
@@ -315,7 +323,8 @@ public class BlockSimulatorTest {
             .build();
 
     BlockHeader block1Header =
-        blockSimulator.overrideBlockHeader(blockHeader, protocolSpec, block1Overrides, false);
+        blockSimulator.overrideBlockHeader(
+            blockHeader, protocolSpec, block1Overrides, false, false);
     assertEquals(expectedFeeRecipient, block1Header.getCoinbase());
 
     // Block 2: no feeRecipient override — should inherit from block 1
@@ -323,8 +332,43 @@ public class BlockSimulatorTest {
         BlockOverrides.builder().timestamp(13L).blockNumber(2L).build();
 
     BlockHeader block2Header =
-        blockSimulator.overrideBlockHeader(block1Header, protocolSpec, block2Overrides, false);
+        blockSimulator.overrideBlockHeader(
+            block1Header, protocolSpec, block2Overrides, false, false);
     assertEquals(expectedFeeRecipient, block2Header.getCoinbase());
+  }
+
+  @Test
+  public void shouldUseNextGasLimitWhenEnforceConsensusGasLimitIsTrue() {
+    final long parentGasLimit = 10_000_000L;
+    final long targetGasLimit = 20_000_000L;
+    final long nextGasLimit = 10_001_024L; // small EIP-1559 step toward target
+
+    BlockHeader parent =
+        BlockHeaderBuilder.createDefault().gasLimit(parentGasLimit).buildBlockHeader();
+    when(miningConfiguration.getTargetGasLimit()).thenReturn(OptionalLong.of(targetGasLimit));
+    when(gasLimitCalculator.nextGasLimit(anyLong(), anyLong(), anyLong())).thenReturn(nextGasLimit);
+
+    BlockOverrides overrides = BlockOverrides.builder().timestamp(1L).blockNumber(1L).build();
+
+    BlockHeader result =
+        blockSimulator.overrideBlockHeader(parent, protocolSpec, overrides, false, true);
+
+    assertEquals(nextGasLimit, result.getGasLimit());
+  }
+
+  @Test
+  public void shouldInheritParentGasLimitWhenEnforceConsensusGasLimitIsFalse() {
+    final long parentGasLimit = 10_000_000L;
+
+    BlockHeader parent =
+        BlockHeaderBuilder.createDefault().gasLimit(parentGasLimit).buildBlockHeader();
+
+    BlockOverrides overrides = BlockOverrides.builder().timestamp(1L).blockNumber(1L).build();
+
+    BlockHeader result =
+        blockSimulator.overrideBlockHeader(parent, protocolSpec, overrides, false, false);
+
+    assertEquals(parentGasLimit, result.getGasLimit());
   }
 
   @Test
@@ -370,7 +414,9 @@ public class BlockSimulatorTest {
   public void shouldThrowBlockGasLimitExceededWhenTxGasExceedsBlockLimitWithValidationDisabled() {
     when(mutableWorldState.updater()).thenReturn(updater);
 
-    // gasLimitCalculator.nextGasLimit returns 1L (from setUp), so block gas limit = 1
+    // Parent block has gasLimit=1; simulated block inherits it, so tx requesting 1M gas is rejected
+    BlockHeader smallGasLimitHeader =
+        BlockHeaderBuilder.createDefault().gasLimit(1L).buildBlockHeader();
     CallParameter callParameter = mock(CallParameter.class);
     when(callParameter.getGas()).thenReturn(OptionalLong.of(1_000_000L));
     BlockStateCall blockStateCall = new BlockStateCall(List.of(callParameter), null, null);
@@ -384,7 +430,7 @@ public class BlockSimulatorTest {
     BlockStateCallException exception =
         assertThrows(
             BlockStateCallException.class,
-            () -> blockSimulator.process(blockHeader, parameter, mutableWorldState));
+            () -> blockSimulator.process(smallGasLimitHeader, parameter, mutableWorldState));
 
     assertThat(exception.getError()).isEqualTo(BlockStateCallError.BLOCK_GAS_LIMIT_EXCEEDED);
     assertThat(exception.getError().getCode()).isEqualTo(-38015);
@@ -394,7 +440,9 @@ public class BlockSimulatorTest {
   public void shouldThrowBlockGasLimitExceededWhenTxGasExceedsBlockLimitWithValidationEnabled() {
     when(mutableWorldState.updater()).thenReturn(updater);
 
-    // gasLimitCalculator.nextGasLimit returns 1L (from setUp), so block gas limit = 1
+    // Parent block has gasLimit=1; simulated block inherits it, so tx requesting 1M gas is rejected
+    BlockHeader smallGasLimitHeader =
+        BlockHeaderBuilder.createDefault().gasLimit(1L).buildBlockHeader();
     CallParameter callParameter = mock(CallParameter.class);
     when(callParameter.getGas()).thenReturn(OptionalLong.of(1_000_000L));
     BlockStateCall blockStateCall = new BlockStateCall(List.of(callParameter), null, null);
@@ -408,7 +456,7 @@ public class BlockSimulatorTest {
     BlockStateCallException exception =
         assertThrows(
             BlockStateCallException.class,
-            () -> blockSimulator.process(blockHeader, parameter, mutableWorldState));
+            () -> blockSimulator.process(smallGasLimitHeader, parameter, mutableWorldState));
 
     assertThat(exception.getError()).isEqualTo(BlockStateCallError.BLOCK_GAS_LIMIT_EXCEEDED);
     assertThat(exception.getError().getCode()).isEqualTo(-38015);
@@ -419,9 +467,7 @@ public class BlockSimulatorTest {
       shouldThrowBlockGasLimitExceededWhenSecondTxGasExceedsRemainingAfterFirstTxConsumed() {
     // Block gas limit = 30,000. First tx consumes 21,000 (leaving 9,000 remaining).
     // Second tx explicitly requests 10,000 gas, which exceeds the 9,000 remaining.
-    GasLimitCalculator gasLimitCalculator = mock(GasLimitCalculator.class);
-    when(protocolSpec.getGasLimitCalculator()).thenReturn(gasLimitCalculator);
-    when(gasLimitCalculator.nextGasLimit(anyLong(), anyLong(), anyLong())).thenReturn(30_000L);
+    BlockHeader header30k = BlockHeaderBuilder.createDefault().gasLimit(30_000L).buildBlockHeader();
     when(gasLimitCalculator.computeExcessBlobGas(anyLong(), anyLong(), anyLong())).thenReturn(0L);
 
     WorldUpdater transactionUpdater = mock(WorldUpdater.class);
@@ -474,7 +520,7 @@ public class BlockSimulatorTest {
     BlockStateCallException exception =
         assertThrows(
             BlockStateCallException.class,
-            () -> blockSimulator.process(blockHeader, parameter, mutableWorldState));
+            () -> blockSimulator.process(header30k, parameter, mutableWorldState));
 
     assertThat(exception.getError()).isEqualTo(BlockStateCallError.BLOCK_GAS_LIMIT_EXCEEDED);
     assertThat(exception.getError().getCode()).isEqualTo(-38015);
@@ -484,11 +530,11 @@ public class BlockSimulatorTest {
   public void
       shouldCapAutoFilledGasToTransactionGasLimitCapWhenEnforcingConsensusAndBlockLimitIsHigher() {
     // Regression: BlockSimulatorServiceImpl (e.g. Linea state recovery plugin) uses rpcGasCap=0
-    // and enforceConsensusGasLimitCaps=true. On Osaka, txGasLimitCap (EIP-7825) = 16,777,216
+    // and enforceConsensusGasLimit=true. On Osaka, txGasLimitCap (EIP-7825) = 16,777,216
     // while blockGasLimit can be 30M. Without a fix, the auto-filled gasLimit passed to
     // processWithWorldUpdater is blockGasLimit (30M), and the consensus-strict validator then
     // rejects it with EXCEEDS_TRANSACTION_GAS_LIMIT. The gasLimit must be bounded by
-    // txGasLimitCap when enforceConsensusGasLimitCaps=true.
+    // txGasLimitCap when enforceConsensusGasLimit=true.
     final long blockGasLimit = 30_000_000L;
     final long txGasLimitCap = 16_777_216L;
 
@@ -531,7 +577,7 @@ public class BlockSimulatorTest {
         new BlockSimulationParameter.BlockSimulationParameterBuilder()
             .blockStateCalls(List.of(blockStateCall))
             .validation(true)
-            .enforceConsensusGasLimitCaps(true)
+            .enforceConsensusGasLimit(true)
             .build();
 
     assertThrows(
@@ -545,7 +591,7 @@ public class BlockSimulatorTest {
 
   @Test
   public void shouldEnforceConsensusGasLimitCapsWhenFlagIsTrue() {
-    // enforceConsensusGasLimitCaps=true is the path used by BlockSimulatorServiceImpl (e.g. Linea
+    // enforceConsensusGasLimit=true is the path used by BlockSimulatorServiceImpl (e.g. Linea
     // state recovery plugin). It must pass CONSENSUS_STRICT_VALIDATION_PARAMS so that EIP-7825 /
     // EIP-8037 transaction gas limit caps are enforced during block-building simulation.
     when(mutableWorldState.updater()).thenReturn(updater);
@@ -576,7 +622,7 @@ public class BlockSimulatorTest {
         new BlockSimulationParameter.BlockSimulationParameterBuilder()
             .blockStateCalls(List.of(blockStateCall))
             .validation(true)
-            .enforceConsensusGasLimitCaps(true)
+            .enforceConsensusGasLimit(true)
             .build();
 
     assertThrows(
@@ -588,7 +634,7 @@ public class BlockSimulatorTest {
 
   @Test
   public void shouldNotEnforceConsensusGasLimitCapsWhenFlagIsFalse() {
-    // enforceConsensusGasLimitCaps=false is the eth_simulateV1 path. EIP-7825 / EIP-8037 caps
+    // enforceConsensusGasLimit=false is the eth_simulateV1 path. EIP-7825 / EIP-8037 caps
     // must NOT apply so that callers can simulate transactions with gas above the cap.
     when(mutableWorldState.updater()).thenReturn(updater);
 
@@ -618,7 +664,7 @@ public class BlockSimulatorTest {
         new BlockSimulationParameter.BlockSimulationParameterBuilder()
             .blockStateCalls(List.of(blockStateCall))
             .validation(true)
-            .enforceConsensusGasLimitCaps(false)
+            .enforceConsensusGasLimit(false)
             .build();
 
     assertThrows(
@@ -632,6 +678,91 @@ public class BlockSimulatorTest {
     return new BlockSimulationParameter.BlockSimulationParameterBuilder()
         .blockStateCalls(List.of(blockStateCall))
         .build();
+  }
+
+  @Test
+  public void shouldUseEthTransferLogTracerForPreAmsterdamWhenTraceTransfersTrue() {
+    // Pre-Amsterdam: TransferLogEmitter is NOOP, so traceTransfers=true should activate the
+    // legacy EthTransferLogOperationTracer (which emits at 0xeeee...).
+    when(transactionProcessor.getTransferLogEmitter()).thenReturn(TransferLogEmitter.NOOP);
+    when(mutableWorldState.updater()).thenReturn(updater);
+
+    CallParameter callParameter = mock(CallParameter.class);
+    when(callParameter.getGas()).thenReturn(OptionalLong.empty());
+    BlockStateCall blockStateCall = new BlockStateCall(List.of(callParameter), null, null);
+
+    ArgumentCaptor<OperationTracer> tracerCaptor = ArgumentCaptor.forClass(OperationTracer.class);
+    when(transactionSimulator.processWithWorldUpdater(
+            any(),
+            any(),
+            any(),
+            tracerCaptor.capture(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any()))
+        .thenReturn(Optional.empty());
+
+    BlockSimulationParameter parameter =
+        new BlockSimulationParameter.BlockSimulationParameterBuilder()
+            .blockStateCalls(List.of(blockStateCall))
+            .traceTransfers(true)
+            .build();
+
+    assertThrows(
+        BlockStateCallException.class,
+        () -> blockSimulator.process(blockHeader, parameter, mutableWorldState));
+
+    assertThat(tracerCaptor.getValue()).isInstanceOf(EthTransferLogOperationTracer.class);
+  }
+
+  @Test
+  public void shouldNotUseEthTransferLogTracerForAmsterdamWhenTraceTransfersTrue() {
+    // Amsterdam+: the transaction processor already emits EIP-7708 transfer logs into receipts
+    // via its wired-in TransferLogEmitter. The legacy traceTransfers flag must be ignored so that
+    // receipt logs (at 0xffff...) are returned rather than the old tracer logs (at 0xeeee...).
+    when(transactionProcessor.getTransferLogEmitter())
+        .thenReturn(EIP7708TransferLogEmitter.INSTANCE);
+    when(mutableWorldState.updater()).thenReturn(updater);
+
+    CallParameter callParameter = mock(CallParameter.class);
+    when(callParameter.getGas()).thenReturn(OptionalLong.empty());
+    BlockStateCall blockStateCall = new BlockStateCall(List.of(callParameter), null, null);
+
+    ArgumentCaptor<OperationTracer> tracerCaptor = ArgumentCaptor.forClass(OperationTracer.class);
+    when(transactionSimulator.processWithWorldUpdater(
+            any(),
+            any(),
+            any(),
+            tracerCaptor.capture(),
+            any(),
+            any(),
+            any(),
+            anyLong(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any()))
+        .thenReturn(Optional.empty());
+
+    BlockSimulationParameter parameter =
+        new BlockSimulationParameter.BlockSimulationParameterBuilder()
+            .blockStateCalls(List.of(blockStateCall))
+            .traceTransfers(true)
+            .build();
+
+    assertThrows(
+        BlockStateCallException.class,
+        () -> blockSimulator.process(blockHeader, parameter, mutableWorldState));
+
+    assertThat(tracerCaptor.getValue()).isNotInstanceOf(EthTransferLogOperationTracer.class);
+    assertThat(tracerCaptor.getValue()).isEqualTo(OperationTracer.NO_TRACING);
   }
 
   private BlockSimulationParameter buildParameterWithOverrides(

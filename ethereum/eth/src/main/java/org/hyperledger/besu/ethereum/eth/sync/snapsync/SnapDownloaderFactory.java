@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.chain.ChainDataPruner;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.sync.PivotBlockSelector;
@@ -61,7 +62,8 @@ public class SnapDownloaderFactory {
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final SyncState syncState,
       final Clock clock,
-      final SyncDurationMetrics syncDurationMetrics) {
+      final SyncDurationMetrics syncDurationMetrics,
+      final Optional<ChainDataPruner> chainDataPruner) {
     if (Boolean.TRUE.equals(syncConfig.getSnapSyncConfiguration().isSnap2Enabled())) {
       // The snap/2 controller will be created here; until then v2 uses v1 behavior.
     }
@@ -78,7 +80,8 @@ public class SnapDownloaderFactory {
         worldStateStorageCoordinator,
         syncState,
         clock,
-        syncDurationMetrics);
+        syncDurationMetrics,
+        chainDataPruner);
   }
 
   public static Optional<SnapSyncController> createSnapDownloaderV1(
@@ -93,7 +96,8 @@ public class SnapDownloaderFactory {
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final SyncState syncState,
       final Clock clock,
-      final SyncDurationMetrics syncDurationMetrics) {
+      final SyncDurationMetrics syncDurationMetrics,
+      final Optional<ChainDataPruner> chainDataPruner) {
     final boolean snap2Enabled =
         Boolean.TRUE.equals(syncConfig.getSnapSyncConfiguration().isSnap2Enabled());
 
@@ -173,7 +177,8 @@ public class SnapDownloaderFactory {
                 syncState,
                 pivotBlockSelector,
                 metricsSystem,
-                syncDataDirectory),
+                syncDataDirectory,
+                chainDataPruner),
             snapWorldStateDownloader,
             syncDataDirectory,
             snapSyncState,

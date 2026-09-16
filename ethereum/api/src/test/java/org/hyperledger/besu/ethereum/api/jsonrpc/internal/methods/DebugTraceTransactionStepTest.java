@@ -26,6 +26,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.CallTracerResu
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.DebugTraceTransactionResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.FourByteTracerResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.OpCodeLoggerTracerResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.calltrace.FlatCallTracerResult;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
 import org.hyperledger.besu.ethereum.debug.TracerType;
@@ -36,8 +37,10 @@ import org.hyperledger.besu.evm.precompile.PrecompileContractRegistry;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
@@ -68,7 +71,7 @@ class DebugTraceTransactionStepTest {
     PrecompileContractRegistry mockRegistry = mock(PrecompileContractRegistry.class);
     when(mockProtocolSpec.getPrecompileContractRegistry()).thenReturn(mockRegistry);
     when(mockRegistry.get(org.mockito.ArgumentMatchers.any(Address.class))).thenReturn(null);
-
+    when(mockRegistry.getPrecompileAddresses()).thenReturn(Set.of());
     when(mockTransactionTrace.getTransaction()).thenReturn(mockTransaction);
     when(mockTransaction.getHash()).thenReturn(mockHash);
     when(mockTransaction.getSender()).thenReturn(Address.fromHexString("0x00"));
@@ -82,6 +85,7 @@ class DebugTraceTransactionStepTest {
     when(mockResult.getOutput()).thenReturn(Bytes.EMPTY);
     when(mockResult.isSuccessful()).thenReturn(true);
     when(mockTransactionTrace.getTraceFrames()).thenReturn(Collections.emptyList());
+    when(mockTransactionTrace.getBlock()).thenReturn(Optional.empty());
   }
 
   @Test
@@ -110,21 +114,24 @@ class DebugTraceTransactionStepTest {
     assertThat(result.getResult()).isInstanceOf(FourByteTracerResult.class);
   }
 
-  @ParameterizedTest
-  @EnumSource(
-      value = TracerType.class,
-      names = {"FLAT_CALL_TRACER"})
-  @DisplayName("should create step for unimplemented tracers")
-  void shouldCreateFunctionForNotYetImplementedTracers(final TracerType tracerType) {
-    TraceOptions traceOptions = new TraceOptions(tracerType, null, null);
+  @Test
+  @DisplayName("should create step for FLAT_CALL_TRACER that returns list of FlatCallTracerResult")
+  void shouldCreateFunctionForFlatCallTracer() {
+    TraceOptions traceOptions = new TraceOptions(TracerType.FLAT_CALL_TRACER, null, null);
     DebugTraceTransactionStep step = DebugTraceTransactionStep.of(traceOptions, mockProtocolSpec);
 
     DebugTraceTransactionResult result = step.buildResult(mockTransactionTrace);
 
     assertThat(result).isNotNull();
     assertThat(result.getTxHash()).isEqualTo(EXPECTED_HASH);
-    assertThat(result.getResult())
-        .isInstanceOf(DebugTraceTransactionStep.UnimplementedTracerResult.class);
+    assertThat(result.getResult()).isInstanceOf(List.class);
+    @SuppressWarnings("unchecked")
+    List<FlatCallTracerResult> flatResults = (List<FlatCallTracerResult>) result.getResult();
+    assertThat(flatResults).hasSize(1);
+    FlatCallTracerResult frame = flatResults.get(0);
+    assertThat(frame.type()).isEqualTo("call");
+    assertThat(frame.blockHash()).isNull();
+    assertThat(frame.transactionPosition()).isZero();
   }
 
   @ParameterizedTest

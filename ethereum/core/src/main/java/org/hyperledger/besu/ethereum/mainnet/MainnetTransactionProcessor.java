@@ -34,6 +34,7 @@ import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
+import org.hyperledger.besu.evm.account.MutableAccount.BalanceUnderflowException;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
@@ -260,11 +261,11 @@ public class MainnetTransactionProcessor {
             upfrontGasCost,
             previousBalance,
             sender.getBalance());
-      } catch (final IllegalStateException ise) {
-        if (transactionValidationParams.allowUnderpriced()) {
-          LOG.trace("Allowing account balance underflow as requested");
+      } catch (final BalanceUnderflowException bue) {
+        if (transactionValidationParams.allowUnderpricedGas()) {
+          LOG.trace("Allowing account balance underflow as requested", bue);
         } else {
-          throw ise;
+          throw bue;
         }
       }
 
@@ -283,23 +284,24 @@ public class MainnetTransactionProcessor {
         eip2930WarmAddressList.add(miningBeneficiary);
       }
 
-      final long intrinsicRegularGas = gasCalculator.transactionIntrinsicRegularGas(transaction);
+      final long intrinsicExecutionGas =
+          gasCalculator.transactionIntrinsicExecutionGas(transaction);
       final var stateGasCalc = gasCalculator.stateGasCostCalculator();
 
       // EIP-2780 charges every state-dependent cost at the top frame, so the intrinsic is
-      // entirely regular gas and an unaffordable charge halts the frame rather than invalidating
+      // entirely execution gas and an unaffordable charge halts the frame rather than invalidating
       // the transaction. Checked before frame construction to reject at the intrinsic level.
-      if (transaction.getGasLimit() < intrinsicRegularGas) {
+      if (transaction.getGasLimit() < intrinsicExecutionGas) {
         LOG.trace(
             "Insufficient gas for intrinsic cost: gasLimit={}, intrinsic={}",
             transaction.getGasLimit(),
-            intrinsicRegularGas);
+            intrinsicExecutionGas);
         return TransactionProcessingResult.invalid(
             ValidationResult.invalid(
                 TransactionInvalidReason.INTRINSIC_GAS_EXCEEDS_GAS_LIMIT,
                 String.format(
                     "intrinsic gas cost %d exceeds gas limit %d",
-                    intrinsicRegularGas, transaction.getGasLimit())));
+                    intrinsicExecutionGas, transaction.getGasLimit())));
       }
 
       // Amsterdam charges authorizations at the top frame with no refund; pre-Amsterdam reserves
@@ -338,19 +340,20 @@ public class MainnetTransactionProcessor {
       final WorldUpdater frameWorldState =
           deferredDelegationUpdater != null ? deferredDelegationUpdater : worldState;
 
-      final long gasAvailable = transaction.getGasLimit() - intrinsicRegularGas;
+      final long gasAvailable = transaction.getGasLimit() - intrinsicExecutionGas;
       LOG.trace(
           "Gas available for execution {} = {} - {} (limit - intrinsic)",
           gasAvailable,
           transaction.getGasLimit(),
-          intrinsicRegularGas);
+          intrinsicExecutionGas);
 
-      // EIP-8037: regular gas is capped at TX_MAX_GAS_LIMIT, so anything bought above that cap can
+      // EIP-8037: execution gas is capped at TX_MAX_GAS_LIMIT, so anything bought above that cap
+      // can
       // only ever be spent as state gas and starts in the reservoir. Pre-Amsterdam the cap is
-      // Long.MAX_VALUE, leaving the whole budget regular.
-      final long regularBudget =
-          Math.max(0L, stateGasCalc.transactionRegularGasLimit() - intrinsicRegularGas);
-      final long initialGas = Math.min(regularBudget, gasAvailable);
+      // Long.MAX_VALUE, leaving the whole budget as execution gas.
+      final long executionBudget =
+          Math.max(0L, stateGasCalc.transactionExecutionGasLimit() - intrinsicExecutionGas);
+      final long initialGas = Math.min(executionBudget, gasAvailable);
       final long initialStateGasReservoir = gasAvailable - initialGas;
 
       final WorldUpdater worldUpdater = frameWorldState.updater();
@@ -454,24 +457,24 @@ public class MainnetTransactionProcessor {
       }
 
       // Under two-dimensional gas, tx.gasLimit may exceed TX_MAX_GAS_LIMIT to accommodate state
-      // gas, so the cap on regular gas has to be enforced separately here.
+      // gas, so the cap on execution gas has to be enforced separately here.
       final long totalRemaining =
           initialFrame.getRemainingGas() + initialFrame.getStateGasReservoir();
       final long totalConsumed = transaction.getGasLimit() - totalRemaining;
-      final long regularConsumed = totalConsumed - initialFrame.getStateGasUsed();
-      final boolean regularGasLimitExceeded =
-          regularConsumed > stateGasCalc.transactionRegularGasLimit();
-      if (regularGasLimitExceeded) {
+      final long executionConsumed = totalConsumed - initialFrame.getStateGasUsed();
+      final boolean executionGasLimitExceeded =
+          executionConsumed > stateGasCalc.transactionExecutionGasLimit();
+      if (executionGasLimitExceeded) {
         LOG.debug(
-            "Transaction {} regular gas {} exceeds TX_MAX_GAS_LIMIT {}, reverting",
+            "Transaction {} execution gas {} exceeds TX_MAX_GAS_LIMIT {}, reverting",
             transaction.getHash(),
-            regularConsumed,
-            stateGasCalc.transactionRegularGasLimit());
+            executionConsumed,
+            stateGasCalc.transactionExecutionGasLimit());
       }
 
       final boolean txSucceeded =
           initialFrame.getState() == MessageFrame.State.COMPLETED_SUCCESS
-              && !regularGasLimitExceeded;
+              && !executionGasLimitExceeded;
 
       if (txSucceeded) {
         worldUpdater.commit();
@@ -492,18 +495,18 @@ public class MainnetTransactionProcessor {
               ValidationResult.invalid(
                   TransactionInvalidReason.EXECUTION_HALTED,
                   initialFrame.getExceptionalHaltReason().get().getDescription());
-        } else if (regularGasLimitExceeded) {
+        } else if (executionGasLimitExceeded) {
           validationResult =
               ValidationResult.invalid(
                   TransactionInvalidReason.EXECUTION_HALTED,
-                  "Regular gas consumption exceeds TX_MAX_GAS_LIMIT");
+                  "Execution gas consumption exceeds TX_MAX_GAS_LIMIT");
         }
         // EIP-8037: no leaf the creation or the value transfer would have added survives a failed
         // transaction, so their charges come back. Only what was actually charged: refilling a
         // charge that ran out of gas would inflate the reservoir and drive state gas negative.
         if (stateGasCalc.isActive()) {
           final boolean burnsAllGas =
-              initialFrame.getExceptionalHaltReason().isPresent() || regularGasLimitExceeded;
+              initialFrame.getExceptionalHaltReason().isPresent() || executionGasLimitExceeded;
           refundRolledBackStateGas(initialFrame, prepCharges.create(), burnsAllGas);
           refundRolledBackStateGas(initialFrame, prepCharges.recipient(), burnsAllGas);
           // The whole preparation shares one snapshot, so any charge running out of gas rolls the
@@ -525,7 +528,7 @@ public class MainnetTransactionProcessor {
       // Refund the sender by what we should and pay the miner fee (note that we're doing them one
       // after the other so that if it is the same account somehow, we end up with the right result)
       final long refundedGas =
-          regularGasLimitExceeded
+          executionGasLimitExceeded
               ? 0L
               : gasCalculator.calculateGasRefund(transaction, initialFrame, codeDelegationRefund);
       final Wei refundedWei = transactionGasPrice.multiply(refundedGas);
@@ -551,7 +554,7 @@ public class MainnetTransactionProcessor {
               .stateGasUsed(initialFrame.getStateGasUsed())
               .refundedGas(refundedGas)
               .floorCost(floorCost)
-              .regularGasLimitExceeded(regularGasLimitExceeded)
+              .executionGasLimitExceeded(executionGasLimitExceeded)
               .build()
               .calculate();
       final long stateGasUsed = gasResult.effectiveStateGas();
@@ -566,7 +569,7 @@ public class MainnetTransactionProcessor {
       if (blockHeader.getBaseFee().isPresent()) {
         final Wei baseFee = blockHeader.getBaseFee().get();
         final boolean gasPriceBelowBaseFee = transactionGasPrice.compareTo(baseFee) < 0;
-        if (transactionValidationParams.allowUnderpriced()
+        if (transactionValidationParams.allowUnderpricedGas()
             || transactionValidationParams.isPreserveCallerGasPricing()) {
           coinbaseCalculator =
               gasPriceBelowBaseFee ? (a, b, c) -> Wei.ZERO : coinbaseFeePriceCalculator;
@@ -607,7 +610,7 @@ public class MainnetTransactionProcessor {
       }
 
       // For a failed transaction all selfDestructs must have been rolled back by the frame.
-      // Guard here as defense-in-depth: if any leak path (e.g. regularGasLimitExceeded) leaves
+      // Guard here as defense-in-depth: if any leak path (e.g. executionGasLimitExceeded) leaves
       // stale markers, we must not permanently delete accounts from the world state.
       final Set<Address> effectiveSelfDestructs =
           txSucceeded ? initialFrame.getSelfDestructs() : Set.of();
@@ -650,7 +653,7 @@ public class MainnetTransactionProcessor {
                 initialFrame.getOutputData(),
                 partialBlockAccessView,
                 validationResult);
-        successResult.setRegularGasUsedForBlock(gasResult.regularGas());
+        successResult.setExecutionGasUsedForBlock(gasResult.executionGas());
         return successResult;
       } else {
         if (initialFrame.getExceptionalHaltReason().isPresent()) {
@@ -675,7 +678,7 @@ public class MainnetTransactionProcessor {
                 initialFrame.getRevertReason(),
                 initialFrame.getExceptionalHaltReason(),
                 partialBlockAccessView);
-        failedResult.setRegularGasUsedForBlock(gasResult.regularGas());
+        failedResult.setExecutionGasUsedForBlock(gasResult.executionGas());
         return failedResult;
       }
     } catch (final MerkleTrieException re) {
@@ -713,6 +716,15 @@ public class MainnetTransactionProcessor {
           EMPTY_ADDRESS_SET,
           0L);
 
+      // if this happens when simulating allowing underpriced gas, then it could happen that the
+      // sender has insufficient funds for the transfer, so return invalid as a result.
+      if (re instanceof BalanceUnderflowException
+          && transactionValidationParams.allowUnderpricedGas()) {
+        return TransactionProcessingResult.invalid(
+            ValidationResult.invalid(
+                TransactionInvalidReason.INSUFFICIENT_FUNDS_FOR_TRANSFER, re.getMessage()));
+      }
+
       LOG.error("Critical Exception Processing Transaction", re);
       return TransactionProcessingResult.invalid(
           ValidationResult.invalid(
@@ -744,6 +756,10 @@ public class MainnetTransactionProcessor {
 
   public GasCalculator getGasCalculator() {
     return gasCalculator;
+  }
+
+  public TransferLogEmitter getTransferLogEmitter() {
+    return transferLogEmitter;
   }
 
   /**

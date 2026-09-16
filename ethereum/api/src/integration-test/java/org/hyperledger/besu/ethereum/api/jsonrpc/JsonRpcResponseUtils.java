@@ -31,7 +31,6 @@ import static org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcResponseKey.REQUE
 import static org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcResponseKey.SIZE;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcResponseKey.STATE_ROOT;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcResponseKey.TIMESTAMP;
-import static org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcResponseKey.TOTAL_DIFFICULTY;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcResponseKey.TRANSACTION_ROOT;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcResponseKey.WITHDRAWALS_ROOT;
 
@@ -101,7 +100,6 @@ public class JsonRpcResponseUtils {
     final long nonce = unsignedLong(values.get(NONCE));
     final Wei baseFee =
         values.containsKey(BASEFEE) ? Wei.of(unsignedInt256(values.get(BASEFEE))) : null;
-    final Difficulty totalDifficulty = Difficulty.of(unsignedInt256(values.get(TOTAL_DIFFICULTY)));
     final int size = unsignedInt(values.get(SIZE));
     final Hash withdrawalsRoot =
         values.containsKey(WITHDRAWALS_ROOT) ? hash(values.get(WITHDRAWALS_ROOT)) : null;
@@ -136,8 +134,7 @@ public class JsonRpcResponseUtils {
             null, // slotNumber
             blockHeaderFunctions);
 
-    return new JsonRpcSuccessResponse(
-        null, new BlockResult(header, transactions, ommers, totalDifficulty, size));
+    return new JsonRpcSuccessResponse(null, new BlockResult(header, transactions, ommers, size));
   }
 
   public List<TransactionResult> transactions(final String... values) {
