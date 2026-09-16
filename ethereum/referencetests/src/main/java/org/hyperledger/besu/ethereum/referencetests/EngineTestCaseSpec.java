@@ -23,12 +23,12 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.NoOpBonsaiCachedMerkleTrieLoader;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
-import org.hyperledger.besu.ethereum.worldstate.ImmutablePathBasedExtraStorageConfiguration;
+import org.hyperledger.besu.ethereum.worldstate.ImmutableExtraStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
@@ -209,13 +209,13 @@ public class EngineTestCaseSpec {
                 inMemoryKeyValueStorageProvider.createWorldStateStorage(
                     DataStorageConfiguration.DEFAULT_BONSAI_CONFIG),
             blockchain,
-            ImmutablePathBasedExtraStorageConfiguration.builder()
+            ImmutableExtraStorageConfiguration.builder()
                 .maxLayersToLoad(engineNewPayloads != null ? (long) engineNewPayloads.length : 0L)
                 .build(),
             SHARED_TRIE_LOADER,
             SHARED_SERVICE_MANAGER,
             EvmConfiguration.DEFAULT,
-            new PathBasedCodeCache());
+            new BonsaiCodeCache());
 
     final MutableWorldState worldState = worldStateArchive.getWorldState();
     final WorldUpdater updater = worldState.updater();

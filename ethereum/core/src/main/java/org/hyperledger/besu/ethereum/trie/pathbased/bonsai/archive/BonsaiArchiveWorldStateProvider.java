@@ -23,15 +23,15 @@ import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveCoverageTracker;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveHistoryReader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateConfig;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.plugin.ServiceManager;
@@ -54,7 +54,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
   private static final Logger LOG = LoggerFactory.getLogger(BonsaiArchiveWorldStateProvider.class);
 
   private final BonsaiWorldStateKeyValueStorage archiveReadStorage;
-  private final PathBasedCodeCache codeCache;
+  private final BonsaiCodeCache codeCache;
   private final WorldStateConfig archiveWorldStateConfig;
   private volatile LongSupplier archiveMigrationProgressSupplier = () -> -1L;
 
@@ -68,7 +68,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
       final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader,
       final ServiceManager pluginContext,
       final EvmConfiguration evmConfiguration,
-      final PathBasedCodeCache codeCache,
+      final BonsaiCodeCache codeCache,
       final MetricsSystem metricsSystem) {
     this(
         worldStateKeyValueStorage,
@@ -89,13 +89,13 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
       final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader,
       final ServiceManager pluginContext,
       final EvmConfiguration evmConfiguration,
-      final PathBasedCodeCache codeCache,
+      final BonsaiCodeCache codeCache,
       final MetricsSystem metricsSystem,
       final Optional<Long> amsterdamMilestone) {
     super(
         worldStateKeyValueStorage,
         blockchain,
-        dataStorageConfiguration.getPathBasedExtraStorageConfiguration(),
+        dataStorageConfiguration.getExtraStorageConfiguration(),
         bonsaiCachedMerkleTrieLoader,
         pluginContext,
         evmConfiguration,
