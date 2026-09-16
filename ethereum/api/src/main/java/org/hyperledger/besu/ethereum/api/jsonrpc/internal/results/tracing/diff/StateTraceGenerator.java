@@ -16,13 +16,11 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.tracing.diff;
 
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTrace;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.tracing.TracingUtils;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.tracing.TraceFrame;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
-import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -37,12 +35,7 @@ import org.apache.tuweni.units.bigints.UInt256;
  * Generates state diffs (before/after account and storage changes) for Ethereum transactions.
  *
  * <p>This class is used in JSON-RPC tracing to show how accounts and storage values were modified
- * by a transaction. It can produce:
- *
- * <ul>
- *   <li>A diff-only trace (changed values only)
- *   <li>A pre-state trace (complete state snapshot of relevant accounts)
- * </ul>
+ * by a transaction. It produces a diff-only trace (changed values only).
  */
 public class StateTraceGenerator {
 
@@ -55,32 +48,6 @@ public class StateTraceGenerator {
    * @return A stream of {@link StateDiffTrace} objects representing modified state.
    */
   public Stream<StateDiffTrace> generateStateDiff(final TransactionTrace transactionTrace) {
-    return generate(transactionTrace, false); // false = diff-only (not pre-state)
-  }
-
-  /**
-   * Generate the full pre-state for a transaction.
-   *
-   * <p>Unlike {@link #generateStateDiff(TransactionTrace)}, this method does not only include
-   * modified accounts. It also ensures that relevant accounts such as the sender, recipient, and
-   * coinbase are included in the result, even if they were not modified by the transaction.
-   *
-   * @param transactionTrace The transaction trace containing execution and world state data.
-   * @return A stream of {@link StateDiffTrace} objects representing the pre-state.
-   */
-  public Stream<StateDiffTrace> generatePreState(final TransactionTrace transactionTrace) {
-    return generate(transactionTrace, true); // true = include full pre-state
-  }
-
-  /**
-   * Internal generator for state diffs or pre-states depending on the mode.
-   *
-   * @param transactionTrace The transaction trace.
-   * @param isPreState Whether to generate a pre-state (true) or diff (false).
-   * @return A stream containing one {@link StateDiffTrace}.
-   */
-  private Stream<StateDiffTrace> generate(
-      final TransactionTrace transactionTrace, final boolean isPreState) {
     final List<TraceFrame> traceFrames = transactionTrace.getTraceFrames();
     if (traceFrames.isEmpty()) {
       return Stream.empty();
@@ -91,25 +58,10 @@ public class StateTraceGenerator {
 
     final StateDiffTrace stateDiffResult = new StateDiffTrace();
 
-    // In pre-state mode, we capture the full pre-state of all accounts touched during execution.
-    // Only the parent updater is relevant here. Post-transaction state does not matter.
-    // To identify which accounts were read, we rely on the transaction trace’s access list (BAL).
-    if (isPreState) {
-      processPreStateMode(
-          parentUpdater,
-          stateDiffResult,
-          transactionTrace
-              .getTouchedAccounts()
-              .orElseThrow(
-                  () ->
-                      new IllegalArgumentException(
-                          "Touched accounts must be present in pre-state mode")));
-    } else {
-      // In diff mode, include only accounts whose state changed.
-      // Use the transaction updater to detect modifications and compare them to the parent state.
-      // As we need only modified accounts, we can rely on the world updater's touched accounts.
-      processDiffMode(transactionUpdater, parentUpdater, stateDiffResult);
-    }
+    // In diff mode, include only accounts whose state changed.
+    // Use the transaction updater to detect modifications and compare them to the parent state.
+    // As we need only modified accounts, we can rely on the world updater's touched accounts.
+    processDiffMode(transactionUpdater, parentUpdater, stateDiffResult);
 
     processDeletedAccounts(stateDiffResult, transactionUpdater, parentUpdater);
     return Stream.of(stateDiffResult);
@@ -162,40 +114,6 @@ public class StateTraceGenerator {
                     updatedAccount.getAddress().getBytes().toHexString(), accountDiff);
               }
             });
-  }
-
-  private void processPreStateMode(
-      final WorldUpdater parentUpdater,
-      final StateDiffTrace stateDiffResult,
-      final Collection<AccessLocationTracker.AccountAccessList> touchedAccounts) {
-
-    for (var accountChanges : touchedAccounts) {
-      final var address = accountChanges.getAddress();
-      final var original = parentUpdater.get(address);
-
-      // Build the storage portion of the pre-state.
-      // For each accessed slot, we extract the pre-transaction value directly from the parent
-      // updater.
-      final Map<String, DiffNode> storageDiff = new TreeMap<>();
-      accountChanges
-          .getSlots()
-          .forEach(
-              slotKey -> {
-                // The pre-state mode only cares about the *original* value.
-                if (original != null) {
-                  final UInt256 value = original.getStorageValue(slotKey);
-                  storageDiff.put(slotKey.toHexString(), new DiffNode(value.toHexString(), null));
-                }
-              });
-
-      // Build the account-level pre-state diff.
-      // All fields represent the original state; "to" values are intentionally null in pre-state
-      // mode.
-      final var accountDiff = createAccountDiff(original, null, storageDiff);
-
-      // In pre-state mode, every touched account is included.
-      stateDiffResult.put(address.getBytes().toHexString(), accountDiff);
-    }
   }
 
   /**

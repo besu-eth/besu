@@ -31,8 +31,6 @@ import org.hyperledger.besu.ethereum.mainnet.ImmutableTransactionValidationParam
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.vm.StreamingDebugOperationTracer;
 import org.hyperledger.besu.evm.ModificationNotAllowedException;
@@ -334,8 +332,6 @@ public class DebugTraceBlockStreamer {
       final Wei blobGasPrice,
       final BlockHashLookup blockHashLookup) {
     final DebugTraceTransactionStep step = DebugTraceTransactionStep.of(traceOptions, protocolSpec);
-    final AccessLocationTracker accessListTracker =
-        BlockAccessList.BlockAccessListBuilder.createTransactionAccessLocationTracker(0);
 
     final TransactionProcessingResult result =
         transactionProcessor.processTransaction(
@@ -347,7 +343,7 @@ public class DebugTraceBlockStreamer {
             blockHashLookup,
             ImmutableTransactionValidationParams.builder().build(),
             blobGasPrice,
-            Optional.of(accessListTracker));
+            Optional.empty());
 
     final TransactionTrace transactionTrace =
         new TransactionTrace(
@@ -355,8 +351,7 @@ public class DebugTraceBlockStreamer {
             result,
             step.getOperationTracer().getTraceFrames(),
             Optional.of(block),
-            transactionIndex,
-            accessListTracker.getTouchedAccounts());
+            transactionIndex);
 
     return step.buildResult(transactionTrace);
   }

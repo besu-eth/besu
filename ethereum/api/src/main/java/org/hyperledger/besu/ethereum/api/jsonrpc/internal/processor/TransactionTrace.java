@@ -16,11 +16,9 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor;
 
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.evm.tracing.TraceFrame;
 
-import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -31,7 +29,6 @@ public class TransactionTrace {
   private final List<TraceFrame> traceFrames;
   private final Optional<Block> block;
   private final int transactionIndex;
-  private final Optional<Collection<AccessLocationTracker.AccountAccessList>> touchedAccounts;
 
   public TransactionTrace(final Optional<Block> block) {
     this.transaction = null;
@@ -39,7 +36,6 @@ public class TransactionTrace {
     this.traceFrames = null;
     this.block = block;
     this.transactionIndex = -1;
-    this.touchedAccounts = Optional.empty();
   }
 
   public TransactionTrace(
@@ -51,7 +47,6 @@ public class TransactionTrace {
     this.traceFrames = traceFrames;
     this.block = Optional.empty();
     this.transactionIndex = -1;
-    this.touchedAccounts = Optional.empty();
   }
 
   public TransactionTrace(
@@ -65,22 +60,6 @@ public class TransactionTrace {
     this.traceFrames = traceFrames;
     this.block = block;
     this.transactionIndex = transactionIndex;
-    this.touchedAccounts = Optional.empty();
-  }
-
-  public TransactionTrace(
-      final Transaction transaction,
-      final TransactionProcessingResult result,
-      final List<TraceFrame> traceFrames,
-      final Optional<Block> block,
-      final int transactionIndex,
-      final Collection<AccessLocationTracker.AccountAccessList> touchedAccounts) {
-    this.transaction = transaction;
-    this.result = result;
-    this.traceFrames = traceFrames;
-    this.block = block;
-    this.transactionIndex = transactionIndex;
-    this.touchedAccounts = Optional.ofNullable(touchedAccounts);
   }
 
   public TransactionTrace(final Transaction transaction, final Optional<Block> block) {
@@ -89,7 +68,6 @@ public class TransactionTrace {
     this.traceFrames = null;
     this.block = block;
     this.transactionIndex = -1;
-    this.touchedAccounts = Optional.empty();
   }
 
   public Transaction getTransaction() {
@@ -123,9 +101,5 @@ public class TransactionTrace {
    */
   public int getTransactionIndex() {
     return transactionIndex;
-  }
-
-  public Optional<Collection<AccessLocationTracker.AccountAccessList>> getTouchedAccounts() {
-    return touchedAccounts;
   }
 }

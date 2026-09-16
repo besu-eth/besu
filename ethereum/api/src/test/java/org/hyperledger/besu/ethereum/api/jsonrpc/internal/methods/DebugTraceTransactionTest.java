@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -25,6 +26,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.Tracer;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTrace;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTracer;
@@ -194,5 +196,28 @@ public class DebugTraceTransactionTest {
     final JsonRpcErrorResponse errorResponse = (JsonRpcErrorResponse) response;
     assertThat(errorResponse.getErrorType())
         .isEqualByComparingTo(RpcErrorType.TRANSACTION_NOT_FOUND);
+  }
+
+  @Test
+  public void shouldRejectPrestateDiffModeWithIncludeEmptyAsInvalidParams() {
+    final TransactionWithMetadata transactionWithMetadata =
+        new TransactionWithMetadata(transaction, 12L, Optional.empty(), blockHash, 2, 0L);
+    when(blockchainQueries.transactionByHash(transactionHash))
+        .thenReturn(Optional.of(transactionWithMetadata));
+    final Map<String, Object> tracerConfig = new HashMap<>();
+    tracerConfig.put("diffMode", true);
+    tracerConfig.put("includeEmpty", true);
+    final Map<String, Object> options = new HashMap<>();
+    options.put("tracer", "prestateTracer");
+    options.put("tracerConfig", tracerConfig);
+    final Object[] params = new Object[] {transactionHash, options};
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(new JsonRpcRequest("2.0", "debug_traceTransaction", params));
+
+    assertThatThrownBy(() -> debugTraceTransaction.response(request))
+        .isInstanceOf(InvalidJsonRpcParameters.class)
+        .hasMessage("cannot use diffMode with includeEmpty")
+        .extracting(e -> ((InvalidJsonRpcParameters) e).getRpcErrorType())
+        .isEqualTo(RpcErrorType.INVALID_TRANSACTION_TRACE_PARAMS);
   }
 }

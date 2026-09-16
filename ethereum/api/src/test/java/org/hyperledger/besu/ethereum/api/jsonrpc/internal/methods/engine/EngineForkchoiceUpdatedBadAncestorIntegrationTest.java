@@ -202,6 +202,30 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
   }
 
   @Test
+  public void shouldReturnStoredLatestValidHashWhenBadBlockItselfIsHead() {
+    // FCU on a bad head must reuse the LVH stored by the first INVALID newPayload.
+    final BlockHeader validParent = headerBuilder.number(100L).buildHeader();
+    final BlockHeader badHeader =
+        headerBuilder.number(101L).parentHash(validParent.getHash()).buildHeader();
+    final Block badBlock = new Block(badHeader, BlockBody.empty());
+
+    badBlockManager.addBadBlock(
+        badBlock, BadBlockCause.fromValidationFailure("state root mismatch"));
+    badBlockManager.addLatestValidHash(badBlock.getHash(), validParent.getHash());
+
+    final JsonRpcResponse response =
+        invokeForkchoiceUpdated(
+            new ForkchoiceStateV1(
+                badBlock.getHash(), validParent.getHash(), validParent.getHash()));
+
+    final ForkchoiceUpdatedResultV1 forkchoiceResult =
+        (ForkchoiceUpdatedResultV1) ((JsonRpcSuccessResponse) response).getResult();
+    assertThat(forkchoiceResult.getPayloadStatus().getStatus()).isEqualTo(INVALID);
+    assertThat(forkchoiceResult.getPayloadStatus().getLatestValidHash())
+        .contains(validParent.getHash());
+  }
+
+  @Test
   public void shouldReturnInvalidWithZeroHashWhenBadBlockParentIsUnknown() {
     // Same shape as the previous test, except the bad block's parent is NOT in the blockchain.
     // This models a deep backward-sync failure where we never resolved the ancestor — onBadChain

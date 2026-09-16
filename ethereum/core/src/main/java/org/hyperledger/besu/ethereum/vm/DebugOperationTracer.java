@@ -19,7 +19,6 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
-import org.hyperledger.besu.evm.operation.AbstractCreateOperation;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.operation.Operation.OperationResult;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder.OpCodeTracerConfig;
@@ -92,15 +91,7 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
     final int opcodeNumber = (opcode != null) ? currentOperation.getOpcode() : Integer.MAX_VALUE;
     final WorldUpdater worldUpdater = frame.getWorldUpdater();
     final Bytes outputData = frame.getOutputData();
-    // Always capture memory for soft-failed CREATE/CREATE2 ops so callTracer can extract init code
-    final Optional<Bytes[]> memory =
-        captureMemory(frame)
-            .or(
-                () ->
-                    operationResult.getSoftFailureReason().isPresent()
-                            && currentOperation instanceof AbstractCreateOperation
-                        ? forceCaptureMem(frame)
-                        : Optional.empty());
+    final Optional<Bytes[]> memory = captureMemory(frame);
     final Optional<Bytes> returnData = captureReturnData(frame);
     final Optional<Bytes[]> stackPostExecution = captureStack(frame);
 
