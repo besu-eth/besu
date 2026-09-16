@@ -161,7 +161,7 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
    * @param codeSupplier a supplier for the initcode, if needed for costing
    * @return the long
    */
-  protected abstract long cost(final MessageFrame frame, Supplier<Code> codeSupplier);
+  public abstract long cost(final MessageFrame frame, Supplier<Code> codeSupplier);
 
   /**
    * Target contract address.
@@ -188,7 +188,7 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
    * @param frame the message frame the operation executed in
    * @return the requested initcode size
    */
-  protected long getInputSize(final MessageFrame frame) {
+  public long getInputSize(final MessageFrame frame) {
     return clampedToLong(frame.getStackItem(2));
   }
 

@@ -81,7 +81,6 @@ class PrestateTracerTest {
     evm = mock(EVM.class);
     when(protocolSpec.getEvm()).thenReturn(evm);
     when(evm.getEvmVersion()).thenReturn(EvmSpecVersion.CANCUN);
-    when(protocolSpec.getGasCalculator()).thenReturn(new CancunGasCalculator());
     when(evm.getMaxInitcodeSize()).thenReturn(0xC000);
     world = mock(WorldUpdater.class);
   }

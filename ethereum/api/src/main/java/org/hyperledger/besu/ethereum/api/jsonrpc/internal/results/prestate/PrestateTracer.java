@@ -23,8 +23,8 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.evm.EvmSpecVersion;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.frame.MessageFrame;
-import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.internal.Words;
+import org.hyperledger.besu.evm.operation.AbstractCreateOperation;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.CodeDelegationHelper;
@@ -66,19 +66,19 @@ import org.apache.tuweni.units.bigints.UInt256;
  */
 public class PrestateTracer implements OperationTracer {
 
-  private static final String CALL = "CALL";
-  private static final String CALLCODE = "CALLCODE";
-  private static final String DELEGATECALL = "DELEGATECALL";
-  private static final String STATICCALL = "STATICCALL";
-  private static final String CREATE = "CREATE";
-  private static final String CREATE2 = "CREATE2";
-  private static final String SELFDESTRUCT = "SELFDESTRUCT";
-  private static final String SLOAD = "SLOAD";
-  private static final String SSTORE = "SSTORE";
-  private static final String EXTCODECOPY = "EXTCODECOPY";
-  private static final String EXTCODEHASH = "EXTCODEHASH";
-  private static final String EXTCODESIZE = "EXTCODESIZE";
-  private static final String BALANCE = "BALANCE";
+  private static final int BALANCE = 0x31;
+  private static final int EXTCODESIZE = 0x3B;
+  private static final int EXTCODECOPY = 0x3C;
+  private static final int EXTCODEHASH = 0x3F;
+  private static final int SLOAD = 0x54;
+  private static final int SSTORE = 0x55;
+  private static final int CREATE = 0xF0;
+  private static final int CALL = 0xF1;
+  private static final int CALLCODE = 0xF2;
+  private static final int DELEGATECALL = 0xF4;
+  private static final int CREATE2 = 0xF5;
+  private static final int STATICCALL = 0xFA;
+  private static final int SELFDESTRUCT = 0xFF;
 
   private final boolean diffMode;
   private final boolean disableCode;
@@ -86,7 +86,6 @@ public class PrestateTracer implements OperationTracer {
   private final boolean includeEmpty;
   private final boolean eip6780;
   private final boolean eip7702;
-  private final GasCalculator gasCalculator;
   private final int maxInitcodeSize;
 
   private final Map<Address, AccountState> pre = new HashMap<>();
@@ -110,7 +109,6 @@ public class PrestateTracer implements OperationTracer {
     final EvmSpecVersion evmVersion = protocolSpec.getEvm().getEvmVersion();
     this.eip6780 = evmVersion.compareTo(EvmSpecVersion.CANCUN) >= 0;
     this.eip7702 = evmVersion.compareTo(EvmSpecVersion.PRAGUE) >= 0;
-    this.gasCalculator = protocolSpec.getGasCalculator();
     this.maxInitcodeSize = protocolSpec.getEvm().getMaxInitcodeSize();
   }
 
@@ -170,7 +168,7 @@ public class PrestateTracer implements OperationTracer {
     }
     final WorldUpdater world = frame.getWorldUpdater();
     final Address self = frame.getRecipientAddress();
-    switch (op.getName()) {
+    switch (op.getOpcode()) {
       case SLOAD, SSTORE -> {
         if (disableStorage) {
           return;
@@ -215,20 +213,15 @@ public class PrestateTracer implements OperationTracer {
         pending = new Pending(accounts, null, null, null, addr, null);
       }
       case CREATE2 -> {
+        // Mirror AbstractCreateOperation.execute's early aborts: Geth's OnOpcode fires only
+        // after gas and initcode-size validation, and reading initcode before it would allocate
+        // memory the EVM will refuse to expand. Neither CreateOperation nor Create2Operation
+        // consults the code supplier in cost(), so pass a null-returning one.
+        final AbstractCreateOperation createOp = (AbstractCreateOperation) op;
         final int offset = Words.clampedToInt(frame.getStackItem(1));
         final int size = Words.clampedToInt(frame.getStackItem(2));
-        // Mirror AbstractCreateOperation's early aborts: Geth's OnOpcode fires only after gas
-        // and initcode-size validation, and reading initcode before it would allocate memory
-        // the EVM will refuse to expand.
-        final long cost =
-            Words.clampedAdd(
-                Words.clampedAdd(
-                    gasCalculator.txCreateCost(),
-                    gasCalculator.memoryExpansionGasCost(frame, offset, size)),
-                Words.clampedAdd(
-                    gasCalculator.createKeccakCost(size), gasCalculator.initcodeCost(size)));
-        if (frame.getRemainingGas() < cost
-            || size > maxInitcodeSize
+        if (frame.getRemainingGas() < createOp.cost(frame, () -> null)
+            || createOp.getInputSize(frame) > maxInitcodeSize
             || (long) offset + size > Integer.MAX_VALUE) {
           return;
         }
@@ -258,8 +251,11 @@ public class PrestateTracer implements OperationTracer {
     final Pending currentPending = pending;
     pending = null;
     // Besu fires tracePreExecution before stack/gas validation whereas Geth's OnOpcode fires
-    // after it; every halt Besu can raise on these opcodes corresponds to a Geth error raised
-    // before OnOpcode, so discard the snapshot on exceptional halt.
+    // after it. Every halt Besu can raise on these opcodes corresponds to a Geth error raised
+    // before OnOpcode: stack underflow, out-of-gas, EIP-3860 CODE_TOO_LARGE, and static-context
+    // write protection (Geth checks readOnly inside the dynamic gas functions — gasCallIntrinsic,
+    // gasCallEIP7702, makeSelfdestructGasFn, gasCreate2Eip3860 — not in the opcode body), so the
+    // snapshot is discarded on exceptional halt.
     if (currentPending != null && frame.getState() != MessageFrame.State.EXCEPTIONAL_HALT) {
       currentPending.accounts().forEach(entry -> install(entry.getKey(), entry.getValue()));
       if (currentPending.storageAddress() != null) {
@@ -326,10 +322,12 @@ public class PrestateTracer implements OperationTracer {
       final Wei newBalance = now == null ? Wei.ZERO : now.getBalance();
       final long newNonce = now == null ? 0L : now.getNonce();
       // Geth reports the literal zero codeHash for an address with no stateObject, distinct
-      // from an existing codeless account's EmptyCodeHash. Besu eagerly materializes an empty
-      // stub for e.g. a zero-value SELFDESTRUCT beneficiary before clearing runs; treat a fully
-      // empty post-tx account the same as nonexistent so the comparison against the
-      // EmptyCodeHash default below matches Geth's output.
+      // from an existing codeless account's EmptyCodeHash, and runs Finalise (EIP-161 empty
+      // account deletion) before OnTxEnd. Besu fires traceEndTransaction before
+      // clearAccountsThatAreEmpty runs, so approximate the post-clearing view by treating a
+      // fully empty account as nonexistent. This is not exact: a pre-existing empty account that
+      // was only read (never touched), or any empty account before EIP-161, is not deleted by
+      // Geth and would not get a codeHash diff there, but does here.
       final boolean nonexistent =
           now == null
               || (now.getNonce() == 0 && now.getCode().isEmpty() && now.getBalance().isZero());
