@@ -279,6 +279,7 @@ public sealed class EngineNewPayloadV1<
           return new JsonRpcErrorResponse(reqId, RpcErrorType.INTERNAL_ERROR);
         }
       }
+      protocolContext.getBadBlockManager().addLatestValidHash(block.getHash(), latestValidAncestor);
       return respondWithInvalid(
           reqId,
           blockParam,
