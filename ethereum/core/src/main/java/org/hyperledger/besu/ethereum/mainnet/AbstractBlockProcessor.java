@@ -571,6 +571,12 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                   gasMetered,
                   blockHashLookup.getAccessedAncestors())),
           parallelizedTxFound ? Optional.of(nbParallelTx) : Optional.empty());
+    } catch (final RuntimeException | Error e) {
+      // a retry of this block must not start from the changes of this failed attempt
+      if (worldState instanceof BonsaiWorldState) {
+        ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
+      }
+      throw e;
     } finally {
       stateRootCommitter.cancel();
       preProcessingContext.ifPresent(

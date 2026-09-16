@@ -1028,9 +1028,10 @@ public class DefaultBlockchain implements MutableBlockchain {
       final BlockWithReceipts blockWithReceipts = getBlockWithReceipts(blockHeader).get();
 
       BlockAddedEvent newHeadEvent = handleNewHead(updater, blockWithReceipts, true);
-      updateCacheForNewCanonicalHead(
-          blockWithReceipts.getBlock(), calculateTotalDifficulty(blockHeader));
+      final Difficulty totalDifficulty = calculateTotalDifficulty(blockHeader);
       updater.commit();
+      // a head cached ahead of a failed commit makes the next forkchoiceUpdated skip writing it
+      updateCacheForNewCanonicalHead(blockWithReceipts.getBlock(), totalDifficulty);
       blockAddedObservers.forEach(observer -> observer.onBlockAdded(newHeadEvent));
       return true;
     } catch (final NoSuchElementException e) {
