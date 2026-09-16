@@ -976,6 +976,7 @@ application {
   mainClass = 'org.hyperledger.besu.Besu'
   applicationDefaultJvmArgs = [
     '-Dvertx.disableFileCPResolving=true',
+    '-XX:+ExitOnOutOfMemoryError',
     // BESU_HOME is replaced by a doFirst block in the run task.
     '-Dbesu.home=BESU_HOME',
     // We shutdown log4j ourselves, as otherwise this shutdown hook runs before our own and whatever
