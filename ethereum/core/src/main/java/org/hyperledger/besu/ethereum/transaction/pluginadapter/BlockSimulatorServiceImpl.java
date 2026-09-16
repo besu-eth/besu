@@ -172,7 +172,7 @@ public class BlockSimulatorServiceImpl implements BlockSimulationService {
           new BlockSimulationParameter.BlockSimulationParameterBuilder()
               .blockStateCalls(List.of(blockStateCall))
               .validation(true)
-              .enforceConsensusGasLimitCaps(true)
+              .enforceConsensusGasLimit(true)
               .fakeSignature(fakeSignature)
               .build();
 
