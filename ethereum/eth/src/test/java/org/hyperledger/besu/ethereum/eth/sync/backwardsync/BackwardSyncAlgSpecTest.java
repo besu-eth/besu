@@ -124,8 +124,8 @@ public class BackwardSyncAlgSpecTest {
     ttdCaptor.getValue().onTTDReached(true);
     completionCaptor.getValue().onInitialSyncCompleted();
 
-    Thread.sleep(100);
-
+    // async readiness check plus both listener callbacks
+    verify(context, timeout(1000).times(3)).isReady();
     assertThat(voidCompletableFuture).isNotCompleted();
   }
 
@@ -158,12 +158,12 @@ public class BackwardSyncAlgSpecTest {
 
     final CompletableFuture<Void> voidCompletableFuture = algorithm.waitForReady();
 
-    Thread.sleep(50);
+    // ensure the async readiness check has seen not ready before flipping the flag
+    verify(context, timeout(1000)).isReady();
     assertThat(voidCompletableFuture).isNotCompleted();
     verify(context.getSyncState()).subscribeTTDReached(ttdCaptor.capture());
 
     ready.set(true);
-    Thread.sleep(50);
     assertThat(voidCompletableFuture).isNotCompleted();
 
     ttdCaptor.getValue().onTTDReached(true);
@@ -212,13 +212,13 @@ public class BackwardSyncAlgSpecTest {
     when(context.getEthContext().getEthPeers().peerCount()).thenReturn(1);
 
     final CompletableFuture<Void> voidCompletableFuture = algorithm.waitForReady();
-    Thread.sleep(50);
+    // ensure the async readiness check has seen not ready before flipping the flag
+    verify(context, timeout(1000)).isReady();
 
     verify(context.getSyncState()).subscribeCompletionReached(completionCaptor.capture());
     assertThat(voidCompletableFuture).isNotCompleted();
 
     ready.set(true);
-    Thread.sleep(50);
     assertThat(voidCompletableFuture).isNotCompleted();
 
     completionCaptor.getValue().onInitialSyncCompleted();
