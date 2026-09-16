@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.chain.ChainDataPruner;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Difficulty;
@@ -182,11 +183,18 @@ public class SnapSyncChainDownloader
       final MetricsSystem metricsSystem,
       final SnapSyncProcessState fastSyncState,
       final SyncDurationMetrics syncDurationMetrics,
-      final Path fastSyncDataDirectory) {
+      final Path fastSyncDataDirectory,
+      final Optional<ChainDataPruner> chainDataPruner) {
 
     final SnapSyncChainDownloadPipelineFactory pipelineFactory =
         new SnapSyncChainDownloadPipelineFactory(
-            config, protocolSchedule, protocolContext, ethContext, fastSyncState, metricsSystem);
+            config,
+            protocolSchedule,
+            protocolContext,
+            ethContext,
+            fastSyncState,
+            metricsSystem,
+            chainDataPruner);
 
     final BlockHeader pivotBlockHeader =
         fastSyncState
