@@ -24,6 +24,7 @@ import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -157,7 +158,9 @@ public class MessageFrameTestFixture {
     final BlockHeader localBlockHeader =
         this.blockHeader.orElseGet(() -> localBlockchain.getBlockHeader(0).get());
     final ProtocolSpec protocolSpec =
-        executionContextTestFixture.getProtocolSchedule().getByBlockHeader(localBlockHeader);
+        getOrCreateExecutionContextTestFixture()
+            .getProtocolSchedule()
+            .getByBlockHeader(localBlockHeader);
     final MessageFrame frame =
         MessageFrame.builder()
             .parentMessageFrame(parentFrame)

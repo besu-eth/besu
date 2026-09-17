@@ -85,7 +85,6 @@ class CreateOperationTest {
     when(worldUpdater.getSenderAccount(any())).thenReturn(account);
     when(worldUpdater.getOrCreate(any())).thenReturn(newAccount);
     when(newAccount.getCode()).thenReturn(Bytes.EMPTY);
-    when(newAccount.isStorageEmpty()).thenReturn(true);
     when(worldUpdater.updater()).thenReturn(worldUpdater);
 
     final EVM evm = MainnetEVMs.london(EvmConfiguration.DEFAULT);
@@ -176,7 +175,6 @@ class CreateOperationTest {
     when(worldUpdater.getSenderAccount(any())).thenReturn(account);
     when(worldUpdater.getOrCreate(any())).thenReturn(newAccount);
     when(newAccount.getCode()).thenReturn(Bytes.EMPTY);
-    when(newAccount.isStorageEmpty()).thenReturn(true);
     when(worldUpdater.updater()).thenReturn(worldUpdater);
 
     final EVM evm = MainnetEVMs.shanghai(DEV_NET_CHAIN_ID, EvmConfiguration.DEFAULT);
@@ -214,7 +212,8 @@ class CreateOperationTest {
   @Test
   void amsterdamMaxInitCodeSizeCreate() {
     final UInt256 memoryOffset = UInt256.fromHexString("0xFF");
-    final UInt256 memoryLength = UInt256.fromHexString("0x10000");
+    // exactly MAX_INITCODE_SIZE_AMSTERDAM (0x20000)
+    final UInt256 memoryLength = UInt256.fromHexString("0x20000");
     final MessageFrame messageFrame = testMemoryFrame(memoryOffset, memoryLength, UInt256.ZERO, 1);
 
     when(account.getNonce()).thenReturn(55L);
@@ -224,7 +223,6 @@ class CreateOperationTest {
     when(worldUpdater.getSenderAccount(any())).thenReturn(account);
     when(worldUpdater.getOrCreate(any())).thenReturn(newAccount);
     when(newAccount.getCode()).thenReturn(Bytes.EMPTY);
-    when(newAccount.isStorageEmpty()).thenReturn(true);
     when(worldUpdater.updater()).thenReturn(worldUpdater);
 
     final EVM evm = MainnetEVMs.amsterdam(DEV_NET_CHAIN_ID, EvmConfiguration.DEFAULT);
@@ -235,7 +233,8 @@ class CreateOperationTest {
   @Test
   void amsterdamMaxInitCodeSizePlus1Create() {
     final UInt256 memoryOffset = UInt256.fromHexString("0xFF");
-    final UInt256 memoryLength = UInt256.fromHexString("0x10001");
+    // MAX_INITCODE_SIZE_AMSTERDAM (0x20000) + 1
+    final UInt256 memoryLength = UInt256.fromHexString("0x20001");
     final MessageFrame messageFrame = testMemoryFrame(memoryOffset, memoryLength, UInt256.ZERO, 1);
 
     when(account.getNonce()).thenReturn(55L);
@@ -253,6 +252,43 @@ class CreateOperationTest {
   }
 
   @Test
+  void oversizedInitCodeOnStackAbortsBeforeMemoryExpansion() {
+    // EIP-3860: when the declared initcode size on the stack exceeds the limit, the
+    // operation is an early exceptional abort and must not have memory side-effects.
+    final UInt256 memoryOffset = UInt256.ZERO;
+    final UInt256 memoryLength =
+        UInt256.fromHexString("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+    final MessageFrame messageFrame =
+        MessageFrame.builder()
+            .type(MessageFrame.Type.CONTRACT_CREATION)
+            .contract(Address.ZERO)
+            .inputData(Bytes.EMPTY)
+            .sender(Address.fromHexString(SENDER))
+            .value(Wei.ZERO)
+            .apparentValue(Wei.ZERO)
+            .code(new Code(SIMPLE_CREATE))
+            .completer(__ -> {})
+            .address(Address.fromHexString(SENDER))
+            .blockHashLookup((__, ___) -> Hash.ZERO)
+            .blockValues(mock(BlockValues.class))
+            .gasPrice(Wei.ZERO)
+            .miningBeneficiary(Address.ZERO)
+            .originator(Address.ZERO)
+            .initialGas(Long.MAX_VALUE)
+            .worldUpdater(worldUpdater)
+            .build();
+    messageFrame.pushStackItem(memoryLength);
+    messageFrame.pushStackItem(memoryOffset);
+    messageFrame.pushStackItem(UInt256.ZERO);
+
+    final EVM evm = MainnetEVMs.shanghai(DEV_NET_CHAIN_ID, EvmConfiguration.DEFAULT);
+    var result = operation.execute(messageFrame, evm);
+
+    assertThat(result.getHaltReason()).isEqualTo(CODE_TOO_LARGE);
+    assertThat(messageFrame.memoryWordSize()).isEqualTo(0);
+  }
+
+  @Test
   void amsterdamBetweenOldAndNewInitCodeLimitCreate() {
     final UInt256 memoryOffset = UInt256.fromHexString("0xFF");
     final UInt256 memoryLength = UInt256.fromHexString("0xC001");
@@ -265,7 +301,6 @@ class CreateOperationTest {
     when(worldUpdater.getSenderAccount(any())).thenReturn(account);
     when(worldUpdater.getOrCreate(any())).thenReturn(newAccount);
     when(newAccount.getCode()).thenReturn(Bytes.EMPTY);
-    when(newAccount.isStorageEmpty()).thenReturn(true);
     when(worldUpdater.updater()).thenReturn(worldUpdater);
 
     final EVM evm = MainnetEVMs.amsterdam(DEV_NET_CHAIN_ID, EvmConfiguration.DEFAULT);

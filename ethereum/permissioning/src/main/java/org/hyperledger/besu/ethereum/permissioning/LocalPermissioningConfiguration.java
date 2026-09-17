@@ -15,37 +15,36 @@
 package org.hyperledger.besu.ethereum.permissioning;
 
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeDnsConfiguration;
-import org.hyperledger.besu.plugin.data.EnodeURL;
+import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 public class LocalPermissioningConfiguration {
-  private List<EnodeURL> nodeAllowlist;
-  private List<String> accountAllowlist;
+  private final List<EnodeURLImpl> nodeAllowlist = new ArrayList<>();
+  private final List<String> accountAllowlist = new ArrayList<>();
   private boolean nodeAllowlistEnabled;
   private EnodeDnsConfiguration enodeDnsConfiguration = EnodeDnsConfiguration.dnsDisabled();
-  private String nodePermissioningConfigFilePath;
+  private @Nullable String nodePermissioningConfigFilePath;
   private boolean accountAllowlistEnabled;
-  private String accountPermissioningConfigFilePath;
+  private @Nullable String accountPermissioningConfigFilePath;
 
-  public List<EnodeURL> getNodeAllowlist() {
+  public List<EnodeURLImpl> getNodeAllowlist() {
     return nodeAllowlist;
   }
 
   public static LocalPermissioningConfiguration createDefault() {
-    final LocalPermissioningConfiguration config = new LocalPermissioningConfiguration();
-    config.nodeAllowlist = new ArrayList<>();
-    config.accountAllowlist = new ArrayList<>();
-    return config;
+    return new LocalPermissioningConfiguration();
   }
 
   public void setEnodeDnsConfiguration(final EnodeDnsConfiguration enodeDnsConfiguration) {
     this.enodeDnsConfiguration = enodeDnsConfiguration;
   }
 
-  public void setNodeAllowlist(final Collection<EnodeURL> nodeAllowlist) {
+  public void setNodeAllowlist(final @Nullable Collection<EnodeURLImpl> nodeAllowlist) {
     if (nodeAllowlist != null) {
       this.nodeAllowlist.addAll(nodeAllowlist);
       this.nodeAllowlistEnabled = true;
@@ -64,7 +63,7 @@ public class LocalPermissioningConfiguration {
     return accountAllowlist;
   }
 
-  public void setAccountAllowlist(final Collection<String> accountAllowlist) {
+  public void setAccountAllowlist(final @Nullable Collection<String> accountAllowlist) {
     if (accountAllowlist != null) {
       this.accountAllowlist.addAll(accountAllowlist);
       this.accountAllowlistEnabled = true;
@@ -75,20 +74,21 @@ public class LocalPermissioningConfiguration {
     return accountAllowlistEnabled;
   }
 
-  public String getNodePermissioningConfigFilePath() {
+  public @Nullable String getNodePermissioningConfigFilePath() {
     return nodePermissioningConfigFilePath;
   }
 
-  public void setNodePermissioningConfigFilePath(final String nodePermissioningConfigFilePath) {
+  public void setNodePermissioningConfigFilePath(
+      final @Nullable String nodePermissioningConfigFilePath) {
     this.nodePermissioningConfigFilePath = nodePermissioningConfigFilePath;
   }
 
-  public String getAccountPermissioningConfigFilePath() {
+  public @Nullable String getAccountPermissioningConfigFilePath() {
     return accountPermissioningConfigFilePath;
   }
 
   public void setAccountPermissioningConfigFilePath(
-      final String accountPermissioningConfigFilePath) {
+      final @Nullable String accountPermissioningConfigFilePath) {
     this.accountPermissioningConfigFilePath = accountPermissioningConfigFilePath;
   }
 }

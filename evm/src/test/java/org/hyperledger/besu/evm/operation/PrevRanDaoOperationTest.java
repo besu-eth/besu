@@ -19,7 +19,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.frame.BlockValues;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.LondonGasCalculator;
@@ -40,8 +39,7 @@ class PrevRanDaoOperationTest {
     when(blockHeader.getDifficultyBytes()).thenReturn(UInt256.ZERO);
     when(blockHeader.getMixHashOrPrevRandao()).thenReturn(prevRandao);
     when(messageFrame.getBlockValues()).thenReturn(blockHeader);
-    EVM evm = mock(EVM.class);
-    Operation.OperationResult r = op.executeFixedCostOperation(messageFrame, evm);
+    Operation.OperationResult r = op.executeFixedCostOperation(messageFrame);
     assertThat(r.getHaltReason()).isNull();
     verify(messageFrame).pushStackItem(prevRandao);
   }
@@ -56,8 +54,7 @@ class PrevRanDaoOperationTest {
     when(blockHeader.getDifficultyBytes()).thenReturn(difficulty);
     when(blockHeader.getMixHashOrPrevRandao()).thenReturn(prevRandao);
     when(messageFrame.getBlockValues()).thenReturn(blockHeader);
-    EVM evm = mock(EVM.class);
-    Operation.OperationResult r = op.executeFixedCostOperation(messageFrame, evm);
+    Operation.OperationResult r = op.executeFixedCostOperation(messageFrame);
     assertThat(r.getHaltReason()).isNull();
     verify(messageFrame).pushStackItem(prevRandao);
   }

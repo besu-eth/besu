@@ -25,7 +25,6 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
 import org.hyperledger.besu.ethereum.core.Difficulty;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
@@ -39,6 +38,7 @@ import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.tracing.StreamingOperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.metrics.MetricsSystemModule;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.util.LogConfigurator;
 
 import java.io.BufferedWriter;
@@ -102,6 +102,7 @@ import picocli.CommandLine.Option;
       BenchmarkSubCommand.class,
       B11rSubCommand.class,
       BlockchainTestSubCommand.class,
+      EngineTestSubCommand.class,
       StateTestSubCommand.class,
       T8nSubCommand.class,
       T8nServerSubCommand.class
@@ -292,11 +293,11 @@ public class EvmToolCommand implements Runnable {
     this.out = out;
   }
 
-  void execute(final String... args) {
-    execute(System.in, new PrintWriter(System.out, true, UTF_8), args);
+  int execute(final String... args) {
+    return execute(System.in, new PrintWriter(System.out, true, UTF_8), args);
   }
 
-  void execute(final InputStream input, final PrintWriter output, final String[] args) {
+  int execute(final InputStream input, final PrintWriter output, final String[] args) {
     final CommandLine commandLine = new CommandLine(this).setOut(output);
     out = output;
     in = input;
@@ -326,8 +327,14 @@ public class EvmToolCommand implements Runnable {
     addForkHelp(commandLine.getSubcommands().get("t8n"));
     addForkHelp(commandLine.getSubcommands().get("t8n-server"));
 
-    commandLine.setExecutionStrategy(new CommandLine.RunLast());
-    commandLine.execute(args);
+    commandLine.setExecutionStrategy(
+        parseResult -> {
+          if (daggerOptions.isEvmV2Enabled()) {
+            out.println("EVM v2 (long[] stack) enabled");
+          }
+          return new CommandLine.RunLast().execute(parseResult);
+        });
+    return commandLine.execute(args);
   }
 
   private static void addForkHelp(final CommandLine subCommandLine) {

@@ -19,6 +19,7 @@ import static org.hyperledger.besu.evm.frame.SoftFailureReason.LEGACY_MAX_CALL_D
 import static org.hyperledger.besu.evm.internal.Words.clampedAdd;
 import static org.hyperledger.besu.evm.internal.Words.clampedToLong;
 import static org.hyperledger.besu.evm.worldstate.CodeDelegationHelper.getTarget;
+import static org.hyperledger.besu.evm.worldstate.CodeDelegationHelper.getTargetAddress;
 import static org.hyperledger.besu.evm.worldstate.CodeDelegationHelper.hasCodeDelegation;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -237,6 +238,26 @@ public abstract class AbstractCallOperation extends AbstractOperation {
     }
     frame.decrementRemainingGas(cost);
 
+    // EIP-8037: Charge state gas for new account creation in CALL. Charge all the gas upfront,
+    // before any further work (and before touching the BAL below).
+    if (callCreatesNewAccount(frame, recipientAddress, transferValue)
+        && !frame.consumeStateGas(gasCalculator().stateGasCostCalculator().newAccountStateGas())) {
+      return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
+    }
+
+    // Record the 7702 delegation target in the BAL once the gas checks have passed. getCode() does
+    // this on the success path, but it doesn't run on soft failures (insufficient balance, max
+    // depth) — record it here so the BAL stays accurate either way. Touching only after the gas
+    // checks ensures OOG calls don't add the delegation target to the BAL.
+    if (contract != null) {
+      final Bytes contractCode = contract.getCode();
+      if (hasCodeDelegation(contractCode)) {
+        frame
+            .getEip7928AccessList()
+            .ifPresent(t -> t.addTouchedAccount(getTargetAddress(contractCode)));
+      }
+    }
+
     frame.clearReturnData();
 
     final Account account = getAccount(frame.getRecipientAddress(), frame);
@@ -245,9 +266,11 @@ public abstract class AbstractCallOperation extends AbstractOperation {
 
     // If the call is sending more value than the account has or the message frame is too deep
     // return a failed call
-    final boolean insufficientBalance = value(frame).compareTo(balance) > 0;
+    final boolean insufficientBalance = transferValue.compareTo(balance) > 0;
     final boolean isFrameDepthTooDeep = frame.getDepth() >= 1024;
     if (insufficientBalance || isFrameDepthTooDeep) {
+      // EIP-8037: no child frame runs, so no account is created — undo the charge above.
+      refundCallNewAccountStateGas(frame, recipientAddress, transferValue);
       frame.expandMemory(inputDataOffset(frame), inputDataLength(frame));
       frame.expandMemory(outputDataOffset(frame), outputDataLength(frame));
       // For the following, we either increment the gas or return zero, so we don't get double
@@ -274,7 +297,7 @@ public abstract class AbstractCallOperation extends AbstractOperation {
             .contract(to)
             .inputData(inputData)
             .sender(sender(frame))
-            .value(value(frame))
+            .value(transferValue)
             .apparentValue(apparentValue(frame))
             .code(code)
             .isStatic(isStatic(frame))
@@ -326,6 +349,15 @@ public abstract class AbstractCallOperation extends AbstractOperation {
     final long gasRemaining = childFrame.getRemainingGas();
     frame.incrementRemainingGas(gasRemaining);
 
+    // On success the parent takes over the child's spill so later refunds can unwind it. On
+    // failure the child already returned it, and no account was created, so undo that charge.
+    if (childFrame.getState() == State.COMPLETED_SUCCESS) {
+      frame.incrementStateGasSpilled(childFrame.getStateGasSpilled());
+      frame.settleStateGasOnChildSuccess();
+    } else {
+      refundCallNewAccountStateGas(frame, childFrame.getRecipientAddress(), childFrame.getValue());
+    }
+
     frame.popStackItems(getStackItemsConsumed());
     Bytes resultItem;
 
@@ -334,6 +366,25 @@ public abstract class AbstractCallOperation extends AbstractOperation {
 
     final int currentPC = frame.getPC();
     frame.setPC(currentPC + 1);
+  }
+
+  /** Whether the CALL transfers value to a non-existent or empty recipient, creating a leaf. */
+  private boolean callCreatesNewAccount(
+      final MessageFrame frame, final Address recipientAddress, final Wei transferValue) {
+    // Only state-gas metering charges for this, so nothing needs the lookup otherwise.
+    if (transferValue.isZero() || !gasCalculator().stateGasCostCalculator().isActive()) {
+      return false;
+    }
+    final Account recipient = frame.getWorldUpdater().get(recipientAddress);
+    return recipient == null || recipient.isEmpty();
+  }
+
+  /** Re-tests the charge condition, so this is a no-op when nothing was charged. */
+  private void refundCallNewAccountStateGas(
+      final MessageFrame frame, final Address recipientAddress, final Wei transferValue) {
+    if (callCreatesNewAccount(frame, recipientAddress, transferValue)) {
+      frame.refillStateGasReservoir(gasCalculator().stateGasCostCalculator().newAccountStateGas());
+    }
   }
 
   Bytes getCallResultStackItem(final MessageFrame childFrame) {

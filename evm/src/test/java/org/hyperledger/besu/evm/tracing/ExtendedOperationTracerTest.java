@@ -48,6 +48,8 @@ class ExtendedOperationTracerTest {
   void setUp() {
     when(frame.getOutputData()).thenReturn(Bytes.EMPTY);
     when(frame.getRemainingGas()).thenReturn(1L);
+    // futureEips is pre-Amsterdam, so the state-gas charge is 0; the mock must not refuse it.
+    when(frame.consumeStateGas(0L)).thenReturn(true);
 
     when(frame.getWorldUpdater()).thenReturn(worldUpdater);
     when(worldUpdater.getOrCreate(any())).thenReturn(mutableAccount);

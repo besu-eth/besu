@@ -16,10 +16,10 @@ package org.hyperledger.besu.ethereum.trie.forest.storage;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
-import org.hyperledger.besu.ethereum.worldstate.WorldStateKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorageTransaction;
+import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 import org.hyperledger.besu.util.Subscribers;
 
 import java.util.HashSet;
@@ -70,21 +70,6 @@ public class ForestWorldStateKeyValueStorage implements WorldStateKeyValueStorag
       return Optional.of(MerkleTrie.EMPTY_TRIE_NODE);
     } else {
       return keyValueStorage.get(nodeHash.toArrayUnsafe()).map(Bytes::wrap);
-    }
-  }
-
-  public boolean contains(final Bytes32 hash) {
-    // we don't have location info
-    return getNodeData(hash).isPresent();
-  }
-
-  public Optional<Bytes> getNodeData(final Bytes32 hash) {
-    if (hash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
-      return Optional.of(MerkleTrie.EMPTY_TRIE_NODE);
-    } else if (hash.equals(Hash.EMPTY.getBytes())) {
-      return Optional.of(Bytes.EMPTY);
-    } else {
-      return keyValueStorage.get(hash.toArrayUnsafe()).map(Bytes::wrap);
     }
   }
 

@@ -20,6 +20,8 @@ import static com.google.common.base.Preconditions.checkState;
 import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.ethereum.p2p.config.RlpxConfiguration;
 import org.hyperledger.besu.ethereum.p2p.discovery.DiscoveryPeer;
+import org.hyperledger.besu.ethereum.p2p.network.exceptions.IncompatiblePeerException;
+import org.hyperledger.besu.ethereum.p2p.network.exceptions.PeerDisconnectedException;
 import org.hyperledger.besu.ethereum.p2p.peers.LocalNode;
 import org.hyperledger.besu.ethereum.p2p.peers.Peer;
 import org.hyperledger.besu.ethereum.p2p.peers.PeerPrivileges;
@@ -31,19 +33,24 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerLookup;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerRlpxPermissions;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.netty.NettyConnectionInitializer;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
-import org.hyperledger.besu.ethereum.p2p.rlpx.wire.ShouldConnectCallback;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.PeerConnectionGatekeeper;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
+import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.data.EnodeURL;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
+import org.hyperledger.besu.plugin.services.metrics.Counter;
+import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 import org.hyperledger.besu.util.Subscribers;
 
+import java.net.ConnectException;
+import java.net.InetSocketAddress;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -60,15 +67,35 @@ import org.slf4j.LoggerFactory;
 public class RlpxAgent {
   private static final Logger LOG = LoggerFactory.getLogger(RlpxAgent.class);
 
+  /**
+   * Singleton sentinel thrown when no ProtocolManager accepts an outbound connection. Capturing a
+   * full stack trace on every peer-gate rejection allocates ~1-3 KB and calls a JVM native each
+   * time; at high connection-attempt rates this adds measurable GC pressure. Using a stackless
+   * singleton avoids that cost, following the same pattern as Netty's
+   * StacklessClosedChannelException.
+   */
+  // Intentional static Throwable: this is a stackless sentinel used to avoid allocating a fresh
+  // RuntimeException (and capturing a stack trace) on every peer-gate rejection. The singleton
+  // is safe because it carries no mutable state and its stack trace is always empty.
+  @SuppressWarnings("StaticAssignmentOfThrowable")
+  private static final RuntimeException NO_PROTOCOL_MANAGER_EXCEPTION =
+      new RuntimeException("None of the ProtocolManagers wants to connect to this peer") {
+        @Override
+        public synchronized Throwable fillInStackTrace() {
+          return this;
+        }
+      };
+
   private final LocalNode localNode;
   private final PeerConnectionEvents connectionEvents;
   private final ConnectionInitializer connectionInitializer;
   private final Subscribers<ConnectCallback> connectSubscribers = Subscribers.create();
-  private final List<ShouldConnectCallback> connectRequestSubscribers = new ArrayList<>();
+  private volatile PeerConnectionGatekeeper peerConnectionGatekeeper;
   private final PeerRlpxPermissions peerPermissions;
   private final PeerPrivileges peerPrivileges;
   private final AtomicBoolean started = new AtomicBoolean(false);
   private final AtomicBoolean stopped = new AtomicBoolean(false);
+  private volatile ConnectionInitializer.ListeningAddresses listeningAddresses;
   private final int maxPeers;
   private final Supplier<Stream<PeerConnection>> allConnectionsSupplier;
   private final Supplier<Stream<PeerConnection>> allActiveConnectionsSupplier;
@@ -78,6 +105,8 @@ public class RlpxAgent {
               Duration.ofSeconds(30L)) // we will at most try to connect every 30 seconds
           .concurrencyLevel(1)
           .build();
+  private final LabelledMetric<Counter> connectAttemptCounter;
+  private final LabelledMetric<Counter> connectOutcomeCounter;
 
   private RlpxAgent(
       final LocalNode localNode,
@@ -87,7 +116,9 @@ public class RlpxAgent {
       final PeerPrivileges peerPrivileges,
       final int maxPeers,
       final Supplier<Stream<PeerConnection>> allConnectionsSupplier,
-      final Supplier<Stream<PeerConnection>> allActiveConnectionsSupplier) {
+      final Supplier<Stream<PeerConnection>> allActiveConnectionsSupplier,
+      final LabelledMetric<Counter> connectAttemptCounter,
+      final LabelledMetric<Counter> connectOutcomeCounter) {
     this.localNode = localNode;
     this.connectionEvents = connectionEvents;
     this.connectionInitializer = connectionInitializer;
@@ -96,6 +127,8 @@ public class RlpxAgent {
     this.maxPeers = maxPeers;
     this.allConnectionsSupplier = allConnectionsSupplier;
     this.allActiveConnectionsSupplier = allActiveConnectionsSupplier;
+    this.connectAttemptCounter = connectAttemptCounter;
+    this.connectOutcomeCounter = connectOutcomeCounter;
   }
 
   public static Builder builder() {
@@ -113,9 +146,13 @@ public class RlpxAgent {
     return connectionInitializer
         .start()
         .thenApply(
-            (socketAddress) -> {
-              LOG.info("P2P RLPx agent started and listening on {}.", socketAddress);
-              return socketAddress.getPort();
+            (addresses) -> {
+              this.listeningAddresses = addresses;
+              LOG.info("P2P RLPx agent started and listening on {}.", addresses.ipv4Address());
+              addresses
+                  .ipv6Address()
+                  .ifPresent(ipv6 -> LOG.info("P2P RLPx agent also listening on IPv6: {}", ipv6));
+              return addresses.ipv4Address().getPort();
             })
         .whenComplete(
             (res, err) -> {
@@ -125,6 +162,20 @@ public class RlpxAgent {
                 LOG.error("Failed to start P2P RLPx agent. Check for port conflicts.");
               }
             });
+  }
+
+  /**
+   * Returns the local IPv6 listening port after startup, if dual-stack is active.
+   *
+   * <p>Only valid after {@link #start()} has completed.
+   *
+   * @return the bound IPv6 port, or empty if no IPv6 socket was bound
+   */
+  public Optional<Integer> getIpv6ListeningPort() {
+    if (listeningAddresses == null) {
+      return Optional.empty();
+    }
+    return listeningAddresses.ipv6Address().map(InetSocketAddress::getPort);
   }
 
   public CompletableFuture<Void> stop() {
@@ -161,6 +212,26 @@ public class RlpxAgent {
     }
   }
 
+  /**
+   * Checks whether a connection to this peer already exists or is already in flight, without
+   * initiating a new attempt.
+   *
+   * @param peerId the ID of the peer to check
+   * @return {@code true} if a connection to this peer is already established or in progress
+   */
+  public boolean isConnectingOrConnected(final Bytes peerId) {
+    if (peersConnectingCache.asMap().containsKey(peerId)) {
+      return true;
+    }
+    try {
+      return allConnectionsSupplier
+          .get()
+          .anyMatch(c -> c.getPeer().getId().equals(peerId) && !c.isDisconnected());
+    } catch (final Exception e) {
+      throw new RuntimeException("Failed to check connection state for peer " + peerId, e);
+    }
+  }
+
   public void disconnect(final Bytes peerId, final DisconnectReason reason) {
     try {
       allActiveConnectionsSupplier
@@ -183,6 +254,21 @@ public class RlpxAgent {
   }
 
   /**
+   * Connect to the peer, recording the originating source for metrics. The source counter is only
+   * incremented for a genuinely new outbound attempt - not for a call that is coalesced onto an
+   * already in-flight connection to the same peer, nor for one rejected before an attempt is ever
+   * made (not ready, not listening, not permitted, or gated).
+   *
+   * @param peer The peer to connect to
+   * @param source The originating source of this connection attempt
+   * @return A future that will resolve to the existing or newly-established connection with this
+   *     peer.
+   */
+  public CompletableFuture<PeerConnection> connect(final Peer peer, final ConnectSource source) {
+    return connect(peer, () -> connectAttemptCounter.labels(source.label()).inc());
+  }
+
+  /**
    * Connect to the peer
    *
    * @param peer The peer to connect to
@@ -190,6 +276,10 @@ public class RlpxAgent {
    *     peer.
    */
   public CompletableFuture<PeerConnection> connect(final Peer peer) {
+    return connect(peer, () -> {});
+  }
+
+  private CompletableFuture<PeerConnection> connect(final Peer peer, final Runnable onNewAttempt) {
     // Check if we're ready to establish connections
     if (!localNode.isReady()) {
       return CompletableFuture.failedFuture(
@@ -213,21 +303,25 @@ public class RlpxAgent {
     }
 
     final CompletableFuture<PeerConnection> peerConnectionCompletableFuture;
-    if (checkWhetherToConnect(peer, false)) {
+    final Optional<DisconnectReason> maybeDisconnectReason = gatePeerConnection(peer, false);
+
+    if (maybeDisconnectReason.isEmpty()) {
       try {
         synchronized (this) {
           peerConnectionCompletableFuture =
               peersConnectingCache.get(
-                  peer.getId(), () -> createPeerConnectionCompletableFuture(peer));
+                  peer.getId(),
+                  () -> {
+                    onNewAttempt.run();
+                    return createPeerConnectionCompletableFuture(peer);
+                  });
         }
       } catch (final ExecutionException e) {
         throw new RuntimeException(e);
       }
     } else {
-      final String errorMsg =
-          "None of the ProtocolManagers wants to connect to peer " + peer.getId();
-      LOG.trace(errorMsg);
-      return CompletableFuture.failedFuture((new RuntimeException(errorMsg)));
+      LOG.trace("None of the ProtocolManagers wants to connect to peer {}", peer.getId());
+      return CompletableFuture.failedFuture(NO_PROTOCOL_MANAGER_EXCEPTION);
     }
 
     return peerConnectionCompletableFuture;
@@ -246,9 +340,10 @@ public class RlpxAgent {
     return peerConnectionCompletableFuture;
   }
 
-  private boolean checkWhetherToConnect(final Peer peer, final boolean incoming) {
-    return connectRequestSubscribers.stream()
-        .anyMatch(callback -> callback.shouldConnect(peer, incoming));
+  private Optional<DisconnectReason> gatePeerConnection(final Peer peer, final boolean incoming) {
+    return peerConnectionGatekeeper != null
+        ? peerConnectionGatekeeper.checkPeerConnection(peer, incoming)
+        : Optional.empty();
   }
 
   private void setupListeners() {
@@ -287,20 +382,44 @@ public class RlpxAgent {
 
   private CompletableFuture<PeerConnection> initiateOutboundConnection(final Peer peer) {
     LOG.trace("Initiating connection to peer: {}", peer.getEnodeURL());
-    if (peer instanceof DiscoveryPeer) {
-      ((DiscoveryPeer) peer).setLastAttemptedConnection(System.currentTimeMillis());
+    if (peer instanceof DiscoveryPeer discoveryPeer) {
+      discoveryPeer.setLastAttemptedConnection(System.currentTimeMillis());
     }
 
     return connectionInitializer
         .connect(peer)
         .whenComplete(
             (conn, err) -> {
+              connectOutcomeCounter.labels(classifyConnectOutcome(err)).inc();
               if (err != null) {
                 LOG.debug("Failed to connect to peer {}: {}", peer.getId(), err);
               } else {
                 LOG.debug("Outbound connection established to peer: {}", peer.getId());
               }
             });
+  }
+
+  /**
+   * Classifies the outcome of an outbound connection attempt for the {@code
+   * rlpx_connect_outcome_total} metric. {@code connection_error} covers both a refused/unreachable
+   * TCP connect and Netty's {@code ConnectTimeoutException} (a {@link ConnectException} subtype)
+   * for the TCP connect itself; {@code timeout} is reserved for a stalled handshake/hello exchange
+   * after the TCP connection succeeded.
+   */
+  private static String classifyConnectOutcome(final Throwable err) {
+    if (err == null) {
+      return "success";
+    } else if (err instanceof TimeoutException) {
+      return "timeout";
+    } else if (err instanceof ConnectException) {
+      return "connection_error";
+    } else if (err instanceof IncompatiblePeerException) {
+      return "incompatible_capabilities";
+    } else if (err instanceof PeerDisconnectedException) {
+      return "peer_disconnected";
+    } else {
+      return "other";
+    }
   }
 
   public boolean canExceedConnectionLimits(final Bytes peerId) {
@@ -324,10 +443,11 @@ public class RlpxAgent {
       return;
     }
 
-    if (checkWhetherToConnect(peer, true)) {
+    final Optional<DisconnectReason> maybeDisconnectReason = gatePeerConnection(peer, true);
+    if (maybeDisconnectReason.isEmpty()) {
       dispatchConnect(peerConnection);
     } else {
-      peerConnection.disconnect(DisconnectReason.UNKNOWN);
+      peerConnection.disconnect(maybeDisconnectReason.get());
     }
   }
 
@@ -339,8 +459,8 @@ public class RlpxAgent {
     connectSubscribers.subscribe(callback);
   }
 
-  public void subscribeConnectRequest(final ShouldConnectCallback callback) {
-    connectRequestSubscribers.add(callback);
+  public void setPeerConnectionGatekeeper(final PeerConnectionGatekeeper gatekeeper) {
+    this.peerConnectionGatekeeper = gatekeeper;
   }
 
   public void subscribeDisconnect(final DisconnectCallback callback) {
@@ -391,6 +511,18 @@ public class RlpxAgent {
 
       final PeerRlpxPermissions rlpxPermissions =
           new PeerRlpxPermissions(localNode, peerPermissions);
+      final LabelledMetric<Counter> connectAttemptCounter =
+          metricsSystem.createLabelledCounter(
+              BesuMetricCategory.NETWORK,
+              "rlpx_outbound_connect_attempts_total",
+              "Total outbound RLPx connection attempts by originating source",
+              "source");
+      final LabelledMetric<Counter> connectOutcomeCounter =
+          metricsSystem.createLabelledCounter(
+              BesuMetricCategory.NETWORK,
+              "rlpx_connect_outcome_total",
+              "Outcome of outbound RLPx connection attempts",
+              "result");
       return new RlpxAgent(
           localNode,
           connectionEvents,
@@ -399,7 +531,9 @@ public class RlpxAgent {
           peerPrivileges,
           maxPeers,
           allConnectionsSupplier,
-          allActiveConnectionsSupplier);
+          allActiveConnectionsSupplier,
+          connectAttemptCounter,
+          connectOutcomeCounter);
     }
 
     private void validate() {

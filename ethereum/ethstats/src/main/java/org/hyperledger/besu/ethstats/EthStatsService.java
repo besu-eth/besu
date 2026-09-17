@@ -30,7 +30,6 @@ import static org.hyperledger.besu.ethstats.request.EthStatsRequest.Type.READY;
 import static org.hyperledger.besu.ethstats.request.EthStatsRequest.Type.STATS;
 
 import org.hyperledger.besu.config.GenesisConfigOptions;
-import org.hyperledger.besu.consensus.clique.blockcreation.CliqueMiningCoordinator;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
@@ -77,6 +76,7 @@ import io.vertx.core.http.WebSocket;
 import io.vertx.core.http.WebSocketClientOptions;
 import io.vertx.core.http.WebSocketConnectOptions;
 import io.vertx.core.net.PemTrustOptions;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -106,9 +106,9 @@ public class EthStatsService {
   private final WebSocketClientOptions webSocketClientOptions;
   private final WebSocketConnectOptions webSocketConnectOptions;
 
-  private ScheduledFuture<?> reportScheduler;
-  private WebSocket webSocket;
-  private EnodeURL enodeURL;
+  private @Nullable ScheduledFuture<?> reportScheduler;
+  private @Nullable WebSocket webSocket;
+  private @Nullable EnodeURL enodeURL;
   private long pingTimestamp;
 
   /**
@@ -190,8 +190,8 @@ public class EthStatsService {
       enodeURL = p2PNetwork.getLocalEnode().orElseThrow();
       vertx
           .createWebSocketClient(webSocketClientOptions)
-          .connect(
-              webSocketConnectOptions,
+          .connect(webSocketConnectOptions)
+          .onComplete(
               event -> {
                 if (event.succeeded()) {
                   webSocket = event.result();
@@ -280,7 +280,9 @@ public class EthStatsService {
   /** Sends a hello request to the ethstats server in order to log in. */
   private void sendHello() {
     try {
-      final Optional<Integer> port = enodeURL.getListeningPort();
+      final EnodeURL localEnodeURL = requireEnodeURL();
+      final WebSocket activeWebSocket = requireWebSocket();
+      final Optional<Integer> port = localEnodeURL.getListeningPort();
       final Optional<BigInteger> chainId = genesisConfigOptions.getChainId();
       if (port.isPresent() && chainId.isPresent()) {
         final String os = PlatformDetector.getOSType();
@@ -304,11 +306,11 @@ public class EthStatsService {
             new EthStatsRequest(
                 HELLO,
                 ImmutableAuthenticationData.of(
-                    enodeURL.getNodeId().toHexString(),
+                    localEnodeURL.getNodeId().toHexString(),
                     nodeInfo,
                     ethStatsConnectOptions.getSecret()));
         sendMessage(
-            webSocket,
+            activeWebSocket,
             hello,
             isSucceeded -> {
               if (!isSucceeded) {
@@ -343,45 +345,57 @@ public class EthStatsService {
 
   /** Sends a ping request to the ethstats server */
   private void sendPing() {
+    final WebSocket activeWebSocket = requireWebSocket();
+    final EnodeURL localEnodeURL = requireEnodeURL();
+
     // we store the timestamp when we sent the ping
     pingTimestamp = System.currentTimeMillis();
 
     sendMessage(
-        webSocket,
+        activeWebSocket,
         new EthStatsRequest(
             NODE_PING,
             ImmutablePingReport.of(
-                enodeURL.getNodeId().toHexString(), String.valueOf(pingTimestamp))));
+                localEnodeURL.getNodeId().toHexString(), String.valueOf(pingTimestamp))));
   }
 
   /** Sends a latency report to the ethstats server */
   private void sendLatencyReport() {
+    final WebSocket activeWebSocket = requireWebSocket();
+    final EnodeURL localEnodeURL = requireEnodeURL();
+
     sendMessage(
-        webSocket,
+        activeWebSocket,
         new EthStatsRequest(
             LATENCY,
             ImmutableLatencyReport.of(
-                enodeURL.getNodeId().toHexString(),
+                localEnodeURL.getNodeId().toHexString(),
                 String.valueOf(System.currentTimeMillis() - pingTimestamp))));
   }
 
   /** Sends a block report concerning the last block */
   @VisibleForTesting
   protected void sendBlockReport() {
+    final WebSocket activeWebSocket = requireWebSocket();
+    final EnodeURL localEnodeURL = requireEnodeURL();
+
     blockchainQueries
         .latestBlock()
         .map(tx -> blockResultFactory.transactionComplete(tx, false))
         .ifPresent(
             blockResult ->
                 sendMessage(
-                    webSocket,
+                    activeWebSocket,
                     new EthStatsRequest(
                         BLOCK,
-                        ImmutableBlockReport.of(enodeURL.getNodeId().toHexString(), blockResult))));
+                        ImmutableBlockReport.of(
+                            localEnodeURL.getNodeId().toHexString(), blockResult))));
   }
 
   /** Sends a report concerning a set of blocks (range, list of blocks) */
   private void sendHistoryReport(final List<Long> blocks) {
+    final WebSocket activeWebSocket = requireWebSocket();
+    final EnodeURL localEnodeURL = requireEnodeURL();
     final List<BlockResult> blockResults = new ArrayList<>();
 
     blocks.forEach(
@@ -393,34 +407,33 @@ public class EthStatsService {
 
     if (!blockResults.isEmpty()) {
       sendMessage(
-          webSocket,
+          activeWebSocket,
           new EthStatsRequest(
               HISTORY,
-              ImmutableHistoryReport.of(enodeURL.getNodeId().toHexString(), blockResults)));
+              ImmutableHistoryReport.of(localEnodeURL.getNodeId().toHexString(), blockResults)));
     }
   }
 
   /** Sends the number of pending transactions in the pool */
   private void sendPendingTransactionReport() {
+    final WebSocket activeWebSocket = requireWebSocket();
+    final EnodeURL localEnodeURL = requireEnodeURL();
     final int pendingTransactionsNumber = transactionPool.count();
 
     final PendingTransactionsReport pendingTransactionsReport =
         ImmutablePendingTransactionsReport.builder()
-            .id(enodeURL.getNodeId().toHexString())
+            .id(localEnodeURL.getNodeId().toHexString())
             .stats(pendingTransactionsNumber)
             .build();
 
-    sendMessage(webSocket, new EthStatsRequest(PENDING, pendingTransactionsReport));
+    sendMessage(activeWebSocket, new EthStatsRequest(PENDING, pendingTransactionsReport));
   }
 
   /** Sends information about the node (is mining, is syncing, etc.) */
   private void sendNodeStatsReport() {
-    final boolean isMiningEnabled;
-    if (miningCoordinator instanceof CliqueMiningCoordinator) {
-      isMiningEnabled = ((CliqueMiningCoordinator) miningCoordinator).isSigner();
-    } else {
-      isMiningEnabled = miningCoordinator.isMining();
-    }
+    final WebSocket activeWebSocket = requireWebSocket();
+    final EnodeURL localEnodeURL = requireEnodeURL();
+    final boolean isMiningEnabled = miningCoordinator.isMining();
     final boolean isSyncing = syncState.isInSync();
     final long gasPrice = suggestGasPrice(blockchainQueries.getBlockchain().getChainHeadBlock());
     // safe to cast to int since it isn't realistic to have more than max int peers
@@ -429,10 +442,24 @@ public class EthStatsService {
 
     final NodeStatsReport nodeStatsReport =
         ImmutableNodeStatsReport.builder()
-            .id(enodeURL.getNodeId().toHexString())
+            .id(localEnodeURL.getNodeId().toHexString())
             .stats(true, isMiningEnabled, 0L, peersNumber, gasPrice, isSyncing, 100)
             .build();
-    sendMessage(webSocket, new EthStatsRequest(STATS, nodeStatsReport));
+    sendMessage(activeWebSocket, new EthStatsRequest(STATS, nodeStatsReport));
+  }
+
+  private WebSocket requireWebSocket() {
+    if (webSocket == null) {
+      throw new IllegalStateException("WebSocket connection is required but is not available.");
+    }
+    return webSocket;
+  }
+
+  private EnodeURL requireEnodeURL() {
+    if (enodeURL == null) {
+      throw new IllegalStateException("Local enode URL has not been initialized yet.");
+    }
+    return enodeURL;
   }
 
   private void sendMessage(
@@ -441,16 +468,17 @@ public class EthStatsService {
       final Consumer<Boolean> handlerResult) {
     try {
       LOG.trace("Send ethstats request {}", message.generateCommand());
-      webSocket.writeTextMessage(
-          message.generateCommand(),
-          handler -> {
-            if (!handler.succeeded()) {
-              LOG.error("Failed to send {} ethstats request", message.getType());
-              handlerResult.accept(FALSE);
-            } else {
-              handlerResult.accept(TRUE);
-            }
-          });
+      webSocket
+          .writeTextMessage(message.generateCommand())
+          .onComplete(
+              handler -> {
+                if (!handler.succeeded()) {
+                  LOG.error("Failed to send {} ethstats request", message.getType());
+                  handlerResult.accept(FALSE);
+                } else {
+                  handlerResult.accept(TRUE);
+                }
+              });
     } catch (Exception e) {
       LOG.error(
           "Failed to send {} ethstats request with error {}", message.getType(), e.getMessage());
@@ -463,12 +491,13 @@ public class EthStatsService {
   }
 
   private void startListeningEthstatsServer() {
+    final WebSocket activeWebSocket = requireWebSocket();
 
-    webSocket.textMessageHandler(
+    activeWebSocket.textMessageHandler(
         message -> {
           try {
             if (PrimusHeartBeatsHelper.isHeartBeatsRequest(message)) {
-              PrimusHeartBeatsHelper.sendHeartBeatsResponse(webSocket);
+              PrimusHeartBeatsHelper.sendHeartBeatsResponse(activeWebSocket);
             } else {
               final JsonNode jsonNode = MAPPER.readTree(message);
               final JsonNode parameters = jsonNode.get(EMIT_FIELD);
@@ -485,14 +514,9 @@ public class EthStatsService {
                           .collect(Collectors.toList());
                   //  if the server does not send a list, we recover the last 50 blocks
                   if (list.isEmpty()) {
-                    final long chainHeadBlockNumber =
-                        blockchainQueries.getBlockchain().getChainHeadBlockNumber();
-                    final long startHistoryBlockNumber =
-                        Math.max(0, chainHeadBlockNumber - HISTORY_RANGE);
                     list =
-                        LongStream.range(chainHeadBlockNumber, startHistoryBlockNumber)
-                            .boxed()
-                            .collect(Collectors.toList());
+                        buildHistoryBlockList(
+                            blockchainQueries.getBlockchain().getChainHeadBlockNumber());
                   }
                   sendHistoryReport(list);
                 }
@@ -502,6 +526,12 @@ public class EthStatsService {
             LOG.debug("Ignore invalid request {}", message);
           }
         });
+  }
+
+  @VisibleForTesting
+  static List<Long> buildHistoryBlockList(final long chainHeadBlockNumber) {
+    final long start = Math.max(0, chainHeadBlockNumber - HISTORY_RANGE);
+    return LongStream.rangeClosed(start, chainHeadBlockNumber).boxed().collect(Collectors.toList());
   }
 
   private long suggestGasPrice(final Block block) {

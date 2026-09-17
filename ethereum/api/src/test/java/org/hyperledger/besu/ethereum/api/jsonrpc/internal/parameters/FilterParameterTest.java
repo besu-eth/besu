@@ -22,6 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.LogTopic;
+import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcObjectMapperFactory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 
@@ -37,6 +38,10 @@ import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Test;
 
 public class FilterParameterTest {
+
+  // Use the production parameter mapper (registers BesuJsonModule) since FilterParameter binds a
+  // bare Hash (blockHash), whose @JsonCreator needs the Bytes32 deserializer a plain mapper lacks.
+  private final ObjectMapper mapper = JsonRpcObjectMapperFactory.getParameterMapper();
   private static final String TOPIC_FORMAT = "0x%064d";
   private static final String TOPIC_TWO = String.format(TOPIC_FORMAT, 2);
   private static final String TOPIC_THREE = String.format(TOPIC_FORMAT, 3);
@@ -433,7 +438,7 @@ public class FilterParameterTest {
     payload.put("topics", inputTopics);
 
     final String json = new ObjectMapper().writeValueAsString(payload);
-    return new ObjectMapper().readValue(json, FilterParameter.class);
+    return mapper.readValue(json, FilterParameter.class);
   }
 
   private FilterParameter filterParameterWithAddresses(final String... addresses) {
@@ -485,6 +490,6 @@ public class FilterParameterTest {
   }
 
   private FilterParameter readJsonAsFilterParameter(final String json) throws java.io.IOException {
-    return new ObjectMapper().readValue(json, FilterParameter.class);
+    return mapper.readValue(json, FilterParameter.class);
   }
 }

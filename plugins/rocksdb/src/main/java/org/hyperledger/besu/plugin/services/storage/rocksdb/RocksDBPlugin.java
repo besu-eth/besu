@@ -123,6 +123,25 @@ public class RocksDBPlugin implements BesuPlugin {
     return options.getBlobDBSettings();
   }
 
+  /**
+   * Returns the max open files value that will be used, either explicitly set or derived from
+   * available memory.
+   *
+   * @return the resolved max open files value
+   */
+  public int getResolvedMaxOpenFiles() {
+    return options.getResolvedMaxOpenFiles();
+  }
+
+  /**
+   * Returns whether max open files was explicitly set via CLI.
+   *
+   * @return true if max open files was set via CLI, false if derived from available memory
+   */
+  public boolean isMaxOpenFilesExplicitlySet() {
+    return options.isMaxOpenFilesExplicitlySet();
+  }
+
   private void createAndRegister(final StorageService service) {
     final List<SegmentIdentifier> segments = service.getAllSegmentIdentifiers();
 

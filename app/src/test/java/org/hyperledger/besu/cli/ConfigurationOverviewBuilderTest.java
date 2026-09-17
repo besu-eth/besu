@@ -224,9 +224,9 @@ class ConfigurationOverviewBuilderTest {
 
   @Test
   void setProfile() {
-    builder.setProfile(InternalProfileName.DEV.name());
+    builder.setProfile(InternalProfileName.STAKER.name());
     final String profileSelected = builder.build();
-    assertThat(profileSelected).contains("Profile: DEV");
+    assertThat(profileSelected).contains("Profile: STAKER");
   }
 
   @Test
@@ -281,6 +281,33 @@ class ConfigurationOverviewBuilderTest {
   }
 
   @Test
+  void setMaxBlobsPerTransaction() {
+    final String noMaxBlobsSet = builder.build();
+    assertThat(noMaxBlobsSet).doesNotContain("Max Blobs Per Transaction");
+
+    builder.setMaxBlobsPerTransaction(6);
+    final String maxBlobsSet = builder.build();
+    assertThat(maxBlobsSet).contains("Max Blobs Per Transaction: 6");
+  }
+
+  @Test
+  void setDiscoveryDisabled() {
+    final String discoveryEnabledByDefault = builder.build();
+    assertThat(discoveryEnabledByDefault).doesNotContain("Discovery: disabled");
+
+    builder.setDiscoveryEnabled(false);
+    final String discoveryDisabled = builder.build();
+    assertThat(discoveryDisabled).contains("Discovery: disabled");
+  }
+
+  @Test
+  void setDiscoveryEnabled() {
+    builder.setDiscoveryEnabled(true);
+    final String discoveryEnabled = builder.build();
+    assertThat(discoveryEnabled).doesNotContain("Discovery: disabled");
+  }
+
+  @Test
   void setChainPruningDisabled() {
     final String noChainPruningSet = builder.build();
     assertThat(noChainPruningSet).doesNotContain("Chain pruning enabled");
@@ -317,5 +344,20 @@ class ConfigurationOverviewBuilderTest {
         .contains("BAL pruning enabled (retained BALs: 50000)")
         .doesNotContain("blocks:")
         .doesNotContain(";");
+  }
+
+  @Test
+  void setRocksDbMaxOpenFilesDerived() {
+    builder.setRocksDbMaxOpenFiles(4096, false);
+    final String overview = builder.build();
+    assertThat(overview)
+        .contains("RocksDB max open files: 4096 (derived from available resources)");
+  }
+
+  @Test
+  void setRocksDbMaxOpenFilesSet() {
+    builder.setRocksDbMaxOpenFiles(2048, true);
+    final String overview = builder.build();
+    assertThat(overview).contains("RocksDB max open files: 2048 (set)");
   }
 }

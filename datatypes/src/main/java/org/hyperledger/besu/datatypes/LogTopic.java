@@ -18,6 +18,7 @@ import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 
 import org.apache.tuweni.bytes.Bytes32;
+import org.jspecify.annotations.Nullable;
 
 /** The Log topic. */
 public class LogTopic extends BytesHolder {
@@ -67,7 +68,7 @@ public class LogTopic extends BytesHolder {
    * @param str the str
    * @return the log topic
    */
-  public static LogTopic fromHexString(final String str) {
+  public static @Nullable LogTopic fromHexString(final String str) {
     return str == null ? null : LogTopic.create(Bytes32.fromHexString(str));
   }
 

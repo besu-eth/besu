@@ -15,13 +15,13 @@
 package org.hyperledger.besu.ethereum.referencetests;
 
 import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.storage.keyvalue.WorldStatePreimageKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.forest.storage.ForestWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.forest.worldview.ForestMutableWorldState;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.worldstate.WorldState;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
+import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
 import java.util.Collection;

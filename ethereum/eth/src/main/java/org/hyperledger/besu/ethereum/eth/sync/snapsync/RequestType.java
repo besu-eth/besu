@@ -31,17 +31,12 @@ public enum RequestType {
   }
 
   public static RequestType fromValue(final byte value) {
-    switch (value) {
-      case (byte) 1:
-        return ACCOUNT_RANGE;
-      case (byte) 2:
-        return STORAGE_RANGE;
-      case (byte) 3:
-        return BYTECODES;
-      case (byte) 4:
-        return TRIE_NODE;
-      default:
-        throw new IllegalArgumentException("Invalid value supplied");
-    }
+    return switch (value) {
+      case (byte) 1 -> ACCOUNT_RANGE;
+      case (byte) 2 -> STORAGE_RANGE;
+      case (byte) 3 -> BYTECODES;
+      case (byte) 4 -> TRIE_NODE;
+      default -> throw new IllegalArgumentException("Invalid value supplied");
+    };
   }
 }

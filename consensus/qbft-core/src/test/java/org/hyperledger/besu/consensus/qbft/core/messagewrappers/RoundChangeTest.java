@@ -15,10 +15,13 @@
 package org.hyperledger.besu.consensus.qbft.core.messagewrappers;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.common.bft.ConsensusRoundIdentifier;
+import org.hyperledger.besu.consensus.common.bft.messagewrappers.BftMessage;
 import org.hyperledger.besu.consensus.common.bft.payload.SignedData;
 import org.hyperledger.besu.consensus.qbft.core.QbftBlockTestFixture;
 import org.hyperledger.besu.consensus.qbft.core.messagedata.QbftV1;
@@ -30,12 +33,18 @@ import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockCodec;
 import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.cryptoservices.NodeKeyUtils;
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Util;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
+import org.hyperledger.besu.ethereum.rlp.RLPInput;
+import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -50,7 +59,23 @@ public class RoundChangeTest {
 
   @Test
   public void canRoundTripARoundChangeMessage() {
-    when(blockEncoder.readFrom(any())).thenReturn(BLOCK);
+    // Stub the mock codec to round-trip a single byte for the block. Without writing real bytes
+    // for the block the encoded RLP would have only 2 top-level items (mock writeTo is a no-op),
+    // which decode interprets as a malformed message.
+    final Bytes blockPlaceholder = Bytes.of(0xAB);
+    when(blockEncoder.readFrom(any()))
+        .thenAnswer(
+            inv -> {
+              inv.getArgument(0, RLPInput.class).readBytes();
+              return BLOCK;
+            });
+    doAnswer(
+            inv -> {
+              inv.getArgument(1, RLPOutput.class).writeBytes(blockPlaceholder);
+              return null;
+            })
+        .when(blockEncoder)
+        .writeTo(any(QbftBlock.class), any(RLPOutput.class));
 
     final NodeKey nodeKey = NodeKeyUtils.generate();
     final Address addr = Util.publicKeyToAddress(nodeKey.getPublicKey());
@@ -120,5 +145,189 @@ public class RoundChangeTest {
         .isEqualToComparingFieldByField(signedRoundChangePayload);
     assertThat(decodedRoundChange.getProposedBlock()).isEmpty();
     assertThat(decodedRoundChange.getPrepares()).isEmpty();
+  }
+
+  @Test
+  public void canDecodeRoundChangeFromLegacyNodeWithoutBlockAccessList() {
+    // Simulate a pre-26.1.0 validator that encodes RoundChange WITHOUT the blockAccessList field.
+    // Legacy: [SignedPayload, EmptyList, [Prepares]]           (3 items)
+    // Current: [SignedPayload, EmptyList, BAL/null, [Prepares]] (4 items)
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final Address addr = Util.publicKeyToAddress(nodeKey.getPublicKey());
+
+    final RoundChangePayload payload =
+        new RoundChangePayload(new ConsensusRoundIdentifier(1, 1), Optional.empty());
+
+    final SignedData<RoundChangePayload> signedRoundChangePayload =
+        SignedData.create(
+            payload, nodeKey.sign(Bytes32.wrap(payload.hashForSignature().getBytes())));
+
+    final BytesValueRLPOutput rlpOut = new BytesValueRLPOutput();
+    rlpOut.startList();
+    signedRoundChangePayload.writeTo(rlpOut);
+    rlpOut.writeEmptyList();
+    rlpOut.writeList(Collections.<SignedData<PreparePayload>>emptyList(), SignedData::writeTo);
+    rlpOut.endList();
+    final Bytes legacyEncoded = rlpOut.encoded();
+
+    final RoundChange decodedRoundChange = RoundChange.decode(legacyEncoded, blockEncoder);
+
+    assertThat(decodedRoundChange.getMessageType()).isEqualTo(QbftV1.ROUND_CHANGE);
+    assertThat(decodedRoundChange.getAuthor()).isEqualTo(addr);
+    assertThat(decodedRoundChange.getProposedBlock()).isEmpty();
+    assertThat(decodedRoundChange.getBlockAccessList()).isEmpty();
+    assertThat(decodedRoundChange.getPrepares()).isEmpty();
+  }
+
+  @Test
+  public void canDecodeLegacyRoundChangeWithNonEmptyPrepares() {
+    // Minimal reproduction of the user-reported stack trace: a pre-26.1.0 validator sends a
+    // legacy 3-item RoundChange where the Prepares list is non-empty. Without the item-count
+    // check in decode(), readBlockAccessList misreads the Prepares list as a BlockAccessList
+    // and the subsequent readList throws "Cannot enter a lists, input is fully consumed".
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final Address addr = Util.publicKeyToAddress(nodeKey.getPublicKey());
+
+    final RoundChangePayload payload =
+        new RoundChangePayload(
+            new ConsensusRoundIdentifier(1, 1),
+            Optional.of(new PreparedRoundMetadata(BLOCK.getHash(), 0)));
+
+    final SignedData<RoundChangePayload> signedRoundChangePayload =
+        SignedData.create(
+            payload, nodeKey.sign(Bytes32.wrap(payload.hashForSignature().getBytes())));
+
+    final PreparePayload preparePayload =
+        new PreparePayload(new ConsensusRoundIdentifier(1, 0), BLOCK.getHash());
+    final SignedData<PreparePayload> signedPreparePayload =
+        SignedData.create(
+            preparePayload,
+            nodeKey.sign(Bytes32.wrap(preparePayload.hashForSignature().getBytes())));
+
+    final BytesValueRLPOutput rlpOut = new BytesValueRLPOutput();
+    rlpOut.startList();
+    signedRoundChangePayload.writeTo(rlpOut);
+    rlpOut.writeEmptyList(); // block absent (legacy 3-item layout)
+    rlpOut.writeList(List.of(signedPreparePayload), SignedData::writeTo);
+    rlpOut.endList();
+    final Bytes legacyEncoded = rlpOut.encoded();
+
+    final RoundChange decodedRoundChange = RoundChange.decode(legacyEncoded, blockEncoder);
+
+    assertThat(decodedRoundChange.getMessageType()).isEqualTo(QbftV1.ROUND_CHANGE);
+    assertThat(decodedRoundChange.getAuthor()).isEqualTo(addr);
+    assertThat(decodedRoundChange.getProposedBlock()).isEmpty();
+    assertThat(decodedRoundChange.getBlockAccessList()).isEmpty();
+    assertThat(decodedRoundChange.getPrepares()).hasSize(1);
+    assertThat(decodedRoundChange.getPrepares().getFirst())
+        .isEqualToComparingFieldByField(signedPreparePayload);
+  }
+
+  @Test
+  public void defaultEncodingEmitsCurrentFourItemWireFormat() {
+    // Default useLegacyEncoding=false: RoundChange.encode() emits 4 top-level items
+    // [SignedPayload, Block-or-emptyList, BAL-or-null, Prepares] - required for interop with
+    // Besu 26.1.0 - 26.5.0 peers whose decoder expects the BAL slot.
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+
+    final RoundChangePayload payload =
+        new RoundChangePayload(new ConsensusRoundIdentifier(1, 1), Optional.empty());
+    final SignedData<RoundChangePayload> signedRoundChangePayload =
+        SignedData.create(
+            payload, nodeKey.sign(Bytes32.wrap(payload.hashForSignature().getBytes())));
+
+    final RoundChange roundChange =
+        new RoundChange(
+            signedRoundChangePayload,
+            Optional.empty(),
+            Optional.empty(),
+            blockEncoder,
+            Collections.emptyList());
+
+    final org.hyperledger.besu.ethereum.rlp.RLPInput rlpIn =
+        org.hyperledger.besu.ethereum.rlp.RLP.input(roundChange.encode());
+    assertThat(rlpIn.enterList()).isEqualTo(4);
+  }
+
+  @Test
+  public void decodeAcceptsPreparesListAtMaxEntries() {
+    final NodeKey key = NodeKeyUtils.generate();
+    final RoundChangePayload rcPayload =
+        new RoundChangePayload(new ConsensusRoundIdentifier(1, 0), Optional.empty());
+    final SignedData<RoundChangePayload> signedRc =
+        SignedData.create(
+            rcPayload, key.sign(Bytes32.wrap(rcPayload.hashForSignature().getBytes())));
+
+    final PreparePayload preparePayload =
+        new PreparePayload(new ConsensusRoundIdentifier(1, 0), Hash.ZERO);
+    final SignedData<PreparePayload> onePrepare =
+        SignedData.create(
+            preparePayload, key.sign(Bytes32.wrap(preparePayload.hashForSignature().getBytes())));
+
+    final Bytes atLimit =
+        new RoundChange(
+                signedRc,
+                Optional.empty(),
+                Optional.empty(),
+                blockEncoder,
+                Collections.nCopies(BftMessage.MAX_LIST_ENTRIES, onePrepare))
+            .encode();
+
+    final RoundChange decoded = RoundChange.decode(atLimit, blockEncoder);
+    assertThat(decoded.getPrepares()).hasSize(BftMessage.MAX_LIST_ENTRIES);
+  }
+
+  @Test
+  public void decodeRejectsPreparesListExceedingMaxEntries() {
+    final NodeKey key = NodeKeyUtils.generate();
+    final RoundChangePayload rcPayload =
+        new RoundChangePayload(new ConsensusRoundIdentifier(1, 0), Optional.empty());
+    final SignedData<RoundChangePayload> signedRc =
+        SignedData.create(
+            rcPayload, key.sign(Bytes32.wrap(rcPayload.hashForSignature().getBytes())));
+
+    final PreparePayload preparePayload =
+        new PreparePayload(new ConsensusRoundIdentifier(1, 0), Hash.ZERO);
+    final SignedData<PreparePayload> onePrepare =
+        SignedData.create(
+            preparePayload, key.sign(Bytes32.wrap(preparePayload.hashForSignature().getBytes())));
+
+    final Bytes oversized =
+        new RoundChange(
+                signedRc,
+                Optional.empty(),
+                Optional.empty(),
+                blockEncoder,
+                Collections.nCopies(BftMessage.MAX_LIST_ENTRIES + 1, onePrepare))
+            .encode();
+
+    assertThatThrownBy(() -> RoundChange.decode(oversized, blockEncoder))
+        .isInstanceOf(RLPException.class)
+        .hasMessageContaining("exceeds the maximum permitted size");
+  }
+
+  @Test
+  public void legacyEncodingOmitsBlockAccessListSlot() {
+    // When useLegacyEncoding=true, RoundChange.encode() emits 3 top-level items - the BAL slot
+    // is omitted when absent. Required for interop with Besu 25.x peers during rolling upgrade.
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+
+    final RoundChangePayload payload =
+        new RoundChangePayload(new ConsensusRoundIdentifier(1, 1), Optional.empty());
+    final SignedData<RoundChangePayload> signedRoundChangePayload =
+        SignedData.create(
+            payload, nodeKey.sign(Bytes32.wrap(payload.hashForSignature().getBytes())));
+
+    final RoundChange roundChange =
+        RoundChange.withLegacyEncoding(
+            signedRoundChangePayload,
+            Optional.empty(),
+            Optional.empty(),
+            blockEncoder,
+            Collections.emptyList());
+
+    final org.hyperledger.besu.ethereum.rlp.RLPInput rlpIn =
+        org.hyperledger.besu.ethereum.rlp.RLP.input(roundChange.encode());
+    assertThat(rlpIn.enterList()).isEqualTo(3);
   }
 }

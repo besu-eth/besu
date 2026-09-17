@@ -25,7 +25,9 @@ import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.internal.Words;
 import org.hyperledger.besu.evm.operation.Operation;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 
 import com.google.common.collect.ImmutableList;
@@ -41,6 +43,9 @@ public class EthTransferLogOperationTracer implements OperationTracer {
   /** The list of logs emitted by this tracer */
   private final List<Log> traceTransfers = new ArrayList<>();
 
+  /** Snapshot stack tracking traceTransfers size at each frame entry */
+  private final Deque<Integer> logSnapshots = new ArrayDeque<>();
+
   /** The constant address for transfer logs */
   public static final Address SIMULATION_TRANSFER_ADDRESS =
       Address.fromHexString("0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
@@ -54,6 +59,7 @@ public class EthTransferLogOperationTracer implements OperationTracer {
 
   @Override
   public void traceContextEnter(final MessageFrame frame) {
+    logSnapshots.push(traceTransfers.size());
     if (frame.getValue().compareTo(Wei.ZERO) > 0
         && !frame.getRecipientAddress().equals(frame.getSenderAddress())) {
       emitTransferLogs(frame.getSenderAddress(), frame.getRecipientAddress(), frame.getValue());
@@ -76,8 +82,12 @@ public class EthTransferLogOperationTracer implements OperationTracer {
 
   @Override
   public void traceContextExit(final MessageFrame frame) {
+    final int snapshot = logSnapshots.pop();
     if (frame.getState() == MessageFrame.State.COMPLETED_FAILED) {
-      traceTransfers.clear();
+      // Remove only logs added during this frame (and its children)
+      while (traceTransfers.size() > snapshot) {
+        traceTransfers.removeLast();
+      }
     }
   }
 

@@ -14,9 +14,12 @@
  */
 package org.hyperledger.besu.ethereum.eth.messages;
 
+import static org.hyperledger.besu.ethereum.eth.core.Utils.serializeReceiptsList;
+
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncodingConfiguration;
+import org.hyperledger.besu.ethereum.eth.core.Utils;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 
@@ -54,12 +57,14 @@ public final class ReceiptsMessageTest {
 
     // Perform round-trip transformation
     // Create specific message, copy it to a generic message, then read back into a specific format
-    final MessageData initialMessage = ReceiptsMessage.create(receipts, encodingConfiguration);
+    final MessageData initialMessage =
+        ReceiptsMessage.createUnsafe(serializeReceiptsList(receipts, encodingConfiguration));
     final MessageData raw = new RawMessage(EthProtocolMessages.RECEIPTS, initialMessage.getData());
     final ReceiptsMessage message = ReceiptsMessage.readFrom(raw);
 
     // Read data back out after round trip and check they match originals.
-    final Iterator<List<TransactionReceipt>> readData = message.receipts().iterator();
+    final Iterator<List<TransactionReceipt>> readData =
+        message.syncReceipts().stream().map(Utils::syncReceiptsToReceipts).iterator();
     for (int i = 0; i < dataCount; ++i) {
       Assertions.assertThat(readData.next()).isEqualTo(receipts.get(i));
     }

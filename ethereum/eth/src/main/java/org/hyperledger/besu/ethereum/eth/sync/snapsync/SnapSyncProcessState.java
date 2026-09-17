@@ -14,9 +14,14 @@
  */
 package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 
+import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.SealableBlockHeader;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.FastSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
+
+import java.util.Objects;
+import java.util.Optional;
+import java.util.OptionalLong;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,19 +30,70 @@ import org.slf4j.LoggerFactory;
  * Represents the state of the SnapSync process, including the current progress, healing status, and
  * other relevant information.
  */
-public class SnapSyncProcessState extends FastSyncState {
+public class SnapSyncProcessState {
   private static final Logger LOG = LoggerFactory.getLogger(SnapSyncProcessState.class);
 
+  private OptionalLong pivotBlockNumber;
+  private Optional<Hash> pivotBlockHash;
+  private Optional<BlockHeader> pivotBlockHeader;
   private boolean isHealTrieInProgress;
   private boolean isHealFlatDatabaseInProgress;
   private boolean isWaitingBlockchain;
 
-  public SnapSyncProcessState(final FastSyncState fastSyncState) {
-    super(
-        fastSyncState.getPivotBlockNumber(),
-        fastSyncState.getPivotBlockHash(),
-        fastSyncState.getPivotBlockHeader(),
-        fastSyncState.isSourceTrusted());
+  public SnapSyncProcessState() {
+    pivotBlockNumber = OptionalLong.empty();
+    pivotBlockHash = Optional.empty();
+    pivotBlockHeader = Optional.empty();
+  }
+
+  public SnapSyncProcessState(final long pivotBlockNumber) {
+    this(OptionalLong.of(pivotBlockNumber), Optional.empty(), Optional.empty());
+  }
+
+  public SnapSyncProcessState(final Hash pivotBlockHash) {
+    this(OptionalLong.empty(), Optional.of(pivotBlockHash), Optional.empty());
+  }
+
+  public SnapSyncProcessState(final BlockHeader pivotBlockHeader) {
+    this(
+        OptionalLong.of(pivotBlockHeader.getNumber()),
+        Optional.of(pivotBlockHeader.getHash()),
+        Optional.of(pivotBlockHeader));
+  }
+
+  private SnapSyncProcessState(
+      final OptionalLong pivotBlockNumber,
+      final Optional<Hash> pivotBlockHash,
+      final Optional<BlockHeader> pivotBlockHeader) {
+    this.pivotBlockNumber = pivotBlockNumber;
+    this.pivotBlockHash = pivotBlockHash;
+    this.pivotBlockHeader = pivotBlockHeader;
+  }
+
+  public OptionalLong getPivotBlockNumber() {
+    return pivotBlockNumber;
+  }
+
+  public Optional<Hash> getPivotBlockHash() {
+    return pivotBlockHash;
+  }
+
+  public Optional<BlockHeader> getPivotBlockHeader() {
+    return pivotBlockHeader;
+  }
+
+  public boolean hasPivotBlockHeader() {
+    return pivotBlockHeader.isPresent();
+  }
+
+  public boolean hasPivotBlockHash() {
+    return pivotBlockHash.isPresent();
+  }
+
+  public void setCurrentHeader(final BlockHeader header) {
+    pivotBlockNumber = OptionalLong.of(header.getNumber());
+    pivotBlockHash = Optional.of(header.getHash());
+    pivotBlockHeader = Optional.of(header);
   }
 
   public boolean isHealTrieInProgress() {
@@ -70,5 +126,32 @@ public class SnapSyncProcessState extends FastSyncState {
         .map(SealableBlockHeader::getStateRoot)
         .filter(hash -> hash.equals(request.getRootHash()))
         .isEmpty();
+  }
+
+  @Override
+  public boolean equals(final Object o) {
+    if (this == o) return true;
+    if (o == null || getClass() != o.getClass()) return false;
+    SnapSyncProcessState that = (SnapSyncProcessState) o;
+    return Objects.equals(pivotBlockNumber, that.pivotBlockNumber)
+        && Objects.equals(pivotBlockHash, that.pivotBlockHash)
+        && Objects.equals(pivotBlockHeader, that.pivotBlockHeader);
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(pivotBlockNumber, pivotBlockHash, pivotBlockHeader);
+  }
+
+  @Override
+  public String toString() {
+    return "SnapSyncProcessState{"
+        + "pivotBlockNumber="
+        + pivotBlockNumber
+        + ", pivotBlockHash="
+        + pivotBlockHash
+        + ", pivotBlockHeader="
+        + pivotBlockHeader
+        + '}';
   }
 }

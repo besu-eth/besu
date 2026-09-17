@@ -21,7 +21,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcRespon
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.p2p.network.P2PNetwork;
-import org.hyperledger.besu.plugin.data.EnodeURL;
+import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 
 import java.util.Optional;
 
@@ -44,7 +44,7 @@ public class NetEnode implements JsonRpcMethod {
       return p2pDisabledResponse(requestContext);
     }
 
-    final Optional<EnodeURL> enodeURL = p2pNetwork.getLocalEnode();
+    final Optional<EnodeURLImpl> enodeURL = p2pNetwork.getLocalEnode();
     if (!enodeURL.isPresent()) {
       return enodeUrlNotAvailable(requestContext);
     }

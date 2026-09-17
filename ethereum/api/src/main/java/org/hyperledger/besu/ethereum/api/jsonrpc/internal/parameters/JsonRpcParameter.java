@@ -14,36 +14,67 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 
+import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcObjectMapperFactory;
+
 import java.util.List;
 import java.util.Optional;
 
-import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 
 public class JsonRpcParameter {
 
-  private static final ObjectMapper mapper =
-      new ObjectMapper()
-          .registerModule(new Jdk8Module()); // Handle JDK8 Optionals (de)serialization
+  /**
+   * Jackson's default {@link ObjectMapper}. Classes that need to tolerate unknown JSON properties
+   * must opt out individually via {@code @JsonIgnoreProperties(ignoreUnknown = true)} — without
+   * that annotation, an unknown property fails deserialization regardless of its value.
+   */
+  private static final ObjectMapper mapperDefault = JsonRpcObjectMapperFactory.getParameterMapper();
+
+  /**
+   * Like mapperDefault but with {@link DeserializationFeature#FAIL_ON_UNKNOWN_PROPERTIES}
+   * explicitly enabled and a handler attached: unknown JSON properties whose value is {@code null}
+   * are silently dropped, while unknown properties with a non-{@code null} value still cause
+   * deserialization to fail.
+   */
+  private static final ObjectMapper mapperFailOnUnknownButNull =
+      JsonRpcObjectMapperFactory.getParameterMapperIgnoringUnknownNulls();
+
+  /** As mapperFailOnUnknownButNull, but empty unknown properties are dropped too. */
+  private static final ObjectMapper mapperFailOnUnknownButEmpty =
+      JsonRpcObjectMapperFactory.getParameterMapperIgnoringUnknownEmpties();
 
   /**
    * Retrieves a required parameter at the given index interpreted as the given class. Throws
-   * InvalidJsonRpcParameters if parameter is missing or of the wrong type.
+   * InvalidJsonRpcParameters if the parameter is missing or of the wrong type.
    *
    * @param params the list of objects from which to extract a typed object.
    * @param index Which index of the params array to access.
    * @param paramClass What type is expected at this index.
+   * @param configuration the {@link Configuration} controlling deserialization behaviour (e.g.
+   *     {@link Configuration#DEFAULT} for Jackson's default mapper, {@link
+   *     Configuration#FAIL_ON_UNKNOWN_BUT_NULL} to reject unknown JSON properties unless their
+   *     value is {@code null}).
    * @param <T> The type of parameter.
    * @return Returns the parameter cast as T if available, otherwise throws exception.
+   * @throws JsonRpcParameterException if the parameter is missing or fails deserialization
    */
-  public <T> T required(final Object[] params, final int index, final Class<T> paramClass)
+  public <T> T required(
+      final Object[] params,
+      final int index,
+      final Class<T> paramClass,
+      final Configuration configuration)
       throws JsonRpcParameterException {
-    return optional(params, index, paramClass)
+    return optional(params, index, paramClass, configuration)
         .orElseThrow(
             () ->
-                new JsonRpcParameterException(
+                new JsonRpcMissingParameterException(
                     "Missing required json rpc parameter at index " + index));
+  }
+
+  public <T> T required(final Object[] params, final int index, final Class<T> paramClass)
+      throws JsonRpcParameterException {
+    return required(params, index, paramClass, Configuration.DEFAULT);
   }
 
   /**
@@ -53,10 +84,19 @@ public class JsonRpcParameter {
    * @param params the list of objects from which to extract a typed object.
    * @param index Which index of the params array to access.
    * @param paramClass What type is expected at this index.
+   * @param configuration the {@link Configuration} controlling deserialization behaviour (e.g.
+   *     {@link Configuration#DEFAULT} for Jackson's default mapper, {@link
+   *     Configuration#FAIL_ON_UNKNOWN_BUT_NULL} to reject unknown JSON properties unless their
+   *     value is {@code null}).
    * @param <T> The type of parameter.
    * @return Returns the parameter cast as T if available.
+   * @throws JsonRpcParameterException if the parameter is present but fails deserialization
    */
-  public <T> Optional<T> optional(final Object[] params, final int index, final Class<T> paramClass)
+  public <T> Optional<T> optional(
+      final Object[] params,
+      final int index,
+      final Class<T> paramClass,
+      final Configuration configuration)
       throws JsonRpcParameterException {
     if (params == null || params.length <= index || params[index] == null) {
       return Optional.empty();
@@ -69,7 +109,7 @@ public class JsonRpcParameter {
       param = paramClass.cast(rawParam);
     } else {
       try {
-        param = mapper.convertValue(rawParam, paramClass);
+        param = configuration.mapper.convertValue(rawParam, paramClass);
       } catch (final Exception e) {
         throw new JsonRpcParameterException(
             String.format(
@@ -82,8 +122,59 @@ public class JsonRpcParameter {
     return Optional.of(param);
   }
 
+  public <T> Optional<T> optional(final Object[] params, final int index, final Class<T> paramClass)
+      throws JsonRpcParameterException {
+    return optional(params, index, paramClass, Configuration.DEFAULT);
+  }
+
+  public <T> List<T> requiredList(final Object[] params, final int index, final Class<T> listClass)
+      throws JsonRpcParameterException {
+    return requiredList(params, index, listClass, Configuration.DEFAULT);
+  }
+
+  public <T> List<T> requiredList(
+      final Object[] params,
+      final int index,
+      final Class<T> listClass,
+      final Configuration configuration)
+      throws JsonRpcParameterException {
+    final Optional<List<T>> value = optionalList(params, index, listClass, configuration);
+    if (value.isPresent()) {
+      return value.get();
+    }
+
+    if (params != null && params.length > index && params[index] != null) {
+      final Object rawParam = params[index];
+      throw new JsonRpcParameterException(
+          String.format(
+              "Invalid json rpc parameter at index %d. Supplied value was: '%s' of type: '%s' - expected a list of '%s'",
+              index, rawParam, rawParam.getClass().getName(), listClass.getName()));
+    }
+    throw new JsonRpcMissingParameterException(
+        "Missing required json rpc parameter at index " + index);
+  }
+
+  /**
+   * Retrieves an optional list parameter at the given index whose elements are interpreted as the
+   * given class.
+   *
+   * @param params the list of objects from which to extract a typed object.
+   * @param index Which index of the params array to access.
+   * @param listClass What element type is expected at this index.
+   * @param configuration the {@link Configuration} controlling deserialization behaviour (e.g.
+   *     {@link Configuration#DEFAULT} for Jackson's default mapper, {@link
+   *     Configuration#FAIL_ON_UNKNOWN_BUT_NULL} to reject unknown JSON properties unless their
+   *     value is {@code null}).
+   * @param <T> The element type of the list parameter.
+   * @return Returns the list cast as {@code List<T>} if available; empty when the value at index is
+   *     missing/null or is not a list.
+   * @throws JsonRpcParameterException if the value at index is a list but fails deserialization
+   */
   public <T> Optional<List<T>> optionalList(
-      final Object[] params, final int index, final Class<T> listClass)
+      final Object[] params,
+      final int index,
+      final Class<T> listClass,
+      final Configuration configuration)
       throws JsonRpcParameterException {
     if (params == null || params.length <= index || params[index] == null) {
       return Optional.empty();
@@ -91,7 +182,13 @@ public class JsonRpcParameter {
     Object rawParam = params[index];
     if (List.class.isAssignableFrom(rawParam.getClass())) {
       try {
-        List<T> returnedList = mapper.convertValue(rawParam, new TypeReference<>() {});
+        List<T> returnedList =
+            configuration.mapper.convertValue(
+                rawParam,
+                configuration
+                    .mapper
+                    .getTypeFactory()
+                    .constructCollectionType(List.class, listClass));
         return Optional.of(returnedList);
       } catch (Exception e) {
         throw new JsonRpcParameterException(
@@ -104,6 +201,12 @@ public class JsonRpcParameter {
     return Optional.empty();
   }
 
+  public <T> Optional<List<T>> optionalList(
+      final Object[] params, final int index, final Class<T> listClass)
+      throws JsonRpcParameterException {
+    return optionalList(params, index, listClass, Configuration.DEFAULT);
+  }
+
   public static class JsonRpcParameterException extends Exception {
     public JsonRpcParameterException(final String message) {
       super(message);
@@ -111,6 +214,44 @@ public class JsonRpcParameter {
 
     public JsonRpcParameterException(final String message, final Throwable cause) {
       super(message, cause);
+    }
+  }
+
+  public static class JsonRpcMissingParameterException extends JsonRpcParameterException {
+    public JsonRpcMissingParameterException(final String message) {
+      super(message);
+    }
+  }
+
+  /**
+   * Controls how Jackson deserializes the raw parameter into the requested target class. Callers
+   * pick the configuration that matches the strictness their RPC method needs.
+   */
+  public enum Configuration {
+    /**
+     * Jackson's default {@link ObjectMapper}. Classes that need to tolerate unknown JSON properties
+     * must opt out individually via {@code @JsonIgnoreProperties(ignoreUnknown = true)} — without
+     * that annotation, an unknown property fails deserialization regardless of its value.
+     */
+    DEFAULT(mapperDefault),
+    /**
+     * Like {@link #DEFAULT} but with {@link DeserializationFeature#FAIL_ON_UNKNOWN_PROPERTIES}
+     * explicitly enabled and a handler attached: unknown JSON properties whose value is {@code
+     * null} are silently dropped, while unknown properties with a non-{@code null} value still
+     * cause deserialization to fail.
+     */
+    FAIL_ON_UNKNOWN_BUT_NULL(mapperFailOnUnknownButNull),
+    /**
+     * As {@link #FAIL_ON_UNKNOWN_BUT_NULL}, but empty unknown properties are dropped too. For
+     * engine payloads, where an empty unknown field states nothing and so must be judged by block
+     * validation rather than rejected as invalid params.
+     */
+    FAIL_ON_UNKNOWN_BUT_EMPTY(mapperFailOnUnknownButEmpty);
+
+    final ObjectMapper mapper;
+
+    Configuration(final ObjectMapper mapper) {
+      this.mapper = mapper;
     }
   }
 }

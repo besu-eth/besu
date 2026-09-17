@@ -20,6 +20,7 @@ import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.data.BlockHeader;
 
 /** The Migrating protocol context. */
 public class MigratingProtocolContext extends ProtocolContext {
@@ -48,13 +49,18 @@ public class MigratingProtocolContext extends ProtocolContext {
 
   @Override
   public <C extends ConsensusContext> C getConsensusContext(final Class<C> klass) {
-    final long chainHeadBlockNumber = getBlockchain().getChainHeadBlockNumber();
-    return consensusContextSchedule.getFork(chainHeadBlockNumber + 1).getValue().as(klass);
+    final BlockHeader chainHead = getBlockchain().getChainHeadHeader();
+    return consensusContextSchedule
+        .getFork(chainHead.getNumber() + 1, chainHead.getTimestamp())
+        .getValue()
+        .as(klass);
   }
 
   @Override
   public <C extends ConsensusContext> C getConsensusContext(
       final Class<C> klass, final long blockNumber) {
-    return consensusContextSchedule.getFork(blockNumber).getValue().as(klass);
+    // Block number will be either an actual block number or a timestamp, so we pass it in for both
+    // getFork() args
+    return consensusContextSchedule.getFork(blockNumber, blockNumber).getValue().as(klass);
   }
 }

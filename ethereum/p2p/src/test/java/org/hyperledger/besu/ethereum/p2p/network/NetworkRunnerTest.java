@@ -32,11 +32,13 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.DefaultMessage;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Message;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.SubProtocol;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.function.BiFunction;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -84,8 +86,10 @@ public class NetworkRunnerTest {
 
     // Setup network mocks to allow start() to complete
     when(network.isListening()).thenReturn(true);
+    when(network.getRlpxAgent()).thenReturn(Optional.empty());
 
-    BiFunction<Peer, Boolean, Boolean> ethPeersShouldConnect = (peer, incoming) -> true;
+    BiFunction<Peer, Boolean, Optional<DisconnectMessage.DisconnectReason>>
+        peerConnectionGatekeeper = (peer, incoming) -> Optional.empty();
 
     NetworkRunner.NetworkBuilder networkBuilder = caps -> network;
 
@@ -95,7 +99,7 @@ public class NetworkRunnerTest {
             .subProtocols(subProtocol)
             .network(networkBuilder)
             .metricsSystem(metricsSystem)
-            .ethPeersShouldConnect(ethPeersShouldConnect)
+            .peerConnectionGatekeeper(peerConnectionGatekeeper)
             .build();
   }
 

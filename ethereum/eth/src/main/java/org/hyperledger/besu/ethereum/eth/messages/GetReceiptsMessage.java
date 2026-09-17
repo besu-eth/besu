@@ -21,16 +21,21 @@ import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
-import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
+import java.util.NoSuchElementException;
 
 import org.apache.tuweni.bytes.Bytes;
 
-public final class GetReceiptsMessage extends AbstractMessageData {
+public class GetReceiptsMessage extends AbstractMessageData {
+
+  protected GetReceiptsMessage(final Bytes data) {
+    super(data);
+  }
 
   public static GetReceiptsMessage readFrom(final MessageData message) {
-    if (message instanceof GetReceiptsMessage) {
-      return (GetReceiptsMessage) message;
+    if (message instanceof GetReceiptsMessage getReceiptsMessage) {
+      return getReceiptsMessage;
     }
     final int code = message.getCode();
     if (code != EthProtocolMessages.GET_RECEIPTS) {
@@ -40,16 +45,12 @@ public final class GetReceiptsMessage extends AbstractMessageData {
     return new GetReceiptsMessage(message.getData());
   }
 
-  public static GetReceiptsMessage create(final Iterable<Hash> hashes) {
+  public static GetReceiptsMessage create(final List<Hash> blockHashes) {
     final BytesValueRLPOutput tmp = new BytesValueRLPOutput();
     tmp.startList();
-    hashes.forEach(hash -> tmp.writeBytes(hash.getBytes()));
+    blockHashes.forEach(hash -> tmp.writeBytes(hash.getBytes()));
     tmp.endList();
     return new GetReceiptsMessage(tmp.encoded());
-  }
-
-  private GetReceiptsMessage(final Bytes data) {
-    super(data);
   }
 
   @Override
@@ -57,14 +58,35 @@ public final class GetReceiptsMessage extends AbstractMessageData {
     return EthProtocolMessages.GET_RECEIPTS;
   }
 
-  public List<Hash> hashes() {
-    final RLPInput input = new BytesValueRLPInput(data, false);
-    input.enterList();
-    final List<Hash> hashes = new ArrayList<>();
-    while (!input.isEndOfCurrentList()) {
-      hashes.add(Hash.wrap(input.readBytes32()));
-    }
-    input.leaveList();
-    return hashes;
+  public Iterable<Hash> blockHashes() {
+    return () ->
+        new Iterator<>() {
+          private final RLPInput input = new BytesValueRLPInput(data, false);
+          private boolean leftList = false;
+
+          {
+            input.enterList();
+          }
+
+          @Override
+          public boolean hasNext() {
+            if (input.isEndOfCurrentList()) {
+              if (!leftList) {
+                input.leaveList();
+                leftList = true;
+              }
+              return false;
+            }
+            return true;
+          }
+
+          @Override
+          public Hash next() {
+            if (!hasNext()) {
+              throw new NoSuchElementException();
+            }
+            return Hash.wrap(input.readBytes32());
+          }
+        };
   }
 }

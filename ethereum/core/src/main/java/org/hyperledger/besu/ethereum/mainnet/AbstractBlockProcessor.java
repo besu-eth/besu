@@ -26,7 +26,6 @@ import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Request;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
@@ -39,14 +38,14 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAcces
 import org.hyperledger.besu.ethereum.mainnet.parallelization.PreprocessingContext;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessingContext;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
-import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitter;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldStateUpdateAccumulator;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.StackedUpdater;
 import org.hyperledger.besu.evm.worldstate.WorldState;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
@@ -54,6 +53,8 @@ import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.BlockImportTracerProvider;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
+import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
 
 import java.text.MessageFormat;
 import java.util.ArrayList;
@@ -211,12 +212,13 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       final PreprocessingFunction preprocessingBlockFunction) {
     final List<TransactionReceipt> receipts = new ArrayList<>();
     // EIP-7778: Track two separate cumulative gas values
-    // cumulativeBlockGasUsed: For block gas limit enforcement (uses protocol-specific strategy)
+    // cumulativeExecutionGasUsed: For block gas limit enforcement (uses protocol-specific strategy)
     //   - Pre-Amsterdam: gasLimit - gasRemaining (post-refund)
     //   - Amsterdam+: pre-refund gas (prevents block gas limit circumvention via refunds)
     // cumulativeReceiptGasUsed: For receipt cumulativeGasUsed field (always post-refund)
-    long cumulativeBlockGasUsed = 0;
+    long cumulativeExecutionGasUsed = 0;
     long cumulativeReceiptGasUsed = 0;
+    long cumulativeStateGasUsed = 0;
     long currentBlobGasUsed = 0;
 
     var blockHeader = block.getHeader();
@@ -238,16 +240,17 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
     blockTracer.traceStartBlock(worldState, blockHeader, miningBeneficiary);
 
     final StateRootCommitter stateRootCommitter =
-        blockProcessingMetrics.wrapStateRootCommitter(
-            protocolSpec
-                .getStateRootCommitterFactory()
-                .forBlock(protocolContext, blockHeader, blockAccessList));
+        protocolSpec
+            .getStateRootCommitterFactory()
+            .forBlock(protocolContext, blockHeader, blockAccessList, worldState.isStorageFrozen())
+            .timed(blockProcessingMetrics.stateRootCalculationTimer());
 
     final Optional<BlockAccessListBuilder> blockAccessListBuilder =
         protocolSpec
             .getBlockAccessListFactory()
             .map(BlockAccessListFactory::newBlockAccessListBuilder);
 
+    Optional<PreprocessingContext> preProcessingContext = Optional.empty();
     try {
       final Optional<AccessLocationTracker> preExecutionAccessLocationTracker =
           blockAccessListBuilder.map(
@@ -258,7 +261,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
               worldState,
               protocolSpec,
               blockHashLookup,
-              blockTracer,
+              !blockTracer.isEnabled() ? OperationTracer.NO_TRACING : blockTracer,
               blockAccessListBuilder);
       protocolSpec
           .getPreExecutionProcessor()
@@ -277,7 +280,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                               calculateExcessBlobGasForParent(protocolSpec, parentHeader)))
               .orElse(Wei.ZERO);
 
-      final Optional<PreprocessingContext> preProcessingContext =
+      preProcessingContext =
           preprocessingBlockFunction.run(
               protocolContext,
               blockHeader,
@@ -286,7 +289,8 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
               blockHashLookup,
               blobGasPrice,
               blockAccessListBuilder,
-              blockAccessList);
+              blockAccessList,
+              maybeParentHeader);
 
       boolean parallelizedTxFound = false;
       int nbParallelTx = 0;
@@ -298,8 +302,15 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         if (!(transactionUpdater instanceof StackedUpdater<?, ?>)) {
           transactionUpdater = blockUpdater;
         }
-        if (!hasAvailableBlockBudget(blockHeader, transaction, cumulativeBlockGasUsed)) {
-          return new BlockProcessingResult(Optional.empty(), "provided gas insufficient");
+        // EIP-8037: per-dimension 2D-aware budget check using
+        // worst-case execution and state consumption derived from transaction intrinsics.
+        if (!hasAvailableBlockBudget(
+            blockHeader,
+            transaction,
+            cumulativeExecutionGasUsed,
+            cumulativeStateGasUsed,
+            protocolSpec)) {
+          return BlockProcessingResult.INSUFFICIENT_BLOCK_GAS;
         }
 
         final Optional<AccessLocationTracker> transactionLocationTracker =
@@ -316,9 +327,6 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                 blockHashLookup,
                 transactionLocationTracker);
 
-        applyPartialBlockAccessView(
-            transactionProcessingResult.getPartialBlockAccessView(), blockAccessListBuilder);
-
         if (transactionProcessingResult.isInvalid()) {
           String errorMessage =
               MessageFormat.format(
@@ -333,6 +341,9 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
           return new BlockProcessingResult(Optional.empty(), errorMessage);
         }
 
+        applyPartialBlockAccessView(
+            transactionProcessingResult.getPartialBlockAccessView(), blockAccessListBuilder);
+
         if (transactionUpdater instanceof StackedUpdater<?, ?>) {
           transactionUpdater.commit();
         }
@@ -341,14 +352,25 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
 
         // EIP-7778: Update both cumulative gas values
         // Block gas uses protocol-specific strategy (pre-refund for Amsterdam+)
-        cumulativeBlockGasUsed +=
+        cumulativeExecutionGasUsed +=
             protocolSpec
                 .getBlockGasAccountingStrategy()
-                .calculateBlockGas(transaction, transactionProcessingResult);
+                .calculateTransactionExecutionGas(transaction, transactionProcessingResult);
         // Receipt gas always uses standard post-refund calculation
         cumulativeReceiptGasUsed +=
             BlockGasAccountingStrategy.calculateReceiptGas(
                 transaction, transactionProcessingResult);
+        cumulativeStateGasUsed += transactionProcessingResult.getStateGasUsed();
+
+        // EIP-8037: Post-processing check — verify gas metered doesn't exceed block gas limit.
+        final long gasMeteredSoFar =
+            protocolSpec
+                .getBlockGasAccountingStrategy()
+                .effectiveGasUsed(cumulativeExecutionGasUsed, cumulativeStateGasUsed);
+        if (gasMeteredSoFar > blockHeader.getGasLimit()) {
+          return new BlockProcessingResult(Optional.empty(), "gas metered exceeds block gas limit");
+        }
+
         final var optionalVersionedHashes = transaction.getVersionedHashes();
         if (optionalVersionedHashes.isPresent()) {
           final var versionedHashes = optionalVersionedHashes.get();
@@ -441,7 +463,16 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
           worldState.updater().updater());
 
       final var optionalRequestsHash = blockHeader.getRequestsHash();
-      if (maybeRequests.isPresent() && optionalRequestsHash.isPresent()) {
+      if (maybeRequests.isPresent()) {
+        if (optionalRequestsHash.isEmpty()) {
+          final String errorMessage =
+              "Block has execution requests but header is missing the requestsHash field";
+          LOG.error(errorMessage);
+          if (worldState instanceof BonsaiWorldState) {
+            ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
+          }
+          return new BlockProcessingResult(Optional.empty(), errorMessage);
+        }
         final List<Request> requests = maybeRequests.get();
         final Hash headerRequestsHash = optionalRequestsHash.get();
         Hash calculatedRequestHash = BodyValidation.requestsHash(requests);
@@ -471,34 +502,23 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       try {
         if (blockAccessListBuilder.isPresent()) {
           final BlockAccessList bal = blockAccessListBuilder.get().build();
-          final Optional<Hash> headerBalHash = block.getHeader().getBalHash();
-          if (headerBalHash.isPresent()) {
-            final Hash expectedHash = BodyValidation.balHash(bal);
-            if (!headerBalHash.get().equals(expectedHash)) {
-              final String errorMessage =
-                  String.format(
-                      "Block access list hash mismatch, calculated: %s header: %s",
-                      expectedHash.getBytes().toHexString(),
-                      headerBalHash.get().getBytes().toHexString());
-              LOG.error(errorMessage);
-
-              if (balConfiguration.shouldLogBalsOnMismatch()) {
-                final String constructedBalStr = bal.toString();
-                final String blockBalStr =
-                    blockAccessList.map(Object::toString).orElse("<no BAL present for block>");
-                LOG.error(
-                    "--- BAL constructed during execution ---\n{}\n"
-                        + "--- BAL supplied for block ---\n{}",
-                    constructedBalStr,
-                    blockBalStr);
-              }
-
-              if (worldState instanceof BonsaiWorldState) {
-                ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
-              }
-              return new BlockProcessingResult(
-                  Optional.empty(), errorMessage, false, Optional.of(bal));
+          final Optional<BlockAccessListValidationError> constructedBalError =
+              protocolSpec
+                  .getBlockAccessListValidator()
+                  .validateExecutedBlockAccessListAfterBuild(
+                      bal,
+                      blockHeader,
+                      blockAccessList,
+                      balConfiguration.shouldLogBalsOnMismatch());
+          if (constructedBalError.isPresent()) {
+            if (worldState instanceof BonsaiWorldState) {
+              ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
             }
+            return new BlockProcessingResult(
+                Optional.empty(),
+                constructedBalError.get().errorMessage(),
+                false,
+                Optional.of(bal));
           }
           maybeBlockAccessList = Optional.of(bal);
           blockProcessingMetrics.recordBlockAccessListMetrics(bal);
@@ -506,7 +526,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
           maybeBlockAccessList = Optional.empty();
         }
       } catch (Exception e) {
-        LOG.error("Error validating BAL hash", e);
+        LOG.error("Error validating block access list", e);
         if (worldState instanceof BonsaiWorldState) {
           ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
         }
@@ -528,7 +548,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         RuntimeException rethrown = e;
         throw rethrown;
       } catch (StateRootMismatchException ex) {
-        LOG.error(
+        LOG.info(
             "failed persisting block due to stateroot mismatch; expected {}, actual {}",
             ex.getExpectedRoot().getBytes().toHexString(),
             ex.getActualRoot().getBytes().toHexString());
@@ -538,6 +558,9 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         return new BlockProcessingResult(Optional.empty(), e);
       }
 
+      // EIP-8037: gas_metered = max(cumulative_execution, cumulative_state)
+      final long gasMetered = Math.max(cumulativeExecutionGasUsed, cumulativeStateGasUsed);
+
       return new BlockProcessingResult(
           Optional.of(
               new BlockProcessingOutputs(
@@ -545,10 +568,20 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                   receipts,
                   maybeRequests,
                   maybeBlockAccessList,
-                  cumulativeBlockGasUsed)),
+                  gasMetered,
+                  blockHashLookup.getAccessedAncestors())),
           parallelizedTxFound ? Optional.of(nbParallelTx) : Optional.empty());
     } finally {
       stateRootCommitter.cancel();
+      preProcessingContext.ifPresent(
+          ctx -> {
+            try {
+              // Cancel any speculative futures not yet consumed by the main loop.
+              ctx.processor().abort();
+            } catch (final Exception e) {
+              LOG.debug("Error aborting parallel transaction preprocessing futures", e);
+            }
+          });
     }
   }
 
@@ -578,14 +611,26 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
   @SuppressWarnings(
       "java:S2629") // INFO level logging rarely disabled in this project per maintainer feedback
   protected boolean hasAvailableBlockBudget(
-      final BlockHeader blockHeader, final Transaction transaction, final long currentGasUsed) {
-    final long remainingGasBudget = blockHeader.getGasLimit() - currentGasUsed;
-    if (Long.compareUnsigned(transaction.getGasLimit(), remainingGasBudget) > 0) {
+      final BlockHeader blockHeader,
+      final Transaction transaction,
+      final long cumulativeExecutionGasUsed,
+      final long cumulativeStateGasUsed,
+      final ProtocolSpec protocolSpec) {
+    final BlockGasAccountingStrategy strategy = protocolSpec.getBlockGasAccountingStrategy();
+    final var gasCalculator = protocolSpec.getGasCalculator();
+    if (!strategy.hasBlockCapacity(
+        transaction.getGasLimit(),
+        gasCalculator.stateGasCostCalculator().transactionExecutionGasLimit(),
+        cumulativeExecutionGasUsed,
+        cumulativeStateGasUsed,
+        blockHeader.getGasLimit())) {
       LOG.info(
           "Block processing error: transaction gas limit {} exceeds available block budget"
-              + " remaining {}. Block {} Transaction {}",
+              + " (execution={}, state={}, limit={}). Block {} Transaction {}",
           transaction.getGasLimit(),
-          remainingGasBudget,
+          cumulativeExecutionGasUsed,
+          cumulativeStateGasUsed,
+          blockHeader.getGasLimit(),
           blockHeader.getHash().getBytes().toHexString(),
           transaction.getHash().getBytes().toHexString());
       return false;
@@ -637,7 +682,8 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         final BlockHashLookup blockHashLookup,
         final Wei blobGasPrice,
         final Optional<BlockAccessListBuilder> blockAccessListBuilder,
-        final Optional<BlockAccessList> maybeBlockBal);
+        final Optional<BlockAccessList> maybeBlockBal,
+        final Optional<BlockHeader> maybeParentHeader);
 
     class NoPreprocessing implements PreprocessingFunction {
 
@@ -650,7 +696,8 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
           final BlockHashLookup blockHashLookup,
           final Wei blobGasPrice,
           final Optional<BlockAccessListBuilder> blockAccessListBuilder,
-          final Optional<BlockAccessList> maybeBlockBal) {
+          final Optional<BlockAccessList> maybeBlockBal,
+          final Optional<BlockHeader> maybeParentHeader) {
         return Optional.empty();
       }
     }

@@ -16,7 +16,9 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameterOrBlockHash;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
@@ -46,6 +48,29 @@ public abstract class AbstractBlockParameterOrBlockHashMethod implements JsonRpc
 
   protected abstract BlockParameterOrBlockHash blockParameterOrBlockHash(
       JsonRpcRequestContext request);
+
+  /**
+   * Reads the block parameter at the given index, defaulting to the latest block when it is omitted
+   * (per execution-apis the Block parameter is optional, defaulting to 'latest'). Subclasses whose
+   * block parameter is optional should delegate to this from {@link #blockParameterOrBlockHash}.
+   *
+   * @param request the request
+   * @param index the position of the block parameter
+   * @return the requested block selector, or latest when the parameter is omitted
+   */
+  protected BlockParameterOrBlockHash blockParameterOrBlockHashWithLatestDefault(
+      final JsonRpcRequestContext request, final int index) {
+    try {
+      return request
+          .getOptionalParameter(index, BlockParameterOrBlockHash.class)
+          .orElse(BlockParameterOrBlockHash.LATEST);
+    } catch (JsonRpcParameterException e) {
+      throw new InvalidJsonRpcParameters(
+          "Invalid block or block hash parameter (index " + index + ")",
+          RpcErrorType.INVALID_BLOCK_PARAMS,
+          e);
+    }
+  }
 
   protected abstract Object resultByBlockHash(JsonRpcRequestContext request, Hash blockHash);
 
@@ -152,8 +177,8 @@ public abstract class AbstractBlockParameterOrBlockHashMethod implements JsonRpc
   public JsonRpcResponse response(final JsonRpcRequestContext requestContext) {
     Object response = handleParamTypes(requestContext);
 
-    if (response instanceof JsonRpcResponse) {
-      return (JsonRpcResponse) response;
+    if (response instanceof JsonRpcResponse jsonRpcResponse) {
+      return jsonRpcResponse;
     }
 
     return new JsonRpcSuccessResponse(requestContext.getRequest().getId(), response);

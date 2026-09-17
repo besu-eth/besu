@@ -63,7 +63,7 @@ public class QbftBlockCreatorFactoryTest {
     qbftConfigOptions.setValidatorContractAddress(Optional.of("1"));
     final ForkSpec<QbftConfigOptions> spec = new ForkSpec<>(0, qbftConfigOptions);
     final ForksSchedule<QbftConfigOptions> forksSchedule = mock(ForksSchedule.class);
-    when(forksSchedule.getFork(anyLong())).thenReturn(spec);
+    when(forksSchedule.getFork(anyLong(), anyLong())).thenReturn(spec);
 
     qbftBlockCreatorFactory =
         new QbftBlockCreatorFactory(

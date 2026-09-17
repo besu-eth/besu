@@ -1,0 +1,24 @@
+{
+  "request": {
+    "id": 341,
+    "jsonrpc": "2.0",
+    "method": "eth_getStorageValues",
+    "params": [
+      {
+        "0x6295ee1b4f6dd65047762f924ecd367c17eabf8f": ["0x2", "0x3"]
+      },
+      "0xb73cee02246c6f32ac0f459934e89102c2ce904d966a4fc2ab6309c3e104b9cb"
+    ]
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 341,
+    "result": {
+      "0x6295ee1b4f6dd65047762f924ecd367c17eabf8f": [
+        "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffee",
+        "0xaabbccffffffffffffffffffffffffffffffffffffffffffffffffffffffffee"
+      ]
+    }
+  },
+  "statusCode": 200
+}

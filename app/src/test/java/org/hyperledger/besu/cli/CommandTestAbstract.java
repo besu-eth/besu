@@ -18,10 +18,6 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.cli.util.CommandLineUtils.DEPENDENCY_WARNING_MSG;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.lenient;
@@ -55,22 +51,30 @@ import org.hyperledger.besu.crypto.KeyPairUtil;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.cryptoservices.NodeKey;
+import org.hyperledger.besu.cryptoservices.pluginadapter.SecurityModuleServiceImpl;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.graphql.GraphQLConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration;
+import org.hyperledger.besu.ethereum.api.pluginadapter.RpcEndpointServiceImpl;
+import org.hyperledger.besu.ethereum.blockcreation.pluginadapter.TransactionSelectionServiceImpl;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
+import org.hyperledger.besu.ethereum.chain.pluginadapter.BlockchainServiceImpl;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManager;
 import org.hyperledger.besu.ethereum.eth.sync.BlockBroadcaster;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
+import org.hyperledger.besu.ethereum.eth.transactions.pluginadapter.TransactionPoolValidatorServiceImpl;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.pluginadapter.TransactionValidatorServiceImpl;
 import org.hyperledger.besu.ethereum.permissioning.PermissioningConfiguration;
+import org.hyperledger.besu.ethereum.permissioning.pluginadapter.PermissioningServiceImpl;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
+import org.hyperledger.besu.ethereum.transaction.pluginadapter.TransactionSimulationServiceImpl;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
@@ -83,15 +87,7 @@ import org.hyperledger.besu.plugin.services.securitymodule.SecurityModule;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorageFactory;
 import org.hyperledger.besu.services.BesuConfigurationImpl;
 import org.hyperledger.besu.services.BesuPluginContextImpl;
-import org.hyperledger.besu.services.BlockchainServiceImpl;
-import org.hyperledger.besu.services.PermissioningServiceImpl;
-import org.hyperledger.besu.services.RpcEndpointServiceImpl;
-import org.hyperledger.besu.services.SecurityModuleServiceImpl;
 import org.hyperledger.besu.services.StorageServiceImpl;
-import org.hyperledger.besu.services.TransactionPoolValidatorServiceImpl;
-import org.hyperledger.besu.services.TransactionSelectionServiceImpl;
-import org.hyperledger.besu.services.TransactionSimulationServiceImpl;
-import org.hyperledger.besu.services.TransactionValidatorServiceImpl;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -114,12 +110,12 @@ import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
+import inet.ipaddr.IPAddress;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
-import org.apache.commons.net.util.SubnetUtils.SubnetInfo;
 import org.apache.commons.text.StringEscapeUtils;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -127,6 +123,7 @@ import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Answers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
@@ -154,7 +151,7 @@ public abstract class CommandTestAbstract {
                   .put(
                       "qbft",
                       new JsonObject()
-                          .put("xemptyblockperiodseconds", POA_EMPTY_BLOCK_PERIOD_SECONDS)));
+                          .put("emptyblockperiodseconds", POA_EMPTY_BLOCK_PERIOD_SECONDS)));
   protected static final JsonObject VALID_GENESIS_IBFT2_POST_LONDON =
       (new JsonObject())
           .put(
@@ -163,16 +160,6 @@ public abstract class CommandTestAbstract {
                   .put("londonBlock", 0)
                   .put(
                       "ibft2",
-                      new JsonObject().put("blockperiodseconds", POA_BLOCK_PERIOD_SECONDS)));
-
-  protected static final JsonObject VALID_GENESIS_CLIQUE_POST_LONDON =
-      (new JsonObject())
-          .put(
-              "config",
-              new JsonObject()
-                  .put("londonBlock", 0)
-                  .put(
-                      "clique",
                       new JsonObject().put("blockperiodseconds", POA_BLOCK_PERIOD_SECONDS)));
 
   protected static final JsonObject VALID_GENESIS_CLIQUE_WITH_POS_TRANSITION =
@@ -196,12 +183,20 @@ public abstract class CommandTestAbstract {
   private final HashMap<String, String> environment = new HashMap<>();
 
   private final List<TestBesuCommand> besuCommands = new ArrayList<>();
-  private KeyPair keyPair;
+
+  private static final KeyPair keyPair;
+
+  static {
+    final SignatureAlgorithm signatureAlgorithm = SignatureAlgorithmFactory.getInstance();
+    final Bytes32 keyPairPrvKey =
+        Bytes32.fromHexString("0xf7a58d5e755d51fa2f6206e91dd574597c73248aaf946ec1964b8c6268d6207b");
+    keyPair = signatureAlgorithm.createKeyPair(signatureAlgorithm.createPrivateKey(keyPairPrvKey));
+  }
 
   protected static final RpcEndpointServiceImpl rpcEndpointServiceImpl =
       new RpcEndpointServiceImpl();
 
-  @Mock(lenient = true)
+  @Mock(lenient = true, answer = Answers.RETURNS_SELF)
   protected RunnerBuilder mockRunnerBuilder;
 
   @Mock protected Runner mockRunner;
@@ -209,7 +204,7 @@ public abstract class CommandTestAbstract {
   @Mock(lenient = true)
   protected BesuController.Builder mockControllerBuilderFactory;
 
-  @Mock(lenient = true)
+  @Mock(lenient = true, answer = Answers.RETURNS_SELF)
   protected BesuControllerBuilder mockControllerBuilder;
 
   @Mock(lenient = true)
@@ -276,48 +271,15 @@ public abstract class CommandTestAbstract {
   @Captor protected ArgumentCaptor<ApiConfiguration> apiConfigurationCaptor;
 
   @Captor protected ArgumentCaptor<EthstatsOptions> ethstatsOptionsArgumentCaptor;
-  @Captor protected ArgumentCaptor<List<SubnetInfo>> allowedSubnetsArgumentCaptor;
+  @Captor protected ArgumentCaptor<List<IPAddress>> allowedSubnetsArgumentCaptor;
 
   @BeforeEach
   public void initMocks() throws Exception {
+    lenient()
+        .when(mockControllerBuilderFactory.checkpoint(any()))
+        .thenReturn(mockControllerBuilderFactory);
     when(mockControllerBuilderFactory.fromEthNetworkConfig(any(), any()))
         .thenReturn(mockControllerBuilder);
-    when(mockControllerBuilder.synchronizerConfiguration(any())).thenReturn(mockControllerBuilder);
-    when(mockControllerBuilder.ethProtocolConfiguration(any())).thenReturn(mockControllerBuilder);
-    when(mockControllerBuilder.transactionPoolConfiguration(any()))
-        .thenReturn(mockControllerBuilder);
-    when(mockControllerBuilder.dataDirectory(any())).thenReturn(mockControllerBuilder);
-    when(mockControllerBuilder.miningParameters(any())).thenReturn(mockControllerBuilder);
-    when(mockControllerBuilder.nodeKey(any())).thenReturn(mockControllerBuilder);
-    when(mockControllerBuilder.metricsSystem(any())).thenReturn(mockControllerBuilder);
-    when(mockControllerBuilder.messagePermissioningProviders(any()))
-        .thenReturn(mockControllerBuilder);
-    when(mockControllerBuilder.clock(any())).thenReturn(mockControllerBuilder);
-    when(mockControllerBuilder.isRevertReasonEnabled(false)).thenReturn(mockControllerBuilder);
-    when(mockControllerBuilder.isParallelTxProcessingEnabled(false))
-        .thenReturn(mockControllerBuilder);
-    when(mockControllerBuilder.isEarlyRoundChangeEnabled(false)).thenReturn(mockControllerBuilder);
-    when(mockControllerBuilder.storageProvider(any())).thenReturn(mockControllerBuilder);
-    when(mockControllerBuilder.requiredBlocks(any())).thenReturn(mockControllerBuilder);
-    when(mockControllerBuilder.reorgLoggingThreshold(anyLong())).thenReturn(mockControllerBuilder);
-    when(mockControllerBuilder.dataStorageConfiguration(any())).thenReturn(mockControllerBuilder);
-    when(mockControllerBuilder.evmConfiguration(any())).thenReturn(mockControllerBuilder);
-    when(mockControllerBuilder.networkConfiguration(any())).thenReturn(mockControllerBuilder);
-    when(mockControllerBuilder.randomPeerPriority(any())).thenReturn(mockControllerBuilder);
-    when(mockControllerBuilder.maxPeers(anyInt())).thenReturn(mockControllerBuilder);
-    when(mockControllerBuilder.chainPruningConfiguration(any())).thenReturn(mockControllerBuilder);
-    when(mockControllerBuilder.maxPeers(anyInt())).thenReturn(mockControllerBuilder);
-    when(mockControllerBuilder.maxRemotelyInitiatedPeers(anyInt()))
-        .thenReturn(mockControllerBuilder);
-    when(mockControllerBuilder.besuComponent(any())).thenReturn(mockControllerBuilder);
-    when(mockControllerBuilder.balConfiguration(any())).thenReturn(mockControllerBuilder);
-    when(mockControllerBuilder.cacheLastBlocks(any())).thenReturn(mockControllerBuilder);
-    when(mockControllerBuilder.cacheLastBlockHeaders(any())).thenReturn(mockControllerBuilder);
-    when(mockControllerBuilder.isCacheLastBlockHeadersPreloadEnabled(any()))
-        .thenReturn(mockControllerBuilder);
-    when(mockControllerBuilder.genesisStateHashCacheEnabled(any()))
-        .thenReturn(mockControllerBuilder);
-    when(mockControllerBuilder.apiConfiguration(any())).thenReturn(mockControllerBuilder);
     when(mockControllerBuilder.build()).thenReturn(mockController);
     lenient().when(mockController.getProtocolManager()).thenReturn(mockEthProtocolManager);
     lenient().when(mockController.getProtocolSchedule()).thenReturn(mockProtocolSchedule);
@@ -334,55 +296,8 @@ public abstract class CommandTestAbstract {
     when(mockController.getTransactionPool()).thenReturn(mockTransactionPool);
     when(mockController.getStorageProvider()).thenReturn(storageProvider);
 
-    when(mockRunnerBuilder.vertx(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.besuController(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.discoveryEnabled(anyBoolean())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.ethNetworkConfig(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.networkingConfiguration(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.p2pAdvertisedHost(anyString())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.p2pListenPort(anyInt())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.p2pListenInterface(anyString())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.p2pAdvertisedHostIpv6(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.p2pListenInterfaceIpv6(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.p2pListenPortIpv6(anyInt())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.permissioningConfiguration(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.p2pEnabled(anyBoolean())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.natMethod(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.natMethodFallbackEnabled(anyBoolean())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.jsonRpcConfiguration(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.engineJsonRpcConfiguration(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.graphQLConfiguration(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.webSocketConfiguration(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.jsonRpcIpcConfiguration(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.inProcessRpcConfiguration(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.apiConfiguration(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.dataDir(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.bannedNodeIds(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.metricsSystem(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.permissioningService(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.transactionValidatorService(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.metricsConfiguration(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.staticNodes(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.identityString(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.besuPluginContext(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.autoLogBloomCaching(anyBoolean())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.pidPath(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.ethstatsOptions(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.storageProvider(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.rpcEndpointService(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.apiConfiguration(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.enodeDnsConfiguration(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.allowedSubnets(any())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.poaDiscoveryRetryBootnodes(anyBoolean())).thenReturn(mockRunnerBuilder);
-    when(mockRunnerBuilder.preferIpv6Outbound(anyBoolean())).thenReturn(mockRunnerBuilder);
     when(mockRunnerBuilder.build()).thenReturn(mockRunner);
     when(mockBesuComponent.getMetricsSystem()).thenReturn(new NoOpMetricsSystem());
-
-    final SignatureAlgorithm signatureAlgorithm = SignatureAlgorithmFactory.getInstance();
-
-    final Bytes32 keyPairPrvKey =
-        Bytes32.fromHexString("0xf7a58d5e755d51fa2f6206e91dd574597c73248aaf946ec1964b8c6268d6207b");
-    keyPair = signatureAlgorithm.createKeyPair(signatureAlgorithm.createPrivateKey(keyPairPrvKey));
 
     lenient().when(nodeKey.getPublicKey()).thenReturn(keyPair.getPublicKey());
 
@@ -457,8 +372,6 @@ public abstract class CommandTestAbstract {
       final TestType testType, final InputStream in, final String... args) {
     // turn off ansi usage globally in picocli
     System.setProperty("picocli.ansi", "false");
-    // reset GlobalOpenTelemetry
-    GlobalOpenTelemetry.resetForTest();
 
     final TestBesuCommand besuCommand = getTestBesuCommand(testType);
     besuCommands.add(besuCommand);
@@ -523,50 +436,50 @@ public abstract class CommandTestAbstract {
   }
 
   private TestBesuCommand getTestBesuCommand(final TestType testType) {
-    switch (testType) {
-      case REQUIRED_OPTION:
-        return new TestBesuCommandWithRequiredOption(
-            () -> rlpBlockImporter,
-            this::jsonBlockImporterFactory,
-            () -> era1BlockImporter,
-            (blockchain) -> rlpBlockExporter,
-            (blockchain, networkName) -> era1BlockExporter,
-            mockRunnerBuilder,
-            mockControllerBuilderFactory,
-            getBesuPluginContext(),
-            environment,
-            storageService,
-            securityModuleService,
-            mockLogger);
-      case PORT_CHECK:
-        return new TestBesuCommand(
-            () -> rlpBlockImporter,
-            this::jsonBlockImporterFactory,
-            () -> era1BlockImporter,
-            (blockchain) -> rlpBlockExporter,
-            (blockchain, networkName) -> era1BlockExporter,
-            mockRunnerBuilder,
-            mockControllerBuilderFactory,
-            getBesuPluginContext(),
-            environment,
-            storageService,
-            securityModuleService,
-            mockLogger);
-      default:
-        return new TestBesuCommandWithoutPortCheck(
-            () -> rlpBlockImporter,
-            this::jsonBlockImporterFactory,
-            () -> era1BlockImporter,
-            (blockchain) -> rlpBlockExporter,
-            (blockchain, networkName) -> era1BlockExporter,
-            mockRunnerBuilder,
-            mockControllerBuilderFactory,
-            getBesuPluginContext(),
-            environment,
-            storageService,
-            securityModuleService,
-            mockLogger);
-    }
+    return switch (testType) {
+      case REQUIRED_OPTION ->
+          new TestBesuCommandWithRequiredOption(
+              () -> rlpBlockImporter,
+              this::jsonBlockImporterFactory,
+              () -> era1BlockImporter,
+              (blockchain) -> rlpBlockExporter,
+              (blockchain, networkName) -> era1BlockExporter,
+              mockRunnerBuilder,
+              mockControllerBuilderFactory,
+              getBesuPluginContext(),
+              environment,
+              storageService,
+              securityModuleService,
+              mockLogger);
+      case PORT_CHECK ->
+          new TestBesuCommand(
+              () -> rlpBlockImporter,
+              this::jsonBlockImporterFactory,
+              () -> era1BlockImporter,
+              (blockchain) -> rlpBlockExporter,
+              (blockchain, networkName) -> era1BlockExporter,
+              mockRunnerBuilder,
+              mockControllerBuilderFactory,
+              getBesuPluginContext(),
+              environment,
+              storageService,
+              securityModuleService,
+              mockLogger);
+      default ->
+          new TestBesuCommandWithoutPortCheck(
+              () -> rlpBlockImporter,
+              this::jsonBlockImporterFactory,
+              () -> era1BlockImporter,
+              (blockchain) -> rlpBlockExporter,
+              (blockchain, networkName) -> era1BlockExporter,
+              mockRunnerBuilder,
+              mockControllerBuilderFactory,
+              getBesuPluginContext(),
+              environment,
+              storageService,
+              securityModuleService,
+              mockLogger);
+    };
   }
 
   protected Path createTempFile(final String filename, final byte[] contents) throws IOException {
@@ -657,6 +570,10 @@ public abstract class CommandTestAbstract {
       return unstableNetworkingOptions;
     }
 
+    public P2PDiscoveryOptions getP2PDiscoveryOptions() {
+      return p2PDiscoveryOptions;
+    }
+
     public SynchronizerOptions getSynchronizerOptions() {
       return unstableSynchronizerOptions;
     }
@@ -680,7 +597,7 @@ public abstract class CommandTestAbstract {
     public void close() {
       if (vertx != null) {
         final AtomicBoolean closed = new AtomicBoolean(false);
-        vertx.close(event -> closed.set(true));
+        vertx.close().onComplete(event -> closed.set(true));
         Awaitility.waitAtMost(30, TimeUnit.SECONDS).until(closed::get);
       }
     }

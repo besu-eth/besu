@@ -20,14 +20,20 @@ import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
+import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
+import org.hyperledger.besu.evm.gascalculator.StorageTransition;
 
 import java.util.function.Supplier;
 
 import com.google.common.base.Suppliers;
 import org.apache.tuweni.units.bigints.UInt256;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** The SStore operation. */
 public class SStoreOperation extends AbstractOperation {
+
+  private static final Logger LOG = LoggerFactory.getLogger(SStoreOperation.class);
 
   /** The constant FRONTIER_MINIMUM. */
   public static final long FRONTIER_MINIMUM = 0L;
@@ -63,10 +69,11 @@ public class SStoreOperation extends AbstractOperation {
 
   @Override
   public OperationResult execute(final MessageFrame frame, final EVM evm) {
-
     final UInt256 key = UInt256.fromBytes(frame.popStackItem());
     final UInt256 newValue = UInt256.fromBytes(frame.popStackItem());
 
+    // EIP-8038: resolve the account ahead of the gas checks below, so that an SSTORE which halts
+    // for insufficient gas has still recorded the account in the block access list.
     final MutableAccount account = getMutableAccount(frame.getRecipientAddress(), frame);
     if (account == null) {
       return ILLEGAL_STATE_CHANGE;
@@ -84,22 +91,65 @@ public class SStoreOperation extends AbstractOperation {
 
     final Address address = account.getAddress();
     final boolean slotIsWarm = frame.warmUpStorage(address, key);
+
+    // EIP-8038: the repriced access cost can exceed the EIP-2200 stipend, so the sentry above no
+    // longer guarantees the access is affordable. Check before the current-value read below, which
+    // would otherwise record the slot in the block access list (EIP-7928) for an unpaid access.
+    final long accessCost =
+        gasCalculator().getWarmStorageReadCost()
+            + (slotIsWarm ? 0L : gasCalculator().getSStoreColdAccessGasCost());
+    if (remainingGas < accessCost) {
+      return new OperationResult(accessCost, ExceptionalHaltReason.INSUFFICIENT_GAS);
+    }
+
     final Supplier<UInt256> currentValueSupplier =
         Suppliers.memoize(() -> getStorageValue(account, key, frame));
     final Supplier<UInt256> originalValueSupplier =
         Suppliers.memoize(() -> account.getOriginalStorageValue(key));
 
     final long cost =
-        gasCalculator().calculateStorageCost(newValue, currentValueSupplier, originalValueSupplier)
-            + (slotIsWarm ? 0L : gasCalculator().getColdSloadCost());
+        gasCalculator().slotAccessCost(newValue, currentValueSupplier, originalValueSupplier)
+            + (slotIsWarm ? 0L : gasCalculator().getSStoreColdAccessGasCost());
     if (remainingGas < cost) {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
+
+    // EIP-8037: Deduct execution gas before charging state gas (ordering requirement).
+    // State gas draws from the reservoir first, then from gasRemaining; deducting execution
+    // gas first ensures the reservoir/gasRemaining split is correct.
+    frame.decrementRemainingGas(cost);
 
     // Increment the refund counter.
     frame.incrementGasRefund(
         gasCalculator()
             .calculateStorageRefundAmount(newValue, currentValueSupplier, originalValueSupplier));
+
+    if (LOG.isTraceEnabled()) {
+      LOG.trace(
+          "EIP-8037 REC_STORAGE depth={} addr={} key={} txEntryIsZero={} beforeIsZero={} afterIsZero={}",
+          frame.getDepth(),
+          address.toHexString(),
+          "0x" + key.toHexString().substring(2),
+          originalValueSupplier.get().isZero(),
+          currentValueSupplier.get().isZero(),
+          newValue.isZero());
+    }
+
+    final StateGasCostCalculator stateGasCalc = gasCalculator().stateGasCostCalculator();
+    final StorageTransition transition =
+        StorageTransition.of(newValue, currentValueSupplier, originalValueSupplier);
+    final long storageSetStateGas = stateGasCalc.storageSetStateGas();
+
+    // EIP-8037: Refund state gas for 0→X→0 (storage set then clear), otherwise charge state gas
+    // for a storage set (0 → nonzero). The two transitions are mutually exclusive.
+    if (transition.isUnwoundSet()) {
+      frame.refillStateGasReservoir(storageSetStateGas);
+    } else if (transition.isStorageSet() && !frame.consumeStateGas(storageSetStateGas)) {
+      return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
+    }
+
+    // Add execution gas back — the EVM loop will deduct it via the OperationResult.
+    frame.incrementRemainingGas(cost);
 
     account.setStorageValue(key, newValue);
     frame.storageWasUpdated(key, newValue);

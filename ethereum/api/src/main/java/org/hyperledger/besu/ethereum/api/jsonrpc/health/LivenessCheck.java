@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.health;
 
+import io.vertx.core.json.JsonObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,8 +22,8 @@ public class LivenessCheck implements HealthService.HealthCheck {
   private static final Logger LOG = LoggerFactory.getLogger(LivenessCheck.class);
 
   @Override
-  public boolean isHealthy(final HealthService.ParamSource params) {
+  public HealthService.HealthCheckResult checkHealth(final HealthService.ParamSource params) {
     LOG.debug("Invoking liveness check.");
-    return true;
+    return new HealthService.HealthCheckResult(true, new JsonObject());
   }
 }

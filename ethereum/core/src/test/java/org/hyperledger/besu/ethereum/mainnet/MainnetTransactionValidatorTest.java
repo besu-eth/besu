@@ -22,7 +22,7 @@ import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.GAS_PRICE_BELOW_CURRENT_BASE_FEE;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.INVALID_TRANSACTION_FORMAT;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.MAX_PRIORITY_FEE_PER_GAS_EXCEEDS_MAX_FEE_PER_GAS;
-import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE;
+import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
@@ -32,6 +32,7 @@ import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SECP256K1;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
+import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BlobType;
 import org.hyperledger.besu.datatypes.Hash;
@@ -56,12 +57,12 @@ import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
-import java.util.function.Supplier;
 import java.util.stream.Stream;
 
-import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.bytes.Bytes48;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -78,9 +79,9 @@ import org.mockito.quality.Strictness;
 @MockitoSettings(strictness = Strictness.LENIENT)
 public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExtension {
 
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
-  protected static final KeyPair senderKeys = SIGNATURE_ALGORITHM.get().generateKeyPair();
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
+  protected static final KeyPair senderKeys = SIGNATURE_ALGORITHM.generateKeyPair();
 
   private static final TransactionValidationParams transactionProcessingParams =
       processingBlockParams;
@@ -159,7 +160,42 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
             .chainId(Optional.empty())
             .createTransaction(senderKeys);
     when(gasCalculator.transactionIntrinsicGasCost(any(), anyLong())).thenReturn(5L);
-    when(gasCalculator.transactionFloorCost(any(), anyLong())).thenReturn(51L);
+    when(gasCalculator.transactionFloorCost(any(Transaction.class))).thenReturn(51L);
+
+    assertThat(
+            validator.validate(
+                transaction, Optional.empty(), Optional.empty(), transactionProcessingParams))
+        .isEqualTo(
+            ValidationResult.invalid(TransactionInvalidReason.INTRINSIC_GAS_EXCEEDS_GAS_LIMIT));
+  }
+
+  @Test
+  public void shouldRejectAccessListTransactionIfFloorExceedsGasLimit_EIP_7981() {
+    final TransactionValidator validator =
+        createTransactionValidator(
+            gasCalculator,
+            GasLimitCalculator.constant(),
+            FeeMarket.london(0L),
+            false,
+            Optional.of(BigInteger.ONE),
+            Set.of(TransactionType.ACCESS_LIST),
+            Integer.MAX_VALUE);
+    // Under EIP-7981, access list bytes contribute to the transaction floor cost; this test
+    // simulates that contribution pushing the floor above the gas limit.
+    final List<AccessListEntry> accessList =
+        List.of(
+            new AccessListEntry(
+                Address.fromHexString("0x00000000000000000000000000000000000000aa"),
+                List.of(Bytes32.ZERO, Bytes32.ZERO)));
+    final Transaction transaction =
+        new TransactionTestFixture()
+            .type(TransactionType.ACCESS_LIST)
+            .gasLimit(10)
+            .accessList(accessList)
+            .chainId(Optional.of(BigInteger.ONE))
+            .createTransaction(senderKeys);
+    when(gasCalculator.transactionIntrinsicGasCost(any(), anyLong())).thenReturn(5L);
+    when(gasCalculator.transactionFloorCost(any(Transaction.class))).thenReturn(51L);
 
     assertThat(
             validator.validate(
@@ -201,7 +237,8 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
         createTransactionValidator(
             gasCalculator, GasLimitCalculator.constant(), false, Optional.of(BigInteger.ONE));
     assertThat(validator.validateForSender(basicTransaction, null, processingBlockParams))
-        .isEqualTo(ValidationResult.invalid(TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE));
+        .isEqualTo(
+            ValidationResult.invalid(TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE));
   }
 
   @Test
@@ -299,7 +336,7 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
             gasCalculator, GasLimitCalculator.constant(), false, Optional.of(BigInteger.ONE));
 
     final TransactionTestFixture builder = new TransactionTestFixture();
-    final KeyPair senderKeyPair = SIGNATURE_ALGORITHM.get().generateKeyPair();
+    final KeyPair senderKeyPair = SIGNATURE_ALGORITHM.generateKeyPair();
     final Address arbitrarySender = Address.fromHexString("1");
     builder.gasPrice(Wei.ZERO).nonce(0).sender(arbitrarySender).value(Wei.ZERO);
 
@@ -328,7 +365,8 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
   static List<Arguments> transactionWithMaxFeeTimesGasLimitGreaterThanBalanceArguments =
       List.of(
           Arguments.of(
-              transactionSimulationParams, ValidationResult.invalid(UPFRONT_COST_EXCEEDS_BALANCE)),
+              transactionSimulationParams,
+              ValidationResult.invalid(UPFRONT_GAS_COST_EXCEEDS_BALANCE)),
           Arguments.of(transactionPoolParams, ValidationResult.valid()));
 
   @ParameterizedTest
@@ -393,6 +431,86 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
         .isEqualTo(ValidationResult.invalid(MAX_PRIORITY_FEE_PER_GAS_EXCEEDS_MAX_FEE_PER_GAS));
     assertThat(validationResult.getErrorMessage())
         .isEqualTo("max priority fee per gas cannot be greater than max fee per gas");
+  }
+
+  @Test
+  public void shouldRejectCodeDelegationTransactionWithEmptyDelegationList() {
+    final TransactionValidator validator =
+        createTransactionValidator(
+            gasCalculator,
+            GasLimitCalculator.constant(),
+            FeeMarket.london(0L),
+            false,
+            Optional.of(BigInteger.ONE),
+            Set.of(TransactionType.DELEGATE_CODE),
+            Integer.MAX_VALUE);
+    final Transaction transaction =
+        Transaction.builder()
+            .type(TransactionType.DELEGATE_CODE)
+            .nonce(0)
+            .maxPriorityFeePerGas(Wei.of(1))
+            .maxFeePerGas(Wei.of(2))
+            .gasLimit(21_000)
+            .to(Address.ZERO)
+            .value(Wei.ZERO)
+            .payload(Bytes.EMPTY)
+            .chainId(BigInteger.ONE)
+            .codeDelegations(List.of())
+            .signAndBuild(senderKeys);
+
+    final ValidationResult<TransactionInvalidReason> validationResult =
+        validator.validate(
+            transaction, Optional.of(Wei.ONE), Optional.empty(), transactionPoolParams);
+
+    assertThat(validationResult.isValid()).isFalse();
+    assertThat(validationResult.getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.EMPTY_CODE_DELEGATION);
+    assertThat(validationResult.getErrorMessage())
+        .isEqualTo(
+            "transaction code delegation transactions must have a non-empty code delegation list");
+  }
+
+  @Test
+  public void shouldRejectCodeDelegationTransactionWhenAuthorizationChainIdIsOutOfRange() {
+    final TransactionValidator validator =
+        createTransactionValidator(
+            gasCalculator,
+            GasLimitCalculator.constant(),
+            FeeMarket.london(0L),
+            false,
+            Optional.of(BigInteger.ONE),
+            Set.of(TransactionType.DELEGATE_CODE),
+            Integer.MAX_VALUE);
+    final BigInteger twoPow256 = BigInteger.TWO.pow(256);
+    final Transaction transaction =
+        Transaction.builder()
+            .type(TransactionType.DELEGATE_CODE)
+            .nonce(0)
+            .maxPriorityFeePerGas(Wei.of(1))
+            .maxFeePerGas(Wei.of(2))
+            .gasLimit(21_000)
+            .to(Address.ZERO)
+            .value(Wei.ZERO)
+            .payload(Bytes.EMPTY)
+            .chainId(BigInteger.ONE)
+            .codeDelegations(
+                List.of(
+                    new org.hyperledger.besu.ethereum.core.CodeDelegation(
+                        twoPow256,
+                        Address.ZERO,
+                        0L,
+                        SIGNATURE_ALGORITHM.createCodeDelegationSignature(
+                            BigInteger.ONE, BigInteger.ONE, (byte) 0))))
+            .signAndBuild(senderKeys);
+
+    final ValidationResult<TransactionInvalidReason> validationResult =
+        validator.validate(
+            transaction, Optional.of(Wei.ONE), Optional.empty(), transactionPoolParams);
+
+    assertThat(validationResult.isValid()).isFalse();
+    assertThat(validationResult.getInvalidReason()).isEqualTo(INVALID_TRANSACTION_FORMAT);
+    assertThat(validationResult.getErrorMessage())
+        .isEqualTo("Invalid 'chainId' value, should be < 2^256 but got " + twoPow256);
   }
 
   @Test
@@ -763,13 +881,12 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
       final ValidationParamsVariant validationParamsVariant,
       final long txGasLimit,
       final boolean valid) {
-    final long gasLimitCap = 16_777_216L;
     final var feeMarket = FeeMarket.london(0L);
     final TransactionValidator validator =
         createTransactionValidator(
             gasCalculator,
             new OsakaTargetingGasLimitCalculator(
-                0L, feeMarket, gasCalculator, 6, 3, 6, gasLimitCap),
+                0L, feeMarket, gasCalculator, 6, 3, OptionalInt.of(6), OptionalInt.empty()),
             feeMarket,
             false,
             Optional.of(BigInteger.ONE),
@@ -815,6 +932,9 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
     return Stream.of(
         Arguments.of(ValidationParamsVariant.PROCESSING, 16_777_216L, true),
         Arguments.of(ValidationParamsVariant.PROCESSING, 16_777_217L, false),
+        // Long.MIN_VALUE == 2^63 in unsigned representation; signed '>' comparison would treat
+        // it as negative and incorrectly pass the cap check — must be rejected unsigned
+        Arguments.of(ValidationParamsVariant.PROCESSING, Long.MIN_VALUE, false),
         Arguments.of(ValidationParamsVariant.SIMULATING, 16_777_216L, true),
         Arguments.of(ValidationParamsVariant.SIMULATING, 16_777_217L, true));
   }

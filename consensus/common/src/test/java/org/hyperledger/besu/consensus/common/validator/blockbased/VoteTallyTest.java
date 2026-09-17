@@ -162,6 +162,18 @@ public class VoteTallyTest {
   }
 
   @Test
+  public void resetDropVotes() {
+    final VoteTally voteTally = fourValidators();
+    voteTally.addVote(new ValidatorVote(VoteType.DROP, validator1, validator4));
+    voteTally.addVote(new ValidatorVote(VoteType.DROP, validator2, validator4));
+    voteTally.discardOutstandingVotes();
+    voteTally.addVote(new ValidatorVote(VoteType.DROP, validator3, validator4));
+
+    assertThat(voteTally.getValidators())
+        .containsExactly(validator1, validator2, validator3, validator4);
+  }
+
+  @Test
   public void validatorsAreNotRemovedBeforeRequiredVoteCountReached() {
     final VoteTally voteTally = fourValidators();
     voteTally.addVote(new ValidatorVote(VoteType.DROP, validator1, validator4));

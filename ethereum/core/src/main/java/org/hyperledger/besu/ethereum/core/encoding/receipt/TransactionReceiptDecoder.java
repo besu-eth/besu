@@ -24,9 +24,9 @@ import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.util.List;
 import java.util.Optional;
-import javax.annotation.Nullable;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Decodes transaction receipts from RLP.

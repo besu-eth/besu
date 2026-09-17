@@ -37,6 +37,7 @@ import org.hyperledger.besu.evm.operation.ByteOperation;
 import org.hyperledger.besu.evm.operation.ChainIdOperation;
 import org.hyperledger.besu.evm.operation.CountLeadingZerosOperation;
 import org.hyperledger.besu.evm.operation.DivOperation;
+import org.hyperledger.besu.evm.operation.DivOperationOptimized;
 import org.hyperledger.besu.evm.operation.DupNOperation;
 import org.hyperledger.besu.evm.operation.DupOperation;
 import org.hyperledger.besu.evm.operation.ExchangeOperation;
@@ -53,6 +54,7 @@ import org.hyperledger.besu.evm.operation.ModOperationOptimized;
 import org.hyperledger.besu.evm.operation.MulModOperation;
 import org.hyperledger.besu.evm.operation.MulModOperationOptimized;
 import org.hyperledger.besu.evm.operation.MulOperation;
+import org.hyperledger.besu.evm.operation.MulOperationOptimized;
 import org.hyperledger.besu.evm.operation.NotOperation;
 import org.hyperledger.besu.evm.operation.NotOperationOptimized;
 import org.hyperledger.besu.evm.operation.Operation;
@@ -64,6 +66,7 @@ import org.hyperledger.besu.evm.operation.PopOperation;
 import org.hyperledger.besu.evm.operation.Push0Operation;
 import org.hyperledger.besu.evm.operation.PushOperation;
 import org.hyperledger.besu.evm.operation.SDivOperation;
+import org.hyperledger.besu.evm.operation.SDivOperationOptimized;
 import org.hyperledger.besu.evm.operation.SGtOperation;
 import org.hyperledger.besu.evm.operation.SLtOperation;
 import org.hyperledger.besu.evm.operation.SModOperation;
@@ -77,16 +80,31 @@ import org.hyperledger.besu.evm.operation.ShrOperationOptimized;
 import org.hyperledger.besu.evm.operation.SignExtendOperation;
 import org.hyperledger.besu.evm.operation.StopOperation;
 import org.hyperledger.besu.evm.operation.SubOperation;
+import org.hyperledger.besu.evm.operation.SubOperationOptimized;
 import org.hyperledger.besu.evm.operation.SwapNOperation;
 import org.hyperledger.besu.evm.operation.SwapOperation;
 import org.hyperledger.besu.evm.operation.VirtualOperation;
 import org.hyperledger.besu.evm.operation.XorOperation;
 import org.hyperledger.besu.evm.operation.XorOperationOptimized;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.evm.v2.operation.AddModOperationV2;
+import org.hyperledger.besu.evm.v2.operation.AddOperationV2;
+import org.hyperledger.besu.evm.v2.operation.DivOperationV2;
+import org.hyperledger.besu.evm.v2.operation.ModOperationV2;
+import org.hyperledger.besu.evm.v2.operation.MulModOperationV2;
+import org.hyperledger.besu.evm.v2.operation.MulOperationV2;
+import org.hyperledger.besu.evm.v2.operation.SDivOperationV2;
+import org.hyperledger.besu.evm.v2.operation.SModOperationV2;
+import org.hyperledger.besu.evm.v2.operation.SarOperationV2;
+import org.hyperledger.besu.evm.v2.operation.ShlOperationV2;
+import org.hyperledger.besu.evm.v2.operation.ShrOperationV2;
+import org.hyperledger.besu.evm.v2.operation.SubOperationV2;
 
 import java.util.Optional;
+import java.util.function.Function;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -109,6 +127,7 @@ public class EVM {
   private final EvmSpecVersion evmSpecVersion;
 
   // Optimized operation flags
+  private final boolean enableConstantinople;
   private final boolean enableShanghai;
   private final boolean enableAmsterdam;
   private final boolean enableOsaka;
@@ -135,6 +154,7 @@ public class EVM {
     this.evmSpecVersion = evmSpecVersion;
     this.jumpDestOnlyCodeCache = new JumpDestOnlyCodeCache(evmConfiguration);
 
+    enableConstantinople = EvmSpecVersion.CONSTANTINOPLE.ordinal() <= evmSpecVersion.ordinal();
     enableShanghai = EvmSpecVersion.SHANGHAI.ordinal() <= evmSpecVersion.ordinal();
     enableAmsterdam = EvmSpecVersion.AMSTERDAM.ordinal() <= evmSpecVersion.ordinal();
     enableOsaka = EvmSpecVersion.OSAKA.ordinal() <= evmSpecVersion.ordinal();
@@ -204,33 +224,39 @@ public class EVM {
    * Run to halt.
    *
    * @param frame the frame
-   * @param tracing the tracing
+   * @param operationTracer the tracing
    */
   // Note to maintainers: lots of Java idioms and OO principals are being set aside in the
   // name of performance. This is one of the hottest sections of code.
   //
   // Please benchmark before refactoring.
-  public void runToHalt(final MessageFrame frame, final OperationTracer tracing) {
+  public void runToHalt(final MessageFrame frame, @NonNull final OperationTracer operationTracer) {
+    // do not remove assert! A single, monomorphic tracer, is allowed in the EVM execution if
+    // tracing is disabled for
+    // optimization purposes
+    assert operationTracer.isEnabled() || operationTracer == OperationTracer.NO_TRACING;
+
+    if (evmConfiguration.enableEvmV2()) {
+      runToHaltV2(frame, operationTracer);
+      return;
+    }
     evmSpecVersion.maybeWarnVersion();
 
-    var operationTracer = tracing == OperationTracer.NO_TRACING ? null : tracing;
     byte[] code = frame.getCode().getBytes().toArrayUnsafe();
     Operation[] operationArray = operations.getOperations();
     while (frame.getState() == MessageFrame.State.CODE_EXECUTING) {
       Operation currentOperation;
       int opcode;
       int pc = frame.getPC();
-      try {
+      if (pc < code.length) {
         opcode = code[pc] & 0xff;
         currentOperation = operationArray[opcode];
-      } catch (ArrayIndexOutOfBoundsException aiiobe) {
+      } else {
         opcode = 0;
         currentOperation = endOfScriptStop;
       }
       frame.setCurrentOperation(currentOperation);
-      if (operationTracer != null) {
-        operationTracer.tracePreExecution(frame);
-      }
+      operationTracer.tracePreExecution(frame);
 
       OperationResult result;
       try {
@@ -241,10 +267,22 @@ public class EVM {
                   evmConfiguration.enableOptimizedOpcodes()
                       ? AddOperationOptimized.staticOperation(frame)
                       : AddOperation.staticOperation(frame);
-              case 0x02 -> MulOperation.staticOperation(frame);
-              case 0x03 -> SubOperation.staticOperation(frame);
-              case 0x04 -> DivOperation.staticOperation(frame);
-              case 0x05 -> SDivOperation.staticOperation(frame);
+              case 0x02 ->
+                  evmConfiguration.enableOptimizedOpcodes()
+                      ? MulOperationOptimized.staticOperation(frame)
+                      : MulOperation.staticOperation(frame);
+              case 0x03 ->
+                  evmConfiguration.enableOptimizedOpcodes()
+                      ? SubOperationOptimized.staticOperation(frame)
+                      : SubOperation.staticOperation(frame);
+              case 0x04 ->
+                  evmConfiguration.enableOptimizedOpcodes()
+                      ? DivOperationOptimized.staticOperation(frame)
+                      : DivOperation.staticOperation(frame);
+              case 0x05 ->
+                  evmConfiguration.enableOptimizedOpcodes()
+                      ? SDivOperationOptimized.staticOperation(frame)
+                      : SDivOperation.staticOperation(frame);
               case 0x06 ->
                   evmConfiguration.enableOptimizedOpcodes()
                       ? ModOperationOptimized.staticOperation(frame)
@@ -287,17 +325,26 @@ public class EVM {
                       : NotOperation.staticOperation(frame);
               case 0x1a -> ByteOperation.staticOperation(frame);
               case 0x1b ->
-                  evmConfiguration.enableOptimizedOpcodes()
-                      ? ShlOperationOptimized.staticOperation(frame)
-                      : ShlOperation.staticOperation(frame);
+                  enableConstantinople
+                      ? shiftOperation(
+                          frame,
+                          ShlOperation::staticOperation,
+                          ShlOperationOptimized::staticOperation)
+                      : InvalidOperation.invalidOperationResult(opcode);
               case 0x1c ->
-                  evmConfiguration.enableOptimizedOpcodes()
-                      ? ShrOperationOptimized.staticOperation(frame)
-                      : ShrOperation.staticOperation(frame);
+                  enableConstantinople
+                      ? shiftOperation(
+                          frame,
+                          ShrOperation::staticOperation,
+                          ShrOperationOptimized::staticOperation)
+                      : InvalidOperation.invalidOperationResult(opcode);
               case 0x1d ->
-                  evmConfiguration.enableOptimizedOpcodes()
-                      ? SarOperationOptimized.staticOperation(frame)
-                      : SarOperation.staticOperation(frame);
+                  enableConstantinople
+                      ? shiftOperation(
+                          frame,
+                          SarOperation::staticOperation,
+                          SarOperationOptimized::staticOperation)
+                      : InvalidOperation.invalidOperationResult(opcode);
               case 0x1e ->
                   enableOsaka
                       ? CountLeadingZerosOperation.staticOperation(frame)
@@ -413,9 +460,86 @@ public class EVM {
         final int opSize = result.getPcIncrement();
         frame.setPC(currentPC + opSize);
       }
-      if (operationTracer != null) {
-        operationTracer.tracePostExecution(frame, result);
+      operationTracer.tracePostExecution(frame, result);
+    }
+  }
+
+  /**
+   * EVM v2 execution loop using long[] stack representation. Only opcodes explicitly listed in the
+   * switch are handled via the v2 path; all others fall through to the v1 operation registry. This
+   * skeleton stub establishes the dispatch structure for incremental v2 operation rollout.
+   */
+  // Note: like runToHalt, this is performance-critical code. Benchmark before refactoring.
+  private void runToHaltV2(final MessageFrame frame, final OperationTracer operationTracer) {
+    evmSpecVersion.maybeWarnVersion();
+
+    byte[] code = frame.getCode().getBytes().toArrayUnsafe();
+    Operation[] operationArray = operations.getOperations();
+    while (frame.getState() == MessageFrame.State.CODE_EXECUTING) {
+      Operation currentOperation;
+      int opcode;
+      int pc = frame.getPC();
+      if (pc < code.length) {
+        opcode = code[pc] & 0xff;
+        currentOperation = operationArray[opcode];
+      } else {
+        opcode = 0;
+        currentOperation = endOfScriptStop;
       }
+      frame.setCurrentOperation(currentOperation);
+      operationTracer.tracePreExecution(frame);
+
+      OperationResult result;
+      try {
+        result =
+            switch (opcode) {
+              case 0x01 -> AddOperationV2.staticOperation(frame);
+              case 0x02 -> MulOperationV2.staticOperation(frame);
+              case 0x03 -> SubOperationV2.staticOperation(frame);
+              case 0x04 -> DivOperationV2.staticOperation(frame);
+              case 0x05 -> SDivOperationV2.staticOperation(frame);
+              case 0x06 -> ModOperationV2.staticOperation(frame);
+              case 0x07 -> SModOperationV2.staticOperation(frame);
+              case 0x08 -> AddModOperationV2.staticOperation(frame);
+              case 0x09 -> MulModOperationV2.staticOperation(frame);
+              case 0x1b ->
+                  enableConstantinople
+                      ? ShlOperationV2.staticOperation(frame)
+                      : InvalidOperation.invalidOperationResult(opcode);
+              case 0x1c ->
+                  enableConstantinople
+                      ? ShrOperationV2.staticOperation(frame)
+                      : InvalidOperation.invalidOperationResult(opcode);
+              case 0x1d ->
+                  enableConstantinople
+                      ? SarOperationV2.staticOperation(frame)
+                      : InvalidOperation.invalidOperationResult(opcode);
+              // TODO EVMv2: implement remaining opcodes in v2; until then fall through to v1
+              default -> {
+                frame.setCurrentOperation(currentOperation);
+                yield currentOperation.execute(frame, this);
+              }
+            };
+      } catch (final OverflowException oe) {
+        result = OVERFLOW_RESPONSE;
+      } catch (final UnderflowException ue) {
+        result = UNDERFLOW_RESPONSE;
+      }
+      final ExceptionalHaltReason haltReason = result.getHaltReason();
+      if (haltReason != null) {
+        LOG.trace("MessageFrame evaluation halted because of {}", haltReason);
+        frame.setExceptionalHaltReason(Optional.of(haltReason));
+        frame.setState(MessageFrame.State.EXCEPTIONAL_HALT);
+      } else if (frame.decrementRemainingGas(result.getGasCost()) < 0) {
+        frame.setExceptionalHaltReason(Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
+        frame.setState(MessageFrame.State.EXCEPTIONAL_HALT);
+      }
+      if (frame.getState() == MessageFrame.State.CODE_EXECUTING) {
+        final int currentPC = frame.getPC();
+        final int opSize = result.getPcIncrement();
+        frame.setPC(currentPC + opSize);
+      }
+      operationTracer.tracePostExecution(frame, result);
     }
   }
 
@@ -426,6 +550,15 @@ public class EVM {
    */
   public Operation[] getOperationsUnsafe() {
     return operations.getOperations();
+  }
+
+  private OperationResult shiftOperation(
+      final MessageFrame frame,
+      final Function<MessageFrame, OperationResult> standard,
+      final Function<MessageFrame, OperationResult> optimized) {
+    return evmConfiguration.enableOptimizedOpcodes()
+        ? optimized.apply(frame)
+        : standard.apply(frame);
   }
 
   /**

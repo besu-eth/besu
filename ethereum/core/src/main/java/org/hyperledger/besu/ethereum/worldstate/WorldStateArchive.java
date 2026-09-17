@@ -16,24 +16,32 @@ package org.hyperledger.besu.ethereum.worldstate;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.proof.WorldStateProof;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.evm.worldstate.WorldState;
+import org.hyperledger.besu.plugin.data.BlockHeader;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.io.Closeable;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
 
-import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 
 public interface WorldStateArchive extends Closeable {
   Optional<WorldState> get(Hash rootHash, Hash blockHash);
 
   boolean isWorldStateAvailable(Hash rootHash, Hash blockHash);
+
+  /**
+   * Hook for archive implementations to adjust world-state behaviour before block processing (e.g.
+   * disable trie preload after a configured fork).
+   *
+   * @param blockHeader the header of the block about to be processed
+   * @param worldState the mutable world state to prepare for block processing
+   */
+  default void prepareWorldStateForBlock(
+      final BlockHeader blockHeader, final MutableWorldState worldState) {}
 
   /**
    * Gets a mutable world state based on the provided query parameters.
@@ -63,8 +71,6 @@ public interface WorldStateArchive extends Closeable {
    */
   void resetArchiveStateTo(BlockHeader blockHeader);
 
-  Optional<Bytes> getNodeData(Hash hash);
-
   /**
    * Retrieves an account proof based on the provided parameters.
    *
@@ -80,24 +86,4 @@ public interface WorldStateArchive extends Closeable {
       final Address accountAddress,
       final List<UInt256> accountStorageKeys,
       final Function<Optional<WorldStateProof>, ? extends Optional<U>> mapper);
-
-  /**
-   * Heal the world state to fix inconsistency
-   *
-   * @param maybeAccountToRepair the optional account to repair
-   * @param location the location of the inconsistency
-   */
-  void heal(Optional<Address> maybeAccountToRepair, Bytes location);
-
-  /** A world state healer */
-  @FunctionalInterface
-  interface WorldStateHealer {
-    /**
-     * Heal the world state to fix inconsistency
-     *
-     * @param maybeAccountToRepair the optional account to repair
-     * @param location the location of the inconsistency
-     */
-    void heal(Optional<Address> maybeAccountToRepair, Bytes location);
-  }
 }

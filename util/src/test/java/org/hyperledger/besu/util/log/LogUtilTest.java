@@ -68,7 +68,7 @@ public class LogUtilTest {
     String result = "";
     try {
       Supplier<Object> lambda = () -> besuStackHelper((null));
-      Supplier<Object> lambda2 = lambda::get;
+      Supplier<Object> lambda2 = () -> lambda.get();
       assertThat(lambda2.get()).isNotNull();
     } catch (Exception e) {
       result = LogUtil.summarizeBesuStackTrace("besuSummary", e);

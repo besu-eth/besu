@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.evm.gascalculator;
 
+import static org.hyperledger.besu.evm.internal.Words.clampedAdd;
+
 import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Transaction;
@@ -420,6 +422,19 @@ public interface GasCalculator {
   }
 
   /**
+   * EIP-8246: whether SELFDESTRUCT preserves the originator's balance instead of burning it. When
+   * true, a same-tx-created account is cleared (nonce/code/storage) at transaction finalization
+   * with its balance preserved (EIP-161 state clearing then removes a zero-balance result) and no
+   * Burn log is emitted while the balance is preserved.
+   *
+   * @return true if the originator's balance is preserved on self destruct, false (pre-Amsterdam)
+   *     otherwise
+   */
+  default boolean isSelfDestructBalancePreserved() {
+    return false;
+  }
+
+  /**
    * Returns the cost for executing a {@link Keccak256Operation}.
    *
    * @param frame The current frame
@@ -446,6 +461,25 @@ public interface GasCalculator {
    */
   long calculateStorageCost(
       UInt256 newValue, Supplier<UInt256> currentValue, Supplier<UInt256> originalValue);
+
+  /**
+   * Returns the execution-gas cost of an SSTORE, i.e. the portion charged as execution gas (as
+   * opposed to state gas). Through Osaka this is the whole SSTORE cost, so it delegates to {@link
+   * #calculateStorageCost}. EIP-8038 (Amsterdam) splits the cost into execution and state gas and
+   * overrides this to return only the execution portion; a future fork that moves the remaining
+   * execution portion to state gas can zero it out.
+   *
+   * @param newValue the new value to be stored
+   * @param currentValue the supplier of the current value
+   * @param originalValue the supplier of the original value
+   * @return the execution-gas cost for the SSTORE operation
+   */
+  default long slotAccessCost(
+      final UInt256 newValue,
+      final Supplier<UInt256> currentValue,
+      final Supplier<UInt256> originalValue) {
+    return calculateStorageCost(newValue, currentValue, originalValue);
+  }
 
   /**
    * Returns the refund amount for an SSTORE operation.
@@ -475,11 +509,33 @@ public interface GasCalculator {
   }
 
   /**
+   * Returns the cold access surcharge charged for an SSTORE to a storage slot not previously
+   * accessed in the TX context. By default this equals the cold SLOAD cost; EIP-8038 overrides it
+   * to exclude the warm access base already included in {@link #slotAccessCost}.
+   *
+   * @return the SSTORE cold access surcharge.
+   */
+  default long getSStoreColdAccessGasCost() {
+    return getColdSloadCost();
+  }
+
+  /**
    * Returns the cost to access an account not previously accessed in the TX context.
    *
    * @return the cost to access an account not previously accessed in the TX context.
    */
   default long getColdAccountAccessCost() {
+    return 0L;
+  }
+
+  /**
+   * Returns the execution gas charged for the first write to an account leaf (EIP-2780
+   * ACCOUNT_WRITE), used for the top-frame EIP-7702 authorization charge. Zero for forks without
+   * state-gas metering.
+   *
+   * @return the ACCOUNT_WRITE execution gas cost
+   */
+  default long getAccountWriteGasCost() {
     return 0L;
   }
 
@@ -533,14 +589,32 @@ public interface GasCalculator {
   long transactionIntrinsicGasCost(Transaction transaction, long baselineGas);
 
   /**
-   * Returns the floor gas cost of a transaction payload, i.e. the minimum gas cost that a
-   * transaction will be charged based on its calldata. Introduced in EIP-7623 in Prague.
+   * Returns the execution-dimension intrinsic gas cost of a transaction, including the gas for its
+   * access list and EIP-7702 code-delegation authorizations.
    *
-   * @param transactionPayload The encoded transaction, as bytes
-   * @param payloadZeroBytes The number of zero bytes in the payload
+   * <p>This is the single entry point for callers that have a {@link Transaction} and want the full
+   * intrinsic execution cost: it derives the access-list and code-delegation baseline internally
+   * and delegates to {@link #transactionIntrinsicGasCost(Transaction, long)}, so the summing lives
+   * in one place rather than at every call site.
+   *
+   * @param transaction the transaction
+   * @return the transaction's intrinsic execution gas cost
+   */
+  default long transactionIntrinsicExecutionGas(final Transaction transaction) {
+    final long accessListGas = accessListGasCost(transaction.getAccessList().orElse(List.of()));
+    final long codeDelegationGas = delegateCodeGasCost(transaction.codeDelegationListSize());
+    return transactionIntrinsicGasCost(transaction, clampedAdd(accessListGas, codeDelegationGas));
+  }
+
+  /**
+   * Returns the floor gas cost of a transaction, i.e. the minimum gas cost that a transaction will
+   * be charged based on its calldata (and, from EIP-7981, its access list bytes). Introduced in
+   * EIP-7623 in Prague.
+   *
+   * @param transaction The transaction
    * @return the transaction's floor gas cost
    */
-  long transactionFloorCost(final Bytes transactionPayload, final long payloadZeroBytes);
+  long transactionFloorCost(Transaction transaction);
 
   /**
    * Returns the gas cost of the explicitly declared access list.
@@ -596,6 +670,16 @@ public interface GasCalculator {
    * @return the cost of a TSTORE to a storage slot
    */
   default long getTransientStoreOperationGasCost() {
+    return 0L;
+  }
+
+  /**
+   * Returns the gas cost per item for the block access list size constraint (EIP-7928).
+   *
+   * @return the cost per BAL item (address or storage key) for the size limit; 0 if BAL size
+   *     constraint is not applicable for this fork
+   */
+  default long getBlockAccessListItemCost() {
     return 0L;
   }
 
@@ -661,5 +745,14 @@ public interface GasCalculator {
   default long calculateCodeDelegationResolutionGas(
       final MessageFrame frame, final Account targetAccount) {
     return 0L;
+  }
+
+  /**
+   * Returns the state gas cost calculator for EIP-8037 multidimensional gas metering.
+   *
+   * @return the state gas cost calculator (NONE by default)
+   */
+  default StateGasCostCalculator stateGasCostCalculator() {
+    return StateGasCostCalculator.NONE;
   }
 }

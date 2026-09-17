@@ -39,6 +39,7 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
   private static final IbftExtraDataCodec BFT_EXTRA_DATA_ENCODER = new IbftExtraDataCodec();
   private final Optional<Block> proposedBlock;
   private final Optional<BlockAccessList> blockAccessList;
+  private final boolean useLegacyEncoding;
 
   /**
    * Instantiates a new Round change.
@@ -51,9 +52,33 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
       final SignedData<RoundChangePayload> payload,
       final Optional<Block> proposedBlock,
       final Optional<BlockAccessList> blockAccessList) {
+    this(payload, proposedBlock, blockAccessList, false);
+  }
+
+  /**
+   * Creates a RoundChange that encodes in pre-26.1.0 wire format (BAL slot omitted).
+   *
+   * @param payload the payload
+   * @param proposedBlock the proposed block
+   * @param blockAccessList the block access list
+   * @return a legacy-encoding RoundChange
+   */
+  public static RoundChange withLegacyEncoding(
+      final SignedData<RoundChangePayload> payload,
+      final Optional<Block> proposedBlock,
+      final Optional<BlockAccessList> blockAccessList) {
+    return new RoundChange(payload, proposedBlock, blockAccessList, true);
+  }
+
+  private RoundChange(
+      final SignedData<RoundChangePayload> payload,
+      final Optional<Block> proposedBlock,
+      final Optional<BlockAccessList> blockAccessList,
+      final boolean useLegacyEncoding) {
     super(payload);
     this.proposedBlock = proposedBlock;
     this.blockAccessList = blockAccessList;
+    this.useLegacyEncoding = useLegacyEncoding;
   }
 
   /**
@@ -103,7 +128,11 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
     } else {
       rlpOut.writeNull();
     }
-    blockAccessList.ifPresentOrElse((bal) -> bal.writeTo(rlpOut), rlpOut::writeNull);
+    if (!useLegacyEncoding) {
+      // Current 26.1.0+ format: write BAL or null slot
+      blockAccessList.ifPresentOrElse((bal) -> bal.writeTo(rlpOut), rlpOut::writeNull);
+    }
+    // else: legacy mode — omit BAL entirely (pre-26.1.0 wire format, 2 items)
     rlpOut.endList();
     return rlpOut.encoded();
   }
@@ -136,6 +165,10 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
   }
 
   private static Optional<BlockAccessList> readBlockAccessList(final RLPInput rlpIn) {
+    if (rlpIn.isEndOfCurrentList()) {
+      // Backward compatibility: pre-26.1.0 messages do not include blockAccessList
+      return Optional.empty();
+    }
     if (!rlpIn.nextIsNull()) {
       return Optional.of(BlockAccessListDecoder.decode(rlpIn));
     }

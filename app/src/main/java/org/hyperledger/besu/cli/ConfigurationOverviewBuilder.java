@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 import com.google.common.base.Splitter;
 import com.google.common.collect.Iterables;
@@ -60,10 +61,12 @@ public class ConfigurationOverviewBuilder {
   private boolean isLimitTrieLogsEnabled = false;
   private long trieLogRetentionLimit = 0;
   private Integer trieLogsPruningWindowSize = null;
+  private boolean isDiscoveryEnabled = true;
   private boolean isSnapServerEnabled = false;
   private TransactionPoolConfiguration.Implementation txPoolImplementation;
   private EvmConfiguration.WorldUpdaterMode worldStateUpdateMode;
   private boolean enabledOpcodeOptimizations;
+  private boolean evmV2 = false;
   private Map<String, String> environment;
   private BesuPluginContextImpl besuPluginContext;
   private boolean isHistoryExpiryPruneEnabled = false;
@@ -74,6 +77,11 @@ public class ConfigurationOverviewBuilder {
 
   private RocksDBCLIOptions.BlobDBSettings blobDBSettings;
   private Long targetGasLimit;
+  private Integer maxBlobsPerTransaction;
+  private Integer maxBlobsPerBlock;
+  private Integer rocksDbMaxOpenFiles;
+  private boolean rocksDbMaxOpenFilesExplicitlySet;
+  private static final String SNAP_SYNC_MODE = "SNAP";
 
   /**
    * Create a new ConfigurationOverviewBuilder.
@@ -248,6 +256,17 @@ public class ConfigurationOverviewBuilder {
   }
 
   /**
+   * Sets discovery enabled/disabled
+   *
+   * @param discoveryEnabled bool to indicate if discovery is enabled
+   * @return the builder
+   */
+  public ConfigurationOverviewBuilder setDiscoveryEnabled(final boolean discoveryEnabled) {
+    isDiscoveryEnabled = discoveryEnabled;
+    return this;
+  }
+
+  /**
    * Sets snap server enabled/disabled
    *
    * @param snapServerEnabled bool to indicate if snap server is enabled
@@ -302,6 +321,17 @@ public class ConfigurationOverviewBuilder {
   public ConfigurationOverviewBuilder setEnabledOpcodeOptimizations(
       final boolean enabledOpcodeOptimizations) {
     this.enabledOpcodeOptimizations = enabledOpcodeOptimizations;
+    return this;
+  }
+
+  /**
+   * Sets whether the experimental EVM v2 (long[] stack) is enabled.
+   *
+   * @param evmV2 true if --Xevm-go-fast / --Xevm-v2 is enabled
+   * @return the builder
+   */
+  public ConfigurationOverviewBuilder setEvmV2(final boolean evmV2) {
+    this.evmV2 = evmV2;
     return this;
   }
 
@@ -387,6 +417,43 @@ public class ConfigurationOverviewBuilder {
   }
 
   /**
+   * Sets the max blobs per transaction.
+   *
+   * @param maxBlobsPerTransaction the max blobs per transaction
+   * @return the builder
+   */
+  public ConfigurationOverviewBuilder setMaxBlobsPerTransaction(
+      final Integer maxBlobsPerTransaction) {
+    this.maxBlobsPerTransaction = maxBlobsPerTransaction;
+    return this;
+  }
+
+  /**
+   * Sets the max blobs per block for block building.
+   *
+   * @param maxBlobsPerBlock the max blobs per block
+   * @return the builder
+   */
+  public ConfigurationOverviewBuilder setMaxBlobsPerBlock(final Integer maxBlobsPerBlock) {
+    this.maxBlobsPerBlock = maxBlobsPerBlock;
+    return this;
+  }
+
+  /**
+   * Sets the RocksDB max open files value and whether it was explicitly set via CLI.
+   *
+   * @param maxOpenFiles the max open files value
+   * @param explicitlySet true if the value was set via CLI, false if derived from available memory
+   * @return the builder
+   */
+  public ConfigurationOverviewBuilder setRocksDbMaxOpenFiles(
+      final int maxOpenFiles, final boolean explicitlySet) {
+    this.rocksDbMaxOpenFiles = maxOpenFiles;
+    this.rocksDbMaxOpenFilesExplicitlySet = explicitlySet;
+    return this;
+  }
+
+  /**
    * Sets the chain pruning configuration.
    *
    * @param pruningStrategy the chain pruning strategy
@@ -405,11 +472,28 @@ public class ConfigurationOverviewBuilder {
   }
 
   /**
-   * Build configuration overview.
+   * Build configuration overview as a framed, human-readable block.
    *
    * @return the string representing configuration overview
    */
   public String build() {
+    return FramedLogMessage.generate(buildLines());
+  }
+
+  /**
+   * Build configuration overview as a single unframed line, suitable for structured (e.g. JSON)
+   * logging formats where a multi-line framed block would embed poorly as an escaped string.
+   *
+   * @return the configuration overview as a single line of semicolon-separated fields
+   */
+  public String buildCompact() {
+    return buildLines().stream()
+        .map(String::strip)
+        .filter(line -> !line.isEmpty())
+        .collect(Collectors.joining("; "));
+  }
+
+  private List<String> buildLines() {
     final List<String> lines = new ArrayList<>();
     lines.add("Besu version " + BesuVersionUtils.shortVersion());
     lines.add("");
@@ -438,12 +522,29 @@ public class ConfigurationOverviewBuilder {
       lines.add("Data storage: " + dataStorage);
     }
 
+    if (rocksDbMaxOpenFiles != null) {
+      lines.add(
+          "RocksDB max open files: "
+              + rocksDbMaxOpenFiles
+              + (rocksDbMaxOpenFilesExplicitlySet
+                  ? " (set)"
+                  : " (derived from available resources)"));
+    }
+
     if (syncMode != null) {
       lines.add("Sync mode: " + syncMode);
+      if (syncMode.equalsIgnoreCase(SNAP_SYNC_MODE)) {
+        final String snapServerStatus = isSnapServerEnabled ? "enabled" : "disabled";
+        lines.add("  SNAP Sync server " + snapServerStatus);
+      }
     }
 
     if (syncMinPeers != null) {
       lines.add("Sync min peers: " + syncMinPeers);
+    }
+
+    if (!isDiscoveryEnabled) {
+      lines.add("P2P Discovery: disabled");
     }
 
     if (rpcHttpApis != null) {
@@ -467,7 +568,11 @@ public class ConfigurationOverviewBuilder {
 
     lines.add("Using " + worldStateUpdateMode + " worldstate update mode");
 
-    lines.add("Opcode optimizations " + (enabledOpcodeOptimizations ? "enabled" : "disabled"));
+    if (evmV2) {
+      lines.add("Experimental EVM v2 (long[] stack) enabled");
+    } else {
+      lines.add("Opcode optimizations " + (enabledOpcodeOptimizations ? "enabled" : "disabled"));
+    }
 
     if (isParallelTxProcessingEnabled) {
       lines.add("Parallel transaction processing enabled");
@@ -507,10 +612,6 @@ public class ConfigurationOverviewBuilder {
       lines.add(chainPruningString.toString());
     }
 
-    if (isSnapServerEnabled) {
-      lines.add("Snap Sync server enabled");
-    }
-
     if (isHighSpec) {
       lines.add("Experimental high spec configuration enabled");
     }
@@ -543,6 +644,14 @@ public class ConfigurationOverviewBuilder {
       lines.add("Target Gas Limit: " + normalizeGas(targetGasLimit));
     }
 
+    if (maxBlobsPerTransaction != null) {
+      lines.add("Max Blobs Per Transaction: " + maxBlobsPerTransaction);
+    }
+
+    if (maxBlobsPerBlock != null) {
+      lines.add("Max Blobs Per Block (builder): " + maxBlobsPerBlock);
+    }
+
     lines.add("");
     lines.add("Host:");
 
@@ -570,7 +679,7 @@ public class ConfigurationOverviewBuilder {
       lines.addAll(besuPluginContext.getPluginsSummaryLog());
     }
 
-    return FramedLogMessage.generate(lines);
+    return lines;
   }
 
   private boolean hasCustomBlobDBSettings() {

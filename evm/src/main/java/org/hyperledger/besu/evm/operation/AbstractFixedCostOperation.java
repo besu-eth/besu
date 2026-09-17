@@ -37,6 +37,15 @@ abstract class AbstractFixedCostOperation extends AbstractOperation {
   protected final long gasCost;
 
   /**
+   * Returns the fixed gas cost of this operation.
+   *
+   * @return the gas cost
+   */
+  public long getGasCost() {
+    return gasCost;
+  }
+
+  /**
    * Instantiates a new Abstract fixed cost operation.
    *
    * @param opcode the opcode
@@ -68,7 +77,7 @@ abstract class AbstractFixedCostOperation extends AbstractOperation {
       if (frame.getRemainingGas() < gasCost) {
         return outOfGasResponse;
       } else {
-        return executeFixedCostOperation(frame, evm);
+        return executeFixedCostOperation(frame);
       }
     } catch (final UnderflowException ufe) {
       return underflowResponse;
@@ -81,8 +90,7 @@ abstract class AbstractFixedCostOperation extends AbstractOperation {
    * Execute fixed cost operation.
    *
    * @param frame the frame
-   * @param evm the evm
    * @return the operation result
    */
-  protected abstract OperationResult executeFixedCostOperation(MessageFrame frame, EVM evm);
+  protected abstract OperationResult executeFixedCostOperation(MessageFrame frame);
 }

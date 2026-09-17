@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.permissioning;
 
 import static java.util.Collections.singletonList;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -27,6 +28,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.ethereum.p2p.discovery.NodeIdentifier;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeDnsConfiguration;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.p2p.peers.ImmutableEnodeDnsConfiguration;
@@ -59,7 +61,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 public class NodeLocalConfigPermissioningControllerTest {
 
   @Mock private AllowlistPersistor allowlistPersistor;
-  private final List<EnodeURL> bootnodesList = new ArrayList<>();
+  private final List<NodeIdentifier> bootnodesList = new ArrayList<>();
   private NodeLocalConfigPermissioningController controller;
 
   private final String enode1 =
@@ -118,6 +120,23 @@ public class NodeLocalConfigPermissioningControllerTest {
         .comparingOnlyFields("result")
         .isEqualTo(expected);
     assertThat(controller.getNodesAllowlist()).containsExactly(enode1);
+  }
+
+  @Test
+  public void missingNodePermissioningFileIsInvalidConfigurationState() {
+    final LocalPermissioningConfiguration permissioningConfiguration =
+        LocalPermissioningConfiguration.createDefault();
+
+    assertThatThrownBy(
+            () ->
+                new NodeLocalConfigPermissioningController(
+                    permissioningConfiguration,
+                    bootnodesList,
+                    selfEnode.getNodeId(),
+                    metricsSystem))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage(
+            "Node permissioning config file path is required when node permissioning is enabled");
   }
 
   @Test
@@ -224,7 +243,7 @@ public class NodeLocalConfigPermissioningControllerTest {
     String peer1 =
         "enode://aaaa80d14311c39f35f516fa664deaaaa13e85b2f7493f37f6144d86991ec012937307647bd3b9a82abe2974e1407241d54947bbb39763a4cac9f77166ad92a0@127.0.0.1:30303";
     String peer2 =
-        "enode://bbbb80d14311c39f35f516fa664deaaaa13e85b2f7493f37f6144d86991ec012937307647bd3b9a82abe2974e1407241d54947bbb39763a4cac9f77166ad92a0@127.0.0.1:30303";
+        "enode://bbbb80d14311c39f35f516fa664deaaaa13e85b2f7493f37f6144d86991ec012937307647bd3b9a82abe2974e1407241d54947bbb39763a4cac9f77166ad92a0@127.0.0.2:30303";
 
     controller.addNodes(List.of(peer1));
     assertThat(controller.isPermitted(peer2)).isFalse();

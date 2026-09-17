@@ -25,6 +25,7 @@ import org.hyperledger.besu.plugin.services.query.PoaQueryService;
 import org.hyperledger.besu.services.BesuPluginContextImpl;
 
 /** The IBFT query plugin service factory. */
+@SuppressWarnings("removal")
 public class IbftQueryPluginServiceFactory implements PluginServiceFactory {
 
   private final Blockchain blockchain;

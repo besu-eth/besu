@@ -850,4 +850,50 @@ public class JsonUtilTest {
 
     assertThat(JsonUtil.hasKey(rootNode, "target")).isTrue();
   }
+
+  // -- getHexOrDecimalLong edge tests --
+
+  @Test
+  public void getHexOrDecimalLong_emptyStringThrows() {
+    final ObjectNode node = mapper.createObjectNode();
+    node.put("test", "");
+
+    assertThatThrownBy(() -> JsonUtil.getHexOrDecimalLong(node, "test"))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("test");
+  }
+
+  @Test
+  public void getHexOrDecimalLong_blankStringThrows() {
+    final ObjectNode node = mapper.createObjectNode();
+    node.put("test", "   ");
+
+    assertThatThrownBy(() -> JsonUtil.getHexOrDecimalLong(node, "test"))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  public void getHexOrDecimalLong_hexOverflowThrows() {
+    final ObjectNode node = mapper.createObjectNode();
+    node.put("test", "0x8000000000000000");
+
+    assertThatThrownBy(() -> JsonUtil.getHexOrDecimalLong(node, "test"))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  public void getHexOrDecimalLong_leadingZeroIsOctal() {
+    final ObjectNode node = mapper.createObjectNode();
+    node.put("test", "010");
+
+    assertThat(JsonUtil.getHexOrDecimalLong(node, "test")).hasValue(8L);
+  }
+
+  @Test
+  public void getHexOrDecimalLong_negativeDecimalParses() {
+    final ObjectNode node = mapper.createObjectNode();
+    node.put("test", "-1");
+
+    assertThat(JsonUtil.getHexOrDecimalLong(node, "test")).hasValue(-1L);
+  }
 }

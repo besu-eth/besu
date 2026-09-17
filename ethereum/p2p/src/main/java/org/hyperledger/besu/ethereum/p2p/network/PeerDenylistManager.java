@@ -30,7 +30,13 @@ public class PeerDenylistManager implements DisconnectCallback {
   private static final Logger LOG = LoggerFactory.getLogger(PeerDenylistManager.class);
   private static final Set<DisconnectReason> locallyTriggeredDisconnectReasons =
       ImmutableSet.of(
-          DisconnectReason.BREACH_OF_PROTOCOL, DisconnectReason.INCOMPATIBLE_P2P_PROTOCOL_VERSION);
+          DisconnectReason.BREACH_OF_PROTOCOL,
+          DisconnectReason.INCOMPATIBLE_P2P_PROTOCOL_VERSION,
+          DisconnectReason.SUBPROTOCOL_TRIGGERED_MISMATCHED_NETWORK,
+          DisconnectReason.SUBPROTOCOL_TRIGGERED_MISMATCHED_GENESIS_HASH,
+          DisconnectReason.NULL_NODE_ID,
+          DisconnectReason.LOCAL_IDENTITY,
+          DisconnectReason.UNEXPECTED_ID);
 
   private static final Set<DisconnectReason> remotelyTriggeredDisconnectReasons =
       ImmutableSet.of(DisconnectReason.INCOMPATIBLE_P2P_PROTOCOL_VERSION);
@@ -50,9 +56,7 @@ public class PeerDenylistManager implements DisconnectCallback {
       final PeerConnection connection,
       final DisconnectReason reason,
       final boolean initiatedByPeer) {
-    // we have a number of reasons that use the same code, but with different message strings
-    // so here we use the code of the reason param to ensure we get the no-message version
-    if (shouldBlock(DisconnectReason.forCode(reason.getCode()), initiatedByPeer)) {
+    if (shouldBlock(reason, initiatedByPeer)) {
       if (maintainedPeers.contains(connection.getPeer())) {
         LOG.debug(
             "Skip adding maintained peer {} to peer denylist for reason {}",
@@ -66,7 +70,12 @@ public class PeerDenylistManager implements DisconnectCallback {
   }
 
   private boolean shouldBlock(final DisconnectReason reason, final boolean initiatedByPeer) {
-    return (!initiatedByPeer && locallyTriggeredDisconnectReasons.contains(reason))
-        || (initiatedByPeer && remotelyTriggeredDisconnectReasons.contains(reason));
+    final DisconnectReason normalized = DisconnectReason.forCode(reason.getCode());
+    return (!initiatedByPeer
+            && (locallyTriggeredDisconnectReasons.contains(reason)
+                || locallyTriggeredDisconnectReasons.contains(normalized)))
+        || (initiatedByPeer
+            && (remotelyTriggeredDisconnectReasons.contains(reason)
+                || remotelyTriggeredDisconnectReasons.contains(normalized)));
   }
 }

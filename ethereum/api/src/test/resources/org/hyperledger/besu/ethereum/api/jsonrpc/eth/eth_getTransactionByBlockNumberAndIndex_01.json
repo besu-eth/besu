@@ -14,6 +14,7 @@
     "result": {
       "blockHash": "0x3d813a0ffc9cd04436e17e3e9c309f1e80df0407078e50355ce0d570b5424812",
       "blockNumber": "0x3",
+      "blockTimestamp": "0x561bc2e4",
       "from": "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b",
       "gas": "0x4cb2f",
       "gasPrice": "0x1",

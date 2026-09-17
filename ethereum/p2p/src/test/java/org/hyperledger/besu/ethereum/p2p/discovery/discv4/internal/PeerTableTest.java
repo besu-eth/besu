@@ -29,15 +29,13 @@ import org.hyperledger.besu.ethereum.p2p.peers.Peer;
 import java.util.List;
 import java.util.Optional;
 
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
 
 public class PeerTableTest {
 
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
   private final PeerDiscoveryTestHelper helper = new PeerDiscoveryTestHelper();
 
   @Test
@@ -87,8 +85,7 @@ public class PeerTableTest {
   @Test
   public void peerExists_withDifferentIp() {
     final PeerTable table = new PeerTable(Peer.randomId());
-    final Bytes peerId =
-        SIGNATURE_ALGORITHM.get().generateKeyPair().getPublicKey().getEncodedBytes();
+    final Bytes peerId = SIGNATURE_ALGORITHM.generateKeyPair().getPublicKey().getEncodedBytes();
     final DiscoveryPeerV4 peer =
         DiscoveryPeerV4.fromIdAndEndpoint(peerId, new Endpoint("1.1.1.1", 30303, Optional.empty()));
 
@@ -107,8 +104,7 @@ public class PeerTableTest {
   @Test
   public void peerExists_withDifferentUdpPort() {
     final PeerTable table = new PeerTable(Peer.randomId());
-    final Bytes peerId =
-        SIGNATURE_ALGORITHM.get().generateKeyPair().getPublicKey().getEncodedBytes();
+    final Bytes peerId = SIGNATURE_ALGORITHM.generateKeyPair().getPublicKey().getEncodedBytes();
     final DiscoveryPeerV4 peer =
         DiscoveryPeerV4.fromIdAndEndpoint(peerId, new Endpoint("1.1.1.1", 30303, Optional.empty()));
 
@@ -127,8 +123,7 @@ public class PeerTableTest {
   @Test
   public void peerExists_withDifferentIdAndUdpPort() {
     final PeerTable table = new PeerTable(Peer.randomId());
-    final Bytes peerId =
-        SIGNATURE_ALGORITHM.get().generateKeyPair().getPublicKey().getEncodedBytes();
+    final Bytes peerId = SIGNATURE_ALGORITHM.generateKeyPair().getPublicKey().getEncodedBytes();
     final DiscoveryPeerV4 peer =
         DiscoveryPeerV4.fromIdAndEndpoint(peerId, new Endpoint("1.1.1.1", 30303, Optional.empty()));
 

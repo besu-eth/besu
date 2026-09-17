@@ -28,8 +28,10 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonR
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockReceiptsResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionReceiptLogResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionReceiptResult;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
+import org.hyperledger.besu.ethereum.api.query.TransactionReceiptWithMetadata;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
@@ -188,6 +190,60 @@ public class EthGetBlockReceiptsTest {
     /* Zero hash - should result in block not found */
     JsonRpcResponse actualResponse = method.response(requestWithParams(ZERO_HASH));
     assertThat(actualResponse).usingRecursiveComparison().isEqualTo(blockNotFoundResponse);
+  }
+
+  @Test
+  public void shouldReturnReceiptsWithRemovedTrueWhenBlockIsNotOnCanonicalChain() {
+    final Hash blockHash = blockchain.getBlockHashByNumber(1).orElseThrow();
+
+    // Instantiate a local queries object to bypass ErrorProne DirectInvocationOnMock check on the
+    // field
+    final BlockchainQueries localQueries =
+        new BlockchainQueries(
+            protocolSchedule, blockchain, worldStateArchive, MiningConfiguration.newDefault());
+
+    // Get the real receipts first
+    final List<TransactionReceiptWithMetadata> canonicalReceipts =
+        localQueries.transactionReceiptsByBlockHash(blockHash, protocolSchedule).orElseThrow();
+
+    // Map them to non-canonical (removed = true) receipts
+    final List<TransactionReceiptWithMetadata> nonCanonicalReceipts =
+        canonicalReceipts.stream()
+            .map(
+                receipt ->
+                    TransactionReceiptWithMetadata.create(
+                        receipt.getReceipt(),
+                        receipt.getTransaction(),
+                        receipt.getTransactionHash(),
+                        receipt.getTransactionIndex(),
+                        receipt.getGasUsed(),
+                        receipt.getBaseFee(),
+                        receipt.getBlockHash(),
+                        receipt.getBlockTimestamp(),
+                        receipt.getBlockNumber(),
+                        receipt.getBlobGasUsed(),
+                        receipt.getBlobGasPrice(),
+                        receipt.getLogIndexOffset(),
+                        true)) // removed = true
+            .collect(java.util.stream.Collectors.toList());
+
+    // Stub the spy to return the non-canonical receipts
+    org.mockito.Mockito.doReturn(java.util.Optional.of(nonCanonicalReceipts))
+        .when(blockchainQueries)
+        .transactionReceiptsByBlockHash(blockHash, protocolSchedule);
+
+    final JsonRpcResponse actualResponse = method.response(requestWithParams(blockHash.toString()));
+    assertThat(actualResponse).isInstanceOf(JsonRpcSuccessResponse.class);
+    final BlockReceiptsResult result =
+        (BlockReceiptsResult) ((JsonRpcSuccessResponse) actualResponse).getResult();
+
+    assertThat(result.getResults()).isNotEmpty();
+    for (final TransactionReceiptResult receiptResult : result.getResults()) {
+      assertThat(receiptResult.getLogs()).isNotEmpty();
+      for (final TransactionReceiptLogResult logResult : receiptResult.getLogs()) {
+        assertThat(logResult.isRemoved()).isTrue();
+      }
+    }
   }
 
   private JsonRpcRequestContext requestWithParams(final Object... params) {

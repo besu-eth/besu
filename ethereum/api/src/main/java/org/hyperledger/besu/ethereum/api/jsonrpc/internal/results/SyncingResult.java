@@ -70,10 +70,9 @@ public class SyncingResult implements JsonRpcResult {
 
   @Override
   public boolean equals(final Object other) {
-    if (!(other instanceof SyncingResult)) {
+    if (!(other instanceof SyncingResult that)) {
       return false;
     }
-    final SyncingResult that = (SyncingResult) other;
     return this.startingBlock.equals(that.startingBlock)
         && this.currentBlock.equals(that.currentBlock)
         && this.highestBlock.equals(that.highestBlock);

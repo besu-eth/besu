@@ -14,8 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.permissioning.node;
 
+import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.permissioning.NodeLocalConfigPermissioningController;
-import org.hyperledger.besu.plugin.data.EnodeURL;
 import org.hyperledger.besu.plugin.services.permissioning.NodeConnectionPermissioningProvider;
 import org.hyperledger.besu.util.Subscribers;
 
@@ -36,9 +36,11 @@ public class NodePermissioningController {
 
   public NodePermissioningController(final List<NodeConnectionPermissioningProvider> providers) {
     this.providers = providers;
+    localConfigController()
+        .ifPresent(c -> c.subscribeToListUpdatedEvent(evt -> notifyPermissionsUpdated()));
   }
 
-  public boolean isPermitted(final EnodeURL sourceEnode, final EnodeURL destinationEnode) {
+  public boolean isPermitted(final EnodeURLImpl sourceEnode, final EnodeURLImpl destinationEnode) {
 
     LOG.trace("Node permissioning: Checking {} -> {}", sourceEnode, destinationEnode);
 
@@ -76,10 +78,13 @@ public class NodePermissioningController {
 
   public void setInsufficientPeersPermissioningProvider(
       final ContextualNodePermissioningProvider insufficientPeersPermissioningProvider) {
-    insufficientPeersPermissioningProvider.subscribeToUpdates(
-        () -> permissioningUpdateSubscribers.forEach(Runnable::run));
+    insufficientPeersPermissioningProvider.subscribeToUpdates(this::notifyPermissionsUpdated);
     this.insufficientPeersPermissioningProvider =
         Optional.of(insufficientPeersPermissioningProvider);
+  }
+
+  private void notifyPermissionsUpdated() {
+    permissioningUpdateSubscribers.forEach(Runnable::run);
   }
 
   public List<NodeConnectionPermissioningProvider> getProviders() {

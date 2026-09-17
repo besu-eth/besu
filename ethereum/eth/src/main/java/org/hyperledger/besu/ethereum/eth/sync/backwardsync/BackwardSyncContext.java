@@ -58,6 +58,7 @@ public class BackwardSyncContext {
   private final SyncState syncState;
   private final AtomicReference<Status> currentBackwardSyncStatus = new AtomicReference<>();
   private final BackwardChain backwardChain;
+  private final BackwardSyncAlgorithmFactory backwardSyncAlgorithmFactory;
   private int batchSize = BATCH_SIZE;
   private final int maxRetries;
   private final int maxBadChainEventEntries;
@@ -71,7 +72,8 @@ public class BackwardSyncContext {
       final MetricsSystem metricsSystem,
       final EthContext ethContext,
       final SyncState syncState,
-      final BackwardChain backwardChain) {
+      final BackwardChain backwardChain,
+      final BackwardSyncAlgorithmFactory backwardSyncAlgorithmFactory) {
     this(
         protocolContext,
         protocolSchedule,
@@ -80,6 +82,7 @@ public class BackwardSyncContext {
         ethContext,
         syncState,
         backwardChain,
+        backwardSyncAlgorithmFactory,
         DEFAULT_MAX_RETRIES,
         DEFAULT_MAX_CHAIN_EVENT_ENTRIES);
   }
@@ -92,6 +95,7 @@ public class BackwardSyncContext {
       final EthContext ethContext,
       final SyncState syncState,
       final BackwardChain backwardChain,
+      final BackwardSyncAlgorithmFactory backwardSyncAlgorithmFactory,
       final int maxRetries,
       final int maxBadChainEventEntries) {
 
@@ -102,6 +106,7 @@ public class BackwardSyncContext {
     this.metricsSystem = metricsSystem;
     this.syncState = syncState;
     this.backwardChain = backwardChain;
+    this.backwardSyncAlgorithmFactory = backwardSyncAlgorithmFactory;
     this.maxRetries = maxRetries;
     this.maxBadChainEventEntries = maxBadChainEventEntries;
   }
@@ -131,24 +136,24 @@ public class BackwardSyncContext {
   }
 
   public synchronized CompletableFuture<Void> syncBackwardsUntil(final Hash newBlockHash) {
-    if (isReady()) {
-      if (!isTrusted(newBlockHash)) {
-        LOG.atDebug()
-            .setMessage("Appending new head block hash {} to backward sync")
-            .addArgument(() -> newBlockHash.getBytes().toHexString())
-            .log();
+    if (!isTrusted(newBlockHash)) {
+      LOG.atDebug()
+          .setMessage("Appending new head block hash {} to backward sync")
+          .addArgument(() -> newBlockHash.getBytes().toHexString())
+          .log();
+      if (isReady()) {
         backwardChain.addNewHash(newBlockHash);
+      } else {
+        backwardChain.replaceQueuedHashesWith(newBlockHash);
       }
-
-      final Status status = getOrStartSyncSession();
-      backwardChain
-          .getBlock(newBlockHash)
-          .ifPresent(
-              newTargetBlock -> status.updateTargetHeight(newTargetBlock.getHeader().getNumber()));
-      return status.currentFuture;
-    } else {
-      return CompletableFuture.failedFuture(new Throwable("Backward sync is not ready"));
     }
+
+    final Status status = getOrStartSyncSession();
+    backwardChain
+        .getBlock(newBlockHash)
+        .ifPresent(
+            newTargetBlock -> status.updateTargetHeight(newTargetBlock.getHeader().getNumber()));
+    return status.currentFuture;
   }
 
   public synchronized CompletableFuture<Void> syncBackwardsUntil(final Block newPivot) {
@@ -156,13 +161,9 @@ public class BackwardSyncContext {
       backwardChain.appendTrustedBlock(newPivot);
     }
 
-    if (isReady()) {
-      final Status status = getOrStartSyncSession();
-      status.updateTargetHeight(newPivot.getHeader().getNumber());
-      return status.currentFuture;
-    } else {
-      return CompletableFuture.failedFuture(new Throwable("Backward sync is not ready"));
-    }
+    final Status status = getOrStartSyncSession();
+    status.updateTargetHeight(newPivot.getHeader().getNumber());
+    return status.currentFuture;
   }
 
   private Status getOrStartSyncSession() {
@@ -209,7 +210,7 @@ public class BackwardSyncContext {
     }
 
     return exceptionallyCompose(
-        prepareBackwardSyncFuture(),
+        backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(this).executeBackwardsSync(null),
         throwable -> {
           processException(throwable);
           return ethContext
@@ -253,23 +254,12 @@ public class BackwardSyncContext {
     Throwable currentCause = throwable;
 
     while (currentCause != null) {
-      if (currentCause instanceof BackwardSyncException) {
-        return Optional.of((BackwardSyncException) currentCause);
+      if (currentCause instanceof BackwardSyncException backwardSyncException) {
+        return Optional.of(backwardSyncException);
       }
       currentCause = currentCause.getCause();
     }
     return Optional.empty();
-  }
-
-  @VisibleForTesting
-  CompletableFuture<Void> prepareBackwardSyncFuture() {
-    final MutableBlockchain blockchain = getProtocolContext().getBlockchain();
-    return new BackwardSyncAlgorithm(
-            this,
-            FinalBlockConfirmation.confirmationChain(
-                FinalBlockConfirmation.genesisConfirmation(blockchain),
-                FinalBlockConfirmation.ancestorConfirmation(blockchain)))
-        .executeBackwardsSync(null);
   }
 
   public ProtocolSchedule getProtocolSchedule() {
@@ -350,6 +340,18 @@ public class BackwardSyncContext {
       possiblyMoveHead(block);
       logBlockImportProgress(block.getHeader().getNumber());
     } else {
+      if (optResult.isWorldStateUnavailable()) {
+        LOG.warn(
+            "Backward sync halted: parent world state is unavailable while validating block {}. "
+                + "This may indicate snap sync completed with an incomplete world state. "
+                + "Call debug_resyncWorldState to repair the world state and resume syncing.",
+            block.toLogString());
+        throw new BackwardSyncException(
+            "Parent world state unavailable for block "
+                + block.toLogString()
+                + " backward sync halted. Run debug_resyncWorldState to recover.",
+            false);
+      }
       emitBadChainEvent(block);
       throw new BackwardSyncException(
           "Cannot save block "

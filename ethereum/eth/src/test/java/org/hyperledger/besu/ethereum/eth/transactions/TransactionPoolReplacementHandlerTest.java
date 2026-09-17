@@ -30,7 +30,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -88,12 +87,5 @@ public class TransactionPoolReplacementHandlerTest {
     when(transaction.getType()).thenReturn(TransactionType.FRONTIER);
     when(pendingTransaction.getTransaction()).thenReturn(transaction);
     return pendingTransaction;
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

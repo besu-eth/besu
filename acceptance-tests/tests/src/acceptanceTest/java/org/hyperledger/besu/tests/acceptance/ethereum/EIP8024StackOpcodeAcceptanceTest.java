@@ -97,11 +97,11 @@ public class EIP8024StackOpcodeAcceptanceTest extends AcceptanceTestBase {
   /**
    * Test DUPN basic operation.
    *
-   * <p>Calls the DUPN test contract which executes: PUSH1 1, PUSH1 0, 16xDUP1, DUPN 0, PUSH0,
+   * <p>Calls the DUPN test contract which executes: PUSH1 1, PUSH1 0, 16xDUP1, DUPN 0x80, PUSH0,
    * SSTORE
    *
-   * <p>This builds a stack of 18 items and uses DUPN with immediate 0 (n=17) to duplicate the 17th
-   * item (which is 0), then stores it at slot 0.
+   * <p>This builds a stack of 18 items and uses DUPN with immediate 0x80 (n=17) to duplicate the
+   * 17th item (which is 0), then stores it at slot 0.
    */
   @Test
   public void testDupNBasicOperation() throws IOException {
@@ -152,11 +152,10 @@ public class EIP8024StackOpcodeAcceptanceTest extends AcceptanceTestBase {
   /**
    * Test EXCHANGE basic operation.
    *
-   * <p>Calls the EXCHANGE test contract which executes: PUSH1 0, PUSH1 1, PUSH1 2, EXCHANGE 01
+   * <p>Calls the EXCHANGE test contract which executes: PUSH1 0, PUSH1 1, PUSH1 2, EXCHANGE 0x8e
    *
-   * <p>This creates stack [2, 1, 0] and EXCHANGE 01 swaps positions 1 and 2, resulting in [2, 0,
-   * 1]. The contract then stores position 1 (value 0 after swap, but actually the contract stores
-   * the top value which is 2) at slot 0.
+   * <p>This creates stack [2, 1, 0] and EXCHANGE 0x8e (decodes to n=1, m=2) swaps positions 1 and
+   * 2, resulting in [2, 0, 1]. The contract then stores the top value (2) at slot 0.
    */
   @Test
   public void testExchangeBasicOperation() throws IOException {
@@ -207,7 +206,7 @@ public class EIP8024StackOpcodeAcceptanceTest extends AcceptanceTestBase {
         .nonce(nonce)
         .maxPriorityFeePerGas(Wei.of(1_000_000_000))
         .maxFeePerGas(Wei.fromHexString("0x02540BE400"))
-        .gasLimit(100_000)
+        .gasLimit(200_000)
         .to(contractAddress)
         .value(Wei.ZERO)
         .payload(Bytes.EMPTY)

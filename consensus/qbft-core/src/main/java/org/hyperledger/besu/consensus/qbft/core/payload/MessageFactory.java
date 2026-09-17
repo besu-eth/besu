@@ -40,6 +40,7 @@ public class MessageFactory {
 
   private final NodeKey nodeKey;
   private final QbftBlockCodec blockEncoder;
+  private final boolean useLegacyEncoding;
 
   /**
    * Instantiates a new Message factory.
@@ -48,8 +49,26 @@ public class MessageFactory {
    * @param blockEncoder the block encoder
    */
   public MessageFactory(final NodeKey nodeKey, final QbftBlockCodec blockEncoder) {
+    this(nodeKey, blockEncoder, false);
+  }
+
+  private MessageFactory(
+      final NodeKey nodeKey, final QbftBlockCodec blockEncoder, final boolean useLegacyEncoding) {
     this.nodeKey = nodeKey;
     this.blockEncoder = blockEncoder;
+    this.useLegacyEncoding = useLegacyEncoding;
+  }
+
+  /**
+   * Creates a MessageFactory that encodes messages in pre-26.1.0 wire format (BAL slot omitted).
+   *
+   * @param nodeKey the node key
+   * @param blockEncoder the block encoder
+   * @return a legacy-encoding MessageFactory
+   */
+  public static MessageFactory withLegacyEncoding(
+      final NodeKey nodeKey, final QbftBlockCodec blockEncoder) {
+    return new MessageFactory(nodeKey, blockEncoder, true);
   }
 
   /**
@@ -70,7 +89,10 @@ public class MessageFactory {
       final List<SignedData<PreparePayload>> prepares) {
 
     final ProposalPayload payload =
-        new ProposalPayload(roundIdentifier, block, blockEncoder, blockAccessList);
+        useLegacyEncoding
+            ? ProposalPayload.withLegacyEncoding(
+                roundIdentifier, block, blockEncoder, blockAccessList)
+            : new ProposalPayload(roundIdentifier, block, blockEncoder, blockAccessList);
 
     return new Proposal(createSignedMessage(payload), roundChanges, prepares);
   }
@@ -142,21 +164,37 @@ public class MessageFactory {
                   new PreparedRoundMetadata(
                       preparedBlock.getHash(), preparedRoundData.get().getRound())));
 
-      return new RoundChange(
-          createSignedMessage(payload),
-          Optional.of(preparedBlock),
-          preparedRoundData.get().getBlockAccessList(),
-          blockEncoder,
-          preparedRoundData.get().getPrepares());
+      final SignedData<RoundChangePayload> signedPayload = createSignedMessage(payload);
+      return useLegacyEncoding
+          ? RoundChange.withLegacyEncoding(
+              signedPayload,
+              Optional.of(preparedBlock),
+              preparedRoundData.get().getBlockAccessList(),
+              blockEncoder,
+              preparedRoundData.get().getPrepares())
+          : new RoundChange(
+              signedPayload,
+              Optional.of(preparedBlock),
+              preparedRoundData.get().getBlockAccessList(),
+              blockEncoder,
+              preparedRoundData.get().getPrepares());
 
     } else {
       payload = new RoundChangePayload(roundIdentifier, Optional.empty());
-      return new RoundChange(
-          createSignedMessage(payload),
-          Optional.empty(),
-          Optional.empty(),
-          blockEncoder,
-          Collections.emptyList());
+      final SignedData<RoundChangePayload> signedPayload = createSignedMessage(payload);
+      return useLegacyEncoding
+          ? RoundChange.withLegacyEncoding(
+              signedPayload,
+              Optional.empty(),
+              Optional.empty(),
+              blockEncoder,
+              Collections.emptyList())
+          : new RoundChange(
+              signedPayload,
+              Optional.empty(),
+              Optional.empty(),
+              blockEncoder,
+              Collections.emptyList());
     }
   }
 

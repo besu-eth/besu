@@ -87,17 +87,10 @@ public class BlockParameterTest {
   }
 
   @Test
-  public void stringNumberShouldReturnLongNumberValue() {
-    final BlockParameter blockParameter = new BlockParameter("7");
-    assertThat(blockParameter.getNumber()).isPresent();
-    assertThat(blockParameter.getNumber().get()).isEqualTo(7L);
-
-    assertThat(blockParameter.isNumeric()).isTrue();
-    assertThat(blockParameter.isEarliest()).isFalse();
-    assertThat(blockParameter.isFinalized()).isFalse();
-    assertThat(blockParameter.isLatest()).isFalse();
-    assertThat(blockParameter.isPending()).isFalse();
-    assertThat(blockParameter.isSafe()).isFalse();
+  public void decimalStringShouldThrowException() {
+    assertThatThrownBy(() -> new BlockParameter("7"))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("must be a hex string with 0x prefix");
   }
 
   @Test
@@ -115,17 +108,10 @@ public class BlockParameterTest {
   }
 
   @Test
-  public void numberStringShouldReturnLongNumberValue() {
-    final BlockParameter blockParameter = new BlockParameter("55");
-    assertThat(blockParameter.getNumber()).isPresent();
-    assertThat(blockParameter.getNumber().get()).isEqualTo(55L);
-
-    assertThat(blockParameter.isNumeric()).isTrue();
-    assertThat(blockParameter.isEarliest()).isFalse();
-    assertThat(blockParameter.isFinalized()).isFalse();
-    assertThat(blockParameter.isLatest()).isFalse();
-    assertThat(blockParameter.isPending()).isFalse();
-    assertThat(blockParameter.isSafe()).isFalse();
+  public void multiDigitDecimalStringShouldThrowException() {
+    assertThatThrownBy(() -> new BlockParameter("55"))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("must be a hex string with 0x prefix");
   }
 
   @Test
@@ -169,7 +155,7 @@ public class BlockParameterTest {
   @Test
   public void invalidValueShouldThrowException() {
     assertThatThrownBy(() -> new BlockParameter("invalid"))
-        .isInstanceOf(NumberFormatException.class)
-        .hasMessageContaining("invalid");
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("must be a hex string with 0x prefix");
   }
 }

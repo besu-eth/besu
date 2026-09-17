@@ -25,6 +25,7 @@ import java.util.OptionalInt;
  * @param jumpDestCacheWeightKB the jump destination cache weight in kb
  * @param worldUpdaterMode the world updater mode
  * @param enableOptimizedOpcodes enable optimized implementation of certain opcodes in the EVM
+ * @param enableEvmV2 enable experimental EVM v2 with long[] stack representation
  * @param evmStackSize the maximum evm stack size
  * @param maxCodeSizeOverride An optional override of the maximum code size set by the EVM fork
  * @param maxInitcodeSizeOverride An optional override of the maximum initcode size set by the EVM
@@ -34,6 +35,7 @@ public record EvmConfiguration(
     long jumpDestCacheWeightKB,
     WorldUpdaterMode worldUpdaterMode,
     boolean enableOptimizedOpcodes,
+    boolean enableEvmV2,
     Integer evmStackSize,
     Optional<Integer> maxCodeSizeOverride,
     Optional<Integer> maxInitcodeSizeOverride) {
@@ -50,7 +52,7 @@ public record EvmConfiguration(
 
   /** The constant DEFAULT. */
   public static final EvmConfiguration DEFAULT =
-      new EvmConfiguration(32_000L, WorldUpdaterMode.STACKED, true);
+      new EvmConfiguration(32_000L, WorldUpdaterMode.STACKED, true, false);
 
   /**
    * Create an EVM Configuration without any overrides
@@ -67,6 +69,30 @@ public record EvmConfiguration(
         jumpDestCacheWeightKilobytes,
         worldstateUpdateMode,
         enableOptimizedOpcodes,
+        false,
+        MessageFrame.DEFAULT_MAX_STACK_SIZE,
+        Optional.empty(),
+        Optional.empty());
+  }
+
+  /**
+   * Create an EVM Configuration without any overrides, with explicit EVM v2 flag
+   *
+   * @param jumpDestCacheWeightKilobytes the jump dest cache weight (in kibibytes)
+   * @param worldstateUpdateMode the world update mode
+   * @param enableOptimizedOpcodes enabled opcode optimizations
+   * @param enableEvmV2 enable experimental EVM v2 with long[] stack representation
+   */
+  public EvmConfiguration(
+      final Long jumpDestCacheWeightKilobytes,
+      final WorldUpdaterMode worldstateUpdateMode,
+      final boolean enableOptimizedOpcodes,
+      final boolean enableEvmV2) {
+    this(
+        jumpDestCacheWeightKilobytes,
+        worldstateUpdateMode,
+        enableOptimizedOpcodes,
+        enableEvmV2,
         MessageFrame.DEFAULT_MAX_STACK_SIZE,
         Optional.empty(),
         Optional.empty());
@@ -98,6 +124,7 @@ public record EvmConfiguration(
         jumpDestCacheWeightKB,
         worldUpdaterMode,
         enableOptimizedOpcodes,
+        enableEvmV2,
         newEvmStackSize.orElse(MessageFrame.DEFAULT_MAX_STACK_SIZE),
         newMaxCodeSize.isPresent() ? Optional.of(newMaxCodeSize.getAsInt()) : Optional.empty(),
         newMaxInitcodeSize.isPresent()

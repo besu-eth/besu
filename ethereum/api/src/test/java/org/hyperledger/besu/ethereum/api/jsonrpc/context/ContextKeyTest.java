@@ -26,7 +26,6 @@ import java.util.function.Supplier;
 
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -66,12 +65,5 @@ public class ContextKeyTest<T> {
 
   private static <T> Supplier<T> supplier(final T value) {
     return () -> value;
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

@@ -66,20 +66,13 @@ public class DiscoveryProtocolLogger {
   }
 
   private String shortenPacketType(final Packet packet) {
-    switch (packet.getType()) {
-      case PING:
-        return "PING ";
-      case PONG:
-        return "PONG ";
-      case FIND_NEIGHBORS:
-        return "FINDN";
-      case NEIGHBORS:
-        return "NEIGH";
-      case ENR_REQUEST:
-        return "ENRREQ";
-      case ENR_RESPONSE:
-        return "ENRRESP";
-    }
-    return null;
+    return switch (packet.getType()) {
+      case PING -> "PING ";
+      case PONG -> "PONG ";
+      case FIND_NEIGHBORS -> "FINDN";
+      case NEIGHBORS -> "NEIGH";
+      case ENR_REQUEST -> "ENRREQ";
+      case ENR_RESPONSE -> "ENRRESP";
+    };
   }
 }

@@ -24,6 +24,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import jakarta.validation.constraints.NotNull;
+import org.jspecify.annotations.Nullable;
 
 /**
  * The InMemory tasks priority queues.
@@ -69,7 +70,7 @@ public class InMemoryTasksPriorityQueues<T extends TasksPriorityProvider>
   }
 
   @Override
-  public synchronized Task<T> remove() {
+  public synchronized @Nullable Task<T> remove() {
     assertNotClosed();
     final Queue<T> lastNonEmptyQueue = findLastNonEmptyQueue();
     if (lastNonEmptyQueue.isEmpty()) {

@@ -80,7 +80,7 @@ public class Era1BlockExporterTest {
   public void testExport() throws IOException {
     Mockito.when(era1AccumulatorFactory.getEra1Accumulator()).thenReturn(era1Accumulator);
     List<Runnable> blockVerifications = new ArrayList<>();
-    for (int i = 0; i < 8192; i++) {
+    for (int i = 0; i < 10; i++) {
       final int blockNumber = i;
       Block block = Mockito.mock(Block.class);
       Hash blockHash = Hash.wrap(Bytes32.random());

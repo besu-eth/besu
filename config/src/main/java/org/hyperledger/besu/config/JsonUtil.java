@@ -40,6 +40,7 @@ import com.fasterxml.jackson.databind.node.JsonNodeType;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.base.Predicates;
 import org.apache.tuweni.bytes.Bytes;
+import org.jspecify.annotations.Nullable;
 
 /** The Json util class. */
 public class JsonUtil {
@@ -87,10 +88,10 @@ public class JsonUtil {
               final String key = entry.getKey();
               final JsonNode value = entry.getValue();
               final String normalizedKey = normalizeKey(key);
-              if (value instanceof ObjectNode) {
-                normalized.set(normalizedKey, normalizeKeys((ObjectNode) value));
-              } else if (value instanceof ArrayNode) {
-                normalized.set(normalizedKey, normalizeKeysInArray((ArrayNode) value));
+              if (value instanceof ObjectNode nestedObject) {
+                normalized.set(normalizedKey, normalizeKeys(nestedObject));
+              } else if (value instanceof ArrayNode nestedArray) {
+                normalized.set(normalizedKey, normalizeKeysInArray(nestedArray));
               } else {
                 normalized.set(normalizedKey, value);
               }
@@ -113,10 +114,10 @@ public class JsonUtil {
     final ArrayNode normalizedArray = JsonUtil.createEmptyArrayNode();
     arrayNode.forEach(
         value -> {
-          if (value instanceof ObjectNode) {
-            normalizedArray.add(normalizeKeys((ObjectNode) value));
-          } else if (value instanceof ArrayNode) {
-            normalizedArray.add(normalizeKeysInArray((ArrayNode) value));
+          if (value instanceof ObjectNode nestedObject) {
+            normalizedArray.add(normalizeKeys(nestedObject));
+          } else if (value instanceof ArrayNode nestedArray) {
+            normalizedArray.add(normalizeKeysInArray(nestedArray));
           } else {
             normalizedArray.add(value);
           }
@@ -270,6 +271,34 @@ public class JsonUtil {
   }
 
   /**
+   * Gets a long from a decimal or hex string value, mirroring {@code GenesisConfig.parseLong}.
+   * Accepts decimal (e.g. {@code 20000000}) and {@code 0x}-prefixed hexadecimal (e.g. {@code
+   * 0x1312D00}) via {@link Long#decode}. Returns {@link OptionalLong#empty()} when the key is
+   * absent. A malformed value throws {@link IllegalArgumentException} identifying the key and
+   * offending value. Note: per {@link Long#decode} semantics (and consistent with {@code
+   * GenesisConfig} gasLimit parsing), a leading-zero string value is interpreted as octal (e.g.
+   * {@code "010"} == 8).
+   *
+   * @param node the node
+   * @param key the key
+   * @return the long
+   * @throws IllegalArgumentException if the value is present but not a valid decimal or hex number
+   */
+  public static OptionalLong getHexOrDecimalLong(final ObjectNode node, final String key) {
+    final Optional<String> raw = getValueAsString(node, key);
+    if (raw.isEmpty()) {
+      return OptionalLong.empty();
+    }
+    final String value = raw.get();
+    try {
+      return OptionalLong.of(Long.decode(value));
+    } catch (final NumberFormatException e) {
+      throw new IllegalArgumentException(
+          "Invalid property value, " + key + " must be a number but was '" + value + "'");
+    }
+  }
+
+  /**
    * Gets long.
    *
    * @param json the json
@@ -326,7 +355,8 @@ public class JsonUtil {
    * @param defaultValue the default value
    * @return the Wei
    */
-  public static Bytes getBytes(final ObjectNode json, final String key, final Bytes defaultValue) {
+  public static @Nullable Bytes getBytes(
+      final ObjectNode json, final String key, final @Nullable Bytes defaultValue) {
     return getBytes(json, key).orElse(defaultValue);
   }
 
@@ -624,12 +654,12 @@ public class JsonUtil {
   private static class NameExcludeFilter extends TokenFilter {
     private final Set<String> names;
 
-    public NameExcludeFilter(final String... names) {
+    NameExcludeFilter(final String... names) {
       this.names = Set.of(names);
     }
 
     @Override
-    public TokenFilter includeProperty(final String name) {
+    public @Nullable TokenFilter includeProperty(final String name) {
       if (names.contains(name)) {
         return null;
       }

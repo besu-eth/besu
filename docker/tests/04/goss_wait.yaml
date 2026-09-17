@@ -1,0 +1,7 @@
+---
+# Wait for Besu to enter the main loop before checking version
+port:
+  tcp:30303:
+    listening: true
+    ip:
+      - 0.0.0.0

@@ -42,7 +42,7 @@ public class BftFork implements Fork {
   public static final String BLOCK_PERIOD_SECONDS_KEY = "blockperiodseconds";
 
   /** The constant EMPTY_BLOCK_PERIOD_SECONDS_KEY. */
-  public static final String EMPTY_BLOCK_PERIOD_SECONDS_KEY = "xemptyblockperiodseconds";
+  public static final String EMPTY_BLOCK_PERIOD_SECONDS_KEY = "emptyblockperiodseconds";
 
   /** The constant BLOCK_PERIOD_MILLISECONDS_KEY. */
   public static final String BLOCK_PERIOD_MILLISECONDS_KEY = "xblockperiodmilliseconds";
@@ -52,6 +52,9 @@ public class BftFork implements Fork {
 
   /** The constant MINING_BENEFICIARY_KEY. */
   public static final String MINING_BENEFICIARY_KEY = "miningbeneficiary";
+
+  /** The constant TRANSACTION_GAS_LIMIT_KEY. */
+  public static final String TRANSACTION_GAS_LIMIT_KEY = "pertxgaslimit";
 
   /** The Fork config root. */
   protected final ObjectNode forkConfigRoot;
@@ -179,5 +182,14 @@ public class BftFork implements Fork {
               validators.add(value.asText());
             });
     return Optional.of(validators);
+  }
+
+  /**
+   * Gets transaction gas limit.
+   *
+   * @return the transaction gas limit
+   */
+  public OptionalLong getTransactionGasLimit() {
+    return JsonUtil.getHexOrDecimalLong(forkConfigRoot, TRANSACTION_GAS_LIMIT_KEY);
   }
 }

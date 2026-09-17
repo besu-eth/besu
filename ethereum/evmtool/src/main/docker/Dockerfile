@@ -1,10 +1,10 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1@sha256:2780b5c3bab67f1f76c781860de469442999ed1a0d7992a5efdf2cffc0e3d769
 
 # Stage: Use Eclipse Temurin JRE
-FROM eclipse-temurin:25-jre AS java-base
+FROM mirror.gcr.io/library/eclipse-temurin@sha256:1bda4d9e668f44f399abed30636c34e0befb727408fba27b1e6aaefcf9df346b AS java-base
 
 # Stage: Final Besu EVMTool image
-FROM ubuntu:24.04
+FROM mirror.gcr.io/library/ubuntu:24.04@sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea
 ARG VERSION="dev"
 ENV NO_PROXY_CACHE="-o Acquire::BrokenProxy=true -o Acquire::http::No-Cache=true -o Acquire::http::Pipeline-Depth=0"
 
@@ -44,7 +44,7 @@ LABEL org.label-schema.build-date=$BUILD_DATE \
       org.label-schema.description="EVM Execution Tool" \
       org.label-schema.url="https://besu.hyperledger.org/" \
       org.label-schema.vcs-ref=$VCS_REF \
-      org.label-schema.vcs-url="https://github.com/hyperledger/besu.git" \
+      org.label-schema.vcs-url="https://github.com/besu-eth/besu.git" \
       org.label-schema.vendor="Hyperledger" \
       org.label-schema.version=$VERSION \
       org.label-schema.schema-version="1.0"

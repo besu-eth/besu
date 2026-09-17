@@ -181,7 +181,7 @@ public class EthGetLogsTest {
     final long fromBlock = 50L;
     final long toBlock = 100L;
     final JsonRpcRequestContext request =
-        buildRequest(String.valueOf(fromBlock), String.valueOf(toBlock));
+        buildRequest("0x" + Long.toHexString(fromBlock), "0x" + Long.toHexString(toBlock));
 
     when(blockchainQueries.headBlockNumber()).thenReturn(150L);
     when(blockchainQueries.matchingLogs(anyLong(), anyLong(), any(), any()))
@@ -200,7 +200,7 @@ public class EthGetLogsTest {
   public void shouldQueryWrappedNumericToNumeric() {
     final long fromBlock = 50L;
     final long toBlock = 100L;
-    final JsonRpcRequestContext request = buildRequest(String.valueOf(fromBlock), toBlock);
+    final JsonRpcRequestContext request = buildRequest("0x" + Long.toHexString(fromBlock), toBlock);
 
     when(blockchainQueries.headBlockNumber()).thenReturn(150L);
     when(blockchainQueries.matchingLogs(anyLong(), anyLong(), any(), any()))
@@ -313,6 +313,31 @@ public class EthGetLogsTest {
     assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
     final JsonRpcErrorResponse errorResponse = (JsonRpcErrorResponse) response;
     assertThat(errorResponse.getErrorType()).isEqualTo(RpcErrorType.INVALID_PARAMS);
+  }
+
+  @Test
+  public void shouldFailIfBlockHashNotFound() {
+    final org.hyperledger.besu.datatypes.Hash mockHash =
+        org.hyperledger.besu.datatypes.Hash.fromHexString(
+            "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef");
+
+    final FilterParameter filterParameter =
+        new FilterParameter(null, null, null, null, null, null, mockHash, null, null);
+
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest("2.0", "eth_getLogs", new Object[] {filterParameter}));
+
+    when(blockchainQueries.getBlockHeaderByHash(mockHash)).thenReturn(Optional.empty());
+
+    final Throwable thrown = catchThrowable(() -> method.response(request));
+
+    assertThat(thrown).isInstanceOf(InvalidJsonRpcParameters.class).hasMessage("Block not found");
+
+    final InvalidJsonRpcParameters ex = (InvalidJsonRpcParameters) thrown;
+    assertThat(ex.getRpcErrorType()).isEqualTo(RpcErrorType.BLOCK_NOT_FOUND);
+
+    verify(blockchainQueries).getBlockHeaderByHash(mockHash);
   }
 
   private JsonRpcRequestContext buildRequest(final long fromBlock, final long toBlock) {

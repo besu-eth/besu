@@ -17,12 +17,9 @@ package org.hyperledger.besu.cli;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Arrays.asList;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hyperledger.besu.config.NetworkDefinition.DEV;
 import static org.hyperledger.besu.config.NetworkDefinition.MAINNET;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.RpcApis.ETH;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.RpcApis.WEB3;
-import static org.hyperledger.besu.ethereum.p2p.config.DefaultDiscoveryConfiguration.MAINNET_BOOTSTRAP_NODES;
-import static org.hyperledger.besu.ethereum.p2p.config.DefaultDiscoveryConfiguration.MAINNET_DISCOVERY_URL;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -38,7 +35,6 @@ import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
-import org.hyperledger.besu.plugin.data.EnodeURL;
 
 import java.io.File;
 import java.io.IOException;
@@ -121,18 +117,19 @@ public class CascadingDefaultProviderTest extends CommandTestAbstract {
     verify(mockRunnerBuilder).metricsConfiguration(eq(metricsConfiguration));
     verify(mockRunnerBuilder).build();
 
-    final List<EnodeURL> nodes =
+    final List<EnodeURLImpl> nodes =
         asList(
             EnodeURLImpl.fromString("enode://" + VALID_NODE_ID + "@192.168.0.1:4567"),
             EnodeURLImpl.fromString("enode://" + VALID_NODE_ID + "@192.168.0.1:4567"),
             EnodeURLImpl.fromString("enode://" + VALID_NODE_ID + "@192.168.0.1:4567"));
-    assertThat(ethNetworkConfigArgumentCaptor.getValue().bootNodes()).isEqualTo(nodes);
+    assertThat(ethNetworkConfigArgumentCaptor.getValue().enodeBootNodes()).isEqualTo(nodes);
 
     final EthNetworkConfig networkConfig =
         new EthNetworkConfig.Builder(EthNetworkConfig.getNetworkConfig(MAINNET))
             .setNetworkId(BigInteger.valueOf(42))
             .setGenesisConfig(GenesisConfig.fromConfig(encodeJsonGenesis(GENESIS_VALID_JSON)))
-            .setBootNodes(nodes)
+            .setEnodeBootNodes(nodes)
+            .setEnrBootNodes(Collections.emptyList())
             .setDnsDiscoveryUrl(null)
             .build();
     verify(mockControllerBuilder).dataDirectory(eq(dataFolder.toPath()));
@@ -166,13 +163,7 @@ public class CascadingDefaultProviderTest extends CommandTestAbstract {
     final MetricsConfiguration metricsConfiguration = MetricsConfiguration.builder().build();
 
     verify(mockRunnerBuilder).discoveryEnabled(eq(true));
-    verify(mockRunnerBuilder)
-        .ethNetworkConfig(
-            new EthNetworkConfig(
-                GenesisConfig.fromResource(MAINNET.getGenesisFile()),
-                MAINNET.getNetworkId(),
-                MAINNET_BOOTSTRAP_NODES,
-                MAINNET_DISCOVERY_URL));
+    verify(mockRunnerBuilder).ethNetworkConfig(EthNetworkConfig.getNetworkConfig(MAINNET));
     verify(mockRunnerBuilder).p2pAdvertisedHost(eq("127.0.0.1"));
     verify(mockRunnerBuilder).p2pListenPort(eq(30303));
     verify(mockRunnerBuilder).jsonRpcConfiguration(eq(jsonRpcConfiguration));
@@ -234,37 +225,16 @@ public class CascadingDefaultProviderTest extends CommandTestAbstract {
   }
 
   /**
-   * Test if the profile option sets the correct defaults. The test checks if the 'dev' profile
-   * correctly sets the network ID to the expected value.
-   */
-  @Test
-  public void profileOptionShouldSetCorrectDefaults() {
-    final ArgumentCaptor<EthNetworkConfig> networkArg =
-        ArgumentCaptor.forClass(EthNetworkConfig.class);
-
-    parseCommand("--profile", "dev");
-
-    assertThat(commandOutput.toString(UTF_8)).isEmpty();
-    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
-
-    verify(mockControllerBuilderFactory).fromEthNetworkConfig(networkArg.capture(), any());
-    verify(mockControllerBuilder).build();
-
-    final EthNetworkConfig config = networkArg.getValue();
-    assertThat(config.networkId()).isEqualTo(DEV.getNetworkId());
-  }
-
-  /**
    * Test if the command line option overrides the profile configuration. The test checks if the
    * network ID set through a command line option correctly overrides the value specified in the
-   * 'dev' profile.
+   * 'staker' profile.
    */
   @Test
   public void cliOptionOverridesProfileConfiguration() {
     final ArgumentCaptor<EthNetworkConfig> networkArg =
         ArgumentCaptor.forClass(EthNetworkConfig.class);
 
-    parseCommand("--profile", "dev", "--network", "MAINNET");
+    parseCommand("--profile", "staker", "--network", "MAINNET");
 
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
@@ -279,7 +249,7 @@ public class CascadingDefaultProviderTest extends CommandTestAbstract {
   /**
    * Test if the configuration file overrides the profile configuration. The test checks if the
    * network ID specified in the configuration file correctly overrides the value specified in the
-   * 'dev' profile.
+   * 'staker' profile.
    */
   @Test
   public void configFileOverridesProfileConfiguration() {
@@ -287,7 +257,7 @@ public class CascadingDefaultProviderTest extends CommandTestAbstract {
         ArgumentCaptor.forClass(EthNetworkConfig.class);
 
     final String configFile = this.getClass().getResource("/partial_config.toml").getFile();
-    parseCommand("--profile", "dev", "--config-file", configFile);
+    parseCommand("--profile", "staker", "--config-file", configFile);
 
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
@@ -302,14 +272,14 @@ public class CascadingDefaultProviderTest extends CommandTestAbstract {
   /**
    * Test if the environment variable overrides the profile configuration. The test checks if the
    * network ID set through an environment variable correctly overrides the value specified in the
-   * 'dev' profile.
+   * 'staker' profile.
    */
   @Test
   public void environmentVariableOverridesProfileConfiguration() {
     final ArgumentCaptor<EthNetworkConfig> networkArg =
         ArgumentCaptor.forClass(EthNetworkConfig.class);
     setEnvironmentVariable("BESU_NETWORK", "MAINNET");
-    parseCommand("--profile", "dev");
+    parseCommand("--profile", "staker");
 
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();

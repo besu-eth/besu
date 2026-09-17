@@ -17,7 +17,7 @@ package org.hyperledger.besu.cli.subcommands.storage;
 import static java.util.Collections.singletonList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.DEFAULT_TRIE_LOG_PRUNING_WINDOW_SIZE;
+import static org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration.DEFAULT_TRIE_LOG_PRUNING_WINDOW_SIZE;
 import static org.hyperledger.besu.plugin.services.storage.DataStorageFormat.BONSAI;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.spy;
@@ -31,14 +31,13 @@ import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogFactoryImpl;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogLayer;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.BonsaiTrieLogFactory;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogLayer;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.ImmutableDataStorageConfiguration;
-import org.hyperledger.besu.ethereum.worldstate.ImmutablePathBasedExtraStorageConfiguration;
+import org.hyperledger.besu.ethereum.worldstate.ImmutableExtraStorageConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -118,7 +117,7 @@ class TrieLogHelperTest {
     TrieLogLayer trieLogLayer = new TrieLogLayer();
     trieLogLayer.setBlockHash(blockHeader.getBlockHash());
     final BytesValueRLPOutput rlpLog = new BytesValueRLPOutput();
-    TrieLogFactoryImpl.writeTo(trieLogLayer, rlpLog);
+    BonsaiTrieLogFactory.writeTo(trieLogLayer, rlpLog);
     return rlpLog.encoded().toArrayUnsafe();
   }
 
@@ -129,14 +128,52 @@ class TrieLogHelperTest {
   }
 
   @Test
+  public void pruneFailsWhenBatchFileContainsJavaSerialization(final @TempDir Path dataDir)
+      throws IOException {
+    Files.createDirectories(dataDir.resolve("database"));
+
+    DataStorageConfiguration dataStorageConfiguration =
+        ImmutableDataStorageConfiguration.builder()
+            .dataStorageFormat(BONSAI)
+            .extraStorageConfiguration(
+                ImmutableExtraStorageConfiguration.builder()
+                    .maxLayersToLoad(3L)
+                    .limitTrieLogsEnabled(true)
+                    .build())
+            .build();
+
+    mockBlockchainBase();
+    when(blockchain.getBlockHeader(5)).thenReturn(Optional.of(blockHeader5));
+    when(blockchain.getBlockHeader(4)).thenReturn(Optional.of(blockHeader4));
+    when(blockchain.getBlockHeader(3)).thenReturn(Optional.of(blockHeader3));
+
+    // Pre-place a Java-serialized file at the expected batch file path.
+    // saveTrieLogsAsRlpInFile's exists-check will skip overwriting it.
+    // readTrieLogsAsRlpFromFile will then fail to parse it as RLP during restore,
+    // confirming the code no longer silently deserializes Java-serialized objects.
+    Path batchFile = dataDir.resolve("database").resolve("trieLogsToRetain-1");
+    try (var oos =
+        new java.io.ObjectOutputStream(new java.io.FileOutputStream(batchFile.toFile()))) {
+      oos.writeObject("notrlp");
+    }
+
+    assertThatThrownBy(
+            () ->
+                nonValidatingTrieLogHelper.prune(
+                    dataStorageConfiguration, inMemoryWorldState, blockchain, dataDir))
+        .isInstanceOf(RuntimeException.class)
+        .hasMessageContaining("RLP");
+  }
+
+  @Test
   public void prune(final @TempDir Path dataDir) throws IOException {
     Files.createDirectories(dataDir.resolve("database"));
 
     DataStorageConfiguration dataStorageConfiguration =
         ImmutableDataStorageConfiguration.builder()
             .dataStorageFormat(BONSAI)
-            .pathBasedExtraStorageConfiguration(
-                ImmutablePathBasedExtraStorageConfiguration.builder()
+            .extraStorageConfiguration(
+                ImmutableExtraStorageConfiguration.builder()
                     .maxLayersToLoad(3L)
                     .limitTrieLogsEnabled(true)
                     .build())
@@ -176,8 +213,8 @@ class TrieLogHelperTest {
     DataStorageConfiguration dataStorageConfiguration =
         ImmutableDataStorageConfiguration.builder()
             .dataStorageFormat(BONSAI)
-            .pathBasedExtraStorageConfiguration(
-                ImmutablePathBasedExtraStorageConfiguration.builder()
+            .extraStorageConfiguration(
+                ImmutableExtraStorageConfiguration.builder()
                     .maxLayersToLoad(2L)
                     .limitTrieLogsEnabled(true)
                     .build())
@@ -199,8 +236,8 @@ class TrieLogHelperTest {
     DataStorageConfiguration dataStorageConfiguration =
         ImmutableDataStorageConfiguration.builder()
             .dataStorageFormat(BONSAI)
-            .pathBasedExtraStorageConfiguration(
-                ImmutablePathBasedExtraStorageConfiguration.builder()
+            .extraStorageConfiguration(
+                ImmutableExtraStorageConfiguration.builder()
                     .maxLayersToLoad(10L)
                     .limitTrieLogsEnabled(true)
                     .build())
@@ -222,8 +259,8 @@ class TrieLogHelperTest {
     DataStorageConfiguration dataStorageConfiguration =
         ImmutableDataStorageConfiguration.builder()
             .dataStorageFormat(BONSAI)
-            .pathBasedExtraStorageConfiguration(
-                ImmutablePathBasedExtraStorageConfiguration.builder()
+            .extraStorageConfiguration(
+                ImmutableExtraStorageConfiguration.builder()
                     .maxLayersToLoad(2L)
                     .limitTrieLogsEnabled(true)
                     .build())
@@ -246,8 +283,8 @@ class TrieLogHelperTest {
     DataStorageConfiguration dataStorageConfiguration =
         ImmutableDataStorageConfiguration.builder()
             .dataStorageFormat(BONSAI)
-            .pathBasedExtraStorageConfiguration(
-                ImmutablePathBasedExtraStorageConfiguration.builder()
+            .extraStorageConfiguration(
+                ImmutableExtraStorageConfiguration.builder()
                     .maxLayersToLoad(6L)
                     .limitTrieLogsEnabled(true)
                     .build())
@@ -271,8 +308,8 @@ class TrieLogHelperTest {
     DataStorageConfiguration dataStorageConfiguration =
         ImmutableDataStorageConfiguration.builder()
             .dataStorageFormat(BONSAI)
-            .pathBasedExtraStorageConfiguration(
-                ImmutablePathBasedExtraStorageConfiguration.builder()
+            .extraStorageConfiguration(
+                ImmutableExtraStorageConfiguration.builder()
                     .maxLayersToLoad(3L)
                     .limitTrieLogsEnabled(true)
                     .build())
@@ -303,8 +340,8 @@ class TrieLogHelperTest {
     DataStorageConfiguration dataStorageConfiguration =
         ImmutableDataStorageConfiguration.builder()
             .dataStorageFormat(BONSAI)
-            .pathBasedExtraStorageConfiguration(
-                ImmutablePathBasedExtraStorageConfiguration.builder()
+            .extraStorageConfiguration(
+                ImmutableExtraStorageConfiguration.builder()
                     .maxLayersToLoad(511L)
                     .limitTrieLogsEnabled(true)
                     .build())
@@ -324,8 +361,8 @@ class TrieLogHelperTest {
     DataStorageConfiguration dataStorageConfiguration =
         ImmutableDataStorageConfiguration.builder()
             .dataStorageFormat(BONSAI)
-            .pathBasedExtraStorageConfiguration(
-                ImmutablePathBasedExtraStorageConfiguration.builder()
+            .extraStorageConfiguration(
+                ImmutableExtraStorageConfiguration.builder()
                     .maxLayersToLoad(512L)
                     .limitTrieLogsEnabled(true)
                     .trieLogPruningWindowSize(0)
@@ -345,8 +382,8 @@ class TrieLogHelperTest {
     DataStorageConfiguration dataStorageConfiguration =
         ImmutableDataStorageConfiguration.builder()
             .dataStorageFormat(BONSAI)
-            .pathBasedExtraStorageConfiguration(
-                ImmutablePathBasedExtraStorageConfiguration.builder()
+            .extraStorageConfiguration(
+                ImmutableExtraStorageConfiguration.builder()
                     .maxLayersToLoad(512L)
                     .limitTrieLogsEnabled(true)
                     .trieLogPruningWindowSize(512)
@@ -368,8 +405,8 @@ class TrieLogHelperTest {
     DataStorageConfiguration dataStorageConfiguration =
         ImmutableDataStorageConfiguration.builder()
             .dataStorageFormat(BONSAI)
-            .pathBasedExtraStorageConfiguration(
-                ImmutablePathBasedExtraStorageConfiguration.builder()
+            .extraStorageConfiguration(
+                ImmutableExtraStorageConfiguration.builder()
                     .maxLayersToLoad(3L)
                     .limitTrieLogsEnabled(true)
                     .build())
@@ -388,7 +425,7 @@ class TrieLogHelperTest {
                     blockchain,
                     dataDir.resolve("unknownPath")))
         .isInstanceOf(RuntimeException.class)
-        .hasCauseExactlyInstanceOf(FileNotFoundException.class);
+        .hasCauseInstanceOf(java.io.IOException.class);
 
     // assert all trie logs are still in the DB
     assertThat(inMemoryWorldState.getTrieLog(blockHeader1.getHash()).get())

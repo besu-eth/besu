@@ -29,9 +29,12 @@ import org.hyperledger.besu.consensus.common.MigratingMiningCoordinator;
 import org.hyperledger.besu.consensus.common.bft.blockcreation.BftMiningCoordinator;
 import org.hyperledger.besu.ethereum.ConsensusContext;
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.methods.JsonRpcMethods;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManager;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
@@ -44,6 +47,8 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 
 import java.math.BigInteger;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 import java.util.NavigableSet;
 import java.util.Optional;
@@ -129,7 +134,9 @@ public class ConsensusScheduleBesuControllerBuilderTest {
     when(besuControllerBuilder2.createMiningCoordinator(any(), any(), any(), any(), any(), any()))
         .thenReturn(miningCoordinator2);
     final ProtocolContext mockProtocolContext = mock(ProtocolContext.class);
-    when(mockProtocolContext.getBlockchain()).thenReturn(mock(MutableBlockchain.class));
+    final MutableBlockchain blockchain = mock(MutableBlockchain.class);
+    when(mockProtocolContext.getBlockchain()).thenReturn(blockchain);
+    when(blockchain.getChainHeadHeader()).thenReturn(mock(BlockHeader.class));
 
     final ConsensusScheduleBesuControllerBuilder builder =
         new ConsensusScheduleBesuControllerBuilder(consensusSchedule);
@@ -150,19 +157,31 @@ public class ConsensusScheduleBesuControllerBuilderTest {
         (softly) -> {
           softly
               .assertThat(
-                  migratingMiningCoordinator.getMiningCoordinatorSchedule().getFork(0L).getValue())
+                  migratingMiningCoordinator
+                      .getMiningCoordinatorSchedule()
+                      .getFork(0L, 0)
+                      .getValue())
               .isSameAs(miningCoordinator1);
           softly
               .assertThat(
-                  migratingMiningCoordinator.getMiningCoordinatorSchedule().getFork(4L).getValue())
+                  migratingMiningCoordinator
+                      .getMiningCoordinatorSchedule()
+                      .getFork(4L, 0)
+                      .getValue())
               .isSameAs(miningCoordinator1);
           softly
               .assertThat(
-                  migratingMiningCoordinator.getMiningCoordinatorSchedule().getFork(5L).getValue())
+                  migratingMiningCoordinator
+                      .getMiningCoordinatorSchedule()
+                      .getFork(5L, 0)
+                      .getValue())
               .isSameAs(miningCoordinator2);
           softly
               .assertThat(
-                  migratingMiningCoordinator.getMiningCoordinatorSchedule().getFork(6L).getValue())
+                  migratingMiningCoordinator
+                      .getMiningCoordinatorSchedule()
+                      .getFork(6L, 0)
+                      .getValue())
               .isSameAs(miningCoordinator2);
         });
   }
@@ -198,11 +217,68 @@ public class ConsensusScheduleBesuControllerBuilderTest {
     expectedConsensusContextSpecs.add(new ForkSpec<>(10L, context2));
     assertThat(contextSchedule.getForks()).isEqualTo(expectedConsensusContextSpecs);
 
-    assertThat(contextSchedule.getFork(0).getValue()).isSameAs(context1);
-    assertThat(contextSchedule.getFork(1).getValue()).isSameAs(context1);
-    assertThat(contextSchedule.getFork(9).getValue()).isSameAs(context1);
-    assertThat(contextSchedule.getFork(10).getValue()).isSameAs(context2);
-    assertThat(contextSchedule.getFork(11).getValue()).isSameAs(context2);
+    assertThat(contextSchedule.getFork(0, 0).getValue()).isSameAs(context1);
+    assertThat(contextSchedule.getFork(1, 0).getValue()).isSameAs(context1);
+    assertThat(contextSchedule.getFork(9, 0).getValue()).isSameAs(context1);
+    assertThat(contextSchedule.getFork(10, 0).getValue()).isSameAs(context2);
+    assertThat(contextSchedule.getFork(11, 0).getValue()).isSameAs(context2);
+  }
+
+  @Test
+  public void combinesAdditionalJsonRpcMethodsFromAllDelegateBuilders() {
+    final Map<Long, BesuControllerBuilder> consensusSchedule =
+        Map.of(0L, besuControllerBuilder1, 50L, besuControllerBuilder2);
+
+    final JsonRpcMethod ibftMethod = mock(JsonRpcMethod.class);
+    final JsonRpcMethod qbftMethod = mock(JsonRpcMethod.class);
+    when(besuControllerBuilder1.createAdditionalJsonRpcMethodFactory(any(), any(), any()))
+        .thenReturn(apis -> Map.of("ibft_getValidatorsByBlockNumber", ibftMethod));
+    when(besuControllerBuilder2.createAdditionalJsonRpcMethodFactory(any(), any(), any()))
+        .thenReturn(apis -> Map.of("qbft_getValidatorsByBlockNumber", qbftMethod));
+
+    final ConsensusScheduleBesuControllerBuilder builder =
+        new ConsensusScheduleBesuControllerBuilder(consensusSchedule);
+
+    final JsonRpcMethods combinedFactory =
+        builder.createAdditionalJsonRpcMethodFactory(
+            mock(ProtocolContext.class),
+            mock(ProtocolSchedule.class),
+            mock(MiningConfiguration.class));
+
+    final Map<String, JsonRpcMethod> methods = combinedFactory.create(List.of("IBFT", "QBFT"));
+    assertThat(methods)
+        .containsEntry("ibft_getValidatorsByBlockNumber", ibftMethod)
+        .containsEntry("qbft_getValidatorsByBlockNumber", qbftMethod);
+  }
+
+  @Test
+  public void laterForkWinsWhenDelegateBuildersProvideTheSameJsonRpcMethodName() {
+    final JsonRpcMethod earlierForkMethod = mock(JsonRpcMethod.class);
+    final JsonRpcMethod laterForkMethod = mock(JsonRpcMethod.class);
+    when(besuControllerBuilder1.createAdditionalJsonRpcMethodFactory(any(), any(), any()))
+        .thenReturn(apis -> Map.of("consensus_sharedMethod", earlierForkMethod));
+    when(besuControllerBuilder2.createAdditionalJsonRpcMethodFactory(any(), any(), any()))
+        .thenReturn(apis -> Map.of("consensus_sharedMethod", laterForkMethod));
+
+    // use an ordered map with keys in reverse order to show ordering comes from the block
+    // numbers, not from map iteration order
+    final Map<Long, BesuControllerBuilder> consensusSchedule =
+        new TreeMap<>(Comparator.reverseOrder());
+    consensusSchedule.put(0L, besuControllerBuilder1);
+    consensusSchedule.put(50L, besuControllerBuilder2);
+
+    final ConsensusScheduleBesuControllerBuilder builder =
+        new ConsensusScheduleBesuControllerBuilder(consensusSchedule);
+
+    final Map<String, JsonRpcMethod> methods =
+        builder
+            .createAdditionalJsonRpcMethodFactory(
+                mock(ProtocolContext.class),
+                mock(ProtocolSchedule.class),
+                mock(MiningConfiguration.class))
+            .create(List.of("IBFT", "QBFT"));
+
+    assertThat(methods).containsEntry("consensus_sharedMethod", laterForkMethod);
   }
 
   @Test

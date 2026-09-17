@@ -199,7 +199,7 @@ public class FrontierGasCalculator implements GasCalculator {
   }
 
   @Override
-  public long transactionFloorCost(final Bytes payload, final long payloadZeroBytes) {
+  public long transactionFloorCost(final Transaction transaction) {
     return 0L;
   }
 

@@ -18,8 +18,6 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Collections.emptySet;
 
-import org.hyperledger.besu.plugin.data.EnodeURL;
-
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.AccessDeniedException;
@@ -38,7 +36,7 @@ public class StaticNodesParser {
 
   private static final Logger LOG = LoggerFactory.getLogger(StaticNodesParser.class);
 
-  public static Set<EnodeURL> fromPath(
+  public static Set<EnodeURLImpl> fromPath(
       final Path path, final EnodeDnsConfiguration enodeDnsConfiguration)
       throws IOException, IllegalArgumentException {
 
@@ -64,7 +62,7 @@ public class StaticNodesParser {
     }
   }
 
-  private static Set<EnodeURL> readEnodesFromPath(
+  private static Set<EnodeURLImpl> readEnodesFromPath(
       final Path path, final EnodeDnsConfiguration enodeDnsConfiguration) throws IOException {
     final byte[] staticNodesContent = Files.readAllBytes(path);
     if (staticNodesContent.length == 0) {
@@ -77,10 +75,10 @@ public class StaticNodesParser {
         .collect(Collectors.toSet());
   }
 
-  private static EnodeURL decodeString(
+  private static EnodeURLImpl decodeString(
       final String input, final EnodeDnsConfiguration enodeDnsConfiguration) {
     try {
-      final EnodeURL enode = EnodeURLImpl.fromString(input, enodeDnsConfiguration);
+      final EnodeURLImpl enode = EnodeURLImpl.fromString(input, enodeDnsConfiguration);
       checkArgument(
           enode.isListening(), "Static node must be configured with a valid listening port.");
       return enode;

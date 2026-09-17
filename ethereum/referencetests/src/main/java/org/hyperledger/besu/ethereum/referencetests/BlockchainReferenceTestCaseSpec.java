@@ -16,6 +16,8 @@ package org.hyperledger.besu.ethereum.referencetests;
 
 import static org.hyperledger.besu.evm.internal.Words.decodeUnsignedLong;
 
+import org.hyperledger.besu.config.BlobScheduleOptions;
+import org.hyperledger.besu.config.JsonUtil;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BlobGas;
 import org.hyperledger.besu.datatypes.Hash;
@@ -31,33 +33,38 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.core.ConsensusContextFixture;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.ParsedExtraData;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiWorldStateProvider;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.NoopBonsaiCachedMerkleTrieLoader;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.NoOpBonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
-import org.hyperledger.besu.ethereum.worldstate.ImmutablePathBasedExtraStorageConfiguration;
+import org.hyperledger.besu.ethereum.worldstate.ImmutableExtraStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.services.BesuService;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
@@ -65,6 +72,8 @@ import org.apache.tuweni.bytes.Bytes32;
 public class BlockchainReferenceTestCaseSpec {
 
   private final String network;
+
+  private final SpecConfig specConfig;
 
   private final CandidateBlock[] candidateBlocks;
 
@@ -76,20 +85,21 @@ public class BlockchainReferenceTestCaseSpec {
   private final String sealEngine;
 
   private WorldStateArchive buildWorldStateArchive(
-      final long cacheSize, final Blockchain blockchain) {
+      final DataStorageConfiguration storageConfiguration,
+      final long cacheSize,
+      final Blockchain blockchain) {
 
     final InMemoryKeyValueStorageProvider inMemoryKeyValueStorageProvider =
         new InMemoryKeyValueStorageProvider();
     final WorldStateArchive worldStateArchive =
         new BonsaiWorldStateProvider(
             (BonsaiWorldStateKeyValueStorage)
-                inMemoryKeyValueStorageProvider.createWorldStateStorage(
-                    DataStorageConfiguration.DEFAULT_BONSAI_CONFIG),
+                inMemoryKeyValueStorageProvider.createWorldStateStorage(storageConfiguration),
             blockchain,
-            ImmutablePathBasedExtraStorageConfiguration.builder()
-                .maxLayersToLoad(cacheSize)
-                .build(),
-            new NoopBonsaiCachedMerkleTrieLoader(),
+            ImmutableExtraStorageConfiguration.copyOf(
+                    storageConfiguration.getExtraStorageConfiguration())
+                .withMaxLayersToLoad(cacheSize),
+            new NoOpBonsaiCachedMerkleTrieLoader(),
             new ServiceManager() {
               @Override
               public <T extends BesuService> void addService(
@@ -101,8 +111,7 @@ public class BlockchainReferenceTestCaseSpec {
               }
             },
             EvmConfiguration.DEFAULT,
-            () -> (__, ___) -> {},
-            new CodeCache());
+            new BonsaiCodeCache());
 
     final MutableWorldState worldState = worldStateArchive.getWorldState();
     final WorldUpdater updater = worldState.updater();
@@ -132,8 +141,10 @@ public class BlockchainReferenceTestCaseSpec {
       @SuppressWarnings("unused") @JsonProperty("genesisRLP") final String genesisRLP,
       @JsonProperty("pre") final Map<String, ReferenceTestWorldState.AccountMock> accounts,
       @JsonProperty("lastblockhash") final String lastBlockHash,
-      @JsonProperty("sealEngine") final String sealEngine) {
+      @JsonProperty("sealEngine") final String sealEngine,
+      @JsonProperty("config") final SpecConfig specConfig) {
     this.network = network;
+    this.specConfig = specConfig;
     this.candidateBlocks = candidateBlocks;
     this.genesisBlockHeader = genesisBlockHeader;
     this.accounts = accounts;
@@ -145,6 +156,10 @@ public class BlockchainReferenceTestCaseSpec {
     return network;
   }
 
+  public Optional<BlobScheduleOptions> getBlobScheduleOptions() {
+    return specConfig != null ? specConfig.getBlobScheduleOptions() : Optional.empty();
+  }
+
   public CandidateBlock[] getCandidateBlocks() {
     return candidateBlocks;
   }
@@ -153,11 +168,13 @@ public class BlockchainReferenceTestCaseSpec {
     return genesisBlockHeader;
   }
 
-  public ProtocolContext buildProtocolContext(final MutableBlockchain blockchain) {
+  public ProtocolContext buildProtocolContext(
+      final DataStorageConfiguration storageConfiguration, final MutableBlockchain blockchain) {
     return new ProtocolContext.Builder()
         .withBlockchain(blockchain)
         .withWorldStateArchive(
             buildWorldStateArchive(
+                storageConfiguration,
                 Stream.of(candidateBlocks).filter(CandidateBlock::isExecutable).count(),
                 blockchain))
         .withConsensusContext(new ConsensusContextFixture())
@@ -247,7 +264,6 @@ public class BlockchainReferenceTestCaseSpec {
     "blocknumber",
     "chainname",
     "chainnetwork",
-    "expectException",
     "expectExceptionByzantium",
     "expectExceptionConstantinople",
     "expectExceptionConstantinopleFix",
@@ -256,7 +272,6 @@ public class BlockchainReferenceTestCaseSpec {
     "expectExceptionEIP158",
     "expectExceptionFrontier",
     "expectExceptionHomestead",
-    "expectExceptionALL",
     "hasBigInt",
     "rlp_decoded",
     "receipts"
@@ -267,6 +282,9 @@ public class BlockchainReferenceTestCaseSpec {
 
     private final Boolean valid;
     private final List<TransactionSequence> transactionSequence;
+    private final BlockAccessList blockAccessList;
+    private final String expectException;
+    private final String expectExceptionALL;
 
     @JsonCreator
     public CandidateBlock(
@@ -279,12 +297,16 @@ public class BlockchainReferenceTestCaseSpec {
         @JsonProperty("withdrawalRequests") final Object withdrawalRequests,
         @JsonProperty("consolidationRequests") final Object consolidationRequests,
         @JsonProperty("transactionSequence") final List<TransactionSequence> transactionSequence,
-        @JsonProperty("blockAccessList") final Object blockAccessList) {
+        @JsonDeserialize(using = BlockAccessListDeserializer.class)
+            @JsonProperty("blockAccessList")
+            @JsonAlias("rlp_decoded")
+            final BlockAccessList blockAccessList,
+        @JsonProperty("expectException") final String expectException,
+        @JsonProperty("expectExceptionALL") final String expectExceptionALL) {
       boolean blockValid = true;
-      // The BLOCK__WrongCharAtRLP_0 test has an invalid character in its rlp string.
       Bytes rlpAttempt = null;
       try {
-        rlpAttempt = Bytes.fromHexString(rlp);
+        rlpAttempt = rlp != null ? Bytes.fromHexString(rlp) : null;
       } catch (final IllegalArgumentException e) {
         blockValid = false;
       }
@@ -297,12 +319,30 @@ public class BlockchainReferenceTestCaseSpec {
         blockValid = false;
       }
 
+      if (expectException != null || expectExceptionALL != null) {
+        blockValid = false;
+      }
+
       this.valid = blockValid;
       this.transactionSequence = transactionSequence;
+      this.blockAccessList = blockAccessList;
+      this.expectException = expectException;
+      this.expectExceptionALL = expectExceptionALL;
     }
 
     public boolean isValid() {
       return valid;
+    }
+
+    /**
+     * Returns the expected exception key (e.g. {@code "BlockException.GAS_USED_OVERFLOW"}) for this
+     * invalid block, if specified in the fixture. Returns empty when no exception is expected
+     * (valid blocks) or when the fixture does not specify one.
+     */
+    public Optional<String> getExpectedException() {
+      if (expectException != null) return Optional.of(expectException);
+      if (expectExceptionALL != null) return Optional.of(expectExceptionALL);
+      return Optional.empty();
     }
 
     public boolean areAllTransactionsValid() {
@@ -328,6 +368,38 @@ public class BlockchainReferenceTestCaseSpec {
               : Optional.of(input.readList(Withdrawal::readFrom));
       final BlockBody body = new BlockBody(transactions, ommers, withdrawals);
       return new Block(header, body);
+    }
+
+    public Optional<BlockAccessList> getBlockAccessList() {
+      return Optional.ofNullable(blockAccessList);
+    }
+  }
+
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  public static class SpecConfig {
+    private final Optional<BlobScheduleOptions> blobScheduleOptions;
+
+    @JsonCreator
+    public SpecConfig(
+        @JsonProperty("blobSchedule") final Map<String, Map<String, String>> blobSchedule) {
+      if (blobSchedule == null || blobSchedule.isEmpty()) {
+        this.blobScheduleOptions = Optional.empty();
+      } else {
+        final ObjectNode root = JsonUtil.createEmptyObjectNode();
+        blobSchedule.forEach(
+            (fork, params) -> {
+              final ObjectNode forkNode = root.putObject(fork.toLowerCase(Locale.ROOT));
+              params.forEach(
+                  (key, hexValue) ->
+                      forkNode.put(
+                          key.toLowerCase(Locale.ROOT), Math.toIntExact(Long.decode(hexValue))));
+            });
+        this.blobScheduleOptions = Optional.of(new BlobScheduleOptions(root));
+      }
+    }
+
+    public Optional<BlobScheduleOptions> getBlobScheduleOptions() {
+      return blobScheduleOptions;
     }
   }
 }

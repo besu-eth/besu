@@ -297,6 +297,31 @@ public class PipelineBuilder<I, T> {
   }
 
   /**
+   * Aggregates all incoming batches into a single batch.
+   *
+   * <p>This stage is intended to be used after {@link #inBatches(int)} (or any stage producing
+   * {@link List} items), when downstream processing must operate on one final aggregate batch.
+   *
+   * @return a {@link PipelineBuilder} ready to extend the pipeline with additional stages.
+   */
+  @SuppressWarnings("unchecked")
+  public PipelineBuilder<I, T> inSingleBatch() {
+    return new PipelineBuilder<>(
+        inputPipe,
+        stages,
+        pipes,
+        lastStageName,
+        (ReadPipe<T>)
+            new AggregatingReadPipe<>(
+                (ReadPipe<List<T>>) pipeEnd,
+                outputCounter.labels(lastStageName + "_outputPipe", "aggregated_batches")),
+        1,
+        outputCounter,
+        tracingEnabled,
+        pipelineName);
+  }
+
+  /**
    * Adds a 1-to-many processing stage to the pipeline. For each item in the stream, <i>mapper</i>
    * is called and each item of the {@link Stream} it returns is output as an individual item. The
    * returned Stream may be empty to remove an item.

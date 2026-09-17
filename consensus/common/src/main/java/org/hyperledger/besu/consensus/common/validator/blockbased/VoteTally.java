@@ -107,6 +107,7 @@ class VoteTally {
    */
   void discardOutstandingVotes() {
     addVotesBySubject.clear();
+    removeVotesBySubject.clear();
   }
 
   /**

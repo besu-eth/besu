@@ -42,6 +42,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.ImmutableInProcessRpcConfigurat
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.ipc.JsonRpcIpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration;
+import org.hyperledger.besu.ethereum.api.pluginadapter.RpcEndpointServiceImpl;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockImporter;
 import org.hyperledger.besu.ethereum.core.BlockSyncTestUtils;
@@ -55,8 +56,11 @@ import org.hyperledger.besu.ethereum.mainnet.BlockImportResult;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.mainnet.pluginadapter.TransactionValidatorServiceImpl;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
+import org.hyperledger.besu.ethereum.p2p.discovery.NodeIdentifier;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
+import org.hyperledger.besu.ethereum.permissioning.pluginadapter.PermissioningServiceImpl;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStorageProviderBuilder;
@@ -65,15 +69,11 @@ import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.ObservableMetricsSystem;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
-import org.hyperledger.besu.plugin.data.EnodeURL;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBKeyValueStorageFactory;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBMetricsFactory;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBFactoryConfiguration;
 import org.hyperledger.besu.services.BesuConfigurationImpl;
 import org.hyperledger.besu.services.BesuPluginContextImpl;
-import org.hyperledger.besu.services.PermissioningServiceImpl;
-import org.hyperledger.besu.services.RpcEndpointServiceImpl;
-import org.hyperledger.besu.services.TransactionValidatorServiceImpl;
 import org.hyperledger.besu.testutil.TestClock;
 
 import java.io.IOException;
@@ -94,7 +94,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
-import io.vertx.core.http.HttpClient;
+import io.vertx.core.http.WebSocketClient;
 import io.vertx.core.json.Json;
 import io.vertx.core.json.JsonObject;
 import okhttp3.MediaType;
@@ -132,17 +132,18 @@ public final class RunnerTest {
 
   @Test
   public void getFixedNodes() {
-    final EnodeURL staticNode =
+    final EnodeURLImpl staticNode =
         EnodeURLImpl.fromString(
             "enode://8f4b88336cc40ef2516d8b27df812e007fb2384a61e93635f1899051311344f3dcdbb49a4fe49a79f66d2f589a9f282e8cc4f1d7381e8ef7e4fcc6b0db578c77@127.0.0.1:30301");
-    final EnodeURL bootnode =
+    final EnodeURLImpl bootnode =
         EnodeURLImpl.fromString(
             "enode://8f4b88336cc40ef2516d8b27df812e007fb2384a61e93635f1899051311344f3dcdbb49a4fe49a79f66d2f589a9f282e8cc4f1d7381e8ef7e4fcc6b0db578c77@127.0.0.1:30302");
-    final List<EnodeURL> bootnodes = new ArrayList<>();
+    final List<EnodeURLImpl> bootnodes = new ArrayList<>();
     bootnodes.add(bootnode);
-    final Collection<EnodeURL> staticNodes = new ArrayList<>();
+    final Collection<EnodeURLImpl> staticNodes = new ArrayList<>();
     staticNodes.add(staticNode);
-    final Collection<EnodeURL> fixedNodes = RunnerBuilder.getFixedNodes(bootnodes, staticNodes);
+    final Collection<NodeIdentifier> fixedNodes =
+        RunnerBuilder.getFixedNodes(bootnodes, staticNodes);
     assertThat(fixedNodes).containsExactlyInAnyOrder(staticNode, bootnode);
     // bootnodes should be unchanged
     assertThat(bootnodes).containsExactly(bootnode);
@@ -153,7 +154,7 @@ public final class RunnerTest {
     // set merge flag to false, otherwise this test can fail if a merge test runs first
     MergeConfiguration.setMergeEnabled(false);
 
-    syncFromGenesis(SyncMode.FULL, getFastSyncGenesis(), false);
+    syncFromGenesis(SyncMode.FULL, getFastSyncGenesis());
   }
 
   @Test
@@ -161,11 +162,10 @@ public final class RunnerTest {
     // set merge flag to false, otherwise this test can fail if a merge test runs first
     MergeConfiguration.setMergeEnabled(false);
 
-    syncFromGenesis(SyncMode.FULL, getFastSyncGenesis(), true);
+    syncFromGenesis(SyncMode.FULL, getFastSyncGenesis());
   }
 
-  private void syncFromGenesis(
-      final SyncMode mode, final GenesisConfig genesisConfig, final boolean isPeerTaskSystemEnabled)
+  private void syncFromGenesis(final SyncMode mode, final GenesisConfig genesisConfig)
       throws Exception {
     final Path dataDirAhead = Files.createTempDirectory(temp, "db-ahead");
     final Path dbAhead = dataDirAhead.resolve("database");
@@ -173,10 +173,7 @@ public final class RunnerTest {
     final NodeKey aheadDbNodeKey = NodeKeyUtils.createFrom(KeyPairUtil.loadKeyPair(dataDirAhead));
     final NodeKey behindDbNodeKey = NodeKeyUtils.generate();
     final SynchronizerConfiguration syncConfigAhead =
-        SynchronizerConfiguration.builder()
-            .syncMode(SyncMode.FULL)
-            .isPeerTaskSystemEnabled(isPeerTaskSystemEnabled)
-            .build();
+        SynchronizerConfiguration.builder().syncMode(SyncMode.FULL).build();
     final ObservableMetricsSystem noOpMetricsSystem = new NoOpMetricsSystem();
     final var miningParameters = MiningConfiguration.newDefault();
     final var dataStorageConfiguration = DataStorageConfiguration.DEFAULT_FOREST_CONFIG;
@@ -250,13 +247,14 @@ public final class RunnerTest {
               noOpMetricsSystem,
               miningParameters);
 
-      final EnodeURL aheadEnode = runnerAhead.getLocalEnode().get();
+      final EnodeURLImpl aheadEnode = runnerAhead.getLocalEnode().get();
       final EthNetworkConfig behindEthNetworkConfiguration =
           new EthNetworkConfig(
               GenesisConfig.fromResource(DEV.getGenesisFile()),
               DEV.getNetworkId(),
               Collections.singletonList(aheadEnode),
-              null);
+              Collections.emptyList(),
+              "");
 
       runnerBehind =
           runnerBuilder
@@ -327,27 +325,29 @@ public final class RunnerTest {
                 }
               });
       final Promise<String> promise = Promise.promise();
-      final HttpClient httpClient = vertx.createHttpClient();
-      httpClient.webSocket(
-          runnerBehind.getWebSocketPort().get(),
-          WebSocketConfiguration.DEFAULT_WEBSOCKET_HOST,
-          "/",
-          ws -> {
-            ws.result()
-                .writeTextMessage(
-                    "{\"id\": 1, \"method\": \"eth_subscribe\", \"params\": [\"syncing\"]}");
-            ws.result()
-                .textMessageHandler(
-                    payload -> {
-                      final boolean matches =
-                          payload.equals("{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":\"0x0\"}");
-                      if (matches) {
-                        promise.complete(payload);
-                      } else {
-                        promise.fail("Unexpected result: " + payload);
-                      }
-                    });
-          });
+      final WebSocketClient webSocketClient = vertx.createWebSocketClient();
+      webSocketClient
+          .connect(
+              runnerBehind.getWebSocketPort().get(),
+              WebSocketConfiguration.DEFAULT_WEBSOCKET_HOST,
+              "/")
+          .onComplete(
+              ws -> {
+                ws.result()
+                    .writeTextMessage(
+                        "{\"id\": 1, \"method\": \"eth_subscribe\", \"params\": [\"syncing\"]}");
+                ws.result()
+                    .textMessageHandler(
+                        payload -> {
+                          final boolean matches =
+                              payload.equals("{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":\"0x0\"}");
+                          if (matches) {
+                            promise.complete(payload);
+                          } else {
+                            promise.fail("Unexpected result: " + payload);
+                          }
+                        });
+              });
       final Future<String> future = promise.future();
       Awaitility.await()
           .catchUncaughtExceptions()

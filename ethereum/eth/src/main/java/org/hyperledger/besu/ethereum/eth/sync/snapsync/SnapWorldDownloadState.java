@@ -22,24 +22,26 @@ import org.hyperledger.besu.ethereum.chain.BlockAddedObserver;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.WorldStateHealFinishedListener;
+import org.hyperledger.besu.ethereum.eth.sync.common.WorldStateHealFinishedListener;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.context.SnapSyncStatePersistenceManager;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.AccountRangeDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.BytecodeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContext;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.StorageRangeDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.AccountFlatDatabaseHealingRangeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.StorageFlatDatabaseHealingRangeRequest;
+import org.hyperledger.besu.ethereum.eth.sync.worldstate.StalledDownloadException;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldDownloadState;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
-import org.hyperledger.besu.ethereum.worldstate.WorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.metrics.SyncDurationMetrics;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
+import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 import org.hyperledger.besu.services.tasks.InMemoryTaskQueue;
 import org.hyperledger.besu.services.tasks.InMemoryTasksPriorityQueues;
 import org.hyperledger.besu.services.tasks.Task;
@@ -61,7 +63,8 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> {
+public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest>
+    implements SnapRequestContext {
 
   private static final Logger LOG = LoggerFactory.getLogger(SnapWorldDownloadState.class);
 
@@ -157,7 +160,12 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
 
   @Override
   protected synchronized void markAsStalled(final int maxNodeRequestRetries) {
-    // TODO retry when mark as stalled
+    final String message =
+        "Snap sync world state download stalled — peers stopped serving data after "
+            + maxNodeRequestRetries
+            + " requests without progress.";
+    LOG.warn(message);
+    internalFuture.completeExceptionally(new StalledDownloadException(message));
   }
 
   @Override
@@ -300,8 +308,8 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
     if (!internalFuture.isDone()) {
       if (request instanceof BytecodeRequest) {
         pendingCodeRequests.add(request);
-      } else if (request instanceof StorageRangeDataRequest) {
-        if (!((StorageRangeDataRequest) request).getStartKeyHash().equals(RangeManager.MIN_RANGE)) {
+      } else if (request instanceof StorageRangeDataRequest storageRangeDataRequest) {
+        if (!storageRangeDataRequest.getStartKeyHash().equals(RangeManager.MIN_RANGE)) {
           pendingLargeStorageRequests.add(request);
         } else {
           pendingStorageRequests.add(request);
@@ -330,6 +338,7 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
    *
    * @param account The account to be added for repair.
    */
+  @Override
   public synchronized void addAccountToHealingList(final Bytes account) {
     if (!accountsHealingList.contains(account)) {
       snapContext.addAccountToHealingList(account);
@@ -433,6 +442,7 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
         __ -> {});
   }
 
+  @Override
   public SnapSyncMetricsManager getMetricsManager() {
     return metricsManager;
   }
@@ -468,6 +478,7 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
                   pivotBlockSelector.check(
                       (____, isNewPivotBlock) -> {
                         if (isNewPivotBlock) {
+                          resetProgressTracking();
                           foundNewPivotBlock.set(true);
                         }
                       });

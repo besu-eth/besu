@@ -125,11 +125,10 @@ public class SECPPublicKey implements java.security.PublicKey {
 
   @Override
   public boolean equals(final Object other) {
-    if (!(other instanceof SECPPublicKey)) {
+    if (!(other instanceof SECPPublicKey that)) {
       return false;
     }
 
-    final SECPPublicKey that = (SECPPublicKey) other;
     return this.encoded.equals(that.encoded) && this.algorithm.equals(that.algorithm);
   }
 

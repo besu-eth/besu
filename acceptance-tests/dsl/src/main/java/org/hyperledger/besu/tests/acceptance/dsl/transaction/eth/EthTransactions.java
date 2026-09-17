@@ -83,10 +83,6 @@ public class EthTransactions {
     return new EthGetBlockWithSlotNumber(blockNumber);
   }
 
-  public EthMiningTransaction mining() {
-    return new EthMiningTransaction();
-  }
-
   public EthSyncingTransaction syncing() {
     return new EthSyncingTransaction();
   }

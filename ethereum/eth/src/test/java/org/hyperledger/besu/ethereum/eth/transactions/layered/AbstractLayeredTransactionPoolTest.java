@@ -56,6 +56,7 @@ public abstract class AbstractLayeredTransactionPoolTest extends AbstractTransac
             transactionReplacementTester,
             new BlobCache());
     return new LayeredPendingTransactions(
+        protocolContext,
         poolConfig,
         createPrioritizedTransactions(
             poolConfig, readyLayer, txPoolMetrics, transactionReplacementTester),

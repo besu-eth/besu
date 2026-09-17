@@ -120,6 +120,21 @@ public interface SignatureAlgorithm {
   Bytes32 calculateECDHKeyAgreement(final SECPPrivateKey privKey, final SECPPublicKey theirPubKey);
 
   /**
+   * Calculate ECDH key agreement returning the resulting EC point in compressed format.
+   *
+   * <p>Unlike {@link #calculateECDHKeyAgreement(SECPPrivateKey, SECPPublicKey)} which returns only
+   * the x-coordinate, this method returns the full compressed EC point (33 bytes: prefix byte +
+   * x-coordinate). This is required by protocols such as DiscV5 which use the compressed point as
+   * input to HKDF key derivation.
+   *
+   * @param privKey the private key
+   * @param theirPubKey the remote party's public key
+   * @return the compressed EC point (33 bytes)
+   */
+  Bytes calculateECDHKeyAgreementCompressed(
+      final SECPPrivateKey privKey, final SECPPublicKey theirPubKey);
+
+  /**
    * Gets half curve order.
    *
    * @return the half curve order

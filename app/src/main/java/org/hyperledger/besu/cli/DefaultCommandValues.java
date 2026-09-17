@@ -15,6 +15,7 @@
 package org.hyperledger.besu.cli;
 
 import org.hyperledger.besu.ethereum.api.jsonrpc.authentication.JwtAlgorithm;
+import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.RlpxConfiguration;
 import org.hyperledger.besu.nat.NatMethod;
 
@@ -105,6 +106,9 @@ public interface DefaultCommandValues {
 
   /** The constant DEFAULT_WS_MAX_CONNECTIONS. */
   int DEFAULT_WS_MAX_CONNECTIONS = 80;
+
+  /** The constant DEFAULT_WS_MAX_ACTIVE_SUBSCRIPTIONS. */
+  int DEFAULT_WS_MAX_ACTIVE_SUBSCRIPTIONS = WebSocketConfiguration.DEFAULT_MAX_ACTIVE_SUBSCRIPTIONS;
 
   /** The constant DEFAULT_WS_MAX_FRAME_SIZE. */
   int DEFAULT_WS_MAX_FRAME_SIZE = 1024 * 1024;

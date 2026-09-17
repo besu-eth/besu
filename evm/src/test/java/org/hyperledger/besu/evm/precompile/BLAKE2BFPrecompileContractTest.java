@@ -24,7 +24,6 @@ import org.hyperledger.besu.evm.fluent.EvmSpec;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 
 import org.apache.tuweni.bytes.Bytes;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -96,12 +95,5 @@ class BLAKE2BFPrecompileContractTest {
     assertThat(contract.computePrecompile(input, messageFrame).output())
         .isEqualTo(expectedComputation);
     assertThat(contract.gasRequirement(input)).isEqualTo(expectedGasUsed);
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

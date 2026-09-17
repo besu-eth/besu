@@ -17,7 +17,6 @@ package org.hyperledger.besu.ethereum.core;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static org.hyperledger.besu.crypto.Hash.keccak256;
-import static org.hyperledger.besu.datatypes.VersionedHash.SHA256_VERSION_ID;
 
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SECPPublicKey;
@@ -30,7 +29,6 @@ import org.hyperledger.besu.datatypes.BlobType;
 import org.hyperledger.besu.datatypes.BytesHolder;
 import org.hyperledger.besu.datatypes.CodeDelegation;
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.datatypes.Sha256Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
@@ -64,6 +62,9 @@ import org.apache.tuweni.units.bigints.UInt256;
 import org.apache.tuweni.units.bigints.UInt256s;
 
 /** An operation submitted by an external actor to be applied to the system. */
+// implements the deprecated plugin.data.UnsignedPrivateMarkerTransaction until the next breaking
+// release
+@SuppressWarnings("removal")
 public class Transaction
     implements org.hyperledger.besu.datatypes.Transaction,
         org.hyperledger.besu.plugin.data.UnsignedPrivateMarkerTransaction {
@@ -651,7 +652,7 @@ public class Transaction
    *
    * @return the max up-front cost for the gas the transaction can use.
    */
-  private Wei getMaxUpfrontGasCost(final long blobGasPerBlock) {
+  public Wei getMaxUpfrontGasCost(final long blobGasPerBlock) {
     return getUpfrontGasCost(
         getMaxGasPrice(), getMaxFeePerBlobGas().orElse(Wei.ZERO), blobGasPerBlock);
   }
@@ -665,7 +666,7 @@ public class Transaction
    */
   public Wei getUpfrontGasCost(
       final Wei gasPrice, final Wei blobGasPrice, final long totalBlobGas) {
-    if (gasPrice == null || gasPrice.isZero()) {
+    if (gasPrice == null) {
       return Wei.ZERO;
     }
 
@@ -1151,8 +1152,15 @@ public class Transaction
         sb.append("], ");
       }
     }
-    if (transactionType.supportsBlob() && this.blobsWithCommitments.isPresent()) {
-      sb.append("numberOfBlobs=").append(blobsWithCommitments.get().getBlobs().size()).append(", ");
+    if (transactionType.supportsBlob()) {
+      sb.append("numberOfBlobs=")
+          .append(blobsWithCommitments.map(bwc -> bwc.getBlobs().size()).orElse(-1))
+          .append(", ");
+    }
+    if (transactionType.supportsDelegateCode()) {
+      sb.append("numberOfCodeDelegations=")
+          .append(maybeCodeDelegationList.map(List::size).orElse(-1))
+          .append(", ");
     }
     sb.append("payload=").append(getPayload());
     return sb.append("}").toString();
@@ -1180,6 +1188,14 @@ public class Transaction
           .append(", ");
       getMaxFeePerBlobGas()
           .ifPresent(wei -> sb.append("df: ").append(wei.toHumanReadableString()).append(", "));
+    }
+    if (transactionType.supportsBlob()) {
+      sb.append("b: ")
+          .append(blobsWithCommitments.map(bwc -> bwc.getBlobs().size()).orElse(-1))
+          .append(", ");
+    }
+    if (transactionType.supportsDelegateCode()) {
+      sb.append("cd: ").append(maybeCodeDelegationList.map(List::size).orElse(-1)).append(", ");
     }
     sb.append("gl: ").append(getGasLimit()).append(", ");
     sb.append("v: ").append(getValue().toHumanReadableString()).append(", ");
@@ -1540,12 +1556,6 @@ public class Transaction
         final List<KZGCommitment> kzgCommitments,
         final List<Blob> blobs,
         final List<KZGProof> kzgProofs) {
-      if (this.versionedHashes == null || this.versionedHashes.isEmpty()) {
-        this.versionedHashes =
-            kzgCommitments.stream()
-                .map(c -> new VersionedHash(SHA256_VERSION_ID, Sha256Hash.sha256(c.getData())))
-                .toList();
-      }
       this.blobsWithCommitments =
           new BlobsWithCommitments(blobType, kzgCommitments, blobs, kzgProofs, versionedHashes);
       return this;

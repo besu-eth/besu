@@ -21,6 +21,7 @@ import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.Sha256Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
@@ -32,15 +33,13 @@ import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
 
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
 public class TransactionTestFixture {
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
-  private static final KeyPair KEY_PAIR = SIGNATURE_ALGORITHM.get().generateKeyPair();
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
+  private static final KeyPair KEY_PAIR = SIGNATURE_ALGORITHM.generateKeyPair();
   private static final org.hyperledger.besu.datatypes.CodeDelegation CODE_DELEGATION =
       createSignedCodeDelegation(BigInteger.ZERO, Address.ZERO, 0, KEY_PAIR);
 
@@ -101,13 +100,23 @@ public class TransactionTestFixture {
         builder.maxFeePerGas(maxFeePerGas.orElse(Wei.of(5000)));
         builder.accessList(accessListEntries.orElse(List.of()));
         builder.maxFeePerBlobGas(maxFeePerBlobGas.orElse(Wei.ONE));
+        versionedHashes.ifPresent(builder::versionedHashes);
         if (blobs.isPresent()) {
+          if (versionedHashes.isEmpty()) {
+            builder.versionedHashes(
+                blobs.get().getKzgCommitments().stream()
+                    .map(
+                        c ->
+                            new VersionedHash(
+                                VersionedHash.SHA256_VERSION_ID, Sha256Hash.sha256(c.getData())))
+                    .toList());
+          }
           builder.kzgBlobs(
               blobs.get().getBlobType(),
               blobs.get().getKzgCommitments(),
               blobs.get().getBlobs(),
               blobs.get().getKzgProofs());
-        } else versionedHashes.ifPresent(builder::versionedHashes);
+        }
         break;
       case DELEGATE_CODE:
         builder.maxPriorityFeePerGas(maxPriorityFeePerGas.orElse(Wei.of(500)));
@@ -223,7 +232,7 @@ public class TransactionTestFixture {
             Bytes.concatenate(
                 org.hyperledger.besu.ethereum.core.CodeDelegation.MAGIC, rlpOutput.encoded()));
 
-    final var signature = SIGNATURE_ALGORITHM.get().sign(Bytes32.wrap(hash.getBytes()), keys);
+    final var signature = SIGNATURE_ALGORITHM.sign(Bytes32.wrap(hash.getBytes()), keys);
 
     return new org.hyperledger.besu.ethereum.core.CodeDelegation(
         chainId,

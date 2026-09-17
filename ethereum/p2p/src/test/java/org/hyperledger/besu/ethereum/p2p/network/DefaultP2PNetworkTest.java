@@ -21,6 +21,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -35,9 +36,13 @@ import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.RlpxConfiguration;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.PeerDiscoveryAgentV4;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.DiscoveryPeerV4;
+import org.hyperledger.besu.ethereum.p2p.discovery.dns.DNSDaemonListener;
+import org.hyperledger.besu.ethereum.p2p.discovery.dns.EthereumNodeRecord;
+import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.p2p.peers.MaintainedPeers;
 import org.hyperledger.besu.ethereum.p2p.peers.Peer;
 import org.hyperledger.besu.ethereum.p2p.peers.PeerTestHelper;
+import org.hyperledger.besu.ethereum.p2p.rlpx.ConnectSource;
 import org.hyperledger.besu.ethereum.p2p.rlpx.RlpxAgent;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.MockPeerConnection;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MockSubProtocol;
@@ -47,8 +52,9 @@ import org.hyperledger.besu.nat.NatMethod;
 import org.hyperledger.besu.nat.NatService;
 import org.hyperledger.besu.nat.core.domain.NetworkProtocol;
 import org.hyperledger.besu.nat.upnp.UpnpNatManager;
-import org.hyperledger.besu.plugin.data.EnodeURL;
 
+import java.net.InetAddress;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -56,12 +62,16 @@ import java.util.concurrent.CompletableFuture;
 import java.util.stream.Stream;
 
 import io.vertx.core.Vertx;
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.crypto.SECP256K1;
 import org.assertj.core.api.Assertions;
+import org.ethereum.beacon.discovery.schema.NodeRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
@@ -97,6 +107,10 @@ public final class DefaultP2PNetworkTest {
     lenient()
         .when(discoveryAgent.start(anyInt()))
         .thenReturn(CompletableFuture.completedFuture(30301));
+    // attemptPeerConnections() caps at (maxPeers - current); default to "plenty of room" so
+    // existing tests that don't care about the cap keep exercising every candidate peer.
+    lenient().when(rlpxAgent.getMaxPeers()).thenReturn(25);
+    lenient().when(rlpxAgent.getConnectionCount()).thenReturn(0);
   }
 
   @Test
@@ -108,7 +122,7 @@ public final class DefaultP2PNetworkTest {
     assertThat(network.addMaintainedConnectionPeer(peer)).isTrue();
 
     assertThat(maintainedPeers.contains(peer)).isTrue();
-    verify(rlpxAgent).connect(peer);
+    verify(rlpxAgent).connect(peer, ConnectSource.ADMIN);
     verify(discoveryAgent).addPeer(peer);
   }
 
@@ -120,7 +134,7 @@ public final class DefaultP2PNetworkTest {
 
     assertThat(network.addMaintainedConnectionPeer(peer)).isTrue();
     assertThat(network.addMaintainedConnectionPeer(peer)).isFalse();
-    verify(rlpxAgent, times(2)).connect(peer);
+    verify(rlpxAgent, times(2)).connect(peer, ConnectSource.ADMIN);
     verify(discoveryAgent, times(2)).addPeer(peer);
     assertThat(maintainedPeers.contains(peer)).isTrue();
   }
@@ -135,7 +149,7 @@ public final class DefaultP2PNetworkTest {
     assertThat(network.removeMaintainedConnectionPeer(peer)).isTrue();
 
     assertThat(maintainedPeers.contains(peer)).isFalse();
-    verify(rlpxAgent).connect(peer);
+    verify(rlpxAgent).connect(peer, ConnectSource.ADMIN);
     verify(discoveryAgent).addPeer(peer);
     verify(rlpxAgent).disconnect(peer.getId(), DisconnectReason.REQUESTED);
     verify(discoveryAgent).dropPeer(peer);
@@ -159,14 +173,14 @@ public final class DefaultP2PNetworkTest {
     final DefaultP2PNetwork network = network();
     network.start();
 
-    final Optional<EnodeURL> maybeSelfEnode = network.getLocalEnode();
+    final Optional<EnodeURLImpl> maybeSelfEnode = network.getLocalEnode();
     final Peer selfPeer = PeerTestHelper.createPeer(maybeSelfEnode.get());
     maintainedPeers.add(selfPeer);
 
-    verify(rlpxAgent, times(0)).connect(selfPeer);
+    verify(rlpxAgent, times(0)).connect(eq(selfPeer), any(ConnectSource.class));
 
     network.checkMaintainedConnectionPeers();
-    verify(rlpxAgent, times(0)).connect(selfPeer);
+    verify(rlpxAgent, times(0)).connect(eq(selfPeer), any(ConnectSource.class));
   }
 
   @Test
@@ -178,10 +192,10 @@ public final class DefaultP2PNetworkTest {
 
     maintainedPeers.add(peer);
 
-    verify(rlpxAgent, times(0)).connect(peer);
+    verify(rlpxAgent, times(0)).connect(peer, ConnectSource.MAINTAIN);
 
     network.checkMaintainedConnectionPeers();
-    verify(rlpxAgent, times(1)).connect(peer);
+    verify(rlpxAgent, times(1)).connect(peer, ConnectSource.MAINTAIN);
   }
 
   @Test
@@ -189,15 +203,22 @@ public final class DefaultP2PNetworkTest {
     final DefaultP2PNetwork network = network();
     final Peer peer = PeerTestHelper.createPeer();
 
+    // Stubbed before start(), which arms a 2s timer that runs checkMaintainedConnectionPeers() on
+    // the scheduler thread. That background call invokes rlpxAgent too, and Mockito tracks the
+    // invocation being stubbed per mock rather than per thread, so stubbing after start() can have
+    // its when(...)/thenReturn(...) pair torn apart by the timer on a slow enough run.
+    // thenAnswer() rather than thenReturn() because a Stream is single-use and the timer may
+    // consume one before this test does.
+    when(rlpxAgent.streamActiveConnections())
+        .thenAnswer(invocation -> Stream.of(MockPeerConnection.create(peer)));
+
     network.start();
 
     maintainedPeers.add(peer);
 
     // Don't connect to an already connected peer
-    when(rlpxAgent.streamActiveConnections())
-        .thenReturn(Stream.of(MockPeerConnection.create(peer)));
     network.checkMaintainedConnectionPeers();
-    verify(rlpxAgent, times(0)).connect(peer);
+    verify(rlpxAgent, times(0)).connect(peer, ConnectSource.MAINTAIN);
   }
 
   @Test
@@ -274,7 +295,7 @@ public final class DefaultP2PNetworkTest {
 
     final DefaultP2PNetwork network = network();
     network.attemptPeerConnections();
-    verify(rlpxAgent, times(1)).connect(peerCaptor.capture());
+    verify(rlpxAgent, times(1)).connect(peerCaptor.capture(), eq(ConnectSource.MAINTAIN));
 
     assertThat(peerCaptor.getValue()).isEqualTo(discoPeer);
   }
@@ -287,7 +308,7 @@ public final class DefaultP2PNetworkTest {
 
     final DefaultP2PNetwork network = network();
     network.attemptPeerConnections();
-    verify(rlpxAgent, times(0)).connect(any());
+    verify(rlpxAgent, times(0)).connect(any(), any(ConnectSource.class));
   }
 
   @Test
@@ -300,7 +321,7 @@ public final class DefaultP2PNetworkTest {
 
     final DefaultP2PNetwork network = network();
     network.attemptPeerConnections();
-    verify(rlpxAgent, times(0)).connect(any());
+    verify(rlpxAgent, times(0)).connect(any(), any(ConnectSource.class));
   }
 
   @Test
@@ -316,7 +337,68 @@ public final class DefaultP2PNetworkTest {
 
     final DefaultP2PNetwork network = network();
     network.attemptPeerConnections();
-    verify(rlpxAgent, times(3)).connect(any());
+    verify(rlpxAgent, times(3)).connect(any(), eq(ConnectSource.MAINTAIN));
+  }
+
+  @Test
+  public void attemptPeerConnections_overprovisionsButBoundsCandidateCount() {
+    when(rlpxAgent.getMaxPeers()).thenReturn(25);
+    when(rlpxAgent.getConnectionCount()).thenReturn(24);
+
+    // 1 slot open, overprovision factor 3 -> at most 3 candidates attempted, out of 5 ready.
+    final List<DiscoveryPeerV4> discoPeers = new ArrayList<>();
+    for (int i = 0; i < 5; i++) {
+      final DiscoveryPeerV4 peer = DiscoveryPeerV4.fromEnode(PeerTestHelper.enode());
+      peer.setBonded();
+      peer.setLastAttemptedConnection(i);
+      discoPeers.add(peer);
+    }
+    when(discoveryAgent.streamDiscoveredPeers()).thenReturn(discoPeers.stream());
+
+    final DefaultP2PNetwork network = network();
+    network.attemptPeerConnections();
+
+    verify(rlpxAgent, times(3)).connect(any(), eq(ConnectSource.MAINTAIN));
+    verify(rlpxAgent, never()).connect(eq(discoPeers.get(3)), any());
+    verify(rlpxAgent, never()).connect(eq(discoPeers.get(4)), any());
+  }
+
+  @Test
+  public void attemptPeerConnections_noAttemptsAtMaxPeers() {
+    when(rlpxAgent.getMaxPeers()).thenReturn(25);
+    when(rlpxAgent.getConnectionCount()).thenReturn(25);
+
+    final DefaultP2PNetwork network = network();
+    network.attemptPeerConnections();
+
+    verify(rlpxAgent, never()).connect(any(), any(ConnectSource.class));
+    verify(discoveryAgent, never()).streamDiscoveredPeers();
+  }
+
+  @Test
+  public void attemptPeerConnections_excludesAlreadyConnectingOrConnectedPeers() {
+    final DiscoveryPeerV4 connectingPeer = DiscoveryPeerV4.fromEnode(PeerTestHelper.enode());
+    final DiscoveryPeerV4 freePeer = DiscoveryPeerV4.fromEnode(PeerTestHelper.enode());
+    connectingPeer.setBonded();
+    freePeer.setBonded();
+    when(rlpxAgent.isConnectingOrConnected(connectingPeer.getId())).thenReturn(true);
+    when(discoveryAgent.streamDiscoveredPeers()).thenReturn(Stream.of(connectingPeer, freePeer));
+
+    final DefaultP2PNetwork network = network();
+    network.attemptPeerConnections();
+
+    verify(rlpxAgent, never()).connect(eq(connectingPeer), any(ConnectSource.class));
+    verify(rlpxAgent).connect(freePeer, ConnectSource.MAINTAIN);
+  }
+
+  @Test
+  public void connect_delegatesToRlpxAgentWithAdminSource() {
+    final DefaultP2PNetwork network = network();
+    final Peer peer = PeerTestHelper.createPeer();
+
+    network.connect(peer);
+
+    verify(rlpxAgent).connect(peer, ConnectSource.ADMIN);
   }
 
   @Test
@@ -334,6 +416,19 @@ public final class DefaultP2PNetworkTest {
     testClass.start();
     // ensure DnsDaemon is NOT present:
     assertThat(testClass.getDnsDaemon()).isNotPresent();
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"", "  ", "\t"})
+  public void shouldNotStartDnsDiscoveryWhenDnsURLIsBlank(final String url) {
+    final DiscoveryConfiguration disco = DiscoveryConfiguration.create().setDnsDiscoveryURL(url);
+    final NetworkingConfiguration blankUrlConfig =
+        when(spy(config).discoveryConfiguration()).thenReturn(disco).getMock();
+    final DefaultP2PNetwork testClass =
+        (DefaultP2PNetwork) builder().config(blankUrlConfig).build();
+    testClass.start();
+    assertThat(testClass.getDnsDaemon()).isNotPresent();
+    testClass.stop();
   }
 
   @Test
@@ -387,6 +482,80 @@ public final class DefaultP2PNetworkTest {
       testClass.stop();
       vertx.close();
     }
+  }
+
+  @Test
+  public void startRlpxAgentFailureAwaitStopCompletesPromptly() {
+    when(rlpxAgent.start())
+        .thenReturn(CompletableFuture.failedFuture(new RuntimeException("bind failed")));
+
+    final DefaultP2PNetwork network = network();
+    Assertions.assertThatThrownBy(network::start).hasRootCauseInstanceOf(RuntimeException.class);
+
+    // Partially started RLPx agent should have been stopped on failure
+    verify(rlpxAgent).stop();
+
+    // stop() + awaitStop() must not hang despite the partial start
+    assertThat(
+            CompletableFuture.runAsync(
+                () -> {
+                  network.stop();
+                  network.awaitStop();
+                }))
+        .succeedsWithin(Duration.ofSeconds(5));
+  }
+
+  @Test
+  public void startDiscoveryAgentFailureAwaitStopCompletesPromptly() {
+    when(discoveryAgent.start(anyInt()))
+        .thenReturn(CompletableFuture.failedFuture(new RuntimeException("bind failed")));
+
+    final DefaultP2PNetwork network = network();
+    Assertions.assertThatThrownBy(network::start).hasRootCauseInstanceOf(RuntimeException.class);
+
+    // Both agents should have been stopped on failure
+    verify(discoveryAgent).stop();
+    verify(rlpxAgent).stop();
+
+    // stop() + awaitStop() must not hang despite the partial start
+    assertThat(
+            CompletableFuture.runAsync(
+                () -> {
+                  network.stop();
+                  network.awaitStop();
+                }))
+        .succeedsWithin(Duration.ofSeconds(5));
+  }
+
+  @Test
+  public void dnsDaemonListenerSkipsRecordsFailingEnodeConversion() throws Exception {
+    final DefaultP2PNetwork network = network();
+    final DNSDaemonListener listener = network.createDaemonListener();
+
+    final EthereumNodeRecord recordWithInvalidPort =
+        new EthereumNodeRecord(
+            Bytes.random(64),
+            Optional.of(InetAddress.getByName("192.0.2.1")),
+            Optional.of(70000),
+            Optional.of(30303),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
+            mock(NodeRecord.class));
+    final EthereumNodeRecord validRecord =
+        new EthereumNodeRecord(
+            Bytes.random(64),
+            Optional.of(InetAddress.getByName("192.0.2.2")),
+            Optional.of(30303),
+            Optional.of(30303),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
+            mock(NodeRecord.class));
+
+    listener.newRecords(1L, List.of(recordWithInvalidPort, validRecord));
+
+    verify(discoveryAgent, times(1)).addPeer(any());
   }
 
   private DefaultP2PNetwork network() {

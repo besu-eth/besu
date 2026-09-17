@@ -18,6 +18,7 @@ import org.hyperledger.besu.consensus.common.bft.BftBlockHeaderFunctions;
 import org.hyperledger.besu.consensus.common.bft.messagewrappers.BftMessage;
 import org.hyperledger.besu.consensus.common.bft.payload.SignedData;
 import org.hyperledger.besu.consensus.ibft.IbftExtraDataCodec;
+import org.hyperledger.besu.consensus.ibft.payload.DecodeBudget;
 import org.hyperledger.besu.consensus.ibft.payload.PayloadDeserializers;
 import org.hyperledger.besu.consensus.ibft.payload.ProposalPayload;
 import org.hyperledger.besu.consensus.ibft.payload.RoundChangeCertificate;
@@ -41,6 +42,7 @@ public class Proposal extends BftMessage<ProposalPayload> {
   private final Optional<BlockAccessList> blockAccessList;
 
   private final Optional<RoundChangeCertificate> roundChangeCertificate;
+  private final boolean useLegacyEncoding;
 
   /**
    * Instantiates a new Proposal.
@@ -55,10 +57,37 @@ public class Proposal extends BftMessage<ProposalPayload> {
       final Block proposedBlock,
       final Optional<BlockAccessList> blockAccessList,
       final Optional<RoundChangeCertificate> certificate) {
+    this(payload, proposedBlock, blockAccessList, certificate, false);
+  }
+
+  /**
+   * Creates a Proposal that encodes in pre-26.1.0 wire format (BAL slot omitted).
+   *
+   * @param payload the payload
+   * @param proposedBlock the proposed block
+   * @param blockAccessList the block access list
+   * @param certificate the certificate
+   * @return a legacy-encoding Proposal
+   */
+  public static Proposal withLegacyEncoding(
+      final SignedData<ProposalPayload> payload,
+      final Block proposedBlock,
+      final Optional<BlockAccessList> blockAccessList,
+      final Optional<RoundChangeCertificate> certificate) {
+    return new Proposal(payload, proposedBlock, blockAccessList, certificate, true);
+  }
+
+  private Proposal(
+      final SignedData<ProposalPayload> payload,
+      final Block proposedBlock,
+      final Optional<BlockAccessList> blockAccessList,
+      final Optional<RoundChangeCertificate> certificate,
+      final boolean useLegacyEncoding) {
     super(payload);
     this.proposedBlock = proposedBlock;
     this.blockAccessList = blockAccessList;
     this.roundChangeCertificate = certificate;
+    this.useLegacyEncoding = useLegacyEncoding;
   }
 
   /**
@@ -108,7 +137,11 @@ public class Proposal extends BftMessage<ProposalPayload> {
     } else {
       rlpOut.writeNull();
     }
-    blockAccessList.ifPresentOrElse((bal) -> bal.writeTo(rlpOut), rlpOut::writeNull);
+    if (!useLegacyEncoding) {
+      // Current 26.1.0+ format: write BAL or null slot
+      blockAccessList.ifPresentOrElse((bal) -> bal.writeTo(rlpOut), rlpOut::writeNull);
+    }
+    // else: legacy mode — omit BAL entirely (pre-26.1.0 wire format, 3 items)
     rlpOut.endList();
     return rlpOut.encoded();
   }
@@ -120,25 +153,42 @@ public class Proposal extends BftMessage<ProposalPayload> {
    * @return the proposal
    */
   public static Proposal decode(final Bytes data) {
+    return decode(data, DecodeBudget.forSingleMessage());
+  }
+
+  /**
+   * Decode, bounding signature recoveries to the maximum for the given validator-set size.
+   *
+   * @param data the data
+   * @param validatorCount the current validator-set size
+   * @return the proposal
+   */
+  public static Proposal decode(final Bytes data, final int validatorCount) {
+    return decode(data, DecodeBudget.forIbftMessage(validatorCount));
+  }
+
+  private static Proposal decode(final Bytes data, final DecodeBudget decodeBudget) {
+    // One budget spans the whole nested decode so per-list caps can't multiply into a DoS.
     final RLPInput rlpIn = RLP.input(data);
     rlpIn.enterList();
     final SignedData<ProposalPayload> payload =
-        PayloadDeserializers.readSignedProposalPayloadFrom(rlpIn);
+        PayloadDeserializers.readSignedProposalPayloadFrom(rlpIn, decodeBudget);
     final Block proposedBlock =
         Block.readFrom(rlpIn, BftBlockHeaderFunctions.forCommittedSeal(BFT_EXTRA_DATA_ENCODER));
 
     final Optional<RoundChangeCertificate> roundChangeCertificate =
-        readRoundChangeCertificate(rlpIn);
+        readRoundChangeCertificate(rlpIn, decodeBudget);
     final Optional<BlockAccessList> blockAccessList = readBlockAccessList(rlpIn);
 
     rlpIn.leaveList();
     return new Proposal(payload, proposedBlock, blockAccessList, roundChangeCertificate);
   }
 
-  private static Optional<RoundChangeCertificate> readRoundChangeCertificate(final RLPInput rlpIn) {
+  private static Optional<RoundChangeCertificate> readRoundChangeCertificate(
+      final RLPInput rlpIn, final DecodeBudget decodeBudget) {
     RoundChangeCertificate roundChangeCertificate = null;
     if (!rlpIn.nextIsNull()) {
-      roundChangeCertificate = RoundChangeCertificate.readFrom(rlpIn);
+      roundChangeCertificate = RoundChangeCertificate.readFrom(rlpIn, decodeBudget);
     } else {
       rlpIn.skipNext();
     }
@@ -147,6 +197,10 @@ public class Proposal extends BftMessage<ProposalPayload> {
   }
 
   private static Optional<BlockAccessList> readBlockAccessList(final RLPInput rlpIn) {
+    if (rlpIn.isEndOfCurrentList()) {
+      // Backward compatibility: pre-26.1.0 messages do not include blockAccessList
+      return Optional.empty();
+    }
     if (!rlpIn.nextIsNull()) {
       return Optional.of(BlockAccessListDecoder.decode(rlpIn));
     }

@@ -44,16 +44,16 @@ public class RLPRefTestCaseSpec {
 
   @SuppressWarnings("unchecked")
   private static Object parseIn(final Object in) {
-    if (in instanceof String && ((String) in).startsWith(BIG_INT_PREFIX)) {
-      return Bytes.wrap(new BigInteger(((String) in).substring(1)).toByteArray());
-    } else if (in instanceof String) {
-      return Bytes.wrap(((String) in).getBytes(UTF_8));
-    } else if (in instanceof Integer) {
-      return Bytes.minimalBytes((Integer) in);
+    if (in instanceof String string && string.startsWith(BIG_INT_PREFIX)) {
+      return Bytes.wrap(new BigInteger(string.substring(1)).toByteArray());
+    } else if (in instanceof String string) {
+      return Bytes.wrap(string.getBytes(UTF_8));
+    } else if (in instanceof Integer i) {
+      return Bytes.minimalBytes(i);
     } else if (in instanceof List) {
       return Lists.transform((List<Object>) in, RLPRefTestCaseSpec::parseIn);
-    } else if (in instanceof Object[]) {
-      return Arrays.stream((Object[]) in)
+    } else if (in instanceof Object[] array) {
+      return Arrays.stream(array)
           .map(RLPRefTestCaseSpec::parseIn)
           .collect(Collectors.toList());
     } else {

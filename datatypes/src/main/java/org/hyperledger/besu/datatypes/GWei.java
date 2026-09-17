@@ -16,6 +16,8 @@ package org.hyperledger.besu.datatypes;
 
 import java.math.BigInteger;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonValue;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.BaseUInt64Value;
 import org.apache.tuweni.units.bigints.UInt64;
@@ -82,6 +84,7 @@ public final class GWei extends BaseUInt64Value<GWei> implements Quantity {
    * @param value the value
    * @return the GWei
    */
+  @JsonCreator
   public static GWei of(final UInt64 value) {
     return new GWei(value);
   }
@@ -126,6 +129,7 @@ public final class GWei extends BaseUInt64Value<GWei> implements Quantity {
   }
 
   @Override
+  @JsonValue
   public String toShortHexString() {
     return super.isZero() ? "0x0" : super.toShortHexString();
   }

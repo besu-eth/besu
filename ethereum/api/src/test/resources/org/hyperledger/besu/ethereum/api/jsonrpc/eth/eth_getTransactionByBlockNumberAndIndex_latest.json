@@ -15,6 +15,7 @@
       "accessList": [],
       "blockHash": "0x4859ea10d276f6df988eabd48a02e0696cfd3deb769d2a5e0e416a5f3191028a",
       "blockNumber": "0x22",
+      "blockTimestamp": "0x561bc351",
       "chainId": "0x1",
       "from": "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b",
       "gas": "0xc350",

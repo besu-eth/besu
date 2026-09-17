@@ -30,7 +30,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.NoSyncRequiredException;
+import org.hyperledger.besu.ethereum.eth.sync.common.NoSyncRequiredException;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 
 import java.util.ArrayList;
@@ -77,7 +77,7 @@ public class QbftPivotSelectorTest {
     when(validatorProvider.getValidatorsAtHead()).thenReturn(validatorList);
     BFTPivotSelectorFromPeers pivotSelector =
         new BFTPivotSelectorFromPeers(
-            ethContext, syncConfig, syncState, protocolContext, nodeKey, blockHeader);
+            ethContext, syncConfig, syncState, protocolContext, nodeKey, blockHeader, 120);
 
     assertThatThrownBy(() -> pivotSelector.selectNewPivotBlock().get())
         .isInstanceOf(ExecutionException.class)
@@ -98,7 +98,7 @@ public class QbftPivotSelectorTest {
     when(validatorProvider.getValidatorsAtHead()).thenReturn(validatorList);
     BFTPivotSelectorFromPeers pivotSelector =
         new BFTPivotSelectorFromPeers(
-            ethContext, syncConfig, syncState, protocolContext, nodeKey, blockHeader);
+            ethContext, syncConfig, syncState, protocolContext, nodeKey, blockHeader, 120);
 
     try {
       pivotSelector.selectNewPivotBlock();
@@ -114,7 +114,7 @@ public class QbftPivotSelectorTest {
     when(validatorProvider.nodeIsValidator(any())).thenReturn(false);
     BFTPivotSelectorFromPeers pivotSelector =
         new BFTPivotSelectorFromPeers(
-            ethContext, syncConfig, syncState, protocolContext, nodeKey, blockHeader);
+            ethContext, syncConfig, syncState, protocolContext, nodeKey, blockHeader, 120);
 
     assertThatThrownBy(() -> pivotSelector.selectNewPivotBlock().get())
         .isInstanceOf(ExecutionException.class)
@@ -129,7 +129,7 @@ public class QbftPivotSelectorTest {
     when(blockHeader.getNumber()).thenReturn(10L);
     BFTPivotSelectorFromPeers pivotSelector =
         new BFTPivotSelectorFromPeers(
-            ethContext, syncConfig, syncState, protocolContext, nodeKey, blockHeader);
+            ethContext, syncConfig, syncState, protocolContext, nodeKey, blockHeader, 120);
 
     assertThatThrownBy(() -> pivotSelector.selectNewPivotBlock().get())
         .isInstanceOf(ExecutionException.class)

@@ -1,0 +1,50 @@
+/*
+ * Copyright contributors to Besu.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+apply plugin: 'java-library'
+
+// override the path-derived name (besu-ethereum-api-plugin-api) with the plugin API family naming
+def rpcApiArtifactId = 'besu-plugin-api-rpc'
+
+jar {
+  archiveBaseName = rpcApiArtifactId
+  manifest {
+    attributes(
+      'Specification-Title': archiveBaseName,
+      'Specification-Version': project.version,
+      'Implementation-Title': archiveBaseName,
+      'Implementation-Version': calculateVersion(),
+      'Commit-Hash': getGitCommitDetails(40).hash,
+      'Automatic-Module-Name': 'org.hyperledger.besu.plugin.api.rpc'
+      )
+  }
+}
+
+dependencies {
+  api project(':plugin-api:core')
+}
+
+publishing {
+  publications {
+    mavenJava(MavenPublication) {
+      groupId = 'org.hyperledger.besu'
+      artifactId = rpcApiArtifactId
+      pom {
+        name = 'Besu Plugin API Rpc'
+        description = 'RPC endpoint and health check contracts of the Besu plugin API, letting plugins register custom JSON-RPC methods, call the enabled RPC methods of the node directly without going through HTTP, and provide liveness and readiness checks'
+      }
+    }
+  }
+}

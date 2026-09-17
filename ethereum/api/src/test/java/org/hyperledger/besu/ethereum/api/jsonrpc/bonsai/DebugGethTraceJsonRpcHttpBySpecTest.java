@@ -14,19 +14,13 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.bonsai;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import org.hyperledger.besu.ethereum.api.jsonrpc.AbstractJsonRpcHttpBySpecTest;
 import org.hyperledger.besu.ethereum.core.BlockchainSetupUtil;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-
 public class DebugGethTraceJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpBySpecTest {
   @Override
-  @BeforeEach
-  public void setup() throws Exception {
+  protected void doSetup() throws Exception {
     setupBonsaiBlockchain();
     startService();
   }
@@ -47,15 +41,15 @@ public class DebugGethTraceJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpBySp
         new String[] {
           "debug-geth/specs/prestate-tracer/diff-mode-true",
           "debug-geth/specs/prestate-tracer/diff-mode-false",
+          "debug-geth/specs/prestate-tracer/disable-code",
+          "debug-geth/specs/prestate-tracer/disable-storage",
+          "debug-geth/specs/prestate-tracer/include-empty",
           "debug-geth/specs/call-tracer",
+          "debug-geth/specs/call-tracer/only-top-call",
+          "debug-geth/specs/flatcall-tracer",
+          "debug-geth/specs/flatcall-tracer/convert-parity-errors",
+          "debug-geth/specs/flatcall-tracer/include-precompiles",
           "debug-geth/specs/4byte-tracer"
         });
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

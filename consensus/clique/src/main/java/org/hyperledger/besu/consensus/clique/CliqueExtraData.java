@@ -30,6 +30,7 @@ import java.util.function.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.Lists;
 import org.apache.tuweni.bytes.Bytes;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -58,7 +59,7 @@ public class CliqueExtraData implements ParsedExtraData {
    */
   public CliqueExtraData(
       final Bytes vanityData,
-      final SECPSignature proposerSeal,
+      final @Nullable SECPSignature proposerSeal,
       final List<Address> validators,
       final BlockHeader header) {
 
@@ -94,8 +95,8 @@ public class CliqueExtraData implements ParsedExtraData {
    */
   public static CliqueExtraData decode(final BlockHeader header) {
     final Object inputExtraData = header.getParsedExtraData();
-    if (inputExtraData instanceof CliqueExtraData) {
-      return (CliqueExtraData) inputExtraData;
+    if (inputExtraData instanceof CliqueExtraData cliqueExtraData) {
+      return cliqueExtraData;
     }
     LOG.warn(
         "Expected a CliqueExtraData instance but got {}. Reparsing required.",
@@ -141,7 +142,7 @@ public class CliqueExtraData implements ParsedExtraData {
     return proposerAddress.get();
   }
 
-  private static SECPSignature parseProposerSeal(final Bytes proposerSealRaw) {
+  private static @Nullable SECPSignature parseProposerSeal(final Bytes proposerSealRaw) {
     return proposerSealRaw.isZero()
         ? null
         : SignatureAlgorithmFactory.getInstance().decodeSignature(proposerSealRaw);

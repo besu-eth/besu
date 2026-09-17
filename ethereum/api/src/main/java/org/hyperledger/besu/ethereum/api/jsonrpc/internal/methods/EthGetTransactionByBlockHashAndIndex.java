@@ -23,8 +23,8 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcPara
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionCompleteResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionWithMetadataResult;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.api.query.TransactionWithMetadata;
 
@@ -50,9 +50,7 @@ public class EthGetTransactionByBlockHashAndIndex implements JsonRpcMethod {
       hash = requestContext.getRequiredParameter(0, Hash.class);
     } catch (JsonRpcParameterException e) {
       throw new InvalidJsonRpcParameters(
-          "Invalid transaction hash parameter (index 0)",
-          RpcErrorType.INVALID_TRANSACTION_HASH_PARAMS,
-          e);
+          "Invalid block hash parameter (index 0)", RpcErrorType.INVALID_BLOCK_HASH_PARAMS, e);
     }
     final int index;
     try {
@@ -66,7 +64,7 @@ public class EthGetTransactionByBlockHashAndIndex implements JsonRpcMethod {
     final Optional<TransactionWithMetadata> transactionWithMetadata =
         blockchain.transactionByBlockHashAndIndex(hash, index);
     final TransactionResult result =
-        transactionWithMetadata.map(TransactionCompleteResult::new).orElse(null);
+        transactionWithMetadata.map(TransactionWithMetadataResult::new).orElse(null);
     return new JsonRpcSuccessResponse(requestContext.getRequest().getId(), result);
   }
 }

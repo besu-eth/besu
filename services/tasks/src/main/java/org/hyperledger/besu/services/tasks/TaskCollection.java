@@ -16,6 +16,8 @@ package org.hyperledger.besu.services.tasks;
 
 import java.io.Closeable;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * The interface Task collection.
  *
@@ -33,9 +35,9 @@ public interface TaskCollection<T> extends Closeable {
    * Get a task for processing. This task will be tracked as a pending task until either {@code
    * Task.markCompleted}* or {@code Task.requeue} is called.
    *
-   * @return The task to be processed.
+   * @return The task to be processed, or {@code null} if no task is available.
    */
-  Task<T> remove();
+  @Nullable Task<T> remove();
 
   /**
    * Returns the number of tasks in the queue.

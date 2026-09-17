@@ -35,22 +35,24 @@ class DupNOperationTest {
 
   @Test
   void testDecodeSingle_validLowRange() {
-    // x = 0 -> n = 17
-    assertThat(DupNOperation.decodeSingle(0)).isEqualTo(17);
-    // x = 90 -> n = 107
-    assertThat(DupNOperation.decodeSingle(90)).isEqualTo(107);
-    // x = 45 -> n = 62
-    assertThat(DupNOperation.decodeSingle(45)).isEqualTo(62);
+    // n = (x + 145) % 256
+    // x = 0 -> n = 145
+    assertThat(DupNOperation.decodeSingle(0)).isEqualTo(145);
+    // x = 90 -> n = 235
+    assertThat(DupNOperation.decodeSingle(90)).isEqualTo(235);
+    // x = 45 -> n = 190
+    assertThat(DupNOperation.decodeSingle(45)).isEqualTo(190);
   }
 
   @Test
   void testDecodeSingle_validHighRange() {
-    // x = 128 -> n = 108
-    assertThat(DupNOperation.decodeSingle(128)).isEqualTo(108);
-    // x = 255 -> n = 235
-    assertThat(DupNOperation.decodeSingle(255)).isEqualTo(235);
-    // x = 200 -> n = 180
-    assertThat(DupNOperation.decodeSingle(200)).isEqualTo(180);
+    // n = (x + 145) % 256
+    // x = 128 -> n = 17
+    assertThat(DupNOperation.decodeSingle(128)).isEqualTo(17);
+    // x = 255 -> n = 144
+    assertThat(DupNOperation.decodeSingle(255)).isEqualTo(144);
+    // x = 200 -> n = 89
+    assertThat(DupNOperation.decodeSingle(200)).isEqualTo(89);
   }
 
   @ParameterizedTest
@@ -62,9 +64,9 @@ class DupNOperationTest {
 
   @Test
   void testDupN_basicOperation() {
-    // DUPN with immediate 0 -> n=17, duplicates 17th item
+    // DUPN with immediate 0x80 -> n=(128+145)%256=17, duplicates 17th item
     // Set up stack with 17 items, verify the 17th (bottom) item is duplicated
-    final Bytes code = Bytes.of(0xe6, 0x00); // DUPN 17
+    final Bytes code = Bytes.fromHexString("e680"); // DUPN 0x80 -> n=17
     final TestMessageFrameBuilder builder =
         new TestMessageFrameBuilder().code(new Code(code)).pc(0);
 
@@ -87,35 +89,14 @@ class DupNOperationTest {
 
   @Test
   void testDupN_immediate90() {
-    // DUPN with immediate 90 -> n=107
+    // DUPN with immediate 90 -> n=(90+145)%256=235
     // Set up minimal test to verify decode works correctly
-    final Bytes code = Bytes.of(0xe6, 90); // DUPN 107
+    final Bytes code = Bytes.of(0xe6, 90); // DUPN -> n=235
     final TestMessageFrameBuilder builder =
         new TestMessageFrameBuilder().code(new Code(code)).pc(0);
 
-    // Push 107 items
-    for (int i = 107; i >= 1; i--) {
-      builder.pushStackItem(Bytes.of((byte) (i & 0xFF)));
-    }
-    final MessageFrame frame = builder.build();
-
-    final OperationResult result = operation.execute(frame, null);
-
-    assertThat(result.getHaltReason()).isNull();
-    assertThat(result.getPcIncrement()).isEqualTo(2);
-    // Should duplicate item 107 (value 107)
-    assertThat(frame.getStackItem(0).toInt()).isEqualTo(107);
-  }
-
-  @Test
-  void testDupN_immediate128() {
-    // DUPN with immediate 128 (0x80) -> n=108
-    final Bytes code = Bytes.fromHexString("e680"); // DUPN 108
-    final TestMessageFrameBuilder builder =
-        new TestMessageFrameBuilder().code(new Code(code)).pc(0);
-
-    // Push 108 items using 32-byte values to avoid byte range issues
-    for (int i = 108; i >= 1; i--) {
+    // Push 235 items
+    for (int i = 235; i >= 1; i--) {
       builder.pushStackItem(Bytes.ofUnsignedInt(i));
     }
     final MessageFrame frame = builder.build();
@@ -123,7 +104,30 @@ class DupNOperationTest {
     final OperationResult result = operation.execute(frame, null);
 
     assertThat(result.getHaltReason()).isNull();
-    assertThat(frame.getStackItem(0).toInt()).isEqualTo(108);
+    assertThat(result.getPcIncrement()).isEqualTo(2);
+    // Should duplicate item 235 (value 235)
+    assertThat(frame.getStackItem(0).toInt()).isEqualTo(235);
+  }
+
+  @Test
+  void testDupN_immediateFF() {
+    // DUPN with immediate 0xFF -> n=(255+145)&0xFF=144
+    final Bytes code = Bytes.fromHexString("e6ff"); // DUPN 0xFF -> n=144
+    final TestMessageFrameBuilder builder =
+        new TestMessageFrameBuilder().code(new Code(code)).pc(0);
+
+    // Push 144 items
+    for (int i = 144; i >= 1; i--) {
+      builder.pushStackItem(Bytes.ofUnsignedInt(i));
+    }
+    final MessageFrame frame = builder.build();
+
+    final OperationResult result = operation.execute(frame, null);
+
+    assertThat(result.getHaltReason()).isNull();
+    // Should duplicate item 144 (value 144)
+    assertThat(frame.getStackItem(0).toInt()).isEqualTo(144);
+    assertThat(frame.stackSize()).isEqualTo(145);
   }
 
   @ParameterizedTest
@@ -148,8 +152,8 @@ class DupNOperationTest {
 
   @Test
   void testDupN_stackUnderflow() {
-    // DUPN with immediate 0 -> n=17, but only 10 items on stack
-    final Bytes code = Bytes.of(0xe6, 0x00); // DUPN 17
+    // DUPN with immediate 0x80 -> n=17, but only 10 items on stack
+    final Bytes code = Bytes.fromHexString("e680"); // DUPN -> n=17
     final TestMessageFrameBuilder builder =
         new TestMessageFrameBuilder().code(new Code(code)).pc(0);
 
@@ -168,12 +172,13 @@ class DupNOperationTest {
   @Test
   void testDupN_endOfCode() {
     // Code ends right after opcode (no immediate byte)
-    // Immediate should be treated as 0 -> n=17
+    // Immediate should be treated as 0 -> n=(0+145)%256=145
+    // With only 17 items on stack, this causes underflow
     final Bytes code = Bytes.of(0xe6); // Just DUPN, no immediate
     final TestMessageFrameBuilder builder =
         new TestMessageFrameBuilder().code(new Code(code)).pc(0);
 
-    // Push 17 items
+    // Push 17 items (not enough for n=145)
     for (int i = 17; i >= 1; i--) {
       builder.pushStackItem(Bytes.of(i));
     }
@@ -181,14 +186,14 @@ class DupNOperationTest {
 
     final OperationResult result = operation.execute(frame, null);
 
-    // Immediate 0 is valid, should succeed
-    assertThat(result.getHaltReason()).isNull();
-    assertThat(frame.getStackItem(0)).isEqualTo(Bytes.of(17));
+    // Immediate 0 is valid but n=145 causes underflow with only 17 items
+    assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
+    assertThat(result.getPcIncrement()).isEqualTo(2);
   }
 
   @Test
   void testDupN_gasCost() {
-    final Bytes code = Bytes.of(0xe6, 0x00);
+    final Bytes code = Bytes.fromHexString("e680"); // DUPN 0x80 -> n=17
     final TestMessageFrameBuilder builder =
         new TestMessageFrameBuilder().code(new Code(code)).pc(0).initialGas(100);
 
@@ -205,7 +210,7 @@ class DupNOperationTest {
   @Test
   void testDupN_stackOverflow() {
     // Fill stack to maximum capacity (1024 items), then try to duplicate
-    final Bytes code = Bytes.of(0xe6, 0x00); // DUPN 17
+    final Bytes code = Bytes.fromHexString("e680"); // DUPN 0x80 -> n=17
     final TestMessageFrameBuilder builder =
         new TestMessageFrameBuilder().code(new Code(code)).pc(0);
 
@@ -227,15 +232,15 @@ class DupNOperationTest {
   // ==================== EIP-8024 Spec Test Vectors ====================
 
   /**
-   * Spec test vector: DUPN with immediate 0 (n=17) duplicating 17th item from 18-item stack.
-   * Bytecode: 60016000808080808080808080808080808080e600 Stack setup: PUSH1 1, PUSH1 0, 16xDUP1 ->
+   * Spec test vector: DUPN with immediate 0x80 (n=17) duplicating 17th item from 18-item stack.
+   * Bytecode: 60016000808080808080808080808080808080e680 Stack setup: PUSH1 1, PUSH1 0, 16xDUP1 ->
    * 18 items with value 1 at bottom.
    */
   @Test
   void testSpecVector_dupn17With18Items() {
     // Set up stack as if: PUSH1 1, PUSH1 0, 16xDUP1 were executed
     // Result: 18 items, stack[0-16]=0, stack[17]=1
-    final Bytes code = Bytes.of(0xe6, 0x00); // DUPN 0 -> n=17
+    final Bytes code = Bytes.fromHexString("e680"); // DUPN 0x80 -> n=17
     final TestMessageFrameBuilder builder =
         new TestMessageFrameBuilder().code(new Code(code)).pc(0);
 
@@ -254,24 +259,24 @@ class DupNOperationTest {
 
     assertThat(result.getHaltReason()).isNull();
     assertThat(result.getPcIncrement()).isEqualTo(2);
-    // DUPN 0 -> n=17, duplicates stack[16] which is 0
+    // DUPN 0x80 -> n=17, duplicates stack[16] which is 0
     assertThat(frame.stackSize()).isEqualTo(19);
     assertThat(frame.getStackItem(0)).isEqualTo(Bytes.of(0)); // duplicated value
   }
 
   /**
    * Spec test vector: DUPN at end of code (implicit immediate 0). Bytecode:
-   * 60016000808080808080808080808080808080e6 Same behavior as above - immediate defaults to 0 when
-   * code ends.
+   * 60016000808080808080808080808080808080e6 Immediate defaults to 0 when code ends, which now maps
+   * to n=145 and causes underflow with only 18 items.
    */
   @Test
   void testSpecVector_dupnEndOfCode() {
-    // Code ends right after opcode, immediate treated as 0 -> n=17
+    // Code ends right after opcode, immediate treated as 0 -> n=145
     final Bytes code = Bytes.of(0xe6); // Just DUPN, no immediate
     final TestMessageFrameBuilder builder =
         new TestMessageFrameBuilder().code(new Code(code)).pc(0);
 
-    // Same stack setup as testSpecVector_dupn17With18Items
+    // Same stack setup: 18 items, but n=145 requires 145 items
     builder.pushStackItem(Bytes.of(1)); // stack[17] = 1
     for (int i = 0; i < 17; i++) {
       builder.pushStackItem(Bytes.of(0)); // stack[16..0] = 0
@@ -282,10 +287,9 @@ class DupNOperationTest {
 
     final OperationResult result = operation.execute(frame, null);
 
-    // Implicit immediate 0 is valid, should behave same as explicit 0
-    assertThat(result.getHaltReason()).isNull();
-    assertThat(frame.stackSize()).isEqualTo(19);
-    assertThat(frame.getStackItem(0)).isEqualTo(Bytes.of(0));
+    // Implicit immediate 0 is valid but n=145 causes underflow
+    assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
+    assertThat(result.getPcIncrement()).isEqualTo(2);
   }
 
   /**
@@ -312,12 +316,12 @@ class DupNOperationTest {
 
   /**
    * Spec test vector: Stack underflow with 16 items (needs 17). Bytecode:
-   * 6000808080808080808080808080808080e600 Stack has 16 items from PUSH1 0 + 15xDUP1, but DUPN 0
-   * needs 17.
+   * 6000808080808080808080808080808080e680 Stack has 16 items from PUSH1 0 + 15xDUP1, but DUPN 0x80
+   * (n=17) needs 17.
    */
   @Test
   void testSpecVector_stackUnderflow() {
-    final Bytes code = Bytes.of(0xe6, 0x00); // DUPN 0 -> n=17
+    final Bytes code = Bytes.fromHexString("e680"); // DUPN 0x80 -> n=17
     final TestMessageFrameBuilder builder =
         new TestMessageFrameBuilder().code(new Code(code)).pc(0);
 

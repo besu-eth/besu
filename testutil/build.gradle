@@ -33,6 +33,8 @@ sonarqube {
 }
 
 dependencies {
+  compileOnly 'org.jspecify:jspecify'
+
   implementation project(':ethereum:eth')
   implementation project(':plugin-api')
   implementation project(':util')
@@ -48,5 +50,4 @@ dependencies {
   implementation 'io.consensys.tuweni:tuweni-toml'
   implementation 'org.assertj:assertj-core'
   implementation 'org.mockito:mockito-core'
-  implementation 'org.web3j:core'
 }

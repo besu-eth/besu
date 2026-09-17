@@ -28,16 +28,14 @@ import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.math.BigInteger;
 import java.util.Optional;
-import java.util.function.Supplier;
 
-import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
 
 public class TransactionIntegrationTest {
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
-  private static final KeyPair senderKeys = SIGNATURE_ALGORITHM.get().generateKeyPair();
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
+  private static final KeyPair senderKeys = SIGNATURE_ALGORITHM.generateKeyPair();
 
   @Test
   public void

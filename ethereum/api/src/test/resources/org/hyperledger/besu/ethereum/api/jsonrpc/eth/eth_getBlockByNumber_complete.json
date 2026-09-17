@@ -24,7 +24,6 @@
       "receiptsRoot": "0x3e5fff5f6eaeee82841547e049b6bdb980c4e6bd8539fb072a346a30ee72a25d",
       "miner": "0x8888f1f195afa192cfee860698584c030f4c9db1",
       "difficulty": "0x203c0",
-      "totalDifficulty": "0x221e00",
       "extraData": "0x",
       "size": "0x288",
       "gasLimit": "0x2fefd8",
@@ -35,6 +34,7 @@
         {
           "blockHash": "0x1878c6f27178250f3d55186a2887b076936599f307d96dabcf331b2ff0a38f0c",
           "blockNumber": "0x10",
+          "blockTimestamp": "0x561bc307",
           "from": "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b",
           "gas": "0x4cb2f",
           "gasPrice": "0x1",

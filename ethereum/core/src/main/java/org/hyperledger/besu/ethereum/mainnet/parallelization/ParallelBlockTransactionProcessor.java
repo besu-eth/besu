@@ -18,14 +18,14 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.List;
 import java.util.Optional;
@@ -36,6 +36,12 @@ public abstract class ParallelBlockTransactionProcessor {
 
   protected CompletableFuture<ParallelizedTransactionContext>[] futures;
 
+  protected CompletableFuture<ParallelizedTransactionContext> removeFuture(final int txIndex) {
+    final CompletableFuture<ParallelizedTransactionContext> future = futures[txIndex];
+    futures[txIndex] = null;
+    return future;
+  }
+
   @SuppressWarnings({"unchecked", "rawtypes"})
   public void runAsyncBlock(
       final ProtocolContext protocolContext,
@@ -45,7 +51,8 @@ public abstract class ParallelBlockTransactionProcessor {
       final BlockHashLookup blockHashLookup,
       final Wei blobGasPrice,
       final Executor executor,
-      final Optional<BlockAccessListBuilder> blockAccessListBuilder) {
+      final Optional<BlockAccessListBuilder> blockAccessListBuilder,
+      final Optional<BlockHeader> maybeParentHeader) {
 
     futures = new CompletableFuture[transactions.size()];
 
@@ -64,25 +71,36 @@ public abstract class ParallelBlockTransactionProcessor {
                       miningBeneficiary,
                       blockHashLookup,
                       blobGasPrice,
-                      blockAccessListBuilder),
+                      blockAccessListBuilder,
+                      maybeParentHeader),
               executor);
     }
   }
 
-  protected BonsaiWorldState getWorldState(
-      final ProtocolContext protocolContext, final BlockHeader blockHeader) {
-
-    final BlockHeader chainHeadHeader = protocolContext.getBlockchain().getChainHeadHeader();
-    if (!chainHeadHeader.getHash().equals(blockHeader.getParentHash())) {
-      return null;
+  /**
+   * Cancels every still-pending speculative future and nulls its slot. Already-consumed slots are
+   * null, so on the success path this is a no-op.
+   */
+  public void abort() {
+    if (futures == null) {
+      return;
     }
+    for (int i = 0; i < futures.length; i++) {
+      final CompletableFuture<ParallelizedTransactionContext> future = futures[i];
+      if (future != null) {
+        future.cancel(true);
+        futures[i] = null;
+      }
+    }
+  }
 
-    return (BonsaiWorldState)
-        protocolContext
-            .getWorldStateArchive()
-            .getWorldState(
-                WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(chainHeadHeader))
-            .orElse(null);
+  /** World state at the parent block. Call only when the parent header is known to be present. */
+  protected Optional<BonsaiWorldState> getWorldState(
+      final ProtocolContext protocolContext, final BlockHeader parentHeader) {
+    return protocolContext
+        .getWorldStateArchive()
+        .getWorldState(WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(parentHeader))
+        .map(BonsaiWorldState.class::cast);
   }
 
   protected abstract ParallelizedTransactionContext runTransaction(
@@ -93,7 +111,8 @@ public abstract class ParallelBlockTransactionProcessor {
       Address miningBeneficiary,
       BlockHashLookup blockHashLookup,
       Wei blobGasPrice,
-      Optional<BlockAccessListBuilder> blockAccessListBuilder);
+      Optional<BlockAccessListBuilder> blockAccessListBuilder,
+      Optional<BlockHeader> maybeParentHeader);
 
   public abstract Optional<TransactionProcessingResult> getProcessingResult(
       MutableWorldState worldState,

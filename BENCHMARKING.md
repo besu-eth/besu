@@ -4,7 +4,7 @@ Besu includes [JMH](https://openjdk.org/projects/code-tools/jmh/) microbenchmark
 
 ## 🛠️ Prerequisites
 
-- Java 21+ (ensure `JAVA_HOME` is set)
+- Java 25+ (ensure `JAVA_HOME` is set)
 - Gradle (you can use the wrapper: `./gradlew`)
 - Optional: [Async Profiler](https://github.com/jvm-profiling-tools/async-profiler) for low-overhead profiling
 
@@ -32,12 +32,12 @@ Gradle won't rerun a task by default with no changes, so to run subsequent times
 
 ---
 
-## 🎯 Filter Benchmarks by Name
+## 🎯 Filter Benchmarks by Name and Case
 
-To run a specific benchmark class, use the `-Pincludes` and/or `-Pexcludes` project properties:
+To run a specific benchmark class, use the `-Pincludes` and/or `-Pexcludes` project properties. To filter by case name, use `-Pcases`:
 
 ```bash
-./gradlew :ethereum:core:jmh -Pincludes=SomeBenchmark -Pexcludes=TransientStorage,BlockHash
+./gradlew :ethereum:core:jmh -Pincludes=Mod -Pexcludes=Mul,Add,SMod -Pcases=MOD_256_128,MOD_256_192 --rerun-tasks
 ```
 
 This uses a regex pattern so other kinds of regexes can be used.
@@ -54,6 +54,18 @@ For other configuration options run:
 
 ---
 
+## 📦 Module-Specific Benchmarks
+
+### engine_getPayloadBodies parallelization (`ethereum:api`)
+
+Benchmarks sequential vs parallel block body DB lookups for `engine_getPayloadBodiesByHash{V1,V2}` and `engine_getPayloadBodiesByRange{V1,V2}`. Uses simulated per-lookup latency to model warm-cache (100µs) and cold-cache (500µs) RocksDB reads.
+
+```bash
+./gradlew :ethereum:api:jmh -Pincludes=EngineGetPayloadBodiesParallel --rerun-tasks --no-daemon
+```
+
+---
+
 ## 🔥 Async Profiler Integration (Optional)
 
 To profile benchmarks with [Async Profiler](https://github.com/jvm-profiling-tools/async-profiler):
@@ -62,7 +74,8 @@ To profile benchmarks with [Async Profiler](https://github.com/jvm-profiling-too
 ./gradlew :ethereum:core:jmh \
   -Pincludes=SomeBenchmark \
   -PasyncProfiler=/path/to/libasyncProfiler.so \
-  -PasyncProfilerOptions="output=flamegraph"
+  -PasyncProfilerOptions="output=flamegraph" \
+  --rerun-tasks
 ```
 
 This will generate two html profiling files flame-cpu-forward.html and flame-cpu-reverse.html after the benchmark run.

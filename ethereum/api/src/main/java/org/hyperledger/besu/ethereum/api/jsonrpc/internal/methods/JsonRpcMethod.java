@@ -37,6 +37,10 @@ public interface JsonRpcMethod {
    */
   JsonRpcResponse response(JsonRpcRequestContext request);
 
+  default boolean isStreaming() {
+    return false;
+  }
+
   /**
    * The list of Permissions that correspond to this JSON-RPC method.
    *

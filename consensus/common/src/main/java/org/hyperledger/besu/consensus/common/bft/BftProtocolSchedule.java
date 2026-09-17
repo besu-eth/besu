@@ -16,6 +16,7 @@ package org.hyperledger.besu.consensus.common.bft;
 
 import static com.google.common.base.Preconditions.checkArgument;
 
+import org.hyperledger.besu.consensus.common.ForkSpec;
 import org.hyperledger.besu.ethereum.mainnet.DefaultProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.ScheduledProtocolSpec;
@@ -66,6 +67,38 @@ public class BftProtocolSchedule extends DefaultProtocolSchedule {
       }
     }
     return theSpec;
+  }
+
+  /**
+   * Look up type of spec by block number or timestamp
+   *
+   * @param number block number
+   * @param timestamp block timestamp
+   * @return the protocol spec type for that block number or timestamp
+   */
+  public ForkSpec.ForkScheduleType getSpecTypeByBlockNumberOrTimestamp(
+      final long number, final long timestamp) {
+    checkArgument(number >= 0, "number must be non-negative");
+    checkArgument(
+        !protocolSpecs.isEmpty(), "At least 1 milestone must be provided to the protocol schedule");
+    checkArgument(
+        protocolSpecs.last().fork().milestone() == 0,
+        "There must be a milestone starting from block 0");
+    // protocolSpecs is sorted in descending block order, so the first one we find that's lower than
+    // the requested level will be the most appropriate spec
+    ForkSpec.ForkScheduleType specType = null;
+    for (final ScheduledProtocolSpec s : protocolSpecs) {
+      if ((s instanceof ScheduledProtocolSpec.BlockNumberProtocolSpec)
+          && (number >= s.fork().milestone())) {
+        specType = ForkSpec.ForkScheduleType.BLOCK;
+        break;
+      } else if ((s instanceof ScheduledProtocolSpec.TimestampProtocolSpec)
+          && (timestamp >= s.fork().milestone())) {
+        specType = ForkSpec.ForkScheduleType.TIME;
+        break;
+      }
+    }
+    return specType;
   }
 
   /**

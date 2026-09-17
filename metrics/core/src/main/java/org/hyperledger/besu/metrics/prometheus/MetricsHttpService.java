@@ -31,6 +31,7 @@ import com.sun.net.httpserver.HttpPrincipal;
 import io.prometheus.metrics.exporter.httpserver.DefaultHandler;
 import io.prometheus.metrics.exporter.httpserver.HTTPServer;
 import io.vertx.core.net.HostAndPort;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,7 +45,7 @@ public class MetricsHttpService implements MetricsService {
 
   private final MetricsConfiguration config;
   private final PrometheusMetricsSystem metricsSystem;
-  private HTTPServer httpServer;
+  private @Nullable HTTPServer httpServer;
 
   /**
    * Instantiates a new Metrics http service.
@@ -155,9 +156,13 @@ public class MetricsHttpService implements MetricsService {
   }
 
   private static class RestrictedDefaultHandler extends DefaultHandler {
+    RestrictedDefaultHandler() {
+      super("/metrics");
+    }
+
     @Override
     public void handle(final HttpExchange exchange) throws IOException {
-      if (!exchange.getRequestURI().getPath().equals("/")) {
+      if (!exchange.getRequestURI().getPath().equals(exchange.getHttpContext().getPath())) {
         try {
           exchange.sendResponseHeaders(HTTP_NOT_FOUND, -1);
         } finally {

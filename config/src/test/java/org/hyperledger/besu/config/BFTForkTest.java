@@ -128,4 +128,24 @@ public class BFTForkTest {
     final BftFork bftFork = new BftFork(config);
     assertThat(bftFork.isMiningBeneficiaryConfigured()).isTrue();
   }
+
+  @Test
+  public void getEmptyBlockPeriodSeconds_fromNewKey() {
+    final ObjectNode config =
+        JsonUtil.objectNodeFromMap(
+            Map.of(
+                BftFork.FORK_BLOCK_KEY, 10,
+                BftFork.EMPTY_BLOCK_PERIOD_SECONDS_KEY, 60));
+
+    final BftFork bftFork = new BftFork(config);
+    assertThat(bftFork.getEmptyBlockPeriodSeconds()).hasValue(60);
+  }
+
+  @Test
+  public void getEmptyBlockPeriodSeconds_isEmptyWhenNeitherKeySet() {
+    final ObjectNode config = JsonUtil.objectNodeFromMap(Map.of(BftFork.FORK_BLOCK_KEY, 10));
+
+    final BftFork bftFork = new BftFork(config);
+    assertThat(bftFork.getEmptyBlockPeriodSeconds()).isEmpty();
+  }
 }

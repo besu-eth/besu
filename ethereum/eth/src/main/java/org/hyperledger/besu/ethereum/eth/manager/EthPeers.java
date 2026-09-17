@@ -34,6 +34,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.PeerClientName;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.PeerInfo;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
@@ -90,12 +91,20 @@ public class EthPeers implements PeerSelector {
 
   private final Map<Bytes, EthPeer> activeConnections = new ConcurrentHashMap<>();
 
-  private final Cache<PeerConnection, EthPeer> incompleteConnections =
-      CacheBuilder.newBuilder()
-          .expireAfterWrite(Duration.ofSeconds(20L))
-          .concurrencyLevel(1)
-          .removalListener(this::onCacheRemoval)
-          .build();
+  /**
+   * Lower bound for the pre-STATUS (incomplete) connection cap, so that even very small {@code
+   * --max-peers} values still tolerate a reasonable number of concurrent inbound handshakes.
+   */
+  private static final int INCOMPLETE_CONNECTIONS_CAP_FLOOR = 10;
+
+  /**
+   * Maximum number of connections that have completed the devp2p HELLO but not yet the eth STATUS
+   * handshake that we retain. Bounds file-descriptor and heap growth from peers that connect and
+   * never send STATUS, which are otherwise invisible to {@code --max-peers} accounting.
+   */
+  private final int maxIncompleteConnections;
+
+  private final Cache<PeerConnection, EthPeer> incompleteConnections;
   private final Clock clock;
   private final List<NodeMessagePermissioningProvider> permissioningProviders;
   private final int maxMessageSize;
@@ -150,6 +159,14 @@ public class EthPeers implements PeerSelector {
     this.snapServerTargetNumber =
         peerUpperBound / 2; // 50% of peers should be snap servers while snap syncing
     this.shouldLimitRemoteConnections = maxRemotelyInitiatedConnections < peerUpperBound;
+    this.maxIncompleteConnections = Math.max(peerUpperBound * 2, INCOMPLETE_CONNECTIONS_CAP_FLOOR);
+    this.incompleteConnections =
+        CacheBuilder.newBuilder()
+            .maximumSize(maxIncompleteConnections)
+            .expireAfterWrite(Duration.ofSeconds(20L))
+            .concurrencyLevel(1)
+            .removalListener(this::onCacheRemoval)
+            .build();
 
     metricsSystem.createIntegerGauge(
         BesuMetricCategory.ETHEREUM,
@@ -172,6 +189,11 @@ public class EthPeers implements PeerSelector {
         "peer_limit",
         "The maximum number of peers this node allows to connect",
         () -> peerUpperBound);
+    metricsSystem.createIntegerGauge(
+        BesuMetricCategory.ETHEREUM,
+        "peer_count_incomplete",
+        "The current number of connections that have not yet completed the eth STATUS handshake",
+        () -> (int) incompleteConnections.size());
 
     connectedPeersCounter =
         metricsSystem.createCounter(
@@ -209,15 +231,16 @@ public class EthPeers implements PeerSelector {
                 .filter(p -> p.getId().equals(id))
                 .findFirst();
         ethPeer =
-            peerInList.orElse(
-                new EthPeer(
-                    newConnection,
-                    this::ethPeerStatusExchanged,
-                    peerValidators,
-                    maxMessageSize,
-                    clock,
-                    permissioningProviders,
-                    localNodeId));
+            peerInList.orElseGet(
+                () ->
+                    new EthPeer(
+                        newConnection,
+                        this::ethPeerStatusExchanged,
+                        peerValidators,
+                        maxMessageSize,
+                        clock,
+                        permissioningProviders,
+                        localNodeId));
       }
       incompleteConnections.put(newConnection, ethPeer);
     }
@@ -321,15 +344,22 @@ public class EthPeers implements PeerSelector {
   void reattemptPendingPeerRequests() {
     synchronized (this) {
       final Iterator<PendingPeerRequest> iterator = pendingRequests.iterator();
-      while (iterator.hasNext()
-          && streamAvailablePeers()
-              .anyMatch(EthPeerImmutableAttributes::hasAvailableRequestCapacity)) {
+      while (iterator.hasNext() && hasPeerWithAvailableRequestCapacity()) {
         final PendingPeerRequest request = iterator.next();
         if (request.attemptExecution()) {
           pendingRequests.remove(request);
         }
       }
     }
+  }
+
+  private boolean hasPeerWithAvailableRequestCapacity() {
+    for (final EthPeer peer : activeConnections.values()) {
+      if (!peer.isDisconnected() && peer.hasAvailableRequestCapacity()) {
+        return true;
+      }
+    }
+    return false;
   }
 
   public long subscribeConnect(final ConnectCallback callback) {
@@ -355,6 +385,16 @@ public class EthPeers implements PeerSelector {
 
   public Stream<EthPeerImmutableAttributes> streamAllPeers() {
     return activeConnections.values().stream().map(EthPeerImmutableAttributes::from);
+  }
+
+  /**
+   * Returns a stream of all EthPeer objects that currently have an active connection, including
+   * peers in the incomplete (pre-validation) state. Used for tracker cleanup to avoid incorrectly
+   * evicting peers that are connected but not yet in activeConnections.
+   */
+  public Stream<EthPeer> streamAllConnectedPeers() {
+    return Stream.concat(
+        activeConnections.values().stream(), incompleteConnections.asMap().values().stream());
   }
 
   private void removeDisconnectedPeers() {
@@ -423,7 +463,7 @@ public class EthPeers implements PeerSelector {
         .filter(c -> !c.isDisconnected());
   }
 
-  public boolean shouldTryToConnect(final Peer peer, final boolean inbound) {
+  public Optional<DisconnectReason> gatePeerConnection(final Peer peer, final boolean inbound) {
 
     if (peer.getForkId().isPresent()) {
       final ForkId forkId = peer.getForkId().get();
@@ -433,7 +473,7 @@ public class EthPeers implements PeerSelector {
             .addArgument(peer::getId)
             .log();
 
-        return false;
+        return Optional.of(DisconnectReason.USELESS_PEER_BY_CHAIN_COMPARATOR);
       }
     }
 
@@ -443,10 +483,14 @@ public class EthPeers implements PeerSelector {
           .setMessage("not connecting to peer {} - already connected")
           .addArgument(peer.getLoggableId())
           .log();
-      return false;
+      return Optional.of(DisconnectReason.ALREADY_CONNECTED);
     }
 
-    return peerCount() < getMaxPeers() || needMoreSnapServers() || canExceedPeerLimits(id);
+    if (peerCount() < getMaxPeers() || needMoreSnapServers() || canExceedPeerLimits(id)) {
+      return Optional.empty();
+    } else {
+      return Optional.of(DisconnectReason.TOO_MANY_PEERS);
+    }
   }
 
   private boolean alreadyConnectedOrConnecting(final boolean inbound, final Bytes id) {
@@ -633,7 +677,8 @@ public class EthPeers implements PeerSelector {
   }
 
   private void checkIsSnapServer(final EthPeer peer, final BlockHeader peersHeadBlockHeader) {
-    if (peer.getAgreedCapabilities().contains(SnapProtocol.SNAP1)) {
+    if (peer.getAgreedCapabilities().contains(SnapProtocol.SNAP1)
+        || peer.getAgreedCapabilities().contains(SnapProtocol.SNAP2)) {
       if (snapServerChecker != null) {
         // set that peer is a snap server for doing the test
         peer.setIsServingSnap(true);
@@ -681,8 +726,11 @@ public class EthPeers implements PeerSelector {
     return rlpxAgent.canExceedConnectionLimits(peerId);
   }
 
-  private int compareConnectionInitiationTimes(final PeerConnection a, final PeerConnection b) {
-    return Math.toIntExact(a.getInitiatedAt() - b.getInitiatedAt());
+  @VisibleForTesting
+  int compareConnectionInitiationTimes(final PeerConnection a, final PeerConnection b) {
+    // Long.compare avoids the integer overflow that subtracting epoch millisecond timestamps
+    // can produce once connections are more than ~24.8 days apart
+    return Long.compare(a.getInitiatedAt(), b.getInitiatedAt());
   }
 
   private int compareByMaskedNodeId(final PeerConnection a, final PeerConnection b) {
@@ -748,22 +796,55 @@ public class EthPeers implements PeerSelector {
         .count();
   }
 
-  private void onCacheRemoval(
-      final RemovalNotification<PeerConnection, EthPeer> removalNotification) {
-    if (removalNotification.wasEvicted()) {
-      final PeerConnection peerConnectionRemoved = removalNotification.getKey();
-      final EthPeer peer = removalNotification.getValue();
-      if (peer == null) {
-        return;
-      }
-      final PeerConnection peerConnectionOfEthPeer = peer.getConnection();
-      if (peerConnectionRemoved != null) {
-        if (!peerConnectionRemoved.equals(peerConnectionOfEthPeer)) {
-          // If this connection is not the connection of the EthPeer by now we can disconnect
-          peerConnectionRemoved.disconnect(DisconnectMessage.DisconnectReason.ALREADY_CONNECTED);
-        }
-      }
+  @VisibleForTesting
+  void onCacheRemoval(final RemovalNotification<PeerConnection, EthPeer> removalNotification) {
+    // Only react to evictions (size cap or expiry). Explicit invalidations (e.g. on a normal
+    // disconnect) already close the connection through their own path.
+    if (!removalNotification.wasEvicted()) {
+      return;
     }
+    final PeerConnection evictedConnection = removalNotification.getKey();
+    final EthPeer peer = removalNotification.getValue();
+    if (evictedConnection == null || evictedConnection.isDisconnected()) {
+      return;
+    }
+
+    final boolean isCurrentConnectionOfPeer =
+        peer != null && evictedConnection.equals(peer.getConnection());
+    if (isCurrentConnectionOfPeer && peer.statusHasBeenReceived()) {
+      // The peer completed (or is completing) the eth STATUS handshake and is being promoted to an
+      // active connection; its incomplete-cache entry is expiring naturally. Leave the live
+      // connection alone - it is (or will be) tracked in activeConnections.
+      return;
+    }
+
+    // Either a superseded connection (the peer reconnected with a different connection), or a
+    // connection that completed the devp2p HELLO but never sent eth STATUS and has now been evicted
+    // (20s expiry, or pushed out of the bounded cache). Close the socket so evicted pre-STATUS
+    // connections cannot leak file descriptors or heap while remaining invisible to --max-peers.
+    DisconnectReason reason =
+        isCurrentConnectionOfPeer
+            ? DisconnectMessage.DisconnectReason.TIMEOUT
+            : DisconnectMessage.DisconnectReason.ALREADY_CONNECTED;
+
+    LOG.atTrace()
+        .setMessage(
+            "Closing pre-STATUS connection {} evicted from incomplete-connection cache, reason {}")
+        .addArgument(evictedConnection::getPeerInfo)
+        .addArgument(reason)
+        .log();
+
+    evictedConnection.disconnect(reason);
+  }
+
+  @VisibleForTesting
+  int incompleteConnectionCount() {
+    return (int) incompleteConnections.size();
+  }
+
+  @VisibleForTesting
+  int getMaxIncompleteConnections() {
+    return maxIncompleteConnections;
   }
 
   boolean addPeerToEthPeers(final EthPeer peer) {

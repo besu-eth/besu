@@ -22,6 +22,7 @@ import static org.hyperledger.besu.ethereum.core.Transaction.REPLAY_PROTECTED_V_
 import static org.hyperledger.besu.ethereum.core.Transaction.REPLAY_PROTECTED_V_MIN;
 import static org.hyperledger.besu.ethereum.core.Transaction.REPLAY_UNPROTECTED_V_BASE;
 import static org.hyperledger.besu.ethereum.core.Transaction.REPLAY_UNPROTECTED_V_BASE_PLUS_1;
+import static org.hyperledger.besu.ethereum.eth.core.Utils.serializeReceiptsList;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import org.hyperledger.besu.crypto.SECP256K1;
@@ -140,34 +141,6 @@ public class MessageWrapperTest {
   }
 
   @Test
-  public void GetNodeData() throws IOException {
-    final var testJson = parseTestFile("GetNodeDataPacket66.json");
-    final Bytes expected = Bytes.fromHexString(testJson.get("rlp").asText());
-    final GetNodeDataMessage getNodeDataMessage =
-        GetNodeDataMessage.create(
-            Stream.of(
-                    "0x00000000000000000000000000000000000000000000000000000000deadc0de",
-                    "0x00000000000000000000000000000000000000000000000000000000feedbeef")
-                .map(Hash::fromHexString)
-                .collect(toUnmodifiableList()));
-    final Bytes actual = getNodeDataMessage.wrapMessageData(BigInteger.valueOf(1111)).getData();
-    assertThat(actual).isEqualTo(expected);
-  }
-
-  @Test
-  public void NodeData() throws IOException {
-    final var testJson = parseTestFile("NodeDataPacket66.json");
-    final Bytes expected = Bytes.fromHexString(testJson.get("rlp").asText());
-    final NodeDataMessage nodeDataMessage =
-        NodeDataMessage.create(
-            Stream.of("0xdeadc0de", "0xfeedbeef")
-                .map(Bytes::fromHexString)
-                .collect(toUnmodifiableList()));
-    final Bytes actual = nodeDataMessage.wrapMessageData(BigInteger.valueOf(1111)).getData();
-    assertThat(actual).isEqualTo(expected);
-  }
-
-  @Test
   public void GetReceipts() throws IOException {
     final var testJson = parseTestFile("GetReceiptsPacket66.json");
     final Bytes expected = Bytes.fromHexString(testJson.get("rlp").asText());
@@ -187,33 +160,34 @@ public class MessageWrapperTest {
     final var testJson = parseTestFile("ReceiptsPacket66.json");
     final Bytes expected = Bytes.fromHexString(testJson.get("rlp").asText());
     final ReceiptsMessage receiptsMessage =
-        ReceiptsMessage.create(
-            singletonList(
+        ReceiptsMessage.createUnsafe(
+            serializeReceiptsList(
                 singletonList(
-                    new TransactionReceipt(
-                        TransactionType.FRONTIER,
-                        0,
-                        1,
-                        singletonList(
-                            new LogWithMetadata(
-                                0,
-                                0,
-                                Hash.ZERO,
-                                0L,
-                                Hash.ZERO,
-                                0,
-                                Address.fromHexString("0x11"),
-                                Bytes.fromHexString("0x0100ff"),
-                                Stream.of(
-                                        "0x000000000000000000000000000000000000000000000000000000000000dead",
-                                        "0x000000000000000000000000000000000000000000000000000000000000beef")
-                                    .map(LogTopic::fromHexString)
-                                    .collect(toUnmodifiableList()),
-                                false)),
-                        LogsBloomFilter.fromHexString(
-                            "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"),
-                        Optional.empty()))),
-            TransactionReceiptEncodingConfiguration.DEFAULT_NETWORK_CONFIGURATION);
+                    singletonList(
+                        new TransactionReceipt(
+                            TransactionType.FRONTIER,
+                            0,
+                            1,
+                            singletonList(
+                                new LogWithMetadata(
+                                    0,
+                                    0,
+                                    Hash.ZERO,
+                                    0L,
+                                    Hash.ZERO,
+                                    0,
+                                    Address.fromHexString("0x11"),
+                                    Bytes.fromHexString("0x0100ff"),
+                                    Stream.of(
+                                            "0x000000000000000000000000000000000000000000000000000000000000dead",
+                                            "0x000000000000000000000000000000000000000000000000000000000000beef")
+                                        .map(LogTopic::fromHexString)
+                                        .collect(toUnmodifiableList()),
+                                    false)),
+                            LogsBloomFilter.fromHexString(
+                                "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"),
+                            Optional.empty()))),
+                TransactionReceiptEncodingConfiguration.DEFAULT_NETWORK_CONFIGURATION));
     final Bytes actual = receiptsMessage.wrapMessageData(BigInteger.valueOf(1111)).getData();
     assertThat(actual).isEqualTo(expected);
   }

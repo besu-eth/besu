@@ -18,7 +18,6 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
@@ -26,24 +25,26 @@ import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.prefetch.BalPrefetcher;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
-import org.hyperledger.besu.evm.account.MutableAccount;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
-import java.time.Duration;
-import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.concurrent.Executor;
 
-import org.apache.tuweni.units.bigints.UInt256;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -55,7 +56,8 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
 
   private final MainnetTransactionProcessor transactionProcessor;
   private final BlockAccessList blockAccessList;
-  private final Duration balProcessingTimeout;
+  private final BlockAccessListAccountLookup blockAccessListAccountLookup;
+  private final Optional<BalPrefetcher> maybePrefetcher;
 
   public BalConcurrentTransactionProcessor(
       final MainnetTransactionProcessor transactionProcessor,
@@ -63,7 +65,87 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
       final BalConfiguration balConfiguration) {
     this.transactionProcessor = transactionProcessor;
     this.blockAccessList = blockAccessList;
-    this.balProcessingTimeout = balConfiguration.getBalProcessingTimeout();
+    this.blockAccessListAccountLookup = BlockAccessListAccountLookup.of(blockAccessList);
+    this.maybePrefetcher =
+        balConfiguration.isBalPreFetchReadingEnabled()
+            ? Optional.of(
+                new BalPrefetcher(
+                    balConfiguration.isBalPreFetchSortingEnabled(),
+                    balConfiguration.getBalPreFetchBatchSize()))
+            : Optional.empty();
+  }
+
+  private Optional<BonsaiWorldState> getWorldStateForTransaction(
+      final ProtocolContext protocolContext,
+      final Optional<BlockHeader> maybeParentHeader,
+      final int transactionLocation) {
+    return maybeParentHeader.flatMap(
+        blockHeader ->
+            protocolContext
+                .getWorldStateArchive()
+                .getWorldState(
+                    WorldStateQueryParams.newBuilder()
+                        .withBlockHeader(blockHeader)
+                        .withShouldWorldStateUpdateHead(false)
+                        .withBalOverlay(
+                            new BlockAccessListOverlay(
+                                blockAccessListAccountLookup, (long) transactionLocation + 1L))
+                        .build())
+                .map(BonsaiWorldState.class::cast));
+  }
+
+  @Override
+  public void runAsyncBlock(
+      final ProtocolContext protocolContext,
+      final BlockHeader blockHeader,
+      final List<Transaction> transactions,
+      final Address miningBeneficiary,
+      final BlockHashLookup blockHashLookup,
+      final Wei blobGasPrice,
+      final Executor executor,
+      final Optional<BlockAccessListBuilder> blockAccessListBuilder,
+      final Optional<BlockHeader> maybeParentHeader) {
+
+    maybePrefetcher.ifPresent(
+        balPrefetchMechanism -> {
+          final Optional<BonsaiWorldState> maybeWorldState =
+              maybeParentHeader.flatMap(
+                  parentHeader ->
+                      protocolContext
+                          .getWorldStateArchive()
+                          .getWorldState(
+                              WorldStateQueryParams.newBuilder()
+                                  .withBlockHeader(parentHeader)
+                                  .withShouldWorldStateUpdateHead(false)
+                                  .build())
+                          .map(BonsaiWorldState.class::cast));
+          if (maybeWorldState.isPresent()) {
+            balPrefetchMechanism
+                .prefetch(
+                    maybeWorldState.get(),
+                    blockAccessList,
+                    BlockProcessingExecutors.ioExecutor(),
+                    BlockProcessingExecutors.ioExecutor())
+                .exceptionally(
+                    ex -> {
+                      LOG.error("Prefetch failed", ex);
+                      return null;
+                    })
+                .whenComplete((result, ex) -> maybeWorldState.get().close());
+          } else {
+            LOG.info("Prefetcher block header for block not loaded {}", blockHeader);
+          }
+        });
+    super.runAsyncBlock(
+        protocolContext,
+        blockHeader,
+        transactions,
+        miningBeneficiary,
+        blockHashLookup,
+        blobGasPrice,
+        executor,
+        blockAccessListBuilder,
+        maybeParentHeader);
   }
 
   @Override
@@ -75,22 +157,22 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
       final Address miningBeneficiary,
       final BlockHashLookup blockHashLookup,
       final Wei blobGasPrice,
-      final Optional<BlockAccessListBuilder> blockAccessListBuilder) {
+      final Optional<BlockAccessListBuilder> blockAccessListBuilder,
+      final Optional<BlockHeader> maybeParentHeader) {
 
-    final BonsaiWorldState ws = getWorldState(protocolContext, blockHeader);
-    if (ws == null) return null;
+    final BonsaiWorldState ws =
+        getWorldStateForTransaction(protocolContext, maybeParentHeader, transactionLocation)
+            .orElse(null);
+    if (ws == null) {
+      return null;
+    }
 
     try {
       ws.disableCacheMerkleTrieLoader();
       final ParallelizedTransactionContext.Builder ctxBuilder =
           new ParallelizedTransactionContext.Builder();
 
-      final PathBasedWorldStateUpdateAccumulator<?> blockUpdater =
-          (PathBasedWorldStateUpdateAccumulator<?>) ws.updater();
-
-      applyWritesFromPriorTransactions(blockAccessList, transactionLocation + 1, blockUpdater);
-      blockUpdater.commit();
-
+      final PathBasedWorldStateUpdateAccumulator<?> blockUpdater = ws.getAccumulator();
       final WorldUpdater txUpdater = blockUpdater.updater();
       final Optional<AccessLocationTracker> txTracker =
           blockAccessListBuilder.map(
@@ -105,16 +187,12 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
               transaction.detachedCopy(),
               miningBeneficiary,
               OperationTracer.NO_TRACING,
-              blockHashLookup,
+              blockHashLookup.forkForParallelWorker(),
               TransactionValidationParams.processingBlock(),
               blobGasPrice,
               txTracker);
 
-      txUpdater.commit();
-      blockUpdater.commit();
-
-      // TODO: We should pass transaction accumulator
-      ctxBuilder.transactionAccumulator(blockUpdater).transactionProcessingResult(result);
+      ctxBuilder.transactionProcessingResult(result);
 
       return ctxBuilder.build();
     } finally {
@@ -132,13 +210,10 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
       final Optional<Counter> confirmedParallelizedTransactionCounter,
       final Optional<Counter> conflictingButCachedTransactionCounter) {
 
-    final CompletableFuture<ParallelizedTransactionContext> future = futures[txIndex];
+    final CompletableFuture<ParallelizedTransactionContext> future = removeFuture(txIndex);
     if (future != null) {
       try {
-        final ParallelizedTransactionContext ctx =
-            balProcessingTimeout.isNegative()
-                ? future.join()
-                : future.get(balProcessingTimeout.toNanos(), TimeUnit.NANOSECONDS);
+        final ParallelizedTransactionContext ctx = future.get();
 
         if (ctx == null) {
           LOG.trace("Transaction context for transaction {} is empty.", txIndex);
@@ -149,21 +224,24 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
         final PathBasedWorldStateUpdateAccumulator blockAccumulator =
             (PathBasedWorldStateUpdateAccumulator) pathWs.updater();
 
-        final PathBasedWorldStateUpdateAccumulator<?> txAccumulator = ctx.transactionAccumulator();
         final TransactionProcessingResult result = ctx.transactionProcessingResult();
+        final Optional<PartialBlockAccessView> maybePartialBlockAccessView =
+            result.getPartialBlockAccessView();
+        if (maybePartialBlockAccessView.isEmpty()) {
+          LOG.trace("Partial block access view for transaction {} is empty.", txIndex);
+          return Optional.empty();
+        }
 
-        blockAccumulator.importStateChangesFromSource(txAccumulator);
+        blockAccumulator.importStateChangesFromPartialView(
+            maybePartialBlockAccessView.get(), transactionProcessor.getClearEmptyAccounts());
 
         confirmedParallelizedTransactionCounter.ifPresent(Counter::inc);
         result.setIsProcessedInParallel(Optional.of(Boolean.TRUE));
-        result.accumulator = txAccumulator;
 
         return Optional.of(result);
-      } catch (final TimeoutException e) {
-        LOG.error(
-            "Timed out waiting {}ms for transaction {} processing result.",
-            balProcessingTimeout.toMillis(),
-            txIndex);
+      } catch (final InterruptedException e) {
+        Thread.currentThread().interrupt();
+        LOG.error("Interrupted while waiting for transaction {} processing result.", txIndex, e);
         return Optional.empty();
       } catch (final Exception e) {
         LOG.error(
@@ -174,109 +252,5 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
 
     LOG.error("No future found for transaction {}.", txIndex);
     return Optional.empty();
-  }
-
-  private void applyWritesFromPriorTransactions(
-      final BlockAccessList blockAccessList,
-      final int balIndex,
-      final PathBasedWorldStateUpdateAccumulator<?> worldStateUpdater) {
-    for (var accountChanges : blockAccessList.accountChanges()) {
-      final Address address = accountChanges.address();
-      MutableAccount account = null;
-
-      final var latestBalance = findLatestBalanceChange(accountChanges.balanceChanges(), balIndex);
-      if (latestBalance != null) {
-        if (account == null) {
-          account = worldStateUpdater.getOrCreate(address);
-        }
-        account.setBalance(latestBalance.postBalance());
-      }
-
-      final var latestNonce = findLatestNonceChange(accountChanges.nonceChanges(), balIndex);
-      if (latestNonce != null) {
-        if (account == null) {
-          account = worldStateUpdater.getOrCreate(address);
-        }
-        account.setNonce(latestNonce.newNonce());
-      }
-
-      final var latestCode = findLatestCodeChange(accountChanges.codeChanges(), balIndex);
-      if (latestCode != null) {
-        if (account == null) {
-          account = worldStateUpdater.getOrCreate(address);
-        }
-        account.setCode(latestCode.newCode());
-      }
-
-      for (var slotChanges : accountChanges.storageChanges()) {
-        final UInt256 slotKey = slotChanges.slot().getSlotKey().orElseThrow();
-
-        final var latestStorage = findLatestStorageChange(slotChanges.changes(), balIndex);
-
-        if (latestStorage != null) {
-          if (account == null) {
-            account = worldStateUpdater.getOrCreate(address);
-          }
-          account.setStorageValue(
-              slotKey, latestStorage.newValue() != null ? latestStorage.newValue() : UInt256.ZERO);
-        }
-      }
-    }
-  }
-
-  private BlockAccessList.BalanceChange findLatestBalanceChange(
-      final Collection<BlockAccessList.BalanceChange> changes, final int maxIndex) {
-    BlockAccessList.BalanceChange latest = null;
-    int latestIndex = -1;
-    for (var change : changes) {
-      final int txIndex = change.txIndex();
-      if (txIndex < maxIndex && txIndex > latestIndex) {
-        latest = change;
-        latestIndex = txIndex;
-      }
-    }
-    return latest;
-  }
-
-  private BlockAccessList.NonceChange findLatestNonceChange(
-      final Collection<BlockAccessList.NonceChange> changes, final int maxIndex) {
-    BlockAccessList.NonceChange latest = null;
-    int latestIndex = -1;
-    for (var change : changes) {
-      final int txIndex = change.txIndex();
-      if (txIndex < maxIndex && txIndex > latestIndex) {
-        latest = change;
-        latestIndex = txIndex;
-      }
-    }
-    return latest;
-  }
-
-  private BlockAccessList.CodeChange findLatestCodeChange(
-      final Collection<BlockAccessList.CodeChange> changes, final int maxIndex) {
-    BlockAccessList.CodeChange latest = null;
-    int latestIndex = -1;
-    for (var change : changes) {
-      final int txIndex = change.txIndex();
-      if (txIndex < maxIndex && txIndex > latestIndex) {
-        latest = change;
-        latestIndex = txIndex;
-      }
-    }
-    return latest;
-  }
-
-  private BlockAccessList.StorageChange findLatestStorageChange(
-      final Collection<BlockAccessList.StorageChange> changes, final int maxIndex) {
-    BlockAccessList.StorageChange latest = null;
-    int latestIndex = -1;
-    for (var change : changes) {
-      final int txIndex = change.txIndex();
-      if (txIndex < maxIndex && txIndex > latestIndex) {
-        latest = change;
-        latestIndex = txIndex;
-      }
-    }
-    return latest;
   }
 }

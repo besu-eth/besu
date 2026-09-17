@@ -39,6 +39,7 @@ public class JsonRpcConfiguration {
   public static final int DEFAULT_MAX_BATCH_SIZE = 1024;
   public static final long DEFAULT_HTTP_TIMEOUT_SEC =
       TimeoutOptions.defaultOptions().getTimeoutSeconds();
+  public static final long DEFAULT_HTTP_STREAMING_TIMEOUT_SEC = 600; // 10 minutes
   public static final long DEFAULT_MAX_REQUEST_CONTENT_LENGTH = 128 * 1024 * 1024; // 128MB
   public static final boolean DEFAULT_PRETTY_JSON_ENABLED = false;
 
@@ -55,6 +56,7 @@ public class JsonRpcConfiguration {
   private File authenticationPublicKeyFile;
   private Optional<TlsConfiguration> tlsConfiguration = Optional.empty();
   private long httpTimeoutSec = DEFAULT_HTTP_TIMEOUT_SEC;
+  private long httpStreamingTimeoutSec = DEFAULT_HTTP_STREAMING_TIMEOUT_SEC;
   private int maxActiveConnections;
   private int maxBatchSize;
   private long maxRequestContentLength;
@@ -199,6 +201,14 @@ public class JsonRpcConfiguration {
 
   public void setHttpTimeoutSec(final long httpTimeoutSec) {
     this.httpTimeoutSec = httpTimeoutSec;
+  }
+
+  public long getHttpStreamingTimeoutSec() {
+    return httpStreamingTimeoutSec;
+  }
+
+  public void setHttpStreamingTimeoutSec(final long httpStreamingTimeoutSec) {
+    this.httpStreamingTimeoutSec = httpStreamingTimeoutSec;
   }
 
   public boolean isPrettyJsonEnabled() {

@@ -114,7 +114,7 @@ public class JsonRpcMethodsFactory {
                   synchronizer,
                   dataDir,
                   transactionSimulator,
-                  ethScheduler),
+                  apiConfiguration),
               new ExecutionEngineJsonRpcMethods(
                   miningCoordinator,
                   protocolSchedule,
@@ -137,6 +137,7 @@ public class JsonRpcMethodsFactory {
                   apiConfiguration,
                   genesisConfigOptions,
                   transactionSimulator,
+                  protocolContext.getPluginServiceManager(),
                   metricsSystem),
               new NetJsonRpcMethods(
                   p2pNetwork,
@@ -157,7 +158,13 @@ public class JsonRpcMethodsFactory {
                   metricsSystem,
                   ethScheduler),
               new TxPoolJsonRpcMethods(transactionPool),
-              new PluginsJsonRpcMethods(namedPlugins));
+              new PluginsJsonRpcMethods(namedPlugins),
+              new TestingJsonRpcMethods(
+                  protocolContext,
+                  protocolSchedule,
+                  miningConfiguration,
+                  transactionPool,
+                  ethScheduler));
 
       for (final JsonRpcMethods apiGroup : availableApiGroups) {
         enabled.putAll(apiGroup.create(rpcApis));

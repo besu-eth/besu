@@ -49,19 +49,6 @@ public class ForestKeyValueStorageWorldStateStorageTest {
   }
 
   @Test
-  public void getNodeData_returnsEmptyValue() {
-    final ForestWorldStateKeyValueStorage storage = emptyStorage();
-    assertThat(storage.getNodeData(Bytes32.wrap(Hash.EMPTY.getBytes()))).contains(Bytes.EMPTY);
-  }
-
-  @Test
-  public void getNodeData_returnsEmptyNode() {
-    final ForestWorldStateKeyValueStorage storage = emptyStorage();
-    assertThat(storage.getNodeData(MerkleTrie.EMPTY_TRIE_NODE_HASH))
-        .contains(MerkleTrie.EMPTY_TRIE_NODE);
-  }
-
-  @Test
   public void getCode_saveAndGetSpecialValues() {
     final ForestWorldStateKeyValueStorage storage = emptyStorage();
     storage.updater().putCode(MerkleTrie.EMPTY_TRIE_NODE).putCode(Bytes.EMPTY).commit();
@@ -138,34 +125,6 @@ public class ForestKeyValueStorageWorldStateStorageTest {
 
     assertThat(storage.getAccountStateTrieNode(Bytes32.wrap(Hash.hash(bytes).getBytes())))
         .contains(bytes);
-  }
-
-  @Test
-  public void getNodeData_saveAndGetSpecialValues() {
-    final ForestWorldStateKeyValueStorage storage = emptyStorage();
-    storage
-        .updater()
-        .putAccountStorageTrieNode(
-            Bytes32.wrap(Hash.hash(MerkleTrie.EMPTY_TRIE_NODE).getBytes()),
-            MerkleTrie.EMPTY_TRIE_NODE)
-        .putAccountStorageTrieNode(Bytes32.wrap(Hash.hash(Bytes.EMPTY).getBytes()), Bytes.EMPTY)
-        .commit();
-
-    assertThat(storage.getNodeData(MerkleTrie.EMPTY_TRIE_NODE_HASH))
-        .contains(MerkleTrie.EMPTY_TRIE_NODE);
-    assertThat(storage.getNodeData(Bytes32.wrap(Hash.EMPTY.getBytes()))).contains(Bytes.EMPTY);
-  }
-
-  @Test
-  public void getNodeData_saveAndGetRegularValue() {
-    final Bytes bytes = Bytes.fromHexString("0x123456");
-    final ForestWorldStateKeyValueStorage storage = emptyStorage();
-    storage
-        .updater()
-        .putAccountStorageTrieNode(Bytes32.wrap(Hash.hash(bytes).getBytes()), bytes)
-        .commit();
-
-    assertThat(storage.getNodeData(Bytes32.wrap(Hash.hash(bytes).getBytes()))).contains(bytes);
   }
 
   @Test

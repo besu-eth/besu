@@ -14,12 +14,9 @@
  */
 package org.hyperledger.besu.ethereum.eth.encoding;
 
-import static org.hyperledger.besu.ethereum.core.Transaction.toHashList;
-
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.eth.EthProtocolVersion;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 
@@ -45,25 +42,7 @@ public class TransactionAnnouncementEncoder {
    * @return the correct encoder
    */
   public static Encoder getEncoder(final Capability capability) {
-    if (capability.getVersion() >= EthProtocolVersion.V68) {
-      return TransactionAnnouncementEncoder::encodeForEth68;
-    } else {
-      return TransactionAnnouncementEncoder::encodeForEth66;
-    }
-  }
-
-  /**
-   * Encode a list of hashes for the NewPooledTransactionHashesMessage using the Eth/66
-   *
-   * <p>format: [hash_0: B_32, hash_1: B_32, ...]
-   *
-   * @param transactions the list to encode
-   * @return the encoded value. The message data will contain only the transaction hashes
-   */
-  private static Bytes encodeForEth66(final List<Transaction> transactions) {
-    final BytesValueRLPOutput out = new BytesValueRLPOutput();
-    out.writeList(toHashList(transactions), (h, w) -> w.writeBytes(h.getBytes()));
-    return out.encoded();
+    return TransactionAnnouncementEncoder::encodeForEth68;
   }
 
   /**

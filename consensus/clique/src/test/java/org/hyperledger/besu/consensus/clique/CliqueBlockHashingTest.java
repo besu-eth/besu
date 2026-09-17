@@ -27,12 +27,11 @@ import java.util.Arrays;
 import java.util.List;
 
 import org.apache.tuweni.bytes.Bytes;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 public class CliqueBlockHashingTest {
 
-  private BlockHeader expectedHeader = null;
+  private final BlockHeader expectedHeader = createKnownHeaderFromCapturedData();
 
   // clique.getSignersAtHash("0x8b27a29300811af926039b90288d3d384dcb55931049c17c4f762e45c116776e")
   private static final List<Address> VALIDATORS_IN_HEADER =
@@ -42,11 +41,6 @@ public class CliqueBlockHashingTest {
           Address.fromHexString("0xb279182d99e65703f0076e4812653aab85fca0f0"));
   private static final Hash KNOWN_BLOCK_HASH =
       Hash.fromHexString("0x8b27a29300811af926039b90288d3d384dcb55931049c17c4f762e45c116776e");
-
-  @BeforeEach
-  public void setup() {
-    expectedHeader = createKnownHeaderFromCapturedData();
-  }
 
   @Test
   public void recoverProposerAddressFromSeal() {

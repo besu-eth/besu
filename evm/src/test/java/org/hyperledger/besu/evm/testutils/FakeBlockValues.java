@@ -19,21 +19,35 @@ import org.hyperledger.besu.evm.frame.BlockValues;
 
 import java.util.Optional;
 
+import org.apache.tuweni.bytes.Bytes32;
+
 public class FakeBlockValues implements BlockValues {
   final long number;
   final Optional<Wei> baseFee;
+  final long gasLimit;
+  final Bytes32 mixHashOrPrevRandao;
 
   public FakeBlockValues(final long number) {
-    this(number, Optional.empty());
+    this(number, Optional.empty(), 0L, null);
   }
 
   public FakeBlockValues(final Optional<Wei> baseFee) {
-    this(1337, baseFee);
+    this(1337, baseFee, 0L, null);
   }
 
   public FakeBlockValues(final long number, final Optional<Wei> baseFee) {
+    this(number, baseFee, 0L, null);
+  }
+
+  public FakeBlockValues(
+      final long number,
+      final Optional<Wei> baseFee,
+      final long gasLimit,
+      final Bytes32 mixHashOrPrevRandao) {
     this.number = number;
     this.baseFee = baseFee;
+    this.gasLimit = gasLimit;
+    this.mixHashOrPrevRandao = mixHashOrPrevRandao;
   }
 
   @Override
@@ -44,5 +58,15 @@ public class FakeBlockValues implements BlockValues {
   @Override
   public Optional<Wei> getBaseFee() {
     return baseFee;
+  }
+
+  @Override
+  public long getGasLimit() {
+    return gasLimit;
+  }
+
+  @Override
+  public Bytes32 getMixHashOrPrevRandao() {
+    return mixHashOrPrevRandao;
   }
 }

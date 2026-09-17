@@ -55,7 +55,6 @@ import java.util.stream.Stream;
 
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -216,12 +215,5 @@ public class FullSyncTargetManagerTest {
     assertThat(resultSyncTarget)
         .isEqualTo(new SyncTarget(bestPeer.getEthPeer(), localBlockchain.getChainHeadHeader()));
     assertThat(bestPeer.getPeerConnection().isDisconnected()).isFalse();
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

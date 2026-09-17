@@ -23,12 +23,15 @@ import java.util.List;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class JsonBlockStateCallParameter extends BlockStateCall {
   @JsonCreator
   public JsonBlockStateCallParameter(
-      @JsonProperty("calls") final List<CallParameter> calls,
+      @JsonProperty("calls")
+          @JsonDeserialize(contentUsing = SimulateCallParameterDeserializer.class)
+          final List<CallParameter> calls,
       @JsonProperty("blockOverrides") final BlockOverridesParameter blockOverrides,
       @JsonProperty("stateOverrides") final StateOverrideMap stateOverrides) {
     super(calls, blockOverrides, stateOverrides);

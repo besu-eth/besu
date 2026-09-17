@@ -39,6 +39,7 @@ import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
@@ -47,11 +48,11 @@ import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStoragePrefixedKey
 import org.hyperledger.besu.ethereum.storage.keyvalue.VariablesKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.forest.storage.ForestWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
-import org.hyperledger.besu.ethereum.worldstate.WorldStatePreimageStorage;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.ObservableMetricsSystem;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+import org.hyperledger.besu.plugin.services.storage.WorldStatePreimageStorage;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
 import java.math.BigInteger;
@@ -134,6 +135,9 @@ public abstract class AbstractBftBesuControllerBuilderTest {
     lenient().when(synchronizerConfiguration.getTransactionsParallelism()).thenReturn(1);
     lenient().when(synchronizerConfiguration.getComputationParallelism()).thenReturn(1);
     lenient().when(synchronizerConfiguration.getSyncMode()).thenReturn(SyncMode.FULL);
+    lenient()
+        .when(synchronizerConfiguration.getSnapSyncConfiguration())
+        .thenReturn(SnapSyncConfiguration.getDefault());
 
     lenient()
         .when(synchronizerConfiguration.getBlockPropagationRange())
@@ -167,6 +171,30 @@ public abstract class AbstractBftBesuControllerBuilderTest {
   protected abstract void setupBftGenesisConfig() throws JsonProcessingException;
 
   protected abstract BesuControllerBuilder createBftControllerBuilder();
+
+  @Test
+  public void miningCoordinatorOnlyReactsToSyncEventsAfterSubscribe() {
+    final var besuController = bftBesuControllerBuilder.build();
+    final var miningCoordinator = besuController.getMiningCoordinator();
+
+    try {
+      // Sync events must not start the coordinator before subscribe() is called. On consensus
+      // migration networks only the MigratingMiningCoordinator may start the delegate
+      // coordinators, otherwise a stopped consensus mechanism resumes producing blocks.
+      besuController.getSyncState().markInitialSyncPhaseAsDone();
+      assertThat(miningCoordinator.isMining()).isFalse();
+
+      // After subscribe() (invoked by the Runner on non-migration networks) sync completion
+      // starts the coordinator as before
+      miningCoordinator.subscribe();
+      besuController.getSyncState().markInitialSyncPhaseAsDone();
+      assertThat(miningCoordinator.isMining()).isTrue();
+    } finally {
+      // the coordinator was actually started, stop it so its executor threads don't outlive
+      // the test
+      miningCoordinator.stop();
+    }
+  }
 
   @Test
   public void miningParametersBlockPeriodSecondsIsUpdatedOnTransition() {

@@ -1,0 +1,17 @@
+{
+  "request": {
+    "id": 17,
+    "jsonrpc": "2.0",
+    "method": "debug_getRawBlockAccessList",
+    "params": []
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 17,
+    "error": {
+      "code": -32602,
+      "message": "Invalid block param (block not found)"
+    }
+  },
+  "statusCode": 200
+}

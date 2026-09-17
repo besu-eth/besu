@@ -16,12 +16,11 @@ package org.hyperledger.besu.ethereum.eth.messages;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
-import static org.hyperledger.besu.ethereum.core.Transaction.toHashList;
 
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionAnnouncement;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 
 import java.util.List;
@@ -35,10 +34,12 @@ public class NewPooledTransactionHashesMessageTest {
   public void roundTripNewPooledTransactionHashesMessage() {
     final List<Transaction> transactions = List.of(new BlockDataGenerator().transaction());
     final NewPooledTransactionHashesMessage msg =
-        NewPooledTransactionHashesMessage.create(transactions, EthProtocol.ETH66);
+        NewPooledTransactionHashesMessage.create(transactions, EthProtocol.LATEST);
     assertThat(msg.getCode()).isEqualTo(EthProtocolMessages.NEW_POOLED_TRANSACTION_HASHES);
-    final List<Hash> pendingHashes = msg.pendingTransactionHashes();
-    assertThat(pendingHashes).isEqualTo(toHashList(transactions));
+    final List<TransactionAnnouncement> pendingAnnouncements =
+        msg.pendingTransactionAnnouncements();
+    assertThat(pendingAnnouncements)
+        .isEqualTo(transactions.stream().map(TransactionAnnouncement::new).toList());
   }
 
   @Test
@@ -46,6 +47,6 @@ public class NewPooledTransactionHashesMessageTest {
     final RawMessage rawMsg = new RawMessage(EthProtocolMessages.BLOCK_HEADERS, Bytes.of(0));
 
     assertThatExceptionOfType(IllegalArgumentException.class)
-        .isThrownBy(() -> NewPooledTransactionHashesMessage.readFrom(rawMsg, EthProtocol.ETH66));
+        .isThrownBy(() -> NewPooledTransactionHashesMessage.readFrom(rawMsg, EthProtocol.LATEST));
   }
 }

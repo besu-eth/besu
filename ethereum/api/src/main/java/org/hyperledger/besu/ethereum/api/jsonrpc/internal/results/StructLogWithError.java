@@ -14,22 +14,24 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
+import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.tracing.TraceFrame;
 
 import com.fasterxml.jackson.annotation.JsonGetter;
+import com.fasterxml.jackson.annotation.JsonInclude;
 
 public class StructLogWithError extends StructLog {
 
-  private final String[] error;
+  private final String error;
 
   StructLogWithError(final TraceFrame traceFrame) {
     super(traceFrame);
-    error =
-        traceFrame.getExceptionalHaltReason().map(ehr -> new String[] {ehr.name()}).orElse(null);
+    error = traceFrame.getExceptionalHaltReason().map(ExceptionalHaltReason::name).orElse(null);
   }
 
   @JsonGetter("error")
-  public String[] getError() {
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  public String getError() {
     return error;
   }
 }

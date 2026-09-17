@@ -29,6 +29,7 @@ import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -51,29 +52,32 @@ public final class BlockAccessListDecoder {
           acctIn.readList(
               scIn -> {
                 scIn.enterList();
-                StorageSlotKey slot = new StorageSlotKey(UInt256.fromBytes(scIn.readBytes()));
+                StorageSlotKey slot = new StorageSlotKey(scIn.readUInt256Scalar());
                 List<StorageChange> changes =
                     scIn.readList(
                         changeIn -> {
                           changeIn.enterList();
-                          int txIndex = changeIn.readIntScalar();
-                          UInt256 newVal = UInt256.fromBytes(changeIn.readBytes());
+                          long txIndex = changeIn.readUnsignedIntScalar();
+                          UInt256 newVal = changeIn.readUInt256Scalar();
                           changeIn.leaveList();
                           return new StorageChange(txIndex, newVal);
                         });
+                // An empty change list is well-formed RLP. The EIP-7928 "at least one storage
+                // change" rule is left to MainnetBlockAccessListValidator, so the block comes back
+                // INVALID instead of engine_newPayload failing on invalid params.
                 scIn.leaveList();
                 return new SlotChanges(slot, changes);
               });
 
       List<SlotRead> reads =
-          acctIn.readList(r -> new SlotRead(new StorageSlotKey(UInt256.fromBytes(r.readBytes()))));
+          acctIn.readList(r -> new SlotRead(new StorageSlotKey(r.readUInt256Scalar())));
 
       List<BalanceChange> balances =
           acctIn.readList(
               bcIn -> {
                 bcIn.enterList();
-                int txIndex = bcIn.readIntScalar();
-                Wei postBalance = Wei.of(UInt256.fromBytes(bcIn.readBytes()));
+                long txIndex = bcIn.readUnsignedIntScalar();
+                Wei postBalance = Wei.of(bcIn.readUInt256Scalar());
                 bcIn.leaveList();
                 return new BalanceChange(txIndex, postBalance);
               });
@@ -82,7 +86,7 @@ public final class BlockAccessListDecoder {
           acctIn.readList(
               ncIn -> {
                 ncIn.enterList();
-                int txIndex = ncIn.readIntScalar();
+                long txIndex = ncIn.readUnsignedIntScalar();
                 long newNonce = ncIn.readLongScalar();
                 ncIn.leaveList();
                 return new NonceChange(txIndex, newNonce);
@@ -92,7 +96,7 @@ public final class BlockAccessListDecoder {
           acctIn.readList(
               ccIn -> {
                 ccIn.enterList();
-                int txIndex = ccIn.readIntScalar();
+                long txIndex = ccIn.readUnsignedIntScalar();
                 Bytes newCode = ccIn.readBytes();
                 ccIn.leaveList();
                 return new CodeChange(txIndex, newCode);
@@ -104,6 +108,6 @@ public final class BlockAccessListDecoder {
     }
     in.leaveList();
 
-    return new BlockAccessList(accounts);
+    return new BlockAccessList(accounts, Optional.of(in.raw()));
   }
 }

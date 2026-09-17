@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.transaction;
 
 import org.hyperledger.besu.datatypes.Log;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor;
@@ -23,7 +22,8 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.tracing.EthTransferLogOperationTracer;
-import org.hyperledger.besu.evm.tracing.TracerAggregator;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -68,12 +68,13 @@ public class BlockStateCallSimulationResult {
    *
    * @param result the transaction simulation result
    * @param worldState the world state after the transaction
-   * @param tracerAggregator the tracer aggregator used for the transaction
+   * @param operationTracer the tracer used for the transaction; if it is an {@link
+   *     EthTransferLogOperationTracer}, its logs are used in place of the receipt logs
    */
   public void add(
       final TransactionSimulatorResult result,
       final MutableWorldState worldState,
-      final TracerAggregator tracerAggregator) {
+      final OperationTracer operationTracer) {
     Objects.requireNonNull(result, "TransactionSimulatorResult cannot be null");
     Objects.requireNonNull(worldState, "WorldState cannot be null");
 
@@ -88,11 +89,10 @@ public class BlockStateCallSimulationResult {
         transactionReceiptFactory.create(
             result.transaction().getType(), result.result(), worldState, cumulativeGasUsed);
 
-    final List<Log> logs =
-        tracerAggregator
-            .findTracer(EthTransferLogOperationTracer.class)
-            .map(EthTransferLogOperationTracer::getLogs)
-            .orElse(transactionReceipt.getLogsList());
+    List<Log> logs =
+        (operationTracer instanceof EthTransferLogOperationTracer tracer)
+            ? tracer.getLogs()
+            : transactionReceipt.getLogsList();
 
     transactionSimulatorResults.add(
         new TransactionSimulatorResultWithMetadata(

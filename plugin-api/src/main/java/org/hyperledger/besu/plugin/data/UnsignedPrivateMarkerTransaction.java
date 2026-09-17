@@ -22,7 +22,14 @@ import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 
-/** The interface Unsigned private marker transaction. */
+/**
+ * The interface Unsigned private marker transaction.
+ *
+ * @deprecated This type is scheduled for removal in a future release, with no replacement. It
+ *     belonged to the private transaction API removed in Besu 25.6.0 and is no longer reachable
+ *     from any plugin contract.
+ */
+@Deprecated(forRemoval = true)
 public interface UnsignedPrivateMarkerTransaction {
 
   /**

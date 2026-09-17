@@ -40,7 +40,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.stream.Stream;
 
 import org.awaitility.Awaitility;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -424,12 +423,5 @@ public class PersistBlockTaskTest {
 
     assertThat(result.isCancelled()).isTrue();
     assertThat(blockchain.contains(nextBlock.getHash())).isFalse();
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

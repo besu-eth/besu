@@ -134,11 +134,10 @@ public class SECPSignature {
 
   @Override
   public boolean equals(final Object other) {
-    if (!(other instanceof SECPSignature)) {
+    if (!(other instanceof SECPSignature that)) {
       return false;
     }
 
-    final SECPSignature that = (SECPSignature) other;
     return this.r.equals(that.r) && this.s.equals(that.s) && this.recId == that.recId;
   }
 

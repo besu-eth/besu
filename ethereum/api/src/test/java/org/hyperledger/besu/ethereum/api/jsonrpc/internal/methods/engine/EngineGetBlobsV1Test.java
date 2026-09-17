@@ -15,12 +15,16 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.OSAKA;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineTestSupport.fromErrorResp;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.merge.MergeContext;
+import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SECPPrivateKey;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
@@ -34,6 +38,7 @@ import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ConstructorArgumentsBuilder;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
@@ -44,7 +49,9 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.core.kzg.BlobsWithCommitments;
+import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
 import java.math.BigInteger;
@@ -52,11 +59,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
-import java.util.function.Supplier;
 
-import com.google.common.base.Suppliers;
 import io.vertx.core.Vertx;
-import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -70,16 +74,14 @@ import org.mockito.quality.Strictness;
 @MockitoSettings(strictness = Strictness.LENIENT)
 public class EngineGetBlobsV1Test extends AbstractScheduledApiTest {
 
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
   private static final SECPPrivateKey PRIVATE_KEY1 =
-      SIGNATURE_ALGORITHM
-          .get()
-          .createPrivateKey(
-              Bytes32.fromHexString(
-                  "8f2a55949038a9610f50fb23b5883af3b4ecb3c3bb792cbcefbd1542c692be63"));
+      SIGNATURE_ALGORITHM.createPrivateKey(
+          Bytes32.fromHexString(
+              "8f2a55949038a9610f50fb23b5883af3b4ecb3c3bb792cbcefbd1542c692be63"));
   private static final KeyPair KEYS1 =
-      new KeyPair(PRIVATE_KEY1, SIGNATURE_ALGORITHM.get().createPublicKey(PRIVATE_KEY1));
+      new KeyPair(PRIVATE_KEY1, SIGNATURE_ALGORITHM.createPublicKey(PRIVATE_KEY1));
   public static final VersionedHash VERSIONED_HASH_ZERO = new VersionedHash((byte) 1, Hash.ZERO);
 
   @Mock private ProtocolContext protocolContext;
@@ -88,8 +90,9 @@ public class EngineGetBlobsV1Test extends AbstractScheduledApiTest {
   @Mock private TransactionPool transactionPool;
   @Mock private BlockHeader blockHeader;
   @Mock private MergeContext mergeContext;
+  private final NoOpMetricsSystem metricsSystem = new NoOpMetricsSystem();
 
-  private EngineGetBlobsV1 method;
+  private EngineGetBlobsV1<?> method;
 
   private static final Vertx vertx = Vertx.vertx();
 
@@ -103,8 +106,20 @@ public class EngineGetBlobsV1Test extends AbstractScheduledApiTest {
     when(blockchain.getChainHeadHeader()).thenReturn(blockHeader);
     this.method =
         spy(
-            new EngineGetBlobsV1(
-                vertx, protocolContext, protocolSchedule, engineCallListener, transactionPool));
+            new EngineGetBlobsV1<>(
+                new ConstructorArgumentsBuilder()
+                    .protocolSchedule(protocolSchedule)
+                    .protocolContext(protocolContext)
+                    .vertx(vertx)
+                    .engineCallListener(engineCallListener)
+                    .mergeCoordinator(mock(MergeMiningCoordinator.class))
+                    .transactionPool(transactionPool)
+                    .ethPeers(mock(EthPeers.class))
+                    .metricsSystem(metricsSystem)
+                    .maxRequestBlocks(0)
+                    .build(),
+                CANCUN,
+                OSAKA));
   }
 
   @Test
@@ -131,11 +146,11 @@ public class EngineGetBlobsV1Test extends AbstractScheduledApiTest {
     assertThat(blobAndProofV1s.size()).isEqualTo(versionedHashes.length);
     // for loop to check each blob and proof
     for (int i = 0; i < versionedHashes.length; i++) {
-      assertThat(Bytes.fromHexString(blobAndProofV1s.get(i).getBlob()))
+      assertThat(blobAndProofV1s.get(i).getBlob().getData())
           .isEqualTo(blobsWithCommitments.getBlobProofBundles().get(i).getBlob().getData());
       assertThat(blobsWithCommitments.getBlobProofBundles().get(i).getKzgProof().size())
           .isEqualTo(1);
-      assertThat(Bytes.fromHexString(blobAndProofV1s.get(i).getProof()))
+      assertThat(blobAndProofV1s.get(i).getProof().getData())
           .isEqualTo(
               blobsWithCommitments.getBlobProofBundles().get(i).getKzgProof().getFirst().getData());
     }
@@ -164,11 +179,11 @@ public class EngineGetBlobsV1Test extends AbstractScheduledApiTest {
     // for loop to check each blob and proof
     for (int i = 0; i < versionedHashesList.size(); i++) {
       if (i != 1) {
-        assertThat(Bytes.fromHexString(blobAndProofV1s.get(i).getBlob()))
+        assertThat(blobAndProofV1s.get(i).getBlob().getData())
             .isEqualTo(blobsWithCommitments.getBlobProofBundles().get(i).getBlob().getData());
         assertThat(blobsWithCommitments.getBlobProofBundles().get(i).getKzgProof().size())
             .isEqualTo(1);
-        assertThat(Bytes.fromHexString(blobAndProofV1s.get(i).getProof()))
+        assertThat(blobAndProofV1s.get(i).getProof().getData())
             .isEqualTo(
                 blobsWithCommitments
                     .getBlobProofBundles()

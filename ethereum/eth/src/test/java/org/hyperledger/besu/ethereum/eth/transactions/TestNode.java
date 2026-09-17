@@ -69,11 +69,10 @@ import org.hyperledger.besu.ethereum.p2p.network.P2PNetwork;
 import org.hyperledger.besu.ethereum.p2p.peers.DefaultPeer;
 import org.hyperledger.besu.ethereum.p2p.peers.Peer;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions;
-import org.hyperledger.besu.ethereum.p2p.rlpx.RlpxAgent;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
@@ -142,7 +141,7 @@ public class TestNode implements Closeable {
             new NoOpMetricsSystem());
 
     final GenesisState genesisState =
-        GenesisState.fromConfig(genesisConfig, protocolSchedule, new CodeCache());
+        GenesisState.fromConfig(genesisConfig, protocolSchedule, new BonsaiCodeCache());
     final BlockHeaderFunctions blockHeaderFunctions =
         ScheduleBasedBlockHeaderFunctions.create(protocolSchedule);
     final MutableBlockchain blockchain =
@@ -221,7 +220,7 @@ public class TestNode implements Closeable {
         NetworkRunner.builder()
             .subProtocols(EthProtocol.get())
             .protocolManagers(singletonList(ethProtocolManager))
-            .ethPeersShouldConnect((p, d) -> true)
+            .peerConnectionGatekeeper((p, d) -> Optional.empty())
             .network(
                 capabilities ->
                     createP2PNetwork(
@@ -234,9 +233,7 @@ public class TestNode implements Closeable {
             .metricsSystem(new NoOpMetricsSystem())
             .build();
     network = networkRunner.getNetwork();
-    final RlpxAgent rlpxAgent = network.getRlpxAgent();
-    rlpxAgent.subscribeConnectRequest((p, d) -> true);
-    ethPeers.setRlpxAgent(rlpxAgent);
+    network.getRlpxAgent().ifPresent(ethPeers::setRlpxAgent);
     network.subscribeDisconnect(
         (connection, reason, initiatedByPeer) -> disconnections.put(connection, reason));
 
@@ -253,7 +250,6 @@ public class TestNode implements Closeable {
       final EthPeers ethPeers) {
     final PeerDiscoveryAgentFactory peerDiscoveryAgentFactory =
         DefaultPeerDiscoveryAgentFactory.builder()
-            .vertx(vertx)
             .nodeKey(nodeKey)
             .config(networkingConfiguration)
             .peerPermissions(PeerPermissions.noop())

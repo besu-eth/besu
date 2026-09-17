@@ -44,27 +44,27 @@ public class Quantity {
   }
 
   public static String create(final int value) {
-    return uint256ToHex(UInt256.valueOf(value));
+    return HEX_PREFIX + Integer.toHexString(value);
   }
 
   public static String create(final long value) {
-    return uint256ToHex(UInt256.fromHexString(Long.toHexString(value)));
+    return HEX_PREFIX + Long.toHexString(value);
+  }
+
+  public static String create(final byte value) {
+    return HEX_PREFIX + Integer.toHexString(value);
   }
 
   public static String create(final Bytes value) {
-    return create(value.toArrayUnsafe());
+    return uint256ToHex(UInt256.fromBytes(Bytes32.leftPad(value)));
   }
 
   public static String create(final byte[] value) {
-    return uint256ToHex(UInt256.fromBytes(Bytes32.leftPad(Bytes.wrap(value))));
+    return create(Bytes.wrap(value));
   }
 
   public static String create(final BigInteger value) {
     return uint256ToHex(UInt256.valueOf(value));
-  }
-
-  public static String create(final byte value) {
-    return formatMinimalValue(Integer.toHexString(value));
   }
 
   /**

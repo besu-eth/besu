@@ -14,24 +14,30 @@
  */
 package org.hyperledger.besu.tests.acceptance.config;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SECPPrivateKey;
-import org.hyperledger.besu.crypto.SECPPublicKey;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.tests.acceptance.dsl.AcceptanceTestBase;
 import org.hyperledger.besu.tests.acceptance.dsl.node.Node;
+import org.hyperledger.besu.tests.acceptance.dsl.node.cluster.Cluster;
+import org.hyperledger.besu.tests.acceptance.dsl.node.cluster.ClusterConfigurationBuilder;
 import org.hyperledger.besu.tests.acceptance.dsl.node.configuration.BesuNodeConfigurationBuilder;
 
-import java.net.ServerSocket;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes32;
 import org.bouncycastle.asn1.sec.SECNamedCurves;
 import org.bouncycastle.asn1.x9.X9ECParameters;
 import org.bouncycastle.crypto.params.ECDomainParameters;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 public class BootNodesGenesisSetupTest extends AcceptanceTestBase {
   private static final String CURVE_NAME = "secp256k1";
@@ -39,8 +45,7 @@ public class BootNodesGenesisSetupTest extends AcceptanceTestBase {
 
   private static ECDomainParameters curve;
 
-  private Node nodeA;
-  private Node nodeB;
+  private Cluster noDiscoveryCluster;
 
   @BeforeAll
   public static void environment() {
@@ -49,14 +54,24 @@ public class BootNodesGenesisSetupTest extends AcceptanceTestBase {
   }
 
   @BeforeEach
-  public void setUp() throws Exception {
-    int nodeAP2pBindingPort;
-    int nodeBP2pBindingPort;
-    try (ServerSocket nodeASocket = new ServerSocket(0);
-        ServerSocket nodeBSocket = new ServerSocket(0)) {
-      nodeAP2pBindingPort = nodeASocket.getLocalPort();
-      nodeBP2pBindingPort = nodeBSocket.getLocalPort();
-    }
+  public void setUp() {
+    noDiscoveryCluster =
+        new Cluster(new ClusterConfigurationBuilder().awaitPeerDiscovery(false).build(), net);
+  }
+
+  @AfterEach
+  @Override
+  public void tearDownAcceptanceTestBase() {
+    noDiscoveryCluster.close();
+    super.tearDownAcceptanceTestBase();
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"enode", "enr"})
+  public void shouldConnectNodesViaBootnodesInGenesis(final String bootnodeField) throws Exception {
+    // Pin discovery mode to the one that consumes this bootnode format.
+    final String discoveryMode = bootnodeField.equals("enr") ? "V5" : "V4";
+
     final KeyPair nodeAKeyPair =
         createKeyPair(
             Bytes32.fromHexString(
@@ -66,56 +81,48 @@ public class BootNodesGenesisSetupTest extends AcceptanceTestBase {
             Bytes32.fromHexString(
                 "0xc87509a1c067bbde78beb793e6fa76530b6382a4c0241e5e4a9ec0a0f44dc0d3"));
 
-    nodeA =
+    // Start nodeA first with no genesis bootnodes — it just listens for incoming connections
+    final Node nodeA =
+        besu.createNode("nodeA", b -> addDiscoveryBootnodes(b, nodeAKeyPair, null, discoveryMode));
+    noDiscoveryCluster.addNode(nodeA);
+
+    final Map<String, Object> nodeAInfo = nodeA.execute(admin.nodeInfo());
+    final String nodeABootnode = (String) nodeAInfo.get(bootnodeField);
+    assertThat(nodeABootnode).isNotNull();
+
+    final Node nodeB =
         besu.createNode(
-            "nodeA",
-            nodeBuilder ->
-                configureNode(
-                    nodeBuilder,
-                    nodeAP2pBindingPort,
-                    nodeAKeyPair,
-                    nodeBKeyPair.getPublicKey(),
-                    nodeBP2pBindingPort));
-    nodeB =
-        besu.createNode(
-            "nodeB",
-            nodeBuilder ->
-                configureNode(
-                    nodeBuilder,
-                    nodeBP2pBindingPort,
-                    nodeBKeyPair,
-                    nodeAKeyPair.getPublicKey(),
-                    nodeAP2pBindingPort));
-    cluster.start(nodeA, nodeB);
+            "nodeB", b -> addDiscoveryBootnodes(b, nodeBKeyPair, nodeABootnode, discoveryMode));
+    noDiscoveryCluster.addNode(nodeB);
+
+    nodeA.verify(net.awaitPeerCount(1));
+    nodeA.verify(admin.hasPeer(nodeB));
+    nodeB.verify(admin.hasPeer(nodeA));
   }
 
   private KeyPair createKeyPair(final Bytes32 privateKey) {
     return KeyPair.create(SECPPrivateKey.create(privateKey, ALGORITHM), curve, ALGORITHM);
   }
 
-  @Test
-  public void shouldConnectBothNodesConfiguredInGenesisFile() {
-    nodeA.verify(net.awaitPeerCount(1));
-    nodeB.verify(net.awaitPeerCount(1));
-  }
-
-  private BesuNodeConfigurationBuilder configureNode(
-      final BesuNodeConfigurationBuilder nodeBuilder,
-      final int p2pBindingPort,
+  private BesuNodeConfigurationBuilder addDiscoveryBootnodes(
+      final BesuNodeConfigurationBuilder b,
       final KeyPair keyPair,
-      final SECPPublicKey peerPublicKey,
-      final int peerP2pBindingPort) {
-    return nodeBuilder
-        .devMode(false)
+      final String bootnode,
+      final String discoveryMode) {
+    final String discoverySection =
+        bootnode != null
+            ? String.format("\"discovery\":{\"bootnodes\":[\"%s\"]}", bootnode)
+            : "\"discovery\":{}";
+    return b.devMode(false)
         .keyPair(keyPair)
-        .p2pPort(p2pBindingPort)
         .genesisConfigProvider(
-            (nodes) ->
+            nodes ->
                 Optional.of(
                     String.format(
-                        "{\"config\": {\"ethash\": {}, \"discovery\": { \"bootnodes\": [\"enode://%s@127.0.0.1:%d\"]}}, \"gasLimit\": \"0x1\", \"difficulty\": \"0x1\"}",
-                        peerPublicKey.toString().substring(2), peerP2pBindingPort)))
+                        "{\"config\":{\"ethash\":{},%s},\"gasLimit\":\"0x1\",\"difficulty\":\"0x1\"}",
+                        discoverySection)))
         .bootnodeEligible(false)
+        .extraCLIOptions(List.of("--discovery-mode=" + discoveryMode))
         .jsonRpcEnabled()
         .jsonRpcAdmin();
   }

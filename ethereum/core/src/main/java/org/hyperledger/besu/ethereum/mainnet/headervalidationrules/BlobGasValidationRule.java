@@ -44,7 +44,12 @@ public class BlobGasValidationRule implements DetachedBlockHeaderValidationRule 
    */
   @Override
   public boolean validate(final BlockHeader header, final BlockHeader parent) {
-    long headerExcessBlobGas = header.getExcessBlobGas().map(BlobGas::toLong).orElse(0L);
+    if (header.getExcessBlobGas().isEmpty() || header.getBlobGasUsed().isEmpty()) {
+      LOG.debug("Invalid block header: missing mandatory blob gas fields for post-Cancun block");
+      return false;
+    }
+
+    long headerExcessBlobGas = header.getExcessBlobGas().map(BlobGas::toLong).orElseThrow();
     long parentExcessBlobGas = parent.getExcessBlobGas().map(BlobGas::toLong).orElse(0L);
     long parentBlobGasUsed = parent.getBlobGasUsed().orElse(0L);
 
@@ -59,10 +64,15 @@ public class BlobGasValidationRule implements DetachedBlockHeaderValidationRule 
           calculatedExcessBlobGas);
       return false;
     }
-    long headerBlobGasUsed = header.getBlobGasUsed().orElse(0L);
+    long headerBlobGasUsed = header.getBlobGasUsed().orElseThrow();
     if (headerBlobGasUsed % gasCalculator.getBlobGasPerBlob() != 0) {
       LOG.info(
           "blob gas used must be multiple of GAS_PER_BLOB ({})", gasCalculator.getBlobGasPerBlob());
+      return false;
+    }
+    long currentBlobGasLimit = gasLimitCalculator.currentBlobGasLimit();
+    if (headerBlobGasUsed > currentBlobGasLimit) {
+      LOG.info("blob gas used {} exceeds max {}", headerBlobGasUsed, currentBlobGasLimit);
       return false;
     }
     return true;

@@ -22,7 +22,6 @@ import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import java.util.Arrays;
 import java.util.Collection;
 
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -39,8 +38,8 @@ public class RpcErrorTypeConverterTest {
             RpcErrorType.INTRINSIC_GAS_EXCEEDS_LIMIT
           },
           {
-            TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE,
-            RpcErrorType.TRANSACTION_UPFRONT_COST_EXCEEDS_BALANCE
+            TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE,
+            RpcErrorType.TRANSACTION_UPFRONT_GAS_COST_EXCEEDS_BALANCE
           },
           {TransactionInvalidReason.EXCEEDS_BLOCK_GAS_LIMIT, RpcErrorType.EXCEEDS_BLOCK_GAS_LIMIT},
           {TransactionInvalidReason.WRONG_CHAIN_ID, RpcErrorType.WRONG_CHAIN_ID},
@@ -79,12 +78,5 @@ public class RpcErrorTypeConverterTest {
       final TransactionInvalidReason txInvalidReason, final RpcErrorType expectedJsonRpcError) {
     assertThat(JsonRpcErrorConverter.convertTransactionInvalidReason(txInvalidReason))
         .isEqualTo(expectedJsonRpcError);
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

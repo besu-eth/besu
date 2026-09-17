@@ -14,10 +14,12 @@
  */
 package org.hyperledger.besu.ethereum.chain;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Difficulty;
+import org.hyperledger.besu.ethereum.core.SyncBlockAccessList;
 import org.hyperledger.besu.ethereum.core.SyncBlockBody;
 import org.hyperledger.besu.ethereum.core.SyncTransactionReceipt;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
@@ -51,6 +53,8 @@ public interface BlockchainStorage {
 
   Optional<TransactionLocation> getTransactionLocation(Hash transactionHash);
 
+  Optional<Hash> getTransactionHashBySenderAndNonce(Address sender, long nonce);
+
   Updater updater();
 
   interface Updater {
@@ -62,6 +66,8 @@ public interface BlockchainStorage {
     void putSyncBlockBody(Hash blockHash, SyncBlockBody blockBody);
 
     void putBlockAccessList(Hash blockHash, BlockAccessList blockAccessList);
+
+    void putSyncBlockAccessList(Hash blockHash, SyncBlockAccessList syncBlockAccessList);
 
     void putTransactionLocation(Hash transactionHash, TransactionLocation transactionLocation);
 
@@ -106,6 +112,10 @@ public interface BlockchainStorage {
     void removeTransactionReceipts(final Hash blockHash);
 
     void removeTransactionLocation(Hash transactionHash);
+
+    void putTransactionHashBySenderAndNonce(Address sender, long nonce, Hash transactionHash);
+
+    void removeTransactionHashBySenderAndNonce(Address sender, long nonce);
 
     void removeTotalDifficulty(final Hash blockHash);
 

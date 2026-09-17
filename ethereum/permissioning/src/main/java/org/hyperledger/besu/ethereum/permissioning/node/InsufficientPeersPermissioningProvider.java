@@ -14,15 +14,17 @@
  */
 package org.hyperledger.besu.ethereum.permissioning.node;
 
+import org.hyperledger.besu.ethereum.p2p.discovery.NodeIdentifier;
 import org.hyperledger.besu.ethereum.p2p.network.P2PNetwork;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
-import org.hyperledger.besu.plugin.data.EnodeURL;
 import org.hyperledger.besu.util.Subscribers;
 
 import java.util.Collection;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * A permissioning provider that only provides an answer when we have no peers outside of our
@@ -30,43 +32,47 @@ import java.util.Optional;
  */
 public class InsufficientPeersPermissioningProvider implements ContextualNodePermissioningProvider {
   private final P2PNetwork p2pNetwork;
-  private final Collection<EnodeURL> bootnodeEnodes;
-  private long nonBootnodePeerConnections;
+  private final Collection<? extends NodeIdentifier> bootnodeIdentifiers;
+
+  /**
+   * The dynamic-peer connections this provider has counted -- those to peers that are not one of
+   * the configured bootnodes -- tracked by connection identity rather than as a bare tally.
+   */
+  private final Set<PeerConnection> countedDynamicPeerConnections = ConcurrentHashMap.newKeySet();
+
   private final Subscribers<Runnable> permissioningUpdateSubscribers = Subscribers.create();
 
   /**
    * Creates the provider observing the provided p2p network
    *
    * @param p2pNetwork the p2p network to observe
-   * @param bootnodeEnodes the bootnodes that this node is configured to connect to
+   * @param bootnodeIdentifiers the bootnodes that this node is configured to connect to
    */
   public InsufficientPeersPermissioningProvider(
-      final P2PNetwork p2pNetwork, final Collection<EnodeURL> bootnodeEnodes) {
+      final P2PNetwork p2pNetwork, final Collection<? extends NodeIdentifier> bootnodeIdentifiers) {
     this.p2pNetwork = p2pNetwork;
-    this.bootnodeEnodes = bootnodeEnodes;
-    this.nonBootnodePeerConnections = countP2PNetworkNonBootnodeConnections();
+    this.bootnodeIdentifiers = bootnodeIdentifiers;
+    p2pNetwork.getPeers().stream()
+        .filter(peerConnection -> !isBootnode(peerConnection))
+        .forEach(countedDynamicPeerConnections::add);
     p2pNetwork.subscribeConnect(this::handleConnect);
     p2pNetwork.subscribeDisconnect(this::handleDisconnect);
   }
 
-  private boolean isNotABootnode(final PeerConnection peerConnection) {
-    return bootnodeEnodes.stream()
-        .noneMatch(
+  private boolean isBootnode(final PeerConnection peerConnection) {
+    return bootnodeIdentifiers.stream()
+        .anyMatch(
             (bootNode) ->
                 EnodeURLImpl.sameListeningEndpoint(peerConnection.getRemoteEnode(), bootNode));
   }
 
-  private long countP2PNetworkNonBootnodeConnections() {
-    return p2pNetwork.getPeers().stream().filter(this::isNotABootnode).count();
-  }
-
   @Override
   public Optional<Boolean> isPermitted(
-      final EnodeURL sourceEnode, final EnodeURL destinationEnode) {
-    final Optional<EnodeURL> maybeSelfEnode = p2pNetwork.getLocalEnode();
-    if (nonBootnodePeerConnections > 0) {
+      final NodeIdentifier sourceEnode, final NodeIdentifier destinationEnode) {
+    final Optional<EnodeURLImpl> maybeSelfEnode = p2pNetwork.getLocalEnode();
+    if (!countedDynamicPeerConnections.isEmpty()) {
       return Optional.empty();
-    } else if (!maybeSelfEnode.isPresent()) {
+    } else if (maybeSelfEnode.isEmpty()) {
       // The local node is not yet ready, so we can't validate enodes yet
       return Optional.empty();
     } else if (checkEnode(maybeSelfEnode.get(), sourceEnode)
@@ -77,18 +83,25 @@ public class InsufficientPeersPermissioningProvider implements ContextualNodePer
     }
   }
 
-  private boolean checkEnode(final EnodeURL localEnode, final EnodeURL enode) {
-    return (EnodeURLImpl.sameListeningEndpoint(localEnode, enode)
-        || bootnodeEnodes.stream()
-            .anyMatch(bootNode -> EnodeURLImpl.sameListeningEndpoint(bootNode, enode)));
+  private boolean checkEnode(final NodeIdentifier localEnode, final NodeIdentifier enode) {
+    return (NodeIdentifier.isSameListeningEndpoint(localEnode, enode)
+        || bootnodeIdentifiers.stream()
+            .anyMatch(bootNode -> NodeIdentifier.isSameListeningEndpoint(bootNode, enode)));
   }
 
   private void handleConnect(final PeerConnection peerConnection) {
-    if (isNotABootnode(peerConnection)) {
-      // if the first non bootnode peer seen
-      if (++nonBootnodePeerConnections == 1) {
-        permissioningUpdateSubscribers.forEach(Runnable::run);
-      }
+    if (isBootnode(peerConnection)) {
+      return;
+    }
+    final boolean firstDynamicPeer;
+    synchronized (countedDynamicPeerConnections) {
+      firstDynamicPeer =
+          countedDynamicPeerConnections.add(peerConnection)
+              && countedDynamicPeerConnections.size() == 1;
+    }
+    // notified outside the lock: subscribers are arbitrary callbacks
+    if (firstDynamicPeer) {
+      permissioningUpdateSubscribers.forEach(Runnable::run);
     }
   }
 
@@ -96,11 +109,17 @@ public class InsufficientPeersPermissioningProvider implements ContextualNodePer
       final PeerConnection peerConnection,
       final DisconnectReason reason,
       final boolean initiatedByPeer) {
-    if (isNotABootnode(peerConnection)) {
-      // if we just lost the last non bootnode
-      if (--nonBootnodePeerConnections == 0) {
-        permissioningUpdateSubscribers.forEach(Runnable::run);
-      }
+    // Deliberately does not re-test isBootnode: only a connection this provider actually
+    // counted may remove one, so a connection that was closed before its connect event was ever
+    // dispatched cannot drive the count below zero.
+    final boolean lostLastDynamicPeer;
+    synchronized (countedDynamicPeerConnections) {
+      lostLastDynamicPeer =
+          countedDynamicPeerConnections.remove(peerConnection)
+              && countedDynamicPeerConnections.isEmpty();
+    }
+    if (lostLastDynamicPeer) {
+      permissioningUpdateSubscribers.forEach(Runnable::run);
     }
   }
 

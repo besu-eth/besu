@@ -45,9 +45,6 @@ import picocli.CommandLine.Command;
 @SuppressWarnings("java:S106")
 public class BesuFuzzCommand implements Runnable {
 
-  PrintWriter out;
-  InputStream in;
-
   /** Default Constructor */
   BesuFuzzCommand() {
     // this method is here only for JavaDoc linting
@@ -59,8 +56,6 @@ public class BesuFuzzCommand implements Runnable {
 
   void execute(final InputStream input, final PrintWriter output, final String[] args) {
     final CommandLine commandLine = new CommandLine(this).setOut(output);
-    out = output;
-    in = input;
 
     // don't require exact case to match enum values
     commandLine.setCaseInsensitiveEnumValuesAllowed(true);

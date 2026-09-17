@@ -23,6 +23,7 @@
 | Matilda Clerke   | Matilda-Clerke   | MatildaClerke    |
 | Karim Taam       | matkt            | matkt            |
 | Matthew Whitehead| matthew1001      | matthew.whitehead      |
+| Miroslav Kovář   | mirgee           | mirgee           |
 | Stefan Pingel    | pinges           | pinges           |
 | Simon Dudley     | siladu           | siladu           |
 | Usman Saleem     | usmansaleem      | usmansaleem      |
@@ -98,7 +99,7 @@ The following steps must occur for a contributor to be "upgraded" as a maintaine
 - No veto raised by another maintainer within the voting timeframe.
   - All vetoes must be accompanied by a public explanation as a comment on the
     proposal PR.
-  - The explanation of the veto must be reasonable and follow the [Besu code of conduct](https://wiki.hyperledger.org/display/BESU/Code+of+Conduct).
+  - The explanation of the veto must be reasonable and follow the [Besu code of conduct](CODE_OF_CONDUCT.md).
   - A veto can be retracted, in that case, the voting timeframe is reset, and all approvals are removed.
   - It is bad form to veto, retract, and veto again.
   
@@ -148,9 +149,11 @@ I propose to add [maintainer github handle] as a Besu project maintainer.
 
 - [list significant achievements]
 
-Here are [their past contributions on Besu project](https://github.com/hyperledger/besu/commits?author=[user github handle]).
+Here are [their past contributions on Besu project](https://github.com/besu-eth/besu/commits?author=[user github handle]).
 
 Voting ends two weeks from today.
 
 For more information on this process, see the MAINTAINERS.md file.
 ```
+## Modifying this file
+Other than adding and removing maintainers, any changes to this file (MAINTAINERS.md) must be proposed in a PR and agreed upon by 2/3 of current maintainers.

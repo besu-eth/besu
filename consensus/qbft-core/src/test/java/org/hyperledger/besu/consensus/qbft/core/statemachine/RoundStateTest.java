@@ -44,8 +44,6 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -56,8 +54,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 public class RoundStateTest {
 
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
 
   private final List<MessageFactory> validatorMessageFactories = Lists.newArrayList();
   private final ConsensusRoundIdentifier roundIdentifier = new ConsensusRoundIdentifier(1, 1);
@@ -124,9 +122,7 @@ public class RoundStateTest {
             .createCommit(
                 roundIdentifier,
                 blockHash,
-                SIGNATURE_ALGORITHM
-                    .get()
-                    .createSignature(BigInteger.ONE, BigInteger.ONE, (byte) 1));
+                SIGNATURE_ALGORITHM.createSignature(BigInteger.ONE, BigInteger.ONE, (byte) 1));
 
     roundState.addCommitMessage(commit);
     assertThat(roundState.isPrepared()).isFalse();
@@ -229,9 +225,7 @@ public class RoundStateTest {
             .createCommit(
                 roundIdentifier,
                 blockHash,
-                SIGNATURE_ALGORITHM
-                    .get()
-                    .createSignature(BigInteger.ONE, BigInteger.TEN, (byte) 1));
+                SIGNATURE_ALGORITHM.createSignature(BigInteger.ONE, BigInteger.TEN, (byte) 1));
 
     final Commit invalidCommit =
         validatorMessageFactories
@@ -239,9 +233,7 @@ public class RoundStateTest {
             .createCommit(
                 roundIdentifier,
                 blockHash,
-                SIGNATURE_ALGORITHM
-                    .get()
-                    .createSignature(BigInteger.TEN, BigInteger.TEN, (byte) 1));
+                SIGNATURE_ALGORITHM.createSignature(BigInteger.TEN, BigInteger.TEN, (byte) 1));
 
     // RoundState has a quorum size of 3, meaning 1 proposal and 2 commits are required to be
     // 'committed'.
@@ -317,9 +309,7 @@ public class RoundStateTest {
             .createCommit(
                 roundIdentifier,
                 blockHash,
-                SIGNATURE_ALGORITHM
-                    .get()
-                    .createSignature(BigInteger.ONE, BigInteger.TEN, (byte) 1));
+                SIGNATURE_ALGORITHM.createSignature(BigInteger.ONE, BigInteger.TEN, (byte) 1));
 
     final Commit secondCommit =
         validatorMessageFactories
@@ -327,9 +317,7 @@ public class RoundStateTest {
             .createCommit(
                 roundIdentifier,
                 blockHash,
-                SIGNATURE_ALGORITHM
-                    .get()
-                    .createSignature(BigInteger.TEN, BigInteger.TEN, (byte) 1));
+                SIGNATURE_ALGORITHM.createSignature(BigInteger.TEN, BigInteger.TEN, (byte) 1));
 
     final Proposal proposal =
         validatorMessageFactories

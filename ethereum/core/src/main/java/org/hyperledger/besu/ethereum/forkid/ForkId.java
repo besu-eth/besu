@@ -104,8 +104,7 @@ public class ForkId {
 
   @Override
   public boolean equals(final Object obj) {
-    if (obj instanceof ForkId) {
-      final ForkId other = (ForkId) obj;
+    if (obj instanceof ForkId other) {
       final long thisNext = next.toLong();
       return other.getHash().equals(this.hash) && thisNext == other.getNext();
     }

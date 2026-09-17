@@ -27,6 +27,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.LogsResult;
 import org.hyperledger.besu.ethereum.core.LogWithMetadata;
 
 import java.util.List;
+import java.util.function.Supplier;
 
 public class EthGetFilterLogs implements JsonRpcMethod {
 
@@ -51,7 +52,9 @@ public class EthGetFilterLogs implements JsonRpcMethod {
           "Invalid filter ID parameter (index 0)", RpcErrorType.INVALID_FILTER_PARAMS, e);
     }
 
-    final List<LogWithMetadata> logs = filterManager.logs(filterId);
+    final Supplier<Boolean> isAlive = requestContext::isAlive;
+    final List<LogWithMetadata> logs = filterManager.logs(filterId, isAlive);
+
     if (logs != null) {
       return new JsonRpcSuccessResponse(requestContext.getRequest().getId(), new LogsResult(logs));
     }

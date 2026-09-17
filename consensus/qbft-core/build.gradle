@@ -69,6 +69,7 @@ dependencies {
   integrationTestImplementation project(':metrics:core')
   integrationTestImplementation project(':testutil')
 
+  integrationTestImplementation 'com.fasterxml.jackson.core:jackson-databind'
   integrationTestImplementation 'org.assertj:assertj-core'
   integrationTestImplementation 'org.junit.jupiter:junit-jupiter-api'
   integrationTestImplementation 'org.mockito:mockito-core'

@@ -15,11 +15,13 @@
 package org.hyperledger.besu.ethereum.api.handlers;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -27,12 +29,26 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.context.ContextKey;
 import org.hyperledger.besu.ethereum.api.jsonrpc.execution.JsonRpcExecutor;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
 
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.opentelemetry.api.trace.Tracer;
 import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
+import io.vertx.core.buffer.Buffer;
+import io.vertx.core.http.HttpServerRequest;
 import io.vertx.core.http.HttpServerResponse;
+import io.vertx.core.impl.future.SucceededFuture;
+import io.vertx.core.json.JsonArray;
+import io.vertx.core.json.JsonObject;
+import io.vertx.core.net.SocketAddress;
 import io.vertx.ext.web.RoutingContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -65,7 +81,7 @@ class JsonRpcExecutorHandlerTest {
   }
 
   @Test
-  void testTimeoutHandling() {
+  void testTimeoutHandlingForJsonObjectRequest() {
     // Arrange
     Handler<RoutingContext> handler =
         JsonRpcExecutorHandler.handler(mockExecutor, mockTracer, mockConfig);
@@ -73,7 +89,58 @@ class JsonRpcExecutorHandlerTest {
     @SuppressWarnings("unchecked")
     ArgumentCaptor<Handler<Long>> timerHandlerCaptor = ArgumentCaptor.forClass(Handler.class);
 
-    when(mockContext.get(eq(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name()))).thenReturn("{}");
+    // Classify the request as a single JSON object, matching how JsonRpcParserHandler
+    // actually populates the context for a real single-request payload.
+    final JsonObject jsonRequest =
+        new JsonObject().put("jsonrpc", "2.0").put("id", 1).put("method", "eth_blockNumber");
+    final Map<String, Object> contextData = new HashMap<>();
+    contextData.put(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name(), jsonRequest);
+    when(mockContext.data()).thenReturn(contextData);
+    when(mockContext.get(eq(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name())))
+        .thenReturn(jsonRequest);
+    stubJsonResponseStreamer();
+    when(mockExecutor.execute(any(), any(), any(), any(), any(), any()))
+        .thenReturn(new JsonRpcSuccessResponse(1, "0x1"));
+
+    when(mockVertx.setTimer(delayCaptor.capture(), timerHandlerCaptor.capture())).thenReturn(1L);
+    when(mockContext.get("timerId")).thenReturn(1L);
+
+    // Act
+    handler.handle(mockContext);
+
+    // Assert
+    long timeoutMillis = timeoutSeconds * 1000;
+    verify(mockVertx).setTimer(eq(timeoutMillis), any());
+
+    // Simulate timeout
+    timerHandlerCaptor.getValue().handle(1L);
+
+    // Verify timeout handling
+    verify(mockResponse, times(1))
+        .setStatusCode(eq(HttpResponseStatus.REQUEST_TIMEOUT.code())); // Expect 408 Request Timeout
+    verify(mockResponse, times(1)).end(contains("Timeout expired"));
+    verify(mockVertx, times(1)).cancelTimer(1L);
+  }
+
+  @Test
+  void testTimeoutHandlingForJsonArrayRequest() {
+    // Arrange
+    Handler<RoutingContext> handler =
+        JsonRpcExecutorHandler.handler(mockExecutor, mockTracer, mockConfig);
+    ArgumentCaptor<Long> delayCaptor = ArgumentCaptor.forClass(Long.class);
+    @SuppressWarnings("unchecked")
+    ArgumentCaptor<Handler<Long>> timerHandlerCaptor = ArgumentCaptor.forClass(Handler.class);
+
+    // Classify the request as a JSON batch/array, matching how JsonRpcParserHandler actually
+    // populates the context for a real batch payload.
+    final JsonArray batchRequest = new JsonArray();
+    final Map<String, Object> contextData = new HashMap<>();
+    contextData.put(ContextKey.REQUEST_BODY_AS_JSON_ARRAY.name(), batchRequest);
+    when(mockContext.data()).thenReturn(contextData);
+    when(mockContext.get(eq(ContextKey.REQUEST_BODY_AS_JSON_ARRAY.name())))
+        .thenReturn(batchRequest);
+    stubJsonResponseStreamer();
+
     when(mockVertx.setTimer(delayCaptor.capture(), timerHandlerCaptor.capture())).thenReturn(1L);
     when(mockContext.get("timerId")).thenReturn(1L);
 
@@ -109,5 +176,136 @@ class JsonRpcExecutorHandlerTest {
     // Assert
     verify(mockVertx).setTimer(anyLong(), any());
     verify(mockVertx).cancelTimer(1L);
+  }
+
+  // --- Streaming error handling tests ---
+
+  /**
+   * Stubs the HttpServerRequest/HttpServerResponse methods that {@link
+   * org.hyperledger.besu.ethereum.api.jsonrpc.JsonResponseStreamer} needs, regardless of which
+   * executor (object-streaming or array/batch) is driving it.
+   */
+  private void stubJsonResponseStreamer() {
+    final HttpServerRequest mockRequest = mock(HttpServerRequest.class);
+    when(mockContext.request()).thenReturn(mockRequest);
+    when(mockRequest.remoteAddress()).thenReturn(SocketAddress.domainSocketAddress("test"));
+
+    when(mockResponse.putHeader(any(CharSequence.class), any(CharSequence.class)))
+        .thenReturn(mockResponse);
+    when(mockResponse.setChunked(anyBoolean())).thenReturn(mockResponse);
+    when(mockResponse.exceptionHandler(any())).thenReturn(mockResponse);
+    when(mockResponse.write(any(Buffer.class))).thenReturn(new SucceededFuture<>(null, null));
+    when(mockResponse.headWritten()).thenReturn(false);
+    when(mockResponse.closed()).thenReturn(false);
+  }
+
+  /**
+   * Set up the mock context so the handler creates a JsonRpcObjectExecutor for a streaming method.
+   */
+  private void setUpStreamingContext() {
+    final JsonObject jsonRequest =
+        new JsonObject()
+            .put("jsonrpc", "2.0")
+            .put("id", 1)
+            .put("method", "debug_traceBlockByNumber");
+
+    // isJsonObjectRequest(ctx) checks ctx.data().containsKey(...)
+    final Map<String, Object> contextData = new HashMap<>();
+    contextData.put(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name(), jsonRequest);
+    when(mockContext.data()).thenReturn(contextData);
+    when(mockContext.get(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name())).thenReturn(jsonRequest);
+
+    // Make the method recognized as streaming
+    when(mockExecutor.isStreamingMethod("debug_traceBlockByNumber")).thenReturn(true);
+
+    stubJsonResponseStreamer();
+
+    // Timer setup (not the focus of these tests, but required by the handler)
+    when(mockVertx.setTimer(anyLong(), any())).thenReturn(1L);
+    when(mockContext.get("timerId")).thenReturn(1L);
+  }
+
+  @Test
+  void streamingPreStreamValidationError_sendsProperHttpErrorResponse() throws Exception {
+    setUpStreamingContext();
+
+    // executeStreaming returns a validation error (e.g., bad request) before any data is written
+    when(mockExecutor.executeStreaming(any(), any(), any(), any(), any(), any(), any(), any()))
+        .thenReturn(Optional.of(new JsonRpcErrorResponse(1, RpcErrorType.INVALID_REQUEST)));
+
+    Handler<RoutingContext> handler =
+        JsonRpcExecutorHandler.handler(mockExecutor, mockTracer, mockConfig);
+    handler.handle(mockContext);
+
+    // Should send 400 BAD_REQUEST (INVALID_REQUEST maps to BAD_REQUEST)
+    verify(mockResponse).setStatusCode(eq(HttpResponseStatus.BAD_REQUEST.code()));
+    // The response should be written (error body) and ended, NOT reset
+    verify(mockResponse, never()).reset();
+  }
+
+  @Test
+  void streamingInvalidParamsBeforeHeaders_sendsProperHttpError() throws Exception {
+    setUpStreamingContext();
+
+    // Processor chain throws InvalidJsonRpcParameters before any data is written
+    when(mockExecutor.executeStreaming(any(), any(), any(), any(), any(), any(), any(), any()))
+        .thenThrow(
+            new InvalidJsonRpcParameters(
+                "Invalid block number", RpcErrorType.INVALID_BLOCK_NUMBER_PARAMS));
+
+    Handler<RoutingContext> handler =
+        JsonRpcExecutorHandler.handler(mockExecutor, mockTracer, mockConfig);
+    handler.handle(mockContext);
+
+    // Headers not sent yet → proper error response via handleJsonRpcError
+    // INVALID_BLOCK_NUMBER_PARAMS → default HTTP 200 in statusCodeFromError, with error body
+    verify(mockResponse).setStatusCode(eq(HttpResponseStatus.OK.code()));
+    verify(mockResponse).end(contains("Invalid block number params"));
+    verify(mockResponse, never()).reset();
+  }
+
+  @Test
+  void streamingExceptionAfterHeaders_resetsConnection() throws Exception {
+    setUpStreamingContext();
+    when(mockResponse.headWritten()).thenReturn(true);
+
+    // Exception thrown mid-stream — headers are already flushed
+    when(mockExecutor.executeStreaming(any(), any(), any(), any(), any(), any(), any(), any()))
+        .thenThrow(new RuntimeException("trace execution failed"));
+
+    Handler<RoutingContext> handler =
+        JsonRpcExecutorHandler.handler(mockExecutor, mockTracer, mockConfig);
+    handler.handle(mockContext);
+
+    // Headers already sent → cannot change status code, must reset the connection
+    verify(mockResponse).reset();
+    // setStatusCode is only called once by prepareHttpResponse for Content-Type setup, not for
+    // error
+    verify(mockResponse, never()).setStatusCode(anyInt());
+  }
+
+  @Test
+  void streamingTimeoutAfterHeaders_resetsInsteadOfSettingStatus() {
+    // This tests the timer handler behavior when streaming is already in progress.
+    // Capture the timer handler, then invoke it with headWritten=true.
+    setUpStreamingContext();
+
+    @SuppressWarnings("unchecked")
+    ArgumentCaptor<Handler<Long>> timerHandlerCaptor = ArgumentCaptor.forClass(Handler.class);
+    when(mockVertx.setTimer(anyLong(), timerHandlerCaptor.capture())).thenReturn(1L);
+
+    // Streaming completed or is in progress — headers already written
+    when(mockResponse.headWritten()).thenReturn(true);
+
+    Handler<RoutingContext> handler =
+        JsonRpcExecutorHandler.handler(mockExecutor, mockTracer, mockConfig);
+    handler.handle(mockContext);
+
+    // Simulate timeout firing while streaming is in progress
+    timerHandlerCaptor.getValue().handle(1L);
+
+    // Should reset (not try to setStatusCode which would throw IllegalStateException)
+    verify(mockResponse).reset();
+    verify(mockResponse, never()).setStatusCode(anyInt());
   }
 }

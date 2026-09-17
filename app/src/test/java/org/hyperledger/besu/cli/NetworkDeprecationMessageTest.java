@@ -28,25 +28,27 @@ class NetworkDeprecationMessageTest {
   @ParameterizedTest
   @EnumSource(
       value = NetworkDefinition.class,
-      names = {"HOLESKY"})
-  void shouldGenerateDeprecationMessageForDeprecatedNetworks(final NetworkDefinition network) {
-    assertThat(NetworkDeprecationMessage.generate(network))
-        .contains(network.normalize() + " is deprecated");
-  }
-
-  @ParameterizedTest
-  @EnumSource(
-      value = NetworkDefinition.class,
-      names = {"MAINNET", "SEPOLIA", "DEV", "LUKSO", "EPHEMERY", "HOODI"})
+      names = {"MAINNET", "SEPOLIA", "LUKSO", "EPHEMERY", "HOODI"})
   void shouldThrowErrorForNonDeprecatedNetworks(final NetworkDefinition network) {
     assertThatThrownBy(() -> NetworkDeprecationMessage.generate(network))
         .isInstanceOf(AssertionError.class);
   }
 
   @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
+  void devNetworkFramedMessageContainsExpectedContent() {
+    final String message = NetworkDeprecationMessage.generate(NetworkDefinition.DEV, true);
+    assertThat(message).contains("--network=dev is no longer supported");
+    assertThat(message).contains("PoW mining has been removed");
+    assertThat(message).contains("ephemery");
+    assertThat(message).contains("Kurtosis");
+  }
+
+  @Test
+  void devNetworkCompactMessageIsSingleLine() {
+    final String message = NetworkDeprecationMessage.generate(NetworkDefinition.DEV, false);
+    assertThat(message).doesNotContain("\n");
+    assertThat(message).contains("--network=dev is no longer supported");
+    assertThat(message).contains("PoW mining has been removed");
+    assertThat(message).contains("ephemery");
   }
 }

@@ -77,19 +77,19 @@ public class ProtocolSpec {
 
   private final FeeMarket feeMarket;
 
-  private final Optional<PoWHasher> powHasher;
-
   private final WithdrawalsValidator withdrawalsValidator;
   private final Optional<WithdrawalsProcessor> withdrawalsProcessor;
   private final RequestsValidator requestsValidator;
   private final Optional<RequestProcessorCoordinator> requestProcessorCoordinator;
   private final PreExecutionProcessor preExecutionProcessor;
   private final boolean isPoS;
+  private final boolean slotNumberRequired;
   private final Duration slotDuration;
   private final boolean isReplayProtectionSupported;
   private final Optional<TransactionPoolPreProcessor> transactionPoolPreProcessor;
 
   private final Optional<BlockAccessListFactory> blockAccessListFactory;
+  private final BlockAccessListValidator blockAccessListValidator;
   private final StateRootCommitterFactory stateRootCommitterFactory;
   private final BlockGasAccountingStrategy blockGasAccountingStrategy;
   private final BlockGasUsedValidator blockGasUsedValidator;
@@ -117,17 +117,19 @@ public class ProtocolSpec {
    * @param gasCalculator the gas calculator to use.
    * @param gasLimitCalculator the gas limit calculator to use.
    * @param feeMarket an {@link Optional} wrapping {@link FeeMarket} class if appropriate.
-   * @param powHasher the proof-of-work hasher
    * @param withdrawalsProcessor the Withdrawals processor to use
    * @param requestsValidator the request validator to use
    * @param requestProcessorCoordinator the request processor to use
    * @param preExecutionProcessor the blockHash processor to use
    * @param isPoS indicates whether the current spec is PoS
+   * @param slotNumberRequired whether block headers of this fork must carry the EIP-7843 slot
+   *     number
    * @param slotDuration the slot duration
    * @param isReplayProtectionSupported indicates whether the current spec supports replay
    *     protection
    * @param blockGasAccountingStrategy the strategy for calculating block gas usage
    * @param blockGasUsedValidator the strategy for validating block gas used
+   * @param blockAccessListValidator the block access list validator for this fork
    */
   public ProtocolSpec(
       final HardforkId hardforkId,
@@ -150,17 +152,18 @@ public class ProtocolSpec {
       final GasCalculator gasCalculator,
       final GasLimitCalculator gasLimitCalculator,
       final FeeMarket feeMarket,
-      final Optional<PoWHasher> powHasher,
       final WithdrawalsValidator withdrawalsValidator,
       final Optional<WithdrawalsProcessor> withdrawalsProcessor,
       final RequestsValidator requestsValidator,
       final Optional<RequestProcessorCoordinator> requestProcessorCoordinator,
       final PreExecutionProcessor preExecutionProcessor,
       final boolean isPoS,
+      final boolean slotNumberRequired,
       final Duration slotDuration,
       final boolean isReplayProtectionSupported,
       final Optional<TransactionPoolPreProcessor> transactionPoolPreProcessor,
       final Optional<BlockAccessListFactory> blockAccessListFactory,
+      final BlockAccessListValidator blockAccessListValidator,
       final StateRootCommitterFactory stateRootCommitterFactory,
       final BlockGasAccountingStrategy blockGasAccountingStrategy,
       final BlockGasUsedValidator blockGasUsedValidator) {
@@ -184,17 +187,18 @@ public class ProtocolSpec {
     this.gasCalculator = gasCalculator;
     this.gasLimitCalculator = gasLimitCalculator;
     this.feeMarket = feeMarket;
-    this.powHasher = powHasher;
     this.withdrawalsValidator = withdrawalsValidator;
     this.withdrawalsProcessor = withdrawalsProcessor;
     this.requestsValidator = requestsValidator;
     this.requestProcessorCoordinator = requestProcessorCoordinator;
     this.preExecutionProcessor = preExecutionProcessor;
     this.isPoS = isPoS;
+    this.slotNumberRequired = slotNumberRequired;
     this.slotDuration = slotDuration;
     this.isReplayProtectionSupported = isReplayProtectionSupported;
     this.transactionPoolPreProcessor = transactionPoolPreProcessor;
     this.blockAccessListFactory = blockAccessListFactory;
+    this.blockAccessListValidator = blockAccessListValidator;
     this.stateRootCommitterFactory = stateRootCommitterFactory;
     this.blockGasAccountingStrategy = blockGasAccountingStrategy;
     this.blockGasUsedValidator = blockGasUsedValidator;
@@ -376,15 +380,6 @@ public class ProtocolSpec {
     return feeMarket;
   }
 
-  /**
-   * Returns the Proof-of-Work hasher
-   *
-   * @return the Proof-of-Work hasher
-   */
-  public Optional<PoWHasher> getPoWHasher() {
-    return powHasher;
-  }
-
   public WithdrawalsValidator getWithdrawalsValidator() {
     return withdrawalsValidator;
   }
@@ -414,6 +409,16 @@ public class ProtocolSpec {
     return isPoS;
   }
 
+  /**
+   * Whether headers of this fork must carry the EIP-7843 {@code slotNumber}. Block creation
+   * consults it so a locally built header is not rejected by this fork's own validation.
+   *
+   * @return true from Amsterdam onwards
+   */
+  public boolean isSlotNumberRequired() {
+    return slotNumberRequired;
+  }
+
   public Duration getSlotDuration() {
     return slotDuration;
   }
@@ -429,6 +434,14 @@ public class ProtocolSpec {
 
   public Optional<BlockAccessListFactory> getBlockAccessListFactory() {
     return blockAccessListFactory;
+  }
+
+  public boolean isBlockAccessListEnabled() {
+    return blockAccessListFactory.isPresent();
+  }
+
+  public BlockAccessListValidator getBlockAccessListValidator() {
+    return blockAccessListValidator;
   }
 
   public StateRootCommitterFactory getStateRootCommitterFactory() {

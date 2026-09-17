@@ -17,6 +17,7 @@ package org.hyperledger.besu.datatypes;
 import java.util.Arrays;
 import java.util.Objects;
 
+import com.fasterxml.jackson.annotation.JsonValue;
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes;
 
@@ -52,6 +53,7 @@ public class BytesHolder implements Comparable<BytesHolder> {
    *
    * @return the bytes value held by this instance
    */
+  @JsonValue
   public final Bytes getBytes() {
     return value;
   }

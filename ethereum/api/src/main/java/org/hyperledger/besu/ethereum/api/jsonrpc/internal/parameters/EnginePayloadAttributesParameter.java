@@ -32,6 +32,7 @@ public class EnginePayloadAttributesParameter {
   final List<WithdrawalParameter> withdrawals;
   private final Bytes32 parentBeaconBlockRoot;
   private final Long slotNumber;
+  private final Long targetGasLimit;
 
   @JsonCreator
   public EnginePayloadAttributesParameter(
@@ -40,7 +41,8 @@ public class EnginePayloadAttributesParameter {
       @JsonProperty("suggestedFeeRecipient") final String suggestedFeeRecipient,
       @JsonProperty("withdrawals") final List<WithdrawalParameter> withdrawals,
       @JsonProperty("parentBeaconBlockRoot") final String parentBeaconBlockRoot,
-      @JsonProperty("slotNumber") final String slotNumber) {
+      @JsonProperty("slotNumber") final String slotNumber,
+      @JsonProperty("targetGasLimit") final String targetGasLimit) {
     this.timestamp = Long.decode(timestamp);
     this.prevRandao = Bytes32.fromHexString(prevRandao);
     this.suggestedFeeRecipient = Address.fromHexString(suggestedFeeRecipient);
@@ -48,6 +50,7 @@ public class EnginePayloadAttributesParameter {
     this.parentBeaconBlockRoot =
         parentBeaconBlockRoot == null ? null : Bytes32.fromHexString(parentBeaconBlockRoot);
     this.slotNumber = slotNumber == null ? null : Long.decode(slotNumber);
+    this.targetGasLimit = targetGasLimit == null ? null : Long.decode(targetGasLimit);
   }
 
   public Long getTimestamp() {
@@ -74,6 +77,10 @@ public class EnginePayloadAttributesParameter {
     return slotNumber;
   }
 
+  public Long getTargetGasLimit() {
+    return targetGasLimit;
+  }
+
   public String serialize() {
     final JsonObject json =
         new JsonObject()
@@ -90,6 +97,9 @@ public class EnginePayloadAttributesParameter {
     }
     if (slotNumber != null) {
       json.put("slotNumber", slotNumber);
+    }
+    if (targetGasLimit != null) {
+      json.put("targetGasLimit", targetGasLimit);
     }
     return json.encode();
   }

@@ -15,10 +15,13 @@
 package org.hyperledger.besu.consensus.qbft.core.messagewrappers;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.common.bft.ConsensusRoundIdentifier;
+import org.hyperledger.besu.consensus.common.bft.messagewrappers.BftMessage;
 import org.hyperledger.besu.consensus.common.bft.payload.SignedData;
 import org.hyperledger.besu.consensus.qbft.core.QbftBlockTestFixture;
 import org.hyperledger.besu.consensus.qbft.core.messagedata.QbftV1;
@@ -33,10 +36,17 @@ import org.hyperledger.besu.cryptoservices.NodeKeyUtils;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.core.Util;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.rlp.RLP;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
+import org.hyperledger.besu.ethereum.rlp.RLPInput;
+import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -60,7 +70,23 @@ public class ProposalTest {
   }
 
   private void testRoundTripProposal(final Optional<BlockAccessList> blockAccessList) {
-    when(blockEncoder.readFrom(any())).thenReturn(BLOCK);
+    // Stub the mock codec to round-trip a single byte for the block. Without writing real bytes
+    // for the block the encoded RLP would be off by one top-level item (mock writeTo is a no-op),
+    // which makes the legacy/current item-count discrimination in readFrom misclassify the input.
+    final Bytes blockPlaceholder = Bytes.of(0xAB);
+    when(blockEncoder.readFrom(any()))
+        .thenAnswer(
+            inv -> {
+              inv.getArgument(0, RLPInput.class).readBytes();
+              return BLOCK;
+            });
+    doAnswer(
+            inv -> {
+              inv.getArgument(1, RLPOutput.class).writeBytes(blockPlaceholder);
+              return null;
+            })
+        .when(blockEncoder)
+        .writeTo(any(QbftBlock.class), any(RLPOutput.class));
 
     final NodeKey nodeKey = NodeKeyUtils.generate();
     final Address addr = Util.publicKeyToAddress(nodeKey.getPublicKey());
@@ -104,6 +130,54 @@ public class ProposalTest {
         nodeKey.sign(Bytes32.wrap(roundChangePayload.hashForSignature().getBytes())));
   }
 
+  @Test
+  public void canDecodeProposalMessageFromLegacyNodeWithoutBlockAccessList() {
+    // Simulate a pre-26.1.0 validator that encodes ProposalPayload WITHOUT the blockAccessList
+    // field.
+    // Old format payload list: [seqNum, roundNum, block]       (3 items)
+    // New format payload list: [seqNum, roundNum, block, null] (4 items)
+
+    // The mock must consume the block bytes written by the legacy writeTo override, otherwise the
+    // RLP cursor remains on the block hash and readBlockAccessList sees it instead of end-of-list.
+    when(blockEncoder.readFrom(any()))
+        .thenAnswer(
+            inv -> {
+              inv.<RLPInput>getArgument(0).skipNext();
+              return BLOCK;
+            });
+
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final ConsensusRoundIdentifier roundIdentifier = new ConsensusRoundIdentifier(1, 1);
+
+    // ProposalPayload subclass that overrides writeTo() to omit the blockAccessList field,
+    // reproducing the pre-26.1.0 wire format
+    final ProposalPayload oldFormatPayload =
+        new ProposalPayload(roundIdentifier, BLOCK, blockEncoder) {
+          @Override
+          public void writeTo(final RLPOutput output) {
+            output.startList();
+            writeConsensusRound(output);
+            output.writeBytes(BLOCK.getHash().getBytes());
+            // No blockAccessList field — simulates pre-26.1.0 encoding
+            output.endList();
+          }
+        };
+
+    final SignedData<ProposalPayload> signedPayload =
+        SignedData.create(
+            oldFormatPayload,
+            nodeKey.sign(Bytes32.wrap(oldFormatPayload.hashForSignature().getBytes())));
+
+    final Proposal proposal =
+        Proposal.decode(new Proposal(signedPayload, List.of(), List.of()).encode(), blockEncoder);
+
+    assertThat(proposal.getBlockAccessList()).isEmpty();
+    assertThat(proposal.getSignedPayload().getPayload().getRoundIdentifier())
+        .isEqualTo(roundIdentifier);
+    assertThat(proposal.getSignedPayload().getPayload().getProposedBlock().getHash())
+        .isEqualTo(BLOCK.getHash());
+  }
+
   private void assertProposal(
       final Proposal decodedProposal,
       final Address expectedAddr,
@@ -128,5 +202,165 @@ public class ProposalTest {
       assertThat(decodedProposal.getBlockAccessList()).isPresent();
       assertThat(decodedProposal.getSignedPayload().getPayload().getBlockAccessList()).isPresent();
     }
+  }
+
+  @Test
+  public void defaultProposalPayloadEncodingEmitsCurrentThreeFieldWireFormat() {
+    // Default useLegacyEncoding=false: ProposalPayload.writeTo emits 3 fields
+    // [roundIdentifier, block, BAL-or-null] - required for interop with Besu 26.1.0 - 26.5.0
+    // peers whose decoder expects the BAL slot.
+    final ProposalPayload payload =
+        new ProposalPayload(new ConsensusRoundIdentifier(1, 1), BLOCK, blockEncoder);
+
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    payload.writeTo(out);
+
+    final RLPInput rlpIn = RLP.input(out.encoded());
+    assertThat(rlpIn.enterList()).isEqualTo(3);
+  }
+
+  @Test
+  public void decodeAcceptsRoundChangesListAtMaxEntries() {
+    doAnswer(
+            inv -> {
+              inv.getArgument(1, RLPOutput.class).writeNull();
+              return null;
+            })
+        .when(blockEncoder)
+        .writeTo(any(QbftBlock.class), any(RLPOutput.class));
+    when(blockEncoder.readFrom(any()))
+        .thenAnswer(
+            inv -> {
+              inv.<RLPInput>getArgument(0).skipNext();
+              return BLOCK;
+            });
+
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final ProposalPayload payload = createProposalPayload(Optional.empty());
+    final SignedData<ProposalPayload> signedPayload =
+        SignedData.create(
+            payload, nodeKey.sign(Bytes32.wrap(payload.hashForSignature().getBytes())));
+    final Bytes atLimit =
+        new Proposal(
+                signedPayload,
+                Collections.nCopies(BftMessage.MAX_LIST_ENTRIES, createRoundChange(nodeKey)),
+                List.of())
+            .encode();
+
+    final Proposal decoded = Proposal.decode(atLimit, blockEncoder);
+    assertThat(decoded.getRoundChanges()).hasSize(BftMessage.MAX_LIST_ENTRIES);
+  }
+
+  @Test
+  public void decodeAcceptsPreparesListAtMaxEntries() {
+    doAnswer(
+            inv -> {
+              inv.getArgument(1, RLPOutput.class).writeNull();
+              return null;
+            })
+        .when(blockEncoder)
+        .writeTo(any(QbftBlock.class), any(RLPOutput.class));
+    when(blockEncoder.readFrom(any()))
+        .thenAnswer(
+            inv -> {
+              inv.<RLPInput>getArgument(0).skipNext();
+              return BLOCK;
+            });
+
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final ProposalPayload payload = createProposalPayload(Optional.empty());
+    final SignedData<ProposalPayload> signedPayload =
+        SignedData.create(
+            payload, nodeKey.sign(Bytes32.wrap(payload.hashForSignature().getBytes())));
+    final Bytes atLimit =
+        new Proposal(
+                signedPayload,
+                List.of(),
+                Collections.nCopies(BftMessage.MAX_LIST_ENTRIES, createPrepare(nodeKey)))
+            .encode();
+
+    final Proposal decoded = Proposal.decode(atLimit, blockEncoder);
+    assertThat(decoded.getPrepares()).hasSize(BftMessage.MAX_LIST_ENTRIES);
+  }
+
+  @Test
+  public void decodeRejectsPreparesListExceedingMaxEntries() {
+    doAnswer(
+            inv -> {
+              inv.getArgument(1, RLPOutput.class).writeNull();
+              return null;
+            })
+        .when(blockEncoder)
+        .writeTo(any(QbftBlock.class), any(RLPOutput.class));
+    when(blockEncoder.readFrom(any()))
+        .thenAnswer(
+            inv -> {
+              inv.<RLPInput>getArgument(0).skipNext();
+              return BLOCK;
+            });
+
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final ProposalPayload payload = createProposalPayload(Optional.empty());
+    final SignedData<ProposalPayload> signedPayload =
+        SignedData.create(
+            payload, nodeKey.sign(Bytes32.wrap(payload.hashForSignature().getBytes())));
+    final Bytes oversized =
+        new Proposal(
+                signedPayload,
+                List.of(),
+                Collections.nCopies(BftMessage.MAX_LIST_ENTRIES + 1, createPrepare(nodeKey)))
+            .encode();
+
+    assertThatThrownBy(() -> Proposal.decode(oversized, blockEncoder))
+        .isInstanceOf(RLPException.class)
+        .hasMessageContaining("exceeds the maximum permitted size");
+  }
+
+  @Test
+  public void decodeRejectsRoundChangesListExceedingMaxEntries() {
+    doAnswer(
+            inv -> {
+              inv.getArgument(1, RLPOutput.class).writeNull();
+              return null;
+            })
+        .when(blockEncoder)
+        .writeTo(any(QbftBlock.class), any(RLPOutput.class));
+    when(blockEncoder.readFrom(any()))
+        .thenAnswer(
+            inv -> {
+              inv.<RLPInput>getArgument(0).skipNext();
+              return BLOCK;
+            });
+
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final ProposalPayload payload = createProposalPayload(Optional.empty());
+    final SignedData<ProposalPayload> signedPayload =
+        SignedData.create(
+            payload, nodeKey.sign(Bytes32.wrap(payload.hashForSignature().getBytes())));
+    final Bytes oversized =
+        new Proposal(
+                signedPayload,
+                Collections.nCopies(BftMessage.MAX_LIST_ENTRIES + 1, createRoundChange(nodeKey)),
+                List.of())
+            .encode();
+
+    assertThatThrownBy(() -> Proposal.decode(oversized, blockEncoder))
+        .isInstanceOf(RLPException.class)
+        .hasMessageContaining("exceeds the maximum permitted size");
+  }
+
+  @Test
+  public void legacyProposalPayloadEncodingOmitsBlockAccessListSlot() {
+    // useLegacyEncoding=true: ProposalPayload.writeTo emits 2 fields - the BAL slot is omitted
+    // when absent. Required for interop with Besu 25.x peers during rolling upgrade.
+    final ProposalPayload payload =
+        ProposalPayload.withLegacyEncoding(
+            new ConsensusRoundIdentifier(1, 1), BLOCK, blockEncoder, Optional.empty());
+
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    payload.writeTo(out);
+
+    final RLPInput rlpIn = RLP.input(out.encoded());
+    assertThat(rlpIn.enterList()).isEqualTo(2);
   }
 }

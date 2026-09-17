@@ -20,6 +20,7 @@ import java.math.BigInteger;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableMap;
@@ -31,6 +32,9 @@ public class JsonBftConfigOptions implements BftConfigOptions {
   /** The constant DEFAULT. */
   public static final JsonBftConfigOptions DEFAULT =
       new JsonBftConfigOptions(JsonUtil.createEmptyObjectNode());
+
+  /** The constant EMPTY_BLOCK_PERIOD_SECONDS_KEY. */
+  public static final String EMPTY_BLOCK_PERIOD_SECONDS_KEY = "emptyblockperiodseconds";
 
   private static final long DEFAULT_EPOCH_LENGTH = 30_000;
   private static final int DEFAULT_BLOCK_PERIOD_SECONDS = 1;
@@ -45,6 +49,9 @@ public class JsonBftConfigOptions implements BftConfigOptions {
   private static final int DEFAULT_DUPLICATE_MESSAGE_LIMIT = 100;
   private static final int DEFAULT_FUTURE_MESSAGES_LIMIT = 1000;
   private static final int DEFAULT_FUTURE_MESSAGES_MAX_DISTANCE = 10;
+
+  /** The constant TRANSACTION_GAS_LIMIT. */
+  public static final String TRANSACTION_GAS_LIMIT = "pertxgaslimit";
 
   /** The Bft config root. */
   protected final ObjectNode bftConfigRoot;
@@ -72,7 +79,7 @@ public class JsonBftConfigOptions implements BftConfigOptions {
   @Override
   public int getEmptyBlockPeriodSeconds() {
     return JsonUtil.getInt(
-        bftConfigRoot, "xemptyblockperiodseconds", DEFAULT_EMPTY_BLOCK_PERIOD_SECONDS);
+        bftConfigRoot, EMPTY_BLOCK_PERIOD_SECONDS_KEY, DEFAULT_EMPTY_BLOCK_PERIOD_SECONDS);
   }
 
   @Override
@@ -126,6 +133,11 @@ public class JsonBftConfigOptions implements BftConfigOptions {
   }
 
   @Override
+  public OptionalLong getTransactionGasLimit() {
+    return JsonUtil.getHexOrDecimalLong(bftConfigRoot, TRANSACTION_GAS_LIMIT);
+  }
+
+  @Override
   public BigInteger getBlockRewardWei() {
     final Optional<String> configFileContent = JsonUtil.getString(bftConfigRoot, "blockreward");
 
@@ -168,6 +180,9 @@ public class JsonBftConfigOptions implements BftConfigOptions {
     }
     if (bftConfigRoot.has("futuremessagesmaxdistance")) {
       builder.put("futureMessagesMaxDistance", getFutureMessagesMaxDistance());
+    }
+    if (bftConfigRoot.has(TRANSACTION_GAS_LIMIT)) {
+      builder.put("transactionGasLimit", getTransactionGasLimit().getAsLong());
     }
     return builder.build();
   }

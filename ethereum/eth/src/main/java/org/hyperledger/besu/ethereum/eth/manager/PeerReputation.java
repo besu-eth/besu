@@ -69,11 +69,12 @@ public class PeerReputation implements Comparable<PeerReputation> {
         getOrCreateTimeoutCount(protocolName, requestCode).incrementAndGet();
     if (newTimeoutCount >= TIMEOUT_THRESHOLD) {
       LOG.debug(
-          "Disconnection triggered by {} repeated timeouts for protocol {} for requestCode {} for peer {}",
+          "Disconnecting peer {}: {}/{} timeouts for {}/requestCode={}",
+          peer.getLoggableId(),
           newTimeoutCount,
+          TIMEOUT_THRESHOLD,
           protocolName,
-          requestCode,
-          peer.getLoggableId());
+          requestCode);
       score -= LARGE_ADJUSTMENT;
       return Optional.of(DisconnectReason.TIMEOUT);
     } else {

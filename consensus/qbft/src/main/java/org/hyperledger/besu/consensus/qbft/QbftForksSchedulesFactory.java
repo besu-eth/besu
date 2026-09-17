@@ -24,6 +24,7 @@ import org.hyperledger.besu.consensus.common.ForksScheduleFactory;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 /** The Qbft forks schedules factory. */
 public class QbftForksSchedulesFactory {
@@ -52,6 +53,8 @@ public class QbftForksSchedulesFactory {
     fork.getEmptyBlockPeriodSeconds().ifPresent(bftConfigOptions::setEmptyBlockPeriodSeconds);
     fork.getBlockPeriodMilliseconds().ifPresent(bftConfigOptions::setBlockPeriodMilliseconds);
     fork.getBlockRewardWei().ifPresent(bftConfigOptions::setBlockRewardWei);
+    fork.getTransactionGasLimit()
+        .ifPresent(val -> bftConfigOptions.setTransactionGasLimit(OptionalLong.of(val)));
 
     if (fork.isMiningBeneficiaryConfigured()) {
       // Only override if mining beneficiary is explicitly configured

@@ -36,7 +36,7 @@ public final class ValidationTestUtils {
         new BytesValueRLPInput(
             Bytes.wrap(
                 Resources.toByteArray(
-                    EthHashTest.class.getResource(String.format("block_%d.blocks", num)))),
+                    ValidationTestUtils.class.getResource(String.format("block_%d.blocks", num)))),
             false);
     input.enterList();
     return BlockHeader.readFrom(input, new MainnetBlockHeaderFunctions());
@@ -47,7 +47,7 @@ public final class ValidationTestUtils {
         new BytesValueRLPInput(
             Bytes.wrap(
                 Resources.toByteArray(
-                    EthHashTest.class.getResource(String.format("block_%d.blocks", num)))),
+                    ValidationTestUtils.class.getResource(String.format("block_%d.blocks", num)))),
             false);
     input.enterList();
     input.skipNext();
@@ -66,7 +66,7 @@ public final class ValidationTestUtils {
         new BytesValueRLPInput(
             Bytes.wrap(
                 Resources.toByteArray(
-                    EthHashTest.class.getResource(String.format("block_%d.blocks", num)))),
+                    ValidationTestUtils.class.getResource(String.format("block_%d.blocks", num)))),
             false);
     return Block.readFrom(input, new MainnetBlockHeaderFunctions());
   }

@@ -29,6 +29,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
@@ -39,6 +40,7 @@ import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 @ExtendWith(VertxExtension.class)
@@ -182,5 +184,33 @@ public class DefaultAuthenticationServiceTest {
 
     // User should not be permitted due to exception in permission checking
     assertThat(isPermitted).isFalse();
+  }
+
+  @Test
+  @Timeout(10)
+  public void authenticateWithNoExpiryClaimFailsClosedInsteadOfHanging() {
+    // JWTOptions with no expiresInMinutes/expiresInSeconds omits the "exp" claim entirely, which
+    // validateExpiryExists() rejects. Under Vert.x 5, that rejection happens inside a nested
+    // Future#onComplete callback: if it isn't guarded there, Vert.x's FutureBase#signalComplete
+    // swallows the thrown exception and the handler below is never invoked at all (a hang), rather
+    // than being called with Optional.empty() as it should be.
+    final JWTOptions jwtOptionsWithNoExpiry = new JWTOptions().setAlgorithm("RS256");
+    final JsonObject jwtContents =
+        new JsonObject()
+            .put("permissions", Arrays.asList("eth:blockNumber"))
+            .put("username", "user");
+    final String token = jwtAuth.generateToken(jwtContents, jwtOptionsWithNoExpiry);
+
+    final AtomicBoolean handlerInvoked = new AtomicBoolean(false);
+    final User[] userHolder = new User[1];
+    authenticationService.authenticate(
+        token,
+        user -> {
+          handlerInvoked.set(true);
+          userHolder[0] = user.orElse(null);
+        });
+
+    assertThat(handlerInvoked).as("authentication handler should always be invoked").isTrue();
+    assertThat(userHolder[0]).as("JWT without an expiry claim must fail authentication").isNull();
   }
 }

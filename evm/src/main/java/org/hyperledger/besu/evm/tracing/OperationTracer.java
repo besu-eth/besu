@@ -33,7 +33,13 @@ import org.apache.tuweni.bytes.Bytes;
 public interface OperationTracer {
 
   /** The constant NO_TRACING. */
-  OperationTracer NO_TRACING = new OperationTracer() {};
+  OperationTracer NO_TRACING =
+      new OperationTracer() {
+        @Override
+        public boolean isEnabled() {
+          return false;
+        }
+      };
 
   /**
    * Trace pre execution.
@@ -156,5 +162,14 @@ public interface OperationTracer {
    */
   default java.util.List<TraceFrame> getTraceFrames() {
     return java.util.Collections.emptyList();
+  }
+
+  /**
+   * Check to tell whether tracing enabled/disabled.
+   *
+   * @return true if tracing is enabled and false otherwise
+   */
+  default boolean isEnabled() {
+    return true;
   }
 }

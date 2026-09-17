@@ -86,6 +86,22 @@ public interface MerkleTrie<K, V> {
   void put(K key, PathNodeVisitor<V> putVisitor);
 
   /**
+   * Updates or removes a leaf using the existing trie value. When the merger returns empty, the
+   * leaf is removed.
+   *
+   * @param key the key that corresponds to the value to be updated
+   * @param merger function that receives the prior value and returns the new value
+   */
+  default void putDeferred(final K key, final Function<Optional<V>, Optional<V>> merger) {
+    final Optional<V> result = merger.apply(get(key));
+    if (result.isEmpty()) {
+      remove(key);
+    } else {
+      put(key, result.get());
+    }
+  }
+
+  /**
    * Deletes the value mapped to the specified key, if such a value exists (Optional operation).
    *
    * @param key The key of the value to be deleted.

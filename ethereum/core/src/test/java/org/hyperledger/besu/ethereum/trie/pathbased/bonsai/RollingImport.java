@@ -19,17 +19,18 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.CODE_STORAGE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
-import static org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig.createStatefulConfigWithTrie;
+import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateConfig.createStatefulConfigWithTrie;
 
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogFactoryImpl;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.BonsaiTrieLogFactory;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogLayer;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldStateUpdateAccumulator;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogLayer;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
@@ -61,7 +62,7 @@ public class RollingImport {
                 provider, new NoOpMetricsSystem(), DataStorageConfiguration.DEFAULT_BONSAI_CONFIG),
             EvmConfiguration.DEFAULT,
             createStatefulConfigWithTrie(),
-            new CodeCache());
+            new BonsaiCodeCache());
     final SegmentedInMemoryKeyValueStorage worldStateKeyValueStorage =
         (SegmentedInMemoryKeyValueStorage)
             provider.getStorageBySegmentIdentifiers(
@@ -83,7 +84,7 @@ public class RollingImport {
           continue;
         }
         final TrieLogLayer layer =
-            TrieLogFactoryImpl.readFrom(new BytesValueRLPInput(Bytes.wrap(bytes), false));
+            BonsaiTrieLogFactory.readFrom(new BytesValueRLPInput(Bytes.wrap(bytes), false));
         final BonsaiWorldStateUpdateAccumulator updater =
             (BonsaiWorldStateUpdateAccumulator) bonsaiState.updater();
         updater.rollForward(layer);
@@ -112,7 +113,7 @@ public class RollingImport {
         reader.seek(count);
         final byte[] bytes = reader.readBytes();
         final TrieLogLayer layer =
-            TrieLogFactoryImpl.readFrom(new BytesValueRLPInput(Bytes.wrap(bytes), false));
+            BonsaiTrieLogFactory.readFrom(new BytesValueRLPInput(Bytes.wrap(bytes), false));
         final BonsaiWorldStateUpdateAccumulator updater =
             (BonsaiWorldStateUpdateAccumulator) bonsaiState.updater();
         updater.rollBack(layer);

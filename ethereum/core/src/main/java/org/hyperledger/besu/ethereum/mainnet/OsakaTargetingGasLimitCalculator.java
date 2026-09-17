@@ -14,42 +14,55 @@
  */
 package org.hyperledger.besu.ethereum.mainnet;
 
-import static com.google.common.base.Preconditions.checkArgument;
-
 import org.hyperledger.besu.datatypes.BlobGas;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.BaseFeeMarket;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
+import java.util.OptionalInt;
+
 import org.apache.tuweni.units.bigints.UInt256;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class OsakaTargetingGasLimitCalculator extends CancunTargetingGasLimitCalculator {
+  private static final Logger LOG = LoggerFactory.getLogger(OsakaTargetingGasLimitCalculator.class);
+
+  /**
+   * The EIP-7825 transaction gas limit cap value (2^24). Through Osaka this caps {@code tx.gas}
+   * itself; EIP-8037 (Amsterdam) repurposes the same value as the cap on {@code
+   * max(intrinsic_execution, calldata_floor)}. See {@link #transactionGasLimitCap()} and {@link
+   * #transactionIntrinsicGasLimitCap()}.
+   */
+  public static final long EIP_7825_TRANSACTION_GAS_LIMIT_CAP = 16_777_216L;
+
   /** The constant max number of blobs per transaction defined for Osaka */
   private static final int DEFAULT_MAX_BLOBS_PER_TRANSACTION = 6;
 
   /** The blob base cost constant for Osaka */
   private static final long BLOB_BASE_COST = 1 << 13; // 2^13
 
-  /** The mainnet transaction gas limit cap for Osaka */
-  private static final long DEFAULT_TRANSACTION_GAS_LIMIT_CAP_OSAKA = 16_777_216L;
-
   private final long transactionGasLimitCap;
   private final long transactionBlobGasLimitCap;
+  private final long blockBuilderBlobGasLimit;
 
   public OsakaTargetingGasLimitCalculator(
       final long londonForkBlock,
       final BaseFeeMarket feeMarket,
       final GasCalculator gasCalculator,
       final int maxBlobsPerBlock,
-      final int targetBlobsPerBlock) {
+      final int targetBlobsPerBlock,
+      final OptionalInt maxBlobsPerTransaction,
+      final OptionalInt userMaxBlobsPerBlock) {
     this(
         londonForkBlock,
         feeMarket,
         gasCalculator,
         maxBlobsPerBlock,
         targetBlobsPerBlock,
-        DEFAULT_MAX_BLOBS_PER_TRANSACTION,
-        DEFAULT_TRANSACTION_GAS_LIMIT_CAP_OSAKA);
+        maxBlobsPerTransaction,
+        userMaxBlobsPerBlock,
+        EIP_7825_TRANSACTION_GAS_LIMIT_CAP);
   }
 
   public OsakaTargetingGasLimitCalculator(
@@ -58,16 +71,28 @@ public class OsakaTargetingGasLimitCalculator extends CancunTargetingGasLimitCal
       final GasCalculator gasCalculator,
       final int maxBlobsPerBlock,
       final int targetBlobsPerBlock,
-      final int maxBlobsPerTransaction,
+      final OptionalInt maxBlobsPerTransaction,
+      final OptionalInt userMaxBlobsPerBlock,
       final long transactionGasLimitCap) {
     super(londonForkBlock, feeMarket, gasCalculator, maxBlobsPerBlock, targetBlobsPerBlock);
+    final long blobGasPerBlob = gasCalculator.getBlobGasPerBlob();
+    int effectiveMaxBlobsPerTx = maxBlobsPerTransaction.orElse(DEFAULT_MAX_BLOBS_PER_TRANSACTION);
+    if (effectiveMaxBlobsPerTx > maxBlobsPerBlock) {
+      LOG.warn(
+          "--max-blobs-per-transaction ({}) exceeds the hardfork max blobs per block ({}), clamping to {}",
+          effectiveMaxBlobsPerTx,
+          maxBlobsPerBlock,
+          maxBlobsPerBlock);
+      effectiveMaxBlobsPerTx = maxBlobsPerBlock;
+    }
     this.transactionGasLimitCap = transactionGasLimitCap;
-    this.transactionBlobGasLimitCap = gasCalculator.getBlobGasPerBlob() * maxBlobsPerTransaction;
-    checkArgument(
-        maxBlobsPerBlock >= maxBlobsPerTransaction,
-        "maxBlobsPerTransaction (%s) must not be greater than maxBlobsPerBlock (%s)",
-        maxBlobsPerTransaction,
-        maxBlobsPerBlock);
+    this.transactionBlobGasLimitCap = blobGasPerBlob * effectiveMaxBlobsPerTx;
+    if (userMaxBlobsPerBlock.isPresent()) {
+      final int effectiveMax = Math.min(userMaxBlobsPerBlock.getAsInt(), maxBlobsPerBlock);
+      this.blockBuilderBlobGasLimit = blobGasPerBlob * effectiveMax;
+    } else {
+      this.blockBuilderBlobGasLimit = getMaxBlobGasPerBlock();
+    }
   }
 
   @Override
@@ -108,5 +133,10 @@ public class OsakaTargetingGasLimitCalculator extends CancunTargetingGasLimitCal
   @Override
   public long transactionBlobGasLimitCap() {
     return transactionBlobGasLimitCap;
+  }
+
+  @Override
+  public long blockBuilderBlobGasLimit() {
+    return blockBuilderBlobGasLimit;
   }
 }

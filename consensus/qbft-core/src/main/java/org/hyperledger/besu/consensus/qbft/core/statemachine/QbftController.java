@@ -260,6 +260,12 @@ public class QbftController implements QbftEventHandler {
   @Override
   public void handleBlockTimerExpiry(final BlockTimerExpiry blockTimerExpiry) {
     final ConsensusRoundIdentifier roundIdentifier = blockTimerExpiry.getRoundIdentifier();
+    // Discard block timer events that target a height already on the blockchain (e.g., block
+    // was imported via peer sync while the timer was pending). Same guard as handleRoundExpiry.
+    if (roundIdentifier.getSequenceNumber() <= blockchain.getChainHeadBlockNumber()) {
+      LOG.debug("Discarding a block-timer which targets a height not above current chain height.");
+      return;
+    }
     if (isMsgForCurrentHeight(roundIdentifier, getCurrentChainHeight())) {
       getCurrentHeightManager().handleBlockTimerExpiry(roundIdentifier);
     } else {

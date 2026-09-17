@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai;
 
 import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createInMemoryBlockchain;
-import static org.hyperledger.besu.ethereum.core.WorldStateHealerHelper.throwingWorldStateHealerSupplier;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.mock;
@@ -43,7 +42,6 @@ import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration;
 import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration.MutableInitValues;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.SealableBlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
@@ -68,19 +66,21 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStorageProviderBuilder;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.BonsaiCachedMerkleTrieLoader;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
-import org.hyperledger.besu.ethereum.worldstate.ImmutablePathBasedExtraStorageConfiguration;
-import org.hyperledger.besu.ethereum.worldstate.WorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.worldstate.ImmutableExtraStorageConfiguration;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.BesuConfiguration;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
+import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBKeyValueStorageFactory;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBMetricsFactory;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBFactoryConfiguration;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 
 import java.nio.file.Path;
@@ -116,7 +116,7 @@ public abstract class AbstractIsolationTests {
           new NoOpMetricsSystem());
   protected final GenesisState genesisState =
       GenesisState.fromConfig(
-          GenesisConfig.fromResource("/dev.json"), protocolSchedule, new CodeCache());
+          GenesisConfig.fromResource("/dev.json"), protocolSchedule, new BonsaiCodeCache());
   protected final MutableBlockchain blockchain = createInMemoryBlockchain(genesisState.getBlock());
 
   protected final TransactionPoolConfiguration poolConfiguration =
@@ -137,19 +137,7 @@ public abstract class AbstractIsolationTests {
 
   protected SenderBalanceChecker senderBalanceChecker = new SenderBalanceChecker.NoOpChecker();
 
-  protected final PendingTransactions sorter =
-      new LayeredPendingTransactions(
-          poolConfiguration,
-          new GasPricePrioritizedTransactions(
-              poolConfiguration,
-              ethScheduler,
-              new EndLayer(txPoolMetrics),
-              txPoolMetrics,
-              transactionReplacementTester,
-              new BlobCache(),
-              MiningConfiguration.newDefault(),
-              senderBalanceChecker),
-          ethScheduler);
+  protected PendingTransactions sorter;
 
   protected final List<GenesisAccount> accounts =
       GenesisConfig.fromResource("/dev.json")
@@ -174,12 +162,11 @@ public abstract class AbstractIsolationTests {
         new BonsaiWorldStateProvider(
             (BonsaiWorldStateKeyValueStorage) worldStateKeyValueStorage,
             blockchain,
-            ImmutablePathBasedExtraStorageConfiguration.builder().maxLayersToLoad(16L).build(),
+            ImmutableExtraStorageConfiguration.builder().maxLayersToLoad(16L).build(),
             new BonsaiCachedMerkleTrieLoader(new NoOpMetricsSystem()),
             null,
             EvmConfiguration.DEFAULT,
-            throwingWorldStateHealerSupplier(),
-            new CodeCache());
+            new BonsaiCodeCache());
     var ws = archive.getWorldState();
     genesisState.writeStateTo(ws);
     protocolContext =
@@ -189,6 +176,22 @@ public abstract class AbstractIsolationTests {
             .build();
     ethContext = mock(EthContext.class, RETURNS_DEEP_STUBS);
     when(ethContext.getEthPeers().subscribeConnect(any())).thenReturn(1L);
+
+    sorter =
+        new LayeredPendingTransactions(
+            protocolContext,
+            poolConfiguration,
+            new GasPricePrioritizedTransactions(
+                poolConfiguration,
+                ethScheduler,
+                new EndLayer(txPoolMetrics),
+                txPoolMetrics,
+                transactionReplacementTester,
+                new BlobCache(),
+                MiningConfiguration.newDefault(),
+                senderBalanceChecker),
+            ethScheduler);
+
     transactionPool =
         new TransactionPool(
             () -> sorter,
@@ -221,16 +224,6 @@ public abstract class AbstractIsolationTests {
                 RocksDBMetricsFactory.PUBLIC_ROCKS_DB_METRICS))
         .withCommonConfiguration(
             new BesuConfiguration() {
-
-              @Override
-              public Optional<String> getRpcHttpHost() {
-                return Optional.empty();
-              }
-
-              @Override
-              public Optional<Integer> getRpcHttpPort() {
-                return Optional.empty();
-              }
 
               @Override
               public String getConfiguredRpcHttpHost() {
@@ -319,7 +312,6 @@ public abstract class AbstractIsolationTests {
                       .extraData(Bytes.fromHexString("deadbeef"))
                       .targetGasLimit(30_000_000L)
                       .minTransactionGasPrice(Wei.ONE)
-                      .minBlockOccupancyRatio(0d)
                       .coinbase(Address.ZERO)
                       .build())
               .build();

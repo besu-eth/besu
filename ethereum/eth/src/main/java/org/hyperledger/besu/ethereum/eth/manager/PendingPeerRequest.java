@@ -55,7 +55,7 @@ public class PendingPeerRequest {
     final Optional<EthPeer> maybePeer = getPeerToUse();
     if (maybePeer.isEmpty()) {
       // No peers have the required height.
-      result.completeExceptionally(new NoAvailablePeersException());
+      result.completeExceptionally(NoAvailablePeersException.WITHOUT_STACKTRACE);
       return true;
     } else {
       // At least one peer has the required height, but we are not able to use it if it's busy

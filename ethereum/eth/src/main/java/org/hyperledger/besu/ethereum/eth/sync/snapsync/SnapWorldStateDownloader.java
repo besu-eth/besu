@@ -21,8 +21,8 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.FastSyncActions;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.FastSyncState;
+import org.hyperledger.besu.ethereum.eth.sync.ChainDownloader;
+import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncActions;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.context.SnapSyncStatePersistenceManager;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.AccountRangeDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
@@ -125,13 +125,16 @@ public class SnapWorldStateDownloader implements WorldStateDownloader {
    *
    * @param chainDownloader the chain downloader to wire up
    */
-  public void setChainDownloader(final SnapSyncChainDownloader chainDownloader) {
-    this.chainDownloader = chainDownloader;
+  @Override
+  public void setChainDownloader(final ChainDownloader chainDownloader) {
+    if (chainDownloader instanceof SnapSyncChainDownloader snapSyncChainDownloader) {
+      this.chainDownloader = snapSyncChainDownloader;
+    }
   }
 
   @Override
   public CompletableFuture<Void> run(
-      final FastSyncActions fastSyncActions, final FastSyncState fastSyncState) {
+      final PivotSyncActions fastSyncActions, final SnapSyncProcessState fastSyncState) {
     synchronized (this) {
       final SnapWorldDownloadState oldDownloadState = this.downloadState.get();
       if (oldDownloadState != null && oldDownloadState.isDownloading()) {
@@ -142,7 +145,7 @@ public class SnapWorldStateDownloader implements WorldStateDownloader {
         return failed;
       }
 
-      final SnapSyncProcessState snapSyncState = (SnapSyncProcessState) fastSyncState;
+      final SnapSyncProcessState snapSyncState = fastSyncState;
       final BlockHeader header = fastSyncState.getPivotBlockHeader().get();
       final Hash stateRoot = header.getStateRoot();
       LOG.info(
@@ -167,6 +170,7 @@ public class SnapWorldStateDownloader implements WorldStateDownloader {
               clock,
               ethContext,
               syncDurationMetrics);
+      this.downloadState.set(newDownloadState);
 
       final Map<Bytes32, Bytes32> ranges = RangeManager.generateAllRanges(16);
       snapsyncMetricsManager.initRange(ranges);
@@ -216,10 +220,8 @@ public class SnapWorldStateDownloader implements WorldStateDownloader {
               ethContext,
               fastSyncActions,
               snapSyncState,
-              fastSyncActions.getFastSyncStateStorage(),
               fastSyncActions.getChainDownloaderListener(),
-              snapSyncConfiguration.getPivotBlockWindowValidity(),
-              snapSyncConfiguration.getPivotBlockDistanceBeforeCaching());
+              snapSyncConfiguration.getPivotBlockCheckIntervalMillis());
 
       SnapWorldStateDownloadProcess downloadProcess =
           SnapWorldStateDownloadProcess.builder()

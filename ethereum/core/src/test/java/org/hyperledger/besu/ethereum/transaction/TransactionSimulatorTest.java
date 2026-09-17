@@ -15,7 +15,8 @@
 package org.hyperledger.besu.ethereum.transaction;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
+import static org.hyperledger.besu.ethereum.mainnet.feemarket.BlobFeeMarket.MIN_BLOB_GASPRICE;
+import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
 import static org.hyperledger.besu.evm.tracing.OperationTracer.NO_TRACING;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -43,7 +44,6 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.CodeDelegation;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.kzg.BlobsWithCommitments;
 import org.hyperledger.besu.ethereum.mainnet.ImmutableTransactionValidationParams;
@@ -62,6 +62,7 @@ import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.gascalculator.FrontierGasCalculator;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.math.BigInteger;
 import java.util.List;
@@ -70,8 +71,6 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.stream.Stream;
 
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.BeforeEach;
@@ -90,11 +89,11 @@ import org.mockito.quality.Strictness;
 @SuppressWarnings({"rawtypes", "unchecked"})
 public class TransactionSimulatorTest extends TrustedSetupClassLoaderExtension {
 
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
-  private static final BigInteger HALF_CURVE_ORDER = SIGNATURE_ALGORITHM.get().getHalfCurveOrder();
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
+  private static final BigInteger HALF_CURVE_ORDER = SIGNATURE_ALGORITHM.getHalfCurveOrder();
   private static final SECPSignature FAKE_SIGNATURE =
-      SIGNATURE_ALGORITHM.get().createSignature(HALF_CURVE_ORDER, HALF_CURVE_ORDER, (byte) 0);
+      SIGNATURE_ALGORITHM.createSignature(HALF_CURVE_ORDER, HALF_CURVE_ORDER, (byte) 0);
 
   private static final Address DEFAULT_FROM =
       Address.fromHexString("0x0000000000000000000000000000000000000000");
@@ -781,11 +780,10 @@ public class TransactionSimulatorTest extends TrustedSetupClassLoaderExtension {
   }
 
   @ParameterizedTest
-  @MethodSource("shouldUseTxGasLimitCapWhenWhenGasLimitNotPresent")
-  public void shouldUseTxGasLimitCapWhenWhenGasLimitNotPresent(
+  @MethodSource("shouldUseMinOfRpcGasCapAndBlockGasLimitWhenGasLimitNotPresent")
+  public void shouldUseMinOfRpcGasCapAndBlockGasLimitWhenGasLimitNotPresent(
       final RpcGasCapVariant rpcGasCapVariant,
       final long blockGasLimit,
-      final long txGasLimitCap,
       final long expectedGasLimit) {
     final CallParameter callParameter =
         eip1559TransactionCallParameterBuilder().gas(OptionalLong.empty()).build();
@@ -793,7 +791,8 @@ public class TransactionSimulatorTest extends TrustedSetupClassLoaderExtension {
     final BlockHeader blockHeader = mockBlockHeader(Hash.ZERO, 1L, Wei.ONE, blockGasLimit);
 
     mockBlockchainAndWorldState(callParameter, blockHeader);
-    mockProtocolSpecForProcessWithWorldUpdater(txGasLimitCap);
+    mockProtocolSpecForProcessWithWorldUpdater(
+        GasLimitCalculator.constant().transactionGasLimitCap());
 
     final Transaction expectedTransaction =
         Transaction.builder()
@@ -829,38 +828,14 @@ public class TransactionSimulatorTest extends TrustedSetupClassLoaderExtension {
     UNCAPPED;
   }
 
-  private static Stream<Arguments> shouldUseTxGasLimitCapWhenWhenGasLimitNotPresent() {
+  private static Stream<Arguments> shouldUseMinOfRpcGasCapAndBlockGasLimitWhenGasLimitNotPresent() {
     return Stream.of(
-        Arguments.of(
-            RpcGasCapVariant.DEFAULT,
-            DEFAULT_BLOCK_GAS_LIMIT,
-            DEFAULT_BLOCK_GAS_LIMIT - 1,
-            DEFAULT_BLOCK_GAS_LIMIT - 1),
-        Arguments.of(
-            RpcGasCapVariant.DEFAULT,
-            DEFAULT_BLOCK_GAS_LIMIT,
-            DEFAULT_BLOCK_GAS_LIMIT + 1,
-            DEFAULT_BLOCK_GAS_LIMIT),
-        Arguments.of(
-            RpcGasCapVariant.CAPPED,
-            DEFAULT_BLOCK_GAS_LIMIT,
-            DEFAULT_BLOCK_GAS_LIMIT - 1,
-            RPC_GAS_CAP),
-        Arguments.of(
-            RpcGasCapVariant.CAPPED,
-            DEFAULT_BLOCK_GAS_LIMIT,
-            DEFAULT_BLOCK_GAS_LIMIT + 1,
-            RPC_GAS_CAP),
-        Arguments.of(
-            RpcGasCapVariant.UNCAPPED,
-            DEFAULT_BLOCK_GAS_LIMIT,
-            DEFAULT_BLOCK_GAS_LIMIT - 1,
-            DEFAULT_BLOCK_GAS_LIMIT - 1),
-        Arguments.of(
-            RpcGasCapVariant.UNCAPPED,
-            DEFAULT_BLOCK_GAS_LIMIT,
-            DEFAULT_BLOCK_GAS_LIMIT + 1,
-            DEFAULT_BLOCK_GAS_LIMIT));
+        // DEFAULT rpcGasCap (100M) > blockGasLimit (30M): uses blockGasLimit
+        Arguments.of(RpcGasCapVariant.DEFAULT, DEFAULT_BLOCK_GAS_LIMIT, DEFAULT_BLOCK_GAS_LIMIT),
+        // CAPPED rpcGasCap (500K) < blockGasLimit (30M): uses rpcGasCap
+        Arguments.of(RpcGasCapVariant.CAPPED, DEFAULT_BLOCK_GAS_LIMIT, RPC_GAS_CAP),
+        // UNCAPPED (rpcGasCap=0): uses blockGasLimit
+        Arguments.of(RpcGasCapVariant.UNCAPPED, DEFAULT_BLOCK_GAS_LIMIT, DEFAULT_BLOCK_GAS_LIMIT));
   }
 
   @Test
@@ -894,6 +869,42 @@ public class TransactionSimulatorTest extends TrustedSetupClassLoaderExtension {
         uncappedTransactionSimulator.process(callParameter, 1L);
 
     assertThat(result.get().isSuccessful()).isFalse();
+    verifyTransactionWasProcessed(expectedTransaction);
+  }
+
+  @Test
+  public void shouldSetMaxFeePerBlobGasToMinBlobGaspriceWhenExceedingBalanceAllowed() {
+    final CallParameter callParameter = blobTransactionCallParameter();
+    mockBlockchainAndWorldState(callParameter);
+
+    final Transaction expectedTransaction =
+        Transaction.builder()
+            .type(TransactionType.BLOB)
+            .chainId(callParameter.getChainId().orElseThrow())
+            .nonce(callParameter.getNonce().orElseThrow())
+            .gasLimit(callParameter.getGas().orElseThrow())
+            .maxFeePerGas(Wei.ZERO)
+            .maxPriorityFeePerGas(Wei.ZERO)
+            .to(callParameter.getTo().orElseThrow())
+            .sender(callParameter.getSender().orElseThrow())
+            .value(callParameter.getValue().orElseThrow())
+            .payload(callParameter.getPayload().orElseThrow())
+            .maxFeePerBlobGas(MIN_BLOB_GASPRICE)
+            .versionedHashes(callParameter.getBlobVersionedHashes().orElseThrow())
+            .signature(FAKE_SIGNATURE)
+            .build();
+
+    mockProcessorStatusForTransaction(expectedTransaction, Status.SUCCESSFUL);
+
+    final Optional<TransactionSimulatorResult> result =
+        uncappedTransactionSimulator.process(
+            callParameter,
+            ImmutableTransactionValidationParams.builder().isAllowExceedingBalance(true).build(),
+            NO_TRACING,
+            1L);
+
+    assertThat(result).isPresent();
+    assertThat(result.get().isSuccessful()).isTrue();
     verifyTransactionWasProcessed(expectedTransaction);
   }
 

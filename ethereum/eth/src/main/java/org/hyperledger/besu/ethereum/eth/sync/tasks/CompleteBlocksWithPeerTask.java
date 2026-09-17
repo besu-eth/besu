@@ -119,6 +119,12 @@ public class CompleteBlocksWithPeerTask {
               headersToGet.removeFirst();
               nextIndex = findNextIndex(nextIndex + 1);
             });
+      } else {
+        throw new RuntimeException(
+            "Unable to retrieve blocks for block numbers: "
+                + headersToGet.getFirst().getNumber()
+                + " to "
+                + headersToGet.getLast().getNumber());
       }
     }
     return List.of(result);

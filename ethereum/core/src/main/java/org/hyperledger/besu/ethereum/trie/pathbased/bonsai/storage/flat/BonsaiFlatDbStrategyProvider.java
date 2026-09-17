@@ -16,13 +16,10 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat;
 
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 
-import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.CodeStorageStrategy;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.FlatDbStrategy;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.FlatDbStrategyProvider;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.CodeStorageStrategy;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
-import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 
@@ -42,14 +39,10 @@ public class BonsaiFlatDbStrategyProvider extends FlatDbStrategyProvider {
   protected FlatDbMode getRequestedFlatDbMode(
       final DataStorageConfiguration dataStorageConfiguration) {
     return dataStorageConfiguration
-            .getPathBasedExtraStorageConfiguration()
+            .getExtraStorageConfiguration()
             .getUnstable()
             .getFullFlatDbEnabled()
-        ? (dataStorageConfiguration
-                .getDataStorageFormat()
-                .equals(DataStorageFormat.X_BONSAI_ARCHIVE)
-            ? FlatDbMode.ARCHIVE
-            : FlatDbMode.FULL)
+        ? FlatDbMode.FULL
         : FlatDbMode.PARTIAL;
   }
 
@@ -61,27 +54,19 @@ public class BonsaiFlatDbStrategyProvider extends FlatDbStrategyProvider {
   public void upgradeToFullFlatDbMode(final SegmentedKeyValueStorage composedWorldStateStorage) {
     final SegmentedKeyValueStorageTransaction transaction =
         composedWorldStateStorage.startTransaction();
-    if (dataStorageConfiguration.getDataStorageFormat() == DataStorageFormat.BONSAI) {
-      LOG.info("setting FlatDbStrategy to FULL");
-      transaction.put(
-          TRIE_BRANCH_STORAGE, FLAT_DB_MODE, FlatDbMode.FULL.getVersion().toArrayUnsafe());
-    } else if (dataStorageConfiguration.getDataStorageFormat()
-        == DataStorageFormat.X_BONSAI_ARCHIVE) {
-      LOG.info("setting FlatDbStrategy to ARCHIVE");
-      transaction.put(
-          TRIE_BRANCH_STORAGE, FLAT_DB_MODE, FlatDbMode.ARCHIVE.getVersion().toArrayUnsafe());
-    }
+    LOG.info("setting FlatDbStrategy to FULL");
+    transaction.put(
+        TRIE_BRANCH_STORAGE, FLAT_DB_MODE, FlatDbMode.FULL.getVersion().toArrayUnsafe());
     transaction.commit();
     loadFlatDbStrategy(composedWorldStateStorage); // force reload of flat db reader strategy
   }
 
-  public void downgradeToPartialFlatDbMode(
-      final SegmentedKeyValueStorage composedWorldStateStorage) {
+  public void upgradeToArchiveFlatDbMode(final SegmentedKeyValueStorage composedWorldStateStorage) {
     final SegmentedKeyValueStorageTransaction transaction =
         composedWorldStateStorage.startTransaction();
-    LOG.info("setting FlatDbStrategy to PARTIAL");
+    LOG.info("setting FlatDbStrategy to ARCHIVE");
     transaction.put(
-        TRIE_BRANCH_STORAGE, FLAT_DB_MODE, FlatDbMode.PARTIAL.getVersion().toArrayUnsafe());
+        TRIE_BRANCH_STORAGE, FLAT_DB_MODE, FlatDbMode.ARCHIVE.getVersion().toArrayUnsafe());
     transaction.commit();
     loadFlatDbStrategy(composedWorldStateStorage); // force reload of flat db reader strategy
   }
@@ -91,10 +76,8 @@ public class BonsaiFlatDbStrategyProvider extends FlatDbStrategyProvider {
       final FlatDbMode flatDbMode,
       final MetricsSystem metricsSystem,
       final CodeStorageStrategy codeStorageStrategy) {
-    if (flatDbMode == FlatDbMode.FULL) {
+    if (flatDbMode == FlatDbMode.FULL || flatDbMode == FlatDbMode.ARCHIVE) {
       return new BonsaiFullFlatDbStrategy(metricsSystem, codeStorageStrategy);
-    } else if (flatDbMode == FlatDbMode.ARCHIVE) {
-      return new BonsaiArchiveFlatDbStrategy(metricsSystem, codeStorageStrategy);
     } else {
       return new BonsaiPartialFlatDbStrategy(metricsSystem, codeStorageStrategy);
     }

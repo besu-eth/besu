@@ -16,7 +16,7 @@
     "result": {
       "gas" : 23705,
       "failed" : false,
-      "returnValue" : "",
+      "returnValue" : "0x",
       "structLogs" : [ {
         "pc" : 0,
         "op" : "PUSH1",
@@ -562,113 +562,97 @@
         "op" : "MSTORE",
         "gas" : 292515,
         "gasCost" : 6,
-        "depth" : 1,
-        "memory" : [ "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe9" ]
+        "depth" : 1
       }, {
         "pc" : 1782,
         "op" : "PUSH1",
         "gas" : 292509,
         "gasCost" : 3,
-        "depth" : 1,
-        "memory" : [ "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe9" ]
+        "depth" : 1
       }, {
         "pc" : 1784,
         "op" : "ADD",
         "gas" : 292506,
         "gasCost" : 3,
-        "depth" : 1,
-        "memory" : [ "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe9" ]
+        "depth" : 1
       }, {
         "pc" : 1785,
         "op" : "PUSH1",
         "gas" : 292503,
         "gasCost" : 3,
-        "depth" : 1,
-        "memory" : [ "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe9" ]
+        "depth" : 1
       }, {
         "pc" : 1787,
         "op" : "DUP2",
         "gas" : 292500,
         "gasCost" : 3,
-        "depth" : 1,
-        "memory" : [ "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe9" ]
+        "depth" : 1
       }, {
         "pc" : 1788,
         "op" : "MSTORE",
         "gas" : 292497,
         "gasCost" : 6,
-        "depth" : 1,
-        "memory" : [ "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe9", "0x2a" ]
+        "depth" : 1
       }, {
         "pc" : 1789,
         "op" : "PUSH1",
         "gas" : 292491,
         "gasCost" : 3,
-        "depth" : 1,
-        "memory" : [ "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe9", "0x2a" ]
+        "depth" : 1
       }, {
         "pc" : 1791,
         "op" : "ADD",
         "gas" : 292488,
         "gasCost" : 3,
-        "depth" : 1,
-        "memory" : [ "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe9", "0x2a" ]
+        "depth" : 1
       }, {
         "pc" : 1792,
         "op" : "PUSH1",
         "gas" : 292485,
         "gasCost" : 3,
-        "depth" : 1,
-        "memory" : [ "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe9", "0x2a" ]
+        "depth" : 1
       }, {
         "pc" : 1794,
         "op" : "LOG3",
         "gas" : 292482,
         "gasCost" : 2012,
-        "depth" : 1,
-        "memory" : [ "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe9", "0x2a" ]
+        "depth" : 1
       }, {
         "pc" : 1795,
         "op" : "JUMPDEST",
         "gas" : 290470,
         "gasCost" : 1,
-        "depth" : 1,
-        "memory" : [ "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe9", "0x2a" ]
+        "depth" : 1
       }, {
         "pc" : 1796,
         "op" : "JUMP",
         "gas" : 290469,
         "gasCost" : 8,
-        "depth" : 1,
-        "memory" : [ "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe9", "0x2a" ]
+        "depth" : 1
       }, {
         "pc" : 551,
         "op" : "JUMPDEST",
         "gas" : 290461,
         "gasCost" : 1,
-        "depth" : 1,
-        "memory" : [ "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe9", "0x2a" ]
+        "depth" : 1
       }, {
         "pc" : 552,
         "op" : "PUSH1",
         "gas" : 290460,
         "gasCost" : 3,
-        "depth" : 1,
-        "memory" : [ "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe9", "0x2a" ]
+        "depth" : 1
       }, {
         "pc" : 554,
         "op" : "PUSH1",
         "gas" : 290457,
         "gasCost" : 3,
-        "depth" : 1,
-        "memory" : [ "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe9", "0x2a" ]
+        "depth" : 1
       }, {
         "pc" : 556,
         "op" : "RETURN",
         "gas" : 290454,
         "gasCost" : 0,
-        "depth" : 1,
-        "memory" : [ "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe9", "0x2a" ]
+        "depth" : 1
       }
       ]
     }

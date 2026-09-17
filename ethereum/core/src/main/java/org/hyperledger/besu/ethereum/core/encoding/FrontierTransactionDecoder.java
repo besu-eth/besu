@@ -29,19 +29,17 @@ import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.rlp.RLP;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.math.BigInteger;
 import java.util.Optional;
-import java.util.function.Supplier;
 
-import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
 
 public class FrontierTransactionDecoder {
-  // Supplier for the signature algorithm
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
 
   public static Transaction decode(final Bytes input) {
     return decode(RLP.input(input));
@@ -73,12 +71,11 @@ public class FrontierTransactionDecoder {
       chainId = Optional.of(v.subtract(REPLAY_PROTECTED_V_BASE).divide(TWO));
       recId = v.subtract(TWO.multiply(chainId.get()).add(REPLAY_PROTECTED_V_BASE)).byteValueExact();
     } else {
-      throw new RuntimeException(
-          String.format("An unsupported encoded `v` value of %s was found", v));
+      throw new RLPException(String.format("An unsupported encoded `v` value of %s was found", v));
     }
     final BigInteger r = transactionRlp.readUInt256Scalar().toUnsignedBigInteger();
     final BigInteger s = transactionRlp.readUInt256Scalar().toUnsignedBigInteger();
-    final SECPSignature signature = SIGNATURE_ALGORITHM.get().createSignature(r, s, recId);
+    final SECPSignature signature = SIGNATURE_ALGORITHM.createSignature(r, s, recId);
 
     transactionRlp.leaveList();
 

@@ -21,23 +21,60 @@ import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
  * Strategy interface for calculating gas to add to a block's cumulative gas used. This allows
  * different hard forks to use different gas accounting methods.
  *
- * <p>Prior to EIP-7778: Block gas is calculated POST-refund (gasLimit - gasRemaining), which
+ * <p>Prior to Amsterdam: Block gas is calculated POST-refund (gasLimit - gasRemaining), which
  * includes the benefit of gas refunds from SSTORE operations.
  *
- * <p>EIP-7778 (Amsterdam+): Block gas is calculated PRE-refund (estimateGasUsedByTransaction),
- * preventing block gas limit circumvention through refund credits.
+ * <p>Amsterdam (EIP-7778 + EIP-8037): Block gas is calculated PRE-refund and split into execution
+ * and state dimensions, preventing block gas limit circumvention through refund credits.
  */
-@FunctionalInterface
 public interface BlockGasAccountingStrategy {
 
   /**
-   * Calculate the gas to add to the block's cumulative gas used for a transaction.
+   * Calculate a transaction's execution gas contribution to the block's cumulative gas used.
    *
    * @param transaction the transaction being processed
    * @param result the transaction processing result
-   * @return the gas amount to add to the block's cumulative gas used
+   * @return the execution gas used by the transaction for block accounting
    */
-  long calculateBlockGas(Transaction transaction, TransactionProcessingResult result);
+  long calculateTransactionExecutionGas(
+      Transaction transaction, TransactionProcessingResult result);
+
+  /**
+   * Check whether the block has capacity for a transaction. The default (1D, pre-EIP-8037)
+   * implementation checks the execution gas dimension only: the tx gas limit must fit within the
+   * block's remaining execution-gas budget (capped at zero defensively). EIP-8037 strategies
+   * override this to bound both dimensions by the transaction's gas limit, since either one could
+   * consume the whole limit (execution gas additionally runtime-capped at {@code
+   * TX_MAX_GAS_LIMIT}).
+   *
+   * @param txGasLimit the gas limit of the candidate transaction
+   * @param txMaxGasLimit runtime cap on execution gas per tx (EIP-7825 TX_MAX_GAS_LIMIT)
+   * @param cumulativeExecutionGas cumulative execution gas used in the block so far
+   * @param cumulativeStateGas cumulative state gas used in the block so far
+   * @param blockGasLimit the block gas limit
+   * @return true if the block has capacity for this transaction
+   */
+  default boolean hasBlockCapacity(
+      final long txGasLimit,
+      final long txMaxGasLimit,
+      final long cumulativeExecutionGas,
+      final long cumulativeStateGas,
+      final long blockGasLimit) {
+    final long remainingExecution = Math.max(0, blockGasLimit - cumulativeExecutionGas);
+    return txGasLimit <= remainingExecution;
+  }
+
+  /**
+   * Calculate the effective gas used for occupancy and fullness checks. For 1D gas, this is just
+   * the execution gas. For 2D gas (EIP-8037), this is max(execution, state).
+   *
+   * @param cumulativeExecutionGas cumulative execution gas used
+   * @param cumulativeStateGas cumulative state gas used
+   * @return the effective gas used
+   */
+  default long effectiveGasUsed(final long cumulativeExecutionGas, final long cumulativeStateGas) {
+    return cumulativeExecutionGas;
+  }
 
   /**
    * Frontier through BPO5: Uses post-refund gas (gasLimit - gasRemaining). This is the traditional
@@ -46,10 +83,47 @@ public interface BlockGasAccountingStrategy {
   BlockGasAccountingStrategy FRONTIER = (tx, result) -> tx.getGasLimit() - result.getGasRemaining();
 
   /**
-   * EIP-7778 (Amsterdam+): Uses pre-refund gas (estimateGasUsedByTransaction). This prevents block
-   * gas limit circumvention by not crediting refunds back to the block's gas budget.
+   * Amsterdam (EIP-7778 + EIP-8037): Uses pre-refund gas split into execution and state dimensions.
+   *
+   * <p>EIP-7778: Block gas is calculated pre-refund (estimateGasUsedByTransaction), preventing
+   * block gas limit circumvention through refund credits.
+   *
+   * <p>EIP-8037: Gas is split into execution and state portions. Execution gas =
+   * estimateGasUsedByTransaction - stateGasUsed. Block gas_metered = max(cumulative_execution,
+   * cumulative_state).
    */
-  BlockGasAccountingStrategy EIP7778 = (tx, result) -> result.getEstimateGasUsedByTransaction();
+  BlockGasAccountingStrategy AMSTERDAM =
+      new BlockGasAccountingStrategy() {
+        @Override
+        public long calculateTransactionExecutionGas(
+            final Transaction transaction, final TransactionProcessingResult result) {
+          // EIP-8037: the calldata floor binds this dimension, so the sender cannot buy block
+          // execution-gas space below the floor by spending on state.
+          return result.getExecutionGasUsedForBlock();
+        }
+
+        @Override
+        public boolean hasBlockCapacity(
+            final long txGasLimit,
+            final long txMaxGasLimit,
+            final long cumulativeExecutionGas,
+            final long cumulativeStateGas,
+            final long blockGasLimit) {
+          // The full tx gas limit bounds both dimensions, since either one could consume the
+          // whole limit. Execution gas is additionally capped at TX_MAX_GAS_LIMIT (EIP-7825).
+          final long executionAvailable = Math.max(0L, blockGasLimit - cumulativeExecutionGas);
+          final long stateAvailable = Math.max(0L, blockGasLimit - cumulativeStateGas);
+          final long worstCaseExecution = Math.min(txMaxGasLimit, txGasLimit);
+          final long worstCaseState = txGasLimit;
+          return worstCaseExecution <= executionAvailable && worstCaseState <= stateAvailable;
+        }
+
+        @Override
+        public long effectiveGasUsed(
+            final long cumulativeExecutionGas, final long cumulativeStateGas) {
+          return Math.max(cumulativeExecutionGas, cumulativeStateGas);
+        }
+      };
 
   /**
    * Calculates the gas to be used in transaction receipts. This is always the standard post-refund

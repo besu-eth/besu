@@ -62,27 +62,13 @@ public abstract class AbstractSarOperationBenchmark extends BinaryOperationBench
   protected static final Bytes ALL_BITS =
       Bytes.fromHexString("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
 
-  @Param({
-    "SHIFT_0",
-    "NEGATIVE_SHIFT_1",
-    "POSITIVE_SHIFT_1",
-    "ALL_BITS_SHIFT_1",
-    "NEGATIVE_SHIFT_128",
-    "NEGATIVE_SHIFT_255",
-    "POSITIVE_SHIFT_128",
-    "POSITIVE_SHIFT_255",
-    "OVERFLOW_SHIFT_256",
-    "OVERFLOW_LARGE_SHIFT",
-    "FULL_RANDOM"
-  })
-  protected String caseName;
+  @Param protected Case scenario;
 
   @Setup(Level.Iteration)
   @Override
   public void setUp() {
     frame = BenchmarkHelper.createMessageCallFrame();
 
-    final Case scenario = Case.valueOf(caseName);
     aPool = new Bytes[SAMPLE_SIZE]; // shift amount (pushed second, popped first)
     bPool = new Bytes[SAMPLE_SIZE]; // value (pushed first, popped second)
 

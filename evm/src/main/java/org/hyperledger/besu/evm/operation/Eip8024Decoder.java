@@ -38,8 +38,9 @@ public final class Eip8024Decoder {
 
   /**
    * Decode table for single operand instructions (DUPN, SWAPN). Maps immediate byte value to
-   * decoded n value. Valid range: 0-90 maps to 17-107, 128-255 maps to 108-235. Invalid range:
-   * 91-127.
+   * decoded n value using branchless formula: n = (x + 145) % 256. Only meaningful for valid
+   * immediates where {@link #VALID_SINGLE}[x] is true. Valid range: 0-90 maps to 145-235, 128-255
+   * maps to 17-144. Invalid range: 91-127 (entries left at default 0).
    */
   public static final int[] DECODE_SINGLE = new int[256];
 
@@ -52,8 +53,8 @@ public final class Eip8024Decoder {
   // ==================== Pair Operand Decoding (EXCHANGE) ====================
 
   /**
-   * Validity table for pair operand immediates. True for valid immediates (0-79, 128-255), false
-   * for invalid (80-127).
+   * Validity table for pair operand immediates. True for valid immediates (0-81, 128-255), false
+   * for invalid (82-127).
    */
   public static final boolean[] VALID_PAIR = new boolean[256];
 
@@ -86,18 +87,18 @@ public final class Eip8024Decoder {
    * Initialize decode tables for single operand per EIP-8024 decode_single specification:
    *
    * <pre>
-   * if x <= 90: n = x + 17 (range 17 to 107)
-   * if x >= 128: n = x - 20 (range 108 to 235)
-   * if 91 <= x <= 127: invalid (preserves JUMPDEST 0x5b and PUSH 0x60-0x7f)
+   * n = (x + 145) % 256 (branchless)
+   * Valid range: 0-90 (n = 145-235) and 128-255 (n = 17-144)
+   * Invalid range: 91-127 (preserves JUMPDEST 0x5b and PUSH 0x60-0x7f)
    * </pre>
    */
   private static void initializeSingleDecodeTables() {
     for (int x = 0; x <= 90; x++) {
-      DECODE_SINGLE[x] = x + 17;
+      DECODE_SINGLE[x] = (x + 145) % 256;
       VALID_SINGLE[x] = true;
     }
     for (int x = 128; x <= 255; x++) {
-      DECODE_SINGLE[x] = x - 20;
+      DECODE_SINGLE[x] = (x + 145) % 256;
       VALID_SINGLE[x] = true;
     }
     // 91-127 remain at default values (0 and false)
@@ -107,13 +108,13 @@ public final class Eip8024Decoder {
    * Initialize decode tables for pair operand per EIP-8024 decode_pair specification:
    *
    * <pre>
-   * k = x if x <= 79 else x - 48
+   * k = x ^ 143 (branchless XOR)
    * q, r = divmod(k, 16)
    * if q < r: return (q + 1, r + 1)
    * else: return (r + 1, 29 - q)
    * </pre>
    *
-   * <p>Valid range: 0-79 and 128-255. Invalid range: 80-127.
+   * <p>Valid range: 0-81 and 128-255. Invalid range: 82-127.
    */
   private static void initializePairDecodeTables() {
     // Initialize all as invalid first
@@ -121,15 +122,15 @@ public final class Eip8024Decoder {
       DECODE_PAIR_PACKED[x] = INVALID_PAIR;
     }
 
-    for (int x = 0; x <= 79; x++) {
-      decodePairIntoTables(x, x);
+    for (int x = 0; x <= 81; x++) {
+      decodePairIntoTables(x, x ^ 143);
       VALID_PAIR[x] = true;
     }
     for (int x = 128; x <= 255; x++) {
-      decodePairIntoTables(x, x - 48);
+      decodePairIntoTables(x, x ^ 143);
       VALID_PAIR[x] = true;
     }
-    // 80-127 remain at default values (0, 0, false, INVALID_PAIR)
+    // 82-127 remain at default values (0, 0, false, INVALID_PAIR)
   }
 
   private static void decodePairIntoTables(final int x, final int k) {

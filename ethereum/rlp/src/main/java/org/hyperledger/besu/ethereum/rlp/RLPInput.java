@@ -386,7 +386,27 @@ public interface RLPInput {
    *     applying {@code valueReader} to read elements of the list.
    */
   default <T> List<T> readList(final Function<RLPInput, T> valueReader) {
+    return readList(valueReader, Integer.MAX_VALUE);
+  }
+
+  /**
+   * Reads a full list from the input, rejecting inputs whose element count exceeds {@code
+   * maxElements}.
+   *
+   * @param valueReader A method that can decode a single list element.
+   * @param maxElements The maximum number of elements the list may contain.
+   * @param <T> The type of the elements of the decoded list.
+   * @return The next list of this input, where elements are decoded using {@code valueReader}.
+   * @throws RLPException if the next item is not a list, if it holds more than {@code maxElements}
+   *     elements, or if any error happens when applying {@code valueReader} to read elements.
+   */
+  default <T> List<T> readList(final Function<RLPInput, T> valueReader, final int maxElements) {
     final int size = enterList();
+    if (size > maxElements) {
+      throw new RLPException(
+          String.format(
+              "List of %d elements exceeds the maximum permitted size of %d", size, maxElements));
+    }
     final List<T> res = size == 0 ? List.of() : new ArrayList<>(size);
     for (int i = 0; i < size; i++) {
       try {

@@ -44,14 +44,14 @@ pip install -e .\[docs,lint,test\]
 
 ### Building EvmTool on macOS
 
-First you need a Java 21+ JDK installed, if not already installed.
+First you need a Java 25+ JDK installed, if not already installed.
 
 It is recommended you install [SDKMAN](https://sdkman.io/install) to
 manage the jvm install.
 
 ```zsh
-sdk install java 21.0.3-tem 
-sdk use java 21.0.3-tem
+sdk install java 25.0.3-tem 
+sdk use java 25.0.3-tem
 ```
 
 Once a JVM is installed you use the gradle target:
@@ -73,9 +73,9 @@ fill -v tests --evm-bin ../besu/build/install/besu/bin/evmtool
 Assuming homebrew and SDKMan are both installed, the complete script is
 
 ```zsh
-sdk install java 21.0.3-tem 
-sdk use java 21.0.3-tem
-git clone https://github.com/hyperledger/besu
+sdk install java 25.0.3-tem 
+sdk use java 25.0.3-tem
+git clone https://github.com/besu-eth/besu
 cd besu
 ./gradlew installDist -x test
 cd ..

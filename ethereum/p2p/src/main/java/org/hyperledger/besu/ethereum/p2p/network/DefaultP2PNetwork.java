@@ -19,7 +19,6 @@ import static com.google.common.base.Preconditions.checkState;
 
 import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.ethereum.core.Util;
-import org.hyperledger.besu.ethereum.p2p.config.DiscoveryConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
 import org.hyperledger.besu.ethereum.p2p.discovery.DiscoveryPeer;
 import org.hyperledger.besu.ethereum.p2p.discovery.DiscoveryPeerFactory;
@@ -28,6 +27,7 @@ import org.hyperledger.besu.ethereum.p2p.discovery.PeerDiscoveryAgentFactory;
 import org.hyperledger.besu.ethereum.p2p.discovery.RlpxAgentFactory;
 import org.hyperledger.besu.ethereum.p2p.discovery.dns.DNSDaemon;
 import org.hyperledger.besu.ethereum.p2p.discovery.dns.DNSDaemonListener;
+import org.hyperledger.besu.ethereum.p2p.discovery.dns.EthereumNodeRecord;
 import org.hyperledger.besu.ethereum.p2p.peers.DefaultPeerPrivileges;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.p2p.peers.MaintainedPeers;
@@ -37,23 +37,24 @@ import org.hyperledger.besu.ethereum.p2p.peers.PeerPrivileges;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissionsDenylist;
 import org.hyperledger.besu.ethereum.p2p.rlpx.ConnectCallback;
+import org.hyperledger.besu.ethereum.p2p.rlpx.ConnectSource;
 import org.hyperledger.besu.ethereum.p2p.rlpx.DisconnectCallback;
 import org.hyperledger.besu.ethereum.p2p.rlpx.MessageCallback;
 import org.hyperledger.besu.ethereum.p2p.rlpx.RlpxAgent;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerLookup;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
-import org.hyperledger.besu.ethereum.p2p.rlpx.wire.ShouldConnectCallback;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
 import org.hyperledger.besu.nat.NatMethod;
 import org.hyperledger.besu.nat.NatService;
 import org.hyperledger.besu.nat.core.NatManager;
 import org.hyperledger.besu.nat.core.domain.NatServiceType;
 import org.hyperledger.besu.nat.core.domain.NetworkProtocol;
+import org.hyperledger.besu.nat.docker.DockerNatManager;
 import org.hyperledger.besu.nat.upnp.UpnpNatManager;
-import org.hyperledger.besu.plugin.data.EnodeURL;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
+import java.net.InetAddress;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collection;
@@ -77,6 +78,7 @@ import io.vertx.core.Future;
 import io.vertx.core.ThreadingModel;
 import io.vertx.core.Vertx;
 import org.apache.tuweni.bytes.Bytes;
+import org.ethereum.beacon.discovery.schema.NodeRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -123,6 +125,9 @@ import org.slf4j.LoggerFactory;
 public class DefaultP2PNetwork implements P2PNetwork {
 
   private static final Logger LOG = LoggerFactory.getLogger(DefaultP2PNetwork.class);
+
+  // Tolerates failed attempts without capping to exactly the open slot count.
+  private static final int CANDIDATE_OVERPROVISION_FACTOR = 3;
 
   private final ScheduledExecutorService peerConnectionScheduler =
       Executors.newSingleThreadScheduledExecutor();
@@ -201,19 +206,11 @@ public class DefaultP2PNetwork implements P2PNetwork {
       return;
     }
 
-    if (config.discoveryConfiguration().isDiscoveryV5Enabled()) {
-      LOG.warn(
-          "Discovery Protocol v5 is enabled via --Xv5-discovery-enabled. This is an experimental feature and may not be fully stable.");
-      warnIfEphemeralPortsWithDiscV5();
-    } else {
-      warnIfIpv6OptionsWithDiscV4();
-    }
-
     final String address = config.discoveryConfiguration().getAdvertisedHost();
-    final int configuredDiscoveryPort = config.discoveryConfiguration().getBindPort();
-    final int configuredRlpxPort = config.rlpxConfiguration().getBindPort();
 
     Optional.ofNullable(config.discoveryConfiguration().getDNSDiscoveryURL())
+        .map(String::strip)
+        .filter(url -> !url.isBlank())
         .ifPresent(
             disco -> {
               // These lists are updated every 12h
@@ -247,16 +244,34 @@ public class DefaultP2PNetwork implements P2PNetwork {
               dnsDaemonRef.set(Optional.of(dnsDaemon));
             });
 
-    final int listeningPort = rlpxAgent.start().join();
-    final int discoveryPort =
-        peerDiscoveryAgent
-            .start(
-                (configuredDiscoveryPort == 0 && configuredRlpxPort == 0)
-                    ? listeningPort
-                    : configuredDiscoveryPort)
-            .join();
+    final int listeningPort;
+    try {
+      listeningPort = rlpxAgent.start().join();
+    } catch (final Exception e) {
+      LOG.error("Failed to start RLPx agent", e);
+      // Discovery agent will not be started, count down its latch position
+      shutdownLatch.countDown();
+      // Ensure any partially started RLPx agent is stopped and count down its latch position
+      rlpxAgent.stop().whenComplete((res, err) -> shutdownLatch.countDown());
+      throw e;
+    }
 
-    final Consumer<? super NatManager> natAction =
+    // Pass the effective RLPx TCP port so that the discovery agent can write the correct tcp/tcp6
+    // values into the local ENR.  The discovery agent reads its own UDP bind port independently.
+    final int discoveryPort;
+    try {
+      discoveryPort = peerDiscoveryAgent.start(listeningPort).join();
+    } catch (final Exception e) {
+      LOG.error("Failed to start peer discovery agent", e);
+      // Stop the partially-started discovery agent and count down its latch position on completion
+      peerDiscoveryAgent.stop().whenComplete((r, err) -> shutdownLatch.countDown());
+      // Stop the already-started RLPx agent and count down the remaining latch position on
+      // completion
+      rlpxAgent.stop().whenComplete((res, err) -> shutdownLatch.countDown());
+      throw e;
+    }
+
+    final Consumer<? super NatManager> upnpNatAction =
         natManager -> {
           final UpnpNatManager upnpNatManager = (UpnpNatManager) natManager;
           upnpNatManager.requestPortForward(
@@ -265,8 +280,19 @@ public class DefaultP2PNetwork implements P2PNetwork {
               listeningPort, NetworkProtocol.TCP, NatServiceType.RLPX);
         };
 
-    natService.ifNatEnvironment(NatMethod.UPNP, natAction);
-    natService.ifNatEnvironment(NatMethod.UPNPP2PONLY, natAction);
+    natService.ifNatEnvironment(NatMethod.UPNP, upnpNatAction);
+    natService.ifNatEnvironment(NatMethod.UPNPP2PONLY, upnpNatAction);
+
+    // Docker can't introspect its own port mappings, so unlike UPnP's active port-forward
+    // request above, this only records the real post-bind ports for admin_nodeInfo to report -
+    // it requests nothing from the container runtime.
+    natService.ifNatEnvironment(
+        NatMethod.DOCKER,
+        natManager -> {
+          final DockerNatManager dockerNatManager = (DockerNatManager) natManager;
+          dockerNatManager.updatePort(NatServiceType.DISCOVERY, NetworkProtocol.UDP, discoveryPort);
+          dockerNatManager.updatePort(NatServiceType.RLPX, NetworkProtocol.TCP, listeningPort);
+        });
 
     setLocalNode(address, listeningPort, discoveryPort);
 
@@ -306,12 +332,12 @@ public class DefaultP2PNetwork implements P2PNetwork {
   public void awaitStop() {
     try {
       if (!peerConnectionScheduler.awaitTermination(
-          shutdownTimeout.getSeconds(), TimeUnit.SECONDS)) {
+          shutdownTimeout.toSeconds(), TimeUnit.SECONDS)) {
         LOG.error(
             "{} did not shutdown cleanly: peerConnectionScheduler executor did not fully terminate.",
             this.getClass().getSimpleName());
       }
-      if (!shutdownLatch.await(shutdownTimeout.getSeconds(), TimeUnit.SECONDS)) {
+      if (!shutdownLatch.await(shutdownTimeout.toSeconds(), TimeUnit.SECONDS)) {
         LOG.error(
             "{} did not shutdown cleanly: some internal services failed to fully terminate.",
             this.getClass().getSimpleName());
@@ -322,8 +348,8 @@ public class DefaultP2PNetwork implements P2PNetwork {
   }
 
   @Override
-  public RlpxAgent getRlpxAgent() {
-    return rlpxAgent;
+  public Optional<RlpxAgent> getRlpxAgent() {
+    return Optional.of(rlpxAgent);
   }
 
   @Override
@@ -336,7 +362,7 @@ public class DefaultP2PNetwork implements P2PNetwork {
     }
     final boolean wasAdded = maintainedPeers.add(peer);
     peerDiscoveryAgent.addPeer(peer);
-    rlpxAgent.connect(peer);
+    rlpxAgent.connect(peer, ConnectSource.ADMIN);
     return wasAdded;
   }
 
@@ -361,10 +387,18 @@ public class DefaultP2PNetwork implements P2PNetwork {
 
   @VisibleForTesting
   DNSDaemonListener createDaemonListener() {
-    return (seq, records) ->
-        records.stream()
-            .map(DiscoveryPeerFactory::fromEthereumNodeRecord)
-            .forEach(peerDiscoveryAgent::addPeer);
+    return (seq, records) -> {
+      for (final EthereumNodeRecord record : records) {
+        try {
+          peerDiscoveryAgent.addPeer(DiscoveryPeerFactory.fromEthereumNodeRecord(record));
+        } catch (final RuntimeException e) {
+          LOG.trace(
+              "Ignoring unusable ENR from DNS discovery for {}: {}",
+              record.publicKey(),
+              e.getMessage());
+        }
+      }
+    };
   }
 
   @VisibleForTesting
@@ -381,18 +415,24 @@ public class DefaultP2PNetwork implements P2PNetwork {
     maintainedPeers
         .streamPeers()
         .filter(p -> !doNotConnectTo.contains(p.getId()))
-        .forEach(rlpxAgent::connect);
+        .forEach(p -> rlpxAgent.connect(p, ConnectSource.MAINTAIN));
   }
 
   @VisibleForTesting
   void attemptPeerConnections() {
+    if (rlpxAgent.getConnectionCount() >= rlpxAgent.getMaxPeers()) {
+      LOG.trace("Skipping connection attempts to discovered peers - already at max peers.");
+      return;
+    }
     LOG.trace("Initiating connections to discovered peers.");
-    final Stream<DiscoveryPeer> toTry =
-        streamDiscoveredPeers()
-            .filter(DiscoveryPeer::isReadyForConnections)
-            .filter(peerDiscoveryAgent::checkForkId)
-            .sorted(Comparator.comparing(DiscoveryPeer::getLastAttemptedConnection));
-    toTry.forEach(rlpxAgent::connect);
+    final int openSlots = rlpxAgent.getMaxPeers() - rlpxAgent.getConnectionCount();
+    streamDiscoveredPeers()
+        .filter(DiscoveryPeer::isReadyForConnections)
+        .filter(peerDiscoveryAgent::checkForkId)
+        .filter(p -> !rlpxAgent.isConnectingOrConnected(p.getId()))
+        .sorted(Comparator.comparing(DiscoveryPeer::getLastAttemptedConnection))
+        .limit((long) openSlots * CANDIDATE_OVERPROVISION_FACTOR)
+        .forEach(p -> rlpxAgent.connect(p, ConnectSource.MAINTAIN));
   }
 
   @Override
@@ -412,7 +452,7 @@ public class DefaultP2PNetwork implements P2PNetwork {
 
   @Override
   public CompletableFuture<PeerConnection> connect(final Peer peer) {
-    return rlpxAgent.connect(peer);
+    return rlpxAgent.connect(peer, ConnectSource.ADMIN);
   }
 
   @Override
@@ -423,11 +463,6 @@ public class DefaultP2PNetwork implements P2PNetwork {
   @Override
   public void subscribeConnect(final ConnectCallback callback) {
     rlpxAgent.subscribeConnect(callback);
-  }
-
-  @Override
-  public void subscribeConnectRequest(final ShouldConnectCallback callback) {
-    rlpxAgent.subscribeConnectRequest(callback);
   }
 
   @Override
@@ -461,36 +496,11 @@ public class DefaultP2PNetwork implements P2PNetwork {
   }
 
   @Override
-  public Optional<EnodeURL> getLocalEnode() {
+  public Optional<EnodeURLImpl> getLocalEnode() {
     if (!localNode.isReady()) {
       return Optional.empty();
     }
     return Optional.of(localNode.getPeer().getEnodeURL());
-  }
-
-  private void warnIfIpv6OptionsWithDiscV4() {
-    final DiscoveryConfiguration disc = config.discoveryConfiguration();
-    if (disc.getAdvertisedHostIpv6().isPresent() || disc.isDualStackEnabled()) {
-      LOG.warn(
-          "--p2p-host-ipv6 and --p2p-interface-ipv6 are only supported with DiscV5 "
-              + "(--Xv5-discovery-enabled). These options are ignored by DiscV4.");
-    }
-  }
-
-  private void warnIfEphemeralPortsWithDiscV5() {
-    final DiscoveryConfiguration disc = config.discoveryConfiguration();
-    final boolean ipv4Ephemeral = disc.getBindPort() == 0;
-    final boolean ipv6Ephemeral = disc.isDualStackEnabled() && disc.getBindPortIpv6() == 0;
-    if (!ipv4Ephemeral && !ipv6Ephemeral) {
-      return;
-    }
-    final String which =
-        (ipv4Ephemeral && ipv6Ephemeral) ? "IPv4 and IPv6" : ipv4Ephemeral ? "IPv4" : "IPv6";
-    LOG.warn(
-        "Ephemeral port (0) specified for {} with DiscV5 enabled. "
-            + "Ephemeral port support with DiscV5 may not work as expected and will be addressed in a future release. "
-            + "Specify explicit port numbers to ensure correct peer advertisement.",
-        which);
   }
 
   private void setLocalNode(
@@ -503,7 +513,7 @@ public class DefaultP2PNetwork implements P2PNetwork {
     // override advertised host if we detect an external IP address via NAT manager
     final String advertisedAddress = natService.queryExternalIPAddress(address);
 
-    final EnodeURL localEnode =
+    final EnodeURLImpl localEnode =
         EnodeURLImpl.builder()
             .nodeId(nodeId)
             .ipAddress(advertisedAddress)
@@ -512,8 +522,65 @@ public class DefaultP2PNetwork implements P2PNetwork {
             .build();
 
     LOG.info("Enode URL {}", localEnode.toString());
+    logIpv6EnodeUrl();
+    getLocalEnr().ifPresent(enr -> LOG.info("ENR URL {}", enr));
     LOG.info("Node address {}", Util.publicKeyToAddress(localEnode.getNodeId()));
     localNode.setEnode(localEnode);
+  }
+
+  /**
+   * Logs the IPv6 enode URL, if dual-stack RLPx is active. Purely diagnostic - the IPv6 enode
+   * advertised via admin_nodeInfo is derived independently (and dynamically) from the local ENR by
+   * {@link #getIPv6AddressInfo()}, not from anything computed here.
+   */
+  private void logIpv6EnodeUrl() {
+    final Optional<String> v6Host = config.discoveryConfiguration().getAdvertisedHostIpv6();
+    if (v6Host.isEmpty()) {
+      return;
+    }
+    final Optional<Integer> v6TcpPort = rlpxAgent.getIpv6ListeningPort();
+    if (v6TcpPort.isEmpty()) {
+      return;
+    }
+    final int v6UdpPort =
+        getIPv6AddressInfo()
+            .flatMap(IPv6AddressInfo::discoveryPort)
+            .orElseGet(() -> config.discoveryConfiguration().getBindPortIpv6());
+    final EnodeURLImpl localEnodeV6 =
+        EnodeURLImpl.builder()
+            .nodeId(nodeId)
+            .ipAddress(v6Host.get())
+            .listeningPort(v6TcpPort.get())
+            .discoveryPort(v6UdpPort)
+            .build();
+    LOG.info("Enode URL (IPv6) {}", localEnodeV6);
+  }
+
+  @Override
+  public Optional<String> getLocalEnr() {
+    return peerDiscoveryAgent.getLocalNodeRecord().map(NodeRecord::asEnr);
+  }
+
+  @Override
+  public Optional<IPv6AddressInfo> getIPv6AddressInfo() {
+    try {
+      return peerDiscoveryAgent
+          .getLocalNodeRecord()
+          .map(EthereumNodeRecord::fromNodeRecord)
+          .flatMap(
+              enr ->
+                  enr.getIpV6Address()
+                      .map(InetAddress::getHostAddress)
+                      .map(
+                          addr ->
+                              new IPv6AddressInfo(
+                                  addr,
+                                  enr.getIpV6TcpListeningPort(),
+                                  enr.getIpV6UdpDiscoveryPort())));
+    } catch (final IllegalArgumentException e) {
+      LOG.debug("Failed to parse local Ethereum Node Record; IPv6 fields will be unavailable", e);
+      return Optional.empty();
+    }
   }
 
   @Override

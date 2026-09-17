@@ -25,6 +25,7 @@ import java.nio.file.Path;
 import java.security.spec.ECPoint;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -32,6 +33,47 @@ import org.junit.jupiter.api.io.TempDir;
 public class KeyPairSecurityModuleTest {
 
   @TempDir public Path keyFile;
+
+  @Test
+  public void ecdhKeyAgreementCompressedIsSymmetric() throws IOException {
+    final KeyPair kp1 = KeyPairUtil.loadKeyPair(keyFile.resolve("key1"));
+    final KeyPair kp2 = KeyPairUtil.loadKeyPair(keyFile.resolve("key2"));
+
+    final KeyPairSecurityModule module1 = new KeyPairSecurityModule(kp1);
+    final KeyPairSecurityModule module2 = new KeyPairSecurityModule(kp2);
+
+    final Bytes compressed1 =
+        module1.calculateECDHKeyAgreementCompressed(
+            () ->
+                ECPointUtil.fromBouncyCastleECPoint(
+                    SignatureAlgorithmFactory.getInstance()
+                        .publicKeyAsEcPoint(kp2.getPublicKey())));
+    final Bytes compressed2 =
+        module2.calculateECDHKeyAgreementCompressed(
+            () ->
+                ECPointUtil.fromBouncyCastleECPoint(
+                    SignatureAlgorithmFactory.getInstance()
+                        .publicKeyAsEcPoint(kp1.getPublicKey())));
+
+    Assertions.assertThat(compressed1).isEqualTo(compressed2);
+    Assertions.assertThat(compressed1.size()).isEqualTo(33);
+  }
+
+  @Test
+  public void ecdhKeyAgreementCompressedXCoordinateMatchesUncompressed() throws IOException {
+    final KeyPair kp1 = KeyPairUtil.loadKeyPair(keyFile.resolve("key1"));
+    final KeyPair kp2 = KeyPairUtil.loadKeyPair(keyFile.resolve("key2"));
+
+    final KeyPairSecurityModule module1 = new KeyPairSecurityModule(kp1);
+    final var partyKey =
+        ECPointUtil.fromBouncyCastleECPoint(
+            SignatureAlgorithmFactory.getInstance().publicKeyAsEcPoint(kp2.getPublicKey()));
+
+    final Bytes32 xOnly = module1.calculateECDHKeyAgreement(() -> partyKey);
+    final Bytes compressed = module1.calculateECDHKeyAgreementCompressed(() -> partyKey);
+
+    Assertions.assertThat(compressed.slice(1, 32)).isEqualTo(xOnly);
+  }
 
   @Test
   public void validatePublicKeyFromECPointCanBeConstructed() throws IOException {

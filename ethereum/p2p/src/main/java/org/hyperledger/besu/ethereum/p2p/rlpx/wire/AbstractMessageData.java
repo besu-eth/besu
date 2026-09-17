@@ -27,7 +27,7 @@ public abstract class AbstractMessageData implements MessageData {
   }
 
   @Override
-  public final int getSize() {
+  public int getSize() {
     return data.size();
   }
 

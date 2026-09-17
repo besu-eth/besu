@@ -30,7 +30,6 @@ import org.hyperledger.besu.crypto.SECPPrivateKey;
 import org.hyperledger.besu.crypto.SECPPublicKey;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
-import org.hyperledger.besu.crypto.SignatureAlgorithmType;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.core.Util;
 
@@ -42,15 +41,12 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.IntStream;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeType;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import com.google.common.io.Resources;
 import jakarta.validation.constraints.NotBlank;
 import org.apache.tuweni.bytes.Bytes;
@@ -67,9 +63,6 @@ import picocli.CommandLine.ParentCommand;
     versionProvider = VersionProvider.class)
 class GenerateBlockchainConfig implements Runnable {
   private static final Logger LOG = LoggerFactory.getLogger(GenerateBlockchainConfig.class);
-
-  private final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
 
   @NotBlank
   @Option(
@@ -176,14 +169,15 @@ class GenerateBlockchainConfig implements Runnable {
     final String publicKeyText = publicKeyJson.asText();
 
     try {
+      SignatureAlgorithm signatureAlgorithm = SignatureAlgorithmFactory.getInstance();
       final SECPPublicKey publicKey =
-          SIGNATURE_ALGORITHM.get().createPublicKey(Bytes.fromHexString(publicKeyText));
+          signatureAlgorithm.createPublicKey(Bytes.fromHexString(publicKeyText));
 
-      if (!SIGNATURE_ALGORITHM.get().isValidPublicKey(publicKey)) {
+      if (!signatureAlgorithm.isValidPublicKey(publicKey)) {
         throw new IllegalArgumentException(
             publicKeyText
                 + " is not a valid public key for elliptic curve "
-                + SIGNATURE_ALGORITHM.get().getCurveName());
+                + signatureAlgorithm.getCurveName());
       }
 
       writeKeypair(publicKey, null);
@@ -208,7 +202,7 @@ class GenerateBlockchainConfig implements Runnable {
   private void generateNodeKeypair(final int node) {
     try {
       LOG.info("Generating keypair for node {}.", node);
-      final KeyPair keyPair = SIGNATURE_ALGORITHM.get().generateKeyPair();
+      final KeyPair keyPair = SignatureAlgorithmFactory.getInstance().generateKeyPair();
       writeKeypair(keyPair.getPublicKey(), keyPair.getPrivateKey());
 
     } catch (final IOException e) {
@@ -287,19 +281,17 @@ class GenerateBlockchainConfig implements Runnable {
   /** Sets the selected signature algorithm instance in SignatureAlgorithmFactory. */
   private void processEcCurve() {
     GenesisConfigOptions options = GenesisConfig.fromConfig(genesisConfig).getConfigOptions();
-    Optional<String> ecCurve = options.getEcCurve();
-
-    if (ecCurve.isEmpty()) {
-      SignatureAlgorithmFactory.setInstance(SignatureAlgorithmType.createDefault());
-      return;
-    }
-
-    try {
-      SignatureAlgorithmFactory.setInstance(SignatureAlgorithmType.create(ecCurve.get()));
-    } catch (IllegalArgumentException e) {
-      throw new IllegalArgumentException(
-          "Invalid parameter for ecCurve in genesis config: " + e.getMessage());
-    }
+    options
+        .getEcCurve()
+        .ifPresent(
+            ecCurve -> {
+              try {
+                SignatureAlgorithmFactory.switchInstance(ecCurve);
+              } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException(
+                    "Invalid parameter for ecCurve in genesis config: " + e.getMessage());
+              }
+            });
   }
 
   /**

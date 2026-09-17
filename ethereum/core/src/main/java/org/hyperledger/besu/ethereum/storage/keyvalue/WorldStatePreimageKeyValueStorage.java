@@ -15,9 +15,9 @@
 package org.hyperledger.besu.ethereum.storage.keyvalue;
 
 import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.ethereum.worldstate.WorldStatePreimageStorage;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorageTransaction;
+import org.hyperledger.besu.plugin.services.storage.WorldStatePreimageStorage;
 
 import java.util.Optional;
 

@@ -62,11 +62,10 @@ public class SECPPrivateKey implements java.security.PrivateKey {
 
   @Override
   public boolean equals(final Object other) {
-    if (!(other instanceof SECPPrivateKey)) {
+    if (!(other instanceof SECPPrivateKey that)) {
       return false;
     }
 
-    final SECPPrivateKey that = (SECPPrivateKey) other;
     return this.encoded.equals(that.encoded) && this.algorithm.equals(that.algorithm);
   }
 

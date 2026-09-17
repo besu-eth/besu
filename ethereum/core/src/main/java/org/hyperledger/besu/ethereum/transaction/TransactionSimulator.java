@@ -14,8 +14,9 @@
  */
 package org.hyperledger.besu.ethereum.transaction;
 
+import static org.hyperledger.besu.ethereum.mainnet.feemarket.BlobFeeMarket.MIN_BLOB_GASPRICE;
 import static org.hyperledger.besu.ethereum.mainnet.feemarket.ExcessBlobGasCalculator.calculateExcessBlobGasForParent;
-import static org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
+import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
 
 import org.hyperledger.besu.crypto.SECPSignature;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
@@ -32,7 +33,6 @@ import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
@@ -48,8 +48,8 @@ import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
-import org.hyperledger.besu.evm.tracing.TracerAggregator;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.math.BigInteger;
 import java.util.List;
@@ -156,7 +156,7 @@ public class TransactionSimulator {
 
       // in order to trace the state diff we need to make sure that
       // the world updater always has a parent
-      if (TracerAggregator.hasTracer(operationTracer, DebugOperationTracer.class)) {
+      if (operationTracer instanceof DebugOperationTracer) {
         updater = updater.parentUpdater().isPresent() ? updater : updater.updater();
       }
 
@@ -181,7 +181,7 @@ public class TransactionSimulator {
         currentProtocolSpec
             .getSlotDuration()
             .plusSeconds(chainHeadHeader.getTimestamp())
-            .getSeconds();
+            .toSeconds();
 
     final ProtocolSpec protocolSpec =
         protocolSchedule.getForNextBlockHeader(chainHeadHeader, timestamp);
@@ -293,7 +293,7 @@ public class TransactionSimulator {
       }
       // in order to trace the state diff we need to make sure that
       // the world updater always has a parent
-      if (TracerAggregator.hasTracer(operationTracer, DebugOperationTracer.class)) {
+      if (operationTracer instanceof DebugOperationTracer) {
         updater = updater.parentUpdater().isPresent() ? updater : updater.updater();
       }
 
@@ -316,6 +316,12 @@ public class TransactionSimulator {
               Optional.empty()));
 
     } catch (final Exception e) {
+      LOG.atDebug()
+          .setMessage("Transaction simulation failed for block {}: {}")
+          .addArgument(header::toLogString)
+          .addArgument(e::toString)
+          .setCause(e)
+          .log();
       return Optional.empty();
     }
   }
@@ -370,8 +376,11 @@ public class TransactionSimulator {
 
     BiFunction<ProtocolSpec, Optional<BlockHeader>, Wei> blobGasPricePerGasSupplier =
         (protocolSpec, maybeParentHeader) -> {
-          if (transactionValidationParams.isAllowExceedingBalance()) {
-            return Wei.ZERO;
+          if (transactionValidationParams.isAllowExceedingBalance()
+              && !transactionValidationParams.isPreserveCallerGasPricing()) {
+            // Returning zero is spec-illegal even in no-fee simulation paths where baseFee
+            // is zeroed for caller convenience.
+            return MIN_BLOB_GASPRICE;
           }
           return protocolSpec
               .getFeeMarket()
@@ -423,6 +432,7 @@ public class TransactionSimulator {
 
     final ProcessableBlockHeader blockHeaderToProcess;
     if (transactionValidationParams.isAllowExceedingBalance()
+        && !transactionValidationParams.isPreserveCallerGasPricing()
         && processableHeader.getBaseFee().isPresent()) {
       blockHeaderToProcess =
           new BlockHeaderBuilder()
@@ -528,26 +538,18 @@ public class TransactionSimulator {
         simulationGasCap = userProvidedGasLimit;
       }
     } else {
-      final long txGasLimitCap =
-          protocolSchedule
-              .getByBlockHeader(blockHeader)
-              .getGasLimitCalculator()
-              .transactionGasLimitCap();
       if (rpcGasCap > 0) {
-        simulationGasCap = Math.min(rpcGasCap, Math.min(txGasLimitCap, blockGasLimit));
+        simulationGasCap = Math.min(rpcGasCap, blockGasLimit);
         LOG.trace(
-            "No user provided gas limit, setting simulation gas cap to the value of min(rpc-gas-cap={},txGasLimitCap={},blockGasLimit={})={}",
+            "No user provided gas limit, setting simulation gas cap to the value of min(rpc-gas-cap={},blockGasLimit={})={}",
             rpcGasCap,
-            txGasLimitCap,
             blockGasLimit,
             simulationGasCap);
       } else {
-        simulationGasCap = Math.min(txGasLimitCap, blockGasLimit);
+        simulationGasCap = blockGasLimit;
         LOG.trace(
-            "No user provided gas limit and rpc-gas-cap options is not set, setting simulation gas cap to min(txGasLimitCap={},blockGasLimit={})={}",
-            txGasLimitCap,
-            blockGasLimit,
-            simulationGasCap);
+            "No user provided gas limit and rpc-gas-cap option is not set, setting simulation gas cap to block gas limit {}",
+            blockGasLimit);
       }
     }
     return simulationGasCap;
@@ -588,11 +590,21 @@ public class TransactionSimulator {
     final Wei maxFeePerGas;
     final Wei maxPriorityFeePerGas;
     final Wei maxFeePerBlobGas;
-    if (transactionValidationParams.isAllowExceedingBalance()) {
+    if (transactionValidationParams.isPreserveCallerGasPricing()) {
+      // eth_simulateV1: use caller-provided gas pricing so fees are charged from sender's balance,
+      // producing the correct stateRoot and block hash.
+      gasPrice = callParams.getGasPrice().orElse(Wei.ZERO);
+      maxFeePerGas = callParams.getMaxFeePerGas().orElse(Wei.ZERO);
+      maxPriorityFeePerGas = callParams.getMaxPriorityFeePerGas().orElse(Wei.ZERO);
+      maxFeePerBlobGas = callParams.getMaxFeePerBlobGas().orElse(Wei.ZERO);
+    } else if (transactionValidationParams.isAllowExceedingBalance()) {
+      // eth_call: zero gas prices so callers don't need sufficient balance for gas.
       gasPrice = Wei.ZERO;
       maxFeePerGas = Wei.ZERO;
       maxPriorityFeePerGas = Wei.ZERO;
-      maxFeePerBlobGas = Wei.ZERO;
+      // Must match blobGasPrice (MIN_BLOB_GASPRICE) so the fee-cap check passes; see
+      // blobGasPricePerGasSupplier above.
+      maxFeePerBlobGas = MIN_BLOB_GASPRICE;
     } else {
       if (noPricingParametersPresent) {
         // in case there are no gas price parameters,

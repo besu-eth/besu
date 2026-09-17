@@ -40,6 +40,10 @@ import org.hyperledger.besu.ethereum.transaction.BlockSimulator;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallException;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.services.BlockImportTracerProvider;
+import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
 
 import java.util.List;
 import java.util.Optional;
@@ -52,8 +56,10 @@ public class EthSimulateV1 extends AbstractBlockParameterOrBlockHashMethod {
 
   private final BlockSimulator blockSimulator;
   private final ProtocolSchedule protocolSchedule;
+  private final BlockImportTracerProvider blockImportTracerProvider;
 
   public EthSimulateV1(
+      final ServiceManager serviceManager,
       final BlockchainQueries blockchainQueries,
       final ProtocolSchedule protocolSchedule,
       final TransactionSimulator transactionSimulator,
@@ -69,6 +75,12 @@ public class EthSimulateV1 extends AbstractBlockParameterOrBlockHashMethod {
             miningConfiguration,
             blockchainQueries.getBlockchain(),
             apiConfiguration.getGasCap());
+
+    this.blockImportTracerProvider =
+        Optional.ofNullable(serviceManager)
+            .flatMap(mgr -> mgr.getService(BlockImportTracerProvider.class))
+            // if block import tracer provider is not specified by plugin, default to no tracing
+            .orElse(__ -> BlockAwareOperationTracer.NO_TRACING);
   }
 
   @VisibleForTesting
@@ -79,6 +91,7 @@ public class EthSimulateV1 extends AbstractBlockParameterOrBlockHashMethod {
     super(blockchainQueries);
     this.protocolSchedule = protocolSchedule;
     this.blockSimulator = blockSimulator;
+    this.blockImportTracerProvider = __ -> BlockAwareOperationTracer.NO_TRACING;
   }
 
   @Override
@@ -128,14 +141,7 @@ public class EthSimulateV1 extends AbstractBlockParameterOrBlockHashMethod {
       }
       return process(header, simulateV1Parameter);
     } catch (final BlockStateCallException e) {
-      int errorCode = e.getError().getCode();
-      // When validation is enabled, map simulation-specific error codes to -32602
-      // (invalid params) per the execution-apis spec.
-      if (simulateV1Parameter.isValidation()
-          && e.getError() == BlockStateCallError.UPFRONT_COST_EXCEEDS_BALANCE) {
-        errorCode = INVALID_PARAMS.getCode();
-      }
-      JsonRpcError error = new JsonRpcError(errorCode, e.getMessage(), null);
+      JsonRpcError error = new JsonRpcError(e.getError().getCode(), e.getMessage(), null);
       return new JsonRpcErrorResponse(request.getRequest().getId(), error);
     } catch (Exception e) {
       throw new RuntimeException(e);
@@ -143,8 +149,14 @@ public class EthSimulateV1 extends AbstractBlockParameterOrBlockHashMethod {
   }
 
   private Object process(final BlockHeader header, final SimulateV1Parameter simulateV1Parameter) {
+    var blockImportTracer =
+        simulateV1Parameter.isTraceBlockImport()
+            ? blockImportTracerProvider.getBlockImportTracer(header)
+            : OperationTracer.NO_TRACING;
+
     final List<BlockSimulationResult> simulationResults =
-        blockSimulator.process(header, simulateV1Parameter);
+        blockSimulator.process(header, simulateV1Parameter, blockImportTracer);
+
     return simulationResults.stream()
         .map(
             result ->

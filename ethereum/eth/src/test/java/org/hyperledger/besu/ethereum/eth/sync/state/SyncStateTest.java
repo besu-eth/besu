@@ -26,7 +26,6 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 
-import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -47,14 +46,16 @@ import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManager;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManagerTestBuilder;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManagerTestUtil;
 import org.hyperledger.besu.ethereum.eth.manager.RespondingEthPeer;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.checkpoint.Checkpoint;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.checkpoint.ImmutableCheckpoint;
+import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.Checkpoint;
+import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.ImmutableCheckpoint;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.plugin.data.SyncStatus;
 import org.hyperledger.besu.plugin.services.BesuEvents.InitialSyncCompletionListener;
 import org.hyperledger.besu.plugin.services.BesuEvents.SyncStatusListener;
 import org.hyperledger.besu.plugin.services.BesuEvents.TTDReachedListener;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -69,7 +70,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 public class SyncStateTest {
 
   private static final Difficulty standardDifficultyPerBlock = Difficulty.ONE;
-  private static final long OUR_CHAIN_HEAD_NUMBER = 20;
+  private static final long OUR_CHAIN_HEAD_NUMBER = 3;
   private static final Difficulty OUR_CHAIN_DIFFICULTY =
       standardDifficultyPerBlock.multiply(OUR_CHAIN_HEAD_NUMBER);
   private static final long TARGET_CHAIN_DELTA = 20;
@@ -97,7 +98,11 @@ public class SyncStateTest {
 
   @BeforeEach
   public void setUp() {
-    ethProtocolManager = EthProtocolManagerTestBuilder.builder().setBlockchain(blockchain).build();
+    ethProtocolManager =
+        EthProtocolManagerTestBuilder.builder()
+            .setBlockchain(blockchain)
+            .setWorldStateArchive(mock(WorldStateArchive.class))
+            .build();
     ethPeers = spy(ethProtocolManager.ethContext().getEthPeers());
     syncTargetPeer = createPeer(TARGET_CHAIN_HEIGHT);
     otherPeer = createPeer(0);
@@ -509,6 +514,38 @@ public class SyncStateTest {
     assertThat(clearedEvent).isEmpty();
   }
 
+  @Test
+  public void bestChainHeight_usesPeerEstimateBeforeAnyPayload() {
+    updateChainState(otherPeer.getEthPeer(), TARGET_CHAIN_HEIGHT, TARGET_DIFFICULTY);
+    doReturn(Optional.of(otherPeer.getEthPeer())).when(ethPeers).bestPeerWithHeightEstimate();
+
+    assertThat(syncState.bestChainHeight()).isEqualTo(TARGET_CHAIN_HEIGHT);
+  }
+
+  @Test
+  public void bestChainHeight_usesPayloadHeightAfterNewPayload() {
+    // A peer reports a higher estimate, which must be ignored once a payload is received.
+    updateChainState(otherPeer.getEthPeer(), TARGET_CHAIN_HEIGHT, TARGET_DIFFICULTY);
+    lenient()
+        .doReturn(Optional.of(otherPeer.getEthPeer()))
+        .when(ethPeers)
+        .bestPeerWithHeightEstimate();
+
+    final long payloadHeight = 1_000L;
+    syncState.onNewPayload(new BlockHeaderTestFixture().number(payloadHeight).buildHeader());
+
+    assertThat(syncState.bestChainHeight()).isEqualTo(payloadHeight);
+    assertThat(syncState.bestChainHeight(0L)).isEqualTo(payloadHeight);
+  }
+
+  @Test
+  public void bestChainHeight_tracksLatestPayloadOnReorg() {
+    syncState.onNewPayload(new BlockHeaderTestFixture().number(1_000L).buildHeader());
+    syncState.onNewPayload(new BlockHeaderTestFixture().number(998L).buildHeader());
+
+    assertThat(syncState.bestChainHeight()).isEqualTo(998L);
+  }
+
   private RespondingEthPeer createPeer(final long blockHeight) {
     return EthProtocolManagerTestUtil.createPeer(ethProtocolManager, blockHeight);
   }
@@ -539,6 +576,22 @@ public class SyncStateTest {
     verify(inSyncListenerExact).onInSyncStatusChange(false);
   }
 
+  @Test
+  public void inSyncCheckDrivenByABlockImportDoesNotTakeTheSyncStateMonitor() {
+    final List<Boolean> heldMonitorDuringCallback = new ArrayList<>();
+    syncState.subscribeInSync(
+        _ -> heldMonitorDuringCallback.add(Thread.holdsLock(syncState)),
+        Synchronizer.DEFAULT_IN_SYNC_TOLERANCE);
+
+    // Fires the block-added observer and therefore calls checkInSync() on this thread.
+    advanceLocalChain(blockchain.getChainHeadBlockNumber() + 1);
+
+    assertThat(heldMonitorDuringCallback)
+        .withFailMessage("a block import called checkInSync() while holding the sync state monitor")
+        .isNotEmpty()
+        .containsOnly(false);
+  }
+
   private void advanceLocalChain(final long newChainHeight) {
     while (blockchain.getChainHeadBlockNumber() < newChainHeight) {
       final BlockHeader parent = blockchain.getChainHeadHeader();
@@ -547,7 +600,8 @@ public class SyncStateTest {
               BlockOptions.create()
                   .setDifficulty(standardDifficultyPerBlock)
                   .setParentHash(parent.getHash())
-                  .setBlockNumber(parent.getNumber() + 1L));
+                  .setBlockNumber(parent.getNumber() + 1L)
+                  .transactionCount(0));
       final List<TransactionReceipt> receipts = gen.receipts(block);
       blockchain.appendBlock(block, receipts);
     }
@@ -698,20 +752,6 @@ public class SyncStateTest {
 
     syncState.markInitialSyncPhaseAsDone();
     assertThat(syncState.isResyncNeeded()).isFalse();
-  }
-
-  @Test
-  public void shouldTrackAccountToRepair() {
-    assertThat(syncState.getAccountToRepair()).isEmpty();
-
-    Address testAddress = Address.fromHexString("0x1234567890123456789012345678901234567890");
-    syncState.markAccountToRepair(Optional.of(testAddress));
-
-    assertThat(syncState.getAccountToRepair()).isPresent();
-    assertThat(syncState.getAccountToRepair().get()).isEqualTo(testAddress);
-
-    syncState.markAccountToRepair(Optional.empty());
-    assertThat(syncState.getAccountToRepair()).isEmpty();
   }
 
   @Test

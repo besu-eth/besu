@@ -54,6 +54,10 @@ public class JsonRpcErrorResponse implements JsonRpcResponse {
     this(id, new JsonRpcError(error));
   }
 
+  public JsonRpcErrorResponse(final Object id, final RpcErrorType error, final String data) {
+    this(id, new JsonRpcError(error, data));
+  }
+
   public JsonRpcErrorResponse(
       final Object id, final ValidationResult<RpcErrorType> validationResult) {
     this(
@@ -125,8 +129,7 @@ public class JsonRpcErrorResponse implements JsonRpcResponse {
         List<Type> decoded = FunctionReturnDecoder.decode(encodedReasonText, revertReasonTypes);
 
         // Expect a single decoded string
-        if (decoded.size() == 1 && (decoded.get(0) instanceof Utf8String)) {
-          Utf8String decodedRevertReason = (Utf8String) decoded.get(0);
+        if (decoded.size() == 1 && (decoded.get(0) instanceof Utf8String decodedRevertReason)) {
           return Optional.of(decodedRevertReason.getValue());
         }
       } catch (StringIndexOutOfBoundsException exception) {

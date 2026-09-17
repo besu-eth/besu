@@ -18,7 +18,7 @@ import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 
 import java.util.List;
@@ -50,6 +50,11 @@ public class TransactionProcessingResult
 
   private final long gasSpent;
 
+  private final long stateGasUsed;
+
+  /** EIP-8037 block-accounting execution gas; {@link Long#MIN_VALUE} means "not set". */
+  private long executionGasUsedForBlock = Long.MIN_VALUE;
+
   private final List<Log> logs;
 
   private final Bytes output;
@@ -71,6 +76,7 @@ public class TransactionProcessingResult
         -1,
         -1,
         -1,
+        0,
         Bytes.EMPTY,
         validationResult,
         Optional.empty(),
@@ -82,6 +88,7 @@ public class TransactionProcessingResult
       final long gasUsedByTransaction,
       final long gasRemaining,
       final long gasSpent,
+      final long stateGasUsed,
       final ValidationResult<TransactionInvalidReason> validationResult,
       final Optional<Bytes> revertReason,
       final Optional<ExceptionalHaltReason> exceptionalHaltReason,
@@ -92,6 +99,7 @@ public class TransactionProcessingResult
         gasUsedByTransaction,
         gasRemaining,
         gasSpent,
+        stateGasUsed,
         Bytes.EMPTY,
         validationResult,
         revertReason,
@@ -114,6 +122,7 @@ public class TransactionProcessingResult
         gasUsedByTransaction,
         gasRemaining,
         gasUsedByTransaction,
+        0,
         validationResult,
         revertReason,
         exceptionalHaltReason,
@@ -125,6 +134,7 @@ public class TransactionProcessingResult
       final long gasUsedByTransaction,
       final long gasRemaining,
       final long gasSpent,
+      final long stateGasUsed,
       final Bytes output,
       final Optional<PartialBlockAccessView> partialBlockAccessView,
       final ValidationResult<TransactionInvalidReason> validationResult) {
@@ -134,6 +144,7 @@ public class TransactionProcessingResult
         gasUsedByTransaction,
         gasRemaining,
         gasSpent,
+        stateGasUsed,
         output,
         validationResult,
         Optional.empty(),
@@ -156,6 +167,7 @@ public class TransactionProcessingResult
         gasUsedByTransaction,
         gasRemaining,
         gasUsedByTransaction,
+        0,
         output,
         partialBlockAccessView,
         validationResult);
@@ -180,19 +192,25 @@ public class TransactionProcessingResult
         estimateGasUsedByTransaction,
         gasRemaining,
         estimateGasUsedByTransaction,
+        0,
         output,
         validationResult,
         revertReason,
         partialBlockAccessView);
   }
 
-  /** Constructor with gasSpent (for Amsterdam+ forks with EIP-7778). */
+  /**
+   * Carries the multidimensional gas fields ({@code gasSpent} and {@code stateGasUsed}) needed by
+   * Amsterdam+ forks under EIP-7778 / EIP-8037 — pre-Amsterdam callers use the shorter overload
+   * above.
+   */
   public TransactionProcessingResult(
       final Status status,
       final List<Log> logs,
       final long estimateGasUsedByTransaction,
       final long gasRemaining,
       final long gasSpent,
+      final long stateGasUsed,
       final Bytes output,
       final ValidationResult<TransactionInvalidReason> validationResult,
       final Optional<Bytes> revertReason,
@@ -202,6 +220,7 @@ public class TransactionProcessingResult
     this.estimateGasUsedByTransaction = estimateGasUsedByTransaction;
     this.gasRemaining = gasRemaining;
     this.gasSpent = gasSpent;
+    this.stateGasUsed = stateGasUsed;
     this.output = output;
     this.validationResult = validationResult;
     this.revertReason = revertReason;
@@ -229,6 +248,7 @@ public class TransactionProcessingResult
         estimateGasUsedByTransaction,
         gasRemaining,
         estimateGasUsedByTransaction,
+        0,
         output,
         validationResult,
         revertReason,
@@ -236,13 +256,14 @@ public class TransactionProcessingResult
         partialBlockAccessView);
   }
 
-  /** Constructor with gasSpent (for Amsterdam+ forks with EIP-7778). */
+  /** Constructor with gasSpent and stateGasUsed (for Amsterdam+ forks with EIP-7778/EIP-8037). */
   public TransactionProcessingResult(
       final Status status,
       final List<Log> logs,
       final long estimateGasUsedByTransaction,
       final long gasRemaining,
       final long gasSpent,
+      final long stateGasUsed,
       final Bytes output,
       final ValidationResult<TransactionInvalidReason> validationResult,
       final Optional<Bytes> revertReason,
@@ -253,6 +274,7 @@ public class TransactionProcessingResult
     this.estimateGasUsedByTransaction = estimateGasUsedByTransaction;
     this.gasRemaining = gasRemaining;
     this.gasSpent = gasSpent;
+    this.stateGasUsed = stateGasUsed;
     this.output = output;
     this.validationResult = validationResult;
     this.revertReason = revertReason;
@@ -323,6 +345,44 @@ public class TransactionProcessingResult
    */
   public long getGasSpent() {
     return gasSpent;
+  }
+
+  /**
+   * Returns the state gas used by the transaction (EIP-8037).
+   *
+   * <p>This represents the gas consumed by state-creation operations (CREATE, SSTORE 0→nonzero,
+   * CALL to new accounts, code deposits, EIP-7702 delegations). State gas is tracked separately
+   * from execution gas for multidimensional gas metering. EIP-7702 authorization refunds are
+   * already reflected in this value, so per-tx and block-level accounting use the same figure.
+   *
+   * @return the state gas used
+   */
+  public long getStateGasUsed() {
+    return stateGasUsed;
+  }
+
+  /**
+   * Returns the execution gas dimension for EIP-8037 block accounting: {@code max(consumed - state,
+   * calldata floor)}. State gas is out of the execution figure before the max is taken, so state
+   * spending cannot discount the floor. The fallback is equivalent while the floor is not binding.
+   *
+   * @return the execution gas used for block accounting
+   */
+  public long getExecutionGasUsedForBlock() {
+    return executionGasUsedForBlock == Long.MIN_VALUE
+        ? estimateGasUsedByTransaction - stateGasUsed
+        : executionGasUsedForBlock;
+  }
+
+  /**
+   * Sets the execution gas dimension for EIP-8037 block accounting: {@code max(consumed - state,
+   * calldata floor)}.
+   *
+   * @param executionGasUsedForBlock the execution gas used for block accounting
+   */
+  @SuppressWarnings("checkstyle:HiddenField")
+  public void setExecutionGasUsedForBlock(final long executionGasUsedForBlock) {
+    this.executionGasUsedForBlock = executionGasUsedForBlock;
   }
 
   /**
@@ -438,6 +498,8 @@ public class TransactionProcessingResult
         + gasRemaining
         + ", gasSpent="
         + gasSpent
+        + ", stateGasUsed="
+        + stateGasUsed
         + ", logs="
         + logs
         + ", output="

@@ -15,11 +15,14 @@
 package org.hyperledger.besu.ethereum.core.encoding;
 
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
 
 import org.hyperledger.besu.crypto.SECPSignature;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.CodeDelegation;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 
 import java.math.BigInteger;
 
@@ -114,5 +117,41 @@ class CodeDelegationDecoderTest {
         CodeDelegationTransactionDecoder.decodeInnerPayload(input);
 
     assertThat(codeDelegation.chainId()).isEqualTo(new BigInteger("01a1f0ff5a", 16));
+  }
+
+  @Test
+  void shouldDecodeInnerPayloadWithMaxUInt256ChainId() {
+    final BytesValueRLPInput input =
+        new BytesValueRLPInput(
+            encodedCodeDelegation(BigInteger.TWO.pow(256).subtract(BigInteger.ONE)), true);
+
+    final CodeDelegation codeDelegation =
+        CodeDelegationTransactionDecoder.decodeInnerPayload(input);
+
+    assertThat(codeDelegation.chainId())
+        .isEqualTo(BigInteger.TWO.pow(256).subtract(BigInteger.ONE));
+  }
+
+  @Test
+  void shouldRejectInnerPayloadWhenChainIdExceedsUInt256() {
+    final BytesValueRLPInput input =
+        new BytesValueRLPInput(encodedCodeDelegation(BigInteger.TWO.pow(256)), true);
+
+    assertThatThrownBy(() -> CodeDelegationTransactionDecoder.decodeInnerPayload(input))
+        .isInstanceOf(RLPException.class)
+        .hasMessageContaining("32-bytes scalar");
+  }
+
+  private Bytes encodedCodeDelegation(final BigInteger chainId) {
+    final BytesValueRLPOutput output = new BytesValueRLPOutput();
+    output.startList();
+    output.writeBigIntegerScalar(chainId);
+    output.writeBytes(Address.ZERO.getBytes().copy());
+    output.writeLongScalar(0);
+    output.writeUnsignedByte(0);
+    output.writeBigIntegerScalar(BigInteger.ONE);
+    output.writeBigIntegerScalar(BigInteger.ONE);
+    output.endList();
+    return output.encoded();
   }
 }

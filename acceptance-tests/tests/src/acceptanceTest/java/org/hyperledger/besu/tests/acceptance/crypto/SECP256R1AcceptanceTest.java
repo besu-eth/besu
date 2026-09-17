@@ -40,8 +40,6 @@ public class SECP256R1AcceptanceTest extends AcceptanceTestBase {
   private Node otherNode;
   private Cluster noDiscoveryCluster;
 
-  private static final String GENESIS_FILE = "/crypto/secp256r1.json";
-
   private static final String MINER_NODE_PRIVATE_KEY =
       "8f2a55949038a9610f50fb23b5883af3b4ecb3c3bb792cbcefbd1542c692be63";
   private static final String OTHER_NODE_PRIVATE_KEY =
@@ -51,6 +49,12 @@ public class SECP256R1AcceptanceTest extends AcceptanceTestBase {
 
   @BeforeEach
   public void setUp() throws Exception {
+    // SignatureAlgorithmFactory.instance is static. When ThreadBesuRunner is used, we cannot change
+    // the signature algorithm instance to SECP256R1 as it could influence other tests running at
+    // the same time. So we only execute the test when ProcessBesuNodeRunner is used, as there is
+    // no conflict because we use separate processes.
+    assumeTrue(BesuNodeRunner.isProcessBesuNodeRunner());
+
     KeyPair minerNodeKeyPair = createKeyPair(MINER_NODE_PRIVATE_KEY);
     KeyPair otherNodeKeyPair = createKeyPair(OTHER_NODE_PRIVATE_KEY);
 
@@ -59,17 +63,16 @@ public class SECP256R1AcceptanceTest extends AcceptanceTestBase {
     noDiscoveryCluster = new Cluster(clusterConfiguration, net);
 
     minerNode =
-        besu.createNodeWithNonDefaultSignatureAlgorithm(
-            "minerNode", GENESIS_FILE, minerNodeKeyPair, List.of());
+        besu.createNodeWithNonDefaultSignatureAlgorithm("minerNode", minerNodeKeyPair, List.of());
     noDiscoveryCluster.start(minerNode);
 
     otherNode =
         besu.createNodeWithNonDefaultSignatureAlgorithm(
-            "otherNode", GENESIS_FILE, otherNodeKeyPair, List.of(minerNode));
+            "otherNode", otherNodeKeyPair, List.of(minerNode));
     noDiscoveryCluster.addNode(otherNode);
 
-    minerNode.verify(net.awaitPeerCount(1));
-    otherNode.verify(net.awaitPeerCount(1));
+    minerNode.verify(net.awaitPeerCount(1, 120));
+    otherNode.verify(net.awaitPeerCount(1, 120));
 
     final var minerChainHead = minerNode.execute(ethTransactions.block());
     otherNode.verify(blockchain.minimumHeight(minerChainHead.getNumber().longValue()));
@@ -77,15 +80,6 @@ public class SECP256R1AcceptanceTest extends AcceptanceTestBase {
 
   @Test
   public void transactionShouldBeSuccessful() {
-    // SignatureAlgorithmFactory.instance is static. When ThreadBesuRunner is used, we cannot change
-    // the signature algorithm instance to SECP256R1 as it could influence other tests running at
-    // the same time. So we only execute the test when ProcessBesuNodeRunner is used, as there is
-    // not conflict because we use separate processes.
-    assumeTrue(BesuNodeRunner.isProcessBesuNodeRunner());
-
-    minerNode.verify(net.awaitPeerCount(1));
-    otherNode.verify(net.awaitPeerCount(1));
-
     final Account recipient = accounts.createAccount("recipient");
 
     final Hash transactionHash =

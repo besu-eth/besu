@@ -23,8 +23,8 @@ import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
-import org.hyperledger.besu.ethereum.worldstate.WorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
+import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -107,9 +107,8 @@ public class TrieGenerator {
     final Hash keyHash = storageKeyHash(key);
     final Bytes encodedValue = encodeStorageValue(value);
     storageTrie.put(keyHash.getBytes(), encodeStorageValue(value));
-    if (updater instanceof BonsaiWorldStateKeyValueStorage.Updater) {
-      ((BonsaiWorldStateKeyValueStorage.Updater) updater)
-          .putStorageValueBySlotHash(hash, keyHash, encodedValue);
+    if (updater instanceof BonsaiWorldStateKeyValueStorage.Updater bonsaiUpdater) {
+      bonsaiUpdater.putStorageValueBySlotHash(hash, keyHash, encodedValue);
     }
   }
 

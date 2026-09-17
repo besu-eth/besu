@@ -14,11 +14,14 @@
  */
 package org.hyperledger.besu.consensus.common.bft.statemachine;
 
+import org.hyperledger.besu.util.number.ByteUnits;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.NavigableMap;
 import java.util.TreeMap;
+import java.util.function.ToLongFunction;
 
 import com.google.common.annotations.VisibleForTesting;
 
@@ -28,7 +31,8 @@ import com.google.common.annotations.VisibleForTesting;
  * <p>This buffer only allows messages to be added which have a chain height greater than current
  * height and up to chain futureMessagesMaxDistance from the current chain height.
  *
- * <p>When the total number of messages is greater futureMessagesLimit then messages are evicted.
+ * <p>When the total number of messages is greater futureMessagesLimit, or the total retained byte
+ * size of buffered messages exceeds maxTotalMessageBytes, then messages are evicted.
  *
  * <p>If there is more than one height in the buffer then all messages for the highest chain height
  * are removed. Otherwise if there is only one height the oldest inserted message is removed.
@@ -36,11 +40,22 @@ import com.google.common.annotations.VisibleForTesting;
  * @param <T> the type of messages stored in this buffer
  */
 public class FutureMessageBuffer<T> {
+
+  /**
+   * Default cap on the total byte size of messages retained across all buffered heights. A
+   * message-count limit alone does not bound memory, since an individual BFT message (e.g. a QBFT
+   * PROPOSAL carrying a full block) can be several megabytes.
+   */
+  @VisibleForTesting static final long DEFAULT_MAX_TOTAL_MESSAGE_BYTES = 64L * ByteUnits.MEGABYTE;
+
   private final NavigableMap<Long, List<T>> buffer = new TreeMap<>();
   private final long futureMessagesMaxDistance;
   private final long futureMessagesLimit;
+  private final long maxTotalMessageBytes;
+  private final ToLongFunction<T> messageSizeFn;
   private final FutureMessageHandler<T> futureMessageHandler;
   private long chainHeight;
+  private long totalMessageBytes;
 
   /**
    * Future message handler, which is called when a future message is added to the buffer.
@@ -58,7 +73,8 @@ public class FutureMessageBuffer<T> {
   }
 
   /**
-   * Instantiates a new Future message buffer.
+   * Instantiates a new Future message buffer with an unbounded byte budget. Retained for callers
+   * (mainly tests) that do not need byte-based eviction.
    *
    * @param futureMessagesMaxDistance the future messages max distance
    * @param futureMessagesLimit the future messages limit
@@ -68,14 +84,18 @@ public class FutureMessageBuffer<T> {
       final long futureMessagesMaxDistance,
       final long futureMessagesLimit,
       final long chainHeight) {
-    this.futureMessagesMaxDistance = futureMessagesMaxDistance;
-    this.futureMessagesLimit = futureMessagesLimit;
-    this.chainHeight = chainHeight;
-    this.futureMessageHandler = (msgChainHeight, message) -> {};
+    this(
+        futureMessagesMaxDistance,
+        futureMessagesLimit,
+        chainHeight,
+        Long.MAX_VALUE,
+        message -> 0L,
+        (msgChainHeight, message) -> {});
   }
 
   /**
-   * Instantiates a new Future message buffer.
+   * Instantiates a new Future message buffer with an unbounded byte budget. Retained for callers
+   * (mainly tests) that do not need byte-based eviction.
    *
    * @param futureMessagesMaxDistance the future messages max distance
    * @param futureMessagesLimit the future messages limit
@@ -87,9 +107,86 @@ public class FutureMessageBuffer<T> {
       final long futureMessagesLimit,
       final long chainHeight,
       final FutureMessageHandler<T> futureMessageHandler) {
+    this(
+        futureMessagesMaxDistance,
+        futureMessagesLimit,
+        chainHeight,
+        Long.MAX_VALUE,
+        message -> 0L,
+        futureMessageHandler);
+  }
+
+  /**
+   * Instantiates a new Future message buffer bounded by both message count and total retained byte
+   * size, using the default byte budget.
+   *
+   * @param futureMessagesMaxDistance the future messages max distance
+   * @param futureMessagesLimit the future messages limit
+   * @param chainHeight the chain height
+   * @param messageSizeFn function returning the byte size of a buffered message
+   */
+  public FutureMessageBuffer(
+      final long futureMessagesMaxDistance,
+      final long futureMessagesLimit,
+      final long chainHeight,
+      final ToLongFunction<T> messageSizeFn) {
+    this(
+        futureMessagesMaxDistance,
+        futureMessagesLimit,
+        chainHeight,
+        DEFAULT_MAX_TOTAL_MESSAGE_BYTES,
+        messageSizeFn,
+        (msgChainHeight, message) -> {});
+  }
+
+  /**
+   * Instantiates a new Future message buffer bounded by both message count and total retained byte
+   * size (using the default byte budget), with a custom future message handler.
+   *
+   * @param futureMessagesMaxDistance the future messages max distance
+   * @param futureMessagesLimit the future messages limit
+   * @param chainHeight the chain height
+   * @param messageSizeFn function returning the byte size of a buffered message
+   * @param futureMessageHandler the future message handler
+   */
+  public FutureMessageBuffer(
+      final long futureMessagesMaxDistance,
+      final long futureMessagesLimit,
+      final long chainHeight,
+      final ToLongFunction<T> messageSizeFn,
+      final FutureMessageHandler<T> futureMessageHandler) {
+    this(
+        futureMessagesMaxDistance,
+        futureMessagesLimit,
+        chainHeight,
+        DEFAULT_MAX_TOTAL_MESSAGE_BYTES,
+        messageSizeFn,
+        futureMessageHandler);
+  }
+
+  /**
+   * Instantiates a new Future message buffer bounded by both message count and total retained byte
+   * size.
+   *
+   * @param futureMessagesMaxDistance the future messages max distance
+   * @param futureMessagesLimit the future messages limit
+   * @param chainHeight the chain height
+   * @param maxTotalMessageBytes the maximum total byte size of buffered messages
+   * @param messageSizeFn function returning the byte size of a buffered message
+   * @param futureMessageHandler the future message handler
+   */
+  public FutureMessageBuffer(
+      final long futureMessagesMaxDistance,
+      final long futureMessagesLimit,
+      final long chainHeight,
+      final long maxTotalMessageBytes,
+      final ToLongFunction<T> messageSizeFn,
+      final FutureMessageHandler<T> futureMessageHandler) {
     this.futureMessagesMaxDistance = futureMessagesMaxDistance;
     this.futureMessagesLimit = futureMessagesLimit;
     this.chainHeight = chainHeight;
+    this.maxTotalMessageBytes = maxTotalMessageBytes;
+    this.messageSizeFn = messageSizeFn;
     this.futureMessageHandler = futureMessageHandler;
   }
 
@@ -108,7 +205,9 @@ public class FutureMessageBuffer<T> {
 
     addMessageToBuffer(msgChainHeight, rawMsg);
 
-    if (totalMessagesSize() > futureMessagesLimit) {
+    while (totalMessagesSize() > 0
+        && (totalMessagesSize() > futureMessagesLimit
+            || totalMessageBytes > maxTotalMessageBytes)) {
       evictMessages();
     }
   }
@@ -116,6 +215,7 @@ public class FutureMessageBuffer<T> {
   private void addMessageToBuffer(final long msgChainHeight, final T rawMsg) {
     buffer.putIfAbsent(msgChainHeight, new ArrayList<>());
     buffer.get(msgChainHeight).add(rawMsg);
+    totalMessageBytes += messageSizeFn.applyAsLong(rawMsg);
   }
 
   private boolean validMessageHeight(final long msgChainHeight, final long currentHeight) {
@@ -127,10 +227,12 @@ public class FutureMessageBuffer<T> {
 
   private void evictMessages() {
     if (buffer.size() > 1) {
-      buffer.remove(buffer.lastKey());
+      discardMessages(buffer.remove(buffer.lastKey()));
     } else if (buffer.size() == 1) {
-      List<T> messages = buffer.firstEntry().getValue();
-      messages.remove(0);
+      final List<T> messages = buffer.firstEntry().getValue();
+      if (!messages.isEmpty()) {
+        totalMessageBytes -= messageSizeFn.applyAsLong(messages.removeFirst());
+      }
     }
   }
 
@@ -150,8 +252,14 @@ public class FutureMessageBuffer<T> {
   private void discardPreviousHeightMessages() {
     if (!buffer.isEmpty()) {
       for (long h = buffer.firstKey(); h <= chainHeight; h++) {
-        buffer.remove(h);
+        discardMessages(buffer.remove(h));
       }
+    }
+  }
+
+  private void discardMessages(final List<T> messages) {
+    if (messages != null) {
+      messages.forEach(message -> totalMessageBytes -= messageSizeFn.applyAsLong(message));
     }
   }
 
@@ -163,5 +271,15 @@ public class FutureMessageBuffer<T> {
   @VisibleForTesting
   long totalMessagesSize() {
     return buffer.values().stream().map(List::size).reduce(0, Integer::sum).longValue();
+  }
+
+  /**
+   * Total byte size of all messages currently retained in the buffer.
+   *
+   * @return the long
+   */
+  @VisibleForTesting
+  long totalMessageBytes() {
+    return totalMessageBytes;
   }
 }

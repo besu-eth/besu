@@ -33,8 +33,8 @@ public abstract class Hash {
 
   private static final Supplier<MessageDigest> KECCAK256_SUPPLIER =
       Suppliers.memoize(() -> messageDigest(KECCAK256_ALG));
-  private static final Supplier<MessageDigest> SHA256_SUPPLIER =
-      Suppliers.memoize(() -> messageDigest(SHA256_ALG));
+  private static final ThreadLocal<MessageDigest> SHA256_DIGEST =
+      ThreadLocal.withInitial(() -> messageDigest(SHA256_ALG));
   private static final Supplier<MessageDigest> RIPEMD160_SUPPLIER =
       Suppliers.memoize(() -> messageDigest(RIPEMD160_ALG));
   private static final Supplier<MessageDigest> BLAKE2BF_SUPPLIER =
@@ -73,7 +73,9 @@ public abstract class Hash {
    * @return A digest.
    */
   public static Bytes32 sha256(final Bytes input) {
-    return Bytes32.wrap(digestUsingAlgorithm(input, SHA256_SUPPLIER));
+    final MessageDigest digest = SHA256_DIGEST.get();
+    input.update(digest);
+    return Bytes32.wrap(digest.digest());
   }
 
   /**

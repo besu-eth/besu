@@ -119,9 +119,8 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
   }
 
   private static boolean accountExists(final Account account) {
-    // The account exists if it has sent a transaction
-    // or already has its code initialized.
-    return account.getNonce() != 0 || !account.getCode().isEmpty() || !account.isStorageEmpty();
+    // EIP-684: a sent transaction or deployed code blocks creation; storage alone does not
+    return account.getNonce() != 0 || !account.getCode().isEmpty();
   }
 
   @Override
@@ -147,6 +146,11 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
             frame, Optional.of(ExceptionalHaltReason.ILLEGAL_STATE_CHANGE));
       } else {
         frame.addCreate(contractAddress);
+        LOG.atTrace()
+            .setMessage("EIP-8037 REC_ACCT_CREATED depth={} addr={}")
+            .addArgument(frame.getDepth())
+            .addArgument(contractAddress::toHexString)
+            .log();
         contract.incrementBalance(frame.getValue());
 
         // Emit transfer log for nonzero value contract creation (no-op before Amsterdam)
@@ -169,8 +173,26 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
     final Bytes contractCode =
         frame.getCreatedCode() == null ? frame.getOutputData() : frame.getCreatedCode().getBytes();
 
-    final long depositFee = evm.getGasCalculator().codeDepositGasCost(contractCode.size());
+    // Oversized contracts must fail without charging code deposit gas or state gas.
+    // We must check this first.
+    final Optional<ExceptionalHaltReason> firstValidationFailure =
+        contractValidationRules.stream()
+            .map(rule -> rule.validate(contractCode, frame, evm))
+            .flatMap(Optional::stream)
+            .findFirst();
+    if (firstValidationFailure.isPresent()) {
+      // EIP-8037: on code deposit validation failure (e.g. oversized code), trigger an
+      // exceptional halt. handleStateGasHalt refunds execution-time state gas to the reservoir;
+      // the transaction's top-frame preparation charges survive, since MainnetTransactionProcessor
+      // put them beyond the undo mark before execution started.
+      frame.setExceptionalHaltReason(firstValidationFailure);
+      frame.setState(MessageFrame.State.EXCEPTIONAL_HALT);
+      operationTracer.traceAccountCreationResult(frame, firstValidationFailure);
+      return;
+    }
 
+    // Check and charge code deposit gas (execution gas) before state gas
+    final long depositFee = evm.getGasCalculator().codeDepositGasCost(contractCode.size());
     if (frame.getRemainingGas() < depositFee) {
       LOG.trace(
           "Not enough gas to pay the code deposit fee for {}: "
@@ -187,34 +209,41 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
       } else {
         frame.setState(MessageFrame.State.COMPLETED_SUCCESS);
       }
-    } else {
-      final var invalidReason =
-          contractValidationRules.stream()
-              .map(rule -> rule.validate(contractCode, frame, evm))
-              .filter(Optional::isPresent)
-              .findFirst();
-      if (invalidReason.isEmpty()) {
-        frame.decrementRemainingGas(depositFee);
+      return;
+    }
+    frame.decrementRemainingGas(depositFee);
 
-        // Finalize contract creation, setting the contract code.
-        final MutableAccount contract =
-            frame.getWorldUpdater().getOrCreate(frame.getContractAddress());
-        contract.setCode(contractCode);
-        LOG.trace(
-            "Successful creation of contract {} with code of size {} (Gas remaining: {})",
-            frame.getContractAddress(),
-            contractCode.size(),
-            frame.getRemainingGas());
-        frame.setState(MessageFrame.State.COMPLETED_SUCCESS);
-        if (operationTracer.isExtendedTracing()) {
-          operationTracer.traceAccountCreationResult(frame, Optional.empty());
-        }
-      } else {
-        final Optional<ExceptionalHaltReason> exceptionalHaltReason = invalidReason.get();
-        frame.setExceptionalHaltReason(exceptionalHaltReason);
-        frame.setState(MessageFrame.State.EXCEPTIONAL_HALT);
-        operationTracer.traceAccountCreationResult(frame, exceptionalHaltReason);
-      }
+    // Only now charge state gas for code deposit (cpsb * codeSize).
+    if (!frame.consumeStateGas(
+        evm.getGasCalculator().stateGasCostCalculator().codeDepositStateGas(contractCode.size()))) {
+      LOG.trace("Contract creation error: insufficient state gas for code deposit");
+      // EIP-8037: code deposit OOG is an exceptional halt. handleStateGasHalt refunds the
+      // execution-time state gas (including any spillover) to the reservoir; the transaction's
+      // top-frame preparation charges are preserved, since MainnetTransactionProcessor put them
+      // beyond the undo mark before execution started.
+      frame.setExceptionalHaltReason(Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
+      frame.setState(MessageFrame.State.EXCEPTIONAL_HALT);
+      operationTracer.traceAccountCreationResult(
+          frame, Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
+      return;
+    }
+
+    final MutableAccount contract = frame.getWorldUpdater().getOrCreate(frame.getContractAddress());
+    contract.setCode(contractCode);
+    LOG.atTrace()
+        .setMessage("EIP-8037 REC_CODE_DEPOSIT depth={} addr={} len={}")
+        .addArgument(frame.getDepth())
+        .addArgument(() -> frame.getContractAddress().toHexString())
+        .addArgument(contractCode.size())
+        .log();
+    LOG.trace(
+        "Successful creation of contract {} with code of size {} (Gas remaining: {})",
+        frame.getContractAddress(),
+        contractCode.size(),
+        frame.getRemainingGas());
+    frame.setState(MessageFrame.State.COMPLETED_SUCCESS);
+    if (operationTracer.isExtendedTracing()) {
+      operationTracer.traceAccountCreationResult(frame, Optional.empty());
     }
   }
 }

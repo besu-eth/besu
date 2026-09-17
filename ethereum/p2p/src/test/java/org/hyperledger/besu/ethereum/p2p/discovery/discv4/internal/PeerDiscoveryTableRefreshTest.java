@@ -32,6 +32,7 @@ import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.Packet
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.findneighbors.FindNeighborsPacketData;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.ping.PingPacketData;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.pong.PongPacketData;
+import org.hyperledger.besu.ethereum.p2p.rlpx.ConnectSource;
 import org.hyperledger.besu.ethereum.p2p.rlpx.RlpxAgent;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
@@ -72,7 +73,7 @@ public class PeerDiscoveryTableRefreshTest {
     final MockTimerUtil timer = new MockTimerUtil();
 
     final RlpxAgent rlpxAgent = mock(RlpxAgent.class);
-    when(rlpxAgent.connect(any()))
+    when(rlpxAgent.connect(any(), any(ConnectSource.class)))
         .thenReturn(CompletableFuture.failedFuture(new RuntimeException()));
     final PeerDiscoveryController controller =
         spy(

@@ -74,23 +74,29 @@ public class BlockSimulationResult {
   }
 
   public List<LogWithMetadata> getLogsWithMetadata() {
-    return blockStateCallSimulationResult.getTransactionSimulatorResults().stream()
-        .flatMap(
-            transactionSimulation ->
-                LogWithMetadata.generate(
-                    0,
-                    transactionSimulation.logs(),
-                    block.getHeader().getNumber(),
-                    block.getHash(),
-                    block.getHeader().getTimestamp(),
-                    transactionSimulation.result().transaction().getHash(),
-                    block
-                        .getBody()
-                        .getTransactions()
-                        .indexOf(transactionSimulation.result().transaction()),
-                    false)
-                    .stream())
-        .toList();
+    final List<LogWithMetadata> allLogs = new java.util.ArrayList<>();
+    int logIndexOffset = 0;
+    for (var transactionSimulation :
+        blockStateCallSimulationResult.getTransactionSimulatorResults()) {
+      final List<LogWithMetadata> txLogs =
+          LogWithMetadata.generate(
+              logIndexOffset,
+              transactionSimulation.logs(),
+              block.getHeader().getNumber(),
+              block.getHash(),
+              block.getHeader().getTimestamp(),
+              transactionSimulation.result().transaction().getHash(),
+              block
+                  .getBody()
+                  .getTransactions()
+                  .indexOf(transactionSimulation.result().transaction()),
+              false);
+      allLogs.addAll(txLogs);
+      // Advance offset by at least 1 per transaction so that failed transactions (0 logs)
+      // still increment the log index, matching geth's eth_simulateV1 behaviour.
+      logIndexOffset += Math.max(1, transactionSimulation.logs().size());
+    }
+    return allLogs;
   }
 
   public Optional<TrieLog> getTrieLog() {

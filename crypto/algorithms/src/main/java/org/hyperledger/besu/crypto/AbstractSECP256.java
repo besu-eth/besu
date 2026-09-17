@@ -31,7 +31,6 @@ import org.apache.tuweni.units.bigints.UInt256;
 import org.bouncycastle.asn1.sec.SECNamedCurves;
 import org.bouncycastle.asn1.x9.X9ECParameters;
 import org.bouncycastle.asn1.x9.X9IntegerConverter;
-import org.bouncycastle.crypto.agreement.ECDHBasicAgreement;
 import org.bouncycastle.crypto.params.ECDomainParameters;
 import org.bouncycastle.crypto.params.ECPrivateKeyParameters;
 import org.bouncycastle.crypto.params.ECPublicKeyParameters;
@@ -142,18 +141,34 @@ public abstract class AbstractSECP256 implements SignatureAlgorithm {
   @Override
   public Bytes32 calculateECDHKeyAgreement(
       final SECPPrivateKey privKey, final SECPPublicKey theirPubKey) {
+    final ECPoint point = ecdhScalarMultiply(privKey, theirPubKey);
+    return UInt256.valueOf(point.getAffineXCoord().toBigInteger());
+  }
+
+  @Override
+  public Bytes calculateECDHKeyAgreementCompressed(
+      final SECPPrivateKey privKey, final SECPPublicKey theirPubKey) {
+    final ECPoint point = ecdhScalarMultiply(privKey, theirPubKey);
+    return Bytes.wrap(point.getEncoded(true));
+  }
+
+  /**
+   * Performs the ECDH scalar multiplication: {@code theirPubKey × privKey}. Both the existing
+   * x-coordinate-only method and the compressed-point method delegate here.
+   *
+   * <p>This implementation assumes an elliptic-curve domain with cofactor <em>h</em> = 1, so no
+   * explicit cofactor adjustment is required (matching the behaviour of {@code ECDHBasicAgreement}
+   * when <em>h</em> = 1).
+   */
+  private ECPoint ecdhScalarMultiply(
+      final SECPPrivateKey privKey, final SECPPublicKey theirPubKey) {
     checkArgument(privKey != null, "missing private key");
     checkArgument(theirPubKey != null, "missing remote public key");
 
-    final ECPrivateKeyParameters privKeyP = new ECPrivateKeyParameters(privKey.getD(), curve);
-    final ECPublicKeyParameters pubKeyP =
-        new ECPublicKeyParameters(theirPubKey.asEcPoint(curve), curve);
-
-    final ECDHBasicAgreement agreement = new ECDHBasicAgreement();
-    agreement.init(privKeyP);
-    final BigInteger agreed = agreement.calculateAgreement(pubKeyP);
-
-    return UInt256.valueOf(agreed);
+    final ECPoint cleaned = ECAlgorithms.cleanPoint(curve.getCurve(), theirPubKey.asEcPoint(curve));
+    final ECPoint point = cleaned.multiply(privKey.getD()).normalize();
+    checkArgument(!point.isInfinity(), "ECDH key agreement point is at infinity");
+    return point;
   }
 
   @Override
@@ -303,7 +318,18 @@ public abstract class AbstractSECP256 implements SignatureAlgorithm {
     }
     // Compressed keys require you to know an extra bit of data about the y-coord as there are
     // two possibilities. So it's encoded in the recId.
-    final ECPoint R = decompressKey(x, (recId & 1) == 1);
+    final ECPoint R;
+    try {
+      R = decompressKey(x, (recId & 1) == 1);
+    } catch (final IllegalArgumentException e) {
+      // x is a valid scalar but not the x-coordinate of any curve point, so there is no key to
+      // recover. Report that the same way every other unrecoverable case here does — and the same
+      // way the native backend does — rather than letting decompressKey's exception escape:
+      // callers such as CodeDelegationProcessor and transaction sender recovery expect an absent
+      // result, not a throw, and a backend that throws where the other returns empty is itself a
+      // consensus-divergence risk.
+      return null;
+    }
     // 1.4. If nR != point at infinity, then do another iteration of Step 1 (callers
     // responsibility).
     if (!R.multiply(n).isInfinity()) {
@@ -326,6 +352,10 @@ public abstract class AbstractSECP256 implements SignatureAlgorithm {
     // example the additive inverse of 3 modulo 11 is 8 because 3 + 8 mod 11 = 0, and
     // -3 mod 11 = 8.
     final BigInteger eInv = BigInteger.ZERO.subtract(e).mod(n);
+    // r must be invertible mod n; r == 0 or r == n (or any multiple) has no inverse
+    if (r.mod(n).signum() == 0) {
+      return null;
+    }
     final BigInteger rInv = r.modInverse(n);
     final BigInteger srInv = rInv.multiply(s).mod(n);
     final BigInteger eInvrInv = rInv.multiply(eInv).mod(n);
@@ -406,11 +436,39 @@ public abstract class AbstractSECP256 implements SignatureAlgorithm {
   @Override
   public Optional<SECPPublicKey> recoverPublicKeyFromSignature(
       final Bytes32 dataHash, final SECPSignature signature) {
+    if (!isRecoverable(signature)) {
+      return Optional.empty();
+    }
+
     final BigInteger publicKeyBI =
         recoverFromSignature(signature.getRecId(), signature.getR(), signature.getS(), dataHash);
     return publicKeyBI == null
         ? Optional.empty()
         : Optional.of(SECPPublicKey.create(publicKeyBI, ALGORITHM));
+  }
+
+  /**
+   * Whether a public key can be recovered from this signature at all, i.e. whether both {@code r}
+   * and {@code s} lie in {@code [1, n)}.
+   *
+   * <p>{@link SECPSignature#create} already enforces this, but {@link CodeDelegationSignature}
+   * (EIP-7702) deliberately does not — it bounds {@code r} and {@code s} only by {@code 2^256} so
+   * that an out-of-range authorization tuple yields an empty authority rather than an exception.
+   * That leaves the range check to recovery, and it has to happen here rather than in the backends:
+   * for {@code n < r < p} the native libsecp256k1 compact parser rejects the signature while
+   * BouncyCastle recovers a usable key, so without this guard two nodes on the same chain running
+   * different backends derive different delegated authorities from the same transaction and write
+   * different world state.
+   *
+   * @param signature the signature to check
+   * @return true if both components are in {@code [1, n)}
+   */
+  protected boolean isRecoverable(final SECPSignature signature) {
+    return isInCurveOrderRange(signature.getR()) && isInCurveOrderRange(signature.getS());
+  }
+
+  private boolean isInCurveOrderRange(final BigInteger value) {
+    return value.compareTo(BigInteger.ONE) >= 0 && value.compareTo(curveOrder) < 0;
   }
 
   @Override

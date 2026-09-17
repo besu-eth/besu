@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 
@@ -39,6 +40,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import org.apache.tuweni.bytes.Bytes;
+import org.bouncycastle.crypto.BlockCipher;
+import org.bouncycastle.crypto.StreamCipher;
+import org.bouncycastle.crypto.engines.AESEngine;
+import org.bouncycastle.crypto.modes.SICBlockCipher;
+import org.bouncycastle.crypto.params.KeyParameter;
+import org.bouncycastle.crypto.params.ParametersWithIV;
 import org.junit.jupiter.api.Test;
 import org.xerial.snappy.Snappy;
 
@@ -124,6 +131,57 @@ public class FramerTest {
     assertThatThrownBy(() -> framer.deframe(badFrame))
         .isInstanceOf(FramingException.class)
         .hasMessage("Expected at least 19 readable bytes while processing header, remaining: 13");
+  }
+
+  @Test
+  public void deframeRejectsFrameSizeBelowMinimum() throws IOException {
+    // An RLPx frame must carry at least the 1-byte message id. A header that decodes
+    // to frameSize == 0 has a MAC-valid header but no message-id byte, and would
+    // otherwise be passed to processFrame, which reads frameData[0] unconditionally.
+    final JsonNode td = MAPPER.readTree(FramerTest.class.getResource("/peer2.json"));
+    final HandshakeSecrets sendingSecrets = secretsFrom(td, false);
+    final HandshakeSecrets receivingSecrets = secretsFrom(td, true);
+    final Framer receivingFramer = new Framer(receivingSecrets);
+
+    final ByteBuf forgedHeader = forgeHeaderWithFrameSize(sendingSecrets, 0);
+
+    assertThatThrownBy(() -> receivingFramer.deframe(forgedHeader))
+        .isInstanceOf(FramingException.class)
+        .hasMessageContaining("below minimum");
+  }
+
+  /**
+   * Builds a 32-byte RLPx frame header (16 bytes ciphertext + 16 bytes MAC) that the receiver will
+   * accept as authenticated but whose decoded frame-size is the value supplied. Mirrors the
+   * header-encrypt-and-MAC sequence in {@code Framer#frameMessage}.
+   */
+  private ByteBuf forgeHeaderWithFrameSize(
+      final HandshakeSecrets sendingSecrets, final int frameSize) {
+    final byte[] h = new byte[16];
+    h[0] = (byte) ((frameSize >> 16) & 0xff);
+    h[1] = (byte) ((frameSize >> 8) & 0xff);
+    h[2] = (byte) (frameSize & 0xff);
+    // Standard RLP-encoded [null, null] header data (0xc28080) follows the 3-byte length.
+    h[3] = (byte) 0xc2;
+    h[4] = (byte) 0x80;
+    h[5] = (byte) 0x80;
+
+    final StreamCipher enc = new SICBlockCipher(new AESEngine());
+    enc.init(
+        true, new ParametersWithIV(new KeyParameter(sendingSecrets.getAesSecret()), new byte[16]));
+    enc.processBytes(h, 0, h.length, h, 0);
+
+    final BlockCipher macEnc = new AESEngine();
+    macEnc.init(true, new KeyParameter(sendingSecrets.getMacSecret()));
+    byte[] hMac = Arrays.copyOf(sendingSecrets.getEgressMac(), 16);
+    macEnc.processBlock(hMac, 0, hMac, 0);
+    final byte[] xored = new byte[16];
+    for (int i = 0; i < 16; i++) {
+      xored[i] = (byte) (h[i] ^ hMac[i]);
+    }
+    hMac = Arrays.copyOf(sendingSecrets.updateEgress(xored).getEgressMac(), 16);
+
+    return Unpooled.buffer().writeBytes(h).writeBytes(hMac);
   }
 
   @Test
@@ -269,6 +327,63 @@ public class FramerTest {
     assertThat(receivingFramer.deframe(out)).isNotNull();
     assertThat(receivingFramer.isCompressionEnabled()).isTrue();
     assertThat(receivingFramer.isCompressionSuccessful()).isTrue();
+  }
+
+  @Test
+  public void firstMessageDecompressesEagerlySubsequentMessagesDeferred() {
+    final HandshakeSecrets sendSecrets =
+        new HandshakeSecrets(
+            Bytes.fromHexString(
+                    "0x75b3ee95adff0c529a05efd7612aa1dbe5057eb9facdde0dfc837ad143da1d43")
+                .toArray(),
+            Bytes.fromHexString(
+                    "0x030dfd1566f4800c4842c177f7d476b64ae2b99a2aa0ab5600aa2f41a8710575")
+                .toArray(),
+            Bytes.fromHexString(
+                    "0xc9d3385b1588a5969cba312f8c29bedb4cb9d56ec0cf825436addc1ec644f1d6")
+                .toArray());
+    final HandshakeSecrets recvSecrets =
+        new HandshakeSecrets(
+            Bytes.fromHexString(
+                    "0x75b3ee95adff0c529a05efd7612aa1dbe5057eb9facdde0dfc837ad143da1d43")
+                .toArray(),
+            Bytes.fromHexString(
+                    "0x030dfd1566f4800c4842c177f7d476b64ae2b99a2aa0ab5600aa2f41a8710575")
+                .toArray(),
+            Bytes.fromHexString(
+                    "0xc9d3385b1588a5969cba312f8c29bedb4cb9d56ec0cf825436addc1ec644f1d6")
+                .toArray());
+    final Framer sendingFramer = new Framer(sendSecrets);
+    final Framer receivingFramer = new Framer(recvSecrets);
+    sendingFramer.enableCompression();
+    receivingFramer.enableCompression();
+
+    final Bytes payload1 = DisconnectMessage.create(DisconnectReason.TIMEOUT).getData();
+    final Bytes payload2 = DisconnectMessage.create(DisconnectReason.BREACH_OF_PROTOCOL).getData();
+
+    // Frame two messages
+    final ByteBuf out1 = Unpooled.buffer();
+    sendingFramer.frame(new RawMessage(0x01, payload1), out1);
+    final ByteBuf out2 = Unpooled.buffer();
+    sendingFramer.frame(new RawMessage(0x01, payload2), out2);
+
+    // First message: eagerly decompressed (compressionSuccessful was false)
+    final MessageData msg1 = receivingFramer.deframe(out1);
+    assertThat(msg1).isNotNull();
+    final RawMessage raw1 = (RawMessage) msg1;
+    assertThat(raw1.getCompressedData()).isNull();
+    assertThat(raw1.getData()).isEqualTo(payload1);
+    assertThat(receivingFramer.isCompressionSuccessful()).isTrue();
+
+    // Second message: deferred decompression (compressionSuccessful was true)
+    final MessageData msg2 = receivingFramer.deframe(out2);
+    assertThat(msg2).isNotNull();
+    final RawMessage raw2 = (RawMessage) msg2;
+    assertThat(raw2.getCompressedData()).isNotNull();
+    // getData() triggers lazy decompression
+    assertThat(raw2.getData()).isEqualTo(payload2);
+    // Compressed data released after decompression
+    assertThat(raw2.getCompressedData()).isNull();
   }
 
   private HandshakeSecrets secretsFrom(final JsonNode td, final boolean swap) {

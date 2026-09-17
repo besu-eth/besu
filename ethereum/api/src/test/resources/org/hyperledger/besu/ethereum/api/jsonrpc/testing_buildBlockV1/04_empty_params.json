@@ -1,0 +1,18 @@
+{
+  "description": "Error case: params array is empty (no parameter object at index 0). Expects INVALID_PARAMS error.",
+  "request": {
+    "id": 4,
+    "jsonrpc": "2.0",
+    "method": "testing_buildBlockV1",
+    "params": []
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 4,
+    "error": {
+      "code": -32602,
+      "message": "Invalid params"
+    }
+  },
+  "statusCode": 200
+}

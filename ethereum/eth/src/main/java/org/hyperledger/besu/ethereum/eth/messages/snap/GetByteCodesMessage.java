@@ -21,13 +21,12 @@ import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.math.BigInteger;
-import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
-import java.util.Optional;
+import java.util.NoSuchElementException;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
-import org.immutables.value.Value;
 
 public final class GetByteCodesMessage extends AbstractSnapMessageData {
 
@@ -36,8 +35,8 @@ public final class GetByteCodesMessage extends AbstractSnapMessageData {
   }
 
   public static GetByteCodesMessage readFrom(final MessageData message) {
-    if (message instanceof GetByteCodesMessage) {
-      return (GetByteCodesMessage) message;
+    if (message instanceof GetByteCodesMessage getByteCodesMessage) {
+      return getByteCodesMessage;
     }
     final int code = message.getCode();
     if (code != SnapV1.GET_BYTECODES) {
@@ -48,14 +47,8 @@ public final class GetByteCodesMessage extends AbstractSnapMessageData {
   }
 
   public static GetByteCodesMessage create(final List<Bytes32> codeHashes) {
-    return create(Optional.empty(), codeHashes);
-  }
-
-  public static GetByteCodesMessage create(
-      final Optional<BigInteger> requestId, final List<Bytes32> codeHashes) {
     final BytesValueRLPOutput tmp = new BytesValueRLPOutput();
     tmp.startList();
-    requestId.ifPresent(tmp::writeBigIntegerScalar);
     tmp.writeList(codeHashes, (hash, rlpOutput) -> rlpOutput.writeBytes(hash));
     tmp.writeBigIntegerScalar(SIZE_REQUEST);
     tmp.endList();
@@ -63,36 +56,74 @@ public final class GetByteCodesMessage extends AbstractSnapMessageData {
   }
 
   @Override
-  protected Bytes wrap(final BigInteger requestId) {
-    return create(Optional.of(requestId), codeHashes(false).hashes()).getData();
-  }
-
-  @Override
   public int getCode() {
     return SnapV1.GET_BYTECODES;
   }
 
-  public CodeHashes codeHashes(final boolean withRequestId) {
-    final List<Bytes32> hashes = new ArrayList<>();
-    final BigInteger responseBytes;
-    final RLPInput input = new BytesValueRLPInput(data, false);
-    input.enterList();
-    if (withRequestId) input.skipNext();
-    input.enterList();
-    while (!input.isEndOfCurrentList()) {
-      hashes.add(input.readBytes32());
-    }
-    input.leaveList();
-    responseBytes = input.readBigIntegerScalar();
-    input.leaveList();
-    return ImmutableCodeHashes.builder().hashes(hashes).responseBytes(responseBytes).build();
+  /**
+   * Lazily iterates the requested code hashes, decoding each element from the RLP on demand. This
+   * lets the snap server stop iterating once it reaches its per-request lookup limit instead of
+   * materializing the full peer-supplied list. Wire layout: {@code [requestId?, [hashes],
+   * responseBytes]}.
+   *
+   * @param withRequestId whether the payload is wrapped with a leading request id
+   * @return an on-demand iterable over the requested code hashes
+   */
+  public Iterable<Bytes32> codeHashes(final boolean withRequestId) {
+    return () ->
+        new Iterator<>() {
+          private final RLPInput input = new BytesValueRLPInput(data, false);
+          private Bytes32 peeked = null;
+          private boolean exhausted = false;
+
+          {
+            input.enterList();
+            if (withRequestId) {
+              input.skipNext();
+            }
+            input.enterList();
+          }
+
+          @Override
+          public boolean hasNext() {
+            if (peeked != null) {
+              return true;
+            }
+            if (exhausted || input.isEndOfCurrentList()) {
+              exhausted = true;
+              return false;
+            }
+            peeked = input.readBytes32();
+            return true;
+          }
+
+          @Override
+          public Bytes32 next() {
+            if (!hasNext()) {
+              throw new NoSuchElementException();
+            }
+            final Bytes32 result = peeked;
+            peeked = null;
+            return result;
+          }
+        };
   }
 
-  @Value.Immutable
-  public interface CodeHashes {
-
-    List<Bytes32> hashes();
-
-    BigInteger responseBytes();
+  /**
+   * Reads the trailing response-bytes limit, skipping the (potentially large) hash list.
+   *
+   * @param withRequestId whether the payload is wrapped with a leading request id
+   * @return the requested maximum response size in bytes
+   */
+  public BigInteger responseBytes(final boolean withRequestId) {
+    final RLPInput input = new BytesValueRLPInput(data, false);
+    input.enterList();
+    if (withRequestId) {
+      input.skipNext();
+    }
+    input.skipNext();
+    final BigInteger responseBytes = input.readBigIntegerScalar();
+    input.leaveListLenient();
+    return responseBytes;
   }
 }

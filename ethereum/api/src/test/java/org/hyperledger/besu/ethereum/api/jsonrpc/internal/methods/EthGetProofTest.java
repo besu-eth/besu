@@ -45,23 +45,18 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.assertj.core.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.mockito.junit.jupiter.MockitoSettings;
-import org.mockito.quality.Strictness;
 
-@ExtendWith(MockitoExtension.class)
-@MockitoSettings(strictness = Strictness.LENIENT)
 class EthGetProofTest {
+
+  private static BlockchainQueries blockchainQueries;
 
   private EthGetProof method;
   private final String JSON_RPC_VERSION = "2.0";
   private final String ETH_METHOD = "eth_getProof";
 
-  @Mock private BlockchainQueries blockchainQueries;
   private final Address address =
       Address.fromHexString("0x000d836201318ec6899a67540690382780743280");
   private final UInt256 storageKey =
@@ -69,8 +64,8 @@ class EthGetProofTest {
 
   private final long blockNumber = 500;
 
-  @BeforeEach
-  public void setUp() {
+  @BeforeAll
+  static void setUpClass() {
     final BlockchainSetupUtil blockchainSetupUtil =
         BlockchainSetupUtil.forSnapTesting(DataStorageFormat.BONSAI);
     blockchainSetupUtil.importAllBlocks(
@@ -83,7 +78,10 @@ class EthGetProofTest {
             blockchain,
             worldStateArchive,
             MiningConfiguration.newDefault());
+  }
 
+  @BeforeEach
+  void setUp() {
     method = new EthGetProof(blockchainQueries);
   }
 
@@ -111,12 +109,22 @@ class EthGetProofTest {
   }
 
   @Test
-  void errorWhenNoBlockNumberSupplied() {
-    final JsonRpcRequestContext request = requestWithParams(address.toString(), new String[] {});
+  void defaultsToLatestWhenNoBlockSupplied() {
+    // Per execution-apis the Block parameter is optional and defaults to 'latest'.
+    // Omitting it must behave identically to explicitly passing "latest".
+    final JsonRpcRequestContext omitted =
+        requestWithParams(address.toString(), new String[] {storageKey.toString()});
+    final JsonRpcRequestContext latest =
+        requestWithParams(address.toString(), new String[] {storageKey.toString()}, "latest");
 
-    Assertions.assertThatThrownBy(() -> method.response(request))
-        .isInstanceOf(InvalidJsonRpcParameters.class)
-        .hasMessageContaining("Invalid block or block hash parameter");
+    final JsonRpcResponse omittedResponse = method.response(omitted);
+    final JsonRpcResponse latestResponse = method.response(latest);
+
+    Assertions.assertThat(omittedResponse).isInstanceOf(JsonRpcSuccessResponse.class);
+    Assertions.assertThat(latestResponse).isInstanceOf(JsonRpcSuccessResponse.class);
+    Assertions.assertThat(((JsonRpcSuccessResponse) omittedResponse).getResult())
+        .usingRecursiveComparison()
+        .isEqualTo(((JsonRpcSuccessResponse) latestResponse).getResult());
   }
 
   @Test
@@ -126,7 +134,7 @@ class EthGetProofTest {
         requestWithParams(
             Address.fromHexString("0x0000000000000000000000000000000000000000"),
             new String[] {storageKey.toString()},
-            String.valueOf(501));
+            "0x" + Long.toHexString(blockNumber + 1));
 
     final JsonRpcResponse response = method.response(request);
 
@@ -141,7 +149,9 @@ class EthGetProofTest {
 
     final JsonRpcRequestContext request =
         requestWithParams(
-            address.toString(), new String[] {storageKey.toString()}, String.valueOf(blockNumber));
+            address.toString(),
+            new String[] {storageKey.toString()},
+            "0x" + Long.toHexString(blockNumber));
 
     final JsonRpcSuccessResponse response = (JsonRpcSuccessResponse) method.response(request);
     final GetProofResult result = (GetProofResult) response.getResult();
@@ -227,7 +237,9 @@ class EthGetProofTest {
 
     final JsonRpcRequestContext request =
         requestWithParams(
-            address.toString(), new String[] {storageKey.toString()}, String.valueOf(blockNumber));
+            address.toString(),
+            new String[] {storageKey.toString()},
+            "0x" + Long.toHexString(blockNumber));
 
     final JsonRpcSuccessResponse response = (JsonRpcSuccessResponse) method.response(request);
     final GetProofResult result = (GetProofResult) response.getResult();
@@ -264,6 +276,42 @@ class EthGetProofTest {
                 });
     // Validate that the account is empty
     assertThat(accountInTrie).isEmpty();
+  }
+
+  @Test
+  void nonExistentAccountStorageProofHasOneEntryPerRequestedKey() {
+    final Address address = Address.fromHexString("7bebc8ba651aee624937e7d897853ac30c95a067");
+    final UInt256 key1 =
+        UInt256.fromHexString("0x0000000000000000000000000000000000000000000000000000000000000001");
+    final UInt256 key2 =
+        UInt256.fromHexString("0x0000000000000000000000000000000000000000000000000000000000000002");
+    final UInt256 key3 =
+        UInt256.fromHexString("0x0000000000000000000000000000000000000000000000000000000000000003");
+
+    final JsonRpcRequestContext request =
+        requestWithParams(
+            address.toString(),
+            new String[] {key1.toString(), key2.toString(), key3.toString()},
+            "0x" + Long.toHexString(blockNumber));
+
+    final JsonRpcSuccessResponse response = (JsonRpcSuccessResponse) method.response(request);
+    final GetProofResult result = (GetProofResult) response.getResult();
+
+    assertThat(result.getStorageProof())
+        .as("storageProof must contain one entry per requested key (EIP-1186)")
+        .hasSize(3);
+
+    result
+        .getStorageProof()
+        .forEach(
+            entry -> {
+              assertThat(UInt256.fromHexString(entry.getValue()))
+                  .as("storage value for non-existent account must be zero")
+                  .isEqualTo(UInt256.ZERO);
+              assertThat(entry.getStorageProof())
+                  .as("proof nodes for non-existent account must be empty")
+                  .isEmpty();
+            });
   }
 
   private JsonRpcRequestContext requestWithParams(final Object... params) {

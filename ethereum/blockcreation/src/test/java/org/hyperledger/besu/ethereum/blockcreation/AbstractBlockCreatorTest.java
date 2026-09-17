@@ -97,7 +97,6 @@ import java.time.Clock;
 import java.util.List;
 import java.util.Optional;
 
-import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -109,16 +108,14 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith({MockitoExtension.class})
 class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
   private static final SECPPrivateKey PRIVATE_KEY1 =
-      SIGNATURE_ALGORITHM
-          .get()
-          .createPrivateKey(
-              Bytes32.fromHexString(
-                  "8f2a55949038a9610f50fb23b5883af3b4ecb3c3bb792cbcefbd1542c692be63"));
+      SIGNATURE_ALGORITHM.createPrivateKey(
+          Bytes32.fromHexString(
+              "8f2a55949038a9610f50fb23b5883af3b4ecb3c3bb792cbcefbd1542c692be63"));
   private static final KeyPair KEYS1 =
-      new KeyPair(PRIVATE_KEY1, SIGNATURE_ALGORITHM.get().createPublicKey(PRIVATE_KEY1));
+      new KeyPair(PRIVATE_KEY1, SIGNATURE_ALGORITHM.createPublicKey(PRIVATE_KEY1));
 
   @Mock private WithdrawalsProcessor withdrawalsProcessor;
   protected EthScheduler ethScheduler = new DeterministicEthScheduler();
@@ -177,6 +174,7 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
+            Optional.empty(),
             1L,
             false,
             miningOn.parentHeader);
@@ -191,6 +189,7 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
     final AbstractBlockCreator blockCreator = miningOn.blockCreator;
     final BlockCreationResult blockCreationResult =
         blockCreator.createBlock(
+            Optional.empty(),
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
@@ -219,6 +218,7 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
+            Optional.empty(),
             1L,
             false,
             miningOn.parentHeader);
@@ -241,6 +241,7 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
             Optional.empty(),
             Optional.empty(),
             Optional.of(withdrawals),
+            Optional.empty(),
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
@@ -274,6 +275,7 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
     final BlockCreationResult blockCreationResult =
         blockCreator.createBlock(
             Optional.of(List.of(fullOfBlobs)),
+            Optional.empty(),
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
@@ -331,9 +333,7 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
     final GenesisAccount recipient = accounts.get(2);
     final Address coinbase = Address.fromHexString(genesisConfig.getCoinbase().get());
     final KeyPair keyPair =
-        SIGNATURE_ALGORITHM
-            .get()
-            .createKeyPair(SECPPrivateKey.create(sender.privateKey(), "ECDSA"));
+        SIGNATURE_ALGORITHM.createKeyPair(SECPPrivateKey.create(sender.privateKey(), "ECDSA"));
     final BigInteger delta = Wei.fromEth(1).toBigInteger();
     final Transaction txn =
         new TransactionTestFixture()
@@ -352,23 +352,19 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
     final Optional<BlockAccessList> maybeBlockAccessList = blockCreationResult.getBlockAccessList();
     assertThat(maybeBlockAccessList).isNotEmpty();
     final BlockAccessList blockAccessList = maybeBlockAccessList.get();
-    final List<AccountChanges> accountChanges = blockAccessList.accountChanges();
+    // The EIP-2935 history contract is not deployed in this genesis, but the pre-execution system
+    // call still reads it, so it appears in the access list with no changes of its own.
+    final List<AccountChanges> accountChanges =
+        blockAccessList.accountChanges().stream()
+            .filter(change -> !change.balanceChanges().isEmpty())
+            .toList();
     assertThat(accountChanges.size()).isEqualTo(3);
-    final AccountChanges accountChange1 = accountChanges.get(0);
-    assertThat(accountChange1.address()).isIn(sender.address(), recipient.address(), coinbase);
-    assertThat(accountChange1.balanceChanges().size()).isEqualTo(1);
-    assertThat(accountChange1.balanceChanges().get(0).postBalance()).isNotEqualTo(Bytes.of(0));
-    assertThat(accountChange1.balanceChanges().get(0).txIndex()).isNotNull();
-    final AccountChanges accountChange2 = accountChanges.get(1);
-    assertThat(accountChange2.address()).isIn(sender.address(), recipient.address(), coinbase);
-    assertThat(accountChange2.balanceChanges().size()).isEqualTo(1);
-    assertThat(accountChange2.balanceChanges().get(0).postBalance()).isNotEqualTo(Bytes.of(0));
-    assertThat(accountChange2.balanceChanges().get(0).txIndex()).isNotNull();
-    final AccountChanges accountChange3 = accountChanges.get(2);
-    assertThat(accountChange3.address()).isIn(sender.address(), recipient.address(), coinbase);
-    assertThat(accountChange3.balanceChanges().size()).isEqualTo(1);
-    assertThat(accountChange3.balanceChanges().get(0).postBalance()).isNotEqualTo(Bytes.of(0));
-    assertThat(accountChange3.balanceChanges().get(0).txIndex()).isNotNull();
+    for (final AccountChanges accountChange : accountChanges) {
+      assertThat(accountChange.address()).isIn(sender.address(), recipient.address(), coinbase);
+      assertThat(accountChange.balanceChanges().size()).isEqualTo(1);
+      assertThat(accountChange.balanceChanges().get(0).postBalance()).isNotEqualTo(Bytes.of(0));
+      assertThat(accountChange.balanceChanges().get(0).txIndex()).isGreaterThanOrEqualTo(0);
+    }
   }
 
   @Test
@@ -378,9 +374,7 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
     final GenesisAccount sender = accounts.get(1);
     final GenesisAccount recipient = accounts.get(2);
     final KeyPair keyPair =
-        SIGNATURE_ALGORITHM
-            .get()
-            .createKeyPair(SECPPrivateKey.create(sender.privateKey(), "ECDSA"));
+        SIGNATURE_ALGORITHM.createKeyPair(SECPPrivateKey.create(sender.privateKey(), "ECDSA"));
     final BigInteger delta = Wei.fromEth(1).toBigInteger();
     final Transaction txn =
         new TransactionTestFixture()
@@ -467,7 +461,6 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
                 MutableInitValues.builder()
                     .extraData(Bytes.fromHexString("deadbeef"))
                     .minTransactionGasPrice(Wei.ONE)
-                    .minBlockOccupancyRatio(0d)
                     .coinbase(Address.ZERO)
                     .build())
             .build();

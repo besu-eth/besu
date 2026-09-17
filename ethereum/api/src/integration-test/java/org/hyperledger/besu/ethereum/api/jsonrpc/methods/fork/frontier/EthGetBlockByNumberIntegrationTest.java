@@ -258,7 +258,8 @@ public class EthGetBlockByNumberIntegrationTest {
                 "0xa",
                 "0x1b",
                 "0x705b002a7df60707d33812e0298411721be20ea5a2f533707295140d89263b79",
-                "0x78024390784f24160739533b3ceea2698289a02afd9cc768581b4aa3d5f4b105"));
+                "0x78024390784f24160739533b3ceea2698289a02afd9cc768581b4aa3d5f4b105",
+                "0x561bc33d"));
     return responseUtils.response(out, transactions);
   }
 
@@ -392,7 +393,8 @@ public class EthGetBlockByNumberIntegrationTest {
                 "0xa",
                 "0x1c",
                 "0x1c07bd41fc821f95b9f543b080c520654727f9cf829800f789c3b03b8de8b326",
-                "0x259c8aceea2d462192d95f9d6b7cb9e0bf2a6d549c3a4111194fdd22105728f5"));
+                "0x259c8aceea2d462192d95f9d6b7cb9e0bf2a6d549c3a4111194fdd22105728f5",
+                "0x561bc2ec"));
     final JsonRpcResponse expected = responseUtils.response(out, transactions);
     final JsonRpcRequestContext request = requestWithParams("0x5", true);
 

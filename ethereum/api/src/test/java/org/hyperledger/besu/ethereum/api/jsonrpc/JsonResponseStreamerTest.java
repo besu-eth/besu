@@ -99,6 +99,16 @@ public class JsonResponseStreamerTest {
   }
 
   @Test
+  public void closeWithoutWriteDoesNotEndResponse() throws IOException {
+    try (JsonResponseStreamer streamer = new JsonResponseStreamer(httpResponse, testAddress)) {
+      // no writes
+    }
+
+    verify(httpResponse, never()).write(any(Buffer.class));
+    verify(httpResponse, never()).end();
+  }
+
+  @Test
   public void stopOnError() throws IOException {
     try (JsonResponseStreamer streamer = new JsonResponseStreamer(failedResponse, testAddress)) {
       streamer.write("xyz".getBytes(StandardCharsets.UTF_8));

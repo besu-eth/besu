@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.core.kzg;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 import static org.hyperledger.besu.datatypes.BlobType.KZG_PROOF;
 import static org.hyperledger.besu.ethereum.core.kzg.CKZG4844Helper.CELL_PROOFS_PER_BLOB;
 
@@ -108,6 +109,7 @@ public class BlobsWithCommitments implements org.hyperledger.besu.datatypes.Blob
       final List<Blob> blobs,
       final List<KZGProof> kzgProofs,
       final List<VersionedHash> versionedHashes) {
+    checkNotNull(versionedHashes, "versionedHashes must be set before calling kzgBlobs()");
     int blobCount = blobs.size();
     int expectedProofs = blobType == KZG_PROOF ? blobCount : CELL_PROOFS_PER_BLOB * blobCount;
     checkArgument(

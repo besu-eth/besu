@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.evm.operation;
 
-import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.UInt256;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
@@ -37,8 +36,7 @@ public class AddOperationOptimized extends AbstractFixedCostOperation {
   }
 
   @Override
-  public Operation.OperationResult executeFixedCostOperation(
-      final MessageFrame frame, final EVM evm) {
+  public Operation.OperationResult executeFixedCostOperation(final MessageFrame frame) {
     return staticOperation(frame);
   }
 
@@ -53,11 +51,9 @@ public class AddOperationOptimized extends AbstractFixedCostOperation {
     final Bytes value0 = frame.popStackItem();
     final Bytes value1 = frame.popStackItem();
 
-    UInt256 b0 = UInt256.fromBytesBE(value0.toArrayUnsafe());
-    UInt256 b1 = UInt256.fromBytesBE(value1.toArrayUnsafe());
-
-    UInt256 result = b0.add(b1);
-    byte[] resultArray = result.toBytesBE();
+    byte[] b0 = value0.toArrayUnsafe();
+    byte[] b1 = value1.toArrayUnsafe();
+    byte[] resultArray = UInt256.add(b0, b1);
     frame.pushStackItem(Bytes.wrap(resultArray));
 
     return addSuccess;

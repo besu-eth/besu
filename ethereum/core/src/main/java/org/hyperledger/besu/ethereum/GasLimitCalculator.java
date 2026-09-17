@@ -87,6 +87,20 @@ public interface GasLimitCalculator {
   }
 
   /**
+   * Return the cap on the transaction intrinsic gas.
+   *
+   * <p>EIP-8037 (Amsterdam) relaxes the EIP-7825 cap on {@code tx.gas} itself and instead caps
+   * {@code max(intrinsic_execution, calldata_floor)} at the same value. Forks that cap {@code
+   * tx.gas} directly leave this uncapped, since the intrinsic gas is then implicitly bounded by
+   * {@code tx.gas}.
+   *
+   * @return the transaction intrinsic gas cap.
+   */
+  default long transactionIntrinsicGasLimitCap() {
+    return Long.MAX_VALUE;
+  }
+
+  /**
    * Returns the transaction blob gas limit cap.
    *
    * <p>Before Osaka, there was no limit, the max number of blobs a transaction could have was
@@ -96,5 +110,17 @@ public interface GasLimitCalculator {
    */
   default long transactionBlobGasLimitCap() {
     return BLOB_GAS_LIMIT;
+  }
+
+  /**
+   * Returns the blob gas limit to use when building blocks. This may be lower than {@link
+   * #currentBlobGasLimit()} when the user has configured {@code --max-blobs-per-block} to
+   * self-limit block building. Validation of incoming blocks from peers always uses {@link
+   * #currentBlobGasLimit()}.
+   *
+   * @return the blob gas limit for block building
+   */
+  default long blockBuilderBlobGasLimit() {
+    return currentBlobGasLimit();
   }
 }

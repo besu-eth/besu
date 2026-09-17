@@ -25,8 +25,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import com.google.common.io.Resources;
 import org.apache.tuweni.bytes.Bytes32;
 import org.slf4j.Logger;
@@ -35,8 +33,8 @@ import org.slf4j.LoggerFactory;
 /** The Key pair util. */
 public class KeyPairUtil {
   private static final Logger LOG = LoggerFactory.getLogger(KeyPairUtil.class);
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
 
   /** Default constructor */
   private KeyPairUtil() {}
@@ -69,8 +67,8 @@ public class KeyPairUtil {
       throw new IllegalArgumentException("Unable to load resource: " + resourcePath);
     }
     SECPPrivateKey privateKey =
-        SIGNATURE_ALGORITHM.get().createPrivateKey(Bytes32.fromHexString((keyData)));
-    keyPair = SIGNATURE_ALGORITHM.get().createKeyPair(privateKey);
+        SIGNATURE_ALGORITHM.createPrivateKey(Bytes32.fromHexString((keyData)));
+    keyPair = SIGNATURE_ALGORITHM.createKeyPair(privateKey);
 
     LOG.info("Loaded keyPair {} from {}", keyPair.getPublicKey().toString(), resourcePath);
     return keyPair;
@@ -92,13 +90,12 @@ public class KeyPairUtil {
       LOG.info(
           "Loaded public key {} from {}", key.getPublicKey().toString(), keyFile.getAbsolutePath());
     } else {
-      final SignatureAlgorithm signatureAlgorithm = SIGNATURE_ALGORITHM.get();
-      key = signatureAlgorithm.generateKeyPair();
+      key = SIGNATURE_ALGORITHM.generateKeyPair();
       storeKeyFile(key, keyFile.getParentFile().toPath());
 
       LOG.info(
           "Generated new {} public key {} and stored it to {}",
-          signatureAlgorithm.getCurveName(),
+          SIGNATURE_ALGORITHM.getCurveName(),
           key.getPublicKey().toString(),
           keyFile.getAbsolutePath());
     }
@@ -146,7 +143,7 @@ public class KeyPairUtil {
    * @return the key pair
    */
   public static KeyPair load(final File file) {
-    return SIGNATURE_ALGORITHM.get().createKeyPair(loadPrivateKey(file));
+    return SIGNATURE_ALGORITHM.createKeyPair(loadPrivateKey(file));
   }
 
   /**
@@ -161,7 +158,7 @@ public class KeyPairUtil {
       if (info.size() != 1) {
         throw new IllegalArgumentException("Supplied file does not contain valid keyPair pair.");
       }
-      return SIGNATURE_ALGORITHM.get().createPrivateKey(Bytes32.fromHexString((info.get(0))));
+      return SIGNATURE_ALGORITHM.createPrivateKey(Bytes32.fromHexString((info.get(0))));
     } catch (IOException ex) {
       throw new IllegalArgumentException("Supplied file does not contain valid keyPair pair.");
     }

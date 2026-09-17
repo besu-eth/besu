@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.blockcreation;
 
-import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -30,6 +29,10 @@ public class NoopMiningCoordinator implements MiningCoordinator {
 
   public NoopMiningCoordinator() {
     this.miningConfiguration = MiningConfiguration.newDefault();
+  }
+
+  public NoopMiningCoordinator(final MiningConfiguration miningConfiguration) {
+    this.miningConfiguration = miningConfiguration;
   }
 
   @Override
@@ -64,11 +67,6 @@ public class NoopMiningCoordinator implements MiningCoordinator {
   @Override
   public Wei getMinPriorityFeePerGas() {
     return miningConfiguration.getMinPriorityFeePerGas();
-  }
-
-  @Override
-  public Optional<Address> getCoinbase() {
-    return miningConfiguration.getCoinbase();
   }
 
   @Override

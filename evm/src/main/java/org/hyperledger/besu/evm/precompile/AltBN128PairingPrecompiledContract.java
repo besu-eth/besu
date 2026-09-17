@@ -33,7 +33,6 @@ import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import jakarta.validation.constraints.NotNull;
 import org.apache.tuweni.bytes.Bytes;
 import org.slf4j.Logger;
@@ -47,10 +46,8 @@ public class AltBN128PairingPrecompiledContract extends AbstractAltBnPrecompiled
   private static final int PARAMETER_LENGTH = 192;
   private static final String PRECOMPILE_NAME = "BN254_PAIRING";
 
-  private static final Cache<Integer, PrecompileInputResultTuple> bnPairingCache =
-      Caffeine.newBuilder()
-          .maximumWeight(16_000_000)
-          .weigher((k, v) -> ((PrecompileInputResultTuple) v).cachedInput().size())
+  private static final Cache<Bytes, PrecompileInputResultTuple> bnPairingCache =
+      AbstractPrecompiledContract.resultCacheBuilder()
           .expireAfterWrite(15, TimeUnit.MINUTES) // Evict 15 minutes after each entry is written
           .build();
 
@@ -106,9 +103,9 @@ public class AltBN128PairingPrecompiledContract extends AbstractAltBnPrecompiled
           null, Optional.of(ExceptionalHaltReason.PRECOMPILE_ERROR));
     }
     PrecompileInputResultTuple res;
-    Integer cacheKey = null;
+    Bytes cacheKey = null;
     if (enableResultCaching) {
-      cacheKey = getCacheKey(input);
+      cacheKey = getCacheKey(input, input.size());
       res = bnPairingCache.getIfPresent(cacheKey);
       if (res != null) {
         if (res.cachedInput().equals(input)) {

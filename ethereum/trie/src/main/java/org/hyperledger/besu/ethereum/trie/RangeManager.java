@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.trie;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.trie.InnerNodeDiscoveryManager.InnerNode;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 
 import java.math.BigInteger;
@@ -30,6 +31,7 @@ import java.util.function.Function;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.bytes.MutableBytes;
+import org.apache.tuweni.units.bigints.UInt256;
 
 /**
  * This class helps to generate ranges according to several parameters (the start and the end of the
@@ -37,20 +39,41 @@ import org.apache.tuweni.bytes.MutableBytes;
  */
 public class RangeManager {
 
-  public static final Bytes32 MIN_RANGE = Bytes32.wrap(Hash.wrap(Bytes32.ZERO).getBytes());
+  public static final Bytes32 MIN_RANGE = Bytes32.ZERO;
   public static final Bytes32 MAX_RANGE =
-      Bytes32.wrap(
-          Hash.fromHexString("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
-              .getBytes());
+      Bytes32.fromHexString("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+
+  public static final BigInteger MAX_RANGE_BIG_INTEGER = MAX_RANGE.toUnsignedBigInteger();
+
+  /**
+   * Upper bound on the number of sub-ranges {@link #getRangeCount} will ever return, preventing an
+   * unbounded (or, after {@code int} truncation, negative) split count from a peer that returns a
+   * partial range whose largest key has many leading zero bits.
+   */
+  public static final int MAX_RANGE_COUNT = 16;
 
   private RangeManager() {}
 
   public static int getRangeCount(
       final Bytes32 min, final Bytes32 max, final NavigableMap<Bytes32, Bytes> items) {
     if (min.equals(MIN_RANGE) && max.equals(MAX_RANGE)) {
-      return MAX_RANGE
-          .toUnsignedBigInteger()
-          .divide(items.lastKey().toUnsignedBigInteger().subtract(min.toUnsignedBigInteger()))
+      // items may be empty (findNewBeginElementInRange can report a missing element from proofs
+      // alone), so guard before dereferencing lastKey().
+      if (items.isEmpty()) {
+        return 1;
+      }
+      final BigInteger lastKey = items.lastKey().toUnsignedBigInteger();
+      if (lastKey.signum() == 0) {
+        // A largest key of zero would make the division throw; degrade to a single follow-up range.
+        return 1;
+      }
+      // Clamp with BigInteger arithmetic before narrowing: the raw quotient can far exceed
+      // Integer.MAX_VALUE for a tiny divisor, and BigInteger.intValue() would silently truncate it
+      // to a huge or negative int. Bounding it to [1, MAX_RANGE_COUNT] keeps it safely narrowable.
+      return MAX_RANGE_BIG_INTEGER
+          .divide(lastKey)
+          .max(BigInteger.ONE)
+          .min(BigInteger.valueOf(MAX_RANGE_COUNT))
           .intValue();
     }
     return 1;
@@ -60,8 +83,7 @@ public class RangeManager {
     if (sizeRange == 1) {
       return Map.ofEntries(Map.entry(MIN_RANGE, MAX_RANGE));
     }
-    return generateRanges(
-        MIN_RANGE.toUnsignedBigInteger(), MAX_RANGE.toUnsignedBigInteger(), sizeRange);
+    return generateRanges(BigInteger.ZERO, MAX_RANGE_BIG_INTEGER, sizeRange);
   }
 
   /**
@@ -117,7 +139,7 @@ public class RangeManager {
    * @param worldstateRootHash the root hash
    * @param proofs proof received
    * @param endKeyHash the end of the range initially wanted
-   * @param receivedKeys the last key received
+   * @param receivedKeys the keys already returned by the responder
    * @return begin of the new range
    */
   public static Optional<Bytes32> findNewBeginElementInRange(
@@ -125,31 +147,76 @@ public class RangeManager {
       final List<Bytes> proofs,
       final NavigableMap<Bytes32, Bytes> receivedKeys,
       final Bytes32 endKeyHash) {
-    if (receivedKeys.isEmpty() || receivedKeys.lastKey().compareTo(endKeyHash) >= 0) {
-      return Optional.empty();
-    } else {
-      final Map<Bytes32, Bytes> proofsEntries = new HashMap<>();
-      for (Bytes proof : proofs) {
-        proofsEntries.put(Bytes32.wrap(Hash.hash(proof).getBytes()), proof);
-      }
-      final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
-          new StoredMerklePatriciaTrie<>(
-              new InnerNodeDiscoveryManager<>(
-                  (location, key) -> Optional.ofNullable(proofsEntries.get(key)),
-                  Function.identity(),
-                  Function.identity(),
-                  receivedKeys.lastKey(),
-                  endKeyHash,
-                  false),
-              worldstateRootHash);
+    return findNewBeginElementInRange(
+        worldstateRootHash, proofs, receivedKeys, MIN_RANGE, endKeyHash);
+  }
 
-      try {
-        storageTrie.visitAll(bytesNode -> {});
-      } catch (MerkleTrieException e) {
-        return Optional.of(InnerNodeDiscoveryManager.decodePath(e.getLocation()));
-      }
+  /**
+   * Helps to create a new range according to the last data obtained. This happens when a peer
+   * doesn't return all of the data in a range.
+   *
+   * @param worldstateRootHash the root hash
+   * @param proofs proof received
+   * @param receivedKeys the keys already returned by the responder
+   * @param startKeyHash the start of the range initially wanted (used as the probe origin when no
+   *     keys were returned)
+   * @param endKeyHash the end of the range initially wanted
+   * @return begin of the new range
+   */
+  public static Optional<Bytes32> findNewBeginElementInRange(
+      final Bytes32 worldstateRootHash,
+      final List<Bytes> proofs,
+      final NavigableMap<Bytes32, Bytes> receivedKeys,
+      final Bytes32 startKeyHash,
+      final Bytes32 endKeyHash) {
+    if (!receivedKeys.isEmpty() && receivedKeys.lastKey().compareTo(endKeyHash) >= 0) {
       return Optional.empty();
     }
+    final Bytes32 probeStart = receivedKeys.isEmpty() ? startKeyHash : receivedKeys.lastKey();
+    final Map<Bytes32, Bytes> proofsEntries = new HashMap<>();
+    for (Bytes proof : proofs) {
+      proofsEntries.put(Bytes32.wrap(Hash.hash(proof).getBytes()), proof);
+    }
+    final InnerNodeDiscoveryManager<Bytes> manager =
+        new InnerNodeDiscoveryManager<>(
+            (location, key) -> Optional.ofNullable(proofsEntries.get(key)),
+            Function.identity(),
+            Function.identity(),
+            probeStart,
+            endKeyHash,
+            false);
+    final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
+        new StoredMerklePatriciaTrie<>(manager, worldstateRootHash);
+
+    try {
+      storageTrie.visitAll(bytesNode -> {});
+    } catch (MerkleTrieException e) {
+      return Optional.of(InnerNodeDiscoveryManager.decodePath(e.getLocation()));
+    }
+
+    // visitAll completes whenever every node it touches resolves through the supplied node
+    // source. If the source itself encodes leaves the responder did not include in
+    // receivedKeys, the walk silently visits them — so scan the discovered inner nodes for
+    // any in-range leaf the responder omitted.
+    Bytes32 firstOmitted = null;
+    for (InnerNode innerNode : manager.getInnerNodes()) {
+      final Bytes concatenated = Bytes.concatenate(innerNode.location(), innerNode.path());
+      if (concatenated.size() != Bytes32.SIZE * 2 + 1) {
+        continue;
+      }
+      final Bytes32 leafKey =
+          InnerNodeDiscoveryManager.decodePath(concatenated.slice(0, concatenated.size() - 1));
+      if (leafKey.compareTo(probeStart) <= 0 || leafKey.compareTo(endKeyHash) > 0) {
+        continue;
+      }
+      if (receivedKeys.containsKey(leafKey)) {
+        continue;
+      }
+      if (firstOmitted == null || leafKey.compareTo(firstOmitted) < 0) {
+        firstOmitted = leafKey;
+      }
+    }
+    return Optional.ofNullable(firstOmitted);
   }
 
   private static Bytes32 format(final BigInteger data) {
@@ -192,5 +259,27 @@ public class RangeManager {
       path.set(j + 1, (byte) (b & 0x0f));
     }
     return path;
+  }
+
+  public static Bytes32 prevKey(final Bytes32 key) {
+    return UInt256.fromBytes(key).subtract(UInt256.ONE);
+  }
+
+  public static Bytes32 nextKey(final Bytes32 key) {
+    final UInt256 next = UInt256.fromBytes(key).add(UInt256.ONE);
+    if (next.isZero()) {
+      throw new IllegalArgumentException("Hash overflow: " + key);
+    }
+    return next;
+  }
+
+  /**
+   * Returns the next 32-byte key after {@code key}, or {@link Optional#empty()} if {@code key} was
+   * the maximum value (overflow). Unlike {@link #nextKey(Bytes32)}, this never throws — callers
+   * paginating trie entries use the empty result to terminate the loop.
+   */
+  public static Optional<Bytes32> incrementBytes32(final Bytes32 value) {
+    final UInt256 incremented = UInt256.fromBytes(value).add(UInt256.ONE);
+    return incremented.isZero() ? Optional.empty() : Optional.of(incremented);
   }
 }

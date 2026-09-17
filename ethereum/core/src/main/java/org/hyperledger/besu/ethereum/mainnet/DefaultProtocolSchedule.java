@@ -55,6 +55,13 @@ public class DefaultProtocolSchedule implements ProtocolSchedule {
   protected DefaultProtocolSchedule(final DefaultProtocolSchedule protocolSchedule) {
     this.chainId = protocolSchedule.chainId;
     this.protocolSpecs = protocolSchedule.protocolSpecs;
+    // Copy the milestones map populated by ProtocolScheduleBuilder.setMilestones(...). Without
+    // this, subclasses that wrap an existing schedule via this copy constructor (e.g.
+    // BftProtocolSchedule) keep an empty milestones map even though protocolSpecs are inherited,
+    // and milestoneFor(HardforkId) returns Optional.empty() for every fork. Engine API handlers
+    // (e.g. EngineForkchoiceUpdatedV3) cache those Optionals at construction time and then reject
+    // every payload at the Cancun/Amsterdam boundary with UNSUPPORTED_FORK.
+    this.milestones.putAll(protocolSchedule.milestones);
   }
 
   @Override

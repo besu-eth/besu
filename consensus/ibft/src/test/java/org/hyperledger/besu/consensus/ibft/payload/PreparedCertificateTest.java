@@ -16,9 +16,11 @@ package org.hyperledger.besu.consensus.ibft.payload;
 
 import static java.util.Collections.singletonList;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.consensus.common.bft.ConsensusRoundIdentifier;
 import org.hyperledger.besu.consensus.common.bft.ProposedBlockHelpers;
+import org.hyperledger.besu.consensus.common.bft.messagewrappers.BftMessage;
 import org.hyperledger.besu.consensus.common.bft.payload.SignedData;
 import org.hyperledger.besu.crypto.SECPSignature;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
@@ -28,14 +30,13 @@ import org.hyperledger.besu.ethereum.core.AddressHelpers;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLP;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.math.BigInteger;
 import java.util.Collections;
 import java.util.List;
 
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import org.assertj.core.util.Lists;
 import org.junit.jupiter.api.Test;
 
@@ -44,8 +45,47 @@ public class PreparedCertificateTest {
   private static final ConsensusRoundIdentifier ROUND_IDENTIFIER =
       new ConsensusRoundIdentifier(0x1234567890ABCDEFL, 0xFEDCBA98);
 
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
+
+  private SignedData<PreparePayload> fakeSignedPrepare() {
+    final SECPSignature sig =
+        SIGNATURE_ALGORITHM.createSignature(BigInteger.ONE, BigInteger.TEN, (byte) 0);
+    final PreparePayload payload =
+        new PreparePayload(ROUND_IDENTIFIER, Hash.fromHexStringLenient("0x1234"));
+    return PayloadDeserializers.from(payload, sig);
+  }
+
+  @Test
+  public void decodeRejectsPreparePayloadsExceedingMaxEntries() {
+    final PreparedCertificate oversized =
+        new PreparedCertificate(
+            signedProposal(),
+            Collections.nCopies(BftMessage.MAX_LIST_ENTRIES + 1, fakeSignedPrepare()));
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    oversized.writeTo(out);
+
+    assertThatThrownBy(
+            () ->
+                PreparedCertificate.readFrom(
+                    RLP.input(out.encoded()), DecodeBudget.forSingleMessage()))
+        .isInstanceOf(RLPException.class)
+        .hasMessageContaining("exceeds the maximum permitted size");
+  }
+
+  @Test
+  public void decodeAcceptsPreparePayloadsAtMaxEntries() {
+    final PreparedCertificate atLimit =
+        new PreparedCertificate(
+            signedProposal(),
+            Collections.nCopies(BftMessage.MAX_LIST_ENTRIES, fakeSignedPrepare()));
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    atLimit.writeTo(out);
+
+    final PreparedCertificate decoded =
+        PreparedCertificate.readFrom(RLP.input(out.encoded()), DecodeBudget.forSingleMessage());
+    assertThat(decoded.getPreparePayloads()).hasSize(BftMessage.MAX_LIST_ENTRIES);
+  }
 
   @Test
   public void roundTripRlpWithNoPreparePayloads() {
@@ -58,7 +98,8 @@ public class PreparedCertificateTest {
     preparedCert.writeTo(rlpOut);
 
     final RLPInput rlpInput = RLP.input(rlpOut.encoded());
-    PreparedCertificate actualPreparedCert = PreparedCertificate.readFrom(rlpInput);
+    PreparedCertificate actualPreparedCert =
+        PreparedCertificate.readFrom(rlpInput, DecodeBudget.forSingleMessage());
     assertThat(actualPreparedCert.getPreparePayloads())
         .isEqualTo(preparedCert.getPreparePayloads());
     assertThat(actualPreparedCert.getProposalPayload())
@@ -71,7 +112,7 @@ public class PreparedCertificateTest {
     final PreparePayload preparePayload =
         new PreparePayload(ROUND_IDENTIFIER, Hash.fromHexStringLenient("0x8523ba6e7c5f59ae87"));
     final SECPSignature signature =
-        SIGNATURE_ALGORITHM.get().createSignature(BigInteger.ONE, BigInteger.TEN, (byte) 0);
+        SIGNATURE_ALGORITHM.createSignature(BigInteger.ONE, BigInteger.TEN, (byte) 0);
     final SignedData<PreparePayload> signedPrepare =
         PayloadDeserializers.from(preparePayload, signature);
 
@@ -81,7 +122,8 @@ public class PreparedCertificateTest {
     preparedCert.writeTo(rlpOut);
 
     final RLPInput rlpInput = RLP.input(rlpOut.encoded());
-    PreparedCertificate actualPreparedCert = PreparedCertificate.readFrom(rlpInput);
+    PreparedCertificate actualPreparedCert =
+        PreparedCertificate.readFrom(rlpInput, DecodeBudget.forSingleMessage());
     assertThat(actualPreparedCert.getPreparePayloads())
         .isEqualTo(preparedCert.getPreparePayloads());
     assertThat(actualPreparedCert.getProposalPayload())
@@ -94,7 +136,7 @@ public class PreparedCertificateTest {
             singletonList(AddressHelpers.ofValue(1)), ROUND_IDENTIFIER);
     final ProposalPayload proposalPayload = new ProposalPayload(ROUND_IDENTIFIER, block.getHash());
     final SECPSignature signature =
-        SIGNATURE_ALGORITHM.get().createSignature(BigInteger.ONE, BigInteger.TEN, (byte) 0);
+        SIGNATURE_ALGORITHM.createSignature(BigInteger.ONE, BigInteger.TEN, (byte) 0);
     return PayloadDeserializers.from(proposalPayload, signature);
   }
 }

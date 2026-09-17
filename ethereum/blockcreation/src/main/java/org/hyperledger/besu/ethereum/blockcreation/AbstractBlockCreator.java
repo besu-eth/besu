@@ -16,7 +16,7 @@ package org.hyperledger.besu.ethereum.blockcreation;
 
 import static org.hyperledger.besu.ethereum.core.BlockHeaderBuilder.createPending;
 import static org.hyperledger.besu.ethereum.mainnet.feemarket.ExcessBlobGasCalculator.calculateExcessBlobGasForParent;
-import static org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
+import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BlobGas;
@@ -32,7 +32,6 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
 import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
 import org.hyperledger.besu.ethereum.core.Request;
 import org.hyperledger.besu.ethereum.core.SealableBlockHeader;
@@ -61,7 +60,9 @@ import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.securitymodule.SecurityModuleException;
 import org.hyperledger.besu.plugin.services.txselection.PluginTransactionSelector;
 import org.hyperledger.besu.plugin.services.txselection.SelectorsStateManager;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
@@ -70,6 +71,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import com.google.common.collect.Lists;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -91,7 +93,7 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
   protected final BlockHeaderFunctions blockHeaderFunctions;
   private final EthScheduler ethScheduler;
   private final AtomicBoolean isCancelled = new AtomicBoolean(false);
-  private volatile BlockTransactionSelector selector;
+  private volatile @Nullable BlockTransactionSelector selector;
 
   protected AbstractBlockCreator(
       final MiningConfiguration miningConfiguration,
@@ -155,6 +157,7 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
+        Optional.empty(),
         timestamp,
         true,
         parentHeader);
@@ -179,6 +182,7 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
+        Optional.empty(),
         timestamp,
         true,
         parentHeader);
@@ -191,6 +195,7 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
       final Optional<Bytes32> maybePrevRandao,
       final Optional<Bytes32> maybeParentBeaconBlockRoot,
       final Optional<Long> maybeSlotNumber,
+      final Optional<Long> maybeTargetGasLimit,
       final long timestamp,
       final boolean rewardCoinbase,
       final BlockHeader parentHeader) {
@@ -210,7 +215,8 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
                   timestamp,
                   maybePrevRandao,
                   maybeParentBeaconBlockRoot,
-                  maybeSlotNumber)
+                  maybeSlotNumber,
+                  maybeTargetGasLimit)
               .buildProcessableBlockHeader();
 
       final Address miningBeneficiary =
@@ -222,7 +228,7 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
       final var pluginTransactionSelector =
           miningConfiguration
               .getTransactionSelectionService()
-              .createPluginTransactionSelector(selectorsStateManager);
+              .createPluginTransactionSelector(processableBlockHeader, selectorsStateManager);
       final var operationTracer = pluginTransactionSelector.getOperationTracer();
       operationTracer.traceStartBlock(
           disposableWorldState, processableBlockHeader, miningBeneficiary);
@@ -263,6 +269,9 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
               blockAccessListBuilder);
       transactionResults.logSelectionStats();
       timings.register("txsSelection");
+      timings.registerValue(
+          "selectedTxsEvaluation",
+          Duration.ofNanos(transactionResults.getSelectedTxsEvaluationTimeNanos()));
 
       final Optional<AccessLocationTracker> postExecutionAccessLocationTracker =
           blockAccessListBuilder.map(
@@ -326,7 +335,10 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
                   BodyValidation.transactionsRoot(transactionResults.getSelectedTransactions()))
               .receiptsRoot(BodyValidation.receiptsRoot(transactionResults.getReceipts()))
               .logsBloom(BodyValidation.logsBloom(transactionResults.getReceipts()))
-              .gasUsed(transactionResults.getCumulativeGasUsed())
+              .gasUsed(
+                  Math.max(
+                      transactionResults.getCumulativeExecutionGasUsed(),
+                      transactionResults.getCumulativeStateGasUsed()))
               .extraData(extraDataCalculator.get(parentHeader))
               .withdrawalsRoot(
                   withdrawalsCanBeProcessed
@@ -353,7 +365,8 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
 
       operationTracer.traceEndBlock(blockHeader, blockBody);
       timings.register("blockAssembled");
-      return new BlockCreationResult(block, transactionResults, timings, blockAccessList);
+      return new BlockCreationResult(
+          block, transactionResults, timings, blockAccessList, maybeRequests);
     } catch (final SecurityModuleException ex) {
       throw new IllegalStateException("Failed to create block signature", ex);
     } catch (final CancellationException | StorageException ex) {
@@ -366,7 +379,7 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
 
   record GasUsage(BlobGas excessBlobGas, BlobGas used) {}
 
-  private GasUsage computeExcessBlobGas(
+  private @Nullable GasUsage computeExcessBlobGas(
       final TransactionSelectionResults transactionResults,
       final ProtocolSpec newProtocolSpec,
       final BlockHeader parentHeader) {

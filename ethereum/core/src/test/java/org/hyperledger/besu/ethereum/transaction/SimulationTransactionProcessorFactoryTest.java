@@ -181,36 +181,33 @@ public class SimulationTransactionProcessorFactoryTest {
   }
 
   @Test
-  void shouldThrowWhenDuplicateNewAddressIsProvided() {
+  void shouldAllowDuplicateNewAddressWithLastOverrideWinning() {
+    PrecompiledContract precompiledContract2 = mock(PrecompiledContract.class);
+    originalRegistry.put(ORIGINAL_ADDRESS_2, precompiledContract2);
+
     Map<Address, Address> precompileOverrides = new HashMap<>();
     precompileOverrides.put(ORIGINAL_ADDRESS_1, OVERRIDE_ADDRESS);
-    precompileOverrides.put(ORIGINAL_ADDRESS_2, OVERRIDE_ADDRESS); // Duplicate new address
+    precompileOverrides.put(ORIGINAL_ADDRESS_2, OVERRIDE_ADDRESS); // Duplicate target allowed
 
-    BlockStateCallException exception =
-        assertThrows(
-            BlockStateCallException.class,
-            () ->
-                new SimulationMessageCallProcessor(
-                    originalProcessor, createSupplier(precompileOverrides)));
-    assertThat(exception.getError()).isEqualTo(BlockStateCallError.DUPLICATED_PRECOMPILE_TARGET);
-    Assertions.assertThat(exception.getMessage())
-        .contains("Duplicate precompile address: " + OVERRIDE_ADDRESS);
+    SimulationMessageCallProcessor processor =
+        new SimulationMessageCallProcessor(originalProcessor, createSupplier(precompileOverrides));
+
+    assertNotNull(processor);
+    Assertions.assertThat(processor.getPrecompiles().getPrecompileAddresses())
+        .contains(OVERRIDE_ADDRESS);
   }
 
   @Test
-  void shouldThrowWhenOriginalAddressIsReusedAsNewAddress() {
+  void shouldAllowOriginalAddressReusedAsNewAddress() {
     Map<Address, Address> precompileOverrides = new HashMap<>();
     precompileOverrides.put(ORIGINAL_ADDRESS_1, ORIGINAL_ADDRESS_2);
 
-    BlockStateCallException exception =
-        assertThrows(
-            BlockStateCallException.class,
-            () ->
-                new SimulationMessageCallProcessor(
-                    originalProcessor, createSupplier(precompileOverrides)));
-    assertThat(exception.getError()).isEqualTo(BlockStateCallError.DUPLICATED_PRECOMPILE_TARGET);
-    Assertions.assertThat(exception.getMessage())
-        .contains("Duplicate precompile address: " + ORIGINAL_ADDRESS_2);
+    SimulationMessageCallProcessor processor =
+        new SimulationMessageCallProcessor(originalProcessor, createSupplier(precompileOverrides));
+
+    assertNotNull(processor);
+    Assertions.assertThat(processor.getPrecompiles().getPrecompileAddresses())
+        .contains(ORIGINAL_ADDRESS_2);
   }
 
   private Function<PrecompileContractRegistry, PrecompileContractRegistry> createSupplier(

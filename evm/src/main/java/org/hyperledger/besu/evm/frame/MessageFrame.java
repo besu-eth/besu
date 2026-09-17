@@ -16,10 +16,9 @@ package org.hyperledger.besu.evm.frame;
 
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Collections.emptySet;
+import static org.hyperledger.besu.evm.internal.Words.clampedAdd;
 
-import org.hyperledger.besu.collections.undo.UndoScalar;
 import org.hyperledger.besu.collections.undo.UndoSet;
-import org.hyperledger.besu.collections.undo.UndoTable;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.datatypes.VersionedHash;
@@ -33,18 +32,16 @@ import org.hyperledger.besu.evm.internal.UnderflowException;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.function.Consumer;
 
-import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Table;
@@ -52,6 +49,8 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.bytes.MutableBytes;
 import org.apache.tuweni.units.bigints.UInt256;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * A container object for all the states associated with a message.
@@ -76,6 +75,8 @@ import org.apache.tuweni.units.bigints.UInt256;
  * code and a value are supplied to initialize the contract account code and balance, respectively.
  */
 public class MessageFrame {
+
+  private static final Logger LOG = LoggerFactory.getLogger(MessageFrame.class);
 
   /**
    * Message Frame State.
@@ -208,10 +209,19 @@ public class MessageFrame {
   private int pc;
   private final Memory memory = new Memory();
   private final OperandStack stack;
+  // EVM v2 stack: 4 longs per 256-bit word (index 0 = most significant, index 3 = least
+  // significant)
+  private final long[] stackDataV2;
+  private int stackTopV2;
+  private final int stackMaxSizeV2;
   private Bytes output = Bytes.EMPTY;
   private Bytes returnData = Bytes.EMPTY;
   private Code createdCode = null;
   private final boolean isStatic;
+
+  // EIP-8037: state gas drawn from gasRemaining once the reservoir ran dry. Frame-local, so
+  // refunds and failures can unwind it separately.
+  private long stateGasSpilled = 0L;
 
   // Transaction state fields.
   private final List<Log> logs = new ArrayList<>();
@@ -241,7 +251,7 @@ public class MessageFrame {
   private Optional<Eip7928AccessList> eip7928AccessList = Optional.empty();
 
   /** The mark of the undoable collections at the creation of this message frame */
-  private final long undoMark;
+  private long undoMark;
 
   /**
    * Builder builder.
@@ -253,6 +263,7 @@ public class MessageFrame {
   }
 
   private MessageFrame(
+      final boolean enableEvmV2,
       final Type type,
       final WorldUpdater worldUpdater,
       final long initialGas,
@@ -275,6 +286,9 @@ public class MessageFrame {
     this.worldUpdater = worldUpdater;
     this.gasRemaining = initialGas;
     this.stack = new OperandStack(txValues.maxStackSize());
+    this.stackDataV2 = enableEvmV2 ? new long[txValues.maxStackSize() * 4] : null;
+    this.stackTopV2 = 0;
+    this.stackMaxSizeV2 = txValues.maxStackSize();
     this.pc = 0;
     this.recipient = recipient;
     this.contract = contract;
@@ -474,6 +488,59 @@ public class MessageFrame {
   public int stackSize() {
     return stack.size();
   }
+
+  // region --- EVM v2 long[] stack operations ---
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Returns the backing long[] array of the operand stack.
+   *
+   * @return the raw data array
+   */
+  public long[] stackDataV2() {
+    return stackDataV2;
+  }
+
+  /**
+   * Returns the current stack top (item count, 0 = empty).
+   *
+   * @return the item count
+   */
+  public int stackTopV2() {
+    return stackTopV2;
+  }
+
+  /**
+   * Sets the stack top (item count). Used after StackMath operations.
+   *
+   * @param newTop the new item count
+   */
+  public void setTopV2(final int newTop) {
+    this.stackTopV2 = newTop;
+  }
+
+  /**
+   * Returns true if the stack has at least {@code n} items.
+   *
+   * @param n the number of items required
+   * @return true if the stack contains at least n items
+   */
+  public boolean stackHasItemsV2(final int n) {
+    return stackTopV2 >= n;
+  }
+
+  /**
+   * Returns true if the stack has space for {@code n} more items.
+   *
+   * @param n the number of additional items
+   * @return true if the stack can accommodate n more items
+   */
+  public boolean stackHasSpaceV2(final int n) {
+    return stackTopV2 + n <= stackMaxSizeV2;
+  }
+
+  // ---------------------------------------------------------------------------
+  // endregion
 
   /**
    * Returns whether the message frame is static or not.
@@ -807,6 +874,196 @@ public class MessageFrame {
   public long getGasRefund() {
     return txValues.gasRefunds().get();
   }
+
+  // ============================================================
+  // EIP-8037 state gas accounting
+  // ============================================================
+  // stateGasUsed and stateGasReservoir live transaction-wide on TxValues as UndoScalars, so they
+  // roll back on frame failure. The frame-failure handler restores any state-gas spill by
+  // crediting the reservoir on the way out.
+
+  // ---- stateGasUsed ----
+
+  /**
+   * Returns the accumulated state gas used.
+   *
+   * @return the accumulated state gas used
+   */
+  public long getStateGasUsed() {
+    return txValues.stateGasUsed().get();
+  }
+
+  /**
+   * Decrements stateGasUsed for in-frame refunds (SSTORE 0→X→0, CREATE silent failure, same-tx
+   * SELFDESTRUCT). UndoScalar-scoped: refunds propagate to parents only on full success.
+   *
+   * @param amount the amount to subtract
+   */
+  public void decrementStateGasUsed(final long amount) {
+    txValues.stateGasUsed().set(txValues.stateGasUsed().get() - amount);
+  }
+
+  // ---- stateGasReservoir ----
+
+  /**
+   * Returns the state gas reservoir.
+   *
+   * @return the state gas reservoir
+   */
+  public long getStateGasReservoir() {
+    return txValues.stateGasReservoir().get();
+  }
+
+  /**
+   * Sets the reservoir to {@code amount} (used by the transaction processor to seed it).
+   *
+   * @param amount the value to set the reservoir to
+   */
+  public void setStateGasReservoir(final long amount) {
+    txValues.stateGasReservoir().set(amount);
+  }
+
+  /**
+   * Credits {@code amount} to the reservoir (used by refunds).
+   *
+   * @param amount the amount to add to the reservoir
+   */
+  public void incrementStateGasReservoir(final long amount) {
+    final long before = txValues.stateGasReservoir().get();
+    final long after = clampedAdd(before, amount);
+    txValues.stateGasReservoir().set(after);
+    if (LOG.isTraceEnabled()) {
+      LOG.trace(
+          "EIP-8037 CREDIT_RESERVOIR depth={} amount={} reservoirBefore={} reservoirAfter={}",
+          getDepth(),
+          amount,
+          before,
+          after);
+    }
+  }
+
+  // ---- stateGasSpilled ----
+
+  /**
+   * Returns the net state gas this frame has spilled into gasRemaining.
+   *
+   * @return the spilled state gas
+   */
+  public long getStateGasSpilled() {
+    return stateGasSpilled;
+  }
+
+  /**
+   * Adds to this frame's spilled state gas, so a parent can absorb a successful child's spill.
+   *
+   * @param amount the amount to add
+   */
+  public void incrementStateGasSpilled(final long amount) {
+    this.stateGasSpilled += amount;
+  }
+
+  /** Clears the spill once its charges are unwound, so they cannot be refunded twice. */
+  public void resetStateGasSpilled() {
+    this.stateGasSpilled = 0L;
+  }
+
+  // ---- consume ----
+
+  /**
+   * Consumes state gas: draws from the reservoir first, then from gasRemaining. Also increments
+   * stateGasUsed. Returns false (without mutating) if insufficient total gas.
+   *
+   * @param amount the amount of state gas to consume
+   * @return true if the full amount was consumed, false if insufficient gas (no mutation)
+   */
+  public boolean consumeStateGas(final long amount) {
+    final long reservoirBefore = txValues.stateGasReservoir().get();
+    final long gasLeftBefore = gasRemaining;
+    final long fromReservoir = Math.min(reservoirBefore, amount);
+    final long fromGas = amount - fromReservoir;
+    if (gasRemaining < fromGas) {
+      traceConsumeState(
+          amount, reservoirBefore, gasLeftBefore, false, reservoirBefore, gasLeftBefore);
+      return false;
+    }
+    txValues.stateGasReservoir().set(reservoirBefore - fromReservoir);
+    gasRemaining -= fromGas;
+    // Track the spill so refunds can unwind it back to gasRemaining first (LIFO).
+    stateGasSpilled += fromGas;
+    txValues.stateGasUsed().set(txValues.stateGasUsed().get() + amount);
+    traceConsumeState(
+        amount,
+        reservoirBefore,
+        gasLeftBefore,
+        true,
+        txValues.stateGasReservoir().get(),
+        gasRemaining);
+    return true;
+  }
+
+  private void traceConsumeState(
+      final long amount,
+      final long reservoirBefore,
+      final long gasLeftBefore,
+      final boolean ok,
+      final long reservoirAfter,
+      final long gasLeftAfter) {
+    if (LOG.isTraceEnabled()) {
+      LOG.trace(
+          "EIP-8037 CONSUME_STATE depth={} requested={} reservoirBefore={} gasLeftBefore={} ok={} reservoirAfter={} gasLeftAfter={} stateGasUsedAfter={}",
+          getDepth(),
+          amount,
+          reservoirBefore,
+          gasLeftBefore,
+          ok,
+          reservoirAfter,
+          gasLeftAfter,
+          txValues.stateGasUsed().get());
+    }
+  }
+
+  /**
+   * Credits state gas back in LIFO order: the frame's spill first, then the reservoir. The order is
+   * observable, since a sub-call can only draw state gas from the reservoir.
+   *
+   * @param amount the refill amount
+   */
+  public void refillStateGasReservoir(final long amount) {
+    final long fromGasLeft = Math.min(amount, stateGasSpilled);
+    if (fromGasLeft > 0L) {
+      incrementRemainingGas(fromGasLeft);
+      stateGasSpilled -= fromGasLeft;
+    }
+    final long toReservoir = amount - fromGasLeft;
+    if (toReservoir > 0L) {
+      incrementStateGasReservoir(toReservoir);
+    }
+    decrementStateGasUsed(amount);
+  }
+
+  /**
+   * EIP-8037: settle state gas into gas_left after a successful child frame merges its spill.
+   *
+   * <p>When a child succeeds, its {@code state_gas_from_gas_left} is absorbed into the parent's
+   * before this step runs. The reservoir may now hold gas that was originally drawn from {@code
+   * gas_left} (charged in a different frame), so it has to be moved from the reservoir to the
+   * parent's execution gas. {@code evm_state_gas_used} is unchanged — no state creation is undone
+   * by this step.
+   */
+  public void settleStateGasOnChildSuccess() {
+    final long reservoir = txValues.stateGasReservoir().get();
+    final long spilled = stateGasSpilled;
+    final long d = Math.min(reservoir, spilled);
+    if (d > 0L) {
+      gasRemaining += d;
+      txValues.stateGasReservoir().set(reservoir - d);
+      stateGasSpilled = spilled - d;
+    }
+  }
+
+  // ============================================================
+  // End EIP-8037 state gas accounting
+  // ============================================================
 
   /**
    * Add recipient to the self-destruct set if not already present.
@@ -1249,6 +1506,14 @@ public class MessageFrame {
   }
 
   /**
+   * Advances the undo mark, so that a rollback of the initial frame cannot undo the transaction's
+   * top-frame preparation charges, which persist regardless of the execution outcome.
+   */
+  public void advanceUndoMark() {
+    this.undoMark = txValues.transientStorage().mark();
+  }
+
+  /**
    * Accessor for versionedHashes, if present.
    *
    * @return optional list of hashes
@@ -1302,6 +1567,10 @@ public class MessageFrame {
     private Optional<Eip7928AccessList> eip7928AccessList = Optional.empty();
 
     private Optional<List<VersionedHash>> versionedHashes = Optional.empty();
+
+    private long initialStateGasReservoir = 0L;
+
+    private boolean enableEvmV2 = false;
 
     /** Instantiates a new Builder. */
     public Builder() {
@@ -1596,6 +1865,29 @@ public class MessageFrame {
       return this;
     }
 
+    /**
+     * Sets whether the experimental EVM v2 (long[] stack) is enabled.
+     *
+     * @param enableEvmV2 true to enable EVM v2
+     * @return the builder
+     */
+    public Builder enableEvmV2(final boolean enableEvmV2) {
+      this.enableEvmV2 = enableEvmV2;
+      return this;
+    }
+
+    /**
+     * EIP-8037: initial state-gas reservoir for the transaction's top-level frame. Ignored for
+     * child frames (they inherit the parent's {@link TxValues}). Default 0.
+     *
+     * @param initialStateGasReservoir the reservoir value at frame entry
+     * @return the builder
+     */
+    public Builder initialStateGasReservoir(final long initialStateGasReservoir) {
+      this.initialStateGasReservoir = initialStateGasReservoir;
+      return this;
+    }
+
     private void validate() {
       if (parentMessageFrame == null) {
         checkState(worldUpdater != null, "Missing message frame world updater");
@@ -1631,25 +1923,24 @@ public class MessageFrame {
       TxValues newTxValues;
 
       if (parentMessageFrame == null) {
-        HashSet<Address> warmedUpAddresses = new HashSet<>();
+        // A TreeSet (sorted by Address's natural ordering) is used instead of a HashSet:
+        // Address's hashCode() is a grindable base-31 hash with no direct Comparable<Address>
+        // declaration, so HashMap/HashSet bucket treeification never engages, letting an
+        // attacker force O(n) bucket walks per insert.
+        TreeSet<Address> warmedUpAddresses = new TreeSet<>();
         warmedUpAddresses.add(contract);
         newTxValues =
-            new TxValues(
+            TxValues.forTransaction(
                 blockHashLookup,
                 maxStackSize,
                 UndoSet.of(warmedUpAddresses),
-                UndoTable.of(HashBasedTable.create()),
                 originator,
                 gasPrice,
                 blobGasPrice,
                 blockValues,
-                new ArrayDeque<>(),
                 miningBeneficiary,
                 versionedHashes,
-                UndoTable.of(HashBasedTable.create()),
-                UndoSet.of(new HashSet<>()),
-                UndoSet.of(new HashSet<>()),
-                new UndoScalar<>(0L));
+                initialStateGasReservoir);
         updater = worldUpdater;
         newStatic = isStatic;
       } else {
@@ -1661,6 +1952,7 @@ public class MessageFrame {
 
       MessageFrame messageFrame =
           new MessageFrame(
+              enableEvmV2,
               type,
               updater,
               initialGas,

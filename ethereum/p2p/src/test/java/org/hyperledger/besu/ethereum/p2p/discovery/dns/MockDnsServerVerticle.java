@@ -17,8 +17,9 @@ package org.hyperledger.besu.ethereum.p2p.discovery.dns;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Locale;
+import java.util.List;
 import java.util.Map;
 
 import com.google.common.base.Splitter;
@@ -36,7 +37,8 @@ import org.slf4j.LoggerFactory;
 /** Mock DNS server verticle. */
 public class MockDnsServerVerticle extends AbstractVerticle {
   private static final Logger LOG = LoggerFactory.getLogger(MockDnsServerVerticle.class);
-  private final Map<String, String> txtRecords = new HashMap<>();
+  private static final int MAX_CHARACTER_STRING = 255;
+  private final Map<String, List<String>> txtRecords = new HashMap<>();
   private int dnsPort;
 
   @Override
@@ -54,7 +56,7 @@ public class MockDnsServerVerticle extends AbstractVerticle {
             buffer -> {
               final JsonObject dnsEntries = new JsonObject(buffer.toString());
               final Map<String, Object> jsonMap = dnsEntries.getMap();
-              jsonMap.forEach((key, value) -> txtRecords.put(key, value.toString()));
+              jsonMap.forEach((key, value) -> addTxtRecord(key, value.toString()));
 
               // start the server
               return datagramSocket.listen(0, "127.0.0.1");
@@ -72,7 +74,14 @@ public class MockDnsServerVerticle extends AbstractVerticle {
   }
 
   public void addTxtRecord(final String key, final String value) {
-    txtRecords.put(key, value);
+    final List<String> records = new ArrayList<>();
+    records.add(value);
+    txtRecords.put(key, records);
+  }
+
+  /** Publishes an additional TXT record at a name that already has one. */
+  public void appendTxtRecord(final String key, final String value) {
+    txtRecords.computeIfAbsent(key, unused -> new ArrayList<>()).add(value);
   }
 
   @Override
@@ -127,14 +136,14 @@ public class MockDnsServerVerticle extends AbstractVerticle {
   }
 
   private Buffer createTXTResponse(
-      final short queryId, final String queryName, final String txtRecord) {
+      final short queryId, final String queryName, final List<String> records) {
     final Buffer buffer = Buffer.buffer();
 
     // Write DNS header
     buffer.appendShort(queryId); // Query Identifier
     buffer.appendShort((short) 0x8180); // Flags (Standard query response, No error)
     buffer.appendShort((short) 1); // Questions count
-    buffer.appendShort((short) 1); // Answers count
+    buffer.appendShort((short) records.size()); // Answers count
     buffer.appendShort((short) 0); // Authority RRs count
     buffer.appendShort((short) 0); // Additional RRs count
 
@@ -150,21 +159,37 @@ public class MockDnsServerVerticle extends AbstractVerticle {
     buffer.appendShort((short) 16); // Type (TXT)
     buffer.appendShort((short) 1); // Class (IN)
 
-    // Write answer
-    for (String label : queryLabels) {
-      buffer.appendByte((byte) label.length());
-      buffer.appendString(label.toLowerCase(Locale.ROOT));
+    for (final String txtRecord : records) {
+      // Compression pointer back to the question name at offset 0x0C (RFC 1035 4.1.4), rather than
+      // repeating the (lowercased) labels. This isn't a decoder strictness issue -- the previous
+      // repeated-labels form decoded fine -- it's that Vert.x 5's DnsClientImpl (rewritten to
+      // delegate to Netty's DnsNameResolver) added a case-sensitive equality check between an
+      // answer's owner name and the query name, silently dropping any record that fails it;
+      // Vert.x 4.5.x had no such check. Lowercasing the labels here made the answer name diverge
+      // from the (non-lowercased) query name above, so the record was filtered out before this
+      // test ever saw it. A real EIP-1459 server whose response doesn't echo the query bytes
+      // verbatim would hit the same silent-drop in production -- see DNSResolver#resolveTxtStrings.
+      buffer.appendShort((short) 0xC00C);
+
+      buffer.appendShort((short) 16); // TXT record type
+      buffer.appendShort((short) 1); // Class (IN)
+      buffer.appendInt(60); // TTL (60 seconds)
+
+      // RFC 1035 caps a <character-string> at 255 bytes, so a real server splits longer content
+      // into several of them within one RDATA. A single length byte would overflow past 255.
+      final byte[] txtBytes = txtRecord.getBytes(UTF_8);
+      final int chunks =
+          Math.max(1, (txtBytes.length + MAX_CHARACTER_STRING - 1) / MAX_CHARACTER_STRING);
+      buffer.appendShort((short) (txtBytes.length + chunks)); // Data length
+      for (int offset = 0; offset < txtBytes.length; offset += MAX_CHARACTER_STRING) {
+        final int length = Math.min(MAX_CHARACTER_STRING, txtBytes.length - offset);
+        buffer.appendByte((byte) length);
+        buffer.appendBytes(txtBytes, offset, length);
+      }
+      if (txtBytes.length == 0) {
+        buffer.appendByte((byte) 0);
+      }
     }
-    buffer.appendByte((byte) 0); // End of answer name
-
-    buffer.appendShort((short) 16); // TXT record type
-    buffer.appendShort((short) 1); // Class (IN)
-    buffer.appendInt(60); // TTL (60 seconds)
-
-    int txtRecordsLength = txtRecord.getBytes(UTF_8).length;
-    buffer.appendShort((short) (txtRecordsLength + 1)); // Data length
-    buffer.appendByte((byte) txtRecordsLength); // TXT record length
-    buffer.appendString(txtRecord);
 
     return buffer;
   }

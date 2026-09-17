@@ -43,8 +43,8 @@ import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCacheModule;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.BonsaiCachedMerkleTrieLoader;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCacheModule;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCacheModule;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.MetricsSystemModule;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
@@ -64,7 +64,6 @@ import com.google.common.io.Resources;
 import dagger.Component;
 import dagger.Module;
 import dagger.Provides;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -348,13 +347,6 @@ public abstract class JsonBlockImporterTest {
           .hasMessage(
               "Some fields (coinbase, extraData) are no longer supported for block import since PoW consensus has been removed");
     }
-
-    @Test
-    void dryRunDetector() {
-      assertThat(true)
-          .withFailMessage("This test is here so gradle --dry-run executes this class")
-          .isTrue();
-    }
   }
 
   protected Block getBlockAt(final Blockchain blockchain, final long blockNumber) {
@@ -422,7 +414,7 @@ public abstract class JsonBlockImporterTest {
         JsonBlockImporterModule.class,
         BesuPluginContextModule.class,
         BlobCacheModule.class,
-        CodeCacheModule.class,
+        BonsaiCodeCacheModule.class,
       })
   interface JsonBlockImportComponent extends BesuComponent {}
 }

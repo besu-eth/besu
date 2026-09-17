@@ -18,6 +18,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractSnapMessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -43,9 +44,43 @@ public final class GetBytecodeMessageTest {
     final GetByteCodesMessage message = GetByteCodesMessage.readFrom(raw);
 
     // check match originals.
-    final GetByteCodesMessage.CodeHashes codeHashes = message.codeHashes(false);
-    Assertions.assertThat(codeHashes.hashes()).isEqualTo(hashes);
-    Assertions.assertThat(codeHashes.responseBytes())
+    Assertions.assertThat(message.codeHashes(false)).containsExactlyElementsOf(hashes);
+    Assertions.assertThat(message.responseBytes(false))
+        .isEqualTo(AbstractSnapMessageData.SIZE_REQUEST);
+  }
+
+  @Test
+  public void wrapRoundTripTest() {
+    final List<Bytes32> hashes = new ArrayList<>();
+    for (int i = 0; i < 20; ++i) {
+      hashes.add(Bytes32.random());
+    }
+
+    final GetByteCodesMessage initialMessage = GetByteCodesMessage.create(hashes);
+    final MessageData wrapped = initialMessage.wrapMessageData(BigInteger.valueOf(42));
+    final MessageData raw = new RawMessage(SnapV1.GET_BYTECODES, wrapped.getData());
+
+    final GetByteCodesMessage message = GetByteCodesMessage.readFrom(raw);
+
+    Assertions.assertThat(message.codeHashes(true)).containsExactlyElementsOf(hashes);
+    Assertions.assertThat(message.responseBytes(true))
+        .isEqualTo(AbstractSnapMessageData.SIZE_REQUEST);
+  }
+
+  @Test
+  public void lazyIterationStaysIndependentAcrossCalls() {
+    final List<Bytes32> hashes = new ArrayList<>();
+    for (int i = 0; i < 5; ++i) {
+      hashes.add(Bytes32.random());
+    }
+
+    final GetByteCodesMessage message = GetByteCodesMessage.create(hashes);
+
+    // Each call to codeHashes() must yield a fresh, independent iterator over the same data.
+    Assertions.assertThat(message.codeHashes(false)).containsExactlyElementsOf(hashes);
+    Assertions.assertThat(message.codeHashes(false)).containsExactlyElementsOf(hashes);
+    // responseBytes() must be readable regardless of whether the hashes were iterated.
+    Assertions.assertThat(message.responseBytes(false))
         .isEqualTo(AbstractSnapMessageData.SIZE_REQUEST);
   }
 }

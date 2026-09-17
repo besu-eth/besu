@@ -63,8 +63,8 @@ public final class PooledTransactionsMessage extends AbstractMessageData {
   }
 
   public static PooledTransactionsMessage readFrom(final MessageData message) {
-    if (message instanceof PooledTransactionsMessage) {
-      return (PooledTransactionsMessage) message;
+    if (message instanceof PooledTransactionsMessage pooledTransactionsMessage) {
+      return pooledTransactionsMessage;
     }
     final int code = message.getCode();
     if (code != MESSAGE_CODE) {

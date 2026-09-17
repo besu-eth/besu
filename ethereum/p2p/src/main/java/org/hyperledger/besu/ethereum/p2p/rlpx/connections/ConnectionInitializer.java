@@ -18,17 +18,29 @@ import org.hyperledger.besu.ethereum.p2p.peers.Peer;
 import org.hyperledger.besu.ethereum.p2p.rlpx.ConnectCallback;
 
 import java.net.InetSocketAddress;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 public interface ConnectionInitializer {
 
   /**
+   * Holds the bound listening addresses after a successful {@link #start()}.
+   *
+   * @param ipv4Address the IPv4 socket address the RLPx server is bound to
+   * @param ipv6Address the IPv6 socket address; present only when dual-stack is configured
+   *     <em>and</em> the IPv6 bind succeeds — absent when IPv6 binding fails and the initializer
+   *     degrades gracefully to IPv4-only
+   */
+  record ListeningAddresses(
+      InetSocketAddress ipv4Address, Optional<InetSocketAddress> ipv6Address) {}
+
+  /**
    * Start the connection initializer. Begins listening for incoming connections. Start allowing
    * outbound connections.
    *
-   * @return The address on which we're listening for incoming connections.
+   * @return The addresses on which we're listening for incoming connections.
    */
-  CompletableFuture<InetSocketAddress> start();
+  CompletableFuture<ListeningAddresses> start();
 
   /**
    * Shutdown the connection initializer. Stop listening for incoming connections and stop

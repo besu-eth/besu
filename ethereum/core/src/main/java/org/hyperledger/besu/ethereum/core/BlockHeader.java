@@ -293,8 +293,8 @@ public class BlockHeader extends SealableBlockHeader
           out.writeBytes(mixHashOrPrevRandao);
           out.writeLong(nonce);
           do {
-            if (baseFee == null) break;
-            out.writeUInt256Scalar(baseFee);
+            if (maybeBaseFee.isEmpty()) break;
+            out.writeUInt256Scalar(maybeBaseFee.get());
 
             if (withdrawalsRoot == null) break;
             out.writeBytes(withdrawalsRoot.getBytes());
@@ -488,7 +488,7 @@ public class BlockHeader extends SealableBlockHeader
     sb.append("gasUsed=").append(gasUsed).append(", ");
     sb.append("timestamp=").append(timestamp).append(", ");
     sb.append("extraData=").append(extraData).append(", ");
-    sb.append("baseFee=").append(baseFee).append(", ");
+    sb.append("baseFee=").append(maybeBaseFee.orElse(null)).append(", ");
     sb.append("mixHashOrPrevRandao=").append(mixHashOrPrevRandao).append(", ");
     sb.append("nonce=").append(nonce).append(", ");
     if (withdrawalsRoot != null) {

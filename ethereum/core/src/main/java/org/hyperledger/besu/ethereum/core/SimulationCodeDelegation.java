@@ -19,7 +19,7 @@ import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.CodeDelegation;
-import org.hyperledger.besu.ethereum.core.json.ChainIdDeserializer;
+import org.hyperledger.besu.ethereum.core.json.ChainIdJson;
 
 import java.math.BigInteger;
 import java.util.Optional;
@@ -54,7 +54,7 @@ public class SimulationCodeDelegation implements CodeDelegation {
 
   @JsonCreator
   public SimulationCodeDelegation(
-      @JsonProperty("chainId") @JsonDeserialize(using = ChainIdDeserializer.class)
+      @JsonProperty("chainId") @JsonDeserialize(using = ChainIdJson.Deserializer.class)
           final BigInteger chainId,
       @JsonProperty("address") final Address address,
       @JsonProperty("nonce") final String nonce,

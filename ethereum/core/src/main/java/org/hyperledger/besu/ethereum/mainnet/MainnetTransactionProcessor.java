@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.mainnet;
 
-import static org.hyperledger.besu.evm.internal.Words.clampedAdd;
 import static org.hyperledger.besu.evm.worldstate.CodeDelegationHelper.getTarget;
 import static org.hyperledger.besu.evm.worldstate.CodeDelegationHelper.hasCodeDelegation;
 
@@ -35,9 +34,12 @@ import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
+import org.hyperledger.besu.evm.account.MutableAccount.BalanceUnderflowException;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
+import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
 import org.hyperledger.besu.evm.log.TransferLogEmitter;
 import org.hyperledger.besu.evm.processor.AbstractMessageProcessor;
 import org.hyperledger.besu.evm.processor.ContractCreationProcessor;
@@ -259,30 +261,12 @@ public class MainnetTransactionProcessor {
             upfrontGasCost,
             previousBalance,
             sender.getBalance());
-      } catch (final IllegalStateException ise) {
-        if (transactionValidationParams.allowUnderpriced()) {
-          LOG.trace("Allowing account balance underflow as requested");
+      } catch (final BalanceUnderflowException bue) {
+        if (transactionValidationParams.allowUnderpricedGas()) {
+          LOG.trace("Allowing account balance underflow as requested", bue);
         } else {
-          throw ise;
+          throw bue;
         }
-      }
-
-      long codeDelegationRefund = 0L;
-      if (transaction.getType().equals(TransactionType.DELEGATE_CODE)) {
-        if (maybeCodeDelegationProcessor.isEmpty()) {
-          throw new RuntimeException("Code delegation processor is required for 7702 transactions");
-        }
-
-        final WorldUpdater delegationUpdater = worldState.updater();
-        final CodeDelegationResult codeDelegationResult =
-            maybeCodeDelegationProcessor
-                .get()
-                .process(delegationUpdater, transaction, accessLocationTracker);
-        eip2930WarmAddressList.addAll(codeDelegationResult.accessedDelegatorAddresses());
-        codeDelegationRefund =
-            gasCalculator.calculateDelegateCodeGasRefund(
-                (codeDelegationResult.alreadyExistingDelegators()));
-        delegationUpdater.commit();
       }
 
       final List<AccessListEntry> eip2930AccessListEntries =
@@ -290,34 +274,89 @@ public class MainnetTransactionProcessor {
       // we need to keep a separate hash set of addresses in case they specify no storage.
       // No-storage is a common pattern, especially for Externally Owned Accounts
       final Multimap<Address, Bytes32> eip2930StorageList = HashMultimap.create();
-      int accessListStorageCount = 0;
       for (final var entry : eip2930AccessListEntries) {
         final Address address = entry.address();
         eip2930WarmAddressList.add(address);
         final List<Bytes32> storageKeys = entry.storageKeys();
         eip2930StorageList.putAll(address, storageKeys);
-        accessListStorageCount += storageKeys.size();
       }
       if (warmCoinbase) {
         eip2930WarmAddressList.add(miningBeneficiary);
       }
 
-      final long accessListGas =
-          gasCalculator.accessListGasCost(eip2930AccessListEntries.size(), accessListStorageCount);
-      final long codeDelegationGas =
-          gasCalculator.delegateCodeGasCost(transaction.codeDelegationListSize());
-      final long intrinsicGas =
-          gasCalculator.transactionIntrinsicGasCost(
-              transaction, clampedAdd(accessListGas, codeDelegationGas));
+      final long intrinsicExecutionGas =
+          gasCalculator.transactionIntrinsicExecutionGas(transaction);
+      final var stateGasCalc = gasCalculator.stateGasCostCalculator();
 
-      final long gasAvailable = transaction.getGasLimit() - intrinsicGas;
+      // EIP-2780 charges every state-dependent cost at the top frame, so the intrinsic is
+      // entirely execution gas and an unaffordable charge halts the frame rather than invalidating
+      // the transaction. Checked before frame construction to reject at the intrinsic level.
+      if (transaction.getGasLimit() < intrinsicExecutionGas) {
+        LOG.trace(
+            "Insufficient gas for intrinsic cost: gasLimit={}, intrinsic={}",
+            transaction.getGasLimit(),
+            intrinsicExecutionGas);
+        return TransactionProcessingResult.invalid(
+            ValidationResult.invalid(
+                TransactionInvalidReason.INTRINSIC_GAS_EXCEEDS_GAS_LIMIT,
+                String.format(
+                    "intrinsic gas cost %d exceeds gas limit %d",
+                    intrinsicExecutionGas, transaction.getGasLimit())));
+      }
+
+      // Amsterdam charges authorizations at the top frame with no refund; pre-Amsterdam reserves
+      // the worst case in the intrinsic and refunds it here.
+      long codeDelegationRefund = 0L;
+      // Empty pre-Amsterdam and for non-delegation transactions.
+      List<CodeDelegationResult.AuthorityAccess> delegationAccesses = List.of();
+      // Holds the applied delegations uncommitted until the top-frame preparation charges clear,
+      // so a preparation out-of-gas rolls them back while a later dispatch failure keeps them.
+      // Null pre-Amsterdam, which has no preparation charge to fail, and when there are no
+      // authorizations.
+      WorldUpdater deferredDelegationUpdater = null;
+      if (transaction.getType().equals(TransactionType.DELEGATE_CODE)) {
+        if (maybeCodeDelegationProcessor.isEmpty()) {
+          throw new RuntimeException("Code delegation processor is required for 7702 transactions");
+        }
+
+        final WorldUpdater delegationUpdater = worldState.updater();
+        final CodeDelegationResult codeDelegationResult =
+            maybeCodeDelegationProcessor.get().process(delegationUpdater, transaction);
+        eip2930WarmAddressList.addAll(codeDelegationResult.accessedDelegatorAddresses());
+        if (stateGasCalc.isActive()) {
+          // Defer the commit so a preparation out-of-gas can roll the delegations back.
+          delegationAccesses = codeDelegationResult.authorityAccesses();
+          deferredDelegationUpdater = delegationUpdater;
+        } else {
+          // The intrinsic already validated the charge, so there is nothing left to fail.
+          codeDelegationRefund =
+              gasCalculator.calculateDelegateCodeGasRefund(
+                  codeDelegationResult.alreadyExistingDelegators());
+          delegationUpdater.commit();
+        }
+      }
+
+      // The frame has to see the applied delegations, which may still be uncommitted.
+      final WorldUpdater frameWorldState =
+          deferredDelegationUpdater != null ? deferredDelegationUpdater : worldState;
+
+      final long gasAvailable = transaction.getGasLimit() - intrinsicExecutionGas;
       LOG.trace(
           "Gas available for execution {} = {} - {} (limit - intrinsic)",
           gasAvailable,
           transaction.getGasLimit(),
-          intrinsicGas);
+          intrinsicExecutionGas);
 
-      final WorldUpdater worldUpdater = worldState.updater();
+      // EIP-8037: execution gas is capped at TX_MAX_GAS_LIMIT, so anything bought above that cap
+      // can
+      // only ever be spent as state gas and starts in the reservoir. Pre-Amsterdam the cap is
+      // Long.MAX_VALUE, leaving the whole budget as execution gas.
+      final long executionBudget =
+          Math.max(0L, stateGasCalc.transactionExecutionGasLimit() - intrinsicExecutionGas);
+      final long initialGas = Math.min(executionBudget, gasAvailable);
+      final long initialStateGasReservoir = gasAvailable - initialGas;
+
+      final WorldUpdater worldUpdater = frameWorldState.updater();
 
       operationTracer.traceStartTransaction(worldUpdater, transaction);
 
@@ -325,7 +364,8 @@ public class MainnetTransactionProcessor {
           MessageFrame.builder()
               .maxStackSize(maxStackSize)
               .worldUpdater(worldUpdater.updater())
-              .initialGas(gasAvailable)
+              .initialGas(initialGas)
+              .initialStateGasReservoir(initialStateGasReservoir)
               .originator(senderAddress)
               .gasPrice(transactionGasPrice)
               .blobGasPrice(blobGasPrice)
@@ -348,9 +388,17 @@ public class MainnetTransactionProcessor {
       }
 
       final MessageFrame initialFrame;
+      // EIP-8037: an already-alive (e.g. pre-funded) target adds no leaf, so it owes no
+      // NEW_ACCOUNT.
+      boolean createTargetAlreadyAlive = false;
       if (transaction.isContractCreation()) {
         final Address contractAddress =
             Address.contractAddress(senderAddress, sender.getNonce() - 1L);
+        // Nothing reads it pre-Amsterdam, so skip the lookup.
+        if (stateGasCalc.isActive()) {
+          final Account existingTarget = frameWorldState.get(contractAddress);
+          createTargetAlreadyAlive = existingTarget != null && !existingTarget.isEmpty();
+        }
         accessLocationTracker.ifPresent(t -> t.addTouchedAccount(contractAddress));
 
         final Bytes initCodeBytes = transaction.getPayload();
@@ -367,10 +415,12 @@ public class MainnetTransactionProcessor {
       } else {
         @SuppressWarnings("OptionalGetWithoutIsPresent") // isContractCall tests isPresent
         final Address to = transaction.getTo().get();
-        accessLocationTracker.ifPresent(t -> t.addTouchedAccount(to));
         final Code code =
             processCodeFromAccount(
-                worldState, eip2930WarmAddressList, worldState.get(to), accessLocationTracker);
+                frameWorldState,
+                eip2930WarmAddressList,
+                frameWorldState.get(to),
+                accessLocationTracker);
 
         initialFrame =
             commonMessageFrameBuilder
@@ -382,20 +432,88 @@ public class MainnetTransactionProcessor {
                 .eip2930AccessListWarmAddresses(eip2930WarmAddressList)
                 .build();
       }
-      Deque<MessageFrame> messageFrameStack = initialFrame.getMessageFrameStack();
 
+      // EIP-2780: the state-dependent costs are charged against the frame, on the transaction's
+      // pre-state, before any opcode runs.
+      final PrepCharges prepCharges =
+          chargeTopFrame(
+              initialFrame,
+              transaction,
+              frameWorldState,
+              stateGasCalc,
+              createTargetAlreadyAlive,
+              delegationAccesses);
+
+      // Transaction-level state-gas charges persist regardless of the execution outcome, so put
+      // them out of reach of a rollback.
+      initialFrame.advanceUndoMark();
+      // Those charges may have drawn from gasRemaining, which the failure handler would read as
+      // frame spill and refund a second time. prepCharges already holds what it needs.
+      initialFrame.resetStateGasSpilled();
+
+      Deque<MessageFrame> messageFrameStack = initialFrame.getMessageFrameStack();
       while (!messageFrameStack.isEmpty()) {
         process(messageFrameStack.peekFirst(), operationTracer);
       }
 
-      if (initialFrame.getState() == MessageFrame.State.COMPLETED_SUCCESS) {
+      // Under two-dimensional gas, tx.gasLimit may exceed TX_MAX_GAS_LIMIT to accommodate state
+      // gas, so the cap on execution gas has to be enforced separately here.
+      final long totalRemaining =
+          initialFrame.getRemainingGas() + initialFrame.getStateGasReservoir();
+      final long totalConsumed = transaction.getGasLimit() - totalRemaining;
+      final long executionConsumed = totalConsumed - initialFrame.getStateGasUsed();
+      final boolean executionGasLimitExceeded =
+          executionConsumed > stateGasCalc.transactionExecutionGasLimit();
+      if (executionGasLimitExceeded) {
+        LOG.debug(
+            "Transaction {} execution gas {} exceeds TX_MAX_GAS_LIMIT {}, reverting",
+            transaction.getHash(),
+            executionConsumed,
+            stateGasCalc.transactionExecutionGasLimit());
+      }
+
+      final boolean txSucceeded =
+          initialFrame.getState() == MessageFrame.State.COMPLETED_SUCCESS
+              && !executionGasLimitExceeded;
+
+      if (txSucceeded) {
         worldUpdater.commit();
+        // The deferred updater is the frame's base, so it commits after worldUpdater.
+        if (deferredDelegationUpdater != null) {
+          deferredDelegationUpdater.commit();
+        }
+        // EIP-8037: a successful creation adds the leaf it was charged for, so the charge stands.
       } else {
+        // EIP-7702: delegations applied by a successful preparation outlive a dispatch failure,
+        // unlike the frame's execution changes. A preparation out-of-gas leaves them rolled back.
+        if (deferredDelegationUpdater != null && !prepCharges.halted()) {
+          deferredDelegationUpdater.commit();
+        }
+        // A real halt reason is more specific, so it wins when both apply.
         if (initialFrame.getExceptionalHaltReason().isPresent()) {
           validationResult =
               ValidationResult.invalid(
                   TransactionInvalidReason.EXECUTION_HALTED,
                   initialFrame.getExceptionalHaltReason().get().getDescription());
+        } else if (executionGasLimitExceeded) {
+          validationResult =
+              ValidationResult.invalid(
+                  TransactionInvalidReason.EXECUTION_HALTED,
+                  "Execution gas consumption exceeds TX_MAX_GAS_LIMIT");
+        }
+        // EIP-8037: no leaf the creation or the value transfer would have added survives a failed
+        // transaction, so their charges come back. Only what was actually charged: refilling a
+        // charge that ran out of gas would inflate the reservoir and drive state gas negative.
+        if (stateGasCalc.isActive()) {
+          final boolean burnsAllGas =
+              initialFrame.getExceptionalHaltReason().isPresent() || executionGasLimitExceeded;
+          refundRolledBackStateGas(initialFrame, prepCharges.create(), burnsAllGas);
+          refundRolledBackStateGas(initialFrame, prepCharges.recipient(), burnsAllGas);
+          // The whole preparation shares one snapshot, so any charge running out of gas rolls the
+          // delegations back with it — and only then is their state gas owed back.
+          if (prepCharges.halted()) {
+            refundRolledBackStateGas(initialFrame, prepCharges.authorizations(), burnsAllGas);
+          }
         }
       }
 
@@ -410,7 +528,9 @@ public class MainnetTransactionProcessor {
       // Refund the sender by what we should and pay the miner fee (note that we're doing them one
       // after the other so that if it is the same account somehow, we end up with the right result)
       final long refundedGas =
-          gasCalculator.calculateGasRefund(transaction, initialFrame, codeDelegationRefund);
+          executionGasLimitExceeded
+              ? 0L
+              : gasCalculator.calculateGasRefund(transaction, initialFrame, codeDelegationRefund);
       final Wei refundedWei = transactionGasPrice.multiply(refundedGas);
       final Wei balancePriorToRefund = sender.getBalance();
       sender.incrementBalance(refundedWei);
@@ -424,19 +544,33 @@ public class MainnetTransactionProcessor {
       // Calculate gas used: max of execution gas and transaction floor cost (EIP-7623)
       // For pre-Prague forks, floor cost is 0, so this returns just execution gas
       // For Prague+ forks with EIP-7778, this ensures block gas accounts for data floor
-      final long executionGas = transaction.getGasLimit() - initialFrame.getRemainingGas();
-      final long floorCost =
-          gasCalculator.transactionFloorCost(
-              transaction.getPayload(), transaction.getPayloadZeroBytes());
-      final long gasUsedByTransaction = Math.max(executionGas, floorCost);
-
-      // update the coinbase
-      final long usedGas = transaction.getGasLimit() - refundedGas;
+      // EIP-8037: Gas accounting with multidimensional gas support
+      final long floorCost = gasCalculator.transactionFloorCost(transaction);
+      final TransactionGasAccounting.GasResult gasResult =
+          TransactionGasAccounting.builder()
+              .txGasLimit(transaction.getGasLimit())
+              .remainingGas(initialFrame.getRemainingGas())
+              .stateGasReservoir(initialFrame.getStateGasReservoir())
+              .stateGasUsed(initialFrame.getStateGasUsed())
+              .refundedGas(refundedGas)
+              .floorCost(floorCost)
+              .executionGasLimitExceeded(executionGasLimitExceeded)
+              .build()
+              .calculate();
+      final long stateGasUsed = gasResult.effectiveStateGas();
+      final long gasUsedByTransaction = gasResult.gasUsedByTransaction();
+      final long usedGas = gasResult.usedGas();
+      LOG.trace(
+          "EIP-8037 TX_END gasUsed={} stateGasUsed={} reservoir={}",
+          gasUsedByTransaction,
+          stateGasUsed,
+          initialFrame.getStateGasReservoir());
       final CoinbaseFeePriceCalculator coinbaseCalculator;
       if (blockHeader.getBaseFee().isPresent()) {
         final Wei baseFee = blockHeader.getBaseFee().get();
         final boolean gasPriceBelowBaseFee = transactionGasPrice.compareTo(baseFee) < 0;
-        if (transactionValidationParams.allowUnderpriced()) {
+        if (transactionValidationParams.allowUnderpricedGas()
+            || transactionValidationParams.isPreserveCallerGasPricing()) {
           coinbaseCalculator =
               gasPriceBelowBaseFee ? (a, b, c) -> Wei.ZERO : coinbaseFeePriceCalculator;
         } else {
@@ -448,6 +582,7 @@ public class MainnetTransactionProcessor {
                 gasUsedByTransaction,
                 refundedGas,
                 usedGas,
+                stateGasUsed,
                 ValidationResult.invalid(
                     TransactionInvalidReason.TRANSACTION_PRICE_TOO_LOW,
                     "transaction price must be greater than base fee"),
@@ -474,22 +609,31 @@ public class MainnetTransactionProcessor {
         coinbase.incrementBalance(coinbaseWeiDelta);
       }
 
-      // EIP-7708: Emit closure logs for accounts with remaining balance before deletion
-      // Noop before Amsterdam
-      transferLogEmitter.emitClosureLogs(
-          worldState, initialFrame.getSelfDestructs(), initialFrame::addLog);
+      // For a failed transaction all selfDestructs must have been rolled back by the frame.
+      // Guard here as defense-in-depth: if any leak path (e.g. executionGasLimitExceeded) leaves
+      // stale markers, we must not permanently delete accounts from the world state.
+      final Set<Address> effectiveSelfDestructs =
+          txSucceeded ? initialFrame.getSelfDestructs() : Set.of();
+
+      // EIP-7708: Emit closure (burn) logs for self-destructed accounts whose balance is burned.
+      // Noop before Amsterdam. EIP-8246 preserves the balance instead of burning it, so no
+      // closure log is emitted then.
+      if (!gasCalculator.isSelfDestructBalancePreserved()) {
+        transferLogEmitter.emitClosureLogs(
+            worldState, effectiveSelfDestructs, initialFrame::addLog);
+      }
 
       operationTracer.traceEndTransaction(
           worldState.updater(),
           transaction,
-          initialFrame.getState() == MessageFrame.State.COMPLETED_SUCCESS,
+          txSucceeded,
           initialFrame.getOutputData(),
           initialFrame.getLogs(),
           gasUsedByTransaction,
-          initialFrame.getSelfDestructs(),
+          effectiveSelfDestructs,
           0L);
 
-      initialFrame.getSelfDestructs().forEach(worldState::deleteAccount);
+      settleSelfDestructs(worldState, effectiveSelfDestructs);
 
       if (clearEmptyAccounts) {
         worldState.clearAccountsThatAreEmpty();
@@ -498,15 +642,19 @@ public class MainnetTransactionProcessor {
       final Optional<PartialBlockAccessView> partialBlockAccessView =
           accessLocationTracker.map(tracker -> tracker.createPartialBlockAccessView(worldState));
 
-      if (initialFrame.getState() == MessageFrame.State.COMPLETED_SUCCESS) {
-        return TransactionProcessingResult.successful(
-            initialFrame.getLogs(),
-            gasUsedByTransaction,
-            refundedGas,
-            usedGas,
-            initialFrame.getOutputData(),
-            partialBlockAccessView,
-            validationResult);
+      if (txSucceeded) {
+        final TransactionProcessingResult successResult =
+            TransactionProcessingResult.successful(
+                initialFrame.getLogs(),
+                gasUsedByTransaction,
+                refundedGas,
+                usedGas,
+                stateGasUsed,
+                initialFrame.getOutputData(),
+                partialBlockAccessView,
+                validationResult);
+        successResult.setExecutionGasUsedForBlock(gasResult.executionGas());
+        return successResult;
       } else {
         if (initialFrame.getExceptionalHaltReason().isPresent()) {
           LOG.debug(
@@ -520,14 +668,18 @@ public class MainnetTransactionProcessor {
               transaction.getHash(),
               initialFrame.getRevertReason().get());
         }
-        return TransactionProcessingResult.failed(
-            gasUsedByTransaction,
-            refundedGas,
-            usedGas,
-            validationResult,
-            initialFrame.getRevertReason(),
-            initialFrame.getExceptionalHaltReason(),
-            partialBlockAccessView);
+        final TransactionProcessingResult failedResult =
+            TransactionProcessingResult.failed(
+                gasUsedByTransaction,
+                refundedGas,
+                usedGas,
+                stateGasUsed,
+                validationResult,
+                initialFrame.getRevertReason(),
+                initialFrame.getExceptionalHaltReason(),
+                partialBlockAccessView);
+        failedResult.setExecutionGasUsedForBlock(gasResult.executionGas());
+        return failedResult;
       }
     } catch (final MerkleTrieException re) {
       operationTracer.traceEndTransaction(
@@ -564,6 +716,15 @@ public class MainnetTransactionProcessor {
           EMPTY_ADDRESS_SET,
           0L);
 
+      // if this happens when simulating allowing underpriced gas, then it could happen that the
+      // sender has insufficient funds for the transfer, so return invalid as a result.
+      if (re instanceof BalanceUnderflowException
+          && transactionValidationParams.allowUnderpricedGas()) {
+        return TransactionProcessingResult.invalid(
+            ValidationResult.invalid(
+                TransactionInvalidReason.INSUFFICIENT_FUNDS_FOR_TRANSFER, re.getMessage()));
+      }
+
       LOG.error("Critical Exception Processing Transaction", re);
       return TransactionProcessingResult.invalid(
           ValidationResult.invalid(
@@ -591,6 +752,238 @@ public class MainnetTransactionProcessor {
 
   public boolean getClearEmptyAccounts() {
     return clearEmptyAccounts;
+  }
+
+  public GasCalculator getGasCalculator() {
+    return gasCalculator;
+  }
+
+  public TransferLogEmitter getTransferLogEmitter() {
+    return transferLogEmitter;
+  }
+
+  /**
+   * A top-frame state-gas charge, split into the total consumed and the part that spilled out of
+   * gasRemaining. The split decides where a refund lands, and so who ends up paying it.
+   */
+  private record StateCharge(long amount, long spilled) {
+    private static final StateCharge NONE = new StateCharge(0L, 0L);
+  }
+
+  /**
+   * A snapshot of the frame's state-gas counters, taken before a top-frame charge so {@link
+   * #chargeSince} can report what it consumed. Reading the counters {@link MessageFrame} already
+   * maintains keeps the reservoir-versus-spill routing rule in one place.
+   */
+  private record StateGasMark(long used, long spilled) {
+
+    static StateGasMark of(final MessageFrame frame) {
+      return new StateGasMark(frame.getStateGasUsed(), frame.getStateGasSpilled());
+    }
+
+    StateCharge chargeSince(final MessageFrame frame) {
+      return new StateCharge(frame.getStateGasUsed() - used, frame.getStateGasSpilled() - spilled);
+    }
+  }
+
+  /**
+   * What the top frame's preparation phase consumed, per charge, so the failure path can refund the
+   * charges whose state effect rolled back with the transaction.
+   *
+   * @param create the contract-creation NEW_ACCOUNT charge
+   * @param authorizations the EIP-7702 per-authority charges, taken as a whole
+   * @param recipient the dispatch-entry charge on the recipient
+   * @param halted whether any of them ran out of gas, leaving the frame exceptionally halted
+   */
+  private record PrepCharges(
+      StateCharge create, StateCharge authorizations, StateCharge recipient, boolean halted) {}
+
+  /**
+   * Refunds a top-frame charge whose state effect rolled back with the failed transaction. A charge
+   * that ran out of gas consumed nothing, so it is a no-op.
+   *
+   * <p>Where the credit lands decides who pays. The spilled part rides gasRemaining, which a revert
+   * returns to the sender and an exceptional halt burns; crediting it back to the reservoir instead
+   * would hide it from that burn, since the reservoir never is.
+   */
+  private static void refundRolledBackStateGas(
+      final MessageFrame initialFrame, final StateCharge charge, final boolean burnsAllGas) {
+    if (charge.amount() <= 0L) {
+      return;
+    }
+    final long burnedSpill = burnsAllGas ? charge.spilled() : 0L;
+    final long credited = Math.max(0L, charge.amount() - burnedSpill);
+    if (credited > 0L) {
+      initialFrame.incrementStateGasReservoir(credited);
+    }
+    // stateGasUsed drops by the full charge either way: the leaf did not persist.
+    initialFrame.decrementStateGasUsed(charge.amount());
+  }
+
+  /**
+   * Runs the top frame's preparation phase before any opcode executes, in spec order: the
+   * contract-creation charge, the per-authority delegation charges, then the dispatch-entry
+   * recipient load and charge. The first unaffordable charge halts the frame and skips the rest,
+   * which is what keeps a recipient the transaction never got to load out of the block access list.
+   */
+  private PrepCharges chargeTopFrame(
+      final MessageFrame initialFrame,
+      final Transaction transaction,
+      final WorldUpdater frameWorldState,
+      final StateGasCostCalculator stateGasCalc,
+      final boolean createTargetAlreadyAlive,
+      final List<CodeDelegationResult.AuthorityAccess> delegationAccesses) {
+    // Pre-Amsterdam forks pay none of these charges, but still record the recipient load below.
+    final boolean stateGasActive = stateGasCalc.isActive();
+    boolean outOfGas = false;
+    StateCharge create = StateCharge.NONE;
+    StateCharge authorizations = StateCharge.NONE;
+    StateCharge recipient = StateCharge.NONE;
+
+    if (transaction.isContractCreation()) {
+      // The created address was already recorded when the frame was built.
+      if (stateGasActive && !createTargetAlreadyAlive) {
+        // EIP-8037: the created account's NEW_ACCOUNT state gas is charged only when the
+        // deployment target is not already alive; refilled on a failed create. A charge that runs
+        // out of gas consumes nothing, so it measures as StateCharge.NONE and is not refunded.
+        final StateGasMark mark = StateGasMark.of(initialFrame);
+        outOfGas = !initialFrame.consumeStateGas(stateGasCalc.newContractStateGas());
+        create = mark.chargeSince(initialFrame);
+      }
+    } else {
+      if (stateGasActive && transaction.getType().equals(TransactionType.DELEGATE_CODE)) {
+        // A partial out-of-gas still leaves the earlier authorizations' state gas consumed; the
+        // whole preparation shares one snapshot, so the failure path refunds it whenever any prep
+        // charge halts — including the recipient's, charged after these.
+        final StateGasMark mark = StateGasMark.of(initialFrame);
+        outOfGas = !chargeCodeDelegationAccesses(initialFrame, stateGasCalc, delegationAccesses);
+        authorizations = mark.chargeSince(initialFrame);
+      }
+      if (!outOfGas) {
+        final Address to = transaction.getTo().orElseThrow();
+        // EIP-7928: the load precedes the charge, so the recipient stays listed even when its own
+        // entry charge runs out of gas — but an authorization out-of-gas, which comes first,
+        // leaves it out.
+        initialFrame.getEip7928AccessList().ifPresent(bal -> bal.addTouchedAccount(to));
+        if (stateGasActive) {
+          // Measured because the leaf it pays for rolls back with a failed transaction, unlike a
+          // delegation, which survives one.
+          final StateGasMark mark = StateGasMark.of(initialFrame);
+          outOfGas = !chargeTransactionEntry(initialFrame, frameWorldState, to, stateGasCalc);
+          recipient = mark.chargeSince(initialFrame);
+        }
+      }
+    }
+
+    if (outOfGas) {
+      initialFrame.setExceptionalHaltReason(Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
+      initialFrame.setState(MessageFrame.State.EXCEPTIONAL_HALT);
+    }
+    return new PrepCharges(create, authorizations, recipient, outOfGas);
+  }
+
+  /**
+   * EIP-2780: replays each authorization's top-frame access in transaction order, touching the
+   * authority before charging it so an out-of-gas leaves the authorities after it out of the
+   * EIP-7928 block access list. Charges never partially consume gas, so the frame stays consistent
+   * on the authorization that stopped the replay; what the earlier ones consumed is refunded by the
+   * caller's failure path.
+   *
+   * @return true if every authorization was charged, false on the first out-of-gas
+   */
+  private boolean chargeCodeDelegationAccesses(
+      final MessageFrame initialFrame,
+      final StateGasCostCalculator stateGasCalc,
+      final List<CodeDelegationResult.AuthorityAccess> delegationAccesses) {
+    final long accountWriteCost = gasCalculator.getAccountWriteGasCost();
+    for (final CodeDelegationResult.AuthorityAccess access : delegationAccesses) {
+      initialFrame
+          .getEip7928AccessList()
+          .ifPresent(bal -> bal.addTouchedAccount(access.authority()));
+      if (access.newAccount()
+          && !initialFrame.consumeStateGas(stateGasCalc.emptyAccountDelegationStateGas())) {
+        return false;
+      }
+      if (access.accountWrite()) {
+        if (initialFrame.getRemainingGas() < accountWriteCost) {
+          return false;
+        }
+        initialFrame.decrementRemainingGas(accountWriteCost);
+      }
+      if (access.authBase() && !initialFrame.consumeStateGas(stateGasCalc.authBaseStateGas())) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Charges the EIP-2780 dispatch-entry costs on the depth-0 frame of a non-create transaction:
+   * NEW_ACCOUNT when value materialises an empty recipient leaf, then the access to a delegated
+   * recipient's target. {@code worldState} is the transaction-level updater, which already has the
+   * recipient cached from code resolution, so reading it pre-value-transfer costs no extra lookup.
+   *
+   * @return true if both charges were afforded, false on out-of-gas
+   */
+  private boolean chargeTransactionEntry(
+      final MessageFrame initialFrame,
+      final WorldUpdater worldState,
+      final Address to,
+      final StateGasCostCalculator stateGasCalc) {
+    final Account recipient = worldState.get(to);
+    // Positive value to a non-alive recipient. Precompiles are deliberately not excluded, since
+    // a zero-balance precompile is not "alive" under EIP-161 either.
+    if (!initialFrame.getValue().isZero()
+        && (recipient == null || recipient.isEmpty())
+        && !initialFrame.consumeStateGas(stateGasCalc.newAccountStateGas())) {
+      return false;
+    }
+    // EIP-2780: the top-level access to a delegated recipient's target is warm/cold aware.
+    if (recipient != null && hasCodeDelegation(recipient.getCode())) {
+      final Address target = CodeDelegationHelper.getTargetAddress(recipient.getCode());
+      // Precompiles are warm by construction, but warmUpAddress still has to run: its side effect
+      // must stand for any later access.
+      final boolean targetWasWarm =
+          initialFrame.warmUpAddress(target) || gasCalculator.isPrecompile(target);
+      final long delegationAccessCost =
+          targetWasWarm
+              ? gasCalculator.getWarmStorageReadCost()
+              : gasCalculator.getColdAccountAccessCost();
+      if (initialFrame.getRemainingGas() < delegationAccessCost) {
+        return false;
+      }
+      initialFrame.decrementRemainingGas(delegationAccessCost);
+      // EIP-7928: the target is loaded only once its access is paid for, so an access charge that
+      // runs out of gas has to leave it out of the list entirely.
+      initialFrame.getEip7928AccessList().ifPresent(bal -> bal.addTouchedAccount(target));
+    }
+    return true;
+  }
+
+  /**
+   * Settles accounts marked for self-destruction at transaction finalization. Under EIP-8246 each
+   * account is cleared (nonce reset, code and storage removed) but keeps its balance — EIP-161
+   * state clearing (via {@code clearAccountsThatAreEmpty}) then removes any account left with a
+   * zero balance. Pre-EIP-8246 the accounts are deleted outright.
+   *
+   * @param worldState the world state updater
+   * @param selfDestructs the addresses marked for self-destruction
+   */
+  private void settleSelfDestructs(
+      final WorldUpdater worldState, final Set<Address> selfDestructs) {
+    if (gasCalculator.isSelfDestructBalancePreserved()) {
+      selfDestructs.forEach(
+          address -> {
+            final MutableAccount account = worldState.getAccount(address);
+            if (account != null) {
+              account.setNonce(0L);
+              account.setCode(Bytes.EMPTY);
+              account.clearStorage();
+            }
+          });
+    } else {
+      selfDestructs.forEach(worldState::deleteAccount);
+    }
   }
 
   private String printableStackTraceFromThrowable(final RuntimeException re) {
@@ -636,10 +1029,24 @@ public class MainnetTransactionProcessor {
       final Set<Address> warmAddressList,
       final Account contract,
       final Optional<AccessLocationTracker> accessLocationTracker) {
+    // Besu resolves the delegation target eagerly to build the frame, but EIP-7928 only lists it
+    // once its access charge is paid, so recording is left to chargeTransactionEntry. Pre-Amsterdam
+    // forks charge no such access and so still record it here.
+    //
     // we need to look up the target account and its code, but do NOT charge gas for it
+    final boolean stateGasActive = gasCalculator.stateGasCostCalculator().isActive();
     final CodeDelegationHelper.Target target =
-        getTarget(worldUpdater, gasCalculator::isPrecompile, contract, accessLocationTracker);
-    warmAddressList.add(target.address());
+        getTarget(
+            worldUpdater,
+            gasCalculator::isPrecompile,
+            contract,
+            stateGasActive ? Optional.empty() : accessLocationTracker);
+    // EIP-2780: pre-warming the target here would make the warm/cold-aware access charged in
+    // chargeTransactionEntry always read warm. Pre-Amsterdam forks have no such charge, so they
+    // still warm it here.
+    if (!stateGasActive) {
+      warmAddressList.add(target.address());
+    }
 
     return target.code();
   }

@@ -14,7 +14,10 @@
  */
 package org.hyperledger.besu.tests.acceptance.plugins;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.hyperledger.besu.ethereum.core.plugins.ImmutablePluginConfiguration;
@@ -25,7 +28,6 @@ import org.hyperledger.besu.tests.acceptance.dsl.node.BesuNode;
 import org.hyperledger.besu.util.BesuVersionUtils;
 
 import java.io.IOException;
-import java.util.Collections;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -36,12 +38,15 @@ public class OutdatedPluginTest extends AcceptanceTestBase {
   @Test
   public void warnOnOutdatedPluginByDefault() throws IOException {
     pluginNode =
-        besu.createQbftPluginsNode(
+        besu.createPluginsNode(
             "pluginNode",
             List.of("outdatedTestPlugins"),
-            PluginConfiguration.DEFAULT,
-            Collections.emptyList(),
-            "DEBUG");
+            builder ->
+                builder
+                    .jsonRpcEnabled()
+                    .jsonRpcAdmin()
+                    .jsonRpcDebug()
+                    .pluginConfiguration(PluginConfiguration.DEFAULT));
 
     cluster.startConsoleCapture();
     cluster.runNodeStart(pluginNode);
@@ -64,23 +69,31 @@ public class OutdatedPluginTest extends AcceptanceTestBase {
   @Test
   public void failsToStartOnOutdatedPluginIfToldSo() throws IOException {
     pluginNode =
-        besu.createQbftPluginsNode(
+        besu.createPluginsNode(
             "pluginNode",
             List.of("outdatedTestPlugins"),
-            ImmutablePluginConfiguration.builder()
-                .pluginsVerificationMode(PluginsVerificationMode.FULL)
-                .build(),
-            Collections.emptyList(),
-            "DEBUG");
+            builder ->
+                builder
+                    .jsonRpcEnabled()
+                    .jsonRpcAdmin()
+                    .jsonRpcDebug()
+                    .pluginConfiguration(
+                        ImmutablePluginConfiguration.builder()
+                            .pluginsVerificationMode(PluginsVerificationMode.FULL)
+                            .build()));
 
     cluster.startConsoleCapture();
-    cluster.runNodeStart(pluginNode);
 
-    final var exitCode = pluginNode.exitCode();
+    // runNodeStart now throws when the process exits before writing ports files
+    final Throwable thrown = catchThrowable(() -> cluster.runNodeStart(pluginNode));
+    assertThat(thrown).isInstanceOf(IllegalStateException.class);
+
+    // exit code is set asynchronously via process.onExit(); wait for it
+    await().atMost(10, SECONDS).until(() -> pluginNode.exitCode().isPresent());
 
     // exit code != 0 means Besu failed to start
-    assertThat(exitCode).isPresent();
-    assertThat(exitCode.get()).isNotZero();
+    assertThat(pluginNode.exitCode()).isPresent();
+    assertThat(pluginNode.exitCode().get()).isNotZero();
 
     assertTrue(
         cluster
@@ -93,5 +106,11 @@ public class OutdatedPluginTest extends AcceptanceTestBase {
                     line.contains(
                         "is built against Besu version 25.12.0 while current running Besu version is "
                             + BesuVersionUtils.shortVersion())));
+    // The exception message includes captured process output; verify the outdated error was logged
+    assertThat(thrown.getMessage())
+        .contains("outdatedTestPlugins.jar")
+        .contains(
+            "is built against Besu version 25.12.0 while current running Besu version is "
+                + BesuVersionUtils.shortVersion());
   }
 }

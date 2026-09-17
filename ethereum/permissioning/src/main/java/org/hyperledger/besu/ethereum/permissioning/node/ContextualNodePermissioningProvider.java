@@ -14,7 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.permissioning.node;
 
-import org.hyperledger.besu.plugin.data.EnodeURL;
+import org.hyperledger.besu.ethereum.p2p.discovery.NodeIdentifier;
 
 import java.util.Optional;
 
@@ -29,7 +29,8 @@ public interface ContextualNodePermissioningProvider {
    * @return True if permitted, false if not, Empty if an answer is not possible under current
    *     conditions
    */
-  Optional<Boolean> isPermitted(final EnodeURL sourceEnode, final EnodeURL destinationEnode);
+  Optional<Boolean> isPermitted(
+      final NodeIdentifier sourceEnode, final NodeIdentifier destinationEnode);
 
   /**
    * Subscribe a callback that will be invoked whenever this provider has changed such that it would

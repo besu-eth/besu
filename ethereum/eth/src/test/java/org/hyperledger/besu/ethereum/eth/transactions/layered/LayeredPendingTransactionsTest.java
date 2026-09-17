@@ -27,8 +27,9 @@ import static org.hyperledger.besu.ethereum.eth.transactions.layered.LayeredRemo
 import static org.hyperledger.besu.ethereum.eth.transactions.layered.LayeredRemovalReason.PoolRemovalReason.INVALIDATED;
 import static org.hyperledger.besu.ethereum.eth.transactions.layered.LayeredRemovalReason.PoolRemovalReason.REPLACED;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.GAS_PRICE_BELOW_CURRENT_BASE_FEE;
-import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE;
+import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE;
 import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.SELECTED;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -38,6 +39,7 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -46,11 +48,13 @@ import org.hyperledger.besu.ethereum.eth.transactions.ImmutableTransactionPoolCo
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionAddedListener;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionDroppedListener;
+import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.RemovalReason;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolReplacementHandler;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
 
@@ -82,6 +86,7 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
       mock(PendingTransactionAddedListener.class);
   protected final PendingTransactionDroppedListener droppedListener =
       mock(PendingTransactionDroppedListener.class);
+  private final WorldStateArchive worldStateArchive = mock(WorldStateArchive.class);
 
   private final TransactionPoolConfiguration poolConf =
       ImmutableTransactionPoolConfiguration.builder()
@@ -117,6 +122,12 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
     final BlockHeader blockHeader = mock(BlockHeader.class);
     when(blockHeader.getBaseFee()).thenReturn(Optional.of(DEFAULT_BASE_FEE));
     return blockHeader;
+  }
+
+  private ProtocolContext mockProtocolContext() {
+    final ProtocolContext protocolContext = mock(ProtocolContext.class);
+    when(protocolContext.getWorldStateArchive()).thenReturn(worldStateArchive);
+    return protocolContext;
   }
 
   private CreatedLayers createLayers(final TransactionPoolConfiguration poolConfig) {
@@ -172,16 +183,22 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
     senderLimitedLayers = createLayers(senderLimitedConfig);
     smallLayers = createLayers(smallPoolConfig);
 
+    final ProtocolContext protocolContext = mockProtocolContext();
+
     pendingTransactions =
-        new LayeredPendingTransactions(poolConf, layers.prioritizedTransactions, ethScheduler);
+        new LayeredPendingTransactions(
+            protocolContext, poolConf, layers.prioritizedTransactions, ethScheduler);
 
     senderLimitedTransactions =
         new LayeredPendingTransactions(
-            senderLimitedConfig, senderLimitedLayers.prioritizedTransactions, ethScheduler);
+            protocolContext,
+            senderLimitedConfig,
+            senderLimitedLayers.prioritizedTransactions,
+            ethScheduler);
 
     smallPendingTransactions =
         new LayeredPendingTransactions(
-            smallPoolConfig, smallLayers.prioritizedTransactions, ethScheduler);
+            protocolContext, smallPoolConfig, smallLayers.prioritizedTransactions, ethScheduler);
   }
 
   @Test
@@ -246,7 +263,7 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
               i,
               DEFAULT_BASE_FEE.add(i),
               (int) smallPoolConfig.getPendingTransactionsLayerMaxCapacityBytes() + 1,
-              SIGNATURE_ALGORITHM.get().generateKeyPair());
+              SIGNATURE_ALGORITHM.generateKeyPair());
       smallPendingTransactions.addTransaction(
           createRemotePendingTransaction(tx), Optional.of(sender));
       firstTxs.add(tx);
@@ -260,7 +277,7 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
             0,
             DEFAULT_MIN_GAS_PRICE.multiply(1000),
             (int) smallPoolConfig.getPendingTransactionsLayerMaxCapacityBytes(),
-            SIGNATURE_ALGORITHM.get().generateKeyPair());
+            SIGNATURE_ALGORITHM.generateKeyPair());
     final Account lastSender = mock(Account.class);
     when(lastSender.getNonce()).thenReturn(0L);
     smallPendingTransactions.addTransaction(
@@ -294,8 +311,7 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
       final Account sender = mock(Account.class);
       when(sender.getNonce()).thenReturn((long) i);
       final var tx =
-          createTransaction(
-              i, DEFAULT_BASE_FEE.add(i), SIGNATURE_ALGORITHM.get().generateKeyPair());
+          createTransaction(i, DEFAULT_BASE_FEE.add(i), SIGNATURE_ALGORITHM.generateKeyPair());
       pendingTransactions.addTransaction(createRemotePendingTransaction(tx), Optional.of(sender));
       txs.add(tx);
       assertTransactionPending(pendingTransactions, tx);
@@ -471,7 +487,8 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
         pendingTxs -> {
           assertThat(pendingTxs).containsExactly(pendingTx0);
           return Map.of(
-              pendingTx0, TransactionSelectionResult.invalid(UPFRONT_COST_EXCEEDS_BALANCE.name()));
+              pendingTx0,
+              TransactionSelectionResult.invalid(UPFRONT_GAS_COST_EXCEEDS_BALANCE.name()));
         });
 
     // assert that first tx is removed from the pool
@@ -820,6 +837,132 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
     assertThat(pendingTransactions.getNextNonceForSender(addedTxs[0].transaction.getSender()))
         .isPresent()
         .hasValue(1);
+  }
+
+  @Test
+  public void shouldReturnZeroStatusWhenPoolIsEmpty() {
+    final PendingTransactions.Status status = pendingTransactions.getStatus();
+    assertThat(status.pendingCount()).isZero();
+    assertThat(status.queuedCount()).isZero();
+  }
+
+  @Test
+  public void shouldCountAllTransactionsAsPendingWhenNoncesAreSequential() {
+    pendingTransactions.addTransaction(
+        createRemotePendingTransaction(createTransaction(0, KEYS1)), Optional.empty());
+    pendingTransactions.addTransaction(
+        createRemotePendingTransaction(createTransaction(1, KEYS1)), Optional.empty());
+    pendingTransactions.addTransaction(
+        createRemotePendingTransaction(createTransaction(2, KEYS1)), Optional.empty());
+
+    final PendingTransactions.Status status = pendingTransactions.getStatus();
+    assertThat(status.pendingCount()).isEqualTo(3);
+    assertThat(status.queuedCount()).isZero();
+  }
+
+  @Test
+  public void shouldCountTransactionsBeyondNonceGapAsQueued() {
+    // nonce 0 lands in prioritized/ready (pending), nonce 2 lands in sparse with gap=1 (queued)
+    pendingTransactions.addTransaction(
+        createRemotePendingTransaction(createTransaction(0, KEYS1)), Optional.empty());
+    pendingTransactions.addTransaction(
+        createRemotePendingTransaction(createTransaction(2, KEYS1)), Optional.empty());
+
+    final PendingTransactions.Status status = pendingTransactions.getStatus();
+    assertThat(status.pendingCount()).isEqualTo(1);
+    assertThat(status.queuedCount()).isEqualTo(1);
+  }
+
+  @Test
+  public void shouldAggregatePendingAndQueuedAcrossMultipleSenders() {
+    // SENDER1: nonces 0, 1 — sequential, all pending
+    pendingTransactions.addTransaction(
+        createRemotePendingTransaction(createTransaction(0, KEYS1)), Optional.empty());
+    pendingTransactions.addTransaction(
+        createRemotePendingTransaction(createTransaction(1, KEYS1)), Optional.empty());
+    // SENDER2: nonces 0, 2 — gap at 1: 1 pending, 1 queued
+    pendingTransactions.addTransaction(
+        createRemotePendingTransaction(createTransaction(0, KEYS2)), Optional.empty());
+    pendingTransactions.addTransaction(
+        createRemotePendingTransaction(createTransaction(2, KEYS2)), Optional.empty());
+
+    final PendingTransactions.Status status = pendingTransactions.getStatus();
+    assertThat(status.pendingCount()).isEqualTo(3);
+    assertThat(status.queuedCount()).isEqualTo(1);
+  }
+
+  @Test
+  public void shouldMoveTxFromQueuedToPendingWhenGapIsFilled() {
+    // start with a gap: nonce 0 pending, nonce 2 queued
+    pendingTransactions.addTransaction(
+        createRemotePendingTransaction(createTransaction(0, KEYS1)), Optional.empty());
+    pendingTransactions.addTransaction(
+        createRemotePendingTransaction(createTransaction(2, KEYS1)), Optional.empty());
+
+    assertThat(pendingTransactions.getStatus().pendingCount()).isEqualTo(1);
+    assertThat(pendingTransactions.getStatus().queuedCount()).isEqualTo(1);
+
+    // fill the gap: nonce 1 arrives, nonce 2 is promoted from sparse to ready/prioritized
+    pendingTransactions.addTransaction(
+        createRemotePendingTransaction(createTransaction(1, KEYS1)), Optional.empty());
+
+    final PendingTransactions.Status status = pendingTransactions.getStatus();
+    assertThat(status.pendingCount()).isEqualTo(3);
+    assertThat(status.queuedCount()).isZero();
+  }
+
+  @Test
+  public void shouldUnderPurgeIfWorldStateNotAvailableWhenCheckingConfirmedCodeDelegations() {
+    // sender1 adds one tx and one code delegation to the pool, both have the same nonce
+    final Transaction tx1 = createEIP1559Transaction(0, KEYS1, 1);
+    final Transaction eip7702Tx =
+        createEIP7702Transaction(0, KEYS2, 1, List.of(CODE_DELEGATION_SENDER_1));
+
+    pendingTransactions.addTransaction(createRemotePendingTransaction(eip7702Tx), Optional.empty());
+    pendingTransactions.addTransaction(createRemotePendingTransaction(tx1), Optional.empty());
+
+    assertThat(pendingTransactions.getStatus().pendingCount()).isEqualTo(2);
+
+    // now let's pretend a block is imported with only the EIP-7702 tx confirmed
+    // and that the world state is not available for that block
+    when(worldStateArchive.getWorldState(any())).thenReturn(Optional.empty());
+
+    final BlockHeader mockBlockHeader = mockBlockHeader();
+    when(mockBlockHeader.getStateRoot()).thenReturn(Hash.ZERO);
+    pendingTransactions.manageBlockAdded(
+        mockBlockHeader, List.of(eip7702Tx), List.of(), FeeMarket.london(0L));
+
+    // since without the world state we cannot check the nonce of the code delegation, the txpool
+    // under-purge and tx1 should still be present in the pool even if its nonce is now invalid
+    assertThat(pendingTransactions.getPendingTransactions())
+        .map(PendingTransaction::getTransaction)
+        .containsExactly(tx1);
+  }
+
+  @Test
+  public void shouldUnderPurgeIfWorldStateThrowsWhenCheckingConfirmedCodeDelegations() {
+    final Transaction tx1 = createEIP1559Transaction(0, KEYS1, 1);
+    final Transaction eip7702Tx =
+        createEIP7702Transaction(0, KEYS2, 1, List.of(CODE_DELEGATION_SENDER_1));
+
+    pendingTransactions.addTransaction(createRemotePendingTransaction(eip7702Tx), Optional.empty());
+    pendingTransactions.addTransaction(createRemotePendingTransaction(tx1), Optional.empty());
+
+    assertThat(pendingTransactions.getStatus().pendingCount()).isEqualTo(2);
+
+    when(worldStateArchive.getWorldState(any()))
+        .thenThrow(new RuntimeException("simulated world state failure"));
+
+    final BlockHeader mockBlockHeader = mockBlockHeader();
+    when(mockBlockHeader.getStateRoot()).thenReturn(Hash.ZERO);
+    pendingTransactions.manageBlockAdded(
+        mockBlockHeader, List.of(eip7702Tx), List.of(), FeeMarket.london(0L));
+
+    // getWorldState() threw before authority nonces could be checked; pool under-purges
+    // but manageBlockAdded must still complete — tx1 remains (sender-only reconciliation)
+    assertThat(pendingTransactions.getPendingTransactions())
+        .map(PendingTransaction::getTransaction)
+        .containsExactly(tx1);
   }
 
   private TransactionAndAccount[] populateCache(final int numTxs, final long startingNonce) {

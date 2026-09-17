@@ -45,10 +45,8 @@ import java.nio.file.Files;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
-import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes32;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,17 +54,13 @@ import org.slf4j.LoggerFactory;
 public abstract class AbstractTestTransactionSelectorPlugin implements BesuPlugin {
   private static final Logger LOG =
       LoggerFactory.getLogger(AbstractTestTransactionSelectorPlugin.class);
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
   private static final AtomicLong NONCE = new AtomicLong(0);
   private static final KeyPair SENDER_KEYS =
-      SIGNATURE_ALGORITHM
-          .get()
-          .createKeyPair(
-              SIGNATURE_ALGORITHM
-                  .get()
-                  .createPrivateKey(
-                      Bytes32.fromHexString(Accounts.GENESIS_ACCOUNT_THREE_PRIVATE_KEY)));
+      SIGNATURE_ALGORITHM.createKeyPair(
+          SIGNATURE_ALGORITHM.createPrivateKey(
+              Bytes32.fromHexString(Accounts.GENESIS_ACCOUNT_THREE_PRIVATE_KEY)));
 
   private ServiceManager serviceManager;
   private File callbackDir;
@@ -137,6 +131,7 @@ public abstract class AbstractTestTransactionSelectorPlugin implements BesuPlugi
 
                 @Override
                 public PluginTransactionSelector create(
+                    final ProcessableBlockHeader pendingBlockHeader,
                     final SelectorsStateManager selectorsStateManager) {
                   return new PluginTransactionSelector() {
 

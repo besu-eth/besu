@@ -14,12 +14,10 @@
  */
 package org.hyperledger.besu.evm.precompile;
 
-import static org.hyperledger.besu.crypto.SignatureAlgorithmType.SECP_256_R1_CURVE_NAME;
-
+import org.hyperledger.besu.crypto.SECP256R1;
 import org.hyperledger.besu.crypto.SECPPublicKey;
 import org.hyperledger.besu.crypto.SECPSignature;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
-import org.hyperledger.besu.crypto.SignatureAlgorithmType;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.nativelib.boringssl.BoringSSLPrecompiles;
@@ -27,7 +25,6 @@ import org.hyperledger.besu.nativelib.boringssl.BoringSSLPrecompiles;
 import java.math.BigInteger;
 
 import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import jakarta.validation.constraints.NotNull;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -55,8 +52,7 @@ public class P256VerifyPrecompiledContract extends AbstractPrecompiledContract {
 
   static {
     maybeEnableNativeBoringSSL();
-    SECP256R1_SIGNATURE_ALGORITHM_INSTANCE =
-        SignatureAlgorithmType.create(SECP_256_R1_CURVE_NAME).getInstance();
+    SECP256R1_SIGNATURE_ALGORITHM_INSTANCE = new SECP256R1();
   }
 
   /**
@@ -94,8 +90,8 @@ public class P256VerifyPrecompiledContract extends AbstractPrecompiledContract {
   private final GasCalculator gasCalculator;
   private final SignatureAlgorithm signatureAlgorithm;
 
-  private static final Cache<Integer, PrecompileInputResultTuple> p256VerifyCache =
-      Caffeine.newBuilder().maximumSize(1000).build();
+  private static final Cache<Bytes, PrecompileInputResultTuple> p256VerifyCache =
+      AbstractPrecompiledContract.resultCacheBuilder().build();
 
   /**
    * Instantiates a new Abstract precompiled contract.
@@ -135,9 +131,9 @@ public class P256VerifyPrecompiledContract extends AbstractPrecompiledContract {
       return PrecompileContractResult.success(INVALID);
     }
     PrecompileInputResultTuple res = null;
-    Integer cacheKey = null;
+    Bytes cacheKey = null;
     if (enableResultCaching) {
-      cacheKey = getCacheKey(input);
+      cacheKey = getCacheKey(input, SECP256R1_INPUT_LENGTH);
       res = p256VerifyCache.getIfPresent(cacheKey);
 
       if (res != null) {
@@ -172,7 +168,6 @@ public class P256VerifyPrecompiledContract extends AbstractPrecompiledContract {
 
     } catch (Exception e) {
       LOG.warn("P256VERIFY verification failed: {}", e.getMessage());
-      System.err.println("P256VERIFY verification failed: " + e.getMessage());
       return PrecompileContractResult.success(INVALID);
     }
   }

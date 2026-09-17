@@ -1,6 +1,5 @@
 {
   "config": {
-    "ethash": {},
     "chainID": 1,
     "homesteadBlock": 0,
     "eip150Block": 0,

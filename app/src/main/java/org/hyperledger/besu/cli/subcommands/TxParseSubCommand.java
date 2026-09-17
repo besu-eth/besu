@@ -54,8 +54,6 @@ public class TxParseSubCommand implements Runnable {
       description = "file to read transaction data lines from, otherwise defaults to stdin")
   private String corpusFile = null;
 
-  static final BigInteger halfCurveOrder =
-      SignatureAlgorithmFactory.getInstance().getHalfCurveOrder();
   static final BigInteger chainId = new BigInteger("1", 10);
 
   private final PrintWriter out;
@@ -113,7 +111,8 @@ public class TxParseSubCommand implements Runnable {
       }
 
       // https://github.com/hyperledger/besu/blob/5fe49c60b30fe2954c7967e8475c3b3e9afecf35/ethereum/core/src/main/java/org/hyperledger/besu/ethereum/mainnet/MainnetTransactionValidator.java#L270
-      if (transaction.getS().compareTo(halfCurveOrder) > 0) {
+      if (transaction.getS().compareTo(SignatureAlgorithmFactory.getInstance().getHalfCurveOrder())
+          > 0) {
         throw new Exception("signature s out of range");
       }
       out.println(transaction.getSender());

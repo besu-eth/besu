@@ -63,9 +63,9 @@ public class ValidatorModeTransitionLogger {
    */
   public void logTransitionChange(final BlockHeader parentHeader) {
     final ForkSpec<QbftConfigOptions> currentForkSpec =
-        forksSchedule.getFork(parentHeader.getNumber());
+        forksSchedule.getFork(parentHeader.getNumber(), parentHeader.getTimestamp());
     final ForkSpec<QbftConfigOptions> nextForkSpec =
-        forksSchedule.getFork(parentHeader.getNumber() + 1L);
+        forksSchedule.getFork(parentHeader.getNumber() + 1L, parentHeader.getTimestamp());
 
     final QbftConfigOptions currentConfigOptions = currentForkSpec.getValue();
     final QbftConfigOptions nextConfigOptions = nextForkSpec.getValue();

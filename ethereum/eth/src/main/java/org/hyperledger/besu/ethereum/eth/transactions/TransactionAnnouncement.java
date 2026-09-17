@@ -22,20 +22,8 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
 
-public class TransactionAnnouncement {
-  private final Hash hash;
-  private final Optional<TransactionType> type;
-  private final Optional<Long> size;
-
-  public TransactionAnnouncement(final Hash hash) {
-    this.hash = checkNotNull(hash, "Hash cannot be null");
-    this.type = Optional.empty();
-    this.size = Optional.empty();
-  }
-
+public record TransactionAnnouncement(Hash hash, TransactionType type, Long size) {
   public TransactionAnnouncement(final Transaction transaction) {
     this(
         checkNotNull(transaction, "Transaction cannot be null").getHash(),
@@ -45,20 +33,8 @@ public class TransactionAnnouncement {
 
   public TransactionAnnouncement(final Hash hash, final TransactionType type, final Long size) {
     this.hash = checkNotNull(hash, "Hash cannot be null");
-    this.type = Optional.of(checkNotNull(type, "Type cannot be null"));
-    this.size = Optional.of(checkNotNull(size, "Size cannot be null"));
-  }
-
-  public Hash getHash() {
-    return hash;
-  }
-
-  public Optional<TransactionType> getType() {
-    return type;
-  }
-
-  public Optional<Long> getSize() {
-    return size;
+    this.type = checkNotNull(type, "Type cannot be null");
+    this.size = checkNotNull(size, "Size cannot be null");
   }
 
   public static List<TransactionAnnouncement> create(
@@ -75,22 +51,12 @@ public class TransactionAnnouncement {
     return transactions;
   }
 
-  @Override
-  public boolean equals(final Object o) {
-    if (this == o) {
-      return true;
+  public static List<TransactionAnnouncement> create(final List<Transaction> transactions) {
+    List<TransactionAnnouncement> list = new ArrayList<>(transactions.size());
+    for (Transaction transaction : transactions) {
+      TransactionAnnouncement announcement = new TransactionAnnouncement(transaction);
+      list.add(announcement);
     }
-    if (o == null || getClass() != o.getClass()) {
-      return false;
-    }
-    final TransactionAnnouncement that = (TransactionAnnouncement) o;
-    return Objects.equals(size, that.size)
-        && Objects.equals(type, that.type)
-        && Objects.equals(hash, that.hash);
-  }
-
-  @Override
-  public int hashCode() {
-    return Objects.hash(hash, size, type);
+    return list;
   }
 }

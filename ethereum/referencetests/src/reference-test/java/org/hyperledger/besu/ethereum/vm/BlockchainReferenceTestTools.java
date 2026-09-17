@@ -19,13 +19,15 @@ import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import org.hyperledger.besu.consensus.merge.blockcreation.ReferenceTestMergeBlockCreator;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.BlockProcessingResult;
+import org.hyperledger.besu.ethereum.BlockValidator;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.BlockImporter;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
+import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
@@ -42,18 +44,20 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolFactory;
 import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
-import org.hyperledger.besu.ethereum.mainnet.BlockImportResult;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.referencetests.BlockchainReferenceTestCaseSpec;
+import org.hyperledger.besu.ethereum.referencetests.BlockExceptionMatcher;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestProtocolSchedules;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.EvmSpecVersion;
 import org.hyperledger.besu.evm.account.AccountState;
+import org.hyperledger.besu.config.StubGenesisConfigOptions;
+import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.internal.EvmConfiguration.WorldUpdaterMode;
 import org.hyperledger.besu.testutil.JsonTestParameters;
 
@@ -99,13 +103,6 @@ public class BlockchainReferenceTestTools {
             params.ignoreAll();
         }
 
-        // Consumes a huge amount of memory
-        params.ignore("static_Call1MB1024Calldepth");
-        params.ignore("ShanghaiLove_");
-
-        // Absurd amount of gas, doesn't run in parallel
-        params.ignore("randomStatetest94_\\w+");
-
         // Don't do time-consuming tests
         params.ignore("CALLBlake2f_MaxRounds");
         params.ignore("loopMul_");
@@ -118,6 +115,16 @@ public class BlockchainReferenceTestTools {
 
         // These are for the older reference tests but EIP-2537 is covered by eip2537_bls_12_381_precompiles in the execution-spec-tests
         params.ignore("/stEIP2537/");
+
+        // EIP-7610 (revert creation when the destination address has non-empty storage) was never
+        // part of the spec and has been dropped retroactively for every fork, see
+        // https://github.com/ethereum/execution-specs/pull/3417. Upstream has deleted these tests
+        // from ethereum/tests, but the submodule is still pinned to a revision that contains them.
+        params.ignore("create2collisionStorageParis");
+        params.ignore("dynamicAccountOverwriteEmpty_Paris");
+        params.ignore("InitCollisionParis");
+        params.ignore("RevertInCreateInInitCreate2Paris");
+        params.ignore("RevertInCreateInInit_Paris");
     }
 
     private BlockchainReferenceTestTools() {
@@ -132,14 +139,22 @@ public class BlockchainReferenceTestTools {
     public static void executeTest(final String name, final BlockchainReferenceTestCaseSpec spec) {
       final MutableBlockchain blockchain = spec.buildBlockchain();
       final BlockHeader genesisBlockHeader = spec.getGenesisBlockHeader();
-        final ProtocolContext protocolContext = spec.buildProtocolContext(blockchain);
+        final ProtocolContext protocolContext = spec.buildProtocolContext(DataStorageConfiguration.DEFAULT_BONSAI_CONFIG, blockchain);
         final WorldStateArchive worldStateArchive = protocolContext.getWorldStateArchive();
         final MutableWorldState worldState =
                 worldStateArchive
                         .getWorldState(WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(genesisBlockHeader))
                         .orElseThrow();
 
-        final ProtocolSchedule schedule = PROTOCOL_SCHEDULES.getByName(spec.getNetwork());
+        final ReferenceTestProtocolSchedules protocolSchedules =
+            spec.getBlobScheduleOptions()
+                .map(
+                    bso ->
+                        ReferenceTestProtocolSchedules.create(
+                            new StubGenesisConfigOptions().blobScheduleOptions(bso),
+                            EvmConfiguration.DEFAULT))
+                .orElse(PROTOCOL_SCHEDULES);
+        final ProtocolSchedule schedule = protocolSchedules.getByName(spec.getNetwork());
 
         try (BlockCreationFixture blockCreation =
                      BlockCreationFixture.create(schedule, protocolContext, blockchain)) {
@@ -176,18 +191,61 @@ public class BlockchainReferenceTestTools {
                             "NoProof".equalsIgnoreCase(spec.getSealEngine())
                                     ? HeaderValidationMode.LIGHT
                                     : HeaderValidationMode.FULL;
-                    final BlockImporter blockImporter = protocolSpec.getBlockImporter();
-                    final BlockImportResult importResult =
-                            blockImporter.importBlock(protocolContext, block, validationMode, validationMode);
 
-                    assertThat(importResult.isImported()).isEqualTo(candidateBlock.isValid());
+                    // Use validateAndProcessBlock directly so we can access the error message and
+                    // verify it matches the expected exception from the fixture.
+                    final BlockValidator blockValidator = protocolSpec.getBlockValidator();
+                    final BlockProcessingResult processingResult =
+                            blockValidator.validateAndProcessBlock(
+                                    protocolContext,
+                                    block,
+                                    validationMode,
+                                    validationMode,
+                                    candidateBlock.getBlockAccessList(),
+                                    false);
+
+                    final boolean imported = processingResult.isSuccessful();
+                    if (imported) {
+                        // Block was accepted: persist and append it just like MainnetBlockImporter.
+                        processingResult.getYield().ifPresent(outputs -> {
+                            protocolContext.getBlockchain().appendBlock(block, outputs.getReceipts(), outputs.getBlockAccessList());
+                            protocolContext.getWorldStateArchive().getWorldState(
+                                    WorldStateQueryParams.newBuilder()
+                                            .withBlockHeader(block.getHeader())
+                                            .withShouldWorldStateUpdateHead(true)
+                                            .build());
+                        });
+                    }
+
+                    assertThat(imported)
+                            .as("Block import status for block %s", block.getHash())
+                            .isEqualTo(candidateBlock.isValid());
+
+                    // When the block is expected to be invalid, verify the rejection reason matches
+                    // the expected exception from the fixture.
+                    if (!candidateBlock.isValid()) {
+                        candidateBlock.getExpectedException().ifPresent(expectedExceptionKey -> {
+                            final String actualError = processingResult.errorMessage.orElse("");
+                            assertThat(BlockExceptionMatcher.matches(expectedExceptionKey, actualError))
+                                    .as(
+                                            """
+                                            Block rejected for wrong reason.
+                                              Expected exception : %s (%s)
+                                              Actual error       : %s""",
+                                            expectedExceptionKey,
+                                            BlockExceptionMatcher.describeExpected(expectedExceptionKey).orElse("unknown key"),
+                                            actualError)
+                                    .isTrue();
+                        });
+                    }
+
                 } catch (final RLPException e) {
                     assertThat(candidateBlock.isValid()).isFalse();
                 }
             }
         }
 
-        Assertions.assertThat(blockchain.getChainHeadHash()).isEqualTo(spec.getLastBlockHash());
+        assertThat(blockchain.getChainHeadHash()).isEqualTo(spec.getLastBlockHash());
 
   }
 

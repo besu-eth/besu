@@ -96,15 +96,36 @@ public class EnginePayloadAttributesParameterTest {
                 + "}");
   }
 
+  @Test
+  public void targetGasLimitIsDecodedFromHexString() {
+    final EnginePayloadAttributesParameter parameter =
+        new EnginePayloadAttributesParameter(
+            TIMESTAMP, PREV_RANDAO, SUGGESTED_FEE_RECIPIENT_ADDRESS, null, null, null, "0x1c9c380");
+    assertThat(parameter.getTargetGasLimit()).isEqualTo(30_000_000L);
+  }
+
+  @Test
+  public void serialize_TargetGasLimitPresent() {
+    final EnginePayloadAttributesParameter parameter =
+        new EnginePayloadAttributesParameter(
+            TIMESTAMP, PREV_RANDAO, SUGGESTED_FEE_RECIPIENT_ADDRESS, null, null, null, "0x1c9c380");
+    assertThat(parameter.serialize()).contains("\"targetGasLimit\":30000000");
+  }
+
+  @Test
+  public void serialize_TargetGasLimitOmittedWhenNull() {
+    assertThat(parameterWithdrawalsOmitted().serialize()).doesNotContain("targetGasLimit");
+  }
+
   private EnginePayloadAttributesParameter parameterWithdrawalsOmitted() {
     return new EnginePayloadAttributesParameter(
-        TIMESTAMP, PREV_RANDAO, SUGGESTED_FEE_RECIPIENT_ADDRESS, null, null, null);
+        TIMESTAMP, PREV_RANDAO, SUGGESTED_FEE_RECIPIENT_ADDRESS, null, null, null, null);
   }
 
   private EnginePayloadAttributesParameter parameterWithdrawalsPresent() {
     final List<WithdrawalParameter> withdrawals = List.of(WITHDRAWAL_PARAM_1, WITHDRAWAL_PARAM_2);
     return new EnginePayloadAttributesParameter(
-        TIMESTAMP, PREV_RANDAO, SUGGESTED_FEE_RECIPIENT_ADDRESS, withdrawals, null, null);
+        TIMESTAMP, PREV_RANDAO, SUGGESTED_FEE_RECIPIENT_ADDRESS, withdrawals, null, null, null);
   }
 
   // TODO: add a parent beacon block root test here

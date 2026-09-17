@@ -145,6 +145,8 @@ public class BytesValueRLPOutput implements RLPOutput {
    *
    * @param mutableBytes the value to which the rlp-data will be written
    */
+  @SuppressWarnings(
+      "ReferenceEquality") // LIST_MARKER is a singleton sentinel; reference equality is intentional
   public void writeEncoded(final MutableBytes mutableBytes) {
     // Special case where we encode only a single non-list item (note that listsCount is initially
     // set to 1, so listsCount == 1 really mean no list explicitly added to the output).

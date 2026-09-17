@@ -85,8 +85,9 @@ public class TraceJsonRpcMethods extends ApiGroupJsonRpcMethods {
         new TraceTransaction(
             () -> new BlockTracer(blockReplay), protocolSchedule, blockchainQueries),
         new TraceBlock(protocolSchedule, blockchainQueries, metricsSystem, ethScheduler),
-        new TraceCall(blockchainQueries, protocolSchedule, transactionSimulator),
-        new TraceCallMany(blockchainQueries, protocolSchedule, transactionSimulator),
+        new TraceCall(blockchainQueries, protocolSchedule, transactionSimulator, apiConfiguration),
+        new TraceCallMany(
+            blockchainQueries, protocolSchedule, transactionSimulator, apiConfiguration),
         new TraceRawTransaction(protocolSchedule, blockchainQueries, transactionSimulator));
   }
 }

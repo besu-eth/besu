@@ -53,7 +53,19 @@ public class TimeoutHandler {
                         .setTimer(
                             timeoutOptions.getTimeoutMillis(),
                             t -> {
-                              ctx.fail(timeoutOptions.getErrorCode());
+                              final var response = ctx.response();
+                              if (response.ended() || response.closed()) {
+                                // Response already finished — nothing to do.
+                                return;
+                              }
+                              if (response.headWritten()) {
+                                // Streaming in progress — headers already flushed so we
+                                // cannot change the status code. Reset the connection
+                                // (RST_STREAM for HTTP/2, TCP close for HTTP/1.1).
+                                response.reset();
+                              } else {
+                                ctx.fail(timeoutOptions.getErrorCode());
+                              }
                               ctx.request().connection().close();
                             });
                 ctx.addBodyEndHandler(v -> ctx.vertx().cancelTimer(tid));

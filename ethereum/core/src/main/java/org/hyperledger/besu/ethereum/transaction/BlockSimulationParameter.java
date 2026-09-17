@@ -16,8 +16,6 @@ package org.hyperledger.besu.ethereum.transaction;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError.BLOCK_NUMBERS_NOT_ASCENDING;
-import static org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError.DUPLICATED_PRECOMPILE_TARGET;
-import static org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError.INVALID_NONCES;
 import static org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError.INVALID_PRECOMPILE_ADDRESS;
 import static org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError.TIMESTAMPS_NOT_ASCENDING;
 import static org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError.TOO_MANY_BLOCK_CALLS;
@@ -28,21 +26,17 @@ import org.hyperledger.besu.datatypes.StateOverride;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError;
 
 import java.math.BigInteger;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
 public class BlockSimulationParameter {
   private static final int MAX_BLOCK_CALL_SIZE = 256;
-  private static final Address DEFAULT_FROM =
-      Address.fromHexString("0x0000000000000000000000000000000000000000");
   static final BlockSimulationParameter EMPTY = new BlockSimulationParameterBuilder().build();
 
   final List<? extends BlockStateCall> blockStateCalls;
   private final boolean validation;
+  private final boolean enforceConsensusGasLimit;
   private final boolean traceTransfers;
   private final boolean returnFullTransactions;
   private final boolean returnTrieLog;
@@ -65,6 +59,7 @@ public class BlockSimulationParameter {
     this(
         blockStateCalls,
         validation,
+        false,
         traceTransfers,
         returnFullTransactions,
         returnTrieLog,
@@ -74,6 +69,7 @@ public class BlockSimulationParameter {
   public BlockSimulationParameter(
       final List<? extends BlockStateCall> blockStateCalls,
       final boolean validation,
+      final boolean enforceConsensusGasLimit,
       final boolean traceTransfers,
       final boolean returnFullTransactions,
       final boolean returnTrieLog,
@@ -81,6 +77,7 @@ public class BlockSimulationParameter {
     checkNotNull(blockStateCalls);
     this.blockStateCalls = blockStateCalls;
     this.validation = validation;
+    this.enforceConsensusGasLimit = enforceConsensusGasLimit;
     this.traceTransfers = traceTransfers;
     this.returnFullTransactions = returnFullTransactions;
     this.returnTrieLog = returnTrieLog;
@@ -93,6 +90,10 @@ public class BlockSimulationParameter {
 
   public boolean isValidation() {
     return validation;
+  }
+
+  public boolean isEnforceConsensusGasLimit() {
+    return enforceConsensusGasLimit;
   }
 
   public boolean isTraceTransfers() {
@@ -124,11 +125,6 @@ public class BlockSimulationParameter {
     Optional<BlockStateCallError> timestampError = validateTimestamps();
     if (timestampError.isPresent()) {
       return timestampError;
-    }
-
-    Optional<BlockStateCallError> nonceError = validateNonces();
-    if (nonceError.isPresent()) {
-      return nonceError;
     }
 
     return validateStateOverrides(validPrecompileAddresses);
@@ -164,30 +160,8 @@ public class BlockSimulationParameter {
     return Optional.empty();
   }
 
-  private Optional<BlockStateCallError> validateNonces() {
-    Map<Address, Long> previousNonces = new HashMap<>();
-    for (BlockStateCall call : blockStateCalls) {
-      for (CallParameter callParameter : call.getCalls()) {
-        Address fromAddress = callParameter.getSender().orElse(DEFAULT_FROM);
-
-        if (callParameter.getNonce().isPresent()) {
-          long currentNonce = callParameter.getNonce().getAsLong();
-          if (previousNonces.containsKey(fromAddress)) {
-            long previousNonce = previousNonces.get(fromAddress);
-            if (currentNonce <= previousNonce) {
-              return Optional.of(INVALID_NONCES);
-            }
-          }
-          previousNonces.put(fromAddress, currentNonce);
-        }
-      }
-    }
-    return Optional.empty();
-  }
-
   private Optional<BlockStateCallError> validateStateOverrides(
       final Set<Address> validPrecompileAddresses) {
-    Set<Address> targetAddresses = new HashSet<>();
     for (BlockStateCall call : blockStateCalls) {
       if (call.getStateOverrideMap().isPresent()) {
         var stateOverrideMap = call.getStateOverrideMap().get();
@@ -196,10 +170,6 @@ public class BlockSimulationParameter {
           if (override.getMovePrecompileToAddress().isPresent()) {
             if (!validPrecompileAddresses.contains(stateOverride)) {
               return Optional.of(INVALID_PRECOMPILE_ADDRESS);
-            }
-            Address target = override.getMovePrecompileToAddress().get();
-            if (!targetAddresses.add(target)) {
-              return Optional.of(DUPLICATED_PRECOMPILE_TARGET);
             }
           }
         }
@@ -211,6 +181,7 @@ public class BlockSimulationParameter {
   public static class BlockSimulationParameterBuilder {
     private List<? extends BlockStateCall> blockStateCalls = List.of();
     private boolean validation = false;
+    private boolean enforceConsensusGasLimit = false;
     private boolean traceTransfers = false;
     private boolean returnFullTransactions = false;
     private boolean returnTrieLog = false;
@@ -225,6 +196,12 @@ public class BlockSimulationParameter {
 
     public BlockSimulationParameterBuilder validation(final boolean validation) {
       this.validation = validation;
+      return this;
+    }
+
+    public BlockSimulationParameterBuilder enforceConsensusGasLimit(
+        final boolean enforceConsensusGasLimit) {
+      this.enforceConsensusGasLimit = enforceConsensusGasLimit;
       return this;
     }
 
@@ -253,6 +230,7 @@ public class BlockSimulationParameter {
       return new BlockSimulationParameter(
           blockStateCalls,
           validation,
+          enforceConsensusGasLimit,
           traceTransfers,
           returnFullTransactions,
           returnTrieLog,

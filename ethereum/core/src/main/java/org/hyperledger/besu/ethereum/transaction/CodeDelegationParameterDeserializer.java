@@ -24,6 +24,7 @@ import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.JsonDeserializer;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 /**
  * Deserializes code delegation entries for call parameters, accepting either signed delegations or
@@ -51,6 +52,12 @@ public class CodeDelegationParameterDeserializer extends JsonDeserializer<CodeDe
 
     if (hasAuthority) {
       return mapper.treeToValue(node, SimulationCodeDelegation.class);
+    }
+
+    // Normalize yParity to v for CodeDelegation deserialization.
+    // EIP-7702 allows both field names; if only yParity is provided, map it to v.
+    if (node.hasNonNull("yParity") && !node.hasNonNull("v") && node.isObject()) {
+      ((ObjectNode) node).set("v", node.get("yParity"));
     }
 
     return mapper.treeToValue(node, org.hyperledger.besu.ethereum.core.CodeDelegation.class);

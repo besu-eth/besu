@@ -21,7 +21,8 @@
     "id": 67,
     "error": {
       "code": -38003,
-      "message": "Invalid payload attributes"
+      "message": "Invalid payload attributes",
+      "data" : "Payload attributes timestamp 0 not greater than head block timestamp 5"
     }
   },
   "statusCode": 200

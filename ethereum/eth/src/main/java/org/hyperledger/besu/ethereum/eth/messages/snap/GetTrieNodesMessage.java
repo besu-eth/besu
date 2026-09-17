@@ -19,11 +19,14 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractSnapMessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.math.BigInteger;
+import java.util.Iterator;
 import java.util.List;
-import java.util.Optional;
+import java.util.NoSuchElementException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -31,13 +34,18 @@ import org.immutables.value.Value;
 
 public final class GetTrieNodesMessage extends AbstractSnapMessageData {
 
+  // Compact-encoded Keccak256 hash is at most 33 bytes (1 metadata + 32 data)
+  static final int MAX_PATH_SIZE = 33;
+  // Maximum total paths decoded across all groups, matches geth's maxTrieNodeLookups
+  static final int MAX_TOTAL_PATHS = 1024;
+
   public GetTrieNodesMessage(final Bytes data) {
     super(data);
   }
 
   public static GetTrieNodesMessage readFrom(final MessageData message) {
-    if (message instanceof GetTrieNodesMessage) {
-      return (GetTrieNodesMessage) message;
+    if (message instanceof GetTrieNodesMessage getTrieNodesMessage) {
+      return getTrieNodesMessage;
     }
     final int code = message.getCode();
     if (code != SnapV1.GET_TRIE_NODES) {
@@ -48,17 +56,9 @@ public final class GetTrieNodesMessage extends AbstractSnapMessageData {
   }
 
   public static GetTrieNodesMessage create(
-      final Hash worldStateRootHash, final List<List<Bytes>> requests) {
-    return create(Optional.empty(), worldStateRootHash, requests);
-  }
-
-  public static GetTrieNodesMessage create(
-      final Optional<BigInteger> requestId,
-      final Hash worldStateRootHash,
-      final List<List<Bytes>> paths) {
+      final Hash worldStateRootHash, final List<List<Bytes>> paths) {
     final BytesValueRLPOutput tmp = new BytesValueRLPOutput();
     tmp.startList();
-    requestId.ifPresent(tmp::writeBigIntegerScalar);
     tmp.writeBytes(worldStateRootHash.getBytes());
     tmp.writeList(
         paths,
@@ -70,12 +70,6 @@ public final class GetTrieNodesMessage extends AbstractSnapMessageData {
   }
 
   @Override
-  protected Bytes wrap(final BigInteger requestId) {
-    final TrieNodesPaths paths = paths(false);
-    return create(Optional.of(requestId), paths.worldStateRootHash(), paths.paths()).getData();
-  }
-
-  @Override
   public int getCode() {
     return SnapV1.GET_TRIE_NODES;
   }
@@ -84,13 +78,16 @@ public final class GetTrieNodesMessage extends AbstractSnapMessageData {
     final RLPInput input = new BytesValueRLPInput(data, false);
     input.enterList();
     if (withRequestId) input.skipNext();
-    final ImmutableTrieNodesPaths.Builder paths =
-        ImmutableTrieNodesPaths.builder()
-            .worldStateRootHash(Hash.wrap(Bytes32.wrap(input.readBytes32())))
-            .paths(input.readList(rlpInput -> rlpInput.readList(RLPInput::readBytes)))
-            .responseBytes(input.readBigIntegerScalar());
+    final Hash rootHash = Hash.wrap(Bytes32.wrap(input.readBytes32()));
+    // Zero-copy slice of the RLP-encoded path groups list; decoded on demand by paths().
+    final Bytes rawPaths = input.readAsRlp().raw();
+    final BigInteger responseBytes = input.readBigIntegerScalar();
     input.leaveList();
-    return paths.build();
+    return ImmutableTrieNodesPaths.builder()
+        .worldStateRootHash(rootHash)
+        .rawPaths(rawPaths)
+        .responseBytes(responseBytes)
+        .build();
   }
 
   @Value.Immutable
@@ -98,8 +95,90 @@ public final class GetTrieNodesMessage extends AbstractSnapMessageData {
 
     Hash worldStateRootHash();
 
-    List<List<Bytes>> paths();
+    /** Zero-copy slice of the RLP-encoded path groups list from the wire message. */
+    Bytes rawPaths();
 
     BigInteger responseBytes();
+
+    /**
+     * Lazily decodes path groups and their paths from {@link #rawPaths()} entirely on demand. Each
+     * call returns a fresh independent iterator backed by a new {@link AtomicInteger} budget
+     * counter, so multiple iterations are fully independent. Within a single outer iteration, each
+     * inner {@link Iterable} shares the same counter: the inner iterator charges 1 per path
+     * decoded, capping total decoded paths at {@link GetTrieNodesMessage#MAX_TOTAL_PATHS}. Per-path
+     * size is validated against {@link GetTrieNodesMessage#MAX_PATH_SIZE}.
+     */
+    default Iterable<Iterable<Bytes>> paths() {
+      return () -> {
+        final BytesValueRLPInput outerInput = new BytesValueRLPInput(rawPaths(), false);
+        outerInput.enterList();
+        final AtomicInteger totalPaths = new AtomicInteger();
+
+        return new Iterator<>() {
+          private Iterable<Bytes> peeked = null;
+          private boolean exhausted = false;
+
+          @Override
+          public boolean hasNext() {
+            if (peeked != null) return true;
+            if (exhausted
+                || outerInput.isEndOfCurrentList()
+                || totalPaths.get() >= MAX_TOTAL_PATHS) {
+              exhausted = true;
+              return false;
+            }
+            final Bytes groupSlice = outerInput.readAsRlp().raw();
+            peeked =
+                () -> {
+                  final BytesValueRLPInput innerInput = new BytesValueRLPInput(groupSlice, false);
+                  innerInput.enterList();
+                  return new Iterator<Bytes>() {
+                    private Bytes innerPeeked = null;
+                    private boolean innerExhausted = false;
+
+                    @Override
+                    public boolean hasNext() {
+                      if (innerPeeked != null) return true;
+                      if (innerExhausted
+                          || innerInput.isEndOfCurrentList()
+                          || totalPaths.get() >= MAX_TOTAL_PATHS) {
+                        innerExhausted = true;
+                        return false;
+                      }
+                      final Bytes path = innerInput.readBytes();
+                      if (path.size() > MAX_PATH_SIZE) {
+                        throw new RLPException(
+                            "Trie node path size "
+                                + path.size()
+                                + " exceeds maximum "
+                                + MAX_PATH_SIZE);
+                      }
+                      totalPaths.incrementAndGet();
+                      innerPeeked = path;
+                      return true;
+                    }
+
+                    @Override
+                    public Bytes next() {
+                      if (!hasNext()) throw new NoSuchElementException();
+                      final Bytes result = innerPeeked;
+                      innerPeeked = null;
+                      return result;
+                    }
+                  };
+                };
+            return true;
+          }
+
+          @Override
+          public Iterable<Bytes> next() {
+            if (!hasNext()) throw new NoSuchElementException();
+            final Iterable<Bytes> result = peeked;
+            peeked = null;
+            return result;
+          }
+        };
+      };
+    }
   }
 }

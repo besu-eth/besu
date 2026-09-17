@@ -109,8 +109,6 @@ public class SECP256R1Test {
         LocalDateTime.now(ZoneId.systemDefault())
             .format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
     suiteName(SECP256R1Test.class);
-
-    SignatureAlgorithmFactory.setInstance(SignatureAlgorithmType.create("secp256r1"));
   }
 
   @BeforeEach
@@ -162,6 +160,58 @@ public class SECP256R1Test {
                   signature.getRecId(), signature.getR(), signature.getS(), dataHash);
           assertThat(recoveredPubKeyBigInt).isEqualTo(publicKeyBigInt);
         });
+  }
+
+  @Test
+  void ecdhKeyAgreementIsSymmetric() {
+    final KeyPair kp1 = secp256R1.generateKeyPair();
+    final KeyPair kp2 = secp256R1.generateKeyPair();
+
+    final Bytes32 secret1 =
+        secp256R1.calculateECDHKeyAgreement(kp1.getPrivateKey(), kp2.getPublicKey());
+    final Bytes32 secret2 =
+        secp256R1.calculateECDHKeyAgreement(kp2.getPrivateKey(), kp1.getPublicKey());
+
+    assertThat(secret1).isEqualTo(secret2);
+  }
+
+  @Test
+  void ecdhKeyAgreementCompressedIsSymmetric() {
+    final KeyPair kp1 = secp256R1.generateKeyPair();
+    final KeyPair kp2 = secp256R1.generateKeyPair();
+
+    final Bytes compressed1 =
+        secp256R1.calculateECDHKeyAgreementCompressed(kp1.getPrivateKey(), kp2.getPublicKey());
+    final Bytes compressed2 =
+        secp256R1.calculateECDHKeyAgreementCompressed(kp2.getPrivateKey(), kp1.getPublicKey());
+
+    assertThat(compressed1).isEqualTo(compressed2);
+  }
+
+  @Test
+  void ecdhCompressedReturns33BytesWithCorrectPrefix() {
+    final KeyPair kp1 = secp256R1.generateKeyPair();
+    final KeyPair kp2 = secp256R1.generateKeyPair();
+
+    final Bytes compressed =
+        secp256R1.calculateECDHKeyAgreementCompressed(kp1.getPrivateKey(), kp2.getPublicKey());
+
+    assertThat(compressed.size()).isEqualTo(33);
+    final byte prefix = compressed.get(0);
+    assertThat(prefix == 0x02 || prefix == 0x03).isTrue();
+  }
+
+  @Test
+  void ecdhCompressedXCoordinateMatchesUncompressed() {
+    final KeyPair kp1 = secp256R1.generateKeyPair();
+    final KeyPair kp2 = secp256R1.generateKeyPair();
+
+    final Bytes32 xOnly =
+        secp256R1.calculateECDHKeyAgreement(kp1.getPrivateKey(), kp2.getPublicKey());
+    final Bytes compressed =
+        secp256R1.calculateECDHKeyAgreementCompressed(kp1.getPrivateKey(), kp2.getPublicKey());
+
+    assertThat(compressed.slice(1, 32)).isEqualTo(xOnly);
   }
 
   @Test

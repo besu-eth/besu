@@ -31,8 +31,8 @@ import org.apache.tuweni.bytes.Bytes;
 public final class BlockHeadersMessage extends AbstractMessageData {
 
   public static BlockHeadersMessage readFrom(final MessageData message) {
-    if (message instanceof BlockHeadersMessage) {
-      return (BlockHeadersMessage) message;
+    if (message instanceof BlockHeadersMessage blockHeadersMessage) {
+      return blockHeadersMessage;
     }
     final int code = message.getCode();
     if (code != EthProtocolMessages.BLOCK_HEADERS) {

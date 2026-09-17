@@ -15,13 +15,16 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.methods;
 
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcApis;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.DebugReplayBlock;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.DebugAccountAt;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.DebugAccountRange;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.DebugBatchSendRawTransaction;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.DebugExecutionWitness;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.DebugGetBadBlocks;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.DebugGetRawBlock;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.DebugGetRawBlockAccessList;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.DebugGetRawHeader;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.DebugGetRawReceipts;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.DebugGetRawTransaction;
@@ -43,7 +46,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionT
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
-import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
@@ -64,7 +66,7 @@ public class DebugJsonRpcMethods extends ApiGroupJsonRpcMethods {
   private final Synchronizer synchronizer;
   private final Path dataDir;
   private final TransactionSimulator transactionSimulator;
-  private final EthScheduler ethScheduler;
+  private final ApiConfiguration apiConfiguration;
 
   DebugJsonRpcMethods(
       final BlockchainQueries blockchainQueries,
@@ -75,7 +77,7 @@ public class DebugJsonRpcMethods extends ApiGroupJsonRpcMethods {
       final Synchronizer synchronizer,
       final Path dataDir,
       final TransactionSimulator transactionSimulator,
-      final EthScheduler ethScheduler) {
+      final ApiConfiguration apiConfiguration) {
     this.blockchainQueries = blockchainQueries;
     this.protocolContext = protocolContext;
     this.protocolSchedule = protocolSchedule;
@@ -84,7 +86,7 @@ public class DebugJsonRpcMethods extends ApiGroupJsonRpcMethods {
     this.synchronizer = synchronizer;
     this.dataDir = dataDir;
     this.transactionSimulator = transactionSimulator;
-    this.ethScheduler = ethScheduler;
+    this.apiConfiguration = apiConfiguration;
   }
 
   @Override
@@ -104,12 +106,11 @@ public class DebugJsonRpcMethods extends ApiGroupJsonRpcMethods {
         new DebugStorageRangeAt(blockchainQueries, blockReplay),
         new DebugMetrics(metricsSystem),
         new DebugResyncWorldstate(protocolContext, synchronizer),
-        new DebugTraceBlock(protocolSchedule, blockchainQueries, metricsSystem, ethScheduler),
+        new DebugTraceBlock(protocolSchedule, blockchainQueries),
         new DebugSetHead(blockchainQueries, protocolContext),
         new DebugReplayBlock(blockchainQueries, protocolContext, protocolSchedule),
-        new DebugTraceBlockByNumber(
-            protocolSchedule, blockchainQueries, metricsSystem, ethScheduler),
-        new DebugTraceBlockByHash(protocolSchedule, blockchainQueries, metricsSystem, ethScheduler),
+        new DebugTraceBlockByNumber(protocolSchedule, blockchainQueries),
+        new DebugTraceBlockByHash(protocolSchedule, blockchainQueries),
         new DebugBatchSendRawTransaction(transactionPool),
         new DebugGetBadBlocks(protocolContext, blockResult),
         new DebugStandardTraceBlockToFile(
@@ -120,7 +121,10 @@ public class DebugJsonRpcMethods extends ApiGroupJsonRpcMethods {
         new DebugGetRawHeader(blockchainQueries),
         new DebugGetRawBlock(blockchainQueries),
         new DebugGetRawReceipts(blockchainQueries),
+        new DebugGetRawBlockAccessList(blockchainQueries),
         new DebugGetRawTransaction(blockchainQueries),
-        new DebugTraceCall(blockchainQueries, protocolSchedule, transactionSimulator));
+        new DebugExecutionWitness(blockchainQueries, protocolContext, protocolSchedule),
+        new DebugTraceCall(
+            blockchainQueries, protocolSchedule, transactionSimulator, apiConfiguration));
   }
 }

@@ -75,6 +75,7 @@ public class MigratingMiningCoordinatorTest {
 
   @Test
   public void startShouldRegisterThisCoordinatorAsObserver() {
+    when(blockchain.getChainHeadHeader()).thenReturn(blockHeader);
     final MigratingMiningCoordinator coordinator =
         new MigratingMiningCoordinator(coordinatorSchedule, blockchain);
 
@@ -86,6 +87,7 @@ public class MigratingMiningCoordinatorTest {
   @Test
   public void startShouldUnregisterDelegateCoordinatorAsObserver() {
     final BftMiningCoordinator delegateCoordinator = createDelegateCoordinator();
+    when(blockchain.getChainHeadHeader()).thenReturn(blockHeader);
     lenient().when(blockchain.observeBlockAdded(delegateCoordinator)).thenReturn(1L);
     final MigratingMiningCoordinator coordinator =
         new MigratingMiningCoordinator(
@@ -109,6 +111,7 @@ public class MigratingMiningCoordinatorTest {
 
   @Test
   public void stopShouldUnregisterThisCoordinatorAsObserver() {
+    when(blockchain.getChainHeadHeader()).thenReturn(blockHeader);
     final MigratingMiningCoordinator coordinator =
         new MigratingMiningCoordinator(coordinatorSchedule, blockchain);
     when(blockchain.observeBlockAdded(coordinator)).thenReturn(1L);
@@ -121,6 +124,7 @@ public class MigratingMiningCoordinatorTest {
 
   @Test
   public void onBlockAddedShouldNotDelegateWhenDelegateIsNoop() {
+    when(blockchain.getChainHeadHeader()).thenReturn(blockHeader);
     MiningCoordinator mockMiningCoordinator = mock(MiningCoordinator.class);
     coordinatorSchedule = createCoordinatorSchedule(mockMiningCoordinator, coordinator2);
     when(blockHeader.getNumber()).thenReturn(GENESIS_BLOCK_NUMBER);
@@ -161,11 +165,6 @@ public class MigratingMiningCoordinatorTest {
         coordinator1);
 
     verifyDelegation(
-        MiningCoordinator::getCoinbase, GENESIS_BLOCK_NUMBER, coordinator1, coordinator2);
-    verifyDelegation(
-        MiningCoordinator::getCoinbase, MIGRATION_BLOCK_NUMBER, coordinator2, coordinator1);
-
-    verifyDelegation(
         c -> c.createBlock(blockHeader, emptyList(), emptyList()),
         GENESIS_BLOCK_NUMBER,
         coordinator1,
@@ -192,7 +191,8 @@ public class MigratingMiningCoordinatorTest {
       final long blockHeight,
       final MiningCoordinator expectedActiveCoordinator,
       final MiningCoordinator expectedInactiveCoordinator) {
-    when(blockchain.getChainHeadBlockNumber()).thenReturn(blockHeight);
+    when(blockchain.getChainHeadHeader()).thenReturn(blockHeader);
+    when(blockHeader.getNumber()).thenReturn(blockHeight);
 
     methodUnderTest.accept(new MigratingMiningCoordinator(coordinatorSchedule, blockchain));
 
@@ -212,7 +212,8 @@ public class MigratingMiningCoordinatorTest {
       final MiningCoordinator expectedActiveCoordinator,
       final MiningCoordinator expectedInactiveCoordinator)
       throws InterruptedException {
-    when(blockchain.getChainHeadBlockNumber()).thenReturn(blockHeight);
+    when(blockchain.getChainHeadHeader()).thenReturn(blockHeader);
+    when(blockHeader.getNumber()).thenReturn(blockHeight);
 
     new MigratingMiningCoordinator(coordinatorSchedule, blockchain).awaitStop();
 
@@ -231,7 +232,7 @@ public class MigratingMiningCoordinatorTest {
       final long blockHeight,
       final BftMiningCoordinator expectedActiveCoordinator,
       final BftMiningCoordinator expectedInactiveCoordinator) {
-    when(blockchain.getChainHeadBlockNumber()).thenReturn(blockHeight);
+    when(blockchain.getChainHeadHeader()).thenReturn(blockHeader);
     when(blockHeader.getNumber()).thenReturn(blockHeight);
 
     new MigratingMiningCoordinator(coordinatorSchedule, blockchain).onBlockAdded(blockEvent);

@@ -25,7 +25,6 @@ import org.hyperledger.besu.tests.acceptance.dsl.node.BesuNodeRunner;
 import org.hyperledger.besu.tests.acceptance.dsl.node.Node;
 import org.hyperledger.besu.tests.acceptance.dsl.node.RunnableNode;
 
-import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -44,7 +43,8 @@ public class Cluster implements AutoCloseable {
   private final NetConditions net;
   private final ClusterConfiguration clusterConfiguration;
   private List<? extends RunnableNode> originalNodes = emptyList();
-  private final List<URI> bootnodes = new ArrayList<>();
+  private String bootEnode = null;
+  private String bootEnr = null;
 
   public Cluster(final NetConditions net) {
     this(new ClusterConfigurationBuilder().build(), net, BesuNodeRunner.instance());
@@ -80,7 +80,8 @@ public class Cluster implements AutoCloseable {
     }
     this.originalNodes = nodes;
     this.nodes.clear();
-    this.bootnodes.clear();
+    this.bootEnode = null;
+    this.bootEnr = null;
     nodes.forEach(node -> this.nodes.put(node.getName(), node));
 
     final Optional<? extends RunnableNode> bootnode = selectAndStartBootnode(nodes);
@@ -116,8 +117,11 @@ public class Cluster implements AutoCloseable {
     bootnode.ifPresent(
         b -> {
           LOG.info("Selected node {} as bootnode", b.getName());
+          b.getConfiguration().ensureAdminRpcEnabled();
           startNode(b, true);
-          bootnodes.add(b.enodeUrl());
+          final Map<String, Object> nodeInfo = ((BesuNode) b).fetchBootnodeInfo();
+          bootEnode = (String) nodeInfo.get("enode");
+          bootEnr = (String) nodeInfo.get("enr");
         });
 
     return bootnode;
@@ -149,7 +153,21 @@ public class Cluster implements AutoCloseable {
   }
 
   private void startNode(final RunnableNode node, final boolean isBootNode) {
-    node.getConfiguration().setBootnodes(isBootNode ? emptyList() : bootnodes);
+    if (isBootNode) {
+      node.getConfiguration().setBootnodes(emptyList());
+    } else {
+      // Handle both ENR and enode when available — the composite bootnodes parser dispatches
+      // "enr:" entries to the V5 list and the rest to V4, so both sub-agents (or the V4-only
+      // fallback when V5 self-disables on a non-secp256k1 key) get a usable bootstrap entry.
+      final List<String> boots = new ArrayList<>();
+      if (bootEnr != null) {
+        boots.add(bootEnr);
+      }
+      if (bootEnode != null) {
+        boots.add(bootEnode);
+      }
+      node.getConfiguration().setBootnodes(boots);
+    }
 
     if (node.getConfiguration().getGenesisConfig().isEmpty()) {
       node.getConfiguration()
@@ -168,8 +186,8 @@ public class Cluster implements AutoCloseable {
   }
 
   public void stopNode(final RunnableNode node) {
-    if (node instanceof BesuNode) {
-      besuNodeRunner.stopNode((BesuNode) node); // besuNodeRunner.stopNode also calls node.stop
+    if (node instanceof BesuNode besuNode) {
+      besuNodeRunner.stopNode(besuNode); // besuNodeRunner.stopNode also calls node.stop
     } else {
       node.stop();
     }
@@ -218,5 +236,15 @@ public class Cluster implements AutoCloseable {
    */
   public String getConsoleContents() {
     return besuNodeRunner.getConsoleContents();
+  }
+
+  /**
+   * Returns the console output captured so far without stopping the capture, so callers can poll
+   * for a log line while the nodes keep running. Requires a prior {@link #startConsoleCapture()}.
+   *
+   * @return The console output captured so far since startConsoleCapture() was called.
+   */
+  public String peekConsoleContents() {
+    return besuNodeRunner.peekConsoleContents();
   }
 }

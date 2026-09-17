@@ -32,21 +32,19 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.Lists;
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
 
 public class CliqueExtraDataTest {
 
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
 
   @Test
   public void encodeAndDecodingDoNotAlterData() {
     final SECPSignature proposerSeal =
-        SIGNATURE_ALGORITHM.get().createSignature(BigInteger.ONE, BigInteger.ONE, (byte) 0);
+        SIGNATURE_ALGORITHM.createSignature(BigInteger.ONE, BigInteger.ONE, (byte) 0);
     final List<Address> validators =
         Arrays.asList(
             AddressHelpers.ofValue(1), AddressHelpers.ofValue(2), AddressHelpers.ofValue(3));
@@ -97,7 +95,7 @@ public class CliqueExtraDataTest {
   public void addressToExtraDataString() {
     final List<KeyPair> nodeKeys = Lists.newArrayList();
     for (int i = 0; i < 4; i++) {
-      nodeKeys.add(SIGNATURE_ALGORITHM.get().generateKeyPair());
+      nodeKeys.add(SIGNATURE_ALGORITHM.generateKeyPair());
     }
 
     final List<Address> addresses =

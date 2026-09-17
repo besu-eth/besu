@@ -23,7 +23,6 @@ import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder.OpCodeTracerCo
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Set;
-import javax.annotation.Nullable;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
@@ -31,6 +30,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import org.immutables.value.Value;
+import org.jspecify.annotations.Nullable;
 
 @Value.Immutable
 @JsonSerialize(as = ImmutableTransactionTraceParams.class)
@@ -39,37 +39,49 @@ import org.immutables.value.Value;
 public interface TransactionTraceParams {
 
   @JsonProperty("txHash")
-  @Nullable
-  String getTransactionHash();
+  @Nullable String getTransactionHash();
 
   @JsonProperty(value = "disableStorage")
-  @Nullable
-  Boolean disableStorageNullable();
+  @Nullable Boolean disableStorageNullable();
 
   default boolean disableStorage() {
     return Boolean.TRUE.equals(disableStorageNullable());
   }
 
   @JsonProperty(value = "disableMemory")
-  @Nullable
-  Boolean disableMemoryNullable();
+  @Nullable Boolean disableMemoryNullable();
 
   default boolean disableMemory() {
     return Boolean.TRUE.equals(disableMemoryNullable());
   }
 
+  @JsonProperty(value = "enableMemory")
+  @Nullable Boolean enableMemoryNullable();
+
+  default boolean enableMemory() {
+    return Boolean.TRUE.equals(enableMemoryNullable());
+  }
+
   @JsonProperty(value = "disableStack")
-  @Nullable
-  Boolean disableStackNullable();
+  @Nullable Boolean disableStackNullable();
 
   default boolean disableStack() {
     return Boolean.TRUE.equals(disableStackNullable());
   }
 
+  @JsonProperty(value = "limit")
+  @Nullable Integer limit();
+
+  @JsonProperty(value = "enableReturnData")
+  @Nullable Boolean enableReturnDataNullable();
+
+  default boolean enableReturnData() {
+    return Boolean.TRUE.equals(enableReturnDataNullable());
+  }
+
   @JsonProperty("tracer")
   @JsonInclude(JsonInclude.Include.NON_NULL)
-  @Nullable
-  String tracer();
+  @Nullable String tracer();
 
   @JsonProperty("tracerConfig")
   @Nullable
@@ -91,26 +103,55 @@ public interface TransactionTraceParams {
   @JsonInclude(JsonInclude.Include.NON_NULL)
   StateOverrideMap stateOverrides();
 
+  @Value.Check
+  default void validate() {
+    if (limit() != null && limit() < 0) {
+      throw new IllegalArgumentException("limit must be >= 0, got: " + limit());
+    }
+  }
+
   /**
    * Convert JSON-RPC parameters to a {@link TraceOptions} object.
    *
    * @return TraceOptions object containing the tracer type and configuration.
    */
   default TraceOptions traceOptions() {
-    var defaultTracerConfig =
-        OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
-            .traceStorage(!disableStorage())
-            .traceMemory(!disableMemory())
-            .traceStack(!disableStack())
-            .traceOpcodes(opcodes())
-            .build();
-
     // Convert string tracer to TracerType enum, handling null case
     TracerType tracerType =
         tracer() != null
             ? TracerType.fromString(tracer())
             : TracerType.OPCODE_TRACER; // Default to opcode tracer when null
 
-    return new TraceOptions(tracerType, defaultTracerConfig, tracerConfig(), stateOverrides());
+    if (tracerType == TracerType.PRESTATE_TRACER && tracerConfig() != null) {
+      // Diff mode has special semantics around account creation and deletion which
+      // requires it to include empty accounts and storage.
+      if (Boolean.TRUE.equals(tracerConfig().get("diffMode"))
+          && Boolean.TRUE.equals(tracerConfig().get("includeEmpty"))) {
+        throw new IllegalArgumentException("cannot use diffMode with includeEmpty");
+      }
+    }
+
+    var builder = OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT);
+    // Only override defaults when the user explicitly provided a value
+    if (disableStorageNullable() != null) {
+      builder.traceStorage(!disableStorage());
+    }
+    if (enableMemoryNullable() != null) {
+      builder.traceMemory(enableMemory());
+    } else if (disableMemoryNullable() != null) {
+      builder.traceMemory(!disableMemory());
+    }
+    if (disableStackNullable() != null) {
+      builder.traceStack(!disableStack());
+    }
+    if (limit() != null) {
+      builder.limit(limit());
+    }
+    if (enableReturnDataNullable() != null) {
+      builder.traceReturnData(enableReturnData());
+    }
+    var opCodeTracerConfig = builder.traceOpcodes(opcodes()).build();
+
+    return new TraceOptions(tracerType, opCodeTracerConfig, tracerConfig(), stateOverrides());
   }
 }

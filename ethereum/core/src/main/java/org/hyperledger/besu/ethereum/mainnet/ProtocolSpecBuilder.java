@@ -31,7 +31,6 @@ import org.hyperledger.besu.ethereum.mainnet.requests.ProhibitedRequestValidator
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestsValidator;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitterFactory;
-import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitterFactoryDefault;
 import org.hyperledger.besu.ethereum.mainnet.transactionpool.TransactionPoolPreProcessor;
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
@@ -76,6 +75,8 @@ public class ProtocolSpecBuilder {
 
   private BlockProcessorBuilder blockProcessorBuilder;
   private BlockValidatorBuilder blockValidatorBuilder;
+  private Function<ProtocolSchedule, BlockAccessListValidator> blockAccessListValidatorBuilder =
+      protocolSchedule -> BlockAccessListValidator.ALWAYS_REJECT_BAL;
   private BlockImporterBuilder blockImporterBuilder;
 
   private HardforkId hardforkId;
@@ -89,14 +90,14 @@ public class ProtocolSpecBuilder {
   private FeeMarketBuilder feeMarketBuilder = (__) -> FeeMarket.legacy();
   private BlobSchedule blobSchedule = new BlobSchedule.NoBlobSchedule();
   private BadBlockManager badBlockManager;
-  private PoWHasher powHasher = PoWHasher.ETHASH_LIGHT;
   private boolean isPoS = false;
+  private boolean slotNumberRequired = false;
   private Duration slotDuration;
   private boolean isReplayProtectionSupported = false;
   private TransactionPoolPreProcessor transactionPoolPreProcessor;
   private BlockAccessListFactory blockAccessListFactory;
   private StateRootCommitterFactory stateRootCommitterFactory =
-      new StateRootCommitterFactoryDefault();
+      new StateRootCommitterFactory(BalConfiguration.DISABLED);
   private BalConfiguration balConfiguration = BalConfiguration.DEFAULT;
   private BlockGasAccountingStrategy blockGasAccountingStrategy =
       BlockGasAccountingStrategy.FRONTIER;
@@ -111,6 +112,15 @@ public class ProtocolSpecBuilder {
       final GasLimitCalculatorBuilder gasLimitCalculatorBuilder) {
     this.gasLimitCalculatorBuilder = gasLimitCalculatorBuilder;
     return this;
+  }
+
+  /**
+   * Gets the current gas limit calculator builder.
+   *
+   * @return the gas limit calculator builder
+   */
+  public GasLimitCalculatorBuilder getGasLimitCalculatorBuilder() {
+    return gasLimitCalculatorBuilder;
   }
 
   public ProtocolSpecBuilder blockReward(final Wei blockReward) {
@@ -166,6 +176,12 @@ public class ProtocolSpecBuilder {
   public ProtocolSpecBuilder blockBodyValidatorBuilder(
       final Function<ProtocolSchedule, BlockBodyValidator> blockBodyValidatorBuilder) {
     this.blockBodyValidatorBuilder = blockBodyValidatorBuilder;
+    return this;
+  }
+
+  public ProtocolSpecBuilder blockAccessListValidatorBuilder(
+      final Function<ProtocolSchedule, BlockAccessListValidator> blockAccessListValidatorBuilder) {
+    this.blockAccessListValidatorBuilder = blockAccessListValidatorBuilder;
     return this;
   }
 
@@ -243,11 +259,6 @@ public class ProtocolSpecBuilder {
     return this;
   }
 
-  public ProtocolSpecBuilder powHasher(final PoWHasher powHasher) {
-    this.powHasher = powHasher;
-    return this;
-  }
-
   public ProtocolSpecBuilder evmConfiguration(final EvmConfiguration evmConfiguration) {
     this.evmConfiguration = evmConfiguration;
     return this;
@@ -278,6 +289,11 @@ public class ProtocolSpecBuilder {
   public ProtocolSpecBuilder preExecutionProcessor(
       final PreExecutionProcessor preExecutionProcessor) {
     this.preExecutionProcessor = preExecutionProcessor;
+    return this;
+  }
+
+  public ProtocolSpecBuilder slotNumberRequired(final boolean slotNumberRequired) {
+    this.slotNumberRequired = slotNumberRequired;
     return this;
   }
 
@@ -344,6 +360,7 @@ public class ProtocolSpecBuilder {
     checkNotNull(transactionProcessorBuilder, "Missing transaction processor");
     checkNotNull(blockHeaderValidatorBuilder, "Missing block header validator");
     checkNotNull(blockBodyValidatorBuilder, "Missing block body validator");
+    checkNotNull(blockAccessListValidatorBuilder, "Missing block access list validator");
     checkNotNull(blockProcessorBuilder, "Missing block processor");
     checkNotNull(blockImporterBuilder, "Missing block importer");
     checkNotNull(blockValidatorBuilder, "Missing block validator");
@@ -399,12 +416,9 @@ public class ProtocolSpecBuilder {
 
     BlockProcessor blockProcessor = createBlockProcessor(transactionProcessor, protocolSchedule);
 
-    final BlockValidator blockValidator =
-        blockValidatorBuilder.apply(blockHeaderValidator, blockBodyValidator, blockProcessor);
-    final BlockImporter blockImporter = blockImporterBuilder.apply(blockValidator);
-
     final boolean isStackedModeEnabled =
         evm.getEvmConfiguration().worldUpdaterMode() == WorldUpdaterMode.STACKED;
+
     final boolean balForkActivated = blockAccessListFactory != null;
 
     if (balForkActivated && !isStackedModeEnabled) {
@@ -412,6 +426,14 @@ public class ProtocolSpecBuilder {
           "Block Access List (BAL) is activated by fork but world updater mode is not STACKED. "
               + "BAL requires STACKED world updater mode.");
     }
+
+    final BlockAccessListValidator blockAccessListValidator =
+        blockAccessListValidatorBuilder.apply(protocolSchedule);
+
+    final BlockValidator blockValidator =
+        blockValidatorBuilder.apply(
+            blockHeaderValidator, blockBodyValidator, blockProcessor, blockAccessListValidator);
+    final BlockImporter blockImporter = blockImporterBuilder.apply(blockValidator);
 
     return new ProtocolSpec(
         hardforkId,
@@ -434,17 +456,18 @@ public class ProtocolSpecBuilder {
         gasCalculator,
         gasLimitCalculator,
         feeMarket,
-        Optional.ofNullable(powHasher),
         withdrawalsValidator,
         Optional.ofNullable(withdrawalsProcessor),
         requestsValidator,
         Optional.ofNullable(requestProcessorCoordinator),
         preExecutionProcessor,
         isPoS,
+        slotNumberRequired,
         slotDuration,
         isReplayProtectionSupported,
         Optional.ofNullable(transactionPoolPreProcessor),
         Optional.ofNullable(blockAccessListFactory),
+        blockAccessListValidator,
         stateRootCommitterFactory,
         blockGasAccountingStrategy,
         blockGasUsedValidator);
@@ -501,7 +524,8 @@ public class ProtocolSpecBuilder {
     BlockValidator apply(
         BlockHeaderValidator blockHeaderValidator,
         BlockBodyValidator blockBodyValidator,
-        BlockProcessor blockProcessor);
+        BlockProcessor blockProcessor,
+        BlockAccessListValidator blockAccessListValidator);
   }
 
   @FunctionalInterface

@@ -22,18 +22,18 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.TransactionTraceParams;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.ImmutableTransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
-import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder.OpCodeTracerConfig;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.tracing.StreamingOperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -68,22 +68,23 @@ public class TransactionTracer {
       final Tracer.TraceableState mutableWorldState,
       final Hash blockHash,
       final Hash transactionHash,
-      final DebugOperationTracer tracer) {
+      final OperationTracer tracer) {
     return blockReplay.beforeTransactionInBlock(
         mutableWorldState,
         blockHash,
         transactionHash,
-        (transaction, header, blockchain, transactionProcessor, blobGasPrice) -> {
+        (transaction, transactionIndex, block, blockchain, transactionProcessor, blobGasPrice) -> {
           final TransactionProcessingResult result =
               processTransaction(
-                  header,
+                  block.getHeader(),
                   blockchain,
                   mutableWorldState.updater(),
                   transaction,
                   transactionProcessor,
                   tracer,
                   blobGasPrice);
-          return new TransactionTrace(transaction, result, tracer.getTraceFrames());
+          return new TransactionTrace(
+              transaction, result, tracer.getTraceFrames(), Optional.of(block), transactionIndex);
         });
   }
 
@@ -130,7 +131,9 @@ public class TransactionTracer {
     return blockReplay
         .performActionWithBlock(
             blockHash,
-            (body, header, blockchain, transactionProcessor, protocolSpec) -> {
+            (block, blockchain, transactionProcessor, protocolSpec) -> {
+              final BlockHeader header = block.getHeader();
+              final BlockBody body = block.getBody();
               WorldUpdater stackedUpdater = mutableWorldState.updater().updater();
               final List<String> traces = new ArrayList<>();
               final Wei blobGasPrice =

@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.consensus.common;
 
+import org.hyperledger.besu.consensus.common.bft.BftProtocolSchedule;
+
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
@@ -43,19 +45,37 @@ public class ForksSchedule<C> {
   }
 
   /**
+   * Apply the protocol schedule to the forks to assert their fork type - block or timestamp
+   *
+   * @param protocolSchedule the protocol schedule
+   */
+  public void applyMilestoneTypes(final BftProtocolSchedule protocolSchedule) {
+    forks.forEach(
+        f ->
+            f.setForkType(
+                protocolSchedule.getSpecTypeByBlockNumberOrTimestamp(f.getBlock(), f.getBlock())));
+  }
+
+  /**
    * Gets fork.
    *
    * @param blockNumber the block number
+   * @param blockTimestamp the block timestamp
    * @return the fork
    */
-  public ForkSpec<C> getFork(final long blockNumber) {
+  public ForkSpec<C> getFork(final long blockNumber, final long blockTimestamp) {
     for (final ForkSpec<C> f : forks) {
-      if (blockNumber >= f.getBlock()) {
+      final long blockValue =
+          f.getForkType() == ForkSpec.ForkScheduleType.TIME ? blockTimestamp : blockNumber;
+      if (blockValue >= f.getBlock()) {
         return f;
       }
     }
 
-    return forks.first();
+    // forks is sorted in descending block order (see the TreeSet comparator above), so the
+    // fork with the smallest block/timestamp is last(), not first(). Falling back to first()
+    // incorrectly returned the largest fork here.
+    return forks.last();
   }
 
   /**

@@ -54,15 +54,16 @@ public class CliqueBlockHashing {
    */
   public static Address recoverProposerAddress(
       final BlockHeader header, final CliqueExtraData cliqueExtraData) {
-    if (!cliqueExtraData.getProposerSeal().isPresent()) {
+    if (cliqueExtraData.getProposerSeal().isEmpty()) {
       if (header.getNumber() == BlockHeader.GENESIS_BLOCK_NUMBER) {
         return Address.ZERO;
       }
       throw new IllegalArgumentException(
-          "Supplied cliqueExtraData does not include a proposer " + "seal");
+          "Supplied cliqueExtraData does not include a proposer seal");
     }
+    final SECPSignature proposerSeal = cliqueExtraData.getProposerSeal().get();
     final Hash proposerHash = calculateDataHashForProposerSeal(header, cliqueExtraData);
-    return Util.signatureToAddress(cliqueExtraData.getProposerSeal().get(), proposerHash);
+    return Util.signatureToAddress(proposerSeal, proposerHash);
   }
 
   private static Bytes serializeHeaderWithoutProposerSeal(

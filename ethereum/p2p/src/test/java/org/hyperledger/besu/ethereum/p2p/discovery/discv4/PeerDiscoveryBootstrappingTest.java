@@ -61,7 +61,7 @@ public class PeerDiscoveryBootstrappingTest {
     assertThat(pingData.getExpiration())
         .isGreaterThanOrEqualTo(System.currentTimeMillis() / 1000 - 10000);
     assertThat(pingData.getFrom()).contains(agent.getAdvertisedPeer().get().getEndpoint());
-    assertThat(pingData.getTo()).isEqualTo(testAgent.getAdvertisedPeer().get().getEndpoint());
+    assertThat(pingData.getTo()).contains(testAgent.getAdvertisedPeer().get().getEndpoint());
   }
 
   @Test
@@ -109,7 +109,7 @@ public class PeerDiscoveryBootstrappingTest {
         assertThat(ping.getExpiration())
             .isGreaterThanOrEqualTo(System.currentTimeMillis() / 1000 - 10000);
         assertThat(bootstrapAgent.getAdvertisedPeer().isPresent()).isTrue();
-        assertThat(ping.getTo()).isEqualTo(bootstrapAgent.getAdvertisedPeer().get().getEndpoint());
+        assertThat(ping.getTo()).contains(bootstrapAgent.getAdvertisedPeer().get().getEndpoint());
       }
     }
   }

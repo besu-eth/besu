@@ -1,0 +1,157 @@
+/*
+ * Copyright contributors to Hyperledger Besu.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import org.hyperledger.besu.ethereum.debug.TraceOptions;
+import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder.OpCodeTracerConfig;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.Test;
+
+public class TransactionTraceParamsTest {
+
+  private static final ObjectMapper MAPPER = new ObjectMapper();
+
+  @Test
+  public void emptyOptionsObjectShouldMatchDefaultTraceOptions() throws Exception {
+    // Passing {} should be equivalent to passing no options at all.
+    // All disable* fields default to false, so all tracing is enabled by default.
+    final OpCodeTracerConfig defaultConfig = TraceOptions.DEFAULT.opCodeTracerConfig();
+
+    // Parse an empty JSON options object — simulates debug_traceTransaction(hash, {})
+    final TransactionTraceParams emptyParams = MAPPER.readValue("{}", TransactionTraceParams.class);
+    final OpCodeTracerConfig emptyParamsConfig = emptyParams.traceOptions().opCodeTracerConfig();
+
+    assertThat(emptyParamsConfig.traceMemory())
+        .describedAs("traceMemory should match DEFAULT")
+        .isEqualTo(defaultConfig.traceMemory());
+
+    assertThat(emptyParamsConfig.traceStorage())
+        .describedAs("traceStorage should match DEFAULT")
+        .isEqualTo(defaultConfig.traceStorage());
+
+    assertThat(emptyParamsConfig.traceStack())
+        .describedAs("traceStack should match DEFAULT")
+        .isEqualTo(defaultConfig.traceStack());
+  }
+
+  @Test
+  public void defaultsShouldMatchOpCodeTracerConfigDefaults() {
+    // TraceOptions.DEFAULT should use OpCodeTracerConfig.DEFAULT directly.
+    // Memory tracing is off by default for performance reasons.
+    final OpCodeTracerConfig defaultConfig = TraceOptions.DEFAULT.opCodeTracerConfig();
+
+    assertThat(defaultConfig.traceStorage()).isTrue();
+    assertThat(defaultConfig.traceMemory()).isFalse();
+    assertThat(defaultConfig.traceStack()).isTrue();
+  }
+
+  @Test
+  public void nonOpcodeTracerLeavesMemoryDisabledByDefault() throws Exception {
+    // Native tracers (callTracer, prestateTracer, 4byteTracer, flatCallTracer) never read
+    // captured memory, so the opcode-tracer default (off) applies to them too.
+    final TransactionTraceParams callTracerParams =
+        MAPPER.readValue("{\"tracer\": \"callTracer\"}", TransactionTraceParams.class);
+    assertThat(callTracerParams.traceOptions().opCodeTracerConfig().traceMemory()).isFalse();
+  }
+
+  @Test
+  public void enableMemoryTrueShouldEnableMemory() throws Exception {
+    final TransactionTraceParams params =
+        MAPPER.readValue("{\"enableMemory\": true}", TransactionTraceParams.class);
+    final OpCodeTracerConfig config = params.traceOptions().opCodeTracerConfig();
+
+    assertThat(config.traceMemory())
+        .describedAs("enableMemory=true should enable memory tracing")
+        .isTrue();
+  }
+
+  @Test
+  public void enableMemoryFalseShouldDisableMemory() throws Exception {
+    final TransactionTraceParams params =
+        MAPPER.readValue("{\"enableMemory\": false}", TransactionTraceParams.class);
+    final OpCodeTracerConfig config = params.traceOptions().opCodeTracerConfig();
+
+    assertThat(config.traceMemory())
+        .describedAs("enableMemory=false should disable memory tracing")
+        .isFalse();
+  }
+
+  @Test
+  public void enableMemoryShouldTakePrecedenceOverDisableMemory() throws Exception {
+    final TransactionTraceParams params =
+        MAPPER.readValue(
+            "{\"enableMemory\": true, \"disableMemory\": true}", TransactionTraceParams.class);
+    final OpCodeTracerConfig config = params.traceOptions().opCodeTracerConfig();
+
+    assertThat(config.traceMemory())
+        .describedAs("enableMemory should take precedence over disableMemory")
+        .isTrue();
+  }
+
+  @Test
+  public void negativeLimitShouldFailDuringDeserialization() {
+    assertThatThrownBy(() -> MAPPER.readValue("{\"limit\": -1}", TransactionTraceParams.class))
+        .hasMessageContaining("limit must be >= 0, got: -1");
+  }
+
+  @Test
+  public void enableReturnDataTrueShouldSetTraceReturnData() throws Exception {
+    final TransactionTraceParams params =
+        MAPPER.readValue("{\"enableReturnData\": true}", TransactionTraceParams.class);
+    final OpCodeTracerConfig config = params.traceOptions().opCodeTracerConfig();
+
+    assertThat(config.traceReturnData())
+        .describedAs("enableReturnData: true should set traceReturnData to true")
+        .isTrue();
+  }
+
+  @Test
+  public void enableReturnDataFalseShouldSetTraceReturnDataFalse() throws Exception {
+    final TransactionTraceParams params =
+        MAPPER.readValue("{\"enableReturnData\": false}", TransactionTraceParams.class);
+    final OpCodeTracerConfig config = params.traceOptions().opCodeTracerConfig();
+
+    assertThat(config.traceReturnData())
+        .describedAs("enableReturnData: false should set traceReturnData to false")
+        .isFalse();
+  }
+
+  @Test
+  public void missingEnableReturnDataShouldDefaultToFalse() throws Exception {
+    final TransactionTraceParams params = MAPPER.readValue("{}", TransactionTraceParams.class);
+    final OpCodeTracerConfig config = params.traceOptions().opCodeTracerConfig();
+
+    assertThat(config.traceReturnData())
+        .describedAs("traceReturnData should default to false when enableReturnData is absent")
+        .isFalse();
+  }
+
+  @Test
+  public void prestateTracerShouldRejectDiffModeWithIncludeEmpty() throws Exception {
+    final TransactionTraceParams params =
+        MAPPER.readValue(
+            "{\"tracer\": \"prestateTracer\", \"tracerConfig\": {\"diffMode\": true,"
+                + " \"includeEmpty\": true}}",
+            TransactionTraceParams.class);
+
+    assertThatThrownBy(params::traceOptions)
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("cannot use diffMode with includeEmpty");
+  }
+}

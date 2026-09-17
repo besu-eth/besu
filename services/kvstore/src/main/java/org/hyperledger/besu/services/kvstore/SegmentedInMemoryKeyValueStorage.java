@@ -79,7 +79,7 @@ public class SegmentedInMemoryKeyValueStorage
       final Map<Bytes, Optional<byte[]>> sourceMap) {
 
     Comparator<Bytes> byteWiseComparator =
-        Comparator.comparing(Bytes::toArrayUnsafe, Arrays::compare);
+        Comparator.comparing(Bytes::toArrayUnsafe, Arrays::compareUnsigned);
 
     NavigableMap<Bytes, Optional<byte[]>> segMap = new ConcurrentSkipListMap<>(byteWiseComparator);
 

@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.eth.EthProtocolVersion;
 import org.hyperledger.besu.ethereum.forkid.ForkId;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 
 import java.math.BigInteger;
 import java.util.Random;
@@ -154,8 +155,27 @@ public class Eth68StatusMessageTest {
     forkId.writeTo(out);
     out.endList();
     assertThrows(
-        IllegalArgumentException.class,
+        RLPException.class,
         () -> StatusMessage.create(out.encoded()).protocolVersion(),
         "StatusMessage should not be able to deserialize invalid data");
+  }
+
+  @Test
+  public void shouldRejectEth69LayoutWithEth68Version() {
+    // Symmetric check: eth/69+ layout (no TD, with blockRange) but version=68 must be rejected.
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    out.startList();
+    out.writeIntScalar(68);
+    out.writeBigIntegerScalar(networkId);
+    out.writeBytes(genesisHash.getBytes());
+    forkId.writeTo(out);
+    out.writeLongScalar(0L);
+    out.writeLongScalar(123L);
+    out.writeBytes(bestHash.getBytes());
+    out.endList();
+    final RLPException ex =
+        assertThrows(
+            RLPException.class, () -> StatusMessage.create(out.encoded()).protocolVersion());
+    assertThat(ex.getMessage()).contains("version must be >= 69");
   }
 }

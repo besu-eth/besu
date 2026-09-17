@@ -23,16 +23,14 @@ import org.hyperledger.besu.ethereum.core.CodeDelegation;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 
 import java.math.BigInteger;
-import java.util.function.Supplier;
 
-import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class CodeDelegationTransactionEncoderTest {
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
 
   BytesValueRLPOutput output;
 
@@ -50,14 +48,12 @@ class CodeDelegationTransactionEncoderTest {
             BigInteger.ONE,
             Address.fromHexString("0x633688abc3cCf8B0C03088D2d1C6ae4958c2fA56"),
             42,
-            SIGNATURE_ALGORITHM
-                .get()
-                .createSignature(
-                    new BigInteger(
-                        "840798fa67118e034c1eb7e42fe89e28d7cd5006dc813d5729e5f75b0d1a7ec5", 16),
-                    new BigInteger(
-                        "3b1dbace38ceb862a65bf2eac0637693b5c3493bcb2a022dd614c0a74cce0b99", 16),
-                    (byte) 0));
+            SIGNATURE_ALGORITHM.createSignature(
+                new BigInteger(
+                    "840798fa67118e034c1eb7e42fe89e28d7cd5006dc813d5729e5f75b0d1a7ec5", 16),
+                new BigInteger(
+                    "3b1dbace38ceb862a65bf2eac0637693b5c3493bcb2a022dd614c0a74cce0b99", 16),
+                (byte) 0));
 
     CodeDelegationTransactionEncoder.encodeSingleCodeDelegation(authorization, output);
 
@@ -76,14 +72,12 @@ class CodeDelegationTransactionEncoderTest {
             BigInteger.ONE,
             Address.fromHexString("0x633688abc3cCf8B0C03088D2d1C6ae4958c2fA56"),
             0,
-            SIGNATURE_ALGORITHM
-                .get()
-                .createSignature(
-                    new BigInteger(
-                        "dd6b24048be1b7d7fe5bbbb73ffc37eb2ce1997ecb4ae5b6096532ef19363148", 16),
-                    new BigInteger(
-                        "25b58a1ff8ad00bddbbfa1d5c2411961cbb6d08dcdc8ae88303db3c6cf983031", 16),
-                    (byte) 1));
+            SIGNATURE_ALGORITHM.createSignature(
+                new BigInteger(
+                    "dd6b24048be1b7d7fe5bbbb73ffc37eb2ce1997ecb4ae5b6096532ef19363148", 16),
+                new BigInteger(
+                    "25b58a1ff8ad00bddbbfa1d5c2411961cbb6d08dcdc8ae88303db3c6cf983031", 16),
+                (byte) 1));
 
     CodeDelegationTransactionEncoder.encodeSingleCodeDelegation(authorization, output);
 
@@ -102,14 +96,12 @@ class CodeDelegationTransactionEncoderTest {
             BigInteger.ZERO,
             Address.fromHexString("0x633688abc3cCf8B0C03088D2d1C6ae4958c2fA56"),
             5,
-            SIGNATURE_ALGORITHM
-                .get()
-                .createSignature(
-                    new BigInteger(
-                        "25c1240d7ffec0daeedb752d3357aff2e3cd58468f0c2d43ee0ee999e02ace2", 16),
-                    new BigInteger(
-                        "3c8a25b2becd6e666f69803d1ae3322f2e137b7745c2c7f19da80f993ffde4df", 16),
-                    (byte) 1));
+            SIGNATURE_ALGORITHM.createSignature(
+                new BigInteger(
+                    "25c1240d7ffec0daeedb752d3357aff2e3cd58468f0c2d43ee0ee999e02ace2", 16),
+                new BigInteger(
+                    "3c8a25b2becd6e666f69803d1ae3322f2e137b7745c2c7f19da80f993ffde4df", 16),
+                (byte) 1));
 
     CodeDelegationTransactionEncoder.encodeSingleCodeDelegation(authorization, output);
 

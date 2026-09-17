@@ -142,11 +142,29 @@ public class EvmToolCommandOptionsModule {
       arity = "1")
   private boolean enableOptimizedOpcodes = true;
 
+  @CommandLine.Option(
+      names = {"--Xevm-go-fast", "--Xevm-v2"},
+      description = "Enable experimental EVM v2 with long[] stack representation (default: false)",
+      fallbackValue = "false",
+      defaultValue = "false",
+      hidden = true,
+      arity = "1")
+  private boolean enableEvmV2 = false;
+
   @Provides
   @Singleton
   EvmConfiguration provideEvmConfiguration() {
     return new EvmConfiguration(
-        jumpDestCacheWeightKilobytes, worldstateUpdateMode, enableOptimizedOpcodes);
+        jumpDestCacheWeightKilobytes, worldstateUpdateMode, enableOptimizedOpcodes, enableEvmV2);
+  }
+
+  /**
+   * Returns whether experimental EVM v2 is enabled. Used by the tool to emit a startup notice.
+   *
+   * @return true if EVM v2 is enabled
+   */
+  public boolean isEvmV2Enabled() {
+    return enableEvmV2;
   }
 
   /** Default constructor for the EvmToolCommandOptionsModule class. */

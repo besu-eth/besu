@@ -81,16 +81,11 @@ public class QuorumIBFTMigrationTest extends AcceptanceTestBase {
   public void shouldImportIBFTBlocksAndTransitionToQBFT() throws Exception {
 
     // Create a mix of Bonsai and Forest DB nodes
-    final BesuNode minerNode1 =
-        besu.createQbftMigrationNode("miner1", false, DataStorageFormat.FOREST);
-    final BesuNode minerNode2 =
-        besu.createQbftMigrationNode("miner2", false, DataStorageFormat.FOREST);
-    final BesuNode minerNode3 =
-        besu.createQbftMigrationNode("miner3", false, DataStorageFormat.FOREST);
-    final BesuNode minerNode4 =
-        besu.createQbftMigrationNode("miner4", false, DataStorageFormat.FOREST);
-    final BesuNode minerNode5 =
-        besu.createQbftMigrationNode("miner5", false, DataStorageFormat.FOREST);
+    final BesuNode minerNode1 = besu.createQbftMigrationNode("miner1", DataStorageFormat.FOREST);
+    final BesuNode minerNode2 = besu.createQbftMigrationNode("miner2", DataStorageFormat.FOREST);
+    final BesuNode minerNode3 = besu.createQbftMigrationNode("miner3", DataStorageFormat.FOREST);
+    final BesuNode minerNode4 = besu.createQbftMigrationNode("miner4", DataStorageFormat.FOREST);
+    final BesuNode minerNode5 = besu.createQbftMigrationNode("miner5", DataStorageFormat.FOREST);
 
     // Copy key files to the node datadirs
     // Use the key files saved in resources directory

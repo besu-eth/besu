@@ -16,7 +16,6 @@ package org.hyperledger.besu.ethereum.p2p.peers;
 
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.PeerInfo;
-import org.hyperledger.besu.plugin.data.EnodeURL;
 
 import java.util.List;
 
@@ -31,7 +30,7 @@ public interface LocalNode {
       final String clientId,
       final int p2pVersion,
       final List<Capability> supportedCapabilities,
-      final EnodeURL enode) {
+      final EnodeURLImpl enode) {
     DefaultLocalNode localNode =
         DefaultLocalNode.create(clientId, p2pVersion, supportedCapabilities);
     localNode.setEnode(enode);

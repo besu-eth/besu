@@ -19,9 +19,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonBlockStateCallParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.SimulateV1Parameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
@@ -33,18 +35,24 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.transaction.BlockSimulationParameter;
 import org.hyperledger.besu.ethereum.transaction.BlockSimulator;
+import org.hyperledger.besu.ethereum.transaction.ImmutableCallParameter;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallException;
 import org.hyperledger.besu.evm.precompile.PrecompileContractRegistry;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -72,6 +80,7 @@ public class EthSimulateV1Test {
   public void setUp() {
     method =
         new EthSimulateV1(
+            null,
             blockchainQueries,
             protocolSchedule,
             transactionSimulator,
@@ -100,10 +109,10 @@ public class EthSimulateV1Test {
   }
 
   @Test
-  public void shouldReturnInvalidParamsWhenUpfrontCostExceedsBalanceWithValidation() {
+  public void shouldReturnUpfrontCostErrorCodeWhenUpfrontCostExceedsBalanceWithValidation() {
     setupMethodWithMockSimulator();
     setupBlockchainForLatest();
-    when(blockSimulator.process(any(BlockHeader.class), any()))
+    when(blockSimulator.process(any(BlockHeader.class), any(), any(OperationTracer.class)))
         .thenThrow(
             new BlockStateCallException(
                 "Upfront cost exceeds balance", BlockStateCallError.UPFRONT_COST_EXCEEDS_BALANCE));
@@ -114,14 +123,14 @@ public class EthSimulateV1Test {
 
     assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
     assertThat(((JsonRpcErrorResponse) response).getError().getCode())
-        .isEqualTo(RpcErrorType.INVALID_PARAMS.getCode());
+        .isEqualTo(BlockStateCallError.UPFRONT_COST_EXCEEDS_BALANCE.getCode());
   }
 
   @Test
   public void shouldReturnOriginalErrorCodeWhenUpfrontCostExceedsBalanceWithoutValidation() {
     setupMethodWithMockSimulator();
     setupBlockchainForLatest();
-    when(blockSimulator.process(any(BlockHeader.class), any()))
+    when(blockSimulator.process(any(BlockHeader.class), any(), any(OperationTracer.class)))
         .thenThrow(
             new BlockStateCallException(
                 "Upfront cost exceeds balance", BlockStateCallError.UPFRONT_COST_EXCEEDS_BALANCE));
@@ -133,6 +142,61 @@ public class EthSimulateV1Test {
     assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
     assertThat(((JsonRpcErrorResponse) response).getError().getCode())
         .isEqualTo(BlockStateCallError.UPFRONT_COST_EXCEEDS_BALANCE.getCode());
+  }
+
+  @Test
+  public void shouldReturnSimulatorErrorWhenCallsContainDecreasingNonces() {
+    setupMethodWithMockSimulator();
+    setupBlockchainForLatest();
+    when(blockSimulator.process(any(BlockHeader.class), any(), any(OperationTracer.class)))
+        .thenThrow(
+            new BlockStateCallException(
+                "BaseFeePerGas too low", BlockStateCallError.GAS_PRICE_BELOW_BASE_FEE));
+
+    final JsonRpcRequestContext request =
+        ethSimulateV1Request(simulateParameterWithDecreasingNonces(), "latest");
+
+    final JsonRpcResponse response = method.response(request);
+
+    assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
+    assertThat(((JsonRpcErrorResponse) response).getError().getCode())
+        .isEqualTo(BlockStateCallError.GAS_PRICE_BELOW_BASE_FEE.getCode());
+    verify(blockSimulator).process(any(BlockHeader.class), any(), any(OperationTracer.class));
+  }
+
+  @Test
+  public void shouldNotReturnInvalidParamsWhenInputAndDataHaveDifferentValues() {
+    setupMethodWithMockSimulator();
+    setupBlockchainForLatest();
+    when(blockSimulator.process(any(BlockHeader.class), any(), any(OperationTracer.class)))
+        .thenReturn(List.of());
+
+    // Reproduces issue #9960: both input and data provided with different values.
+    // Other EL clients (Geth, Nethermind, Reth, Erigon) accept this and use input.
+    final Map<String, Object> callObj =
+        Map.of(
+            "from", "0xc000000000000000000000000000000000000000",
+            "to", "0xd000000000000000000000000000000000000000",
+            "input", "0xDEADBEEF",
+            "data", "0xCAFEBABE");
+    final Map<String, Object> simulateParam =
+        Map.of("blockStateCalls", List.of(Map.of("calls", List.of(callObj))), "validation", false);
+
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest("2.0", "eth_simulateV1", new Object[] {simulateParam, "latest"}));
+
+    final JsonRpcResponse response = method.response(request);
+
+    assertThat(response).isNotInstanceOf(JsonRpcErrorResponse.class);
+
+    final ArgumentCaptor<BlockSimulationParameter> captor =
+        ArgumentCaptor.forClass(BlockSimulationParameter.class);
+    verify(blockSimulator)
+        .process(any(BlockHeader.class), captor.capture(), any(OperationTracer.class));
+    final Bytes payload =
+        captor.getValue().getBlockStateCalls().get(0).getCalls().get(0).getPayload().orElseThrow();
+    assertThat(payload).isEqualTo(Bytes.fromHexString("0xDEADBEEF"));
   }
 
   @Test
@@ -165,7 +229,22 @@ public class EthSimulateV1Test {
   }
 
   private SimulateV1Parameter simulateParameter(final boolean validation) {
-    return new SimulateV1Parameter(List.of(), validation, false, false, false);
+    return new SimulateV1Parameter(List.of(), validation, false, false, false, false);
+  }
+
+  private SimulateV1Parameter simulateParameterWithDecreasingNonces() {
+    final Address sender = Address.fromHexString("0xc000000000000000000000000000000000000000");
+    final JsonBlockStateCallParameter blockStateCall =
+        new JsonBlockStateCallParameter(
+            List.of(
+                callWithNonce(sender, 0L), callWithNonce(sender, 1L), callWithNonce(sender, 0L)),
+            null,
+            null);
+    return new SimulateV1Parameter(List.of(blockStateCall), true, false, false, false, false);
+  }
+
+  private ImmutableCallParameter callWithNonce(final Address sender, final long nonce) {
+    return ImmutableCallParameter.builder().sender(sender).to(sender).nonce(nonce).build();
   }
 
   private JsonRpcRequestContext ethSimulateV1Request(

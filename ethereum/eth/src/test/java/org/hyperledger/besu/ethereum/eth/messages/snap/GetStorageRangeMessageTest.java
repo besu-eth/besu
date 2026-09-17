@@ -20,6 +20,8 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
 
+import java.math.BigInteger;
+import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.tuweni.bytes.Bytes32;
@@ -35,18 +37,89 @@ public final class GetStorageRangeMessageTest {
     final Bytes32 startKeyHash = RangeManager.MIN_RANGE;
     final Bytes32 endKeyHash = RangeManager.MAX_RANGE;
 
-    // Perform round-trip transformation
     final MessageData initialMessage =
         GetStorageRangeMessage.create(rootHash, accountKeys, startKeyHash, endKeyHash);
     final MessageData raw = new RawMessage(SnapV1.GET_STORAGE_RANGE, initialMessage.getData());
 
-    final GetStorageRangeMessage message = GetStorageRangeMessage.readFrom(raw);
+    final GetStorageRangeMessage.StorageRange range =
+        GetStorageRangeMessage.readFrom(raw).range(false);
 
-    // check match originals.
-    final GetStorageRangeMessage.StorageRange range = message.range(false);
     Assertions.assertThat(range.worldStateRootHash()).isEqualTo(rootHash);
-    Assertions.assertThat(range.hashes()).isEqualTo(accountKeys);
+    final List<Bytes32> accountHashes = new ArrayList<>();
+    range.accountHashes().forEach(accountHashes::add);
+    Assertions.assertThat(accountHashes).isEqualTo(accountKeys);
     Assertions.assertThat(range.startKeyHash().getBytes()).isEqualTo(startKeyHash);
     Assertions.assertThat(range.responseBytes()).isEqualTo(AbstractSnapMessageData.SIZE_REQUEST);
+  }
+
+  @Test
+  public void wrapRoundTripTest() {
+    final Hash rootHash = Hash.wrap(Bytes32.random());
+    final List<Bytes32> accountKeys = List.of(Bytes32.random());
+    final Bytes32 startKeyHash = RangeManager.MIN_RANGE;
+    final Bytes32 endKeyHash = RangeManager.MAX_RANGE;
+
+    final GetStorageRangeMessage initialMessage =
+        GetStorageRangeMessage.create(rootHash, accountKeys, startKeyHash, endKeyHash);
+    final MessageData wrapped = initialMessage.wrapMessageData(BigInteger.valueOf(42));
+    final MessageData raw = new RawMessage(SnapV1.GET_STORAGE_RANGE, wrapped.getData());
+
+    final GetStorageRangeMessage.StorageRange range =
+        GetStorageRangeMessage.readFrom(raw).range(true);
+
+    Assertions.assertThat(range.worldStateRootHash()).isEqualTo(rootHash);
+    final List<Bytes32> accountHashes = new ArrayList<>();
+    range.accountHashes().forEach(accountHashes::add);
+    Assertions.assertThat(accountHashes).isEqualTo(accountKeys);
+    Assertions.assertThat(range.startKeyHash().getBytes()).isEqualTo(startKeyHash);
+    Assertions.assertThat(range.endKeyHash().getBytes()).isEqualTo(endKeyHash);
+    Assertions.assertThat(range.responseBytes()).isEqualTo(AbstractSnapMessageData.SIZE_REQUEST);
+  }
+
+  @Test
+  public void lazyIterationStaysIndependentAcrossCalls() {
+    final Hash rootHash = Hash.wrap(Bytes32.random());
+    final Bytes32 hash1 = Bytes32.random();
+    final Bytes32 hash2 = Bytes32.random();
+    final Bytes32 hash3 = Bytes32.random();
+
+    final GetStorageRangeMessage.StorageRange range =
+        GetStorageRangeMessage.create(
+                rootHash,
+                List.of(hash1, hash2, hash3),
+                RangeManager.MIN_RANGE,
+                RangeManager.MAX_RANGE)
+            .range(false);
+
+    // Two independent iterations must each see all three hashes in order.
+    final List<Bytes32> first = new ArrayList<>();
+    range.accountHashes().forEach(first::add);
+    final List<Bytes32> second = new ArrayList<>();
+    range.accountHashes().forEach(second::add);
+
+    Assertions.assertThat(first).containsExactly(hash1, hash2, hash3);
+    Assertions.assertThat(second).containsExactly(hash1, hash2, hash3);
+  }
+
+  @Test
+  public void peekIteratorDoesNotAffectMainIteration() {
+    final Hash rootHash = Hash.wrap(Bytes32.random());
+    final Bytes32 hash1 = Bytes32.random();
+    final Bytes32 hash2 = Bytes32.random();
+
+    final GetStorageRangeMessage.StorageRange range =
+        GetStorageRangeMessage.create(
+                rootHash, List.of(hash1, hash2), RangeManager.MIN_RANGE, RangeManager.MAX_RANGE)
+            .range(false);
+
+    // Simulate the multi-account peek done by SnapServer.
+    final var peekIter = range.accountHashes().iterator();
+    if (peekIter.hasNext()) peekIter.next();
+    Assertions.assertThat(peekIter.hasNext()).isTrue(); // second element exists
+
+    // A fresh iterable from the same StorageRange must still see both hashes.
+    final List<Bytes32> all = new ArrayList<>();
+    range.accountHashes().forEach(all::add);
+    Assertions.assertThat(all).containsExactly(hash1, hash2);
   }
 }

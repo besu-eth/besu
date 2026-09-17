@@ -15,21 +15,28 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import org.hyperledger.besu.consensus.merge.MergeContext;
+import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
+import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineCallListener;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.ForkSupportHelper;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
+import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
+import org.hyperledger.besu.plugin.services.MetricsSystem;
 
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.function.Supplier;
 
+import com.fasterxml.jackson.databind.JsonMappingException;
 import io.vertx.core.Vertx;
+import org.immutables.value.Value;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,89 +49,160 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
     INVALID_BLOCK_HASH;
   }
 
-  public static final long ENGINE_API_LOGGING_THRESHOLD = 60000L;
-  private final Vertx syncVertx;
+  @Value.Builder
+  public record ConstructorArguments(
+      ProtocolSchedule protocolSchedule,
+      ProtocolContext protocolContext,
+      Vertx vertx,
+      EngineCallListener engineCallListener,
+      // Nullable for engine_exchangeTransitionConfigurationV1 that is constructed even when
+      // no merge-compatible mining coordinator is present, and it never reads this field.
+      @Nullable MergeMiningCoordinator mergeCoordinator,
+      EthPeers ethPeers,
+      MetricsSystem metricsSystem,
+      TransactionPool transactionPool,
+      int maxRequestBlocks) {}
+
   private static final Logger LOG = LoggerFactory.getLogger(ExecutionEngineJsonRpcMethod.class);
+  public static final long ENGINE_API_LOGGING_THRESHOLD = 60000L;
+  // Shared engine consensus API Vertx instance. Only read by OrderedExecutionJsonRpcMethod
+  // (engine_forkchoiceUpdated / engine_newPayload), which uses it to run calls on a dedicated
+  // single-threaded executor rather than spinning up a Vertx instance just for ordering; every
+  // other engine method computes its response directly on the calling thread.
+  protected final Vertx syncVertx;
   protected final Optional<MergeContext> mergeContextOptional;
   protected final Supplier<MergeContext> mergeContext;
-  protected final Optional<ProtocolSchedule> protocolSchedule;
+  protected final ProtocolSchedule protocolSchedule;
   protected final ProtocolContext protocolContext;
   protected final EngineCallListener engineCallListener;
 
-  protected ExecutionEngineJsonRpcMethod(
-      final Vertx vertx,
-      final ProtocolSchedule protocolSchedule,
-      final ProtocolContext protocolContext,
-      final EngineCallListener engineCallListener) {
-    this.syncVertx = vertx;
-    this.protocolSchedule = Optional.of(protocolSchedule);
-    this.protocolContext = protocolContext;
-    this.mergeContextOptional = protocolContext.safeConsensusContext(MergeContext.class);
-    this.mergeContext = mergeContextOptional::orElseThrow;
-    this.engineCallListener = engineCallListener;
-  }
+  private final Optional<Long> minForkTimestamp;
+  private final Optional<Long> maxForkTimestamp;
+
+  private final HardforkId minSupportedFork;
+  private final HardforkId firstUnsupportedFork;
 
   protected ExecutionEngineJsonRpcMethod(
-      final Vertx vertx,
-      final ProtocolContext protocolContext,
-      final EngineCallListener engineCallListener) {
-    this.syncVertx = vertx;
-    this.protocolSchedule = Optional.empty();
-    this.protocolContext = protocolContext;
+      final ConstructorArguments constructorArguments,
+      final HardforkId minSupportedFork,
+      final HardforkId firstUnsupportedFork) {
+    this.syncVertx = constructorArguments.vertx;
+    this.protocolSchedule = constructorArguments.protocolSchedule;
+    this.protocolContext = constructorArguments.protocolContext;
     this.mergeContextOptional = protocolContext.safeConsensusContext(MergeContext.class);
     this.mergeContext = mergeContextOptional::orElseThrow;
-    this.engineCallListener = engineCallListener;
+    this.engineCallListener = constructorArguments.engineCallListener;
+    this.minSupportedFork = minSupportedFork;
+    this.firstUnsupportedFork = firstUnsupportedFork;
+    this.minForkTimestamp =
+        minSupportedFork != null
+            ? protocolSchedule.milestoneFor(minSupportedFork)
+            : Optional.empty();
+    this.maxForkTimestamp =
+        firstUnsupportedFork != null
+            ? protocolSchedule.milestoneFor(firstUnsupportedFork)
+            : Optional.empty();
   }
 
   @Override
-  public final JsonRpcResponse response(final JsonRpcRequestContext request) {
+  public JsonRpcResponse response(final JsonRpcRequestContext request) {
+    return computeResponseSafely(request);
+  }
 
-    final CompletableFuture<JsonRpcResponse> cf = new CompletableFuture<>();
-
-    syncVertx.<JsonRpcResponse>executeBlocking(
-        z -> {
-          LOG.trace(
-              "execution engine JSON-RPC request {} {}",
-              this.getName(),
-              request.getRequest().getParams());
-          z.tryComplete(syncResponse(request));
-        },
-        true,
-        resp ->
-            cf.complete(
-                resp.otherwise(
-                        t -> {
-                          if (LOG.isDebugEnabled()) {
-                            LOG.atDebug()
-                                .setMessage("failed to exec consensus method {}")
-                                .addArgument(this.getName())
-                                .setCause(t)
-                                .log();
-                          } else {
-                            LOG.atError()
-                                .setMessage("failed to exec consensus method {}, error: {}")
-                                .addArgument(this.getName())
-                                .addArgument(t.getMessage())
-                                .log();
-                          }
-                          return new JsonRpcErrorResponse(
-                              request.getRequest().getId(), RpcErrorType.INVALID_REQUEST);
-                        })
-                    .result()));
+  /**
+   * Runs {@link #syncResponse}, converting any {@link Throwable} it throws into a {@link
+   * JsonRpcErrorResponse} instead of letting it propagate.
+   *
+   * <p>{@link #response} calls this directly; {@link OrderedExecutionJsonRpcMethod} overrides
+   * {@link #response} to instead run this on a dedicated single-threaded executor, for methods the
+   * Engine API spec requires to be processed serially in arrival order (e.g. {@code
+   * engine_forkchoiceUpdated}, {@code engine_newPayload}).
+   */
+  protected final JsonRpcResponse computeResponseSafely(final JsonRpcRequestContext request) {
+    logger()
+        .trace(
+            "execution engine JSON-RPC request {} {}",
+            this.getName(),
+            request.getRequest().getParams());
     try {
-      return cf.get();
-    } catch (InterruptedException e) {
-      LOG.error("Failed to get execution engine response", e);
-      return new JsonRpcErrorResponse(request.getRequest().getId(), RpcErrorType.TIMEOUT_ERROR);
-    } catch (ExecutionException e) {
-      LOG.error("Failed to get execution engine response", e);
-      return new JsonRpcErrorResponse(request.getRequest().getId(), RpcErrorType.INTERNAL_ERROR);
+      return syncResponse(request);
+    } catch (final Throwable t) {
+      if (logger().isDebugEnabled()) {
+        logger()
+            .atDebug()
+            .setMessage("failed to exec consensus method {}")
+            .addArgument(this.getName())
+            .setCause(t)
+            .log();
+      } else {
+        logger()
+            .atError()
+            .setMessage("failed to exec consensus method {}, error: {}")
+            .addArgument(this.getName())
+            .addArgument(t.getMessage())
+            .log();
+      }
+      return new JsonRpcErrorResponse(request.getRequest().getId(), RpcErrorType.INVALID_REQUEST);
     }
+  }
+
+  /**
+   * Returns the SLF4J logger for this engine method.
+   *
+   * <p>The default implementation returns a logger bound to {@link ExecutionEngineJsonRpcMethod},
+   * which is correct for most subclasses whose logic lives entirely in their own class. Subclasses
+   * that share implementation code across a version hierarchy (such as the {@code
+   * engine_forkchoiceUpdated} V1–V4 sealed hierarchy, where all logic lives in V1 but instances may
+   * be V2/V3/V4) should override this method so that log lines name the actual running version:
+   *
+   * <pre>{@code
+   * private static final Logger LOG = LoggerFactory.getLogger(EngineForkchoiceUpdatedV3.class);
+   *
+   * @Override
+   * protected Logger logger() { return LOG; }
+   * }</pre>
+   */
+  protected Logger logger() {
+    return LOG;
   }
 
   public abstract JsonRpcResponse syncResponse(final JsonRpcRequestContext request);
 
-  protected ValidationResult<RpcErrorType> validateForkSupported(final long blockTimestamp) {
-    return ValidationResult.valid();
+  public EngineCallListener getEngineCallListener() {
+    return engineCallListener;
+  }
+
+  protected int getNumericVersion() {
+    final String name = getName();
+    final int vIndex = name.lastIndexOf('V');
+    if (vIndex < 0 || vIndex == name.length() - 1) {
+      throw new IllegalStateException("Cannot derive numeric version from method name: " + name);
+    }
+    return Integer.parseInt(name.substring(vIndex + 1));
+  }
+
+  protected final ValidationResult<RpcErrorType> validateForkSupported(final long blockTimestamp) {
+    return ForkSupportHelper.validateForkSupported(
+        minSupportedFork, minForkTimestamp, firstUnsupportedFork, maxForkTimestamp, blockTimestamp);
+  }
+
+  protected static <T> Optional<T> extractCauseByType(
+      final Throwable throwable, final Class<T> type) {
+    Throwable cause = throwable;
+    while (cause != null) {
+      if (type.isAssignableFrom(cause.getClass())) {
+        return Optional.of(type.cast(cause));
+      }
+      cause = cause.getCause();
+    }
+    return Optional.empty();
+  }
+
+  protected static Optional<String> extractJsonPath(final JsonMappingException fieldEx) {
+
+    if (fieldEx.getPath().isEmpty()) {
+      return Optional.empty();
+    }
+    return Optional.ofNullable(fieldEx.getPath().getFirst().getFieldName());
   }
 }

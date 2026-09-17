@@ -16,6 +16,8 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.LONDON;
 import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createInMemoryBlockchain;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -61,6 +63,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -114,6 +117,46 @@ public class EthFeeHistoryTest {
     feeHistoryRequest("0x1", "latest", new double[] {1, 20.4});
     // should pass because both required params and optional param given
     feeHistoryRequest("0x1", "latest", new double[] {1, 20.4});
+  }
+
+  @Test
+  public void shouldRejectInvalidRewardPercentiles() {
+    assertThat(
+            ((JsonRpcErrorResponse) feeHistoryRequest("0x1", "latest", new double[] {80, 20}))
+                .getErrorType())
+        .isEqualTo(RpcErrorType.INVALID_REWARD_PERCENTILES_PARAMS);
+    assertThat(
+            ((JsonRpcErrorResponse) feeHistoryRequest("0x1", "latest", new double[] {20, 20}))
+                .getErrorType())
+        .isEqualTo(RpcErrorType.INVALID_REWARD_PERCENTILES_PARAMS);
+    assertThat(
+            ((JsonRpcErrorResponse) feeHistoryRequest("0x1", "latest", new double[] {150}))
+                .getErrorType())
+        .isEqualTo(RpcErrorType.INVALID_REWARD_PERCENTILES_PARAMS);
+    assertThat(
+            ((JsonRpcErrorResponse) feeHistoryRequest("0x1", "latest", new double[] {-5}))
+                .getErrorType())
+        .isEqualTo(RpcErrorType.INVALID_REWARD_PERCENTILES_PARAMS);
+    assertThat(
+            ((JsonRpcErrorResponse) feeHistoryRequest("0x1", "latest", Arrays.asList(10.0, null)))
+                .getErrorType())
+        .isEqualTo(RpcErrorType.INVALID_REWARD_PERCENTILES_PARAMS);
+    assertThat(
+            ((JsonRpcErrorResponse) feeHistoryRequest("0x1", "latest", Arrays.asList(Double.NaN)))
+                .getErrorType())
+        .isEqualTo(RpcErrorType.INVALID_REWARD_PERCENTILES_PARAMS);
+    assertThat(
+            ((JsonRpcErrorResponse) feeHistoryRequest("0x1", "latest", new double[] {-0.0, 0.0}))
+                .getErrorType())
+        .isEqualTo(RpcErrorType.INVALID_REWARD_PERCENTILES_PARAMS);
+    final List<Double> oversizeInvalid =
+        IntStream.rangeClosed(1, 500).mapToObj(i -> 1.0).collect(Collectors.toList());
+    assertThat(
+            ((JsonRpcErrorResponse) feeHistoryRequest("0x1", "latest", oversizeInvalid))
+                .getErrorType())
+        .isEqualTo(RpcErrorType.INVALID_REWARD_PERCENTILES_PARAMS);
+    feeHistoryRequest("0x1", "latest", new double[] {12.5, 80.3});
+    feeHistoryRequest("0x1", "latest", new double[] {0, 100});
   }
 
   @Test
@@ -236,6 +279,87 @@ public class EthFeeHistoryTest {
     assertThat(rewards).isEqualTo(expectedBoundedRewards);
   }
 
+  @Test
+  public void shouldNotUnderflowWhenNextBaseFeeExceedsGasPriceLowerBound() {
+    // gasPriceLowerBound = 10, nextBaseFee = 50: lowerBoundPriorityFee = ZERO (not negative).
+    // forcedMinPriorityFee = max(minPriorityFee=1, 0) = 1 → lowerBound=1, upperBound=2.
+    List<Double> rewardPercentiles =
+        Arrays.asList(0.0, 5.0, 10.0, 27.50, 31.0, 59.0, 60.0, 61.0, 100.0);
+
+    Block block = mock(Block.class);
+    Blockchain blockchain = mockBlockchainTransactionsWithPriorityFee(block);
+
+    ApiConfiguration apiConfiguration =
+        ImmutableApiConfiguration.builder()
+            .isGasAndPriorityFeeLimitingEnabled(true)
+            .lowerBoundGasAndPriorityFeeCoefficient(100L)
+            .upperBoundGasAndPriorityFeeCoefficient(200L)
+            .build();
+
+    final var blockchainQueries = mockBlockchainQueries(blockchain, Wei.of(10));
+    when(miningCoordinator.getMinPriorityFeePerGas()).thenReturn(Wei.ONE);
+
+    EthFeeHistory ethFeeHistory =
+        new EthFeeHistory(null, blockchainQueries, miningCoordinator, apiConfiguration);
+
+    List<Wei> rewards = ethFeeHistory.computeRewards(rewardPercentiles, block, Wei.of(50));
+
+    List<Wei> expectedBoundedRewards = Stream.of(1, 1, 2, 2, 2, 2, 2, 2, 2).map(Wei::of).toList();
+    assertThat(rewards).isEqualTo(expectedBoundedRewards);
+  }
+
+  @Test
+  public void shouldReturnZeroLowerBoundPriorityFeeWhenNextBaseFeeEqualsGasPriceLowerBound() {
+    // Equal case: nextBaseFee == lowerBoundGasPrice → lowerBoundPriorityFee must be ZERO,
+    // not a wraparound. forcedMinPriorityFee = max(1, 0) = 1 → lowerBound=1, upperBound=2.
+    List<Double> rewardPercentiles =
+        Arrays.asList(0.0, 5.0, 10.0, 27.50, 31.0, 59.0, 60.0, 61.0, 100.0);
+
+    Block block = mock(Block.class);
+    Blockchain blockchain = mockBlockchainTransactionsWithPriorityFee(block);
+
+    ApiConfiguration apiConfiguration =
+        ImmutableApiConfiguration.builder()
+            .isGasAndPriorityFeeLimitingEnabled(true)
+            .lowerBoundGasAndPriorityFeeCoefficient(100L)
+            .upperBoundGasAndPriorityFeeCoefficient(200L)
+            .build();
+
+    final var blockchainQueries = mockBlockchainQueries(blockchain, Wei.of(50));
+    when(miningCoordinator.getMinPriorityFeePerGas()).thenReturn(Wei.ONE);
+
+    EthFeeHistory ethFeeHistory =
+        new EthFeeHistory(null, blockchainQueries, miningCoordinator, apiConfiguration);
+
+    List<Wei> rewards = ethFeeHistory.computeRewards(rewardPercentiles, block, Wei.of(50));
+
+    List<Wei> expectedBoundedRewards = Stream.of(1, 1, 2, 2, 2, 2, 2, 2, 2).map(Wei::of).toList();
+    assertThat(rewards).isEqualTo(expectedBoundedRewards);
+  }
+
+  @Test
+  public void throwsWhenReceiptCountDiffersFromTransactionCount() {
+    // A receipt count differing from the body's transaction count means corrupted local storage;
+    // the reward computation must fail loudly instead of truncating to the shorter list.
+    Block block = mock(Block.class);
+    Blockchain blockchain = mockBlockchainTransactionsWithPriorityFee(block);
+    // Re-stub the receipts with fewer entries than the block's transactions.
+    when(blockchain.getTxReceipts(any()))
+        .thenReturn(Optional.of(List.of(mock(TransactionReceipt.class))));
+
+    final var blockchainQueries = mockBlockchainQueries(blockchain, Wei.of(7));
+    EthFeeHistory ethFeeHistory =
+        new EthFeeHistory(
+            null,
+            blockchainQueries,
+            miningCoordinator,
+            ImmutableApiConfiguration.builder().build());
+
+    assertThatThrownBy(() -> ethFeeHistory.computeRewards(List.of(50.0), block, Wei.of(7)))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("receipts/body storage mismatch");
+  }
+
   private Blockchain mockBlockchainTransactionsWithPriorityFee(final Block block) {
     final Blockchain blockchain = mock(Blockchain.class);
 
@@ -278,7 +402,7 @@ public class EthFeeHistoryTest {
   @Test
   public void cantGetBlockHigherThanChainHead() {
     assertThat(
-            ((JsonRpcErrorResponse) feeHistoryRequest("0x2", "11", new double[] {100.0}))
+            ((JsonRpcErrorResponse) feeHistoryRequest("0x2", "0xb", new double[] {100.0}))
                 .getErrorType())
         .isEqualTo(RpcErrorType.INVALID_BLOCK_NUMBER_PARAMS);
   }
@@ -313,11 +437,11 @@ public class EthFeeHistoryTest {
     double[] percentile = new double[] {100.0};
 
     final Object ninth =
-        ((JsonRpcSuccessResponse) feeHistoryRequest(2, "9", percentile)).getResult();
+        ((JsonRpcSuccessResponse) feeHistoryRequest(2, "0x9", percentile)).getResult();
     assertFeeMetadataSize(ninth, 2);
 
     final Object eighth =
-        ((JsonRpcSuccessResponse) feeHistoryRequest(4, "8", percentile)).getResult();
+        ((JsonRpcSuccessResponse) feeHistoryRequest(4, "0x8", percentile)).getResult();
     assertFeeMetadataSize(eighth, 4);
   }
 
@@ -326,18 +450,23 @@ public class EthFeeHistoryTest {
     double[] percentile = new double[] {100.0};
 
     final Object second =
-        ((JsonRpcSuccessResponse) feeHistoryRequest(4, "2", percentile)).getResult();
+        ((JsonRpcSuccessResponse) feeHistoryRequest(4, "0x2", percentile)).getResult();
     assertFeeMetadataSize(second, 3);
 
     final Object third =
-        ((JsonRpcSuccessResponse) feeHistoryRequest(11, "3", percentile)).getResult();
+        ((JsonRpcSuccessResponse) feeHistoryRequest(11, "0x3", percentile)).getResult();
     assertFeeMetadataSize(third, 4);
   }
 
   @Test
   public void correctlyHandlesForkBlock() {
+    // This spec now serves every next-block resolution in the request (result-cache key, blob
+    // fees and next base fee all use the chain head timestamp), so it needs the full stubbing.
     final ProtocolSpec londonSpec = mock(ProtocolSpec.class);
+    when(londonSpec.getGasCalculator()).thenReturn(new LondonGasCalculator());
     when(londonSpec.getFeeMarket()).thenReturn(FeeMarket.london(11));
+    when(londonSpec.getGasLimitCalculator()).thenReturn(mock(GasLimitCalculator.class));
+    when(londonSpec.getHardforkId()).thenReturn(LONDON);
     when(protocolSchedule.getForNextBlockHeader(
             eq(blockchain.getChainHeadHeader()),
             eq(blockchain.getChainHeadHeader().getTimestamp())))
@@ -351,18 +480,13 @@ public class EthFeeHistoryTest {
 
   @Test
   public void allZeroPercentilesForZeroBlock() {
-    final ProtocolSpec londonSpec = mock(ProtocolSpec.class);
-    when(londonSpec.getFeeMarket()).thenReturn(FeeMarket.london(5));
+    // setUp's mockFork() already resolves every next-block lookup to a fully stubbed London spec.
     final BlockDataGenerator.BlockOptions blockOptions = BlockDataGenerator.BlockOptions.create();
     blockOptions.hasTransactions(false);
     blockOptions.setParentHash(blockchain.getChainHeadHash());
     blockOptions.setBlockNumber(11);
     final Block emptyBlock = gen.block(blockOptions);
     blockchain.appendBlock(emptyBlock, gen.receipts(emptyBlock));
-    when(protocolSchedule.getForNextBlockHeader(
-            eq(blockchain.getChainHeadHeader()),
-            eq(blockchain.getChainHeadHeader().getTimestamp())))
-        .thenReturn(londonSpec);
     final FeeHistory.FeeHistoryResult result =
         (FeeHistory.FeeHistoryResult)
             ((JsonRpcSuccessResponse) feeHistoryRequest("0x1", "latest", new double[] {100.0}))
@@ -372,23 +496,19 @@ public class EthFeeHistoryTest {
 
   @Test
   public void assertMaximumPercentilesArraySize() {
-    final ProtocolSpec londonSpec = mock(ProtocolSpec.class);
-    when(londonSpec.getFeeMarket()).thenReturn(FeeMarket.london(5));
+    // setUp's mockFork() already resolves every next-block lookup to a fully stubbed London spec.
     final BlockDataGenerator.BlockOptions blockOptions = BlockDataGenerator.BlockOptions.create();
     blockOptions.hasTransactions(false);
     blockOptions.setParentHash(blockchain.getChainHeadHash());
     blockOptions.setBlockNumber(11);
     final Block emptyBlock = gen.block(blockOptions);
     blockchain.appendBlock(emptyBlock, gen.receipts(emptyBlock));
-    when(protocolSchedule.getForNextBlockHeader(
-            eq(blockchain.getChainHeadHeader()),
-            eq(blockchain.getChainHeadHeader().getTimestamp())))
-        .thenReturn(londonSpec);
 
-    double[] biglist = new double[500];
-    Arrays.fill(biglist, 1d);
     List<Double> oversizeRewardPercentiles =
-        Arrays.stream(biglist).boxed().collect(Collectors.toList());
+        IntStream.rangeClosed(1, 500)
+            .mapToDouble(i -> i / 5.0)
+            .boxed()
+            .collect(Collectors.toList());
 
     List<Double> maxRewardPercentiles =
         IntStream.rangeClosed(1, 100)
@@ -396,12 +516,10 @@ public class EthFeeHistoryTest {
             .boxed()
             .collect(Collectors.toList());
 
-    // assert we return no percentiles for array sizes > 100
-    final FeeHistory.FeeHistoryResult result =
-        (FeeHistory.FeeHistoryResult)
-            ((JsonRpcSuccessResponse) feeHistoryRequest("0x1", "latest", oversizeRewardPercentiles))
-                .getResult();
-    assertThat(result.getReward()).isNull();
+    assertThat(
+            ((JsonRpcErrorResponse) feeHistoryRequest("0x1", "latest", oversizeRewardPercentiles))
+                .getErrorType())
+        .isEqualTo(RpcErrorType.INVALID_REWARD_PERCENTILES_PARAMS);
 
     // assert we will return percentiles for array sizes <= 100
     final FeeHistory.FeeHistoryResult resultOk =
@@ -441,11 +559,40 @@ public class EthFeeHistoryTest {
     assertBlobBaseFee(List.of(Wei.ZERO, Wei.ONE));
   }
 
+  @Test
+  public void latestResultCacheMissesWhenNextBlockHardforkChanges() {
+    final ProtocolSpec londonSpec = mock(ProtocolSpec.class);
+    when(londonSpec.getGasCalculator()).thenReturn(new LondonGasCalculator());
+    when(londonSpec.getFeeMarket()).thenReturn(FeeMarket.london(5));
+    when(londonSpec.getGasLimitCalculator()).thenReturn(mock(GasLimitCalculator.class));
+    when(londonSpec.getHardforkId()).thenReturn(LONDON);
+
+    final ProtocolSpec cancunSpec = mock(ProtocolSpec.class);
+    when(cancunSpec.getGasCalculator()).thenReturn(new CancunGasCalculator());
+    when(cancunSpec.getFeeMarket()).thenReturn(FeeMarket.cancunDefault(5, Optional.empty()));
+    when(cancunSpec.getGasLimitCalculator())
+        .thenReturn(mock(CancunTargetingGasLimitCalculator.class));
+    when(cancunSpec.getHardforkId()).thenReturn(CANCUN);
+
+    when(protocolSchedule.getByBlockHeader(any())).thenReturn(londonSpec);
+    // With chain-time fork resolution, the next-block spec for a fixed head only changes when the
+    // schedule itself does (e.g. a config update scheduling a fork). Flip the resolved spec
+    // between two identical requests: the second must miss the result cache and recompute.
+    final AtomicReference<ProtocolSpec> nextBlockSpec = new AtomicReference<>(londonSpec);
+    when(protocolSchedule.getForNextBlockHeader(any(), anyLong()))
+        .thenAnswer(invocation -> nextBlockSpec.get());
+
+    assertBlobBaseFee(List.of(Wei.ZERO, Wei.ZERO));
+    nextBlockSpec.set(cancunSpec);
+    assertBlobBaseFee(List.of(Wei.ZERO, Wei.ONE));
+  }
+
   private void mockFork() {
     final ProtocolSpec londonSpec = mock(ProtocolSpec.class);
     when(londonSpec.getGasCalculator()).thenReturn(new LondonGasCalculator());
     when(londonSpec.getFeeMarket()).thenReturn(FeeMarket.london(5));
     when(londonSpec.getGasLimitCalculator()).thenReturn(mock(GasLimitCalculator.class));
+    when(londonSpec.getHardforkId()).thenReturn(LONDON);
 
     when(protocolSchedule.getByBlockHeader(any())).thenReturn(londonSpec);
     when(protocolSchedule.getForNextBlockHeader(any(), anyLong())).thenReturn(londonSpec);
@@ -457,6 +604,7 @@ public class EthFeeHistoryTest {
     when(cancunSpec.getFeeMarket()).thenReturn(FeeMarket.cancunDefault(5, Optional.empty()));
     when(cancunSpec.getGasLimitCalculator())
         .thenReturn(mock(CancunTargetingGasLimitCalculator.class));
+    when(cancunSpec.getHardforkId()).thenReturn(CANCUN);
     when(protocolSchedule.getByBlockHeader(any())).thenReturn(cancunSpec);
     when(protocolSchedule.getForNextBlockHeader(any(), anyLong())).thenReturn(cancunSpec);
   }
@@ -467,6 +615,7 @@ public class EthFeeHistoryTest {
     when(cancunSpec.getFeeMarket()).thenReturn(FeeMarket.cancunDefault(5, Optional.empty()));
     when(cancunSpec.getGasLimitCalculator())
         .thenReturn(mock(CancunTargetingGasLimitCalculator.class));
+    when(cancunSpec.getHardforkId()).thenReturn(CANCUN);
     when(protocolSchedule.getForNextBlockHeader(any(), anyLong())).thenReturn(cancunSpec);
   }
 

@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
+import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.blockheaders.NewBlockHeadersSubscription;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.request.SubscribeRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.request.SubscriptionType;
@@ -198,6 +199,48 @@ public class SubscriptionManagerTest {
     final Throwable thrown =
         catchThrowable(() -> subscriptionManager.unsubscribe(unsubscribeRequest));
     assertThat(thrown).isInstanceOf(SubscriptionNotFoundException.class);
+  }
+
+  @Test
+  public void subscribeShouldThrowWhenMaxActiveSubscriptionsReached() {
+    final SubscriptionManager manager = managerWithMaxActiveSubscriptions(2);
+
+    manager.subscribe(subscribeRequest(CONNECTION_ID));
+    manager.subscribe(subscribeRequest(CONNECTION_ID));
+
+    assertThatThrownBy(() -> manager.subscribe(subscribeRequest(CONNECTION_ID)))
+        .isInstanceOf(MaxSubscriptionsExceededException.class);
+  }
+
+  @Test
+  public void subscribeShouldNotLimitWhenMaxActiveSubscriptionsIsZero() {
+    final SubscriptionManager manager = managerWithMaxActiveSubscriptions(0);
+
+    Long lastSubscriptionId = null;
+    for (int i = 0; i < 50; i++) {
+      lastSubscriptionId = manager.subscribe(subscribeRequest(CONNECTION_ID));
+    }
+
+    assertThat(manager.getSubscriptionById(lastSubscriptionId)).isNotNull();
+  }
+
+  @Test
+  public void unsubscribeShouldFreeSlotWhenMaxActiveSubscriptionsReached() {
+    final SubscriptionManager manager = managerWithMaxActiveSubscriptions(1);
+
+    final Long subscriptionId = manager.subscribe(subscribeRequest(CONNECTION_ID));
+    assertThatThrownBy(() -> manager.subscribe(subscribeRequest(CONNECTION_ID)))
+        .isInstanceOf(MaxSubscriptionsExceededException.class);
+
+    manager.unsubscribe(new UnsubscribeRequest(subscriptionId, CONNECTION_ID));
+
+    assertThat(manager.subscribe(subscribeRequest(CONNECTION_ID))).isNotNull();
+  }
+
+  private SubscriptionManager managerWithMaxActiveSubscriptions(final int maxActiveSubscriptions) {
+    final WebSocketConfiguration configuration = WebSocketConfiguration.createDefault();
+    configuration.setMaxActiveSubscriptions(maxActiveSubscriptions);
+    return new SubscriptionManager(new NoOpMetricsSystem(), configuration);
   }
 
   private SubscribeRequest subscribeRequest(final String connectionId) {

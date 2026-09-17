@@ -22,12 +22,19 @@ import org.hyperledger.besu.ethereum.eth.manager.EthMessages;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.messages.NewPooledTransactionHashesMessage;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 class NewPooledTransactionHashesMessageHandler implements EthMessages.MessageCallback {
+  private static final Logger LOG =
+      LoggerFactory.getLogger(NewPooledTransactionHashesMessageHandler.class);
 
   private final NewPooledTransactionHashesMessageProcessor transactionsMessageProcessor;
   private final EthScheduler scheduler;
@@ -47,13 +54,30 @@ class NewPooledTransactionHashesMessageHandler implements EthMessages.MessageCal
   public void exec(final EthMessage message) {
     if (isEnabled.get()) {
       final Capability capability = message.getPeer().getConnection().capability(EthProtocol.NAME);
-      final NewPooledTransactionHashesMessage transactionsMessage =
-          NewPooledTransactionHashesMessage.readFrom(message.getData(), capability);
+      final MessageData rawMessage = message.getData();
       final Instant startedAt = now();
       scheduler.scheduleTxWorkerTask(
-          () ->
-              transactionsMessageProcessor.processNewPooledTransactionHashesMessage(
-                  message.getPeer(), transactionsMessage, startedAt, txMsgKeepAlive));
+          () -> {
+            if (message.getPeer().isDisconnected()) {
+              return;
+            }
+            final NewPooledTransactionHashesMessage transactionsMessage;
+            try {
+              transactionsMessage =
+                  NewPooledTransactionHashesMessage.readFrom(rawMessage, capability);
+            } catch (final Exception e) {
+              LOG.debug(
+                  "Malformed pooled transaction hashes message received (BREACH_OF_PROTOCOL), disconnecting: {}",
+                  message.getPeer(),
+                  e);
+              message
+                  .getPeer()
+                  .disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+              return;
+            }
+            transactionsMessageProcessor.processNewPooledTransactionHashesMessage(
+                message.getPeer(), transactionsMessage, startedAt, txMsgKeepAlive);
+          });
     }
   }
 

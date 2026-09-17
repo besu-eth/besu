@@ -42,9 +42,9 @@ public abstract class BaseForksSchedulesFactoryTest<
     final GenesisConfigOptions genesisConfigOptions = createGenesisConfig(configOptions);
 
     final ForksSchedule<C> forksSchedule = createForkSchedule(genesisConfigOptions);
-    assertThat(forksSchedule.getFork(0)).usingRecursiveComparison().isEqualTo(expectedForkSpec);
-    assertThat(forksSchedule.getFork(1)).usingRecursiveComparison().isEqualTo(expectedForkSpec);
-    assertThat(forksSchedule.getFork(2)).usingRecursiveComparison().isEqualTo(expectedForkSpec);
+    assertThat(forksSchedule.getFork(0, 0)).usingRecursiveComparison().isEqualTo(expectedForkSpec);
+    assertThat(forksSchedule.getFork(1, 0)).usingRecursiveComparison().isEqualTo(expectedForkSpec);
+    assertThat(forksSchedule.getFork(2, 0)).usingRecursiveComparison().isEqualTo(expectedForkSpec);
   }
 
   @Test
@@ -68,10 +68,10 @@ public abstract class BaseForksSchedulesFactoryTest<
         createGenesisConfig(qbftConfigOptions, forkWithBeneficiary, forkWithNoBeneficiary);
     final ForksSchedule<C> forksSchedule = createForkSchedule(genesisConfigOptions);
 
-    assertThat(forksSchedule.getFork(0).getValue().getMiningBeneficiary()).isEmpty();
-    assertThat(forksSchedule.getFork(1).getValue().getMiningBeneficiary())
+    assertThat(forksSchedule.getFork(0, 0).getValue().getMiningBeneficiary()).isEmpty();
+    assertThat(forksSchedule.getFork(1, 0).getValue().getMiningBeneficiary())
         .contains(beneficiaryAddress);
-    assertThat(forksSchedule.getFork(2).getValue().getMiningBeneficiary()).isEmpty();
+    assertThat(forksSchedule.getFork(2, 0).getValue().getMiningBeneficiary()).isEmpty();
   }
 
   @Test
@@ -97,10 +97,10 @@ public abstract class BaseForksSchedulesFactoryTest<
         createGenesisConfig(qbftConfigOptions, forkWithBeneficiary, forkWithNoBeneficiary);
     final ForksSchedule<C> forksSchedule = createForkSchedule(genesisConfigOptions);
 
-    assertThat(forksSchedule.getFork(0).getValue().getMiningBeneficiary())
+    assertThat(forksSchedule.getFork(0, 0).getValue().getMiningBeneficiary())
         .contains(beneficiaryAddress);
-    assertThat(forksSchedule.getFork(1).getValue().getMiningBeneficiary()).isEmpty();
-    assertThat(forksSchedule.getFork(2).getValue().getMiningBeneficiary())
+    assertThat(forksSchedule.getFork(1, 0).getValue().getMiningBeneficiary()).isEmpty();
+    assertThat(forksSchedule.getFork(2, 0).getValue().getMiningBeneficiary())
         .contains(beneficiaryAddress2);
   }
 
@@ -135,19 +135,19 @@ public abstract class BaseForksSchedulesFactoryTest<
     final GenesisConfigOptions genesisConfigOptions = createGenesisConfig(qbftConfigOptions, forks);
     final ForksSchedule<C> forksSchedule = createForkSchedule(genesisConfigOptions);
 
-    assertThat(forksSchedule.getFork(0).getValue().getMiningBeneficiary())
+    assertThat(forksSchedule.getFork(0, 0).getValue().getMiningBeneficiary())
         .contains(initialBeneficiaryAddress);
-    assertThat(forksSchedule.getFork(1).getValue().getMiningBeneficiary())
+    assertThat(forksSchedule.getFork(1, 0).getValue().getMiningBeneficiary())
         .contains(initialBeneficiaryAddress);
-    assertThat(forksSchedule.getFork(2).getValue().getMiningBeneficiary())
+    assertThat(forksSchedule.getFork(2, 0).getValue().getMiningBeneficiary())
         .contains(initialBeneficiaryAddress);
-    assertThat(forksSchedule.getFork(3).getValue().getMiningBeneficiary()).isEmpty();
-    assertThat(forksSchedule.getFork(4).getValue().getMiningBeneficiary()).isEmpty();
-    assertThat(forksSchedule.getFork(5).getValue().getMiningBeneficiary()).isEmpty();
-    assertThat(forksSchedule.getFork(6).getValue().getMiningBeneficiary()).isEmpty();
-    assertThat(forksSchedule.getFork(7).getValue().getMiningBeneficiary())
+    assertThat(forksSchedule.getFork(3, 0).getValue().getMiningBeneficiary()).isEmpty();
+    assertThat(forksSchedule.getFork(4, 0).getValue().getMiningBeneficiary()).isEmpty();
+    assertThat(forksSchedule.getFork(5, 0).getValue().getMiningBeneficiary()).isEmpty();
+    assertThat(forksSchedule.getFork(6, 0).getValue().getMiningBeneficiary()).isEmpty();
+    assertThat(forksSchedule.getFork(7, 0).getValue().getMiningBeneficiary())
         .contains(beneficiaryAddress2);
-    assertThat(forksSchedule.getFork(8).getValue().getMiningBeneficiary())
+    assertThat(forksSchedule.getFork(8, 0).getValue().getMiningBeneficiary())
         .contains(beneficiaryAddress2);
   }
 
@@ -166,6 +166,46 @@ public abstract class BaseForksSchedulesFactoryTest<
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining(
             "Mining beneficiary in transition config is not a valid ethereum address");
+  }
+
+  @Test
+  public void createsScheduleThatChangesBlockPeriodAtTimestamp() {
+    final C qbftConfigOptions = createBftOptions(o -> o.setBlockPeriodSeconds(2));
+
+    ObjectNode[] forks = {
+      // Change block period 2->3 seconds
+      JsonUtil.objectNodeFromMap(
+          Map.of(BftFork.FORK_BLOCK_KEY, 1234567, BftFork.BLOCK_PERIOD_SECONDS_KEY, 3)),
+      // Change block period 3->4 seconds
+      JsonUtil.objectNodeFromMap(
+          Map.of(BftFork.FORK_BLOCK_KEY, 1234568, BftFork.BLOCK_PERIOD_SECONDS_KEY, 4))
+    };
+
+    final GenesisConfigOptions genesisConfigOptions = createGenesisConfig(qbftConfigOptions, forks);
+    final ForksSchedule<C> forksSchedule = createForkSchedule(genesisConfigOptions);
+
+    for (ForkSpec<C> f : forksSchedule.getForks()) {
+      f.setForkType(ForkSpec.ForkScheduleType.BLOCK);
+    }
+
+    // Should ignore block timestamp if forks are block type
+    assertThat(forksSchedule.getFork(0, 1234566).getValue().getBlockPeriodSeconds()).isEqualTo(2);
+    assertThat(forksSchedule.getFork(0, 1234567).getValue().getBlockPeriodSeconds()).isEqualTo(2);
+    assertThat(forksSchedule.getFork(0, 1234568).getValue().getBlockPeriodSeconds()).isEqualTo(2);
+
+    for (ForkSpec<C> f : forksSchedule.getForks()) {
+      f.setForkType(ForkSpec.ForkScheduleType.TIME);
+    }
+
+    // Should ignore block timestamp if forks are block type
+    assertThat(forksSchedule.getFork(1234566, 0).getValue().getBlockPeriodSeconds()).isEqualTo(2);
+    assertThat(forksSchedule.getFork(1234567, 0).getValue().getBlockPeriodSeconds()).isEqualTo(2);
+    assertThat(forksSchedule.getFork(1234568, 0).getValue().getBlockPeriodSeconds()).isEqualTo(2);
+
+    // Should reflect changes based on timestamp
+    assertThat(forksSchedule.getFork(0, 1234566).getValue().getBlockPeriodSeconds()).isEqualTo(2);
+    assertThat(forksSchedule.getFork(0, 1234567).getValue().getBlockPeriodSeconds()).isEqualTo(3);
+    assertThat(forksSchedule.getFork(0, 1234568).getValue().getBlockPeriodSeconds()).isEqualTo(4);
   }
 
   protected abstract C createBftOptions(final Consumer<M> optionModifier);

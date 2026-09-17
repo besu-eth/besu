@@ -17,7 +17,6 @@ package org.hyperledger.besu.evmtool;
 import static org.hyperledger.besu.evmtool.B11rSubCommand.COMMAND_ALIAS;
 import static org.hyperledger.besu.evmtool.B11rSubCommand.COMMAND_NAME;
 
-import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.referencetests.BlockchainReferenceTestCaseSpec.ReferenceTestBlockHeader;
@@ -164,8 +163,6 @@ public class B11rSubCommand implements Runnable {
   @Override
   public void run() {
     LogConfigurator.setLevel("", "OFF");
-    // presume ethereum mainnet for reference and state tests
-    SignatureAlgorithmFactory.setDefaultInstance();
     ObjectMapper objectMapper = JsonUtils.createObjectMapper();
     final ObjectReader b11rReader = objectMapper.reader();
 

@@ -14,8 +14,10 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.request;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.FilterParameter;
 
+import java.util.List;
 import java.util.Objects;
 
 public class SubscribeRequest {
@@ -23,6 +25,7 @@ public class SubscribeRequest {
   private final SubscriptionType subscriptionType;
   private final Boolean includeTransaction;
   private final FilterParameter filterParameter;
+  private final List<Hash> transactionHashes;
   private final String connectionId;
 
   public SubscribeRequest(
@@ -30,9 +33,19 @@ public class SubscribeRequest {
       final FilterParameter filterParameter,
       final Boolean includeTransaction,
       final String connectionId) {
+    this(subscriptionType, filterParameter, includeTransaction, null, connectionId);
+  }
+
+  public SubscribeRequest(
+      final SubscriptionType subscriptionType,
+      final FilterParameter filterParameter,
+      final Boolean includeTransaction,
+      final List<Hash> transactionHashes,
+      final String connectionId) {
     this.subscriptionType = subscriptionType;
     this.includeTransaction = includeTransaction;
     this.filterParameter = filterParameter;
+    this.transactionHashes = transactionHashes;
     this.connectionId = connectionId;
   }
 
@@ -48,6 +61,10 @@ public class SubscribeRequest {
     return includeTransaction;
   }
 
+  public List<Hash> getTransactionHashes() {
+    return transactionHashes;
+  }
+
   public String getConnectionId() {
     return this.connectionId;
   }
@@ -55,8 +72,8 @@ public class SubscribeRequest {
   @Override
   public String toString() {
     return String.format(
-        "SubscribeRequest{subscriptionType=%s, includeTransaction=%s, filterParameter=%s, connectionId=%s}",
-        subscriptionType, includeTransaction, filterParameter, connectionId);
+        "SubscribeRequest{subscriptionType=%s, includeTransaction=%s, filterParameter=%s, transactionHashes=%s, connectionId=%s}",
+        subscriptionType, includeTransaction, filterParameter, transactionHashes, connectionId);
   }
 
   @Override
@@ -71,11 +88,13 @@ public class SubscribeRequest {
     return subscriptionType == that.subscriptionType
         && Objects.equals(includeTransaction, that.includeTransaction)
         && Objects.equals(filterParameter, that.filterParameter)
+        && Objects.equals(transactionHashes, that.transactionHashes)
         && Objects.equals(connectionId, that.connectionId);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(subscriptionType, includeTransaction, filterParameter, connectionId);
+    return Objects.hash(
+        subscriptionType, includeTransaction, filterParameter, transactionHashes, connectionId);
   }
 }

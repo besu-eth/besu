@@ -36,13 +36,15 @@ import org.hyperledger.besu.ethereum.api.query.BlockWithMetadata;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.api.query.TransactionWithMetadata;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.core.Block;
+import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Difficulty;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.AccountStorageEntry;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -76,6 +78,7 @@ public class DebugStorageRangeAtTest {
   private final Transaction transaction = mock(Transaction.class);
 
   private final BlockHeader blockHeader = mock(BlockHeader.class, Answers.RETURNS_DEEP_STUBS);
+  private final Block block = new Block(blockHeader, mock(BlockBody.class));
   private final Hash blockHash =
       Hash.fromHexString("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
   private final Hash transactionHash =
@@ -96,7 +99,7 @@ public class DebugStorageRangeAtTest {
   public void shouldRetrieveStorageRange_fullValues() {
     final TransactionWithMetadata transactionWithMetadata =
         new TransactionWithMetadata(
-            transaction, 12L, Optional.empty(), blockHash, TRANSACTION_INDEX);
+            transaction, 12L, Optional.empty(), blockHash, TRANSACTION_INDEX, 0L);
     final BlockWithMetadata<TransactionWithMetadata, Hash> blockWithMetadata =
         new BlockWithMetadata<>(
             blockHeader,
@@ -172,6 +175,7 @@ public class DebugStorageRangeAtTest {
     //noinspection rawtypes
     return Optional.of(
         ((BlockReplay.TransactionAction) invocation.getArgument(3))
-            .performAction(transaction, blockHeader, blockchain, transactionProcessor, Wei.ZERO));
+            .performAction(
+                transaction, TRANSACTION_INDEX, block, blockchain, transactionProcessor, Wei.ZERO));
   }
 }

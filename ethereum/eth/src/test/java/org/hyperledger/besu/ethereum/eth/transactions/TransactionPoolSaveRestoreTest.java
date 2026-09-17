@@ -15,7 +15,12 @@
 package org.hyperledger.besu.ethereum.eth.transactions;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.spy;
 
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -34,16 +39,21 @@ import org.hyperledger.besu.ethereum.eth.transactions.layered.ReadyTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.layered.SparseTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.layered.TransactionsLayer;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
+import org.hyperledger.besu.ethereum.mainnet.transactionpool.TransactionPoolPreProcessor;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiFunction;
 
 import org.junit.jupiter.api.AfterEach;
@@ -94,6 +104,7 @@ public class TransactionPoolSaveRestoreTest extends AbstractTransactionPoolTestB
             transactionReplacementTester,
             new BlobCache());
     return new LayeredPendingTransactions(
+        protocolContext,
         poolConfig,
         new BaseFeePrioritizedTransactions(
             poolConfig,
@@ -269,5 +280,186 @@ public class TransactionPoolSaveRestoreTest extends AbstractTransactionPoolTestB
     final BytesValueRLPOutput rlp = new BytesValueRLPOutput();
     TransactionEncoder.encodeRLP(transaction, rlp, EncodingContext.POOLED_TRANSACTION);
     return rlp.encoded().toBase64String();
+  }
+
+  @Test
+  public void diskLockTimeoutIsPropagatedNotSwallowed()
+      throws InterruptedException, ExecutionException, TimeoutException {
+    final Duration saveRestoreTimeout = Duration.ofMillis(100);
+    final CountDownLatch saveStarted = new CountDownLatch(1);
+    final CountDownLatch releaseSave = new CountDownLatch(1);
+    // Start a save that blocks while serializing a transaction, after it has acquired the disk
+    // lock. The restore below must fail fast instead of waiting for this save to finish.
+    final CompletableFuture<Void> saveOperation =
+        startSaveWithBlockedTransactionWrite(saveRestoreTimeout, saveStarted, releaseSave);
+
+    try {
+      assertThat(saveStarted.await(10, TimeUnit.SECONDS)).isTrue();
+
+      // setEnabled delegates to loadFromDisk; the returned future must surface the disk-lock
+      // timeout so callers can observe that restore did not run.
+      final CompletableFuture<Void> result = transactionPool.setEnabled();
+
+      assertThatThrownBy(result::get)
+          .isInstanceOf(ExecutionException.class)
+          .hasCauseInstanceOf(TimeoutException.class)
+          .hasMessageContaining("Timeout waiting for disk access lock");
+    } finally {
+      releaseSave.countDown();
+      saveOperation.get(10, TimeUnit.SECONDS);
+    }
+  }
+
+  @Test
+  public void diskLockTimeoutDoesNotBlockLaterRestore()
+      throws InterruptedException, ExecutionException, TimeoutException {
+    final Duration saveRestoreTimeout = Duration.ofMillis(100);
+    final CountDownLatch saveStarted = new CountDownLatch(1);
+    final CountDownLatch releaseSave = new CountDownLatch(1);
+    // Hold the disk lock with a save long enough for the first restore attempt to time out.
+    final CompletableFuture<Void> saveOperation =
+        startSaveWithBlockedTransactionWrite(saveRestoreTimeout, saveStarted, releaseSave);
+
+    try {
+      assertThat(saveStarted.await(10, TimeUnit.SECONDS)).isTrue();
+
+      final CompletableFuture<Void> timedOutRestore = transactionPool.setEnabled();
+
+      assertThatThrownBy(timedOutRestore::get)
+          .isInstanceOf(ExecutionException.class)
+          .hasCauseInstanceOf(TimeoutException.class)
+          .hasMessageContaining("Timeout waiting for disk access lock");
+
+      // Once the save releases the disk lock, a later restore must be allowed to create and run a
+      // fresh operation instead of reusing the previous failed future.
+      releaseSave.countDown();
+      saveOperation.get(10, TimeUnit.SECONDS);
+
+      transactionPool.setDisabled().get(10, TimeUnit.SECONDS);
+      transactionPool.setEnabled().get(10, TimeUnit.SECONDS);
+    } finally {
+      releaseSave.countDown();
+    }
+  }
+
+  @Test
+  public void failedReadCancellationDoesNotLeavePoolPartiallyDisabled()
+      throws IOException, InterruptedException, ExecutionException, TimeoutException {
+    final Transaction transaction = createTransaction(1);
+    Files.writeString(
+        saveFilePath,
+        "127r" + transaction2Base64(transaction) + System.lineSeparator(),
+        StandardCharsets.US_ASCII);
+    givenAllTransactionsAreValid();
+
+    final CountDownLatch restorePreProcessorStarted = new CountDownLatch(1);
+    final CountDownLatch failRestore = new CountDownLatch(1);
+    final TransactionPoolPreProcessor failingRestorePreProcessor =
+        (transactionToProcess, isLocal) -> {
+          restorePreProcessorStarted.countDown();
+          try {
+            assertThat(failRestore.await(10, TimeUnit.SECONDS))
+                .as("restore pre-processor should be released by the test")
+                .isTrue();
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(e);
+          }
+          throw new IllegalStateException("restore failed while being cancelled");
+        };
+    doReturn(Optional.of(failingRestorePreProcessor))
+        .when(protocolSpec)
+        .getTransactionPoolPreProcessor();
+
+    this.transactionPool =
+        createTransactionPool(b -> b.enableSaveRestore(true).saveFile(saveFilePath.toFile()));
+
+    assertThat(restorePreProcessorStarted.await(10, TimeUnit.SECONDS)).isTrue();
+
+    final AtomicReference<CompletableFuture<Void>> saveOperation = new AtomicReference<>();
+    final AtomicReference<Throwable> disableFailure = new AtomicReference<>();
+    final Thread disableThread =
+        new Thread(
+            () -> {
+              try {
+                saveOperation.set(transactionPool.setDisabled());
+              } catch (Throwable t) {
+                disableFailure.set(t);
+              }
+            });
+
+    try {
+      disableThread.start();
+      // The restore failure is released only once setDisabled is waiting for the in-progress read.
+      // Before the fix, that failure escaped synchronously and skipped the final disabled state.
+      await()
+          .untilAsserted(
+              () ->
+                  assertThat(disableThread.getStackTrace())
+                      .extracting(StackTraceElement::getMethodName)
+                      .contains("cancelInProgressReadOperation"));
+
+      failRestore.countDown();
+      disableThread.join(TimeUnit.SECONDS.toMillis(10));
+
+      assertThat(disableThread.isAlive()).isFalse();
+      assertThat(disableFailure.get()).isNull();
+      assertThatThrownBy(() -> saveOperation.get().get())
+          .isInstanceOf(ExecutionException.class)
+          .hasCauseInstanceOf(RuntimeException.class)
+          .hasMessageContaining("Error during the cancellation of current read operation");
+      assertThat(transactionPool.isEnabled()).isFalse();
+      assertThat(transactionPool.getPendingTransactions()).isEmpty();
+    } finally {
+      failRestore.countDown();
+    }
+  }
+
+  private CompletableFuture<Void> startSaveWithBlockedTransactionWrite(
+      final Duration saveRestoreTimeout,
+      final CountDownLatch saveStarted,
+      final CountDownLatch releaseSave) {
+    this.transactionPool =
+        createTransactionPool(
+            b ->
+                b.enableSaveRestore(true)
+                    .saveFile(saveFilePath.toFile())
+                    .unstable(
+                        ImmutableTransactionPoolConfiguration.Unstable.builder()
+                            .saveRestoreTimeout(saveRestoreTimeout)
+                            .build()));
+    givenAllTransactionsAreValid();
+
+    final CompletableFuture<Void> blockedWriteReleased = new CompletableFuture<>();
+    final Transaction slowWriteTx = spy(createTransaction(1));
+    // The layered pool stores a detached copy for new transactions. Return the spy from
+    // detachedCopy so the save path still hits the writeTo stub below.
+    doReturn(slowWriteTx).when(slowWriteTx).detachedCopy();
+    doAnswer(
+            invocation -> {
+              // Signal only after save serialization has started; at this point the save operation
+              // has already acquired the disk lock.
+              saveStarted.countDown();
+              try {
+                assertThat(releaseSave.await(10, TimeUnit.SECONDS))
+                    .as("blocked save should be released by the test")
+                    .isTrue();
+                blockedWriteReleased.complete(null);
+              } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                blockedWriteReleased.completeExceptionally(e);
+                throw e;
+              } catch (AssertionError e) {
+                blockedWriteReleased.completeExceptionally(e);
+                throw e;
+              }
+              invocation.callRealMethod();
+              return null;
+            })
+        .when(slowWriteTx)
+        .writeTo(any(), any());
+    addAndAssertTransactionViaApiValid(slowWriteTx, false);
+
+    return CompletableFuture.allOf(transactionPool.setDisabled(), blockedWriteReleased);
   }
 }

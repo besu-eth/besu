@@ -60,7 +60,8 @@ public class CliqueExtraDataValidationRuleTest {
     final ValidatorProvider validatorProvider = mock(ValidatorProvider.class);
     when(validatorProvider.getValidatorsAfterBlock(any())).thenReturn(validatorList);
 
-    final CliqueContext cliqueContext = new CliqueContext(validatorProvider, null, blockInterface);
+    final CliqueContext cliqueContext =
+        new CliqueContext(validatorProvider, new EpochManager(10), blockInterface);
     cliqueProtocolContext =
         new ProtocolContext.Builder().withConsensusContext(cliqueContext).build();
   }

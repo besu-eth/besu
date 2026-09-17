@@ -23,6 +23,7 @@ import org.hyperledger.besu.consensus.clique.CliqueBlockInterface;
 import org.hyperledger.besu.consensus.clique.CliqueContext;
 import org.hyperledger.besu.consensus.clique.CliqueHelpers;
 import org.hyperledger.besu.consensus.clique.TestHelpers;
+import org.hyperledger.besu.consensus.common.EpochManager;
 import org.hyperledger.besu.consensus.common.validator.ValidatorProvider;
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
@@ -57,7 +58,8 @@ public class CliqueDifficultyValidationRuleTest {
     final ValidatorProvider validatorProvider = mock(ValidatorProvider.class);
     when(validatorProvider.getValidatorsAfterBlock(any())).thenReturn(validatorList);
 
-    final CliqueContext cliqueContext = new CliqueContext(validatorProvider, null, blockInterface);
+    final CliqueContext cliqueContext =
+        new CliqueContext(validatorProvider, new EpochManager(10), blockInterface);
     CliqueHelpers.setCliqueContext(cliqueContext);
     cliqueProtocolContext =
         new ProtocolContext.Builder().withConsensusContext(cliqueContext).build();

@@ -75,6 +75,8 @@ public class StubGenesisConfigOptions implements GenesisConfigOptions, Cloneable
   private boolean zeroBaseFee = false;
   private boolean fixedBaseFee = false;
 
+  private Optional<BlobScheduleOptions> blobScheduleOptions = Optional.empty();
+
   /** Default constructor. */
   public StubGenesisConfigOptions() {
     // Explicit default constructor because of JavaDoc linting
@@ -160,8 +162,8 @@ public class StubGenesisConfigOptions implements GenesisConfigOptions, Cloneable
   }
 
   @Override
-  public EthashConfigOptions getEthashConfigOptions() {
-    return EthashConfigOptions.DEFAULT;
+  public FixedDifficultyConfigOptions getFixedDifficultyConfigOptions() {
+    return FixedDifficultyConfigOptions.DEFAULT;
   }
 
   @Override
@@ -371,7 +373,7 @@ public class StubGenesisConfigOptions implements GenesisConfigOptions, Cloneable
       builder.put("clique", getCliqueConfigOptions().asMap());
     }
     if (isEthHash()) {
-      builder.put("ethash", getEthashConfigOptions().asMap());
+      builder.put("ethash", getFixedDifficultyConfigOptions().asMap());
     }
     if (isIbftLegacy()) {
       builder.put("ibft", getIbftLegacyConfigOptions().asMap());
@@ -385,11 +387,6 @@ public class StubGenesisConfigOptions implements GenesisConfigOptions, Cloneable
   @Override
   public TransitionsConfigOptions getTransitions() {
     return transitions;
-  }
-
-  @Override
-  public PowAlgorithm getPowAlgorithm() {
-    return isEthHash() ? PowAlgorithm.ETHASH : PowAlgorithm.UNSUPPORTED;
   }
 
   @Override
@@ -434,7 +431,19 @@ public class StubGenesisConfigOptions implements GenesisConfigOptions, Cloneable
 
   @Override
   public Optional<BlobScheduleOptions> getBlobScheduleOptions() {
-    return Optional.empty();
+    return blobScheduleOptions;
+  }
+
+  /**
+   * Blob schedule stub genesis config options.
+   *
+   * @param blobScheduleOptions the blob schedule options
+   * @return the stub genesis config options
+   */
+  public StubGenesisConfigOptions blobScheduleOptions(
+      final BlobScheduleOptions blobScheduleOptions) {
+    this.blobScheduleOptions = Optional.of(blobScheduleOptions);
+    return this;
   }
 
   /**

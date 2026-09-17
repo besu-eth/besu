@@ -25,7 +25,6 @@ import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.p2p.peers.ImmutableEnodeDnsConfiguration;
 import org.hyperledger.besu.ethereum.permissioning.LocalPermissioningConfiguration;
 import org.hyperledger.besu.ethereum.permissioning.PermissioningConfigurationBuilder;
-import org.hyperledger.besu.plugin.data.EnodeURL;
 
 import java.net.URL;
 import java.nio.file.Files;
@@ -68,7 +67,7 @@ public class LocalPermissioningConfigurationValidatorTest {
             true,
             toml.toAbsolutePath().toString());
 
-    final List<EnodeURL> enodeURIs = ethNetworkConfig.bootNodes();
+    final List<EnodeURLImpl> enodeURIs = ethNetworkConfig.enodeBootNodes();
     PermissioningConfigurationValidator.areAllNodesInAllowlist(
         enodeURIs, permissioningConfiguration);
   }
@@ -93,7 +92,7 @@ public class LocalPermissioningConfigurationValidatorTest {
             toml.toAbsolutePath().toString());
 
     try {
-      final List<EnodeURL> enodeURIs = ethNetworkConfig.bootNodes();
+      final List<EnodeURLImpl> enodeURIs = ethNetworkConfig.enodeBootNodes();
       PermissioningConfigurationValidator.areAllNodesInAllowlist(
           enodeURIs, permissioningConfiguration);
       fail("expected exception because sepolia bootnodes are not in node-allowlist");
@@ -101,19 +100,19 @@ public class LocalPermissioningConfigurationValidatorTest {
       assertThat(e.getMessage()).startsWith("Specified node(s) not in nodes-allowlist");
       assertThat(e.getMessage())
           .contains(
-              "enode://4e5e92199ee224a01932a377160aa432f31d0b351f84ab413a8e0a42f4f36476f8fb1cbe914af0d9aef0d51665c214cf653c651c4bbd9d5550a934f241f1682b@138.197.51.181:30303");
+              "enode://4aff27bd8f1f667a56be304fcab797b4d7b630bf78581ffe6bc0d84852bb73362361ab2884ad396418abe25e7da621be0cadf5b02b6709b49d76b404813c9ddc@212.99.218.66:0?discport=20152");
       assertThat(e.getMessage())
           .contains(
-              "enode://143e11fb766781d22d92a2e33f8f104cddae4411a122295ed1fdb6638de96a6ce65f5b7c964ba3763bba27961738fef7d3ecc739268f3e5e771fb4c87b6234ba@146.190.1.103:30303");
+              "enode://665565ef7b9734bafb27fda8234ca43ca51ea097d0f29d9c9340daee0437c9e1d409c8283d1ce135eedccc2850f94c39c3cc63c641ad5fb0bef9dd37bd0fa6c1@129.212.166.61:0?discport=30403");
       assertThat(e.getMessage())
           .contains(
-              "enode://8b61dc2d06c3f96fddcbebb0efb29d60d3598650275dc469c22229d3e5620369b0d3dedafd929835fe7f489618f19f456fe7c0df572bf2d914a9f4e006f783a9@170.64.250.88:30303");
+              "enode://8e41eb6b03ef7b4c42d4cee19e8150f5fdc1ca28d9e33a627d09875e493a2bedfdea0bfe8c5bab778929a5334a311ca8d37e9016928fc6141c8fe52e708fbd98@144.126.252.24:0?discport=30403");
       assertThat(e.getMessage())
           .contains(
-              "enode://10d62eff032205fcef19497f35ca8477bea0eadfff6d769a147e895d8b2b8f8ae6341630c645c30f5df6e67547c03494ced3d9c5764e8622a26587b083b028e8@139.59.49.206:30303");
+              "enode://b1e27df0cb42adc27b990879a5c4c99ce1bd15bdf0b829afdfdec50fbe352ad602075607f488ca805781e7f127d9709117a8bf8763ebac6e769f7cf50ded3806@178.156.215.140:0?discport=30403");
       assertThat(e.getMessage())
           .contains(
-              "enode://9e9492e2e8836114cc75f5b929784f4f46c324ad01daf87d956f98b3b6c5fcba95524d6e5cf9861dc96a2c8a171ea7105bb554a197455058de185fa870970c7c@138.68.123.152:30303");
+              "enode://02dc5303f128bd0c8055a1fb126c9929bd74d401fca2f2aeba5d74208d1854b08cd5e7932d2db39e21891bf0347599b2cb63bedf14c96fac2bd92c77def82352@5.223.94.81:0?discport=30403");
     }
   }
 
@@ -133,7 +132,7 @@ public class LocalPermissioningConfigurationValidatorTest {
             toml.toAbsolutePath().toString());
 
     // This node is defined in the PERMISSIONING_CONFIG file without the discovery port
-    final EnodeURL enodeURL =
+    final EnodeURLImpl enodeURL =
         EnodeURLImpl.fromString(
             "enode://6f8a80d14311c39f35f516fa664deaaaa13e85b2f7493f37f6144d86991ec012937307647bd3b9a82abe2974e1407241d54947bbb39763a4cac9f77166ad92a0@192.168.0.9:4567?discport=30303");
 
@@ -170,7 +169,7 @@ public class LocalPermissioningConfigurationValidatorTest {
             toml.toAbsolutePath().toString());
 
     // This node is defined in the PERMISSIONING_CONFIG_DNS file without the discovery port
-    final EnodeURL enodeURL =
+    final EnodeURLImpl enodeURL =
         EnodeURLImpl.fromString(
             "enode://6f8a80d14311c39f35f516fa664deaaaa13e85b2f7493f37f6144d86991ec012937307647bd3b9a82abe2974e1407241d54947bbb39763a4cac9f77166ad92a0@localhost:4567?discport=30303",
             enodeDnsConfiguration);

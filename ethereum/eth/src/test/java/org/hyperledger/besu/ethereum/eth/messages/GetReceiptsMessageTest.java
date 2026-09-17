@@ -47,7 +47,7 @@ public final class GetReceiptsMessageTest {
     final GetReceiptsMessage message = GetReceiptsMessage.readFrom(raw);
 
     // Read hashes back out after round trip and check they match originals.
-    final Iterator<Hash> readData = message.hashes().iterator();
+    final Iterator<Hash> readData = message.blockHashes().iterator();
     for (int i = 0; i < hashCount; ++i) {
       Assertions.assertThat(readData.next()).isEqualTo(hashes.get(i));
     }

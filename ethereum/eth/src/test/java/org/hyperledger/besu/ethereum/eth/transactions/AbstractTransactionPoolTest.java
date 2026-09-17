@@ -20,6 +20,7 @@ import static java.util.Collections.singletonList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.mainnet.ValidationResult.valid;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.EXCEEDS_BLOCK_GAS_LIMIT;
+import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.EXCEEDS_MAX_TX_BYTES;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.GAS_PRICE_TOO_LOW;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.INVALID_TRANSACTION_FORMAT;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.NONCE_TOO_FAR_IN_FUTURE_FOR_SENDER;
@@ -58,11 +59,13 @@ import org.hyperledger.besu.plugin.services.TransactionPoolValidatorService;
 import org.hyperledger.besu.util.number.Percentage;
 
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Stream;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledIf;
 import org.junit.jupiter.api.condition.EnabledIf;
@@ -79,6 +82,16 @@ import org.mockito.junit.jupiter.MockitoSettings;
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = LENIENT)
 public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoolTestBase {
+
+  @Test
+  public void blobCustodyColumnsStartsEmptyAndRoundTripsAfterUpdate() {
+    assertThat(transactionPool.getBlobCustodyColumns()).isEmpty();
+
+    final Bytes custodyColumns = Bytes.repeat((byte) 0xAB, 16);
+    transactionPool.updateBlobCustodyColumns(custodyColumns);
+
+    assertThat(transactionPool.getBlobCustodyColumns()).contains(custodyColumns);
+  }
 
   @ParameterizedTest
   @ValueSource(booleans = {true, false})
@@ -430,6 +443,95 @@ public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoo
     addAndAssertTransactionViaApiInvalid(transaction0b, TRANSACTION_REPLACEMENT_UNDERPRICED);
   }
 
+  /** Encoded overhead around the payload, measured so tests can hit the cap exactly. */
+  private int encodedOverheadForLargePayload() {
+    final int probePayload = TransactionPoolConfiguration.DEFAULT_TX_POOL_MAX_TX_BYTES;
+    final Transaction probe =
+        createBaseTransaction(0)
+            .payload(Bytes.wrap(new byte[probePayload]))
+            .createTransaction(KEY_PAIR1);
+    return probe.getSizeForBlockInclusion() - probePayload;
+  }
+
+  private Transaction transactionOfEncodedSize(final int targetEncodedSize) {
+    // The ECDSA signature's r/s components are minimally RLP-encoded, so their byte length
+    // varies (about 1 in 256 times a leading zero byte is dropped) depending on the signed
+    // message. Since every payload length signs a different message, the overhead measured
+    // against one transaction isn't guaranteed to carry over exactly to another: adjust and
+    // re-sign until the actual encoded size lands on the target instead of assuming it will.
+    // Resizing alone can never get there for some keys, because the length one byte below the
+    // target and the one above both sign to a fixed size that straddles it, so each attempt
+    // also alters a payload byte to draw a different signature for the same length.
+    int payloadSize = targetEncodedSize - encodedOverheadForLargePayload();
+    for (int attempt = 0; attempt < 16; attempt++) {
+      final byte[] payload = new byte[payloadSize];
+      payload[0] = (byte) attempt;
+      final Transaction tx =
+          createBaseTransaction(0).payload(Bytes.wrap(payload)).createTransaction(KEY_PAIR1);
+      final int actualEncodedSize = tx.getSizeForBlockInclusion();
+      if (actualEncodedSize == targetEncodedSize) {
+        return tx;
+      }
+      payloadSize += targetEncodedSize - actualEncodedSize;
+    }
+    throw new AssertionError(
+        "Could not converge on a transaction of encoded size " + targetEncodedSize);
+  }
+
+  @Test
+  public void shouldRejectLocalTransactionExceedingMaxEncodedSize() {
+    final Transaction oversized =
+        transactionOfEncodedSize(TransactionPoolConfiguration.DEFAULT_TX_POOL_MAX_TX_BYTES + 1);
+    givenTransactionIsValid(oversized);
+
+    addAndAssertTransactionViaApiInvalid(oversized, EXCEEDS_MAX_TX_BYTES);
+  }
+
+  @Test
+  public void shouldRejectRemoteTransactionExceedingMaxEncodedSize() {
+    // The relay case from the report:
+    // an oversized transaction arriving over p2p must not be re-broadcast.
+    final Transaction oversized =
+        transactionOfEncodedSize(TransactionPoolConfiguration.DEFAULT_TX_POOL_MAX_TX_BYTES + 1);
+    givenTransactionIsValid(oversized);
+
+    addAndAssertRemoteTransactionInvalid(oversized);
+  }
+
+  @Test
+  public void shouldAcceptTransactionExactlyAtMaxEncodedSize() {
+    // The cap is inclusive:
+    // 128 KiB exactly is still accepted, matching the other clients.
+    final Transaction atLimit =
+        transactionOfEncodedSize(TransactionPoolConfiguration.DEFAULT_TX_POOL_MAX_TX_BYTES);
+    givenTransactionIsValid(atLimit);
+
+    addAndAssertTransactionViaApiValid(atLimit, false);
+  }
+
+  @Test
+  public void shouldHonourConfiguredMaxEncodedSize() {
+    final Transaction tx =
+        transactionOfEncodedSize(TransactionPoolConfiguration.DEFAULT_TX_POOL_MAX_TX_BYTES);
+    givenTransactionIsValid(tx);
+
+    // Same transaction that is fine at the default becomes invalid under a tighter cap.
+    transactionPool =
+        createTransactionPool(
+            b -> b.minGasPrice(Wei.of(2)).txPoolMaxTxBytes(tx.getSizeForBlockInclusion() - 1));
+
+    addAndAssertTransactionViaApiInvalid(tx, EXCEEDS_MAX_TX_BYTES);
+  }
+
+  @Test
+  public void shouldNotRejectOrdinarySizedTransaction() {
+    // Non-regression: the cap must not disturb normal traffic.
+    final Transaction ordinary = createTransaction(0);
+    givenTransactionIsValid(ordinary);
+
+    addAndAssertTransactionViaApiValid(ordinary, false);
+  }
+
   @Test
   public void shouldRejectLocalTransactionsWhereGasLimitExceedBlockGasLimit() {
     final Transaction transaction0 =
@@ -492,7 +594,7 @@ public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoo
     transactionPool.addTransactionViaApi(transaction0);
     transactionPool.handleConnect(peer);
     syncTaskCapture.getValue().run();
-    verify(newPooledTransactionHashesMessageSender).sendTransactionHashesToPeer(peer);
+    verify(newPooledTransactionHashesMessageSender).sendTransactionAnnouncementsToPeer(peer);
   }
 
   @Test
@@ -506,8 +608,11 @@ public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoo
     RespondingEthPeer peer = EthProtocolManagerTestUtil.createPeer(ethProtocolManager);
     transactionPool.handleConnect(peer.getEthPeer());
 
-    Set<Transaction> transactionsToSendToPeer =
-        peerTransactionTracker.claimTransactionHashesToSendToPeer(peer.getEthPeer());
+    Set<Transaction> transactionsToSendToPeer = new HashSet<>();
+    Transaction tx;
+    while ((tx = peerTransactionTracker.claimAnnouncementToSendToPeer(peer.getEthPeer())) != null) {
+      transactionsToSendToPeer.add(tx);
+    }
 
     assertThat(transactionsToSendToPeer).contains(transaction0, transaction1);
   }
@@ -570,12 +675,95 @@ public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoo
     final Transaction remoteTransaction = createTransaction(0, twoEthers.add(1));
     final Set<Address> prioritySenders =
         hasPriority ? Set.of(remoteTransaction.getSender()) : Set.of();
+    // the RPC fee cap (txFeeCap) must not gate remote txs; the P2P cap is uncapped by default so it
+    // does not interfere here
     transactionPool =
         createTransactionPool(b -> b.txFeeCap(twoEthers).prioritySenders(prioritySenders));
 
     givenTransactionIsValid(remoteTransaction);
 
     addAndAssertRemoteTransactionsValid(hasPriority, remoteTransaction);
+  }
+
+  @Test
+  public void shouldRejectRemoteTransactionIfP2pFeeCapExceeded() {
+    final Wei twoEthers = Wei.fromEth(2);
+    transactionPool = createTransactionPool(b -> b.p2pTxFeeCap(twoEthers));
+
+    final Transaction remoteTransaction = createTransaction(0, twoEthers.add(1));
+
+    givenTransactionIsValid(remoteTransaction);
+
+    // rejected at admission, so neither pooled nor gossiped onward
+    addAndAssertRemoteTransactionInvalid(remoteTransaction);
+  }
+
+  @Test
+  public void shouldAcceptRemoteTransactionIfP2pFeeCapNotExceeded() {
+    final Wei twoEthers = Wei.fromEth(2);
+    transactionPool = createTransactionPool(b -> b.p2pTxFeeCap(twoEthers));
+
+    final Transaction remoteTransaction = createTransaction(0, twoEthers);
+
+    givenTransactionIsValid(remoteTransaction);
+
+    addAndAssertRemoteTransactionsValid(remoteTransaction);
+  }
+
+  @Test
+  public void shouldAcceptRemoteTransactionWithVeryHighFeeByDefault() {
+    // the default P2P fee cap is Wei.MAX_WEI, so admission is effectively uncapped
+    transactionPool = createTransactionPool();
+
+    final Transaction remoteTransaction = createTransaction(0, Wei.fromEth(1_000_000));
+
+    givenTransactionIsValid(remoteTransaction);
+
+    addAndAssertRemoteTransactionsValid(remoteTransaction);
+  }
+
+  @Test
+  public void shouldRejectRemoteTransactionWithPositiveFeeWhenP2pFeeCapIsZero() {
+    // A zero P2P fee cap means "cap fees to zero", not "disable capping".
+    transactionPool = createTransactionPool(b -> b.p2pTxFeeCap(Wei.ZERO).minGasPrice(Wei.ZERO));
+
+    final Transaction remoteTransaction = createTransaction(0, Wei.of(1));
+
+    givenTransactionIsValid(remoteTransaction);
+
+    addAndAssertRemoteTransactionInvalid(remoteTransaction);
+  }
+
+  @Test
+  public void shouldAcceptRemoteZeroFeeTransactionWhenP2pFeeCapIsZero() {
+    // A zero P2P fee cap still admits zero-gas-price transactions (fee <= cap of zero).
+    transactionPool = createTransactionPool(b -> b.p2pTxFeeCap(Wei.ZERO).minGasPrice(Wei.ZERO));
+
+    final Transaction remoteTransaction = createTransaction(0, Wei.ZERO);
+
+    givenTransactionIsValid(remoteTransaction);
+
+    addAndAssertRemoteTransactionsValid(remoteTransaction);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  public void shouldAcceptLocalTransactionEvenIfP2pFeeCapExceeded(final boolean noLocalPriority) {
+    // the P2P fee cap must not leak into the local (RPC) path; use a high local cap so this holds
+    // regardless of the local cap's zero-semantics
+    final Wei twoEthers = Wei.fromEth(2);
+    transactionPool =
+        createTransactionPool(
+            b ->
+                b.p2pTxFeeCap(twoEthers)
+                    .txFeeCap(Wei.fromEth(10))
+                    .noLocalPriority(noLocalPriority));
+
+    final Transaction localTransaction = createTransaction(0, twoEthers.add(1));
+
+    givenTransactionIsValid(localTransaction);
+
+    addAndAssertTransactionViaApiValid(localTransaction, noLocalPriority);
   }
 
   @ParameterizedTest
@@ -1041,6 +1229,26 @@ public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoo
             addTxAndGetPendingTxsCount(
                 genesisBaseFee, minGasPrice, lastBlockBaseFee, txMaxFeePerGas, isLocal, false))
         .isEqualTo(1);
+  }
+
+  @Test
+  public void shouldContinueProcessingBatchWhenOneTransactionThrowsRuntimeException() {
+    final Transaction transaction1 = createTransaction(1, Wei.of(7L));
+    final Transaction transaction2 = createTransaction(2, Wei.of(7L));
+    final Transaction transaction3 = createTransaction(3, Wei.of(7L));
+
+    givenTransactionIsValid(transaction1);
+    when(transactionValidatorFactory
+            .get()
+            .validate(eq(transaction2), any(Optional.class), any(Optional.class), any()))
+        .thenThrow(new RuntimeException("simulated unexpected validation error"));
+    givenTransactionIsValid(transaction3);
+
+    transactionPool.addRemoteTransactions(List.of(transaction1, transaction2, transaction3));
+
+    assertTransactionPending(transaction1);
+    assertTransactionNotPending(transaction2);
+    assertTransactionPending(transaction3);
   }
 
   @Test

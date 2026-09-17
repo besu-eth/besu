@@ -27,6 +27,7 @@ import com.sun.jna.Library;
 import com.sun.jna.Native;
 import com.sun.jna.ptr.IntByReference;
 import com.sun.jna.ptr.PointerByReference;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Detects OS and VMs.
@@ -36,12 +37,12 @@ import com.sun.jna.ptr.PointerByReference;
  */
 public class PlatformDetector {
 
-  private static String _os;
-  private static String _osType;
-  private static String _vm;
-  private static String _arch;
-  private static String _glibc;
-  private static String _jemalloc;
+  private static @Nullable String _os;
+  private static @Nullable String _osType;
+  private static @Nullable String _vm;
+  private static @Nullable String _arch;
+  private static @Nullable String _glibc;
+  private static @Nullable String _jemalloc;
 
   private PlatformDetector() {}
 
@@ -54,7 +55,7 @@ public class PlatformDetector {
     if (_osType == null) {
       detect();
     }
-    return _osType;
+    return _osType == null ? UNKNOWN : _osType;
   }
 
   /**
@@ -66,7 +67,7 @@ public class PlatformDetector {
     if (_os == null) {
       detect();
     }
-    return _os;
+    return _os == null ? UNKNOWN : _os;
   }
 
   /**
@@ -78,7 +79,7 @@ public class PlatformDetector {
     if (_arch == null) {
       detect();
     }
-    return _arch;
+    return _arch == null ? UNKNOWN : _arch;
   }
 
   /**
@@ -90,7 +91,7 @@ public class PlatformDetector {
     if (_vm == null) {
       detect();
     }
-    return _vm;
+    return _vm == null ? UNKNOWN : _vm;
   }
 
   /**
@@ -103,7 +104,7 @@ public class PlatformDetector {
       detectGlibc();
     }
 
-    return _glibc;
+    return _glibc == null ? UNKNOWN : _glibc;
   }
 
   /**
@@ -117,7 +118,7 @@ public class PlatformDetector {
       detectJemalloc();
     }
 
-    return _jemalloc;
+    return _jemalloc == null ? UNKNOWN : _jemalloc;
   }
 
   private static final String UNKNOWN = "unknown";
@@ -287,7 +288,11 @@ public class PlatformDetector {
     if (value == null) {
       return "";
     }
-    return System.getProperty(value).toLowerCase(Locale.US).replaceAll("[^a-z0-9]+", "");
+    final String propertyValue = System.getProperty(value);
+    if (propertyValue == null) {
+      return "";
+    }
+    return propertyValue.toLowerCase(Locale.US).replaceAll("[^a-z0-9]+", "");
   }
 
   private static void detectGlibc() {
@@ -323,10 +328,10 @@ public class PlatformDetector {
   }
 
   private static String normalizeGLibcVersion(final String rawGlibcVersion) {
-    final Pattern pattern = Pattern.compile("[-+]?[0-9]*\\.?[0-9]+");
+    final Pattern pattern = Pattern.compile("[-+]?[\\d]*\\.?[\\d]+");
     final Matcher matcher = pattern.matcher(rawGlibcVersion);
 
-    return matcher.find() ? matcher.group() : null;
+    return matcher.find() ? matcher.group() : UNKNOWN;
   }
 
   private static void detectJemalloc() {
@@ -335,7 +340,7 @@ public class PlatformDetector {
           String property,
           PointerByReference value,
           IntByReference len,
-          String newValue,
+          @Nullable String newValue,
           int newLen);
     }
 

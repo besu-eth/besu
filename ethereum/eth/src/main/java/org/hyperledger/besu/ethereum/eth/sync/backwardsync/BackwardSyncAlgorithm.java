@@ -177,7 +177,11 @@ public class BackwardSyncAlgorithm implements BesuEvents.InitialSyncCompletionLi
   protected CompletableFuture<Void> waitForReady() {
     final long idTTD = context.getSyncState().subscribeTTDReached(reached -> countDownIfReady());
     final long idIS = context.getSyncState().subscribeCompletionReached(this);
-    return CompletableFuture.runAsync(() -> checkReadiness(idTTD, idIS));
+    final CompletableFuture<?> peerConnection =
+        context.getEthContext().getEthPeers().waitForPeer(peer -> true);
+    peerConnection.thenRun(this::countDownIfReady);
+    return CompletableFuture.runAsync(() -> checkReadiness(idTTD, idIS))
+        .whenComplete((unused, throwable) -> peerConnection.cancel(false));
   }
 
   private void checkReadiness(final long idTTD, final long idIS) {

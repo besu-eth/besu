@@ -37,7 +37,7 @@ import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.DefaultProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.MainnetProtocolSchedule;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
@@ -49,7 +49,6 @@ import java.util.stream.Stream;
 
 import com.google.common.collect.Streams;
 import org.apache.tuweni.bytes.Bytes;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -85,18 +84,6 @@ public class ForkIdsNetworkConfigTest {
               new ForkId(Bytes.ofUnsignedInt(0x23aa1351L), 0L))
         },
         new Object[] {
-          NetworkDefinition.HOLESKY,
-          List.of(
-              new ForkId(Bytes.ofUnsignedInt(0xc61a6098L), 1696000704L),
-              new ForkId(Bytes.ofUnsignedInt(0xfd4f016bL), 1707305664L),
-              new ForkId(Bytes.ofUnsignedInt(0x9b192ad0L), 1740434112L),
-              new ForkId(Bytes.ofUnsignedInt(0xdfbd9bedL), 1759308480L),
-              new ForkId(Bytes.ofUnsignedInt(0x783def52L), 1759800000L),
-              new ForkId(Bytes.ofUnsignedInt(0xa280a45cL), 1760389824L),
-              new ForkId(Bytes.ofUnsignedInt(0x9bc6cb31L), 0L),
-              new ForkId(Bytes.ofUnsignedInt(0x9bc6cb31L), 0L))
-        },
-        new Object[] {
           NetworkDefinition.MAINNET,
           List.of(
               new ForkId(Bytes.ofUnsignedInt(0xfc64ec04L), 1150000L),
@@ -130,7 +117,7 @@ public class ForkIdsNetworkConfigTest {
     final GenesisConfig genesisConfig = GenesisConfig.fromResource(chainName.getGenesisFile());
     final MilestoneStreamingTransitionProtocolSchedule schedule = createSchedule(genesisConfig);
     final GenesisState genesisState =
-        GenesisState.fromConfig(genesisConfig, schedule, new CodeCache());
+        GenesisState.fromConfig(genesisConfig, schedule, new BonsaiCodeCache());
     final Blockchain mockBlockchain = mock(Blockchain.class);
     final BlockHeader mockBlockHeader = mock(BlockHeader.class);
 
@@ -206,12 +193,5 @@ public class ForkIdsNetworkConfigTest {
       return transitionUtils.dispatchFunctionAccordingToMergeState(
           MilestoneStreamingProtocolSchedule::streamMilestoneBlocks);
     }
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

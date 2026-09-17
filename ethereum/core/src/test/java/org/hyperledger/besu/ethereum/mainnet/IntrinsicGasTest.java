@@ -14,8 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.mainnet;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
@@ -32,7 +30,6 @@ import java.util.stream.Stream;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.assertj.core.api.Assertions;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -119,13 +116,6 @@ public class IntrinsicGasTest {
     Assertions.assertThat(
             gasCalculator.transactionIntrinsicGasCost(t, baselineGas(gasCalculator, t)))
         .isEqualTo(expectedGas);
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 
   long baselineGas(final GasCalculator gasCalculator, final Transaction transaction) {

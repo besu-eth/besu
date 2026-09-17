@@ -55,8 +55,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt64;
@@ -67,8 +65,8 @@ import org.junit.jupiter.api.Test;
 public class PeerDiscoveryAgentV4Test {
 
   private static final int BROADCAST_TCP_PORT = 30303;
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
   private PeerDiscoveryTestHelper helper;
   private PacketPackage packetPackage;
 
@@ -80,7 +78,7 @@ public class PeerDiscoveryAgentV4Test {
 
   @Test
   public void createAgentWithInvalidBootnodes() {
-    final EnodeURL invalidBootnode =
+    final EnodeURLImpl invalidBootnode =
         EnodeURLImpl.builder()
             .nodeId(Peer.randomId())
             .ipAddress("127.0.0.1")
@@ -98,14 +96,10 @@ public class PeerDiscoveryAgentV4Test {
   @Test
   public void testNodeRecordCreated() {
     final KeyPair keyPair =
-        SIGNATURE_ALGORITHM
-            .get()
-            .createKeyPair(
-                SIGNATURE_ALGORITHM
-                    .get()
-                    .createPrivateKey(
-                        Bytes32.fromHexString(
-                            "0xb71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")));
+        SIGNATURE_ALGORITHM.createKeyPair(
+            SIGNATURE_ALGORITHM.createPrivateKey(
+                Bytes32.fromHexString(
+                    "0xb71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")));
     final MockPeerDiscoveryAgent agent =
         helper.startDiscoveryAgent(
             helper
@@ -130,16 +124,36 @@ public class PeerDiscoveryAgentV4Test {
   }
 
   @Test
-  public void testNodeRecordCreatedUpdatesDiscoveryPeer() {
+  public void nodeRecord_withAdvertisedHostIpv6_carriesIpv6EnrFields() {
+    final MockPeerDiscoveryAgent agent =
+        helper.startDiscoveryAgent(helper.agentBuilder().advertisedHostIpv6("2001:db8::1"));
+
+    final NodeRecord nodeRecord =
+        agent.getAdvertisedPeer().orElseThrow().getNodeRecord().orElseThrow();
+
+    assertThat(nodeRecord.getTcp6Address()).isPresent();
+    assertThat(nodeRecord.getTcp6Address().get().getPort()).isGreaterThan(0);
+    assertThat(nodeRecord.getUdp6Address()).isPresent();
+  }
+
+  @Test
+  public void nodeRecord_withoutAdvertisedHostIpv6_hasNoIpv6EnrFields() {
+    final MockPeerDiscoveryAgent agent = helper.startDiscoveryAgent();
+
+    final NodeRecord nodeRecord =
+        agent.getAdvertisedPeer().orElseThrow().getNodeRecord().orElseThrow();
+
+    assertThat(nodeRecord.getTcp6Address()).isEmpty();
+    assertThat(nodeRecord.getUdp6Address()).isEmpty();
+  }
+
+  @Test
+  public void testUpdateNodeRecordReusesEnrWhenNothingChanged() {
     final KeyPair keyPair =
-        SIGNATURE_ALGORITHM
-            .get()
-            .createKeyPair(
-                SIGNATURE_ALGORITHM
-                    .get()
-                    .createPrivateKey(
-                        Bytes32.fromHexString(
-                            "0xb71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")));
+        SIGNATURE_ALGORITHM.createKeyPair(
+            SIGNATURE_ALGORITHM.createPrivateKey(
+                Bytes32.fromHexString(
+                    "0xb71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")));
     final MockPeerDiscoveryAgent agent =
         helper.startDiscoveryAgent(
             helper
@@ -149,22 +163,21 @@ public class PeerDiscoveryAgentV4Test {
                 .bindPort(30303));
     agent.start(30303);
     final NodeRecord pre = agent.getLocalNode().get().getNodeRecord().get();
+    // Between start() and updateNodeRecord(), nothing has changed (address, ports, forkId,
+    // pubkey are all the same). NodeRecordManager's equality check should detect this and
+    // reuse the existing ENR — the seqno must not advance and pre/post must compare equal.
     agent.updateNodeRecord();
     final NodeRecord post = agent.getLocalNode().get().getNodeRecord().get();
-    assertThat(pre).isNotEqualTo(post);
+    assertThat(pre).isEqualTo(post);
   }
 
   @Test
   public void testNodeRecordNotUpdatedIfNoPeerDiscovery() {
     final KeyPair keyPair =
-        SIGNATURE_ALGORITHM
-            .get()
-            .createKeyPair(
-                SIGNATURE_ALGORITHM
-                    .get()
-                    .createPrivateKey(
-                        Bytes32.fromHexString(
-                            "0xb71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")));
+        SIGNATURE_ALGORITHM.createKeyPair(
+            SIGNATURE_ALGORITHM.createPrivateKey(
+                Bytes32.fromHexString(
+                    "0xb71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")));
     final MockPeerDiscoveryAgent agent =
         helper.startDiscoveryAgent(
             helper
@@ -252,7 +265,7 @@ public class PeerDiscoveryAgentV4Test {
         neighborsPacket.packet.getPacketData(NeighborsPacketData.class).get();
     assertThat(neighbors).isNotNull();
     assertThat(neighbors.getNodes()).hasSize(13);
-    assertThat(packetPackage.packetSerializer().encode(neighborsPacket.packet).length())
+    assertThat(packetPackage.packetSerializer().encode(neighborsPacket.packet).size())
         .isLessThanOrEqualTo(1280); // under max MTU
 
     // Assert that after removing those 13 items we're left with either 7 or 8.
@@ -300,7 +313,7 @@ public class PeerDiscoveryAgentV4Test {
     final MockPeerDiscoveryAgent peerDiscoveryAgent2 =
         helper.startDiscoveryAgent(
             helper.agentBuilder().peerPermissions(denylist).bootstrapPeers(peer));
-    peerDiscoveryAgent2.start(BROADCAST_TCP_PORT).join();
+    peerDiscoveryAgent2.start(BROADCAST_TCP_PORT + 1).join();
 
     assertThat(peerDiscoveryAgent2.streamDiscoveredPeers().count()).isEqualTo(1);
 
@@ -420,7 +433,7 @@ public class PeerDiscoveryAgentV4Test {
     final MockPeerDiscoveryAgent otherNode = helper.startDiscoveryAgent();
     assertThat(otherNode.getAdvertisedPeer().isPresent()).isTrue();
     final DiscoveryPeerV4 remotePeer = otherNode.getAdvertisedPeer().get();
-    final EnodeURL enodeWithDiscoveryDisabled =
+    final EnodeURLImpl enodeWithDiscoveryDisabled =
         EnodeURLImpl.builder()
             .configureFromEnode(remotePeer.getEnodeURL())
             .disableDiscovery()

@@ -1,0 +1,27 @@
+{
+  "request": "{  block(number: \"0x20\") { logs( filter: { topics: null, addresses: null }) { index  topics  data account{address} transaction{hash} }  } }",
+  "response": {
+    "data": {
+      "block": {
+        "logs": [
+          {
+            "index": "0x0",
+            "topics": [
+              "0x0000000000000000000000000000000000000000000000000000000000000001",
+              "0x000000000000000000000000a94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+              "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+            ],
+            "data": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe9000000000000000000000000000000000000000000000000000000000000002a",
+            "account": {
+              "address": "0x6295ee1b4f6dd65047762f924ecd367c17eabf8f"
+            },
+            "transaction": {
+              "hash": "0xcef53f2311d7c80e9086d661e69ac11a5f3d081e28e02a9ba9b66749407ac310"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "statusCode": 200
+}

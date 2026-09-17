@@ -16,6 +16,8 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.filter;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
+import static org.hyperledger.besu.ethereum.api.ApiConfiguration.DEFAULT_FILTER_TIMEOUT;
+import static org.hyperledger.besu.ethereum.api.ApiConfiguration.DEFAULT_MAX_FILTER_COUNT;
 
 import java.util.Collection;
 import java.util.Optional;
@@ -30,13 +32,13 @@ public class FilterRepositoryTest {
 
   @BeforeEach
   public void before() {
-    repository = new FilterRepository();
+    repository = new FilterRepository(DEFAULT_MAX_FILTER_COUNT);
   }
 
   @Test
   public void getFiltersShouldReturnAllFilters() {
-    final BlockFilter filter1 = new BlockFilter("foo");
-    final BlockFilter filter2 = new BlockFilter("bar");
+    final BlockFilter filter1 = new BlockFilter("foo", DEFAULT_FILTER_TIMEOUT);
+    final BlockFilter filter2 = new BlockFilter("bar", DEFAULT_FILTER_TIMEOUT);
     repository.save(filter1);
     repository.save(filter2);
 
@@ -52,7 +54,7 @@ public class FilterRepositoryTest {
 
   @Test
   public void saveShouldAddFilterToRepository() {
-    final BlockFilter filter = new BlockFilter("id");
+    final BlockFilter filter = new BlockFilter("id", DEFAULT_FILTER_TIMEOUT);
     repository.save(filter);
 
     final BlockFilter retrievedFilter = repository.getFilter("id", BlockFilter.class).get();
@@ -71,7 +73,7 @@ public class FilterRepositoryTest {
 
   @Test
   public void saveFilterWithSameIdShouldFail() {
-    final BlockFilter filter = new BlockFilter("x");
+    final BlockFilter filter = new BlockFilter("x", DEFAULT_FILTER_TIMEOUT);
     repository.save(filter);
 
     final Throwable throwable = catchThrowable(() -> repository.save(filter));
@@ -83,7 +85,7 @@ public class FilterRepositoryTest {
 
   @Test
   public void getSingleFilterShouldReturnExistingFilterOfCorrectType() {
-    final BlockFilter filter = new BlockFilter("id");
+    final BlockFilter filter = new BlockFilter("id", DEFAULT_FILTER_TIMEOUT);
     repository.save(filter);
 
     final Optional<BlockFilter> optional = repository.getFilter(filter.getId(), BlockFilter.class);
@@ -94,7 +96,7 @@ public class FilterRepositoryTest {
 
   @Test
   public void getSingleFilterShouldReturnEmptyForFilterOfIncorrectType() {
-    final BlockFilter filter = new BlockFilter("id");
+    final BlockFilter filter = new BlockFilter("id", DEFAULT_FILTER_TIMEOUT);
     repository.save(filter);
 
     final Optional<PendingTransactionFilter> optional =
@@ -105,7 +107,7 @@ public class FilterRepositoryTest {
 
   @Test
   public void getSingleFilterShouldReturnEmptyForAbsentId() {
-    final BlockFilter filter = new BlockFilter("foo");
+    final BlockFilter filter = new BlockFilter("foo", DEFAULT_FILTER_TIMEOUT);
     repository.save(filter);
 
     final Optional<BlockFilter> optional = repository.getFilter("bar", BlockFilter.class);
@@ -122,9 +124,10 @@ public class FilterRepositoryTest {
 
   @Test
   public void getFilterCollectionShouldReturnAllFiltersOfSpecificType() {
-    final BlockFilter blockFilter1 = new BlockFilter("foo");
-    final BlockFilter blockFilter2 = new BlockFilter("biz");
-    final PendingTransactionFilter pendingTxFilter1 = new PendingTransactionFilter("bar");
+    final BlockFilter blockFilter1 = new BlockFilter("foo", DEFAULT_FILTER_TIMEOUT);
+    final BlockFilter blockFilter2 = new BlockFilter("biz", DEFAULT_FILTER_TIMEOUT);
+    final PendingTransactionFilter pendingTxFilter1 =
+        new PendingTransactionFilter("bar", DEFAULT_FILTER_TIMEOUT);
 
     final Collection<BlockFilter> expectedFilters = Lists.newArrayList(blockFilter1, blockFilter2);
 
@@ -139,7 +142,8 @@ public class FilterRepositoryTest {
 
   @Test
   public void getFilterCollectionShouldReturnEmptyForNoneMatchingTypes() {
-    final PendingTransactionFilter filter = new PendingTransactionFilter("foo");
+    final PendingTransactionFilter filter =
+        new PendingTransactionFilter("foo", DEFAULT_FILTER_TIMEOUT);
     repository.save(filter);
 
     final Collection<BlockFilter> filters = repository.getFiltersOfType(BlockFilter.class);
@@ -156,7 +160,7 @@ public class FilterRepositoryTest {
 
   @Test
   public void existsShouldReturnTrueForExistingId() {
-    final BlockFilter filter = new BlockFilter("id");
+    final BlockFilter filter = new BlockFilter("id", DEFAULT_FILTER_TIMEOUT);
     repository.save(filter);
 
     assertThat(repository.exists("id")).isTrue();
@@ -164,7 +168,7 @@ public class FilterRepositoryTest {
 
   @Test
   public void existsShouldReturnFalseForAbsentId() {
-    final BlockFilter filter = new BlockFilter("foo");
+    final BlockFilter filter = new BlockFilter("foo", DEFAULT_FILTER_TIMEOUT);
     repository.save(filter);
 
     assertThat(repository.exists("bar")).isFalse();
@@ -177,7 +181,7 @@ public class FilterRepositoryTest {
 
   @Test
   public void deleteExistingFilterShouldDeleteSuccessfully() {
-    final BlockFilter filter = new BlockFilter("foo");
+    final BlockFilter filter = new BlockFilter("foo", DEFAULT_FILTER_TIMEOUT);
     repository.save(filter);
     repository.delete(filter.getId());
 
@@ -192,8 +196,8 @@ public class FilterRepositoryTest {
 
   @Test
   public void deleteAllShouldClearFilters() {
-    final BlockFilter filter1 = new BlockFilter("foo");
-    final BlockFilter filter2 = new BlockFilter("biz");
+    final BlockFilter filter1 = new BlockFilter("foo", DEFAULT_FILTER_TIMEOUT);
+    final BlockFilter filter2 = new BlockFilter("biz", DEFAULT_FILTER_TIMEOUT);
     repository.save(filter1);
     repository.save(filter2);
 
@@ -201,5 +205,42 @@ public class FilterRepositoryTest {
 
     assertThat(repository.exists(filter1.getId())).isFalse();
     assertThat(repository.exists(filter2.getId())).isFalse();
+  }
+
+  @Test
+  public void saveShouldRejectFiltersBeyondMaxCount() {
+    final FilterRepository cappedRepository = new FilterRepository(2);
+    cappedRepository.save(new BlockFilter("a", DEFAULT_FILTER_TIMEOUT));
+    cappedRepository.save(new BlockFilter("b", DEFAULT_FILTER_TIMEOUT));
+
+    final Throwable throwable =
+        catchThrowable(() -> cappedRepository.save(new BlockFilter("c", DEFAULT_FILTER_TIMEOUT)));
+
+    assertThat(throwable)
+        .isInstanceOf(FilterCountExceededException.class)
+        .hasMessageContaining("2");
+    assertThat(cappedRepository.exists("c")).isFalse();
+  }
+
+  @Test
+  public void saveShouldAllowNewFilterAfterDeletionBelowMaxCount() {
+    final FilterRepository cappedRepository = new FilterRepository(2);
+    cappedRepository.save(new BlockFilter("a", DEFAULT_FILTER_TIMEOUT));
+    cappedRepository.save(new BlockFilter("b", DEFAULT_FILTER_TIMEOUT));
+
+    cappedRepository.delete("a");
+    cappedRepository.save(new BlockFilter("c", DEFAULT_FILTER_TIMEOUT));
+
+    assertThat(cappedRepository.exists("c")).isTrue();
+  }
+
+  @Test
+  public void uncappedRepositoryShouldAllowMoreThanDefaultMaxCount() {
+    final FilterRepository uncappedRepository = new FilterRepository(0);
+    final int filterCount = DEFAULT_MAX_FILTER_COUNT * 2;
+    for (int i = 0; i < filterCount; i++) {
+      uncappedRepository.save(new BlockFilter("filter-" + i, DEFAULT_FILTER_TIMEOUT));
+    }
+    assertThat(uncappedRepository.getFilters()).hasSize(filterCount);
   }
 }

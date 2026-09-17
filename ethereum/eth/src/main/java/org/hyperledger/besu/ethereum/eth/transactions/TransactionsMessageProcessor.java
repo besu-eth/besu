@@ -38,14 +38,17 @@ class TransactionsMessageProcessor {
   private final TransactionPool transactionPool;
 
   private final TransactionPoolMetrics metrics;
+  private final int maxTransactionsPerMessage;
 
   public TransactionsMessageProcessor(
       final PeerTransactionTracker transactionTracker,
       final TransactionPool transactionPool,
-      final TransactionPoolMetrics metrics) {
+      final TransactionPoolMetrics metrics,
+      final int maxTransactionsPerMessage) {
     this.transactionTracker = transactionTracker;
     this.transactionPool = transactionPool;
     this.metrics = metrics;
+    this.maxTransactionsPerMessage = maxTransactionsPerMessage;
     metrics.initExpiredMessagesCounter(METRIC_LABEL);
   }
 
@@ -76,9 +79,19 @@ class TransactionsMessageProcessor {
       final EthPeer peer, final TransactionsMessage transactionsMessage) {
     try {
       final List<Transaction> incomingTransactions = transactionsMessage.transactions();
-      final Collection<Transaction> freshTransactions = skipSeenTransactions(incomingTransactions);
 
-      transactionTracker.markTransactionsAsSeen(peer, incomingTransactions);
+      if (incomingTransactions.size() > maxTransactionsPerMessage) {
+        LOG.debug(
+            "Transactions message contains too many transactions ({} > {}), disconnecting: {}",
+            incomingTransactions.size(),
+            maxTransactionsPerMessage,
+            peer);
+        peer.disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+        return;
+      }
+
+      final Collection<Transaction> freshTransactions =
+          transactionTracker.receivedTransactions(peer, incomingTransactions);
 
       metrics.incrementAlreadySeenTransactions(
           METRIC_LABEL, incomingTransactions.size() - freshTransactions.size());
@@ -99,12 +112,14 @@ class TransactionsMessageProcessor {
             ex);
         peer.disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
       }
+    } catch (final RuntimeException ex) {
+      // Per-transaction validation errors are caught inside addRemoteTransactions; an exception
+      // reaching here means something failed at the message-processing level (e.g. tracker, stream
+      // setup). Disconnect as a last resort.
+      LOG.warn("Unexpected error processing transaction message, disconnecting: {}", peer, ex);
+      if (peer != null) {
+        peer.disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+      }
     }
-  }
-
-  private Collection<Transaction> skipSeenTransactions(final List<Transaction> inTransactions) {
-    return inTransactions.stream()
-        .filter(tx -> !transactionTracker.hasSeenTransaction(tx.getHash()))
-        .toList();
   }
 }

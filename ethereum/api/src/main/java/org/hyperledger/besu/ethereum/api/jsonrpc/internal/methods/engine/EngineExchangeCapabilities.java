@@ -15,9 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod.ENGINE_EXCHANGE_CAPABILITIES;
-import static org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod.ENGINE_PREPARE_PAYLOAD_DEBUG;
 
-import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
@@ -31,18 +29,14 @@ import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import io.vertx.core.Vertx;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class EngineExchangeCapabilities extends ExecutionEngineJsonRpcMethod {
   private static final Logger LOG = LoggerFactory.getLogger(EngineExchangeCapabilities.class);
 
-  public EngineExchangeCapabilities(
-      final Vertx vertx,
-      final ProtocolContext protocolContext,
-      final EngineCallListener engineCallListener) {
-    super(vertx, protocolContext, engineCallListener);
+  public EngineExchangeCapabilities(final ConstructorArguments constructorArguments) {
+    super(constructorArguments, null, null);
   }
 
   @Override
@@ -75,7 +69,6 @@ public class EngineExchangeCapabilities extends ExecutionEngineJsonRpcMethod {
         Stream.of(RpcMethod.values())
             .filter(e -> e.getMethodName().startsWith("engine_"))
             .filter(e -> !e.equals(ENGINE_EXCHANGE_CAPABILITIES))
-            .filter(e -> !e.equals(ENGINE_PREPARE_PAYLOAD_DEBUG))
             .map(RpcMethod::getMethodName)
             .collect(Collectors.toList());
 

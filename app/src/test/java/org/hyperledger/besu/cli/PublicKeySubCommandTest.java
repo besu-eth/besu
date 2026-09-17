@@ -373,8 +373,6 @@ public class PublicKeySubCommandTest extends CommandTestAbstract {
   public void
       callingPublicKeyExportSubCommandWithEcCurveNameCorrectlyConfiguresSignatureAlgorithmFactory()
           throws Exception {
-    assertThat(SignatureAlgorithmFactory.isInstanceSet()).isFalse();
-
     final File file = File.createTempFile("public", "key");
 
     parseCommand(
@@ -385,7 +383,6 @@ public class PublicKeySubCommandTest extends CommandTestAbstract {
         "--ec-curve",
         CURVE_NAME);
 
-    assertThat(SignatureAlgorithmFactory.isInstanceSet()).isTrue();
     assertThat(SignatureAlgorithmFactory.getInstance().getCurveName()).isEqualTo(CURVE_NAME);
   }
 
@@ -393,14 +390,12 @@ public class PublicKeySubCommandTest extends CommandTestAbstract {
   public void
       callingPublicKeyExportSubCommandWithoutEcCurveNameDoesNotConfiguresSignatureAlgorithmFactory()
           throws Exception {
-    assertThat(SignatureAlgorithmFactory.isInstanceSet()).isFalse();
-
     final File file = File.createTempFile("public", "key");
 
     parseCommand(
         PUBLIC_KEY_SUBCOMMAND_NAME, PUBLIC_KEY_EXPORT_SUBCOMMAND_NAME, "--to", file.getPath());
 
-    assertThat(SignatureAlgorithmFactory.isInstanceSet()).isFalse();
+    assertThat(SignatureAlgorithmFactory.getInstance().getCurveName()).isEqualTo("secp256k1");
   }
 
   @Test
@@ -423,8 +418,6 @@ public class PublicKeySubCommandTest extends CommandTestAbstract {
   public void
       callingPublicKeyExportAddressSubCommandWithEcCurveNameCorrectlyConfiguresSignatureAlgorithmFactory()
           throws Exception {
-    assertThat(SignatureAlgorithmFactory.isInstanceSet()).isFalse();
-
     final SECPPrivateKey privateKey =
         SECPPrivateKey.create(
             Bytes32.fromHexString(
@@ -442,7 +435,6 @@ public class PublicKeySubCommandTest extends CommandTestAbstract {
         "--ec-curve",
         CURVE_NAME);
 
-    assertThat(SignatureAlgorithmFactory.isInstanceSet()).isTrue();
     assertThat(SignatureAlgorithmFactory.getInstance().getCurveName()).isEqualTo(CURVE_NAME);
   }
 
@@ -450,8 +442,6 @@ public class PublicKeySubCommandTest extends CommandTestAbstract {
   public void
       callingPublicKeyExportAddressSubCommandWithoutEcCurveNameDoesNotConfiguresSignatureAlgorithmFactory()
           throws Exception {
-    assertThat(SignatureAlgorithmFactory.isInstanceSet()).isFalse();
-
     final SECPPrivateKey privateKey =
         SECPPrivateKey.create(
             Bytes32.fromHexString(
@@ -467,7 +457,7 @@ public class PublicKeySubCommandTest extends CommandTestAbstract {
         "--node-private-key-file",
         privateKeyFile.toString());
 
-    assertThat(SignatureAlgorithmFactory.isInstanceSet()).isFalse();
+    assertThat(SignatureAlgorithmFactory.getInstance().getCurveName()).isEqualTo("secp256k1");
   }
 
   @Test

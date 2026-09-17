@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PRAGUE;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.ForkSupportHelper.validateForkSupported;
 
@@ -29,33 +30,46 @@ class ForkSupportHelperTest {
 
   @Test
   void validForkIfMilestoneOlderThanBlock() {
-    assertThat(validateForkSupported(PRAGUE, Optional.of(0L), 1))
-        .isEqualTo(ValidationResult.valid());
+    assertThat(validateForkSupported(PRAGUE, 0L, 1)).isEqualTo(ValidationResult.valid());
   }
 
   @Test
   void validForkIfMilestoneEqualToBlock() {
-    assertThat(validateForkSupported(PRAGUE, Optional.of(0L), 0))
-        .isEqualTo(ValidationResult.valid());
+    assertThat(validateForkSupported(PRAGUE, 0L, 0)).isEqualTo(ValidationResult.valid());
   }
 
   @Test
   void validForkWhenTimestampOverflowsSignedLong() {
     long unsignedLongMaxValue = Long.parseUnsignedLong("18446744073709551615");
-    assertThat(validateForkSupported(PRAGUE, Optional.of(1L), unsignedLongMaxValue))
+    assertThat(validateForkSupported(PRAGUE, 1L, unsignedLongMaxValue))
         .isEqualTo(ValidationResult.valid());
   }
 
   @Test
-  void unsupportedForkIfMilestoneMisconfigured() {
-    assertThat(validateForkSupported(PRAGUE, Optional.empty(), 0))
+  void unsupportedForkIfMinMaxMilestonesNotConfigured() {
+    assertThat(validateForkSupported(PRAGUE, Optional.empty(), AMSTERDAM, Optional.empty(), 0))
         .isEqualTo(
             ValidationResult.invalid(RpcErrorType.UNSUPPORTED_FORK, "message equality ignored"));
   }
 
   @Test
+  void supportedForkIfMinMaxMilestonesConfigured() {
+    assertThat(validateForkSupported(PRAGUE, Optional.of(10L), AMSTERDAM, Optional.of(20L), 11))
+        .isEqualTo(ValidationResult.valid());
+  }
+
+  @Test
+  void supportedForkIfJustSwitchedToPoS() {
+    // this case happens when the PoS is first activated, the first supported hardfork is null,
+    // meaning the method is always active, and there is not a first unsupported hardfork either.
+    // The call must be valid in this case.
+    assertThat(validateForkSupported(null, Optional.empty(), null, Optional.empty(), 1234567))
+        .isEqualTo(ValidationResult.valid());
+  }
+
+  @Test
   void unsupportedForkIfBlockOlderThanMilestone() {
-    assertThat(validateForkSupported(PRAGUE, Optional.of(1L), 0))
+    assertThat(validateForkSupported(PRAGUE, 1L, 0))
         .isEqualTo(
             ValidationResult.invalid(RpcErrorType.UNSUPPORTED_FORK, "message equality ignored"));
   }

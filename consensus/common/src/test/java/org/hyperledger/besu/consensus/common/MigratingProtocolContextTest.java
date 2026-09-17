@@ -21,6 +21,7 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.ethereum.ConsensusContext;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.plugin.ServiceManager;
 
@@ -34,7 +35,10 @@ public class MigratingProtocolContextTest {
   @Test
   public void returnsContextForSpecificChainHeight() {
     final MutableBlockchain blockchain = Mockito.mock(MutableBlockchain.class);
+    final BlockHeader header = Mockito.mock(BlockHeader.class);
     final WorldStateArchive worldStateArchive = Mockito.mock(WorldStateArchive.class);
+
+    when(blockchain.getChainHeadHeader()).thenReturn(header);
 
     final ConsensusContext context1 = Mockito.mock(ConsensusContext.class);
     when(context1.as(any())).thenReturn(context1);
@@ -56,11 +60,11 @@ public class MigratingProtocolContextTest {
     assertThat(migratingProtocolContext.getConsensusContext(ConsensusContext.class))
         .isSameAs(context1);
 
-    when(blockchain.getChainHeadBlockNumber()).thenReturn(2L);
+    when(header.getNumber()).thenReturn(2L);
     assertThat(migratingProtocolContext.getConsensusContext(ConsensusContext.class))
         .isSameAs(context1);
 
-    when(blockchain.getChainHeadBlockNumber()).thenReturn(10L);
+    when(header.getNumber()).thenReturn(10L);
     assertThat(migratingProtocolContext.getConsensusContext(ConsensusContext.class))
         .isSameAs(context2);
   }

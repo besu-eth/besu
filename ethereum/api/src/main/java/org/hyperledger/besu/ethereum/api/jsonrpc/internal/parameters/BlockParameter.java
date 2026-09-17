@@ -63,6 +63,10 @@ public class BlockParameter {
         number = Optional.empty();
         break;
       default:
+        if (!normalizedValue.startsWith("0x")) {
+          throw new IllegalArgumentException(
+              "Invalid block number: must be a hex string with 0x prefix");
+        }
         type = BlockParameterType.NUMERIC;
         number = Optional.of(Long.decode(value));
         break;

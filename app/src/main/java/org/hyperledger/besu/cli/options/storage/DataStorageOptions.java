@@ -15,6 +15,7 @@
 package org.hyperledger.besu.cli.options.storage;
 
 import static org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration.DEFAULT_RECEIPT_COMPACTION_ENABLED;
+import static org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration.DEFAULT_REVERT_REASON_ENABLED;
 
 import org.hyperledger.besu.cli.options.CLIOptions;
 import org.hyperledger.besu.cli.util.CommandLineUtils;
@@ -48,6 +49,12 @@ public class DataStorageOptions implements CLIOptions<DataStorageConfiguration> 
       fallbackValue = "true")
   private Boolean receiptCompactionEnabled = DEFAULT_RECEIPT_COMPACTION_ENABLED;
 
+  @Option(
+      names = {"--revert-reason-enabled"},
+      description =
+          "Enable passing the revert reason back through TransactionReceipts (default: ${DEFAULT-VALUE})")
+  private Boolean revertReasonEnabled = DEFAULT_REVERT_REASON_ENABLED;
+
   @CommandLine.Option(
       names = {"--history-expiry-prune"},
       description =
@@ -56,11 +63,9 @@ public class DataStorageOptions implements CLIOptions<DataStorageConfiguration> 
 
   /**
    * Options specific to path-based storage modes. Holds the necessary parameters to configure
-   * path-based storage, such as the Bonsai mode or Verkle in the future.
+   * path-based storage, such as the Bonsai mode or a future binary trie mode.
    */
-  @Mixin
-  private PathBasedExtraStorageOptions pathBasedExtraStorageOptions =
-      PathBasedExtraStorageOptions.create();
+  @Mixin private ExtraStorageOptions extraStorageOptions = ExtraStorageOptions.create();
 
   /** Default Constructor. */
   DataStorageOptions() {}
@@ -80,7 +85,7 @@ public class DataStorageOptions implements CLIOptions<DataStorageConfiguration> 
    * @param commandLine the full commandLine to check all the options specified by the user
    */
   public void validate(final CommandLine commandLine) {
-    pathBasedExtraStorageOptions.validate(commandLine, dataStorageFormat);
+    extraStorageOptions.validate(commandLine, dataStorageFormat);
   }
 
   /**
@@ -93,9 +98,9 @@ public class DataStorageOptions implements CLIOptions<DataStorageConfiguration> 
     final DataStorageOptions dataStorageOptions = DataStorageOptions.create();
     dataStorageOptions.dataStorageFormat = domainObject.getDataStorageFormat();
     dataStorageOptions.receiptCompactionEnabled = domainObject.getReceiptCompactionEnabled();
-    dataStorageOptions.pathBasedExtraStorageOptions =
-        PathBasedExtraStorageOptions.fromConfig(
-            domainObject.getPathBasedExtraStorageConfiguration());
+    dataStorageOptions.revertReasonEnabled = domainObject.getRevertReasonEnabled();
+    dataStorageOptions.extraStorageOptions =
+        ExtraStorageOptions.fromConfig(domainObject.getExtraStorageConfiguration());
     dataStorageOptions.historyExpiryPrune = domainObject.getHistoryExpiryPruneEnabled();
     return dataStorageOptions;
   }
@@ -106,15 +111,16 @@ public class DataStorageOptions implements CLIOptions<DataStorageConfiguration> 
         ImmutableDataStorageConfiguration.builder()
             .dataStorageFormat(dataStorageFormat)
             .receiptCompactionEnabled(receiptCompactionEnabled)
+            .revertReasonEnabled(revertReasonEnabled)
             .historyExpiryPruneEnabled(historyExpiryPrune)
-            .pathBasedExtraStorageConfiguration(pathBasedExtraStorageOptions.toDomainObject());
+            .extraStorageConfiguration(extraStorageOptions.toDomainObject());
     return builder.build();
   }
 
   @Override
   public List<String> getCLIOptions() {
     final List<String> cliOptions = CommandLineUtils.getCLIOptions(this, new DataStorageOptions());
-    cliOptions.addAll(pathBasedExtraStorageOptions.getCLIOptions());
+    cliOptions.addAll(extraStorageOptions.getCLIOptions());
     return cliOptions;
   }
 

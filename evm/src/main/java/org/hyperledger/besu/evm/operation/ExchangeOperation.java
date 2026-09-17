@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.evm.operation;
 
-import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
@@ -58,7 +57,7 @@ public class ExchangeOperation extends AbstractFixedCostOperation {
   }
 
   @Override
-  public OperationResult executeFixedCostOperation(final MessageFrame frame, final EVM evm) {
+  public OperationResult executeFixedCostOperation(final MessageFrame frame) {
     return staticOperation(frame, frame.getCode().getBytes().toArrayUnsafe(), frame.getPC());
   }
 

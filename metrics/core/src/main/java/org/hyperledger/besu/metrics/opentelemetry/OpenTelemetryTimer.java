@@ -17,6 +17,9 @@ package org.hyperledger.besu.metrics.opentelemetry;
 import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 import org.hyperledger.besu.plugin.services.metrics.OperationTimer;
 
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
+
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.common.AttributesBuilder;
 import io.opentelemetry.api.metrics.Meter;
@@ -24,10 +27,9 @@ import io.opentelemetry.api.metrics.Meter;
 /** The Open telemetry timer. */
 public class OpenTelemetryTimer implements LabelledMetric<OperationTimer> {
 
-  private final String help;
-  private final Meter meter;
-  private final String metricName;
   private final String[] labelNames;
+  private final ConcurrentHashMap<Attributes, AtomicLong> elapsedNanosMap =
+      new ConcurrentHashMap<>();
 
   /**
    * Instantiates a new Open telemetry timer.
@@ -39,28 +41,30 @@ public class OpenTelemetryTimer implements LabelledMetric<OperationTimer> {
    */
   public OpenTelemetryTimer(
       final String metricName, final String help, final Meter meter, final String... labelNames) {
-    this.metricName = metricName;
-    this.help = help;
-    this.meter = meter;
     this.labelNames = labelNames;
+    // Register a single permanent callback; it reads the latest elapsed time for each label set.
+    meter
+        .gaugeBuilder(metricName)
+        .setDescription(help)
+        .buildWithCallback(
+            measurement ->
+                elapsedNanosMap.forEach(
+                    (attrs, nanos) -> measurement.record(nanos.get() / 1e9, attrs)));
   }
 
   @Override
   public OperationTimer labels(final String... labelValues) {
-    AttributesBuilder builder = Attributes.builder();
+    final AttributesBuilder builder = Attributes.builder();
     for (int i = 0; i < labelNames.length; i++) {
       builder.put(labelNames[i], labelValues[i]);
     }
     final Attributes labels = builder.build();
-
+    // Lazily create the AtomicLong slot for this label set on first stop().
     return () -> {
       final long startTime = System.nanoTime();
       return () -> {
-        long elapsed = System.nanoTime() - startTime;
-        meter
-            .gaugeBuilder(metricName)
-            .setDescription(help)
-            .buildWithCallback((measurement) -> measurement.record((double) elapsed, labels));
+        final long elapsed = System.nanoTime() - startTime;
+        elapsedNanosMap.computeIfAbsent(labels, k -> new AtomicLong()).set(elapsed);
         return elapsed / 1e9;
       };
     };

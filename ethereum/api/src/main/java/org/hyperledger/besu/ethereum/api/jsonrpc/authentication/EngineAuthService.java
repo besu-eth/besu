@@ -18,10 +18,13 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.util.Collection;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
@@ -47,6 +50,25 @@ public class EngineAuthService implements AuthenticationService {
 
   public static final String EPHEMERAL_JWT_FILE = "jwt.hex";
 
+  // Engine API JWT tokens rotate at most once per minute (CL updates iat on a 60s cycle).
+  // Caching the last validated token avoids repeated Jackson JSON parsing and HMAC-SHA256
+  // verification for the burst of calls that arrive with the same token string. The iat
+  // freshness check is still performed on every request.
+  //
+  // The token is held as UTF-8 bytes so the fast path can compare it with
+  // MessageDigest.isEqual, which does not return early on the first differing byte. The
+  // presented value is a live bearer credential, so it should not be compared with
+  // String.equals even where the leak is not considered practically exploitable.
+  private record CachedToken(byte[] rawUtf8, long iat, User user) {
+    private CachedToken(final byte[] rawUtf8, final long iat, final User user) {
+      this.rawUtf8 = rawUtf8.clone();
+      this.iat = iat;
+      this.user = user;
+    }
+  }
+
+  private final AtomicReference<CachedToken> lastValidToken = new AtomicReference<>();
+
   private final JWTAuth jwtAuthProvider;
 
   public EngineAuthService(final Vertx vertx, final Optional<File> signingKey, final Path datadir) {
@@ -64,15 +86,21 @@ public class EngineAuthService implements AuthenticationService {
   private JWTAuthOptions engineApiJWTOptions(
       final JwtAlgorithm jwtAlgorithm, final Optional<File> keyFile, final Path datadir) {
     byte[] signingKey = null;
-    if (!keyFile.isPresent()) {
+    if (keyFile.isEmpty()) {
       final File jwtFile = new File(datadir.toFile(), EPHEMERAL_JWT_FILE);
       jwtFile.deleteOnExit();
       final byte[] ephemeralKey = Bytes32.random().toArray();
       try {
         Files.writeString(jwtFile.toPath(), Codec.base16Encode(ephemeralKey));
       } catch (IOException ioe) {
-        LOG.warn("Unable to write ephemeral jwt key file to {}", jwtFile.toPath().toString());
-        LOG.info("JWT KEY: {}", Codec.base16Encode(ephemeralKey));
+        UnsecurableEngineApiException e =
+            new UnsecurableEngineApiException(
+                "Unable to write ephemeral JWT key to "
+                    + jwtFile.toPath()
+                    + "; use --engine-jwt-secret to supply a key file in a writable location");
+        e.fillInStackTrace();
+        e.initCause(ioe);
+        throw e;
       }
       signingKey = ephemeralKey;
     } else { // user configured option to use a specified file
@@ -132,20 +160,31 @@ public class EngineAuthService implements AuthenticationService {
 
   @Override
   public void authenticate(final String token, final Handler<Optional<User>> handler) {
+    // Fast path: same token string as the last successfully validated token. Avoids repeated
+    // Jackson JSON parsing (ByteQuadsCanonicalizer lock) and HMAC-SHA256 verification for the
+    // burst of engine API calls that arrive with the same token. The iat freshness check is
+    // still performed on every request to correctly reject a cached token once it goes stale.
+    final CachedToken cached = lastValidToken.get();
+    final byte[] tokenUtf8 = token.getBytes(StandardCharsets.UTF_8);
+    if (cached != null && MessageDigest.isEqual(cached.rawUtf8(), tokenUtf8)) {
+      handler.handle(issuedRecently(cached.iat()) ? Optional.of(cached.user()) : Optional.empty());
+      return;
+    }
+
     try {
       getJwtAuthProvider()
-          .authenticate(
-              new TokenCredentials(token),
+          .authenticate(new TokenCredentials(token))
+          .onComplete(
               r -> {
                 if (r.succeeded()) {
-                  if (issuedRecently(r.result().attributes().getLong("iat"))) {
-                    final Optional<User> user = Optional.ofNullable(r.result());
-                    handler.handle(user);
+                  final long iat = r.result().attributes().getLong("iat");
+                  if (issuedRecently(iat)) {
+                    lastValidToken.set(new CachedToken(tokenUtf8, iat, r.result()));
+                    handler.handle(Optional.of(r.result()));
                   } else {
-                    LOG.warn("Client sent stale token: {}", r.result().attributes());
+                    LOG.warn("Client sent stale Engine API token with iat: {}", iat);
                     handler.handle(Optional.empty());
                   }
-
                 } else {
                   LOG.debug("Authentication failed: {}", r.cause().toString());
                   handler.handle(Optional.empty());

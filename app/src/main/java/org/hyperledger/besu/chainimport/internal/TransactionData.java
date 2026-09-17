@@ -16,7 +16,6 @@ package org.hyperledger.besu.chainimport.internal;
 
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SECPPrivateKey;
-import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
@@ -27,8 +26,6 @@ import java.util.Optional;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -43,9 +40,6 @@ public class TransactionData {
   private final Wei value;
   private final Optional<Address> to;
   private final SECPPrivateKey privateKey;
-
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
 
   /**
    * Instantiates a new Transaction data.
@@ -70,7 +64,8 @@ public class TransactionData {
     this.data = data.map(Bytes::fromHexString).orElse(Bytes.EMPTY);
     this.value = value.map(Wei::fromHexString).orElse(Wei.ZERO);
     this.to = to.map(Address::fromHexString);
-    this.privateKey = SIGNATURE_ALGORITHM.get().createPrivateKey(Bytes32.fromHexString(secretKey));
+    this.privateKey =
+        SignatureAlgorithmFactory.getInstance().createPrivateKey(Bytes32.fromHexString(secretKey));
   }
 
   /**
@@ -80,7 +75,7 @@ public class TransactionData {
    * @return the signed transaction
    */
   public Transaction getSignedTransaction(final NonceProvider nonceProvider) {
-    final KeyPair keyPair = SIGNATURE_ALGORITHM.get().createKeyPair(privateKey);
+    final KeyPair keyPair = SignatureAlgorithmFactory.getInstance().createKeyPair(privateKey);
 
     final Address fromAddress = Address.extract(keyPair.getPublicKey());
     final long nonce = nonceProvider.get(fromAddress);

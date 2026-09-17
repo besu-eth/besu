@@ -109,10 +109,9 @@ public class AccountStorageEntry {
     if (o == this) {
       return true;
     }
-    if (!(o instanceof AccountStorageEntry)) {
+    if (!(o instanceof AccountStorageEntry that)) {
       return false;
     }
-    final AccountStorageEntry that = (AccountStorageEntry) o;
     return Objects.equals(value, that.value)
         && Objects.equals(key, that.key)
         && Objects.equals(keyHash, that.keyHash);

@@ -70,7 +70,6 @@ public class QbftBlockHeightManager implements BaseQbftBlockHeightManager {
   private final Clock clock;
   private final Function<ConsensusRoundIdentifier, RoundState> roundStateCreator;
   private final QbftFinalState finalState;
-
   private Optional<PreparedCertificate> latestPreparedCertificate = Optional.empty();
   private Optional<QbftRound> currentRound = Optional.empty();
   private boolean isEarlyRoundChangeEnabled = false;
@@ -118,10 +117,10 @@ public class QbftBlockHeightManager implements BaseQbftBlockHeightManager {
                 messageValidatorFactory.createMessageValidator(roundIdentifier, parentHeader));
 
     final long nextBlockHeight = parentHeader.getNumber() + 1;
-    final ConsensusRoundIdentifier roundIdentifier =
+    final ConsensusRoundIdentifier nextBlockRoundId =
         new ConsensusRoundIdentifier(nextBlockHeight, 0);
 
-    finalState.getBlockTimer().startTimer(roundIdentifier, parentHeader::getTimestamp);
+    finalState.getBlockTimer().startTimer(nextBlockRoundId, parentHeader::getTimestamp);
   }
 
   /**
@@ -194,8 +193,26 @@ public class QbftBlockHeightManager implements BaseQbftBlockHeightManager {
         finalState.isLocalNodeProposerForRound(qbftRound.getRoundIdentifier());
 
     if (!isProposer) {
-      // nothing to do here...
-      LOG.trace("This node is not a proposer so it will not send a proposal: " + roundIdentifier);
+      final long currentTimeInMillis = finalState.getClock().millis();
+      final boolean withinEmptyBlockPeriod =
+          !finalState
+              .getBlockTimer()
+              .checkEmptyBlockExpired(parentHeader::getTimestamp, currentTimeInMillis);
+      // Only stay idle while the chain is genuinely quiet. If a transaction has arrived after the
+      // block period but before the emptyblock period, the block this height would produce is now
+      // non-empty. Usually the proposer would receive the transaction over P2P and break out of its
+      // empty block timer, but if the proposer crashes during the empty block period the chain is
+      // stalled until the full empty block period expires (possibly many minutes or hours).
+      if (withinEmptyBlockPeriod && wouldCreateEmptyBlock(qbftRound)) {
+        // Mirror the proposer: reset timer, kill round timer, go idle
+        finalState
+            .getBlockTimer()
+            .resetTimerForEmptyBlock(
+                roundIdentifier, parentHeader::getTimestamp, currentTimeInMillis);
+        finalState.getRoundTimer().cancelTimer();
+        currentRound = Optional.empty();
+      }
+      LOG.trace("This node is not a proposer so it will not send a proposal: {}", roundIdentifier);
       return;
     }
 
@@ -206,8 +223,8 @@ public class QbftBlockHeightManager implements BaseQbftBlockHeightManager {
     final Optional<BlockAccessList> blockAccessList = blockCreationResult.blockAccessList();
     if (!block.isEmpty()) {
       LOG.trace(
-          "Block is not empty and this node is a proposer so it will send a proposal: "
-              + roundIdentifier);
+          "Block is not empty and this node is a proposer so it will send a proposal: {}",
+          roundIdentifier);
       qbftRound.updateStateWithProposalAndTransmit(
           block, blockAccessList, Collections.emptyList(), Collections.emptyList());
     } else {
@@ -219,14 +236,14 @@ public class QbftBlockHeightManager implements BaseQbftBlockHeightManager {
               .checkEmptyBlockExpired(parentHeader::getTimestamp, currentTimeInMillis);
       if (emptyBlockExpired) {
         LOG.trace(
-            "Block has no transactions and this node is a proposer so it will send a proposal: "
-                + roundIdentifier);
+            "Block has no transactions and this node is a proposer so it will send a proposal: {}",
+            roundIdentifier);
         qbftRound.updateStateWithProposalAndTransmit(
             block, blockAccessList, Collections.emptyList(), Collections.emptyList());
       } else {
         LOG.trace(
-            "Block has no transactions but emptyBlockPeriodSeconds did not expired yet: "
-                + roundIdentifier);
+            "Block has no transactions but emptyBlockPeriodSeconds did not expired yet: {}",
+            roundIdentifier);
         finalState
             .getBlockTimer()
             .resetTimerForEmptyBlock(
@@ -235,6 +252,18 @@ public class QbftBlockHeightManager implements BaseQbftBlockHeightManager {
         currentRound = Optional.empty();
       }
     }
+  }
+
+  /**
+   * Determines whether the block this node would create for the given round right now would be
+   * empty (i.e. contains no pending transactions).
+   *
+   * @param qbftRound the round to build a candidate block for
+   * @return true if the candidate block would be empty
+   */
+  private boolean wouldCreateEmptyBlock(final QbftRound qbftRound) {
+    final long headerTimeStampSeconds = Math.round(clock.millis() / 1000D);
+    return qbftRound.createBlock(headerTimeStampSeconds).block().isEmpty();
   }
 
   /**

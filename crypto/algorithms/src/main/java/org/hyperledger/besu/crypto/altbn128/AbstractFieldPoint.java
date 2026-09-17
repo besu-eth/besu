@@ -153,11 +153,10 @@ public abstract class AbstractFieldPoint<U extends AbstractFieldPoint> implement
     if (this == obj) {
       return true;
     }
-    if (!(obj instanceof AbstractFieldPoint)) {
+    if (!(obj instanceof AbstractFieldPoint other)) {
       return false;
     }
 
-    final AbstractFieldPoint other = (AbstractFieldPoint) obj;
     return Objects.equals(x, other.x) && Objects.equals(y, other.y);
   }
 }

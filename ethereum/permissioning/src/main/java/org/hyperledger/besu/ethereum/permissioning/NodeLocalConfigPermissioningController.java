@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.permissioning;
 
+import org.hyperledger.besu.ethereum.p2p.discovery.NodeIdentifier;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.permissioning.AllowlistPersistor.ALLOWLIST_TYPE;
 import org.hyperledger.besu.ethereum.permissioning.node.NodeAllowlistUpdatedEvent;
@@ -47,7 +48,7 @@ public class NodeLocalConfigPermissioningController implements NodeConnectionPer
       LoggerFactory.getLogger(NodeLocalConfigPermissioningController.class);
 
   private LocalPermissioningConfiguration configuration;
-  private final List<EnodeURL> fixedNodes;
+  private final List<NodeIdentifier> fixedNodes;
   private final Bytes localNodeId;
   private final List<EnodeURL> nodesAllowlist = new CopyOnWriteArrayList<>();
   private final AllowlistPersistor allowlistPersistor;
@@ -60,20 +61,25 @@ public class NodeLocalConfigPermissioningController implements NodeConnectionPer
 
   public NodeLocalConfigPermissioningController(
       final LocalPermissioningConfiguration permissioningConfiguration,
-      final List<EnodeURL> fixedNodes,
+      final List<NodeIdentifier> fixedNodes,
       final Bytes localNodeId,
       final MetricsSystem metricsSystem) {
     this(
         permissioningConfiguration,
         fixedNodes,
         localNodeId,
-        new AllowlistPersistor(permissioningConfiguration.getNodePermissioningConfigFilePath()),
+        new AllowlistPersistor(
+            Optional.ofNullable(permissioningConfiguration.getNodePermissioningConfigFilePath())
+                .orElseThrow(
+                    () ->
+                        new IllegalStateException(
+                            "Node permissioning config file path is required when node permissioning is enabled"))),
         metricsSystem);
   }
 
   public NodeLocalConfigPermissioningController(
       final LocalPermissioningConfiguration configuration,
-      final List<EnodeURL> fixedNodes,
+      final List<NodeIdentifier> fixedNodes,
       final Bytes localNodeId,
       final AllowlistPersistor allowlistPersistor,
       final MetricsSystem metricsSystem) {
@@ -147,7 +153,7 @@ public class NodeLocalConfigPermissioningController implements NodeConnectionPer
     if (inputValidationResult.result() != AllowlistOperationResult.SUCCESS) {
       return inputValidationResult;
     }
-    final List<EnodeURL> peers =
+    final List<EnodeURLImpl> peers =
         enodeURLs.stream()
             .map(url -> EnodeURLImpl.fromString(url, configuration.getEnodeDnsConfiguration()))
             .collect(Collectors.toList());
@@ -237,7 +243,7 @@ public class NodeLocalConfigPermissioningController implements NodeConnectionPer
     return isPermitted(EnodeURLImpl.fromString(enodeURL, configuration.getEnodeDnsConfiguration()));
   }
 
-  public boolean isPermitted(final EnodeURL node) {
+  public boolean isPermitted(final EnodeURLImpl node) {
     if (Objects.equals(localNodeId, node.getNodeId())) {
       return true;
     }
@@ -332,7 +338,7 @@ public class NodeLocalConfigPermissioningController implements NodeConnectionPer
   public boolean isConnectionPermitted(
       final EnodeURL sourceEnode, final EnodeURL destinationEnode) {
     this.checkCounter.inc();
-    if (isPermitted(sourceEnode) && isPermitted(destinationEnode)) {
+    if (isPermitted((EnodeURLImpl) sourceEnode) && isPermitted((EnodeURLImpl) destinationEnode)) {
       this.checkCounterPermitted.inc();
       return true;
     } else {

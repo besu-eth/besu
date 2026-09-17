@@ -17,7 +17,6 @@ package org.hyperledger.besu.evm.operation;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 import static org.mockito.Mockito.mock;
 
-import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.testutils.TestMessageFrameBuilder;
@@ -98,7 +97,7 @@ public class EqOperationTest {
             .pushStackItem(Bytes.fromHexString(value0))
             .build();
 
-    operation.executeFixedCostOperation(frame, mock(EVM.class));
+    operation.executeFixedCostOperation(frame);
 
     assertThat(UInt256.valueOf(expectedResult.ordinal())).isEqualTo(frame.popStackItem());
   }

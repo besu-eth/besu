@@ -131,8 +131,7 @@ public class AmsterdamAcceptanceTestHelper {
         createNewPayloadRequest(
             executionPayload.toString(),
             PARENT_BEACON_BLOCK_ROOT_TEST,
-            executionRequests.toString(),
-            blockAccessList);
+            executionRequests.toString());
     final Call newPayloadRequest = createEngineCall(newPayloadRequestBody);
     try (final Response newPayloadResponse = newPayloadRequest.execute()) {
       assertThat(newPayloadResponse.code()).isEqualTo(200);
@@ -176,6 +175,29 @@ public class AmsterdamAcceptanceTestHelper {
     }
   }
 
+  /**
+   * Sends a payload-building {@code engine_forkchoiceUpdatedV4} whose payload attributes omit the
+   * {@code targetGasLimit} field, which is mandatory from Amsterdam onwards, and returns the parsed
+   * JSON-RPC response so callers can assert the error.
+   *
+   * @return the parsed JSON-RPC response
+   * @throws IOException if the engine call fails
+   */
+  public JsonNode forkChoiceUpdatedWithoutTargetGasLimit() throws IOException {
+    final EthBlock.Block block = besuNode.execute(ethTransactions.block());
+
+    blockTimeStamp += 1;
+    slotNumber += 1;
+    final Call request =
+        createEngineCall(
+            createForkChoiceRequest(block.getHash(), blockTimeStamp, slotNumber, false));
+
+    try (final Response response = request.execute()) {
+      assertThat(response.code()).isEqualTo(200);
+      return mapper.readTree(response.body().string());
+    }
+  }
+
   private Call createEngineCall(final String request) {
     return httpClient.newCall(
         new Request.Builder()
@@ -190,6 +212,14 @@ public class AmsterdamAcceptanceTestHelper {
 
   private String createForkChoiceRequest(
       final String parentBlockHash, final Long timeStamp, final Long slotNum) {
+    return createForkChoiceRequest(parentBlockHash, timeStamp, slotNum, true);
+  }
+
+  private String createForkChoiceRequest(
+      final String parentBlockHash,
+      final Long timeStamp,
+      final Long slotNum,
+      final boolean includeTargetGasLimit) {
     final Optional<Long> maybeTimeStamp = Optional.ofNullable(timeStamp);
     final Optional<Long> maybeSlotNum = Optional.ofNullable(slotNum);
 
@@ -223,6 +253,7 @@ public class AmsterdamAcceptanceTestHelper {
               + "      \"slotNumber\": \""
               + (maybeSlotNum.isPresent() ? "0x" + Long.toHexString(maybeSlotNum.get()) : "0x0")
               + "\""
+              + (includeTargetGasLimit ? ",      \"targetGasLimit\": \"0x1c9c380\"" : "")
               + "    }";
     }
 
@@ -245,12 +276,9 @@ public class AmsterdamAcceptanceTestHelper {
   private String createNewPayloadRequest(
       final String executionPayload,
       final String parentBeaconBlockRoot,
-      final String executionRequests,
-      final String blockAccessList) {
+      final String executionRequests) {
     // engine_newPayloadV5 params: [executionPayload, versionedHashes, parentBeaconBlockRoot,
-    // executionRequests, blockAccessList]
-    String blockAccessListParam =
-        blockAccessList != null ? "\"" + blockAccessList + "\"" : "\"0xc0\"";
+    // executionRequests]
     return "{"
         + "  \"jsonrpc\": \"2.0\","
         + "  \"method\": \"engine_newPayloadV5\","
@@ -262,8 +290,6 @@ public class AmsterdamAcceptanceTestHelper {
         + "\""
         + ","
         + executionRequests
-        + ","
-        + blockAccessListParam
         + "],"
         + "  \"id\": 67"
         + "}";

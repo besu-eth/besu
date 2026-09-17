@@ -139,7 +139,11 @@ public abstract class AbstractNatManager implements NatManager {
               new IllegalArgumentException(
                   String.format(
                       "Required service type not found : %s %s", serviceType, networkProtocol)));
-    } catch (InterruptedException | ExecutionException | TimeoutException e) {
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new RuntimeException(
+          String.format("Unable to retrieve the service type : %s", serviceType.toString()));
+    } catch (ExecutionException | TimeoutException e) {
       throw new RuntimeException(
           String.format("Unable to retrieve the service type : %s", serviceType.toString()));
     }

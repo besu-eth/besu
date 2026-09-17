@@ -39,6 +39,9 @@ import org.apache.tuweni.units.bigints.UInt256;
 public class JsonGenesisConfigOptions implements GenesisConfigOptions {
 
   private static final String ETHASH_CONFIG_KEY = "ethash";
+  // Preferred alias for ethash's fixeddifficulty block in genesis files; "ethash" is retained for
+  // backwards compatibility with existing genesis files.
+  private static final String FIXED_DIFFICULTY_CONFIG_KEY = "fixeddifficulty";
   private static final String IBFT_LEGACY_CONFIG_KEY = "ibft";
   private static final String IBFT2_CONFIG_KEY = "ibft2";
   private static final String QBFT_CONFIG_KEY = "qbft";
@@ -55,6 +58,10 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
   private static final String DEPOSIT_CONTRACT_ADDRESS_KEY = "depositcontractaddress";
   private static final String CONSOLIDATION_REQUEST_CONTRACT_ADDRESS_KEY =
       "consolidationrequestcontractaddress";
+  private static final String BUILDER_DEPOSIT_REQUEST_CONTRACT_ADDRESS_KEY =
+      "builderdepositrequestcontractaddress";
+  private static final String BUILDER_EXIT_REQUEST_CONTRACT_ADDRESS_KEY =
+      "builderexitrequestcontractaddress";
 
   private final ObjectNode configRoot;
   private final Map<String, String> configOverrides = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
@@ -131,7 +138,7 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
 
   @Override
   public boolean isEthHash() {
-    return configRoot.has(ETHASH_CONFIG_KEY);
+    return configRoot.has(ETHASH_CONFIG_KEY) || configRoot.has(FIXED_DIFFICULTY_CONFIG_KEY);
   }
 
   @Override
@@ -208,10 +215,12 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
   }
 
   @Override
-  public EthashConfigOptions getEthashConfigOptions() {
-    return JsonUtil.getObjectNode(configRoot, ETHASH_CONFIG_KEY)
-        .map(EthashConfigOptions::new)
-        .orElse(EthashConfigOptions.DEFAULT);
+  public FixedDifficultyConfigOptions getFixedDifficultyConfigOptions() {
+    // Prefer the "fixeddifficulty" key; fall back to "ethash" for backwards compatibility.
+    return JsonUtil.getObjectNode(configRoot, FIXED_DIFFICULTY_CONFIG_KEY)
+        .or(() -> JsonUtil.getObjectNode(configRoot, ETHASH_CONFIG_KEY))
+        .map(FixedDifficultyConfigOptions::new)
+        .orElse(FixedDifficultyConfigOptions.DEFAULT);
   }
 
   @Override
@@ -404,11 +413,6 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
   }
 
   @Override
-  public PowAlgorithm getPowAlgorithm() {
-    return isEthHash() ? PowAlgorithm.ETHASH : PowAlgorithm.UNSUPPORTED;
-  }
-
-  @Override
   public Optional<String> getEcCurve() {
     return JsonUtil.getString(configRoot, EC_CURVE_CONFIG_KEY);
   }
@@ -441,6 +445,18 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
     Optional<String> inputAddress =
         JsonUtil.getString(configRoot, CONSOLIDATION_REQUEST_CONTRACT_ADDRESS_KEY);
     return inputAddress.map(Address::fromHexString);
+  }
+
+  @Override
+  public Optional<Address> getBuilderDepositRequestContractAddress() {
+    return JsonUtil.getString(configRoot, BUILDER_DEPOSIT_REQUEST_CONTRACT_ADDRESS_KEY)
+        .map(Address::fromHexString);
+  }
+
+  @Override
+  public Optional<Address> getBuilderExitRequestContractAddress() {
+    return JsonUtil.getString(configRoot, BUILDER_EXIT_REQUEST_CONTRACT_ADDRESS_KEY)
+        .map(Address::fromHexString);
   }
 
   @Override
@@ -487,12 +503,16 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
     getDepositContractAddress().ifPresent(l -> builder.put("depositContractAddress", l));
     getConsolidationRequestContractAddress()
         .ifPresent(l -> builder.put("consolidationRequestContractAddress", l));
+    getBuilderDepositRequestContractAddress()
+        .ifPresent(l -> builder.put("builderDepositRequestContractAddress", l));
+    getBuilderExitRequestContractAddress()
+        .ifPresent(l -> builder.put("builderExitRequestContractAddress", l));
 
     if (isClique()) {
       builder.put("clique", getCliqueConfigOptions().asMap());
     }
     if (isEthHash()) {
-      builder.put("ethash", getEthashConfigOptions().asMap());
+      builder.put("ethash", getFixedDifficultyConfigOptions().asMap());
     }
     if (isIbftLegacy()) {
       builder.put("ibft", getIbftLegacyConfigOptions().asMap());

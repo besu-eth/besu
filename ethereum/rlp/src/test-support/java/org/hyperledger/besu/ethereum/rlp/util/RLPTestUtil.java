@@ -73,10 +73,9 @@ public class RLPTestUtil {
   }
 
   private static void encode(final Object obj, final RLPOutput out) {
-    if (obj instanceof Bytes) {
-      out.writeBytes((Bytes) obj);
-    } else if (obj instanceof List) {
-      final List<?> l = (List<?>) obj;
+    if (obj instanceof Bytes bytes) {
+      out.writeBytes(bytes);
+    } else if (obj instanceof List<?> l) {
       out.startList();
       for (final Object o : l) encode(o, out);
       out.endList();

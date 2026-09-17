@@ -41,7 +41,8 @@ public class ValidatorContractController {
   public static final String GET_VALIDATORS = "getValidators";
 
   /** The constant CONTRACT_ERROR_MSG. */
-  public static final String CONTRACT_ERROR_MSG = "Failed validator smart contract call";
+  public static final String CONTRACT_ERROR_MSG =
+      "Failed validator smart contract call: unable to execute call at block ";
 
   private final TransactionSimulator transactionSimulator;
   private final Function getValidatorsFunction;
@@ -75,7 +76,7 @@ public class ValidatorContractController {
   public Collection<Address> getValidators(final long blockNumber, final Address contractAddress) {
     return callFunction(blockNumber, getValidatorsFunction, contractAddress)
         .map(this::parseGetValidatorsResult)
-        .orElseThrow(() -> new IllegalStateException(CONTRACT_ERROR_MSG));
+        .orElseThrow(() -> new IllegalStateException(CONTRACT_ERROR_MSG + blockNumber));
   }
 
   @SuppressWarnings({"rawtypes", "unchecked"})

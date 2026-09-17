@@ -14,87 +14,57 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
-import static org.mockito.Mockito.atLeast;
-import static org.mockito.Mockito.atLeastOnce;
-import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.spy;
-import static org.mockito.Mockito.verify;
+import static org.assertj.core.api.Assertions.assertThat;
 
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.QosTimer;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import io.vertx.core.Vertx;
-import io.vertx.junit5.VertxExtension;
-import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
 
-@ExtendWith(VertxExtension.class)
 public class EngineQosTimerTest {
+  private static final long TEST_QOS_TIMEOUT = 200L;
+
   private EngineQosTimer engineQosTimer;
   private Vertx vertx;
-  private VertxTestContext testContext;
+  private CountDownLatch warningLatch;
+  private AtomicInteger warningCount;
 
   @BeforeEach
-  public void setUp() throws Exception {
+  public void setUp() {
     vertx = Vertx.vertx();
-    testContext = new VertxTestContext();
-    engineQosTimer = new EngineQosTimer(vertx);
+    warningLatch = new CountDownLatch(1);
+    warningCount = new AtomicInteger(0);
+    engineQosTimer =
+        new EngineQosTimer(
+            vertx,
+            TEST_QOS_TIMEOUT,
+            ignored -> {
+              warningCount.incrementAndGet();
+              warningLatch.countDown();
+            });
   }
 
   @AfterEach
   public void cleanUp() {
-    vertx.close();
+    engineQosTimer.stop();
+    vertx.close().toCompletionStage().toCompletableFuture().join();
   }
 
   @Test
-  public void shouldNotWarnWhenCalledWithinTimeout() {
-    final long TEST_QOS_TIMEOUT = 75L;
-    final var spyEngineQosTimer = spy(engineQosTimer);
-    final var spyTimer =
-        spy(new QosTimer(vertx, TEST_QOS_TIMEOUT, z -> spyEngineQosTimer.logTimeoutWarning()));
-    spyTimer.resetTimer();
-    doReturn(spyTimer).when(spyEngineQosTimer).getQosTimer();
+  public void shouldNotWarnWhenCalledWithinTimeout() throws InterruptedException {
+    vertx.setPeriodic(TEST_QOS_TIMEOUT / 4, ignored -> engineQosTimer.executionEngineCalled());
 
-    // call executionEngineCalled() 50 milliseconds hence to reset our QoS timer
-    vertx.setTimer(50L, z -> spyEngineQosTimer.executionEngineCalled());
-
-    vertx.setTimer(
-        100L,
-        z -> {
-          try {
-            verify(spyTimer, atLeast(2)).resetTimer();
-            // should not warn
-            verify(spyEngineQosTimer, never()).logTimeoutWarning();
-            testContext.completeNow();
-          } catch (Exception ex) {
-            testContext.failNow(ex);
-          }
-        });
+    assertThat(warningLatch.await(TEST_QOS_TIMEOUT * 3, TimeUnit.MILLISECONDS)).isFalse();
+    assertThat(warningCount).hasValue(0);
   }
 
   @Test
-  public void shouldWarnWhenNotCalledWithinTimeout() {
-    final long TEST_QOS_TIMEOUT = 75L;
-    final var spyEngineQosTimer = spy(engineQosTimer);
-    final var spyTimer =
-        spy(new QosTimer(vertx, TEST_QOS_TIMEOUT, z -> spyEngineQosTimer.logTimeoutWarning()));
-    spyTimer.resetTimer();
-    doReturn(spyTimer).when(spyEngineQosTimer).getQosTimer();
-
-    vertx.setTimer(
-        100L,
-        z -> {
-          try {
-            verify(spyTimer, atLeastOnce()).resetTimer();
-            // should warn
-            verify(spyEngineQosTimer, atLeastOnce()).logTimeoutWarning();
-            testContext.completeNow();
-          } catch (Exception ex) {
-            testContext.failNow(ex);
-          }
-        });
+  public void shouldWarnWhenNotCalledWithinTimeout() throws InterruptedException {
+    assertThat(warningLatch.await(TEST_QOS_TIMEOUT * 5, TimeUnit.MILLISECONDS)).isTrue();
+    assertThat(warningCount.get()).isGreaterThanOrEqualTo(1);
   }
 }

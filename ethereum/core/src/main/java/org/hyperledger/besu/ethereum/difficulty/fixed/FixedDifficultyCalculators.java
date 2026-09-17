@@ -29,11 +29,11 @@ public class FixedDifficultyCalculators {
   public static final int DEFAULT_DIFFICULTY = 100;
 
   public static boolean isFixedDifficultyInConfig(final GenesisConfigOptions config) {
-    return config.getEthashConfigOptions().getFixedDifficulty().isPresent();
+    return config.getFixedDifficultyConfigOptions().getFixedDifficulty().isPresent();
   }
 
   public static DifficultyCalculator calculator(final GenesisConfigOptions config) {
-    long difficulty = config.getEthashConfigOptions().getFixedDifficulty().getAsLong();
+    long difficulty = config.getFixedDifficultyConfigOptions().getFixedDifficulty().getAsLong();
     return (time, parent) -> BigInteger.valueOf(difficulty);
   }
 }

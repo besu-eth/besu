@@ -83,6 +83,7 @@ public class BlobGasValidationRuleTest {
     // Create block header with matching excessBlobGas
     final BlockHeaderTestFixture headerBuilder = new BlockHeaderTestFixture();
     headerBuilder.excessBlobGas(BlobGas.of(1L));
+    headerBuilder.blobGasUsed(0L);
     final BlockHeader header = headerBuilder.buildHeader();
 
     assertThat(cancunBlobGasValidationRule.validate(header, parentHeader)).isTrue();
@@ -104,6 +105,8 @@ public class BlobGasValidationRuleTest {
 
     // Create block header with different excessBlobGas
     final BlockHeaderTestFixture headerBuilder = new BlockHeaderTestFixture();
+    headerBuilder.excessBlobGas(BlobGas.of(0L));
+    headerBuilder.blobGasUsed(0L);
     final BlockHeader header = headerBuilder.buildHeader();
 
     assertThat(cancunBlobGasValidationRule.validate(header, parentHeader)).isFalse();
@@ -126,6 +129,7 @@ public class BlobGasValidationRuleTest {
     // Create block header with matching excessBlobGas
     final BlockHeaderTestFixture headerBuilder = new BlockHeaderTestFixture();
     headerBuilder.excessBlobGas(BlobGas.of(1L));
+    headerBuilder.blobGasUsed(0L);
     final BlockHeader header = headerBuilder.buildHeader();
 
     assertThat(pragueBlobGasValidationRule.validate(header, parentHeader)).isTrue();
@@ -147,8 +151,62 @@ public class BlobGasValidationRuleTest {
 
     // Create block header with different excessBlobGas
     final BlockHeaderTestFixture headerBuilder = new BlockHeaderTestFixture();
+    headerBuilder.excessBlobGas(BlobGas.of(0L));
+    headerBuilder.blobGasUsed(0L);
     final BlockHeader header = headerBuilder.buildHeader();
 
     assertThat(pragueBlobGasValidationRule.validate(header, parentHeader)).isFalse();
+  }
+
+  @Test
+  public void validateHeader_BlobGasUsedExceedsLimit_FailsValidation() {
+    long blobGasPerBlob = cancunGasCalculator.getBlobGasPerBlob();
+    long overLimitBlobGasUsed = blobGasPerBlob * (MAX_BLOBS_PER_BLOCK + 1);
+
+    final BlockHeaderTestFixture parentBuilder = new BlockHeaderTestFixture();
+    parentBuilder.excessBlobGas(BlobGas.of(0L));
+    parentBuilder.blobGasUsed(0L);
+    final BlockHeader parentHeader = parentBuilder.buildHeader();
+
+    final BlockHeaderTestFixture headerBuilder = new BlockHeaderTestFixture();
+    headerBuilder.excessBlobGas(BlobGas.of(0L));
+    headerBuilder.blobGasUsed(overLimitBlobGasUsed);
+    final BlockHeader header = headerBuilder.buildHeader();
+
+    assertThat(cancunBlobGasValidationRule.validate(header, parentHeader)).isFalse();
+  }
+
+  @Test
+  public void validateHeader_MissingExcessBlobGas_FailsValidation() {
+    long target = cancunTargetingGasLimitCalculator.getTargetBlobGasPerBlock();
+
+    final BlockHeaderTestFixture parentBuilder = new BlockHeaderTestFixture();
+    parentBuilder.excessBlobGas(BlobGas.of(1L));
+    parentBuilder.blobGasUsed(target);
+    final BlockHeader parentHeader = parentBuilder.buildHeader();
+
+    final BlockHeaderTestFixture headerBuilder = new BlockHeaderTestFixture();
+    headerBuilder.blobGasUsed(0L);
+    final BlockHeader headerMissingExcessBlobGas = headerBuilder.buildHeader();
+
+    assertThat(cancunBlobGasValidationRule.validate(headerMissingExcessBlobGas, parentHeader))
+        .isFalse();
+  }
+
+  @Test
+  public void validateHeader_MissingBlobGasUsed_FailsValidation() {
+    long target = cancunTargetingGasLimitCalculator.getTargetBlobGasPerBlock();
+
+    final BlockHeaderTestFixture parentBuilder = new BlockHeaderTestFixture();
+    parentBuilder.excessBlobGas(BlobGas.of(1L));
+    parentBuilder.blobGasUsed(target);
+    final BlockHeader parentHeader = parentBuilder.buildHeader();
+
+    final BlockHeaderTestFixture headerBuilder = new BlockHeaderTestFixture();
+    headerBuilder.excessBlobGas(BlobGas.of(1L));
+    final BlockHeader headerMissingBlobGasUsed = headerBuilder.buildHeader();
+
+    assertThat(cancunBlobGasValidationRule.validate(headerMissingBlobGasUsed, parentHeader))
+        .isFalse();
   }
 }

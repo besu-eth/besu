@@ -16,8 +16,9 @@ package org.hyperledger.besu.cli.options;
 
 import org.hyperledger.besu.cli.DefaultCommandValues;
 import org.hyperledger.besu.cli.converter.PercentageConverter;
-import org.hyperledger.besu.cli.converter.SubnetInfoConverter;
+import org.hyperledger.besu.cli.converter.SubnetCidrConverter;
 import org.hyperledger.besu.cli.util.CommandLineUtils;
+import org.hyperledger.besu.ethereum.p2p.config.DiscoveryMode;
 import org.hyperledger.besu.ethereum.p2p.discovery.P2PDiscoveryConfiguration;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.util.NetworkUtility;
@@ -34,7 +35,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 import com.google.common.net.InetAddresses;
-import org.apache.commons.net.util.SubnetUtils;
+import inet.ipaddr.IPAddress;
 import org.apache.tuweni.bytes.Bytes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -81,6 +82,16 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
       arity = "1")
   public final Boolean peerDiscoveryEnabled = true;
 
+  /** Selects which discovery protocol(s) the node runs. */
+  @CommandLine.Option(
+      names = {"--discovery-mode"},
+      description =
+          "Discovery protocol(s) to run: V4, V5, or BOTH (default: ${DEFAULT-VALUE}). "
+              + "V4 runs only DiscV4. "
+              + "V5 runs only DiscV5 (requires a secp256k1 node key; falls back to V4 if unsupported). "
+              + "BOTH runs DiscV4 and DiscV5 concurrently on a shared UDP socket.")
+  public DiscoveryMode discoveryMode = DiscoveryMode.getDefault();
+
   /**
    * A list of bootstrap nodes can be passed and a hardcoded list will be used otherwise by the
    * Runner.
@@ -88,10 +99,9 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
   // NOTE: we have no control over default value here.
   @CommandLine.Option(
       names = {"--bootnodes"},
-      paramLabel = "<enode://id@host:port>",
+      paramLabel = "<enode://id@host:port>|<enr:base64Enr>",
       description =
-          "Comma separated enode URLs for P2P discovery bootstrap. "
-              + "Default is a predefined list.",
+          "Comma separated enode URLs (DiscV4) and/or ENR strings (DiscV5) for P2P discovery bootstrap. Defaults to genesis-provided bootnodes.",
       split = ",",
       arity = "0..*")
   public final List<String> bootNodes = null;
@@ -121,6 +131,14 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
       description = "Port on which to listen for P2P communication (default: ${DEFAULT-VALUE})")
   public Integer p2pPort = EnodeURLImpl.DEFAULT_LISTENING_PORT;
 
+  /** The UDP port used for devp2p peer discovery. Defaults to --p2p-port when not set. */
+  @CommandLine.Option(
+      names = {"--p2p-discovery-port"},
+      paramLabel = DefaultCommandValues.MANDATORY_PORT_FORMAT_HELP,
+      description =
+          "UDP port for devp2p peer discovery. Defaults to --p2p-port when not set. Use 0 for ephemeral port allocation.")
+  public Integer p2pDiscoveryPort = null;
+
   // ===================== IPv6 Network Options =====================
 
   /** The IPv6 address the node advertises to peers for P2P communication. */
@@ -146,6 +164,14 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
       description =
           "Port on which to listen for IPv6 P2P communication (default: ${DEFAULT-VALUE})")
   public Integer p2pPortIpv6 = EnodeURLImpl.DEFAULT_LISTENING_PORT_IPV6;
+
+  /** The IPv6 UDP port used for devp2p peer discovery. Defaults to --p2p-port-ipv6 when not set. */
+  @CommandLine.Option(
+      names = {"--p2p-discovery-port-ipv6"},
+      paramLabel = DefaultCommandValues.MANDATORY_PORT_FORMAT_HELP,
+      description =
+          "IPv6 UDP port for devp2p peer discovery. Defaults to --p2p-port-ipv6 when not set. Use 0 for ephemeral port allocation.")
+  public Integer p2pDiscoveryPortIpv6 = null;
 
   // ===================== IP Version Preference =====================
 
@@ -193,7 +219,8 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
   @SuppressWarnings({"FieldCanBeFinal", "FieldMayBeFinal"}) // PicoCLI requires non-final Strings.
   @CommandLine.Option(
       names = {"--discovery-dns-url"},
-      description = "Specifies the URL to use for DNS discovery")
+      description =
+          "Specifies the URL to use for DNS discovery of peers. Set to empty string to disable DNS peer discovery even on networks that include a DNS URL in their genesis config.")
   public String discoveryDnsUrl = null;
 
   /** Boolean option to allow for incoming connections to be prioritized randomly. */
@@ -256,24 +283,28 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
       names = {"--net-restrict"},
       arity = "1..*",
       split = ",",
-      converter = SubnetInfoConverter.class,
+      converter = SubnetCidrConverter.class,
       description =
           "Comma-separated list of allowed IP subnets (e.g., '192.168.1.0/24,10.0.0.0/8').")
-  private List<SubnetUtils.SubnetInfo> allowedSubnets;
+  private List<IPAddress> allowedSubnets;
 
   @Override
   public P2PDiscoveryConfiguration toDomainObject() {
     applySmartDefaults();
+    logIpv6AutoDiscovery();
 
     return new P2PDiscoveryConfiguration(
         p2pEnabled,
         peerDiscoveryEnabled,
+        discoveryMode,
         p2pHost,
         p2pInterface,
         p2pPort,
+        p2pDiscoveryPort != null ? p2pDiscoveryPort : p2pPort,
         Optional.ofNullable(p2pHostIpv6),
         Optional.ofNullable(p2pInterfaceIpv6),
         p2pPortIpv6,
+        p2pDiscoveryPortIpv6 != null ? p2pDiscoveryPortIpv6 : p2pPortIpv6,
         maxPeers,
         isLimitRemoteWireConnectionsEnabled,
         maxRemoteConnectionsPercentage,
@@ -292,10 +323,6 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
    * <p>If --p2p-host-ipv6 is specified but --p2p-interface-ipv6 is not, automatically sets
    * --p2p-interface-ipv6 to :: (listen on all IPv6 interfaces). This matches the IPv4 behavior
    * where --p2p-interface defaults to 0.0.0.0.
-   *
-   * <p>Logs a warning if --p2p-interface-ipv6 is specified without --p2p-host-ipv6, as this creates
-   * an incomplete dual-stack configuration where the node listens on IPv6 but doesn't advertise an
-   * IPv6 address in its ENR.
    */
   private void applySmartDefaults() {
     // Auto-set IPv6 interface to listen on all IPv6 addresses when IPv6 host is specified
@@ -306,13 +333,21 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
               + "To use a different interface, explicitly set --p2p-interface-ipv6.",
           p2pInterfaceIpv6);
     }
+  }
 
-    // Warn about incomplete dual-stack configuration
-    if (p2pInterfaceIpv6 != null && p2pHostIpv6 == null) {
-      LOG.warn(
-          "--p2p-interface-ipv6 specified without --p2p-host-ipv6. "
-              + "Node will listen on IPv6 but will not advertise IPv6 address in ENR. "
-              + "For full dual-stack support, specify --p2p-host-ipv6.");
+  /**
+   * Logs an informational message when --p2p-interface-ipv6 is specified without --p2p-host-ipv6.
+   *
+   * <p>This is the opt-in path for DiscV5 peer-consensus IPv6 auto-discovery: when DiscV5 is
+   * enabled, the IPv6 ENR fields are populated once at least two peers report a consistent external
+   * IPv6 address.
+   */
+  private void logIpv6AutoDiscovery() {
+    if (p2pHostIpv6 == null && p2pInterfaceIpv6 != null) {
+      LOG.info(
+          "--p2p-interface-ipv6 set without --p2p-host-ipv6: IPv6 address in ENR may be "
+              + "auto-discovered from DiscV5 peer consensus when DiscV5 is enabled "
+              + "(requires >=2 peer confirmations). Set --p2p-host-ipv6 to pin it explicitly.");
     }
   }
 

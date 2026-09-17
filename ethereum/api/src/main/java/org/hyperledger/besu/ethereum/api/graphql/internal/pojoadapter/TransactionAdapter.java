@@ -36,11 +36,11 @@ import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import javax.annotation.Nullable;
 
 import graphql.schema.DataFetchingEnvironment;
 import jakarta.validation.constraints.NotNull;
 import org.apache.tuweni.bytes.Bytes;
+import org.jspecify.annotations.Nullable;
 
 /**
  * The TransactionAdapter class provides methods to retrieve the transaction details.

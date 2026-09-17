@@ -382,11 +382,4 @@ class ECRECPrecompiledContractTest {
     assertThat(r1Contract.computePrecompile(input, messageFrame).output()).isEqualTo(Bytes.EMPTY);
     verify(r1Spy).recoverPublicKeyFromSignature(any(), any());
   }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
-  }
 }

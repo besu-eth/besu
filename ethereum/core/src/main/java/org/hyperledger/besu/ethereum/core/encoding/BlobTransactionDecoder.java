@@ -26,14 +26,11 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
-import java.util.function.Supplier;
-
-import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
 
 public class BlobTransactionDecoder {
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
 
   private BlobTransactionDecoder() {
     // private constructor
@@ -98,12 +95,10 @@ public class BlobTransactionDecoder {
 
     final byte recId = (byte) input.readUnsignedByteScalar();
     builder.signature(
-        SIGNATURE_ALGORITHM
-            .get()
-            .createSignature(
-                input.readUInt256Scalar().toUnsignedBigInteger(),
-                input.readUInt256Scalar().toUnsignedBigInteger(),
-                recId));
+        SIGNATURE_ALGORITHM.createSignature(
+            input.readUInt256Scalar().toUnsignedBigInteger(),
+            input.readUInt256Scalar().toUnsignedBigInteger(),
+            recId));
     input.leaveList();
   }
 }

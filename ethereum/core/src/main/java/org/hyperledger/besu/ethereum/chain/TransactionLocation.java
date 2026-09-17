@@ -64,10 +64,9 @@ public class TransactionLocation {
     if (obj == this) {
       return true;
     }
-    if (!(obj instanceof TransactionLocation)) {
+    if (!(obj instanceof TransactionLocation other)) {
       return false;
     }
-    final TransactionLocation other = (TransactionLocation) obj;
     return getTransactionIndex() == other.getTransactionIndex()
         && getBlockHash().equals(other.getBlockHash());
   }

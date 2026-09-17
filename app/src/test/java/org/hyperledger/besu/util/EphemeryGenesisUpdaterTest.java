@@ -109,7 +109,7 @@ public class EphemeryGenesisUpdaterTest {
     assertThat(config.withOverrides(override).getConfigOptions().getChainId()).isPresent();
     assertThat(config.withOverrides(override).getConfigOptions().getChainId())
         .hasValue(expectedChainId);
-    assertThat(config.withOverrides(override).getTimestamp()).isNotNull();
+    assertThat(config.withOverrides(override).getTimestamp()).isGreaterThanOrEqualTo(0);
     assertThat(expectedChainId).isEqualTo(override.get("chainId"));
     assertThat(String.valueOf(expectedGenesisTimestamp)).isEqualTo(override.get("timestamp"));
   }

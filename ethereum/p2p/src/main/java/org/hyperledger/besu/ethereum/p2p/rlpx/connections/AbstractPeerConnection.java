@@ -248,10 +248,9 @@ public abstract class AbstractPeerConnection implements PeerConnection {
     if (o == this) {
       return true;
     }
-    if (!(o instanceof AbstractPeerConnection)) {
+    if (!(o instanceof AbstractPeerConnection that)) {
       return false;
     }
-    final AbstractPeerConnection that = (AbstractPeerConnection) o;
     return Objects.equals(this.connectionId, that.connectionId)
         && Objects.equals(this.peer, that.peer);
   }

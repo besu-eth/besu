@@ -19,7 +19,14 @@ import org.hyperledger.besu.plugin.data.BlockHeader;
 
 import java.util.Collection;
 
-/** Allows for the BFT specific aspects of the block chain to be queried. */
+/**
+ * Allows for the BFT specific aspects of the block chain to be queried.
+ *
+ * @deprecated This service is scheduled for removal in a future release, with no replacement, as it
+ *     has no known usage.
+ */
+@Deprecated(forRemoval = true)
+@SuppressWarnings("removal")
 public interface BftQueryService extends PoaQueryService {
 
   /**

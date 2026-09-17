@@ -260,4 +260,12 @@ public class BenchmarkHelper {
     value[0] = (byte) (value[0] | 0x80);
     return Bytes.wrap(value);
   }
+
+  static Bytes pow2(final int n) {
+    final byte[] bytes = new byte[32];
+    int nBytes = Integer.divideUnsigned(n, 8);
+    int nBits = Integer.remainderUnsigned(n, 8);
+    bytes[31 - nBytes] = (byte) (1 << nBits);
+    return Bytes.wrap(bytes);
+  }
 }

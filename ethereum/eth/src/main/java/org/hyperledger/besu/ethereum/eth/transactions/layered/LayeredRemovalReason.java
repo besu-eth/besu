@@ -50,48 +50,50 @@ interface LayeredRemovalReason extends RemovalReason {
      * Tx removed since it is confirmed on chain, as part of an imported block. Keep tracking since
      * makes no sense to reprocess a confirmed.
      */
-    CONFIRMED(false),
+    CONFIRMED(false, true),
     /**
      * Tx removed since it has been replaced by another one added in the same layer. Keep tracking
      * since makes no sense to reprocess a replaced tx.
      */
-    REPLACED(false),
+    REPLACED(false, true),
     /**
      * Tx removed since it has been replaced by another one added in another layer. Keep tracking
      * since makes no sense to reprocess a replaced tx.
      */
-    CROSS_LAYER_REPLACED(false),
+    CROSS_LAYER_REPLACED(false, true),
     /**
      * Tx removed when the pool is full, to make space for new incoming txs. Stop tracking it so we
      * could re-accept it in the future.
      */
-    DROPPED(true),
+    DROPPED(true, false),
     /**
      * Tx removed since found invalid after it was added to the pool, for example during txs
      * selection for a new block proposal. Keep tracking since we do not want to reprocess an
      * invalid tx.
      */
-    INVALIDATED(false),
+    INVALIDATED(false, true),
     /**
      * Special case, when for a sender, discrepancies are found between the world state view and the
      * pool view, then all the txs for this sender are removed and added again. Discrepancies, are
      * rare, and can happen during a short windows when a new block is being imported and the world
      * state being updated. Keep tracking since it is removed and re-added.
      */
-    RECONCILED(false),
+    RECONCILED(false, false),
     /**
      * When a pending tx is penalized its score is decreased, if at some point its score is lower
      * than the configured minimum then the pending tx is removed from the pool. Stop tracking it so
      * we could re-accept it in the future.
      */
-    BELOW_MIN_SCORE(true);
+    BELOW_MIN_SCORE(true, false);
 
     private final String label;
     private final boolean stopTracking;
+    private final boolean stopBroadcasting;
 
-    PoolRemovalReason(final boolean stopTracking) {
+    PoolRemovalReason(final boolean stopTracking, final boolean stopBroadcasting) {
       this.label = name().toLowerCase(Locale.ROOT);
       this.stopTracking = stopTracking;
+      this.stopBroadcasting = stopBroadcasting;
     }
 
     @Override
@@ -107,6 +109,11 @@ interface LayeredRemovalReason extends RemovalReason {
     @Override
     public boolean stopTracking() {
       return stopTracking;
+    }
+
+    @Override
+    public boolean stopBroadcasting() {
+      return stopBroadcasting;
     }
   }
 
@@ -156,6 +163,11 @@ interface LayeredRemovalReason extends RemovalReason {
      */
     @Override
     public boolean stopTracking() {
+      return false;
+    }
+
+    @Override
+    public boolean stopBroadcasting() {
       return false;
     }
   }

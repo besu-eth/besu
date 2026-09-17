@@ -14,12 +14,11 @@
  */
 package org.hyperledger.besu.util;
 
-import static java.util.stream.Collectors.toList;
-
+import org.hyperledger.besu.ethereum.p2p.discovery.NodeIdentifier;
+import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.permissioning.LocalPermissioningConfiguration;
-import org.hyperledger.besu.plugin.data.EnodeURL;
 
-import java.net.URI;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -32,35 +31,34 @@ public class PermissioningConfigurationValidator {
   /**
    * Check if all nodes are in allowlist.
    *
-   * @param nodeURIs the node URIs
+   * @param nodeIdentifiers the node URIs
    * @param permissioningConfiguration the permissioning configuration
    * @throws Exception In case of nodes are not in allow list
    */
   public static void areAllNodesInAllowlist(
-      final Collection<EnodeURL> nodeURIs,
+      final Collection<? extends NodeIdentifier> nodeIdentifiers,
       final LocalPermissioningConfiguration permissioningConfiguration)
       throws Exception {
 
-    if (permissioningConfiguration.isNodeAllowlistEnabled() && nodeURIs != null) {
-      final List<URI> allowlistNodesWithoutQueryParam =
-          permissioningConfiguration.getNodeAllowlist().stream()
-              .map(EnodeURL::toURIWithoutDiscoveryPort)
-              .collect(toList());
+    if (permissioningConfiguration.isNodeAllowlistEnabled() && nodeIdentifiers != null) {
+      final List<EnodeURLImpl> allowlistNodesWithoutQueryParam =
+          permissioningConfiguration.getNodeAllowlist();
 
-      final List<URI> nodeURIsNotInAllowlist =
-          nodeURIs.stream()
-              .map(EnodeURL::toURIWithoutDiscoveryPort)
-              .filter(uri -> !allowlistNodesWithoutQueryParam.contains(uri))
-              .collect(toList());
+      final List<NodeIdentifier> nodesNotInAllowlist = new ArrayList<>(nodeIdentifiers);
+      nodesNotInAllowlist.removeIf(
+          (node) ->
+              allowlistNodesWithoutQueryParam.stream()
+                  .anyMatch(
+                      (allowedNode) -> NodeIdentifier.isSameListeningEndpoint(node, allowedNode)));
 
-      if (!nodeURIsNotInAllowlist.isEmpty()) {
+      if (!nodesNotInAllowlist.isEmpty()) {
         throw new Exception(
-            "Specified node(s) not in nodes-allowlist " + enodesAsStrings(nodeURIsNotInAllowlist));
+            "Specified node(s) not in nodes-allowlist " + enodesAsStrings(nodesNotInAllowlist));
       }
     }
   }
 
-  private static Collection<String> enodesAsStrings(final List<URI> enodes) {
-    return enodes.parallelStream().map(URI::toASCIIString).collect(Collectors.toList());
+  private static Collection<String> enodesAsStrings(final List<NodeIdentifier> nodeIdentifiers) {
+    return nodeIdentifiers.parallelStream().map(Object::toString).collect(Collectors.toList());
   }
 }

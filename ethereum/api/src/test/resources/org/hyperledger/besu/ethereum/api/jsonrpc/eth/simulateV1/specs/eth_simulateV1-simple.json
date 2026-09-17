@@ -42,12 +42,14 @@
           {
             "gasUsed": "0x5208",
             "logs": [],
+            "maxUsedGas": "0x5208",
             "returnData": "0x",
             "status": "0x1"
           },
           {
             "gasUsed": "0x5208",
             "logs": [],
+            "maxUsedGas": "0x5208",
             "returnData": "0x",
             "status": "0x1"
           }
@@ -76,6 +78,7 @@
             "accessList": [],
             "blockHash": "0x6e71e3172e3547c45bec026423067a121f2ebeaa4cccf2ba8783c3f23fd1f09a",
             "blockNumber": "0x2e",
+            "blockTimestamp": "0x1ce",
             "chainId": "0xc72dd9d5e883e",
             "from": "0xc000000000000000000000000000000000000000",
             "gas": "0x47e7c40",
@@ -98,6 +101,7 @@
             "accessList": [],
             "blockHash": "0x6e71e3172e3547c45bec026423067a121f2ebeaa4cccf2ba8783c3f23fd1f09a",
             "blockNumber": "0x2e",
+            "blockTimestamp": "0x1ce",
             "chainId": "0xc72dd9d5e883e",
             "from": "0xc100000000000000000000000000000000000000",
             "gas": "0x47e2a38",

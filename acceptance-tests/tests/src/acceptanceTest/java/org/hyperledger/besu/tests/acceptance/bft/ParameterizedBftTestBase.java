@@ -32,6 +32,11 @@ public abstract class ParameterizedBftTestBase extends AcceptanceTestBase {
   protected BftAcceptanceTestParameterization nodeFactory;
 
   public static Stream<Arguments> factoryFunctions() {
+    final String consensusType = System.getProperty("acctests.consensusType");
+    if (consensusType != null && !consensusType.isEmpty() && !consensusType.equals("all")) {
+      return BftAcceptanceTestParameterization.getFactories()
+          .filter(args -> consensusType.equals(args.get()[0]));
+    }
     return BftAcceptanceTestParameterization.getFactories();
   }
 

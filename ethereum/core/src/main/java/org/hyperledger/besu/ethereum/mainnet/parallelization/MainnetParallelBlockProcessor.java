@@ -20,7 +20,6 @@ import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.BlockProcessor;
@@ -34,16 +33,16 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldStateUpdateAccumulator;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.Optional;
 import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -55,8 +54,7 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
   private final Optional<Counter> confirmedParallelizedTransactionCounter;
   private final Optional<Counter> conflictingButCachedTransactionCounter;
 
-  private static final int NCPU = Runtime.getRuntime().availableProcessors();
-  private static final Executor executor = Executors.newFixedThreadPool(NCPU);
+  private static final Executor executor = BlockProcessingExecutors.cpuExecutor();
 
   public MainnetParallelBlockProcessor(
       final MainnetTransactionProcessor transactionProcessor,
@@ -151,7 +149,6 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
             block,
             blockAccessList,
             new ParallelTransactionPreprocessing(transactionProcessor, executor, balConfiguration));
-
     if (blockProcessingResult.isFailed()) {
       // Fallback to non-parallel processing if there is a block processing exception .
       LOG.info(

@@ -34,8 +34,8 @@ import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutor;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResponseCode;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResult;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetHeadersFromPeerTask;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.FastSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.range.RangeHeadersFetcher;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
@@ -121,7 +121,7 @@ public class RangeHeadersFetcherTest {
 
   @Test
   public void shouldRequestHeadersFromPeerAndExcludeExistingHeader() {
-    final RangeHeadersFetcher rangeHeaderFetcher = createRangeHeaderFetcher(true);
+    final RangeHeadersFetcher rangeHeaderFetcher = createRangeHeaderFetcher();
 
     Mockito.when(
             peerTaskExecutor.executeAgainstPeer(
@@ -138,7 +138,7 @@ public class RangeHeadersFetcherTest {
 
   @Test
   public void shouldNotRequestHeadersBeyondTargetWhenTargetIsMultipleOfSegmentSize() {
-    final RangeHeadersFetcher rangeHeaderFetcher = createRangeHeaderFetcher(header(11), true);
+    final RangeHeadersFetcher rangeHeaderFetcher = createRangeHeaderFetcher(header(11));
 
     Mockito.when(
             peerTaskExecutor.executeAgainstPeer(
@@ -155,7 +155,7 @@ public class RangeHeadersFetcherTest {
 
   @Test
   public void shouldNotRequestHeadersBeyondTargetWhenTargetIsNotAMultipleOfSegmentSize() {
-    final RangeHeadersFetcher rangeHeaderFetcher = createRangeHeaderFetcher(header(15), true);
+    final RangeHeadersFetcher rangeHeaderFetcher = createRangeHeaderFetcher(header(15));
 
     Mockito.when(
             peerTaskExecutor.executeAgainstPeer(
@@ -172,7 +172,7 @@ public class RangeHeadersFetcherTest {
 
   @Test
   public void shouldReturnOnlyTargetHeaderWhenLastHeaderIsTheRangeBeforeTarget() {
-    final RangeHeadersFetcher rangeHeaderFetcher = createRangeHeaderFetcher(header(15), false);
+    final RangeHeadersFetcher rangeHeaderFetcher = createRangeHeaderFetcher(header(15));
 
     final CompletableFuture<List<BlockHeader>> result =
         rangeHeaderFetcher.getNextRangeHeaders(respondingPeer.getEthPeer(), header(11));
@@ -182,7 +182,7 @@ public class RangeHeadersFetcherTest {
 
   @Test
   public void shouldReturnEmptyListWhenLastHeaderIsTarget() {
-    final RangeHeadersFetcher rangeHeaderFetcher = createRangeHeaderFetcher(header(15), false);
+    final RangeHeadersFetcher rangeHeaderFetcher = createRangeHeaderFetcher(header(15));
 
     final CompletableFuture<List<BlockHeader>> result =
         rangeHeaderFetcher.getNextRangeHeaders(respondingPeer.getEthPeer(), header(15));
@@ -191,7 +191,7 @@ public class RangeHeadersFetcherTest {
 
   @Test
   public void shouldReturnEmptyListWhenLastHeaderIsAfterTarget() {
-    final RangeHeadersFetcher rangeHeaderFetcher = createRangeHeaderFetcher(header(15), false);
+    final RangeHeadersFetcher rangeHeaderFetcher = createRangeHeaderFetcher(header(15));
 
     final CompletableFuture<List<BlockHeader>> result =
         rangeHeaderFetcher.getNextRangeHeaders(respondingPeer.getEthPeer(), header(16));
@@ -201,7 +201,7 @@ public class RangeHeadersFetcherTest {
   @Test
   public void nextRangeShouldEndAtChainHeadWhenNextRangeHeaderIsAfterHead() {
     final long remoteChainHeight = blockchain.getChainHeadBlockNumber();
-    final RangeHeadersFetcher rangeHeaderFetcher = createRangeHeaderFetcher(false);
+    final RangeHeadersFetcher rangeHeaderFetcher = createRangeHeaderFetcher();
 
     assertThat(
             rangeHeaderFetcher.nextRangeEndsAtChainHead(
@@ -213,7 +213,7 @@ public class RangeHeadersFetcherTest {
   public void nextRangeShouldNotEndAtChainHeadWhenAFinalRangeHeaderIsSpecified() {
     final long remoteChainHeight = blockchain.getChainHeadBlockNumber();
     final RangeHeadersFetcher rangeHeaderFetcher =
-        createRangeHeaderFetcher(header(remoteChainHeight), false);
+        createRangeHeaderFetcher(header(remoteChainHeight));
 
     assertThat(
             rangeHeaderFetcher.nextRangeEndsAtChainHead(
@@ -224,7 +224,7 @@ public class RangeHeadersFetcherTest {
   @Test
   public void shouldReturnRemoteChainHeadWhenNextRangeHeaderIsTheRemoteHead() {
     final long remoteChainHeight = blockchain.getChainHeadBlockNumber();
-    final RangeHeadersFetcher rangeHeaderFetcher = createRangeHeaderFetcher(true);
+    final RangeHeadersFetcher rangeHeaderFetcher = createRangeHeaderFetcher();
 
     Mockito.when(
             peerTaskExecutor.executeAgainstPeer(
@@ -245,30 +245,27 @@ public class RangeHeadersFetcherTest {
     assertThat(result).isCompletedWithValue(singletonList(header(remoteChainHeight)));
   }
 
-  private RangeHeadersFetcher createRangeHeaderFetcher(final boolean isPeerTaskSystemEnabled) {
+  private RangeHeadersFetcher createRangeHeaderFetcher() {
     final EthContext ethContext = ethProtocolManager.ethContext();
     return new RangeHeadersFetcher(
         SynchronizerConfiguration.builder()
             .downloaderChainSegmentSize(SEGMENT_SIZE)
             .downloaderHeadersRequestSize(3)
-            .isPeerTaskSystemEnabled(isPeerTaskSystemEnabled)
             .build(),
         protocolSchedule,
         ethContext);
   }
 
-  private RangeHeadersFetcher createRangeHeaderFetcher(
-      final BlockHeader targetHeader, final boolean isPeerTaskSystemEnabled) {
+  private RangeHeadersFetcher createRangeHeaderFetcher(final BlockHeader targetHeader) {
     final EthContext ethContext = ethProtocolManager.ethContext();
     return new RangeHeadersFetcher(
         SynchronizerConfiguration.builder()
             .downloaderChainSegmentSize(SEGMENT_SIZE)
             .downloaderHeadersRequestSize(3)
-            .isPeerTaskSystemEnabled(isPeerTaskSystemEnabled)
             .build(),
         protocolSchedule,
         ethContext,
-        new FastSyncState(targetHeader, false));
+        new SnapSyncProcessState(targetHeader));
   }
 
   private BlockHeader header(final long blockNumber) {

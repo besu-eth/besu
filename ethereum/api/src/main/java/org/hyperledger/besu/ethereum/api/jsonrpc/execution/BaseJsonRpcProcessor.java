@@ -18,12 +18,16 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestId;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.StreamingJsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 
+import java.io.IOException;
+import java.io.OutputStream;
 import java.util.Arrays;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.opentelemetry.api.trace.Span;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
@@ -55,5 +59,19 @@ public class BaseJsonRpcProcessor implements JsonRpcProcessor {
       LOG.error(String.format("Error processing method: %s %s", method.getName(), params), e);
       return new JsonRpcErrorResponse(id, RpcErrorType.INTERNAL_ERROR);
     }
+  }
+
+  @Override
+  public void streamProcess(
+      final JsonRpcRequestId id,
+      final JsonRpcMethod method,
+      final Span metricSpan,
+      final JsonRpcRequestContext request,
+      final OutputStream out,
+      final ObjectMapper mapper)
+      throws IOException {
+    // Let exceptions propagate — the caller decides how to handle them based on
+    // whether the response headers have already been flushed.
+    ((StreamingJsonRpcMethod) method).streamResponse(request, out, mapper);
   }
 }

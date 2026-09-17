@@ -27,6 +27,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.jspecify.annotations.Nullable;
 
 /** The Genesis config file. */
 public class GenesisConfig {
@@ -40,7 +41,7 @@ public class GenesisConfig {
 
   private final GenesisReader loader;
   private final ObjectNode genesisRoot;
-  private Map<String, String> overrides;
+  private @Nullable Map<String, String> overrides;
 
   private GenesisConfig(final GenesisReader loader) {
     this.loader = loader;

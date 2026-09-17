@@ -23,11 +23,13 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.EVM;
+import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.frame.SoftFailureReason;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
+import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
 import org.hyperledger.besu.evm.internal.Words;
 
 import java.util.Optional;
@@ -82,6 +84,16 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
     if (frame.getRemainingGas() < cost) {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
+
+    // EIP-3860: the initcode-size limit is an early exceptional abort, so it must be
+    // evaluated against the stack-declared size before initcode is resolved from
+    // memory (which would expand memory based on an unvalidated length) and before
+    // state gas is charged below.
+    if (getInputSize(frame) > evm.getMaxInitcodeSize()) {
+      frame.popStackItems(getStackItemsConsumed());
+      return new OperationResult(cost, ExceptionalHaltReason.CODE_TOO_LARGE);
+    }
+
     final Wei value = Wei.wrap(frame.getStackItem(0));
 
     final Address address = frame.getRecipientAddress();
@@ -89,18 +101,14 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
 
     frame.clearReturnData();
 
-    Code code = codeSupplier.get();
-
-    if (code != null && code.getSize() > evm.getMaxInitcodeSize()) {
-      frame.popStackItems(getStackItemsConsumed());
-      return new OperationResult(cost, ExceptionalHaltReason.CODE_TOO_LARGE);
-    }
+    final Code code = codeSupplier.get();
 
     final boolean insufficientBalance = value.compareTo(account.getBalance()) > 0;
     final boolean maxDepthReached = frame.getDepth() >= 1024;
     final boolean invalidState = account.getNonce() == -1 || code == null;
 
     if (insufficientBalance || maxDepthReached || invalidState) {
+      // EIP-8037: nothing to refund — a silent failure lands before any state gas is charged.
       fail(frame);
       // Set soft failure reason for callTracer compatibility
       final SoftFailureReason softFailureReason =
@@ -111,8 +119,27 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
     }
 
     account.incrementNonce();
+
+    // EIP-8037: an existent target adds no leaf, so it owes no NEW_ACCOUNT, and complete() needs
+    // the same answer to know whether a failed create has anything to refill. Existent is the
+    // EIP-161 sense — the address already has a state trie leaf, i.e. it is present and non-empty.
+    // EIP-7928: the existence check is also what puts the target in the block access list, so it
+    // stays listed even if the charge below runs out of gas.
+    final Address contractAddress = generateTargetContractAddress(frame, code);
+    // Pre-Amsterdam forks need neither the existence answer nor the access-list entry.
+    final StateGasCostCalculator stateGasCalc = gasCalculator().stateGasCostCalculator();
+    boolean targetExists = false;
+    if (stateGasCalc.isActive()) {
+      final Account existingTarget = getAccount(contractAddress, frame);
+      targetExists = existingTarget != null && !existingTarget.isEmpty();
+    }
+
+    // EIP-8037: execution gas is deducted before state gas is charged (ordering requirement).
     frame.decrementRemainingGas(cost);
-    spawnChildMessage(frame, code);
+    if (!targetExists && !frame.consumeStateGas(stateGasCalc.newContractStateGas())) {
+      return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
+    }
+    spawnChildMessage(frame, code, contractAddress, targetExists);
     frame.incrementRemainingGas(cost);
 
     return new OperationResult(cost, null, getPcIncrement());
@@ -134,7 +161,7 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
    * @param codeSupplier a supplier for the initcode, if needed for costing
    * @return the long
    */
-  protected abstract long cost(final MessageFrame frame, Supplier<Code> codeSupplier);
+  public abstract long cost(final MessageFrame frame, Supplier<Code> codeSupplier);
 
   /**
    * Target contract address.
@@ -155,6 +182,17 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
   protected abstract Code getInitCode(MessageFrame frame, EVM evm);
 
   /**
+   * Returns the declared initcode size from the stack, clamped to a long. Used for the EIP-3860
+   * size check before initcode is resolved from memory.
+   *
+   * @param frame the message frame the operation executed in
+   * @return the requested initcode size
+   */
+  public long getInputSize(final MessageFrame frame) {
+    return clampedToLong(frame.getStackItem(2));
+  }
+
+  /**
    * Handles stack items when operation fails for validation reasons (noe enough ether, bad eof
    * code)
    *
@@ -168,10 +206,12 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
     frame.pushStackItem(Bytes.EMPTY);
   }
 
-  private void spawnChildMessage(final MessageFrame parent, final Code code) {
+  private void spawnChildMessage(
+      final MessageFrame parent,
+      final Code code,
+      final Address contractAddress,
+      final boolean targetExists) {
     final Wei value = Wei.wrap(parent.getStackItem(0));
-
-    final Address contractAddress = generateTargetContractAddress(parent, code);
     final Bytes inputData = getInputData(parent);
 
     final long childGasStipend =
@@ -191,7 +231,7 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
             .value(value)
             .apparentValue(value)
             .code(code)
-            .completer(child -> complete(parent, child));
+            .completer(child -> complete(parent, child, targetExists));
 
     if (parent.getEip7928AccessList().isPresent()) {
       builder.eip7928AccessList(parent.getEip7928AccessList().get());
@@ -213,7 +253,8 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
     return Bytes.EMPTY;
   }
 
-  private void complete(final MessageFrame frame, final MessageFrame childFrame) {
+  private void complete(
+      final MessageFrame frame, final MessageFrame childFrame, final boolean targetExists) {
     frame.setState(MessageFrame.State.CODE_EXECUTING);
 
     frame.incrementRemainingGas(childFrame.getRemainingGas());
@@ -224,10 +265,21 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
 
     if (childFrame.getState() == MessageFrame.State.COMPLETED_SUCCESS) {
       Address createdAddress = childFrame.getContractAddress();
+      // The parent takes over the child's spill, so later refunds in this frame unwind the
+      // combined spill rather than only this frame's share.
+      frame.incrementStateGasSpilled(childFrame.getStateGasSpilled());
+      // EIP-8037: a successful create adds the leaf it was charged for, so the charge stands.
+      frame.settleStateGasOnChildSuccess();
       frame.pushStackItem(Words.fromAddress(createdAddress));
       frame.setReturnData(Bytes.EMPTY);
       onSuccess(frame, createdAddress);
     } else {
+      // EIP-8037: no account was created, so refill whatever was charged for it. The child's own
+      // state gas was already unwound by AbstractMessageProcessor.
+      if (!targetExists) {
+        frame.refillStateGasReservoir(
+            gasCalculator().stateGasCostCalculator().newContractStateGas());
+      }
       frame.setReturnData(childFrame.getOutputData());
       frame.pushStackItem(Bytes.EMPTY);
       onFailure(frame, childFrame.getExceptionalHaltReason());

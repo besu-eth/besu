@@ -1,0 +1,8 @@
+---
+# Verify Besu container started and entered main loop
+process:
+  java:
+    running: true
+http:
+  http://localhost:8545/liveness:
+    status: 200

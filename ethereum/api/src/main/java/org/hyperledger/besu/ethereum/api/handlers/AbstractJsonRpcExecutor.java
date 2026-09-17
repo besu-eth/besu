@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.api.handlers;
 import static io.netty.handler.codec.http.HttpHeaderValues.APPLICATION_JSON;
 
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
+import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcObjectMapperFactory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.context.ContextKey;
 import org.hyperledger.besu.ethereum.api.jsonrpc.execution.JsonRpcExecutor;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
@@ -28,7 +29,6 @@ import java.io.IOException;
 import java.util.Optional;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.context.Context;
@@ -43,15 +43,14 @@ import org.slf4j.LoggerFactory;
 public abstract class AbstractJsonRpcExecutor {
   private static final Logger LOG = LoggerFactory.getLogger(AbstractJsonRpcExecutor.class);
 
-  private static final String SPAN_CONTEXT = "span_context";
+  protected static final String SPAN_CONTEXT = "span_context";
   final JsonRpcExecutor jsonRpcExecutor;
   final Tracer tracer;
   final RoutingContext ctx;
   final JsonRpcConfiguration jsonRpcConfiguration;
 
   private static final ObjectMapper jsonObjectMapper =
-      new ObjectMapper()
-          .registerModule(new Jdk8Module()); // Handle JDK8 Optionals (de)serialization
+      JsonRpcObjectMapperFactory.getResponseMapper();
 
   /**
    * Creates a new AbstractJsonRpcExecutor.
@@ -97,9 +96,16 @@ public abstract class AbstractJsonRpcExecutor {
       final RoutingContext routingContext, final Object id, final RpcErrorType error) {
     final HttpServerResponse response = routingContext.response();
     if (!response.closed()) {
-      response
-          .setStatusCode(statusCodeFromError(error).code())
-          .end(Json.encode(new JsonRpcErrorResponse(id, error)));
+      if (response.headWritten()) {
+        // Streaming already started — cannot change status code or headers.
+        // Reset the connection so the client sees a transport error rather than
+        // silently receiving truncated JSON.
+        response.reset();
+      } else {
+        response
+            .setStatusCode(statusCodeFromError(error).code())
+            .end(Json.encode(new JsonRpcErrorResponse(id, error)));
+      }
     }
   }
 
@@ -107,6 +113,7 @@ public abstract class AbstractJsonRpcExecutor {
     return switch (error) {
       case INVALID_REQUEST, PARSE_ERROR -> HttpResponseStatus.BAD_REQUEST;
       case TIMEOUT_ERROR -> HttpResponseStatus.REQUEST_TIMEOUT;
+      case UNAUTHORIZED -> HttpResponseStatus.UNAUTHORIZED;
       default -> HttpResponseStatus.OK;
     };
   }

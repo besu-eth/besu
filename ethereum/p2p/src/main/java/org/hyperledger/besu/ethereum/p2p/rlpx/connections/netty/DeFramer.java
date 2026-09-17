@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.framing.FramingException;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.CapabilityMultiplexer;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.PeerInfo;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.SubProtocol;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.HelloMessage;
@@ -44,7 +45,6 @@ import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -54,12 +54,16 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.ByteToMessageDecoder;
 import io.netty.handler.codec.DecoderException;
 import io.netty.handler.timeout.IdleStateHandler;
+import org.apache.tuweni.bytes.Bytes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 final class DeFramer extends ByteToMessageDecoder {
 
   private static final Logger LOG = LoggerFactory.getLogger(DeFramer.class);
+
+  // Maximum size of a HELLO message in bytes
+  static final int MAX_HELLO_MESSAGE_SIZE = 2 * 1024;
 
   private final CompletableFuture<PeerConnection> connectFuture;
 
@@ -72,8 +76,10 @@ final class DeFramer extends ByteToMessageDecoder {
   private final List<SubProtocol> subProtocols;
   private final boolean inboundInitiated;
   private final PeerLookup peerLookup;
+  private final Bytes authenticatedNodeId;
   private boolean hellosExchanged;
   private final LabelledMetric<Counter> outboundMessagesCounter;
+  private final int maxMessageSize;
   private final LabelledMetric<Counter> outboundBytesCounter;
 
   DeFramer(
@@ -85,7 +91,9 @@ final class DeFramer extends ByteToMessageDecoder {
       final CompletableFuture<PeerConnection> connectFuture,
       final MetricsSystem metricsSystem,
       final boolean inboundInitiated,
-      final PeerLookup peerLookup) {
+      final PeerLookup peerLookup,
+      final int maxMessageSize,
+      final Bytes authenticatedNodeId) {
     this.framer = framer;
     this.subProtocols = subProtocols;
     this.localNode = localNode;
@@ -94,6 +102,8 @@ final class DeFramer extends ByteToMessageDecoder {
     this.connectionEventDispatcher = connectionEventDispatcher;
     this.inboundInitiated = inboundInitiated;
     this.peerLookup = peerLookup;
+    this.maxMessageSize = maxMessageSize;
+    this.authenticatedNodeId = authenticatedNodeId;
     this.outboundMessagesCounter =
         metricsSystem.createLabelledCounter(
             BesuMetricCategory.NETWORK,
@@ -119,9 +129,39 @@ final class DeFramer extends ByteToMessageDecoder {
 
       if (hellosExchanged) {
 
+        if (message.getSize() > maxMessageSize) {
+          LOG.debug(
+              "Oversized message received ({} bytes > {} max), disconnecting peer {}",
+              message.getSize(),
+              maxMessageSize,
+              expectedPeer.map(Peer::getEnodeURLString).orElse("unknown"));
+          if (connectFuture.isDone() && !connectFuture.isCompletedExceptionally()) {
+            connectFuture
+                .join()
+                .disconnect(
+                    DisconnectMessage.DisconnectReason
+                        .BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+          } else {
+            ctx.close();
+          }
+          return;
+        }
+
         out.add(message);
 
       } else if (message.getCode() == WireMessageCodes.HELLO) {
+
+        if (message.getSize() > MAX_HELLO_MESSAGE_SIZE) {
+          LOG.debug(
+              "Oversized HELLO message received ({} bytes > {} max), disconnecting peer {}",
+              message.getSize(),
+              MAX_HELLO_MESSAGE_SIZE,
+              expectedPeer.map(Peer::getEnodeURLString).orElse("unknown"));
+          connectFuture.completeExceptionally(
+              new BreachOfProtocolException("Oversized HELLO message"));
+          ctx.close();
+          return;
+        }
 
         hellosExchanged = true;
         // Decode first hello and use the payload to modify pipeline
@@ -135,6 +175,17 @@ final class DeFramer extends ByteToMessageDecoder {
           return;
         }
         LOG.trace("Received HELLO message: {}", peerInfo);
+        if (!peerInfo.getNodeId().equals(authenticatedNodeId)) {
+          LOG.debug(
+              "Peer Hello nodeId {} does not match authenticated nodeId from handshake {}. Disconnecting.",
+              peerInfo.getNodeId(),
+              authenticatedNodeId);
+          connectFuture.completeExceptionally(
+              new UnexpectedPeerConnectionException(
+                  "Hello nodeId does not match handshake identity"));
+          ctx.close();
+          return;
+        }
         if (peerInfo.getVersion() >= 5) {
           LOG.trace("Enable compression for p2pVersion: {}", peerInfo.getVersion());
           framer.enableCompression();
@@ -177,17 +228,6 @@ final class DeFramer extends ByteToMessageDecoder {
                 outboundBytesCounter,
                 inboundInitiated);
 
-        // Check peer is who we expected
-        if (expectedPeer.isPresent()
-            && !Objects.equals(expectedPeer.get().getId(), peerInfo.getNodeId())) {
-          final String unexpectedMsg =
-              String.format(
-                  "Expected id %s, but got %s", expectedPeer.get().getId(), peerInfo.getNodeId());
-          connectFuture.completeExceptionally(new UnexpectedPeerConnectionException(unexpectedMsg));
-          LOG.debug("{}. Disconnecting.", unexpectedMsg);
-          connection.disconnect(DisconnectMessage.DisconnectReason.UNEXPECTED_ID);
-        }
-
         // Check that we have shared caps
         if (capabilityMultiplexer.getAgreedCapabilities().isEmpty()) {
           LOG.debug("Disconnecting because no capabilities are shared: {}", peerInfo);
@@ -223,11 +263,15 @@ final class DeFramer extends ByteToMessageDecoder {
       } else {
         // Unexpected message - disconnect
 
-        LOG.debug(
-            "Message received before HELLO's exchanged (BREACH_OF_PROTOCOL), disconnecting.  Peer: {}, Code: {}, Data: {}",
-            expectedPeer.map(Peer::getEnodeURLString).orElse("unknown"),
-            message.getCode(),
-            message.getData().toString());
+        if (LOG.isDebugEnabled()) {
+          LOG.debug(
+              "Message received before HELLO's exchanged (BREACH_OF_PROTOCOL), disconnecting.  Peer: {}, Code: {}, Data: {}",
+              expectedPeer.map(Peer::getEnodeURLString).orElse("unknown"),
+              message.getCode(),
+              message instanceof RawMessage raw && raw.getCompressedData() != null
+                  ? "snappy compressed data: " + Bytes.wrap(raw.getCompressedData())
+                  : message.getData());
+        }
         ctx.writeAndFlush(
                 new OutboundMessage(
                     null,

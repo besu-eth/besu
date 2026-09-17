@@ -49,6 +49,11 @@ public class EthGetBlockAccessList extends AbstractBlockParameterOrBlockHashMeth
   }
 
   @Override
+  protected Object pendingResult(final JsonRpcRequestContext request) {
+    return null;
+  }
+
+  @Override
   protected Object resultByBlockHash(final JsonRpcRequestContext request, final Hash blockHash) {
     return getBlockAccessListResult(request, blockHash);
   }
@@ -63,8 +68,7 @@ public class EthGetBlockAccessList extends AbstractBlockParameterOrBlockHashMeth
     final BlockHeader header = maybeHeader.get();
     if (!getBlockchainQueries().isBlockAccessListSupported(header)) {
       return new JsonRpcErrorResponse(
-          request.getRequest().getId(),
-          RpcErrorType.BLOCK_ACCESS_LIST_NOT_AVAILABLE_FOR_PRE_AMSTERDAM_BLOCKS);
+          request.getRequest().getId(), RpcErrorType.RESOURCE_NOT_FOUND);
     }
 
     final var maybeAccessList =

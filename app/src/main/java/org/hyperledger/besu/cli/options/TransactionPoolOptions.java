@@ -53,10 +53,12 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
   private static final String TX_POOL_PRICE_BUMP = "--tx-pool-price-bump";
   private static final String TX_POOL_BLOB_PRICE_BUMP = "--tx-pool-blob-price-bump";
   private static final String RPC_TX_FEECAP = "--rpc-tx-feecap";
+  private static final String P2P_TX_FEECAP = "--p2p-tx-feecap";
   private static final String STRICT_TX_REPLAY_PROTECTION_ENABLED_FLAG =
       "--strict-tx-replay-protection-enabled";
   private static final String TX_POOL_PRIORITY_SENDERS = "--tx-pool-priority-senders";
   private static final String TX_POOL_MIN_GAS_PRICE = "--tx-pool-min-gas-price";
+  private static final String TX_POOL_MAX_TX_BYTES = "--tx-pool-max-tx-bytes";
 
   private TransactionPoolValidatorService transactionPoolValidatorService;
 
@@ -115,6 +117,12 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
   private Wei txFeeCap = TransactionPoolConfiguration.DEFAULT_RPC_TX_FEE_CAP;
 
   @CommandLine.Option(
+      names = {P2P_TX_FEECAP},
+      description =
+          "Maximum transaction fees (in Wei) accepted for transactions received from peers over P2P. A value of 0 caps fees to 0, rejecting any transaction with a positive gas price (default: ${DEFAULT-VALUE})")
+  private Wei p2pTxFeeCap = TransactionPoolConfiguration.DEFAULT_P2P_TX_FEE_CAP;
+
+  @CommandLine.Option(
       names = {STRICT_TX_REPLAY_PROTECTION_ENABLED_FLAG},
       paramLabel = "<Boolean>",
       description =
@@ -139,6 +147,13 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
           "Transactions with gas price (in Wei) lower than this minimum will not be accepted into the txpool"
               + "(not to be confused with min-gas-price, that is applied on block creation) (default: ${DEFAULT-VALUE})")
   private Wei minGasPrice = TransactionPoolConfiguration.DEFAULT_TX_POOL_MIN_GAS_PRICE;
+
+  @CommandLine.Option(
+      names = {TX_POOL_MAX_TX_BYTES},
+      paramLabel = MANDATORY_INTEGER_FORMAT_HELP,
+      description =
+          "Maximum encoded size, in bytes, of a single transaction (excluding blobs) accepted into the txpool (default: ${DEFAULT-VALUE})")
+  private Integer maxTxBytes = TransactionPoolConfiguration.DEFAULT_TX_POOL_MAX_TX_BYTES;
 
   @CommandLine.ArgGroup(
       validate = false,
@@ -247,9 +262,13 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
         "--Xincoming-tx-messages-keep-alive-seconds";
     private static final String ETH65_TX_ANNOUNCED_BUFFERING_PERIOD_FLAG =
         "--Xeth65-tx-announced-buffering-period-milliseconds";
-    private static final String MAX_TRACKED_SEEN_TXS_PER_PEER = "--Xmax-tracked-seen-txs-per-peer";
+
+    private static final String MAX_TRACKED_SEEN_TXS = "--Xmax-tracked-seen-txs";
+    private static final String MAX_SEND_QUEUE_SIZE_PER_PEER = "--Xmax-send-queue-size-per-peer";
     private static final String PEER_TRACKER_FORGET_EVICTED_TXS_FLAG =
         "--Xpeer-tracker-forget-evicted-txs";
+    private static final String TX_POOL_SAVE_RESTORE_TIMEOUT_FLAG =
+        "--Xtx-pool-save-restore-timeout";
 
     @CommandLine.Option(
         names = {TX_MESSAGE_KEEP_ALIVE_SEC_FLAG},
@@ -271,13 +290,22 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
         TransactionPoolConfiguration.Unstable.ETH65_TRX_ANNOUNCED_BUFFERING_PERIOD;
 
     @CommandLine.Option(
-        names = {MAX_TRACKED_SEEN_TXS_PER_PEER},
+        names = {MAX_TRACKED_SEEN_TXS},
         paramLabel = "<LONG>",
         hidden = true,
         description =
-            "The number of exchanged txs that are remembered with each peer, to minimize broadcasting duplicates (default: ${DEFAULT-VALUE})")
-    private int maxTrackedSeenTxsPerPeer =
-        TransactionPoolConfiguration.Unstable.DEFAULT_MAX_TRACKED_SEEN_TXS_PER_PEER;
+            "The max number of exchanged txs that are remembered, to minimize broadcasting duplicates (default: ${DEFAULT-VALUE})")
+    private int maxTrackedSeenTxs =
+        TransactionPoolConfiguration.Unstable.DEFAULT_MAX_TRACKED_SEEN_TXS;
+
+    @CommandLine.Option(
+        names = {MAX_SEND_QUEUE_SIZE_PER_PEER},
+        paramLabel = "<LONG>",
+        hidden = true,
+        description =
+            "The max number of transactions, or hashes, kept in the send queue for a single peer (default: ${DEFAULT-VALUE})")
+    private int maxSendQueueSizePerPeer =
+        TransactionPoolConfiguration.Unstable.DEFAULT_MAX_SEND_QUEUE_SIZE_PER_PEER;
 
     @CommandLine.Option(
         names = {PEER_TRACKER_FORGET_EVICTED_TXS_FLAG},
@@ -288,6 +316,16 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
         arity = "0..1",
         fallbackValue = "true")
     private Boolean peerTrackerForgetEvictedTxs;
+
+    @CommandLine.Option(
+        names = {TX_POOL_SAVE_RESTORE_TIMEOUT_FLAG},
+        paramLabel = "<LONG>",
+        converter = DurationMillisConverter.class,
+        hidden = true,
+        description =
+            "Timeout in milliseconds for acquiring the disk access lock during txpool save/restore operations (default: ${DEFAULT-VALUE})")
+    private Duration saveRestoreTimeout =
+        TransactionPoolConfiguration.Unstable.DEFAULT_SAVE_RESTORE_TIMEOUT;
   }
 
   private TransactionPoolOptions() {}
@@ -328,10 +366,12 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
     options.priceBump = config.getPriceBump();
     options.blobPriceBump = config.getBlobPriceBump();
     options.txFeeCap = config.getTxFeeCap();
+    options.p2pTxFeeCap = config.getP2pTxFeeCap();
     options.saveFile = config.getSaveFile();
     options.strictTxReplayProtectionEnabled = config.getStrictTransactionReplayProtectionEnabled();
     options.prioritySenders = config.getPrioritySenders();
     options.minGasPrice = config.getMinGasPrice();
+    options.maxTxBytes = config.getTxPoolMaxTxBytes();
     options.layeredOptions.txPoolLayerMaxCapacity =
         config.getPendingTransactionsLayerMaxCapacityBytes();
     options.layeredOptions.txPoolMaxPrioritized = config.getMaxPrioritizedTransactions();
@@ -349,10 +389,12 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
         config.getUnstable().getTxMessageKeepAliveSeconds();
     options.unstableOptions.eth65TrxAnnouncedBufferingPeriod =
         config.getUnstable().getEth65TrxAnnouncedBufferingPeriod();
-    options.unstableOptions.maxTrackedSeenTxsPerPeer =
-        config.getUnstable().getMaxTrackedSeenTxsPerPeer();
+    options.unstableOptions.maxTrackedSeenTxs = config.getUnstable().getMaxTrackedSeenTxs();
+    options.unstableOptions.maxSendQueueSizePerPeer =
+        config.getUnstable().getMaxSendQueueSizePerPeer();
     options.unstableOptions.peerTrackerForgetEvictedTxs =
         config.getUnstable().getPeerTrackerForgetEvictedTxs();
+    options.unstableOptions.saveRestoreTimeout = config.getUnstable().getSaveRestoreTimeout();
     return options;
   }
 
@@ -382,6 +424,11 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
         "Price bump option is not compatible with zero base fee market",
         !genesisConfigOptions.isZeroBaseFee(),
         List.of(TX_POOL_PRICE_BUMP));
+
+    if (maxTxBytes <= 0) {
+      throw new CommandLine.ParameterException(
+          commandLine, "Max transaction bytes must be greater than 0");
+    }
   }
 
   @Override
@@ -393,10 +440,12 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
         .priceBump(priceBump)
         .blobPriceBump(blobPriceBump)
         .txFeeCap(txFeeCap)
+        .p2pTxFeeCap(p2pTxFeeCap)
         .saveFile(saveFile)
         .strictTransactionReplayProtectionEnabled(strictTxReplayProtectionEnabled)
         .prioritySenders(prioritySenders)
         .minGasPrice(minGasPrice)
+        .txPoolMaxTxBytes(maxTxBytes)
         .pendingTransactionsLayerMaxCapacityBytes(layeredOptions.txPoolLayerMaxCapacity)
         .maxPrioritizedTransactions(layeredOptions.txPoolMaxPrioritized)
         .maxPrioritizedTransactionsByType(layeredOptions.txPoolMaxPrioritizedByType)
@@ -411,10 +460,12 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
             ImmutableTransactionPoolConfiguration.Unstable.builder()
                 .txMessageKeepAliveSeconds(unstableOptions.txMessageKeepAliveSeconds)
                 .eth65TrxAnnouncedBufferingPeriod(unstableOptions.eth65TrxAnnouncedBufferingPeriod)
-                .maxTrackedSeenTxsPerPeer(unstableOptions.maxTrackedSeenTxsPerPeer)
+                .maxTrackedSeenTxs(unstableOptions.maxTrackedSeenTxs)
+                .maxSendQueueSizePerPeer(unstableOptions.maxSendQueueSizePerPeer)
                 .peerTrackerForgetEvictedTxs(
                     Optional.ofNullable(unstableOptions.peerTrackerForgetEvictedTxs)
                         .orElse(deriveDefaultPeersTrackerForgetEvictedTxs(txPoolImplementation)))
+                .saveRestoreTimeout(unstableOptions.saveRestoreTimeout)
                 .build())
         .build();
   }

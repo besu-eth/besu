@@ -32,7 +32,6 @@ import org.hyperledger.besu.controller.BesuController;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.blockcreation.IncrementingNonceGenerator;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration;
 import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration.MutableInitValues;
@@ -286,7 +285,6 @@ public class BlocksSubCommand implements Runnable {
       return ImmutableMiningConfiguration.builder()
           .mutableInitValues(
               MutableInitValues.builder()
-                  .nonceGenerator(new IncrementingNonceGenerator(0))
                   .extraData(extraData)
                   .minTransactionGasPrice(minTransactionGasPrice)
                   .coinbase(coinbase)
@@ -304,10 +302,9 @@ public class BlocksSubCommand implements Runnable {
 
     private void importRlpBlocks(final BesuController controller, final Path path)
         throws IOException {
-      parentCommand
-          .rlpBlockImporter
-          .get()
-          .importBlockchain(path, controller, skipPow, startBlock, endBlock);
+      try (final RlpBlockImporter importer = parentCommand.rlpBlockImporter.get()) {
+        importer.importBlockchain(path, controller, skipPow, startBlock, endBlock);
+      }
     }
 
     private void importEra1Blocks(final BesuController controller, final Path path)

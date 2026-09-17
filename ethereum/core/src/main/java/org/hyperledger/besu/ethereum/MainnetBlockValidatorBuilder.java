@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum;
 
+import org.hyperledger.besu.ethereum.mainnet.BlockAccessListValidator;
 import org.hyperledger.besu.ethereum.mainnet.BlockBodyValidator;
 import org.hyperledger.besu.ethereum.mainnet.BlockHeaderValidator;
 import org.hyperledger.besu.ethereum.mainnet.BlockProcessor;
@@ -33,14 +34,20 @@ public class MainnetBlockValidatorBuilder {
    * @param blockHeaderValidator the block header validator
    * @param blockBodyValidator the block body validator
    * @param blockProcessor the block processor
+   * @param blockAccessListValidator the block access list validator
    * @return a BlockValidator instance
    */
   public static BlockValidator frontier(
       final BlockHeaderValidator blockHeaderValidator,
       final BlockBodyValidator blockBodyValidator,
-      final BlockProcessor blockProcessor) {
+      final BlockProcessor blockProcessor,
+      final BlockAccessListValidator blockAccessListValidator) {
     return new MainnetBlockValidator(
-        blockHeaderValidator, blockBodyValidator, blockProcessor, Integer.MAX_VALUE);
+        blockHeaderValidator,
+        blockBodyValidator,
+        blockProcessor,
+        blockAccessListValidator,
+        Integer.MAX_VALUE);
   }
 
   /**
@@ -49,13 +56,19 @@ public class MainnetBlockValidatorBuilder {
    * @param blockHeaderValidator the block header validator
    * @param blockBodyValidator the block body validator
    * @param blockProcessor the block processor
+   * @param blockAccessListValidator the block access list validator
    * @return a BlockValidator instance with Osaka-specific settings
    */
   public static BlockValidator osaka(
       final BlockHeaderValidator blockHeaderValidator,
       final BlockBodyValidator blockBodyValidator,
-      final BlockProcessor blockProcessor) {
+      final BlockProcessor blockProcessor,
+      final BlockAccessListValidator blockAccessListValidator) {
     return new MainnetBlockValidator(
-        blockHeaderValidator, blockBodyValidator, blockProcessor, OSAKA_MAX_RLP_BLOCK_SIZE);
+        blockHeaderValidator,
+        blockBodyValidator,
+        blockProcessor,
+        blockAccessListValidator,
+        OSAKA_MAX_RLP_BLOCK_SIZE);
   }
 }

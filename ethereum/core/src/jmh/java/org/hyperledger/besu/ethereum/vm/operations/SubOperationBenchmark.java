@@ -15,13 +15,35 @@
 package org.hyperledger.besu.ethereum.vm.operations;
 
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.operation.SubOperation;
 
-public class SubOperationBenchmark extends BinaryOperationBenchmark {
+import org.openjdk.jmh.annotations.Param;
+import org.openjdk.jmh.infra.BenchmarkParams;
+
+public class SubOperationBenchmark extends BinaryArithmeticOperationBenchmark
+    implements GasCostBenchmark {
+  @Param("SUB_RANDOM_RANDOM")
+  private String caseName;
 
   @Override
   protected Operation.OperationResult invoke(final MessageFrame frame) {
     return SubOperation.staticOperation(frame);
+  }
+
+  @Override
+  protected String caseName() {
+    return caseName;
+  }
+
+  @Override
+  protected String opCode() {
+    return "SUB";
+  }
+
+  @Override
+  public long getGasCost(final BenchmarkParams params, final GasCalculator calc) {
+    return new SubOperation(calc).getGasCost();
   }
 }

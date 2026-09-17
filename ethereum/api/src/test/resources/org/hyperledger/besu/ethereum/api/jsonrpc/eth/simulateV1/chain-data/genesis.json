@@ -1,6 +1,5 @@
 {
   "config": {
-    "ethash": {},
     "chainID": 3503995874084926,
     "homesteadBlock": 0,
     "eip150Block": 3,

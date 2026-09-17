@@ -23,19 +23,25 @@ import org.hyperledger.besu.ethereum.p2p.discovery.DiscoveryPeer;
 import org.hyperledger.besu.ethereum.p2p.discovery.HostEndpoint;
 import org.hyperledger.besu.ethereum.p2p.discovery.NodeRecordManager;
 import org.hyperledger.besu.ethereum.p2p.discovery.PeerDiscoveryAgent;
+import org.hyperledger.besu.ethereum.p2p.discovery.PeerDiscoveryPacketDecodingException;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.DiscoveryPeerV4;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.PeerDiscoveryController;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.PeerRequirement;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.PeerTable;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.TimerUtil;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.Packet;
+import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.PacketDeserializer;
+import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.PacketSerializer;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.ping.PingPacketData;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.p2p.peers.Peer;
 import org.hyperledger.besu.ethereum.p2p.peers.PeerId;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions;
 import org.hyperledger.besu.ethereum.p2p.rlpx.RlpxAgent;
+import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
+import org.hyperledger.besu.plugin.services.metrics.Counter;
+import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 import org.hyperledger.besu.util.NetworkUtility;
 
 import java.net.InetSocketAddress;
@@ -43,12 +49,19 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.net.InetAddresses;
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.rlp.RLPException;
+import org.ethereum.beacon.discovery.schema.NodeRecord;
+import org.ethereum.beacon.discovery.util.DecodeException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -60,8 +73,18 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
   private static final Logger LOG = LoggerFactory.getLogger(PeerDiscoveryAgentV4.class);
 
   // The devp2p specification says only accept packets up to 1280, but some
-  // clients ignore that, so we add in a little extra padding.
-  private static final int MAX_PACKET_SIZE_BYTES = 1600;
+  // clients ignore that, so we add in a little extra padding. Also used by NettyTransport to
+  // drop oversized datagrams before copying them off the channel's buffer.
+  public static final int MAX_PACKET_SIZE_BYTES = 1600;
+
+  /**
+   * Maximum inbound packets in the decode and dispatch stages at once. Sized by latency rather than
+   * memory: a full gate adds ~130-260 ms at the ~1-2k packets/s the decode thread sustains.
+   */
+  public static final int MAX_INFLIGHT_INBOUND_PACKETS = 256;
+
+  private static final long SATURATION_LOG_INTERVAL_MS = 300_000L;
+
   protected final List<DiscoveryPeerV4> bootstrapPeers;
   private final List<PeerRequirement> peerRequirements = new CopyOnWriteArrayList<>();
   private final PeerPermissions peerPermissions;
@@ -79,11 +102,40 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
   private final Bytes id;
   protected final DiscoveryConfiguration config;
 
-  /* Is discovery enabled? */
-  private boolean isEnabled = false;
   protected boolean isStopped = false;
 
   private final NodeRecordManager nodeRecordManager;
+
+  protected final Transport transport;
+  protected final PacketSerializer packetSerializer;
+  protected final PacketDeserializer packetDeserializer;
+
+  // Cached so handleRawIncoming doesn't allocate a wrapper per inbound packet. Lazily
+  // initialised at the start of start() — before the inbound handler is wired — so the
+  // subclass constructor has run and createWorkerExecutor() is safe to call.
+  private volatile PeerDiscoveryController.AsyncExecutor workerExecutor;
+
+  // Dedicated, single-threaded executor for inbound packet decode only (never shared with
+  // outbound packet signing). Preserves the arrival-order guarantee the Vert.x implementation
+  // provided via an ordered executeBlocking for decode, distinct from its unordered worker pool
+  // used for signing.
+  private volatile PeerDiscoveryController.AsyncExecutor decodeExecutor;
+
+  // Single-threaded executor used to serialise all PeerDiscoveryController state mutation:
+  // inbound packet handling and timer callbacks both run here. Restores the Vert.x event-loop
+  // ordering guarantee the migration to Netty removed.
+  private volatile Executor dispatchExecutor;
+
+  // Idempotency guard for stop(): once stopped, subsequent stop() calls are no-ops.
+  // No corresponding start gate at this level — see start() for rationale.
+  protected final AtomicBoolean stopGate = new AtomicBoolean(false);
+
+  // Permits held by packets currently in the decode + dispatch stages.
+  private final AtomicInteger inflightInboundPackets = new AtomicInteger();
+  private final AtomicLong lastSaturationLogMs = new AtomicLong();
+  private final LabelledMetric<Counter> droppedPackets;
+  private final Counter admissionDropCounter;
+  private final Counter stoppedDropCounter;
 
   protected PeerDiscoveryAgentV4(
       final NodeKey nodeKey,
@@ -93,8 +145,24 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
       final ForkIdManager forkIdManager,
       final NodeRecordManager nodeRecordManager,
       final RlpxAgent rlpxAgent,
-      final PeerTable peerTable) {
+      final PeerTable peerTable,
+      final Transport transport,
+      final PacketSerializer packetSerializer,
+      final PacketDeserializer packetDeserializer) {
     this.metricsSystem = metricsSystem;
+    this.droppedPackets =
+        metricsSystem.createLabelledCounter(
+            BesuMetricCategory.NETWORK,
+            "discovery_packets_dropped_total",
+            "Total number of inbound DiscV4 packets dropped before being handled",
+            "reason");
+    this.admissionDropCounter = droppedPackets.labels("admission_limit");
+    this.stoppedDropCounter = droppedPackets.labels("stopped");
+    metricsSystem.createIntegerGauge(
+        BesuMetricCategory.NETWORK,
+        "discovery_inflight_inbound_packets_current",
+        "Current number of inbound DiscV4 packets in the decode and dispatch stages",
+        inflightInboundPackets::get);
     checkArgument(nodeKey != null, "nodeKey cannot be null");
     checkArgument(config != null, "provided configuration cannot be null");
 
@@ -102,7 +170,9 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
 
     this.peerPermissions = peerPermissions;
     this.bootstrapPeers =
-        config.getBootnodes().stream().map(DiscoveryPeerV4::fromEnode).collect(Collectors.toList());
+        config.getEnodeBootnodes().stream()
+            .map(DiscoveryPeerV4::fromEnode)
+            .collect(Collectors.toList());
 
     this.config = config;
     this.nodeKey = nodeKey;
@@ -113,19 +183,134 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
     this.rlpxAgent = rlpxAgent;
     this.peerTable = peerTable;
     this.nodeRecordManager = nodeRecordManager;
+    this.transport = transport;
+    this.packetSerializer = packetSerializer;
+    this.packetDeserializer = packetDeserializer;
+  }
+
+  protected Counter droppedPacketCounter(final String reason) {
+    return droppedPackets.labels(reason);
   }
 
   protected abstract TimerUtil createTimer();
 
   protected abstract PeerDiscoveryController.AsyncExecutor createWorkerExecutor();
 
-  protected abstract CompletableFuture<InetSocketAddress> listenForConnections();
+  protected abstract PeerDiscoveryController.AsyncExecutor createDecodeExecutor();
 
-  protected abstract CompletableFuture<Void> sendOutgoingPacket(
-      final DiscoveryPeerV4 peer, final Packet packet);
+  /**
+   * Single-threaded executor that serialises {@link PeerDiscoveryController} state mutation.
+   * Implementations must return the same single-threaded executor used to back {@link
+   * #createTimer()} so timer callbacks and decoded packet handling share one thread.
+   */
+  protected abstract Executor createDispatchExecutor();
+
+  /**
+   * Wires the V4 inbound handler and lazily initialises worker + dispatch executors. Idempotent.
+   * The composite agent calls this on every sub-agent before binding the shared UDP transport so
+   * packets arriving during the bind → start window are not dropped.
+   */
+  @Override
+  public void prepareHandlers() {
+    if (workerExecutor == null) {
+      workerExecutor = createWorkerExecutor();
+    }
+    if (decodeExecutor == null) {
+      decodeExecutor = createDecodeExecutor();
+    }
+    if (dispatchExecutor == null) {
+      dispatchExecutor = createDispatchExecutor();
+    }
+    transport.setInboundHandler(this::handleRawIncoming);
+  }
+
+  protected CompletableFuture<InetSocketAddress> listenForConnections() {
+    return transport.start();
+  }
+
+  protected CompletableFuture<Void> sendOutgoingPacket(
+      final DiscoveryPeerV4 peer, final Packet packet) {
+    if (stopGate.get()) {
+      return CompletableFuture.completedFuture(null);
+    }
+    final InetSocketAddress recipient =
+        new InetSocketAddress(peer.getEnodeURL().getIpAsString(), peer.getEndpoint().getUdpPort());
+    return transport.send(recipient, packetSerializer.encode(packet));
+  }
+
+  private void handleRawIncoming(final InetSocketAddress sender, final Bytes data) {
+    // After stop() is called, the transport may still deliver queued packets. Drop them quietly
+    // instead of letting workerExecutor.submit throw RejectedExecutionException.
+    if (stopGate.get()) {
+      stoppedDropCounter.inc();
+      return;
+    }
+    if (!validatePacketSize(data.size())) {
+      LOG.trace("Discarding over-sized packet. Actual size (bytes): {}", data.size());
+      return;
+    }
+    // Ingress is the only place dropping is free: an undelivered UDP datagram is indistinguishable
+    // from network loss, and DiscV4 peers retry.
+    if (inflightInboundPackets.incrementAndGet() > MAX_INFLIGHT_INBOUND_PACKETS) {
+      inflightInboundPackets.decrementAndGet();
+      admissionDropCounter.inc();
+      logSaturation();
+      return;
+    }
+    decodeExecutor
+        .<Packet>execute(() -> packetDeserializer.decode(data))
+        .whenCompleteAsync(
+            (packet, err) -> {
+              try {
+                if (stopGate.get()) {
+                  // stop() was called after this decode was already queued; drop the late
+                  // completion instead of forwarding it into a PeerDiscoveryController that may
+                  // already be stopped.
+                  return;
+                }
+                if (err == null) {
+                  final Endpoint endpoint =
+                      new Endpoint(sender.getHostString(), sender.getPort(), Optional.empty());
+                  try {
+                    handleIncomingPacket(endpoint, packet);
+                  } catch (final RuntimeException e) {
+                    LOG.error("Encountered error while handling packet", e);
+                  }
+                } else {
+                  if (err instanceof PeerDiscoveryPacketDecodingException
+                      || err instanceof DecodeException
+                      || err instanceof RLPException) {
+                    LOG.trace(
+                        "Discarding invalid peer discovery packet: {}, {}", err.getMessage(), err);
+                  } else {
+                    LOG.error("Encountered error while handling packet", err);
+                  }
+                }
+              } finally {
+                // Must cover every exit: a leaked permit permanently shrinks capacity.
+                inflightInboundPackets.decrementAndGet();
+              }
+            },
+            dispatchExecutor);
+  }
+
+  /** Rate-limited so that a packet flood cannot become a log flood. */
+  private void logSaturation() {
+    final long now = System.currentTimeMillis();
+    final long last = lastSaturationLogMs.get();
+    if (now - last >= SATURATION_LOG_INTERVAL_MS && lastSaturationLogMs.compareAndSet(last, now)) {
+      LOG.warn(
+          "Dropping inbound discovery packets: {} already in flight. See the"
+              + " discovery_packets_dropped_total metric.",
+          MAX_INFLIGHT_INBOUND_PACKETS);
+    }
+  }
 
   @Override
-  public CompletableFuture<Integer> start(final int tcpPort) {
+  public CompletableFuture<Integer> start(final int rlpxTcpPort) {
+    // Note: no idempotency guard at this level. Tests legitimately re-invoke start() with a
+    // different rlpxTcpPort to control the NodeRecord, and production paths only ever single-start.
+    // The transport itself enforces a single-bind invariant via its own start guard.
     if (config.isEnabled()) {
       final String host = config.getBindHost();
       final int port = config.getBindPort();
@@ -135,25 +320,38 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
           port,
           NetworkUtility.isIPv6Available() ? "available" : "not available");
 
+      // Idempotent — wires the inbound handler before the transport binds so no packets are lost.
+      prepareHandlers();
+
       return listenForConnections()
           .thenApply(
               (InetSocketAddress localAddress) -> {
                 // Once listener is set up, finish initializing
                 final int discoveryPort = localAddress.getPort();
-                nodeRecordManager.initializeLocalNode(
-                    new HostEndpoint(config.getAdvertisedHost(), discoveryPort, tcpPort),
-                    Optional.empty());
+                // In BOTH mode, whichever agent starts first performs the one real
+                // initialization on the shared manager - a no-op check for the normal
+                // V4-only (dedicated, never pre-initialized) case.
+                if (!nodeRecordManager.isInitialized()) {
+                  nodeRecordManager.initializeLocalNode(
+                      new HostEndpoint(config.getAdvertisedHost(), discoveryPort, rlpxTcpPort),
+                      config
+                          .getAdvertisedHostIpv6()
+                          .map(
+                              v6Host ->
+                                  new HostEndpoint(
+                                      v6Host,
+                                      resolvedIpv6DiscoveryPort(),
+                                      rlpxAgent.getIpv6ListeningPort().orElse(rlpxTcpPort))));
+                }
                 startController(
                     nodeRecordManager
                         .getLocalNode()
                         .orElseThrow(
                             () -> new IllegalStateException("Local node not initialized")));
                 LOG.info("P2P peer discovery agent started and listening on {}", localAddress);
-                this.isEnabled = true;
                 return discoveryPort;
               });
     } else {
-      this.isEnabled = false;
       return CompletableFuture.completedFuture(0);
     }
   }
@@ -182,13 +380,27 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
   }
 
   private PeerDiscoveryController createController(final DiscoveryPeerV4 localNode) {
+    final Optional<Endpoint> localPeerV6Endpoint =
+        config
+            .getAdvertisedHostIpv6()
+            .map(
+                v6Host ->
+                    new Endpoint(
+                        v6Host,
+                        resolvedIpv6DiscoveryPort(),
+                        Optional.of(
+                            rlpxAgent
+                                .getIpv6ListeningPort()
+                                .orElse(localNode.getEndpoint().getFunctionalTcpPort()))));
     return PeerDiscoveryController.builder()
         .nodeKey(nodeKey)
         .localPeer(localNode)
+        .localPeerV6Endpoint(localPeerV6Endpoint)
         .bootstrapNodes(bootstrapPeers)
         .outboundMessageHandler(this::handleOutgoingPacket)
         .timerUtil(createTimer())
-        .workerExecutor(createWorkerExecutor())
+        .workerExecutor(workerExecutor)
+        .dispatchExecutor(dispatchExecutor)
         .peerRequirement(PeerRequirement.combine(peerRequirements))
         .peerPermissions(peerPermissions)
         .metricsSystem(metricsSystem)
@@ -197,6 +409,17 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
         .peerTable(peerTable)
         .includeBootnodesOnPeerRefresh(config.getIncludeBootnodesOnPeerRefresh())
         .build();
+  }
+
+  /**
+   * Returns the actual bound IPv6 discovery UDP port if a shared dual-stack socket has one bound,
+   * else falls back to the configured port (e.g. ephemeral {@code --p2p-port-ipv6} before bind).
+   */
+  private int resolvedIpv6DiscoveryPort() {
+    return transport
+        .getIpv6BoundAddress()
+        .map(InetSocketAddress::getPort)
+        .orElse(config.getBindPortIpv6());
   }
 
   protected boolean validatePacketSize(final int packetSize) {
@@ -324,21 +547,13 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
     checkArgument(
         config.getBindPort() == 0 || NetworkUtility.isValidPort(config.getBindPort()),
         "valid port number required");
-    checkArgument(config.getBootnodes() != null, "bootstrapPeers cannot be null");
+    checkArgument(config.getEnodeBootnodes() != null, "bootstrapPeers cannot be null");
     checkArgument(config.getBucketSize() > 0, "bucket size cannot be negative nor zero");
   }
 
-  /**
-   * Returns the current state of the PeerDiscoveryAgent.
-   *
-   * <p>If true, the node is actively listening for new connections. If false, discovery has been
-   * turned off and the node is not listening for connections.
-   *
-   * @return true, if the {@link PeerDiscoveryAgentV4} is active on this node, false, otherwise.
-   */
   @Override
   public boolean isEnabled() {
-    return isEnabled;
+    return config.isEnabled();
   }
 
   /**
@@ -357,6 +572,11 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
   @Override
   public void addPeer(final Peer peer) {
     controller.ifPresent(c -> DiscoveryPeerV4.from(peer).ifPresent(c::handleBondingRequest));
+  }
+
+  @Override
+  public Optional<NodeRecord> getLocalNodeRecord() {
+    return nodeRecordManager.getLocalNode().flatMap(DiscoveryPeerV4::getNodeRecord);
   }
 
   @VisibleForTesting

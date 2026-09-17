@@ -112,25 +112,14 @@ public class SimulationTransactionProcessorFactory {
                 "Address " + oldAddress + " is not a precompile.",
                 BlockStateCallError.INVALID_PRECOMPILE_ADDRESS);
           }
-          if (newRegistry.getPrecompileAddresses().contains(newAddress)) {
-            throw new BlockStateCallException(
-                "Duplicate precompile address: " + newAddress,
-                BlockStateCallError.DUPLICATED_PRECOMPILE_TARGET);
-          }
           newRegistry.put(newAddress, originalRegistry.get(oldAddress));
         });
 
     originalAddresses.stream()
         .filter(originalAddress -> !precompileOverrides.containsKey(originalAddress))
         .forEach(
-            originalAddress -> {
-              if (newRegistry.getPrecompileAddresses().contains(originalAddress)) {
-                throw new BlockStateCallException(
-                    "Duplicate precompile address: " + originalAddress,
-                    BlockStateCallError.DUPLICATED_PRECOMPILE_TARGET);
-              }
-              newRegistry.put(originalAddress, originalRegistry.get(originalAddress));
-            });
+            originalAddress ->
+                newRegistry.put(originalAddress, originalRegistry.get(originalAddress)));
 
     return newRegistry;
   }

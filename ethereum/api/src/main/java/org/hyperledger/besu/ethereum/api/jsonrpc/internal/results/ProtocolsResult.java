@@ -21,7 +21,7 @@ import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import org.apache.tuweni.bytes.Bytes;
 import org.immutables.value.Value;
 
-@JsonPropertyOrder({"difficulty", "head", "version"})
+@JsonPropertyOrder({"difficulty", "head", "latestBlock", "version"})
 @Value.Immutable
 @Value.Style(allParameters = true)
 public interface ProtocolsResult {
@@ -34,6 +34,7 @@ public interface ProtocolsResult {
             bestBlock.getHash() != null
                 ? bestBlock.getHash().getBytes().toHexString()
                 : Bytes.EMPTY.toHexString())
+        .latestBlock(bestBlock.getNumber())
         .version(ethPeer.getLastProtocolVersion())
         .build();
   }
@@ -41,6 +42,8 @@ public interface ProtocolsResult {
   String getDifficulty();
 
   String getHead();
+
+  long getLatestBlock();
 
   int getVersion();
 }

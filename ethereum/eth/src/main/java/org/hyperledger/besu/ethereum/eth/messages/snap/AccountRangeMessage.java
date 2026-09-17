@@ -19,14 +19,13 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractSnapMessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 
-import java.math.BigInteger;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
-import java.util.Optional;
 import java.util.TreeMap;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -43,8 +42,8 @@ public final class AccountRangeMessage extends AbstractSnapMessageData {
   }
 
   public static AccountRangeMessage readFrom(final MessageData message) {
-    if (message instanceof AccountRangeMessage) {
-      return (AccountRangeMessage) message;
+    if (message instanceof AccountRangeMessage accountRangeMessage) {
+      return accountRangeMessage;
     }
     final int code = message.getCode();
     if (code != SnapV1.ACCOUNT_RANGE) {
@@ -56,33 +55,19 @@ public final class AccountRangeMessage extends AbstractSnapMessageData {
 
   public static AccountRangeMessage create(
       final Map<Bytes32, Bytes> accounts, final List<Bytes> proof) {
-    return create(Optional.empty(), accounts, proof);
-  }
-
-  public static AccountRangeMessage create(
-      final Optional<BigInteger> requestId,
-      final Map<Bytes32, Bytes> accounts,
-      final List<Bytes> proof) {
     final BytesValueRLPOutput tmp = new BytesValueRLPOutput();
     tmp.startList();
-    requestId.ifPresent(tmp::writeBigIntegerScalar);
     tmp.writeList(
         accounts.entrySet(),
         (entry, rlpOutput) -> {
           rlpOutput.startList();
           rlpOutput.writeBytes(entry.getKey());
-          rlpOutput.writeRLPBytes(entry.getValue());
+          rlpOutput.writeRLPBytes(toSlimAccount(RLP.input(entry.getValue())));
           rlpOutput.endList();
         });
     tmp.writeList(proof, (bytes, rlpOutput) -> rlpOutput.writeBytes(bytes));
     tmp.endList();
     return new AccountRangeMessage(tmp.encoded());
-  }
-
-  @Override
-  protected Bytes wrap(final BigInteger requestId) {
-    final AccountRangeData accountData = accountData(false);
-    return create(Optional.of(requestId), accountData.accounts(), accountData.proofs()).getData();
   }
 
   @Override

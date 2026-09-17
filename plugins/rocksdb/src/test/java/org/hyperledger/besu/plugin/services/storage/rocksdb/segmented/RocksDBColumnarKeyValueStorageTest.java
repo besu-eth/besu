@@ -15,6 +15,7 @@
 package org.hyperledger.besu.plugin.services.storage.rocksdb.segmented;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -361,6 +362,47 @@ public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValu
       assertThat(labelledCountersHelpArgs.getValue())
           .isEqualTo("Number of RocksDB transactions rolled back.");
     }
+  }
+
+  @Test
+  public void lowPriorityTransactionCommitPersistsValues() throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore();
+    final byte[] key = bytesFromHexString("0001");
+    final byte[] value = bytesFromHexString("0FFF");
+
+    final SegmentedKeyValueStorageTransaction tx = store.startLowPriorityTransaction();
+    tx.put(TestSegment.FOO, key, value);
+    tx.commit();
+
+    assertThat(store.get(TestSegment.FOO, key)).contains(value);
+    store.close();
+  }
+
+  @Test
+  public void lowPriorityTransactionRollbackDiscardsValues() throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore();
+    final byte[] key = bytesFromHexString("0001");
+    final byte[] value = bytesFromHexString("0FFF");
+
+    final SegmentedKeyValueStorageTransaction tx = store.startLowPriorityTransaction();
+    tx.put(TestSegment.FOO, key, value);
+    tx.rollback();
+
+    assertThat(store.get(TestSegment.FOO, key)).isEmpty();
+    store.close();
+  }
+
+  @Test
+  public void lowPriorityTransactionThrowsAfterCommit() throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore();
+
+    final SegmentedKeyValueStorageTransaction tx = store.startLowPriorityTransaction();
+    tx.commit();
+
+    assertThatThrownBy(
+            () -> tx.put(TestSegment.FOO, bytesFromHexString("0001"), bytesFromHexString("0FFF")))
+        .isInstanceOf(IllegalStateException.class);
+    store.close();
   }
 
   public enum TestSegment implements SegmentIdentifier {

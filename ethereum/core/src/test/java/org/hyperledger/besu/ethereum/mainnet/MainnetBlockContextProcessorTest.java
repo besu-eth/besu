@@ -19,31 +19,36 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
-import org.hyperledger.besu.ethereum.mainnet.systemcall.InvalidSystemCallAddressException;
+import org.hyperledger.besu.ethereum.mainnet.systemcall.SystemCallNoCodeAtAddressException;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.SystemCallProcessor;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.gascalculator.GasCalculator;
+import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
 import org.hyperledger.besu.evm.processor.AbstractMessageProcessor;
 import org.hyperledger.besu.evm.processor.MessageCallProcessor;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
+import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 public class MainnetBlockContextProcessorTest {
   private static final Address CALL_ADDRESS = Address.fromHexString("0x1");
@@ -62,6 +67,9 @@ public class MainnetBlockContextProcessorTest {
     when(mockTransactionProcessor.getMessageProcessor(any())).thenReturn(mockMessageCallProcessor);
     when(mockMessageCallProcessor.getOrCreateCachedJumpDest(any(), any()))
         .thenReturn(Code.EMPTY_CODE);
+    final GasCalculator mockGasCalculator = mock(GasCalculator.class);
+    when(mockGasCalculator.stateGasCostCalculator()).thenReturn(StateGasCostCalculator.NONE);
+    when(mockTransactionProcessor.getGasCalculator()).thenReturn(mockGasCalculator);
   }
 
   @Test
@@ -119,7 +127,7 @@ public class MainnetBlockContextProcessorTest {
   void shouldThrowExceptionIfSystemCallAddressDoesNotExist() {
     final MutableWorldState worldState = InMemoryKeyValueStorageProvider.createInMemoryWorldState();
     var exception =
-        assertThrows(InvalidSystemCallAddressException.class, () -> processSystemCall(worldState));
+        assertThrows(SystemCallNoCodeAtAddressException.class, () -> processSystemCall(worldState));
     assertThat(exception.getMessage()).isEqualTo("Invalid system call address: " + CALL_ADDRESS);
   }
 
@@ -128,12 +136,61 @@ public class MainnetBlockContextProcessorTest {
     Bytes code = Bytes.EMPTY;
     final MutableWorldState worldState = createWorldState(CALL_ADDRESS, code);
     var exception =
-        assertThrows(InvalidSystemCallAddressException.class, () -> processSystemCall(worldState));
+        assertThrows(SystemCallNoCodeAtAddressException.class, () -> processSystemCall(worldState));
     assertThat(exception.getMessage())
         .isEqualTo("Invalid system call, no code at address " + CALL_ADDRESS);
   }
 
+  @Test
+  void systemCallUsesNoTracingWhenBlockAwareTracerDoesNotOptIn() {
+    // A tracer that does NOT override isSystemCallTracingEnabled() (defaults to false)
+    BlockAwareOperationTracer tracer = mock(BlockAwareOperationTracer.class);
+    when(tracer.isSystemCallTracingEnabled()).thenReturn(false);
+    successfulProcess();
+    final MutableWorldState worldState = createWorldState(CALL_ADDRESS);
+
+    processSystemCallWithTracer(worldState, tracer);
+
+    ArgumentCaptor<OperationTracer> tracerCaptor = ArgumentCaptor.forClass(OperationTracer.class);
+    verify(mockMessageCallProcessor).process(any(), tracerCaptor.capture());
+    assertThat(tracerCaptor.getValue()).isSameAs(OperationTracer.NO_TRACING);
+  }
+
+  @Test
+  void systemCallUsesContextTracerWhenBlockAwareTracerOptsIn() {
+    // A tracer that DOES override isSystemCallTracingEnabled() to return true
+    BlockAwareOperationTracer tracer = mock(BlockAwareOperationTracer.class);
+    when(tracer.isEnabled()).thenReturn(true);
+    when(tracer.isSystemCallTracingEnabled()).thenReturn(true);
+    successfulProcess();
+    final MutableWorldState worldState = createWorldState(CALL_ADDRESS);
+
+    processSystemCallWithTracer(worldState, tracer);
+
+    ArgumentCaptor<OperationTracer> tracerCaptor = ArgumentCaptor.forClass(OperationTracer.class);
+    verify(mockMessageCallProcessor).process(any(), tracerCaptor.capture());
+    assertThat(tracerCaptor.getValue()).isSameAs(tracer);
+  }
+
+  private void successfulProcess() {
+    doAnswer(
+            invocation -> {
+              MessageFrame messageFrame = invocation.getArgument(0);
+              messageFrame.setOutputData(EXPECTED_OUTPUT);
+              messageFrame.getMessageFrameStack().pop();
+              messageFrame.setState(MessageFrame.State.COMPLETED_SUCCESS);
+              return null;
+            })
+        .when(mockMessageCallProcessor)
+        .process(any(), any());
+  }
+
   Bytes processSystemCall(final MutableWorldState worldState) {
+    return processSystemCallWithTracer(worldState, BlockAwareOperationTracer.NO_TRACING);
+  }
+
+  Bytes processSystemCallWithTracer(
+      final MutableWorldState worldState, final BlockAwareOperationTracer tracer) {
     SystemCallProcessor systemCallProcessor = new SystemCallProcessor(mockTransactionProcessor);
 
     BlockProcessingContext blockProcessingContext =
@@ -142,7 +199,7 @@ public class MainnetBlockContextProcessorTest {
             worldState,
             mock(ProtocolSpec.class),
             mockBlockHashLookup,
-            OperationTracer.NO_TRACING,
+            tracer,
             Optional.empty());
 
     when(mockBlockHashLookup.apply(any(), any())).thenReturn(Hash.EMPTY);

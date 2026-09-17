@@ -71,7 +71,6 @@ public class EphemeryGenesisUpdater {
       if (currentTimestamp > (genesisTimestamp + PERIOD_IN_SECONDS)) {
         overrides.put("chainId", String.valueOf(updatedChainId));
         overrides.put("timestamp", String.valueOf(updatedTimestamp));
-        genesisConfig = genesisConfig.withOverrides(overrides);
       }
       return genesisConfig.withOverrides(overrides);
     } catch (IOException e) {

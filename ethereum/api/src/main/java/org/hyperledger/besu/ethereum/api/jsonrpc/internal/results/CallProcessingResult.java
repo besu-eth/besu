@@ -32,6 +32,9 @@ public class CallProcessingResult {
   @JsonProperty("gasUsed")
   private final String gasUsed;
 
+  @JsonProperty("maxUsedGas")
+  private final String maxUsedGas;
+
   @JsonProperty("error")
   private final JsonRpcError error;
 
@@ -42,11 +45,13 @@ public class CallProcessingResult {
       @JsonProperty("status") final int status,
       @JsonProperty("returnData") final Bytes returnData,
       @JsonProperty("gasUsed") final long gasUsed,
+      @JsonProperty("maxUsedGas") final long maxUsedGas,
       @JsonProperty("error") final JsonRpcError error,
       @JsonProperty("logs") final LogsResult logs) {
     this.status = Quantity.create(status);
     this.returnData = returnData.toString();
     this.gasUsed = Quantity.create(gasUsed);
+    this.maxUsedGas = Quantity.create(maxUsedGas);
     this.error = error;
     this.logs = logs;
   }
@@ -61,6 +66,10 @@ public class CallProcessingResult {
 
   public String getGasUsed() {
     return gasUsed;
+  }
+
+  public String getMaxUsedGas() {
+    return maxUsedGas;
   }
 
   @JsonInclude(JsonInclude.Include.NON_NULL)

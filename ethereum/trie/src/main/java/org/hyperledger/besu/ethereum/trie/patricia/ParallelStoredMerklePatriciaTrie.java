@@ -55,16 +55,34 @@ import org.apache.tuweni.bytes.Bytes32;
 public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
     extends StoredMerklePatriciaTrie<K, V> {
 
-  private static final int NCPU = Runtime.getRuntime().availableProcessors();
+  /**
+   * Default pool for tests and callers that do not inject a dedicated pool.
+   *
+   * <p>Production code should pass separate pools for account and storage tries to avoid deadlock
+   * when account workers join storage futures while storage hashing runs in parallel.
+   */
+  private static final ForkJoinPool DEFAULT_FORK_JOIN_POOL =
+      new ForkJoinPool(Runtime.getRuntime().availableProcessors() * 2);
+
+  /** Pending updates accumulated between commits. */
+  private final Map<K, PendingUpdate<V>> pendingUpdates = new ConcurrentHashMap<>();
+
+  private final ForkJoinPool forkJoinPool;
 
   /**
-   * Shared ForkJoinPool with 2x cores for I/O-bound operations. This choice was validated by
-   * testing, and that ForkJoinPool performed best despite not being an obvious fit.
+   * Stages a deferred operation for the given key. The function is called with the existing value
+   * at that key during the next {@link #commit} or {@link #getRootHash} traversal.
+   *
+   * <p>Unlike {@link #put}, no pre-computed value is required: the trie reads the existing leaf
+   * inline during the write traversal, enabling a single-pass read-modify-write.
+   *
+   * @param key the key to update
+   * @param merger function mapping existing value (or empty) to the new value (or empty to remove)
    */
-  private static final ForkJoinPool FORK_JOIN_POOL = new ForkJoinPool(NCPU * 2);
-
-  /** Pending updates accumulated between commits */
-  private final Map<K, Optional<V>> pendingUpdates = new ConcurrentHashMap<>();
+  @Override
+  public void putDeferred(final K key, final Function<Optional<V>, Optional<V>> merger) {
+    pendingUpdates.put(key, new Merge<>(merger));
+  }
 
   /**
    * Creates a new parallel trie with an empty root.
@@ -77,7 +95,16 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
       final NodeLoader nodeLoader,
       final Function<V, Bytes> valueSerializer,
       final Function<Bytes, V> valueDeserializer) {
+    this(nodeLoader, valueSerializer, valueDeserializer, DEFAULT_FORK_JOIN_POOL);
+  }
+
+  public ParallelStoredMerklePatriciaTrie(
+      final NodeLoader nodeLoader,
+      final Function<V, Bytes> valueSerializer,
+      final Function<Bytes, V> valueDeserializer,
+      final ForkJoinPool forkJoinPool) {
     super(nodeLoader, valueSerializer, valueDeserializer);
+    this.forkJoinPool = forkJoinPool;
   }
 
   /**
@@ -95,7 +122,24 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
       final Bytes rootLocation,
       final Function<V, Bytes> valueSerializer,
       final Function<Bytes, V> valueDeserializer) {
+    this(
+        nodeLoader,
+        rootHash,
+        rootLocation,
+        valueSerializer,
+        valueDeserializer,
+        DEFAULT_FORK_JOIN_POOL);
+  }
+
+  public ParallelStoredMerklePatriciaTrie(
+      final NodeLoader nodeLoader,
+      final Bytes32 rootHash,
+      final Bytes rootLocation,
+      final Function<V, Bytes> valueSerializer,
+      final Function<Bytes, V> valueDeserializer,
+      final ForkJoinPool forkJoinPool) {
     super(nodeLoader, rootHash, rootLocation, valueSerializer, valueDeserializer);
+    this.forkJoinPool = forkJoinPool;
   }
 
   /**
@@ -111,7 +155,17 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
       final Bytes32 rootHash,
       final Function<V, Bytes> valueSerializer,
       final Function<Bytes, V> valueDeserializer) {
+    this(nodeLoader, rootHash, valueSerializer, valueDeserializer, DEFAULT_FORK_JOIN_POOL);
+  }
+
+  public ParallelStoredMerklePatriciaTrie(
+      final NodeLoader nodeLoader,
+      final Bytes32 rootHash,
+      final Function<V, Bytes> valueSerializer,
+      final Function<Bytes, V> valueDeserializer,
+      final ForkJoinPool forkJoinPool) {
     super(nodeLoader, rootHash, valueSerializer, valueDeserializer);
+    this.forkJoinPool = forkJoinPool;
   }
 
   /**
@@ -122,7 +176,15 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
    */
   public ParallelStoredMerklePatriciaTrie(
       final StoredNodeFactory<V> nodeFactory, final Bytes32 rootHash) {
+    this(nodeFactory, rootHash, DEFAULT_FORK_JOIN_POOL);
+  }
+
+  public ParallelStoredMerklePatriciaTrie(
+      final StoredNodeFactory<V> nodeFactory,
+      final Bytes32 rootHash,
+      final ForkJoinPool forkJoinPool) {
     super(nodeFactory, rootHash);
+    this.forkJoinPool = forkJoinPool;
   }
 
   /**
@@ -134,7 +196,7 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
    */
   @Override
   public void put(final K key, final V value) {
-    pendingUpdates.put(key, Optional.of(value));
+    pendingUpdates.put(key, new Direct<>(Optional.of(value)));
   }
 
   /**
@@ -145,7 +207,7 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
    */
   @Override
   public void remove(final K key) {
-    pendingUpdates.put(key, Optional.empty());
+    pendingUpdates.put(key, new Direct<>(Optional.empty()));
   }
 
   /**
@@ -189,17 +251,14 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
       // Ensure root is fully loaded (not a lazy StoredNode reference)
       this.root = loadNode(root);
 
-      // Convert pending updates to UpdateEntry objects with nibble paths
-      final List<UpdateEntry<V>> entries =
-          pendingUpdates.entrySet().stream()
-              .map(e -> new UpdateEntry<>(bytesToPath(e.getKey()), e.getValue()))
-              .toList();
+      final List<UpdateEntry<V>> entries = new ArrayList<>();
+      pendingUpdates.forEach((k, update) -> entries.add(update.toEntry(bytesToPath(k))));
 
       final CommitCache commitCache = new CommitCache();
       final boolean shouldCommit = maybeNodeUpdater.isPresent();
 
       this.root =
-          FORK_JOIN_POOL.invoke(
+          forkJoinPool.invoke(
               ForkJoinTask.adapt(
                   () ->
                       processNode(
@@ -216,7 +275,6 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
       }
 
     } finally {
-      // Always clear pending updates after processing
       pendingUpdates.clear();
     }
   }
@@ -611,7 +669,9 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
     for (UpdateEntry<V> entry : updates) {
       final Bytes remainingPath = entry.path.slice(pathOffset);
       final PathNodeVisitor<V> visitor =
-          entry.value.isPresent() ? getPutVisitor(entry.value.get()) : getRemoveVisitor();
+          entry.isMerge()
+              ? getDeferredPutVisitor(entry.merger())
+              : (entry.value.isPresent() ? getPutVisitor(entry.value.get()) : getRemoveVisitor());
       updatedNode = updatedNode.accept(visitor, remainingPath);
     }
 
@@ -640,7 +700,7 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
    * @param node the node to load
    * @return the loaded node
    */
-  private Node<V> loadNode(final Node<V> node) {
+  protected Node<V> loadNode(final Node<V> node) {
     if (node instanceof StoredNode) {
       return node.accept(
           new PathNodeVisitor<V>() {
@@ -670,12 +730,48 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
   }
 
   /**
-   * Represents a single update operation (put or remove).
+   * A staged update: either a direct put/remove ({@link Direct}) or a read-modify-write deferred
+   * operation ({@link Merge}).
+   */
+  private sealed interface PendingUpdate<V> permits Direct, Merge {
+
+    UpdateEntry<V> toEntry(Bytes path);
+  }
+
+  /** A staged put (present value) or remove (empty value). */
+  private record Direct<V>(Optional<V> value) implements PendingUpdate<V> {
+    @Override
+    public UpdateEntry<V> toEntry(final Bytes path) {
+      return new UpdateEntry<>(path, value, null);
+    }
+  }
+
+  /**
+   * A staged deferred operation: {@code merger} is called with the existing leaf value during the
+   * commit traversal.
+   */
+  private record Merge<V>(Function<Optional<V>, Optional<V>> merger) implements PendingUpdate<V> {
+    @Override
+    public UpdateEntry<V> toEntry(final Bytes path) {
+      return new UpdateEntry<>(path, Optional.empty(), merger);
+    }
+  }
+
+  /**
+   * Represents a single update operation: a plain put/remove ({@code merger == null}) or a
+   * read-modify-write deferred operation ({@code merger != null}).
    *
    * @param path the full nibble path to the key
-   * @param value optional value (empty for removes, present for puts)
+   * @param value optional value for put/remove entries (ignored for deferred entries)
+   * @param merger non-null for deferred entries; called with the existing leaf value during
+   *     traversal
    */
-  private record UpdateEntry<V>(Bytes path, Optional<V> value) {
+  private record UpdateEntry<V>(
+      Bytes path, Optional<V> value, Function<Optional<V>, Optional<V>> merger) {
+    boolean isMerge() {
+      return merger != null;
+    }
+
     byte getNibble(final int index) {
       return index >= path.size() ? 0 : path.get(index);
     }

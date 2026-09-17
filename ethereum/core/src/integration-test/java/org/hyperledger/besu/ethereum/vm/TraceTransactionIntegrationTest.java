@@ -16,11 +16,12 @@ package org.hyperledger.besu.ethereum.vm;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.entry;
-import static org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams.withStateRootAndBlockHashAndUpdateNodeHead;
+import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withStateRootAndBlockHashAndUpdateNodeHead;
 
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
@@ -28,8 +29,8 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.ExecutionContextTestFixture;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.Util;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
@@ -43,6 +44,7 @@ import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder.OpCodeTracerConfig;
 import org.hyperledger.besu.evm.tracing.TraceFrame;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.List;
 import java.util.Map;
@@ -158,21 +160,21 @@ public class TraceTransactionIntegrationTest {
 
     assertThat(result.isSuccessful()).isTrue();
 
-    // No storage changes before the SSTORE call.
+    // Non-storage opcodes produce no storage entry (per execution-apis spec).
     TraceFrame frame = tracer.getTraceFrames().get(170);
     assertThat(frame.getOpcode()).isEqualTo("DUP6");
+    assertThat(frame.getStorage()).isEmpty();
 
-    // Storage changes show up in the SSTORE frame.
+    // Storage is emitted only for the SSTORE frame, showing the single slot touched.
     frame = tracer.getTraceFrames().get(171);
     assertThat(frame.getOpcode()).isEqualTo("SSTORE");
     assertStorageContainsExactly(
         frame, entry("0x01", "0x6261720000000000000000000000000000000000000000000000000000000006"));
 
-    // And storage changes are still present in future frames.
+    // After SSTORE, non-storage opcodes produce no storage entry (per execution-apis spec).
     frame = tracer.getTraceFrames().get(172);
     assertThat(frame.getOpcode()).isEqualTo("PUSH2");
-    assertStorageContainsExactly(
-        frame, entry("0x01", "0x6261720000000000000000000000000000000000000000000000000000000006"));
+    assertThat(frame.getStorage()).isEmpty();
   }
 
   @Test
@@ -254,6 +256,57 @@ public class TraceTransactionIntegrationTest {
         "0000000000000000000000000000000000000000000000000000000000000000",
         "0000000000000000000000000000000000000000000000000000000000000000",
         "0000000000000000000000000000000000000000000000000000000000000080");
+  }
+
+  @Test
+  public void shouldTraceEoaToEoaTransferWithSyntheticStopOnly() {
+    final KeyPair keyPair = SignatureAlgorithmFactory.getInstance().generateKeyPair();
+    final Address sender = Util.publicKeyToAddress(keyPair.getPublicKey());
+
+    final BlockHeader genesisBlockHeader = genesisBlock.getHeader();
+    final MutableWorldState worldState =
+        worldStateArchive
+            .getWorldState(
+                withStateRootAndBlockHashAndUpdateNodeHead(
+                    genesisBlockHeader.getStateRoot(), genesisBlockHeader.getHash()))
+            .get();
+    final WorldUpdater fundingUpdater = worldState.updater();
+    fundingUpdater.createAccount(sender, 0, Wei.of(1_000_000L));
+    fundingUpdater.commit();
+
+    final DebugOperationTracer tracer =
+        new DebugOperationTracer(
+            OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT).build(), false);
+    final Transaction transferTransaction =
+        Transaction.builder()
+            .type(TransactionType.FRONTIER)
+            .gasLimit(300_000)
+            .gasPrice(Wei.ZERO)
+            .nonce(0)
+            .to(Address.fromHexString("0x00000000000000000000000000000000deadbeef"))
+            .value(Wei.of(1_000L))
+            .payload(Bytes.EMPTY)
+            .signAndBuild(keyPair);
+
+    final TransactionProcessingResult result =
+        transactionProcessor.processTransaction(
+            worldState.updater(),
+            genesisBlockHeader,
+            transferTransaction,
+            genesisBlockHeader.getCoinbase(),
+            tracer,
+            blockHashLookup,
+            Wei.ZERO);
+
+    assertThat(result.isSuccessful()).isTrue();
+
+    final List<TraceFrame> traceFrames = tracer.getTraceFrames();
+    assertThat(traceFrames).hasSize(1);
+    final TraceFrame frame = traceFrames.get(0);
+    assertThat(frame.getOpcode()).isEqualTo("STOP");
+    assertThat(frame.isVirtualOperation()).isTrue();
+    assertThat(frame.getMaybeCode()).isPresent();
+    assertThat(frame.getMaybeCode().get().getSize()).isZero();
   }
 
   private void assertStackContainsExactly(

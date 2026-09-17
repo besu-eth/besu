@@ -16,6 +16,7 @@ package org.hyperledger.besu.nat.upnp;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
+import static java.util.Objects.requireNonNull;
 
 import org.hyperledger.besu.nat.NatMethod;
 import org.hyperledger.besu.nat.core.AbstractNatManager;
@@ -154,10 +155,11 @@ public class UpnpNatManager extends AbstractNatManager {
    * Returns the first of the discovered services of the given type, if any.
    *
    * @param type is the type descriptor of the desired service
-   * @return a CompletableFuture that will provide the desired RemoteService when completed
+   * @return an Optional containing a CompletableFuture for the desired service when the type is
+   *     registered; otherwise empty
    */
-  private synchronized CompletableFuture<RemoteService> getService(final String type) {
-    return recognizedServices.get(type);
+  private synchronized Optional<CompletableFuture<RemoteService>> getService(final String type) {
+    return Optional.ofNullable(recognizedServices.get(type));
   }
 
   /**
@@ -168,7 +170,8 @@ public class UpnpNatManager extends AbstractNatManager {
   @VisibleForTesting
   synchronized CompletableFuture<RemoteService> getWANIPConnectionService() {
     checkState(isStarted(), "Cannot call getWANIPConnectionService() when in stopped state");
-    return getService(SERVICE_TYPE_WAN_IP_CONNECTION);
+    return getService(SERVICE_TYPE_WAN_IP_CONNECTION)
+        .orElseThrow(() -> new IllegalStateException("WANIPConnection service is not registered"));
   }
 
   /**
@@ -177,11 +180,15 @@ public class UpnpNatManager extends AbstractNatManager {
    * complete in the very near future.
    *
    * @param serviceType is the service type to wait to be discovered.
-   * @return future that will return the desired service once it is discovered, or null if the
-   *     future is cancelled.
+   * @return future that will return the desired service once it is discovered, or fail if the
+   *     service type is not registered.
    */
   private synchronized CompletableFuture<RemoteService> discoverService(final String serviceType) {
-    return recognizedServices.get(serviceType);
+    return getService(serviceType)
+        .orElseGet(
+            () ->
+                CompletableFuture.failedFuture(
+                    new IllegalArgumentException("Unknown NAT service type: " + serviceType)));
   }
 
   /**
@@ -220,11 +227,11 @@ public class UpnpNatManager extends AbstractNatManager {
               GetExternalIP callback =
                   new GetExternalIP(service) {
 
-                    /**
+                    /*
                      * Override the success(ActionInvocation) version of success so that we can take
                      * a peek at the network interface that we discovered this on.
                      *
-                     * <p>Because the underlying jupnp library omits generics info in this method
+                     * Because the underlying jupnp library omits generics info in this method
                      * signature, we must too when we override it.
                      */
                     @Override
@@ -246,12 +253,12 @@ public class UpnpNatManager extends AbstractNatManager {
                       LOG.info(
                           "External IP address {} detected for internal address {}",
                           result,
-                          discoveredOnLocalAddress.get());
+                          discoveredOnLocalAddress.orElse("unknown"));
 
                       externalIpQueryFuture.complete(result);
                     }
 
-                    /**
+                    /*
                      * Because the underlying jupnp library omits generics info in this method
                      * signature, we must too when we override it.
                      */
@@ -311,18 +318,24 @@ public class UpnpNatManager extends AbstractNatManager {
         address -> {
           // note that this future is a dependency of externalIpQueryFuture, so it must be completed
           // by now
-          RemoteService service = getService(SERVICE_TYPE_WAN_IP_CONNECTION).join();
+          RemoteService service =
+              getService(SERVICE_TYPE_WAN_IP_CONNECTION)
+                  .orElseThrow(
+                      () -> new IllegalStateException("WANIPConnection service is not registered"))
+                  .join();
 
           // at this point, we should have the local address we discovered the IGD on,
           // so we can prime the NewInternalClient field if it was omitted
           if (null == portMapping.getInternalClient()) {
-            portMapping.setInternalClient(discoveredOnLocalAddress.get());
+            portMapping.setInternalClient(
+                discoveredOnLocalAddress.orElseThrow(
+                    () -> new IllegalStateException("No local address discovered for UPnP")));
           }
 
           // our query, which will be handled asynchronously by the jupnp library
           PortMappingAdd callback =
               new PortMappingAdd(service, portMapping) {
-                /**
+                /*
                  * Because the underlying jupnp library omits generics info in this method
                  * signature, we must too when we override it.
                  */
@@ -337,7 +350,7 @@ public class UpnpNatManager extends AbstractNatManager {
 
                   synchronized (forwardedPorts) {
                     final NatServiceType natServiceType =
-                        NatServiceType.fromString(portMapping.getDescription());
+                        NatServiceType.fromString(requireNonNull(portMapping.getDescription()));
                     final NatPortMapping natPortMapping =
                         new NatPortMapping(
                             natServiceType,
@@ -352,7 +365,7 @@ public class UpnpNatManager extends AbstractNatManager {
                   upnpQueryFuture.complete(null);
                 }
 
-                /**
+                /*
                  * Because the underlying jupnp library omits generics info in this method
                  * signature, we must too when we override it.
                  */
@@ -395,8 +408,14 @@ public class UpnpNatManager extends AbstractNatManager {
   private CompletableFuture<Void> releaseAllPortForwards() {
     // if we haven't observed the WANIPConnection service yet, we should have no port forwards to
     // release
-    CompletableFuture<RemoteService> wanIPConnectionServiceFuture =
+    Optional<CompletableFuture<RemoteService>> wanIPConnectionServiceFutureOptional =
         getService(SERVICE_TYPE_WAN_IP_CONNECTION);
+    if (wanIPConnectionServiceFutureOptional.isEmpty()) {
+      return CompletableFuture.completedFuture(null);
+    }
+
+    CompletableFuture<RemoteService> wanIPConnectionServiceFuture =
+        wanIPConnectionServiceFutureOptional.get();
     if (!wanIPConnectionServiceFuture.isDone()) {
       return CompletableFuture.completedFuture(null);
     }
@@ -428,7 +447,7 @@ public class UpnpNatManager extends AbstractNatManager {
 
       PortMappingDelete callback =
           new PortMappingDelete(service, toJupnpPortMapping(portMapping)) {
-            /**
+            /*
              * Because the underlying jupnp library omits generics info in this method signature, we
              * must too when we override it.
              */
@@ -444,7 +463,7 @@ public class UpnpNatManager extends AbstractNatManager {
               future.complete(null);
             }
 
-            /**
+            /*
              * Because the underlying jupnp library omits generics info in this method signature, we
              * must too when we override it.
              */
@@ -485,14 +504,17 @@ public class UpnpNatManager extends AbstractNatManager {
       String serviceType = service.getServiceType().getType();
       if (serviceTypes.contains(serviceType)) {
         synchronized (this) {
-          // log a warning if we detect a second WANIPConnection service
-          CompletableFuture<RemoteService> existingFuture = recognizedServices.get(serviceType);
-          if (existingFuture.isDone()) {
-            LOG.warn(
-                "Detected multiple WANIPConnection services on network. This may interfere with NAT circumvention.");
-            continue;
-          }
-          existingFuture.complete(service);
+          getService(serviceType)
+              .ifPresent(
+                  existingFuture -> {
+                    // log a warning if we detect a second WANIPConnection service
+                    if (existingFuture.isDone()) {
+                      LOG.warn(
+                          "Detected multiple WANIPConnection services on network. This may interfere with NAT circumvention.");
+                      return;
+                    }
+                    existingFuture.complete(service);
+                  });
         }
       }
     }
@@ -502,13 +524,10 @@ public class UpnpNatManager extends AbstractNatManager {
   }
 
   private PortMapping.Protocol toJupnpProtocol(final NetworkProtocol protocol) {
-    switch (protocol) {
-      case UDP:
-        return PortMapping.Protocol.UDP;
-      case TCP:
-        return PortMapping.Protocol.TCP;
-    }
-    return null;
+    return switch (protocol) {
+      case UDP -> PortMapping.Protocol.UDP;
+      case TCP -> PortMapping.Protocol.TCP;
+    };
   }
 
   private PortMapping toJupnpPortMapping(final NatPortMapping natPortMapping) {

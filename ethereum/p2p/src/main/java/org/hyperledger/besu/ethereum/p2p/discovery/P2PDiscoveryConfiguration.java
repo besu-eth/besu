@@ -14,30 +14,34 @@
  */
 package org.hyperledger.besu.ethereum.p2p.discovery;
 
+import org.hyperledger.besu.ethereum.p2p.config.DiscoveryMode;
 import org.hyperledger.besu.util.number.Percentage;
 
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
-import org.apache.commons.net.util.SubnetUtils;
+import inet.ipaddr.IPAddress;
 import org.apache.tuweni.bytes.Bytes;
 
 public record P2PDiscoveryConfiguration(
     Boolean p2pEnabled,
     Boolean peerDiscoveryEnabled,
+    DiscoveryMode discoveryMode,
     String p2pHost,
     String p2pInterface,
     Integer p2pPort,
+    Integer p2pDiscoveryPort,
     Optional<String> p2pHostIpv6,
     Optional<String> p2pInterfaceIpv6,
     Integer p2pPortIpv6,
+    Integer p2pDiscoveryPortIpv6,
     Integer maxPeers,
     Boolean isLimitRemoteWireConnectionsEnabled,
     Percentage maxRemoteConnectionsPercentage,
     Boolean randomPeerPriority,
     Collection<Bytes> bannedNodeIds,
-    List<SubnetUtils.SubnetInfo> allowedSubnets,
+    List<IPAddress> allowedSubnets,
     Boolean poaDiscoveryRetryBootnodes,
     List<String> bootNodes,
     String discoveryDnsUrl,

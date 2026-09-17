@@ -21,16 +21,29 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Stream;
 
+import org.ethereum.beacon.discovery.schema.NodeRecord;
+
 /** Service interface for peer discovery in a P2P network. */
 public interface PeerDiscoveryAgent {
 
   /**
-   * Starts the peer discovery service on the specified TCP port.
-   *
-   * @param tcpPort The TCP port to start the service on.
-   * @return A future that completes with the actual port the service started on.
+   * Wires the inbound packet handler(s) without starting the transport. When agents share a UDP
+   * transport (e.g. DiscV4 + DiscV5 in {@code CompositePeerDiscoveryAgent}), the orchestrator calls
+   * this on every sub-agent before binding the shared channel, so packets arriving before {@link
+   * #start(int)} runs aren't dropped. Default is a no-op; must be idempotent.
    */
-  CompletableFuture<Integer> start(int tcpPort);
+  default void prepareHandlers() {}
+
+  /**
+   * Starts the peer discovery service. Discovery itself binds and communicates over UDP only - it
+   * never binds a TCP socket.
+   *
+   * @param rlpxTcpPort the RLPx TCP listening port, already bound separately by the RLPx layer.
+   *     Passed in only so discovery can advertise it to peers (embedded in outbound PING/ENR),
+   *     telling them where to connect for the actual devp2p/RLPx connection.
+   * @return a future that completes with the UDP port discovery bound to.
+   */
+  CompletableFuture<Integer> start(int rlpxTcpPort);
 
   /**
    * Stops the peer discovery service.
@@ -92,4 +105,13 @@ public interface PeerDiscoveryAgent {
    * @return An Optional containing the peer if found, or empty if not found.
    */
   Optional<Peer> getPeer(PeerId peerId);
+
+  /**
+   * Returns the local node record (ENR), if available.
+   *
+   * @return an Optional containing the local NodeRecord, or empty if not available.
+   */
+  default Optional<NodeRecord> getLocalNodeRecord() {
+    return Optional.empty();
+  }
 }

@@ -15,8 +15,8 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai;
 
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
-import static org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
-import static org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams.withStateRootAndBlockHashAndUpdateNodeHead;
+import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
+import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withStateRootAndBlockHashAndUpdateNodeHead;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
@@ -67,8 +67,8 @@ public class BonsaiSnapshotIsolationTests extends AbstractIsolationTests {
     assertThat(res.isSuccessful()).isTrue();
     assertThat(res2.isSuccessful()).isTrue();
 
-    assertThat(archive.getCachedWorldStorageManager().contains(firstBlock.getHash())).isTrue();
-    assertThat(archive.getCachedWorldStorageManager().contains(secondBlock.getHash())).isTrue();
+    assertThat(archive.getWorldStateCacheManager().contains(firstBlock.getHash())).isTrue();
+    assertThat(archive.getWorldStateCacheManager().contains(secondBlock.getHash())).isTrue();
 
     assertThat(archive.getWorldState().get(testAddress)).isNotNull();
     assertThat(archive.getWorldState().get(testAddress).getBalance())

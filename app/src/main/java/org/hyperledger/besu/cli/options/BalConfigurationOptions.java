@@ -17,20 +17,12 @@ package org.hyperledger.besu.cli.options;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.ImmutableBalConfiguration;
 
-import java.time.Duration;
-
 import picocli.CommandLine;
 
 /** Command-line options for configuring Block Access List behaviour. */
 public class BalConfigurationOptions {
   /** Default constructor. */
   public BalConfigurationOptions() {}
-
-  @CommandLine.Option(
-      names = {"--Xbal-optimization-enabled"},
-      hidden = true,
-      description = "Allows disabling BAL-based optimizations.")
-  boolean balOptimizationEnabled = true;
 
   @CommandLine.Option(
       names = {"--Xbal-perfect-parallelization-enabled"},
@@ -40,37 +32,18 @@ public class BalConfigurationOptions {
   boolean balPerfectParallelizationEnabled = true;
 
   @CommandLine.Option(
-      names = {"--Xbal-lenient-on-state-root-mismatch"},
+      names = {"--Xbal-state-root-enabled"},
       hidden = true,
+      negatable = true,
       description =
-          "Log an error instead of throwing when the BAL-computed state root does not match the synchronously computed root.")
-  boolean balLenientOnStateRootMismatch = true;
-
-  @CommandLine.Option(
-      names = {"--Xbal-trust-state-root"},
-      hidden = true,
-      description = "Trust the BAL-computed state root without verification.")
-  boolean balTrustStateRoot = false;
+          "Use the BAL-based state root commit path when a BAL is present (default: true).")
+  boolean balStateRootEnabled = true;
 
   @CommandLine.Option(
       names = {"--Xbal-log-bals-on-mismatch"},
       hidden = true,
       description = "Log the constructed and block's BAL when they differ.")
   boolean balLogBalsOnMismatch = false;
-
-  @CommandLine.Option(
-      names = {"--Xbal-state-root-timeout"},
-      hidden = true,
-      paramLabel = "<INTEGER>",
-      description = "Timeout in milliseconds when waiting for the BAL-computed state root.")
-  private long balStateRootTimeoutMs = Duration.ofSeconds(1).toMillis();
-
-  @CommandLine.Option(
-      names = {"--Xbal-processing-timeout"},
-      hidden = true,
-      paramLabel = "<INTEGER>",
-      description = "Timeout in milliseconds when waiting for BAL transaction processing results.")
-  private long balProcessingTimeoutMs = Duration.ofSeconds(1).toMillis();
 
   /**
    * Builds the immutable {@link BalConfiguration} corresponding to the parsed CLI options.
@@ -79,13 +52,9 @@ public class BalConfigurationOptions {
    */
   public BalConfiguration toDomainObject() {
     return ImmutableBalConfiguration.builder()
-        .isBalOptimisationEnabled(balOptimizationEnabled)
         .isPerfectParallelizationEnabled(balPerfectParallelizationEnabled)
         .shouldLogBalsOnMismatch(balLogBalsOnMismatch)
-        .isBalLenientOnStateRootMismatch(balLenientOnStateRootMismatch)
-        .isBalStateRootTrusted(balTrustStateRoot)
-        .balStateRootTimeout(Duration.ofMillis(balStateRootTimeoutMs))
-        .balProcessingTimeout(Duration.ofMillis(balProcessingTimeoutMs))
+        .isBalStateRootEnabled(balStateRootEnabled)
         .build();
   }
 }

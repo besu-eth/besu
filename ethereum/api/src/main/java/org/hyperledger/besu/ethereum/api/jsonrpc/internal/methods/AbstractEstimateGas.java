@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.CallParameterUtil.validateAndGetCallParams;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StateOverrideMap;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcErrorConverter;
@@ -81,7 +82,8 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
     final var minTxCost = getBlockchainQueries().getMinimumTransactionCost(pendingBlockHeader);
     final var gasLimitUpperBound = calculateGasLimitUpperBound(callParameter, pendingBlockHeader);
     if (gasLimitUpperBound < minTxCost) {
-      return errorResponse(requestContext, RpcErrorType.TRANSACTION_UPFRONT_COST_EXCEEDS_BALANCE);
+      return errorResponse(
+          requestContext, RpcErrorType.TRANSACTION_UPFRONT_GAS_COST_EXCEEDS_BALANCE);
     }
     final TransactionSimulationFunction simulationFunction =
         (cp, op) ->
@@ -117,7 +119,8 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
     final var minTxCost = getBlockchainQueries().getMinimumTransactionCost(blockHeader);
     final var gasLimitUpperBound = calculateGasLimitUpperBound(callParameter, blockHeader);
     if (gasLimitUpperBound < minTxCost) {
-      return errorResponse(requestContext, RpcErrorType.TRANSACTION_UPFRONT_COST_EXCEEDS_BALANCE);
+      return errorResponse(
+          requestContext, RpcErrorType.TRANSACTION_UPFRONT_GAS_COST_EXCEEDS_BALANCE);
     }
     final TransactionSimulationFunction simulationFunction =
         (cp, op) ->
@@ -213,6 +216,10 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
     }
   }
 
+  protected static boolean isPlainValueTransfer(final CallParameter callParams) {
+    return callParams.getPayload().isEmpty() || callParams.getPayload().get().equals(Bytes.EMPTY);
+  }
+
   protected boolean attemptOptimisticSimulationWithMinimumBlockGasUsed(
       final long minTxCost,
       final CallParameter callParams,
@@ -220,7 +227,7 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
       final OperationTracer operationTracer) {
 
     // If the transaction is a plain value transfer, try minTxCost. It is likely to succeed.
-    if (callParams.getPayload().isEmpty() || callParams.getPayload().get().equals(Bytes.EMPTY)) {
+    if (isPlainValueTransfer(callParams)) {
       var maybeSimpleTransferResult =
           simulationFunction.simulate(overrideGasLimit(callParams, minTxCost), operationTracer);
       return maybeSimpleTransferResult.isPresent()
@@ -241,8 +248,12 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
       final var sender = callParameters.getSender().get();
       final var maxGasPrice = calculateTxMaxGasPrice(callParameters);
       if (!maxGasPrice.equals(Wei.ZERO)) {
-        final var maybeBalance =
-            getBlockchainQueries().accountBalance(sender, blockHeader.getParentHash());
+        // For a concrete BlockHeader (historical or "latest"), look up the balance at that
+        // block's own state.  For a synthetic ProcessableBlockHeader (pending), the block
+        // does not exist yet, so the correct state is the parent's (chain-head) state.
+        final Hash balanceBlockHash =
+            (blockHeader instanceof BlockHeader bh) ? bh.getHash() : blockHeader.getParentHash();
+        final var maybeBalance = getBlockchainQueries().accountBalance(sender, balanceBlockHash);
         if (maybeBalance.isEmpty() || maybeBalance.get().equals(Wei.ZERO)) {
           return 0;
         }

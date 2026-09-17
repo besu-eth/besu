@@ -14,13 +14,14 @@
  */
 package org.hyperledger.besu.cryptoservices;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
-import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -29,6 +30,36 @@ public class NodeKeyTest {
   @BeforeEach
   public void resetInstance() {
     SignatureAlgorithmFactory.resetInstance();
+  }
+
+  @Test
+  public void ecdhKeyAgreementCompressedIsSymmetric() {
+    final SignatureAlgorithm signatureAlgorithm = SignatureAlgorithmFactory.getInstance();
+    final KeyPair kp1 = signatureAlgorithm.generateKeyPair();
+    final KeyPair kp2 = signatureAlgorithm.generateKeyPair();
+
+    final NodeKey nodeKey1 = new NodeKey(new KeyPairSecurityModule(kp1));
+    final NodeKey nodeKey2 = new NodeKey(new KeyPairSecurityModule(kp2));
+
+    final Bytes compressed1 = nodeKey1.calculateECDHKeyAgreementCompressed(kp2.getPublicKey());
+    final Bytes compressed2 = nodeKey2.calculateECDHKeyAgreementCompressed(kp1.getPublicKey());
+
+    assertThat(compressed1).isEqualTo(compressed2);
+    assertThat(compressed1.size()).isEqualTo(33);
+  }
+
+  @Test
+  public void ecdhCompressedXCoordinateMatchesUncompressed() {
+    final SignatureAlgorithm signatureAlgorithm = SignatureAlgorithmFactory.getInstance();
+    final KeyPair kp1 = signatureAlgorithm.generateKeyPair();
+    final KeyPair kp2 = signatureAlgorithm.generateKeyPair();
+
+    final NodeKey nodeKey1 = new NodeKey(new KeyPairSecurityModule(kp1));
+
+    final Bytes32 xOnly = nodeKey1.calculateECDHKeyAgreement(kp2.getPublicKey());
+    final Bytes compressed = nodeKey1.calculateECDHKeyAgreementCompressed(kp2.getPublicKey());
+
+    assertThat(compressed.slice(1, 32)).isEqualTo(xOnly);
   }
 
   @Test
@@ -45,10 +76,9 @@ public class NodeKeyTest {
     final KeyPairSecurityModule keyPairSecurityModule = new KeyPairSecurityModule(keyPair);
     final NodeKey nodeKey = new NodeKey(keyPairSecurityModule);
 
-    Assertions.assertThat(nodeKey.getPublicKey().getEncodedBytes())
+    assertThat(nodeKey.getPublicKey().getEncodedBytes())
         .isEqualByComparingTo(keyPair.getPublicKey().getEncodedBytes());
 
-    Assertions.assertThat(nodeKey.getPublicKey().getEncodedBytes())
-        .isEqualByComparingTo(keyPairPubKey);
+    assertThat(nodeKey.getPublicKey().getEncodedBytes()).isEqualByComparingTo(keyPairPubKey);
   }
 }

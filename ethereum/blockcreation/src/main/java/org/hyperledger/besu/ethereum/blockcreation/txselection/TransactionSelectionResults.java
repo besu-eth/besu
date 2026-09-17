@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -48,30 +49,41 @@ public class TransactionSelectionResults {
       new ConcurrentHashMap<>();
 
   // EIP-7778: Track two separate cumulative gas values
-  // cumulativeGasUsed: For block gas limit enforcement (uses protocol-specific strategy)
+  // cumulativeExecutionGasUsed: For block gas limit enforcement (uses protocol-specific strategy)
   // cumulativeReceiptGasUsed: For receipt cumulativeGasUsed field (always post-refund)
-  private long cumulativeGasUsed = 0;
+  private long cumulativeExecutionGasUsed = 0;
   private long cumulativeReceiptGasUsed = 0;
+  // EIP-8037: Track cumulative state gas used for multidimensional gas metering
+  private long cumulativeStateGasUsed = 0;
+
+  // Sum of per-tx evaluation time for txs that were actually included in the block.
+  // Accumulated on commit so it excludes invalid, rejected, and timeout-killed txs.
+  private long selectedTxsEvaluationTimeNanos = 0;
 
   void updateSelected(
       final Transaction transaction,
       final TransactionReceipt receipt,
       final long blockGasUsed,
-      final long receiptGasUsed) {
+      final long receiptGasUsed,
+      final long stateGasUsed,
+      final long evaluationTimeNanos) {
     selectedTransactions.add(transaction);
     transactionsByType
         .computeIfAbsent(transaction.getType(), type -> new ArrayList<>())
         .add(transaction);
     receipts.add(receipt);
-    cumulativeGasUsed += blockGasUsed;
+    cumulativeExecutionGasUsed += blockGasUsed;
     cumulativeReceiptGasUsed += receiptGasUsed;
+    cumulativeStateGasUsed += stateGasUsed;
+    selectedTxsEvaluationTimeNanos += evaluationTimeNanos;
     LOG.atTrace()
         .setMessage(
-            "New selected transaction {}, total transactions {}, cumulative block gas {}, cumulative receipt gas {}")
+            "New selected transaction {}, total transactions {}, cumulative block gas {}, cumulative receipt gas {}, cumulative selection time {}ms")
         .addArgument(transaction::toTraceLog)
         .addArgument(selectedTransactions::size)
-        .addArgument(cumulativeGasUsed)
+        .addArgument(cumulativeExecutionGasUsed)
         .addArgument(cumulativeReceiptGasUsed)
+        .addArgument(() -> TimeUnit.NANOSECONDS.toMillis(selectedTxsEvaluationTimeNanos))
         .log();
   }
 
@@ -92,12 +104,20 @@ public class TransactionSelectionResults {
     return receipts;
   }
 
-  public long getCumulativeGasUsed() {
-    return cumulativeGasUsed;
+  public long getCumulativeExecutionGasUsed() {
+    return cumulativeExecutionGasUsed;
   }
 
   public long getCumulativeReceiptGasUsed() {
     return cumulativeReceiptGasUsed;
+  }
+
+  public long getCumulativeStateGasUsed() {
+    return cumulativeStateGasUsed;
+  }
+
+  public long getSelectedTxsEvaluationTimeNanos() {
+    return selectedTxsEvaluationTimeNanos;
   }
 
   public Map<Transaction, TransactionSelectionResult> getNotSelectedTransactions() {
@@ -137,8 +157,9 @@ public class TransactionSelectionResults {
       return false;
     }
     TransactionSelectionResults that = (TransactionSelectionResults) o;
-    return cumulativeGasUsed == that.cumulativeGasUsed
+    return cumulativeExecutionGasUsed == that.cumulativeExecutionGasUsed
         && cumulativeReceiptGasUsed == that.cumulativeReceiptGasUsed
+        && cumulativeStateGasUsed == that.cumulativeStateGasUsed
         && selectedTransactions.equals(that.selectedTransactions)
         && notSelectedTransactions.equals(that.notSelectedTransactions)
         && receipts.equals(that.receipts);
@@ -150,15 +171,18 @@ public class TransactionSelectionResults {
         selectedTransactions,
         notSelectedTransactions,
         receipts,
-        cumulativeGasUsed,
-        cumulativeReceiptGasUsed);
+        cumulativeExecutionGasUsed,
+        cumulativeReceiptGasUsed,
+        cumulativeStateGasUsed);
   }
 
   public String toTraceLog() {
-    return "cumulativeGasUsed="
-        + cumulativeGasUsed
+    return "cumulativeExecutionGasUsed="
+        + cumulativeExecutionGasUsed
         + ", cumulativeReceiptGasUsed="
         + cumulativeReceiptGasUsed
+        + ", cumulativeStateGasUsed="
+        + cumulativeStateGasUsed
         + ", selectedTransactions="
         + selectedTransactions.stream()
             .map(Transaction::getHash)

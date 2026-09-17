@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.metrics.prometheus;
 
+import static java.util.Objects.requireNonNull;
 import static org.hyperledger.besu.metrics.prometheus.PrometheusCollector.getLabelValues;
 
 import org.hyperledger.besu.metrics.Observation;
@@ -21,6 +22,7 @@ import org.hyperledger.besu.plugin.services.metrics.MetricCategory;
 
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.ToDoubleFunction;
 import java.util.stream.Stream;
@@ -32,7 +34,6 @@ import io.prometheus.metrics.model.snapshots.CounterSnapshot;
 import io.prometheus.metrics.model.snapshots.DataPointSnapshot;
 import io.prometheus.metrics.model.snapshots.GaugeSnapshot;
 import io.prometheus.metrics.model.snapshots.MetricSnapshot;
-import io.vertx.core.impl.ConcurrentHashSet;
 
 /**
  * A Prometheus Guava cache collector implementation for Besu metrics. This class provides a way to
@@ -99,7 +100,7 @@ class PrometheusGuavaCache extends CategorizedPrometheusCollector {
                 "guava_cache_size", Context::gaugeValueExtractor);
 
     private final CacheMetricsCollector cacheMetricsCollector = new CacheMetricsCollector();
-    private final Set<String> cacheNames = new ConcurrentHashSet<>();
+    private final Set<String> cacheNames = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean collectorRegistered = new AtomicBoolean(false);
 
     boolean alreadyExists(final String name) {
@@ -139,7 +140,9 @@ class PrometheusGuavaCache extends CategorizedPrometheusCollector {
         final MetricCategory category, final String cacheName, final MetricSnapshot snapshot) {
       final var prometheusName = snapshot.getMetadata().getPrometheusName();
       if (COLLECTOR_VALUE_EXTRACTORS.containsKey(prometheusName)) {
-        return snapshotToObservations(category, cacheName, prometheusName, snapshot);
+        final var valueExtractor = requireNonNull(COLLECTOR_VALUE_EXTRACTORS.get(prometheusName));
+        return snapshotToObservations(
+            category, cacheName, prometheusName, valueExtractor, snapshot);
       }
       return Stream.empty();
     }
@@ -148,6 +151,7 @@ class PrometheusGuavaCache extends CategorizedPrometheusCollector {
         final MetricCategory category,
         final String cacheName,
         final String prometheusName,
+        final ToDoubleFunction<DataPointSnapshot> valueExtractor,
         final MetricSnapshot snapshot) {
       return snapshot.getDataPoints().stream()
           .filter(gdps -> gdps.getLabels().get("cache").equals(cacheName))
@@ -156,7 +160,7 @@ class PrometheusGuavaCache extends CategorizedPrometheusCollector {
                   new Observation(
                       category,
                       prometheusName,
-                      COLLECTOR_VALUE_EXTRACTORS.get(prometheusName).applyAsDouble(gdps),
+                      valueExtractor.applyAsDouble(gdps),
                       getLabelValues(gdps.getLabels())));
     }
 

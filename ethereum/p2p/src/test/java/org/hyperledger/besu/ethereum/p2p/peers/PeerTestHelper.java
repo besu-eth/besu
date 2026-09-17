@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.p2p.peers;
 
 import org.hyperledger.besu.ethereum.p2p.EthProtocolHelper;
-import org.hyperledger.besu.plugin.data.EnodeURL;
 
 import java.util.Arrays;
 
@@ -27,7 +26,7 @@ public class PeerTestHelper {
     return DefaultPeer.fromEnodeURL(enode());
   }
 
-  public static Peer createPeer(final EnodeURL enodeURL) {
+  public static Peer createPeer(final EnodeURLImpl enodeURL) {
     return DefaultPeer.fromEnodeURL(enodeURL);
   }
 
@@ -35,7 +34,7 @@ public class PeerTestHelper {
     return DefaultPeer.fromEnodeURL(enodeBuilder().nodeId(nodeId).build());
   }
 
-  public static EnodeURL enode() {
+  public static EnodeURLImpl enode() {
     return enodeBuilder().build();
   }
 

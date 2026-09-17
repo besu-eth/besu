@@ -31,7 +31,6 @@ import static org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcResponseKey.REQUE
 import static org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcResponseKey.SIZE;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcResponseKey.STATE_ROOT;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcResponseKey.TIMESTAMP;
-import static org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcResponseKey.TOTAL_DIFFICULTY;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcResponseKey.TRANSACTION_ROOT;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcResponseKey.WITHDRAWALS_ROOT;
 
@@ -44,9 +43,9 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResult;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionCompleteResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionHashResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionWithMetadataResult;
 import org.hyperledger.besu.ethereum.api.query.TransactionWithMetadata;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
@@ -101,7 +100,6 @@ public class JsonRpcResponseUtils {
     final long nonce = unsignedLong(values.get(NONCE));
     final Wei baseFee =
         values.containsKey(BASEFEE) ? Wei.of(unsignedInt256(values.get(BASEFEE))) : null;
-    final Difficulty totalDifficulty = Difficulty.of(unsignedInt256(values.get(TOTAL_DIFFICULTY)));
     final int size = unsignedInt(values.get(SIZE));
     final Hash withdrawalsRoot =
         values.containsKey(WITHDRAWALS_ROOT) ? hash(values.get(WITHDRAWALS_ROOT)) : null;
@@ -136,8 +134,7 @@ public class JsonRpcResponseUtils {
             null, // slotNumber
             blockHeaderFunctions);
 
-    return new JsonRpcSuccessResponse(
-        null, new BlockResult(header, transactions, ommers, totalDifficulty, size));
+    return new JsonRpcSuccessResponse(null, new BlockResult(header, transactions, ommers, size));
   }
 
   public List<TransactionResult> transactions(final String... values) {
@@ -178,7 +175,8 @@ public class JsonRpcResponseUtils {
       final String value,
       final String v,
       final String r,
-      final String s) {
+      final String s,
+      final String blockTimestamp) {
 
     final Transaction transaction =
         Transaction.builder()
@@ -201,13 +199,14 @@ public class JsonRpcResponseUtils {
             .sender(address(fromAddress))
             .build();
 
-    return new TransactionCompleteResult(
+    return new TransactionWithMetadataResult(
         new TransactionWithMetadata(
             transaction,
             unsignedLong(blockNumber),
             Optional.ofNullable(baseFee),
             Hash.fromHexString(blockHash),
-            unsignedInt(transactionIndex)));
+            unsignedInt(transactionIndex),
+            unsignedLong(blockTimestamp)));
   }
 
   private int unsignedInt(final String value) {

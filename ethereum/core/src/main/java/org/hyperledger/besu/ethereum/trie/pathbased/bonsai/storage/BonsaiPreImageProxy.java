@@ -16,7 +16,7 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.worldstate.WorldStatePreimageStorage;
+import org.hyperledger.besu.plugin.services.storage.WorldStatePreimageStorage;
 
 import java.util.Optional;
 

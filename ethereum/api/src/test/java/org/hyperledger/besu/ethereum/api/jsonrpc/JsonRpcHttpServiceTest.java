@@ -706,7 +706,7 @@ public class JsonRpcHttpServiceTest extends JsonRpcHttpServiceTestBase {
       testHelper.assertValidJsonRpcResult(json, id);
       // Check result
       final JsonObject result = json.getJsonObject("result");
-      verifyBlockResult(block, blockWMetadata.getTotalDifficulty(), result, false);
+      verifyBlockResult(block, result, false);
     }
   }
 
@@ -738,7 +738,7 @@ public class JsonRpcHttpServiceTest extends JsonRpcHttpServiceTestBase {
       testHelper.assertValidJsonRpcResult(json, id);
       // Check result
       final JsonObject result = json.getJsonObject("result");
-      verifyBlockResult(block, blockWMetadata.getTotalDifficulty(), result, true);
+      verifyBlockResult(block, result, true);
     }
   }
 
@@ -928,7 +928,7 @@ public class JsonRpcHttpServiceTest extends JsonRpcHttpServiceTestBase {
       testHelper.assertValidJsonRpcResult(json, id);
       // Check result
       final JsonObject result = json.getJsonObject("result");
-      verifyBlockResult(block, blockWithMetadata.getTotalDifficulty(), result, false);
+      verifyBlockResult(block, result, false);
     }
   }
 
@@ -960,7 +960,7 @@ public class JsonRpcHttpServiceTest extends JsonRpcHttpServiceTestBase {
       testHelper.assertValidJsonRpcResult(json, id);
       // Check result
       final JsonObject result = json.getJsonObject("result");
-      verifyBlockResult(block, blockWithMetadata.getTotalDifficulty(), result, true);
+      verifyBlockResult(block, result, true);
     }
   }
 
@@ -1012,7 +1012,7 @@ public class JsonRpcHttpServiceTest extends JsonRpcHttpServiceTestBase {
       testHelper.assertValidJsonRpcResult(json, id);
       // Check result
       final JsonObject result = json.getJsonObject("result");
-      verifyBlockResult(block, blockWithMetadata.getTotalDifficulty(), result, false);
+      verifyBlockResult(block, result, false);
     }
   }
 
@@ -1041,7 +1041,7 @@ public class JsonRpcHttpServiceTest extends JsonRpcHttpServiceTestBase {
       testHelper.assertValidJsonRpcResult(json, id);
       // Check result
       final JsonObject result = json.getJsonObject("result");
-      verifyBlockResult(block, blockWithMetadata.getTotalDifficulty(), result, false);
+      verifyBlockResult(block, result, false);
     }
   }
 
@@ -1074,7 +1074,7 @@ public class JsonRpcHttpServiceTest extends JsonRpcHttpServiceTestBase {
       testHelper.assertValidJsonRpcResult(json, id);
       // Check result
       final JsonObject result = json.getJsonObject("result");
-      verifyBlockResult(block, blockWithMetadata.getTotalDifficulty(), result, false);
+      verifyBlockResult(block, result, false);
     }
   }
 
@@ -1106,7 +1106,7 @@ public class JsonRpcHttpServiceTest extends JsonRpcHttpServiceTestBase {
       testHelper.assertValidJsonRpcResult(json, id);
       // Check result
       final JsonObject result = json.getJsonObject("result");
-      verifyBlockResult(block, blockWithMetadata.getTotalDifficulty(), result, false);
+      verifyBlockResult(block, result, false);
     }
   }
 
@@ -1558,10 +1558,11 @@ public class JsonRpcHttpServiceTest extends JsonRpcHttpServiceTestBase {
   @Test
   public void batchRequestParseError() throws Exception {
     final String req =
-        "[\n"
-            + "  {\"jsonrpc\": \"2.0\", \"method\": \"net_version\", \"id\": \"1\"},\n"
-            + "  {\"jsonrpc\": \"2.0\", \"method\"\n"
-            + "]";
+        """
+        [
+          {"jsonrpc": "2.0", "method": "net_version", "id": "1"},
+          {"jsonrpc": "2.0", "method"
+        ]""";
 
     final RequestBody body = RequestBody.create(req, JSON);
 
@@ -1632,17 +1633,10 @@ public class JsonRpcHttpServiceTest extends JsonRpcHttpServiceTestBase {
   }
 
   private void verifyBlockResult(
-      final Block block,
-      final Difficulty td,
-      final JsonObject result,
-      final boolean shouldTransactionsBeHashed) {
+      final Block block, final JsonObject result, final boolean shouldTransactionsBeHashed) {
     assertBlockResultMatchesBlock(result, block);
 
-    if (td == null) {
-      assertThat(result.getJsonObject("totalDifficulty")).isNull();
-    } else {
-      assertThat(Difficulty.fromHexString(result.getString("totalDifficulty"))).isEqualTo(td);
-    }
+    assertThat(result.getString("totalDifficulty")).isNull();
 
     // Check ommers
     final JsonArray ommersResult = result.getJsonArray("uncles");
@@ -1839,7 +1833,8 @@ public class JsonRpcHttpServiceTest extends JsonRpcHttpServiceTestBase {
               block.getHeader().getNumber(),
               block.getHeader().getBaseFee(),
               block.getHash(),
-              i));
+              i,
+              block.getHeader().getTimestamp()));
     }
     final List<Hash> ommers =
         block.getBody().getOmmers().stream().map(BlockHeader::getHash).collect(Collectors.toList());
@@ -1993,9 +1988,7 @@ public class JsonRpcHttpServiceTest extends JsonRpcHttpServiceTestBase {
                 + address
                 + "\",\""
                 + UInt256.ZERO
-                + "\",\""
-                + 0L
-                + "\"]}",
+                + "\",\"0x0\"]}",
             JSON);
 
     try (final Response resp = client.newCall(buildPostRequest(body)).execute()) {

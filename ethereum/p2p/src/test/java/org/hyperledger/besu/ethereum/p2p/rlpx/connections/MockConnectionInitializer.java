@@ -23,6 +23,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -52,15 +53,28 @@ public class MockConnectionInitializer implements ConnectionInitializer {
     incompleteConnections.clear();
   }
 
+  /**
+   * Completes the pending future returned by {@link #connect(Peer)} for the given peer
+   * exceptionally, so callers can assert how the original connect-attempt future's completion (as
+   * opposed to a derived {@code whenComplete} stage) is classified downstream.
+   */
+  public void completeExceptionally(final Peer peer, final Throwable throwable) {
+    final CompletableFuture<PeerConnection> future = incompleteConnections.remove(peer);
+    if (future != null) {
+      future.completeExceptionally(throwable);
+    }
+  }
+
   public void simulateIncomingConnection(final PeerConnection incomingConnection) {
     connectCallbacks.forEach(c -> c.onConnect(incomingConnection));
   }
 
   @Override
-  public CompletableFuture<InetSocketAddress> start() {
+  public CompletableFuture<ListeningAddresses> start() {
     final InetSocketAddress socketAddress =
         new InetSocketAddress(InetAddress.getLoopbackAddress(), NEXT_PORT.incrementAndGet());
-    return CompletableFuture.completedFuture(socketAddress);
+    return CompletableFuture.completedFuture(
+        new ListeningAddresses(socketAddress, Optional.empty()));
   }
 
   @Override

@@ -36,11 +36,11 @@ import org.hyperledger.besu.ethereum.api.query.BlockWithMetadata;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.api.query.TransactionWithMetadata;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.tracing.TraceFrame;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.Collections;
 import java.util.Optional;
@@ -144,6 +144,24 @@ class DebugAccountAtTest {
 
     final Object[] params =
         new Object[] {Hash.ZERO.getBytes().toHexString(), 2, Address.ZERO.getBytes().toHexString()};
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(new JsonRpcRequest("2.0", "debug_accountAt", params));
+    final JsonRpcResponse response = debugAccountAt.response(request);
+
+    Assertions.assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
+    Assertions.assertThat(((JsonRpcErrorResponse) response).getErrorType())
+        .isEqualByComparingTo(RpcErrorType.INVALID_TRANSACTION_PARAMS);
+  }
+
+  @Test
+  void testInvalidParamsResponseExactBoundary() {
+    setupMockBlock();
+    Mockito.when(blockWithMetadata.getTransactions())
+        .thenReturn(Collections.singletonList(transactionWithMetadata));
+
+    // txIndex == size (1) should be rejected — valid indices are [0, size-1]
+    final Object[] params =
+        new Object[] {Hash.ZERO.getBytes().toHexString(), 1, Address.ZERO.getBytes().toHexString()};
     final JsonRpcRequestContext request =
         new JsonRpcRequestContext(new JsonRpcRequest("2.0", "debug_accountAt", params));
     final JsonRpcResponse response = debugAccountAt.response(request);

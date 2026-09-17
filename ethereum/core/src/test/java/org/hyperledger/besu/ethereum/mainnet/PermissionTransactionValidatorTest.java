@@ -35,9 +35,7 @@ import org.hyperledger.besu.evm.account.Account;
 
 import java.math.BigInteger;
 import java.util.Optional;
-import java.util.function.Supplier;
 
-import com.google.common.base.Suppliers;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -45,9 +43,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 public class PermissionTransactionValidatorTest extends MainnetTransactionValidatorTest {
 
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
-  private static final KeyPair senderKeys = SIGNATURE_ALGORITHM.get().generateKeyPair();
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
+  private static final KeyPair senderKeys = SIGNATURE_ALGORITHM.generateKeyPair();
 
   private final Transaction basicTransaction =
       new TransactionTestFixture()

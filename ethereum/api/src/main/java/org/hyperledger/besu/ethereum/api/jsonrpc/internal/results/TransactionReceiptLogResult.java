@@ -56,7 +56,8 @@ public class TransactionReceiptLogResult {
       final Hash blockHash,
       final long blockTimestamp,
       final int transactionIndex,
-      final int logIndex) {
+      final int logIndex,
+      final boolean removed) {
     this.address = log.getLogger().toString();
     this.topics = new ArrayList<>(log.getTopics().size());
 
@@ -72,8 +73,7 @@ public class TransactionReceiptLogResult {
     this.blockTimestamp = Quantity.create(blockTimestamp);
     this.logIndex = Quantity.create(logIndex);
 
-    // TODO: Handle chain reorgs, i.e. return `true` if log is removed
-    this.removed = false;
+    this.removed = removed;
   }
 
   @JsonGetter(value = "address")

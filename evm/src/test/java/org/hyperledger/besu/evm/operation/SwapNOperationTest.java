@@ -35,18 +35,20 @@ class SwapNOperationTest {
 
   @Test
   void testDecodeSingle_validLowRange() {
-    // x = 0 -> n = 17
-    assertThat(SwapNOperation.decodeSingle(0)).isEqualTo(17);
-    // x = 90 -> n = 107
-    assertThat(SwapNOperation.decodeSingle(90)).isEqualTo(107);
+    // n = (x + 145) % 256
+    // x = 0 -> n = 145
+    assertThat(SwapNOperation.decodeSingle(0)).isEqualTo(145);
+    // x = 90 -> n = 235
+    assertThat(SwapNOperation.decodeSingle(90)).isEqualTo(235);
   }
 
   @Test
   void testDecodeSingle_validHighRange() {
-    // x = 128 -> n = 108
-    assertThat(SwapNOperation.decodeSingle(128)).isEqualTo(108);
-    // x = 255 -> n = 235
-    assertThat(SwapNOperation.decodeSingle(255)).isEqualTo(235);
+    // n = (x + 145) % 256
+    // x = 128 -> n = 17
+    assertThat(SwapNOperation.decodeSingle(128)).isEqualTo(17);
+    // x = 255 -> n = 144
+    assertThat(SwapNOperation.decodeSingle(255)).isEqualTo(144);
   }
 
   @ParameterizedTest
@@ -57,8 +59,8 @@ class SwapNOperationTest {
 
   @Test
   void testSwapN_basicOperation() {
-    // SWAPN with immediate 0 -> n=17, swaps top with 18th item (index 17)
-    final Bytes code = Bytes.of(0xe7, 0x00); // SWAPN 17
+    // SWAPN with immediate 0x80 -> n=(128+145)%256=17, swaps top with 18th item (index 17)
+    final Bytes code = Bytes.fromHexString("e780"); // SWAPN 0x80 -> n=17
     final TestMessageFrameBuilder builder =
         new TestMessageFrameBuilder().code(new Code(code)).pc(0);
 
@@ -86,29 +88,29 @@ class SwapNOperationTest {
   }
 
   @Test
-  void testSwapN_immediate128() {
-    // SWAPN with immediate 128 (0x80) -> n=108, swaps top with 109th item
-    final Bytes code = Bytes.fromHexString("e780"); // SWAPN 108
+  void testSwapN_immediateFF() {
+    // SWAPN with immediate 0xFF -> n=(255+145)&0xFF=144, swaps top with 145th item
+    final Bytes code = Bytes.fromHexString("e7ff"); // SWAPN 0xFF -> n=144
     final TestMessageFrameBuilder builder =
         new TestMessageFrameBuilder().code(new Code(code)).pc(0);
 
-    // Push 109 items using Bytes.ofUnsignedInt to avoid byte range issues
-    for (int i = 109; i >= 1; i--) {
+    // Push 145 items
+    for (int i = 145; i >= 1; i--) {
       builder.pushStackItem(Bytes.ofUnsignedInt(i));
     }
     final MessageFrame frame = builder.build();
 
-    // Before: stack[0]=1, stack[108]=109
+    // Before: stack[0]=1, stack[144]=145
     assertThat(frame.getStackItem(0).toInt()).isEqualTo(1);
-    assertThat(frame.getStackItem(108).toInt()).isEqualTo(109);
+    assertThat(frame.getStackItem(144).toInt()).isEqualTo(145);
 
     final OperationResult result = operation.execute(frame, null);
 
     assertThat(result.getHaltReason()).isNull();
 
     // After: swapped
-    assertThat(frame.getStackItem(0).toInt()).isEqualTo(109);
-    assertThat(frame.getStackItem(108).toInt()).isEqualTo(1);
+    assertThat(frame.getStackItem(0).toInt()).isEqualTo(145);
+    assertThat(frame.getStackItem(144).toInt()).isEqualTo(1);
   }
 
   @ParameterizedTest
@@ -131,8 +133,8 @@ class SwapNOperationTest {
 
   @Test
   void testSwapN_stackUnderflow() {
-    // SWAPN with immediate 0 -> n=17, needs 18 items but only 10
-    final Bytes code = Bytes.of(0xe7, 0x00);
+    // SWAPN with immediate 0x80 -> n=17, needs 18 items but only 10
+    final Bytes code = Bytes.fromHexString("e780");
     final TestMessageFrameBuilder builder =
         new TestMessageFrameBuilder().code(new Code(code)).pc(0);
 
@@ -149,7 +151,8 @@ class SwapNOperationTest {
 
   @Test
   void testSwapN_endOfCode() {
-    // Code ends right after opcode
+    // Code ends right after opcode, immediate treated as 0 -> n=145
+    // With only 18 items on stack, causes underflow
     final Bytes code = Bytes.of(0xe7);
     final TestMessageFrameBuilder builder =
         new TestMessageFrameBuilder().code(new Code(code)).pc(0);
@@ -161,16 +164,14 @@ class SwapNOperationTest {
 
     final OperationResult result = operation.execute(frame, null);
 
-    // Immediate 0 is valid
-    assertThat(result.getHaltReason()).isNull();
-    // Verify swap happened
-    assertThat(frame.getStackItem(0)).isEqualTo(Bytes.of(18));
-    assertThat(frame.getStackItem(17)).isEqualTo(Bytes.of(1));
+    // Immediate 0 is valid but n=145 causes underflow with only 18 items
+    assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
+    assertThat(result.getPcIncrement()).isEqualTo(2);
   }
 
   @Test
   void testSwapN_gasCost() {
-    final Bytes code = Bytes.of(0xe7, 0x00);
+    final Bytes code = Bytes.fromHexString("e780"); // SWAPN 0x80 -> n=17
     final TestMessageFrameBuilder builder =
         new TestMessageFrameBuilder().code(new Code(code)).pc(0).initialGas(100);
 
@@ -187,13 +188,13 @@ class SwapNOperationTest {
   // ==================== EIP-8024 Spec Test Vectors ====================
 
   /**
-   * Spec test vector: SWAPN with immediate 0 (n=17) swapping top with 18th item. Bytecode sequence
-   * represents: PUSH1 1, PUSH1 0, 16xDUP1, PUSH1 2, SWAPN 0 Stack setup: 18 items with top=2,
-   * bottom=1, rest=0.
+   * Spec test vector: SWAPN with immediate 0x80 (n=17) swapping top with 18th item. Bytecode
+   * sequence represents: PUSH1 1, PUSH1 0, 16xDUP1, PUSH1 2, SWAPN 0x80 Stack setup: 18 items with
+   * top=2, bottom=1, rest=0.
    */
   @Test
   void testSpecVector_swapn17With18Items() {
-    final Bytes code = Bytes.of(0xe7, 0x00); // SWAPN 0 -> n=17
+    final Bytes code = Bytes.fromHexString("e780"); // SWAPN 0x80 -> n=17
     final TestMessageFrameBuilder builder =
         new TestMessageFrameBuilder().code(new Code(code)).pc(0);
 
@@ -220,8 +221,8 @@ class SwapNOperationTest {
   }
 
   /**
-   * Spec test vector: SWAPN at end of code (implicit immediate 0). Same behavior as explicit 0 -
-   * swaps top with 18th item.
+   * Spec test vector: SWAPN at end of code (implicit immediate 0). Immediate defaults to 0 which
+   * now maps to n=145, causing underflow with only 18 items.
    */
   @Test
   void testSpecVector_swapnEndOfCode() {
@@ -229,7 +230,7 @@ class SwapNOperationTest {
     final TestMessageFrameBuilder builder =
         new TestMessageFrameBuilder().code(new Code(code)).pc(0);
 
-    // Same stack setup as testSpecVector_swapn17With18Items
+    // Same stack setup: 18 items, but n=145 requires 146 items
     builder.pushStackItem(Bytes.of(1)); // stack[17] = 1 (bottom)
     for (int i = 0; i < 16; i++) {
       builder.pushStackItem(Bytes.of(0)); // stack[16..1] = 0
@@ -241,10 +242,9 @@ class SwapNOperationTest {
 
     final OperationResult result = operation.execute(frame, null);
 
-    // Implicit immediate 0 is valid
-    assertThat(result.getHaltReason()).isNull();
-    assertThat(frame.getStackItem(0)).isEqualTo(Bytes.of(1));
-    assertThat(frame.getStackItem(17)).isEqualTo(Bytes.of(2));
+    // Implicit immediate 0 is valid but n=145 causes underflow
+    assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
+    assertThat(result.getPcIncrement()).isEqualTo(2);
   }
 
   /**

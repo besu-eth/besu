@@ -34,9 +34,9 @@ import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.Packet
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.p2p.peers.Peer;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions;
+import org.hyperledger.besu.ethereum.p2p.rlpx.ConnectSource;
 import org.hyperledger.besu.ethereum.p2p.rlpx.RlpxAgent;
 import org.hyperledger.besu.nat.NatService;
-import org.hyperledger.besu.plugin.data.EnodeURL;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -57,6 +57,7 @@ import org.ethereum.beacon.discovery.schema.NodeRecord;
 
 public class PeerDiscoveryTestHelper {
   private static final String LOOPBACK_IP_ADDR = "127.0.0.1";
+  private static final int IPV6_TCP_PORT = 30304;
 
   private final AtomicInteger nextAvailablePort = new AtomicInteger(1);
   Map<Bytes, MockPeerDiscoveryAgent> agents = new HashMap<>();
@@ -234,10 +235,11 @@ public class PeerDiscoveryTestHelper {
     private final Map<Bytes, MockPeerDiscoveryAgent> agents;
     private final AtomicInteger nextAvailablePort;
 
-    private List<EnodeURL> bootnodes = Collections.emptyList();
+    private List<EnodeURLImpl> bootnodes = Collections.emptyList();
     private boolean enabled = true;
     private PeerPermissions peerPermissions = PeerPermissions.noop();
     private String advertisedHost = "127.0.0.1";
+    private Optional<String> advertisedHostIpv6 = Optional.empty();
     private OptionalInt bindPort = OptionalInt.empty();
     private NodeKey nodeKey = NodeKeyUtils.generate();
     private NodeRecord nodeRecord =
@@ -258,12 +260,12 @@ public class PeerDiscoveryTestHelper {
       return bootstrapPeers(asList(peers));
     }
 
-    public AgentBuilder bootnodes(final EnodeURL... bootnodes) {
+    public AgentBuilder bootnodes(final EnodeURLImpl... bootnodes) {
       this.bootnodes = Arrays.asList(bootnodes);
       return this;
     }
 
-    private List<EnodeURL> asEnodes(final List<DiscoveryPeerV4> peers) {
+    private List<EnodeURLImpl> asEnodes(final List<DiscoveryPeerV4> peers) {
       return peers.stream().map(Peer::getEnodeURL).collect(Collectors.toList());
     }
 
@@ -280,6 +282,12 @@ public class PeerDiscoveryTestHelper {
     public AgentBuilder advertisedHost(final String host) {
       checkNotNull(host);
       this.advertisedHost = host;
+      return this;
+    }
+
+    public AgentBuilder advertisedHostIpv6(final String host) {
+      checkNotNull(host);
+      this.advertisedHostIpv6 = Optional.of(host);
       return this;
     }
 
@@ -308,19 +316,26 @@ public class PeerDiscoveryTestHelper {
       final int port = bindPort.orElseGet(nextAvailablePort::incrementAndGet);
       final DiscoveryConfiguration config = new DiscoveryConfiguration();
       final NatService natService = new NatService(Optional.empty());
-      config.setBootnodes(bootnodes);
+      config.setEnodeBootnodes(bootnodes);
       config.setAdvertisedHost(advertisedHost);
       config.setBindPort(port);
       config.setEnabled(enabled);
       config.setFilterOnEnrForkId(false);
+      advertisedHostIpv6.ifPresent(
+          host -> {
+            config.setAdvertisedHostIpv6(Optional.of(host));
+            config.setBindPortIpv6(nextAvailablePort.incrementAndGet());
+          });
 
       final ForkIdManager mockForkIdManager = mock(ForkIdManager.class);
       final ForkId forkId = new ForkId(Bytes.EMPTY, Bytes.EMPTY);
       when(mockForkIdManager.getForkIdForChainHead()).thenReturn(forkId);
       when(mockForkIdManager.peerCheck(forkId)).thenReturn(true);
       final RlpxAgent rlpxAgent = mock(RlpxAgent.class);
-      when(rlpxAgent.connect(any()))
+      when(rlpxAgent.connect(any(), any(ConnectSource.class)))
           .thenReturn(CompletableFuture.failedFuture(new RuntimeException()));
+      advertisedHostIpv6.ifPresent(
+          host -> when(rlpxAgent.getIpv6ListeningPort()).thenReturn(Optional.of(IPV6_TCP_PORT)));
       final MockPeerDiscoveryAgent mockPeerDiscoveryAgent =
           new MockPeerDiscoveryAgent(
               nodeKey, config, peerPermissions, agents, natService, mockForkIdManager, rlpxAgent);

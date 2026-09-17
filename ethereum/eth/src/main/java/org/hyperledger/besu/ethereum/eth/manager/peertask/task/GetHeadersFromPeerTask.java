@@ -26,12 +26,14 @@ import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskValidationResp
 import org.hyperledger.besu.ethereum.eth.messages.BlockHeadersMessage;
 import org.hyperledger.besu.ethereum.eth.messages.GetBlockHeadersMessage;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.SubProtocol;
 
 import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Predicate;
 
 import org.slf4j.Logger;
@@ -49,7 +51,7 @@ public class GetHeadersFromPeerTask implements PeerTask<List<BlockHeader>> {
   private final Direction direction;
   private final int maximumRetriesAgainstDifferentPeers;
   private final ProtocolSchedule protocolSchedule;
-  private final long requiredBlockchainHeight;
+  private final boolean isPoS;
 
   public GetHeadersFromPeerTask(
       final long blockNumber,
@@ -141,10 +143,7 @@ public class GetHeadersFromPeerTask implements PeerTask<List<BlockHeader>> {
     this.maximumRetriesAgainstDifferentPeers = maximumRetriesAgainstDifferentPeers;
     this.protocolSchedule = protocolSchedule;
 
-    requiredBlockchainHeight =
-        direction == Direction.FORWARD
-            ? blockNumber + (long) (maxHeaders - 1) * (skip + 1)
-            : blockNumber;
+    isPoS = protocolSchedule.anyMatch((ps) -> ps.spec().isPoS());
   }
 
   @Override
@@ -153,7 +152,7 @@ public class GetHeadersFromPeerTask implements PeerTask<List<BlockHeader>> {
   }
 
   @Override
-  public MessageData getRequestMessage() {
+  public MessageData getRequestMessage(final Set<Capability> agreedCapabilities) {
     if (blockHash != null) {
       return GetBlockHeadersMessage.create(
           blockHash, maxHeaders, skip, direction == Direction.REVERSE);
@@ -164,7 +163,8 @@ public class GetHeadersFromPeerTask implements PeerTask<List<BlockHeader>> {
   }
 
   @Override
-  public List<BlockHeader> processResponse(final MessageData messageData)
+  public List<BlockHeader> processResponse(
+      final MessageData messageData, final Set<Capability> agreedCapabilities)
       throws InvalidPeerTaskResponseException {
     if (messageData == null) {
       throw new InvalidPeerTaskResponseException("Response MessageData is null");
@@ -174,9 +174,9 @@ public class GetHeadersFromPeerTask implements PeerTask<List<BlockHeader>> {
 
   @Override
   public Predicate<EthPeerImmutableAttributes> getPeerRequirementFilter() {
-    return (ethPeer) ->
-        protocolSchedule.anyMatch((ps) -> ps.spec().isPoS())
-            || ethPeer.estimatedChainHeight() >= requiredBlockchainHeight;
+    return (ethPeer) -> {
+      return isPoS || ethPeer.estimatedChainHeight() >= blockNumber;
+    };
   }
 
   @Override

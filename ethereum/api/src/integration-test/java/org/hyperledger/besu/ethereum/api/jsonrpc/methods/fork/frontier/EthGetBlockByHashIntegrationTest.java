@@ -140,7 +140,8 @@ public class EthGetBlockByHashIntegrationTest {
                 "0xa",
                 "0x1c",
                 "0xe439aa8812c1c0a751b0931ea20c5a30cd54fe15cae883c59fd8107e04557679",
-                "0x58d025af99b538b778a47da8115c43d5cee564c3cc8d58eb972aaf80ea2c406e"));
+                "0x58d025af99b538b778a47da8115c43d5cee564c3cc8d58eb972aaf80ea2c406e",
+                "0x561bc2e0"));
 
     final JsonRpcResponse expected = responseUtils.response(expectedResult, transactions);
     final JsonRpcResponse actual =

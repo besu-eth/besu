@@ -43,6 +43,8 @@ dependencies {
   implementation project(':evm')
   implementation project(':util')
 
+  compileOnly 'org.jspecify:jspecify'
+
   implementation 'com.fasterxml.jackson.core:jackson-databind'
   implementation 'com.google.guava:guava'
   implementation 'io.consensys.tuweni:tuweni-bytes'

@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.websocket;
 
+import org.hyperledger.besu.ethereum.api.jsonrpc.StreamBackpressure;
+
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.concurrent.atomic.AtomicReference;
@@ -56,6 +58,7 @@ class JsonResponseStreamer extends OutputStream {
     stopOnFailureOrClosed();
 
     if (buffer != EMPTY_BUFFER) {
+      StreamBackpressure.awaitDrain(response);
       writeFrame(buffer, false);
     }
     Buffer buf = Buffer.buffer(len);
@@ -93,7 +96,7 @@ class JsonResponseStreamer extends OutputStream {
     Throwable t = failure.get();
     if (t != null) {
       LOG.debug("Stop writing to remote address {} due to a failure", response.remoteAddress(), t);
-      throw (t instanceof IOException) ? (IOException) t : new IOException(t);
+      throw (t instanceof IOException ioException) ? ioException : new IOException(t);
     }
   }
 

@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.consensus.common;
 
-import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.chain.BlockAddedEvent;
@@ -53,8 +52,13 @@ public class MigratingMiningCoordinator implements MiningCoordinator, BlockAdded
       final Blockchain blockchain) {
     this.miningCoordinatorSchedule = miningCoordinatorSchedule;
     this.blockchain = blockchain;
+
+    final BlockHeader chainHead = blockchain.getChainHeadHeader();
+
     this.activeMiningCoordinator =
-        this.miningCoordinatorSchedule.getFork(blockchain.getChainHeadBlockNumber() + 1).getValue();
+        this.miningCoordinatorSchedule
+            .getFork(chainHead.getNumber() + 1, chainHead.getTimestamp())
+            .getValue();
   }
 
   @Override
@@ -66,8 +70,8 @@ public class MigratingMiningCoordinator implements MiningCoordinator, BlockAdded
   private void startActiveMiningCoordinator() {
     activeMiningCoordinator.enable();
     activeMiningCoordinator.start();
-    if (activeMiningCoordinator instanceof BlockAddedObserver) {
-      ((BlockAddedObserver) activeMiningCoordinator).removeObserver();
+    if (activeMiningCoordinator instanceof BlockAddedObserver blockAddedObserver) {
+      blockAddedObserver.removeObserver();
     }
   }
 
@@ -108,11 +112,6 @@ public class MigratingMiningCoordinator implements MiningCoordinator, BlockAdded
   }
 
   @Override
-  public Optional<Address> getCoinbase() {
-    return activeMiningCoordinator.getCoinbase();
-  }
-
-  @Override
   public Optional<Block> createBlock(
       final BlockHeader parentHeader,
       final List<Transaction> transactions,
@@ -133,8 +132,9 @@ public class MigratingMiningCoordinator implements MiningCoordinator, BlockAdded
   @Override
   public void onBlockAdded(final BlockAddedEvent event) {
     final long currentBlock = event.getHeader().getNumber();
+    final long parentTimestamp = event.getHeader().getTimestamp();
     final MiningCoordinator nextMiningCoordinator =
-        miningCoordinatorSchedule.getFork(currentBlock + 1).getValue();
+        miningCoordinatorSchedule.getFork(currentBlock + 1, parentTimestamp).getValue();
 
     if (activeMiningCoordinator != nextMiningCoordinator) {
       LOG.trace(
@@ -148,15 +148,15 @@ public class MigratingMiningCoordinator implements MiningCoordinator, BlockAdded
           () -> {
             activeMiningCoordinator = nextMiningCoordinator;
             startActiveMiningCoordinator();
-            if (activeMiningCoordinator instanceof BlockAddedObserver) {
-              ((BlockAddedObserver) activeMiningCoordinator).onBlockAdded(event);
+            if (activeMiningCoordinator instanceof BlockAddedObserver blockAddedObserver) {
+              blockAddedObserver.onBlockAdded(event);
             }
           };
 
       CompletableFuture.runAsync(stopActiveCoordinatorTask).thenRun(startNextCoordinatorTask);
 
-    } else if (activeMiningCoordinator instanceof BlockAddedObserver) {
-      ((BlockAddedObserver) activeMiningCoordinator).onBlockAdded(event);
+    } else if (activeMiningCoordinator instanceof BlockAddedObserver blockAddedObserver) {
+      blockAddedObserver.onBlockAdded(event);
     }
   }
 

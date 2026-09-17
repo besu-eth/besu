@@ -54,6 +54,7 @@ public class BftBlockRewardPaymentAcceptanceTest extends ParameterizedBftTestBas
     final int blockRewardEth = 5;
     final int blockToCheck = 2;
 
+    cluster.verify(blockchain.minimumHeight(blockToCheck));
     cluster.verify(validator1Account.balanceAtBlockEquals(Amount.ether(0), BigInteger.ZERO));
     cluster.verify(
         validator1Account.balanceAtBlockEquals(
@@ -86,6 +87,7 @@ public class BftBlockRewardPaymentAcceptanceTest extends ParameterizedBftTestBas
     final int blockRewardEth = 5;
     final int blockToCheck = 2;
 
+    cluster.verify(blockchain.minimumHeight(blockToCheck));
     cluster.verify(miningBeneficiaryAccount.balanceAtBlockEquals(Amount.ether(0), BigInteger.ZERO));
     cluster.verify(
         miningBeneficiaryAccount.balanceAtBlockEquals(
@@ -168,6 +170,7 @@ public class BftBlockRewardPaymentAcceptanceTest extends ParameterizedBftTestBas
 
       final Amount currentBalance =
           accountBalances.computeIfAbsent(beneficiaryAddress, __ -> Amount.wei(BigInteger.ZERO));
+      cluster.verify(blockchain.minimumHeight(i));
       cluster.verify(beneficiary.balanceAtBlockEquals(currentBalance, BigInteger.valueOf(i - 1)));
       final Amount newBalance = currentBalance.add(BLOCK_REWARD);
       cluster.verify(beneficiary.balanceAtBlockEquals(newBalance, BigInteger.valueOf(i)));

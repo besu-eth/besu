@@ -82,7 +82,12 @@ public class WorldStateProofProvider {
                     getStorageProofs(accountHash, account, accountStorageKeys);
                 return new WorldStateProof(account, accountProof, storageProofs);
               })
-          .or(() -> Optional.of(new WorldStateProof(accountProof)));
+          .or(
+              () ->
+                  Optional.of(
+                      new WorldStateProof(
+                          accountProof,
+                          getStorageProofsForNonExistentAccount(accountStorageKeys))));
     }
   }
 
@@ -98,6 +103,16 @@ public class WorldStateProofProvider {
         key ->
             storageProofs.put(
                 key, storageTrie.getValueWithProof(Bytes32.wrap(Hash.hash(key).getBytes()))));
+    return storageProofs;
+  }
+
+  // For a non-existent account every storage slot is absent — return an empty proof per key.
+  private SortedMap<UInt256, Proof<Bytes>> getStorageProofsForNonExistentAccount(
+      final List<UInt256> accountStorageKeys) {
+    final NavigableMap<UInt256, Proof<Bytes>> storageProofs =
+        new TreeMap<>(Comparator.comparing(Bytes32::toHexString));
+    final Proof<Bytes> emptyProof = new Proof<>(Optional.empty(), List.of());
+    accountStorageKeys.forEach(key -> storageProofs.put(key, emptyProof));
     return storageProofs;
   }
 

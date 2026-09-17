@@ -192,6 +192,6 @@ public class ValidatorContractControllerTest {
         new ValidatorContractController(transactionSimulator);
     Assertions.assertThatThrownBy(
             () -> validatorContractController.getValidators(1, CONTRACT_ADDRESS))
-        .hasMessage("Failed validator smart contract call");
+        .hasMessage("Failed validator smart contract call: unable to execute call at block 1");
   }
 }

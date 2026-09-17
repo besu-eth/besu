@@ -91,7 +91,7 @@ public class GasPricePrioritizedTransactionsTest extends AbstractPrioritizedTran
                         createTransaction(
                             0,
                             DEFAULT_MIN_GAS_PRICE.add(1),
-                            SIGNATURE_ALGORITHM.get().generateKeyPair())))
+                            SIGNATURE_ALGORITHM.generateKeyPair())))
             .toList();
 
     final PendingTransaction highGasPriceTransaction =

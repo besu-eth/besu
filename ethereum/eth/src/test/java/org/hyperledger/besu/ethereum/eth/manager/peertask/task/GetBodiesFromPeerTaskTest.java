@@ -39,6 +39,7 @@ import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 
@@ -46,6 +47,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.tuweni.bytes.Bytes;
@@ -66,6 +68,7 @@ public class GetBodiesFromPeerTaskTest {
   public static final List<Transaction> TRANSACTION_LIST = List.of(TX);
   public static final BlockBody BLOCK_BODY =
       new BlockBody(TRANSACTION_LIST, Collections.emptyList(), Optional.empty());
+  private static final Set<Capability> AGREED_CAPABILITIES = Set.of(EthProtocol.LATEST);
   private static ProtocolSchedule protocolSchedule;
 
   @BeforeAll
@@ -90,7 +93,7 @@ public class GetBodiesFromPeerTaskTest {
         new GetBodiesFromPeerTask(
             List.of(mockBlockHeader(1), mockBlockHeader(2), mockBlockHeader(3)), protocolSchedule);
 
-    MessageData messageData = task.getRequestMessage();
+    MessageData messageData = task.getRequestMessage(AGREED_CAPABILITIES);
     GetBlockBodiesMessage getBlockBodiesMessage = GetBlockBodiesMessage.readFrom(messageData);
 
     Assertions.assertEquals(EthProtocolMessages.GET_BLOCK_BODIES, getBlockBodiesMessage.getCode());
@@ -123,7 +126,8 @@ public class GetBodiesFromPeerTaskTest {
     BlockBodiesMessage bodiesMessage = BlockBodiesMessage.create(List.of(BLOCK_BODY));
 
     Assertions.assertThrows(
-        InvalidPeerTaskResponseException.class, () -> task.processResponse(bodiesMessage));
+        InvalidPeerTaskResponseException.class,
+        () -> task.processResponse(bodiesMessage, Set.of()));
   }
 
   @Test
@@ -136,7 +140,7 @@ public class GetBodiesFromPeerTaskTest {
 
     final BlockBodiesMessage blockBodiesMessage = BlockBodiesMessage.create(List.of(BLOCK_BODY));
 
-    List<Block> result = task.processResponse(blockBodiesMessage);
+    List<Block> result = task.processResponse(blockBodiesMessage, Set.of());
 
     assertThat(result.size()).isEqualTo(1);
     assertThat(result.getFirst().getBody().getTransactions()).isEqualTo(TRANSACTION_LIST);

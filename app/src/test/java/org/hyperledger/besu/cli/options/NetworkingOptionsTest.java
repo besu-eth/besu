@@ -154,24 +154,26 @@ public class NetworkingOptionsTest
   }
 
   @Test
-  public void checkDiscoveryV5Enabled_isSet() {
-    final TestBesuCommand cmd = parseCommand("--Xv5-discovery-enabled");
+  public void discV5DiscoveryTimeoutSecondsFlag_isSet() {
+    final TestBesuCommand cmd = parseCommand("--Xv5-discovery-timeout-seconds", "90");
 
     final NetworkingOptions options = cmd.getNetworkingOptions();
     final NetworkingConfiguration networkingConfig = options.toDomainObject();
-    assertThat(networkingConfig.discoveryConfiguration().isDiscoveryV5Enabled()).isTrue();
+    assertThat(networkingConfig.discoveryConfiguration().getDiscV5DiscoveryTimeoutSeconds())
+        .isEqualTo(90);
 
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
   }
 
   @Test
-  public void checkDiscoveryV5Enabled_isNotSet() {
+  public void discV5DiscoveryTimeoutSecondsFlag_isNotSet() {
     final TestBesuCommand cmd = parseCommand();
 
     final NetworkingOptions options = cmd.getNetworkingOptions();
     final NetworkingConfiguration networkingConfig = options.toDomainObject();
-    assertThat(networkingConfig.discoveryConfiguration().isDiscoveryV5Enabled()).isFalse();
+    assertThat(networkingConfig.discoveryConfiguration().getDiscV5DiscoveryTimeoutSeconds())
+        .isEqualTo(60);
 
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
     assertThat(commandOutput.toString(UTF_8)).isEmpty();

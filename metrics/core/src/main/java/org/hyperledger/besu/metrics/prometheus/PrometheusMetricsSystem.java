@@ -48,7 +48,6 @@ import io.prometheus.metrics.instrumentation.jvm.JvmRuntimeInfoMetric;
 import io.prometheus.metrics.instrumentation.jvm.JvmThreadsMetrics;
 import io.prometheus.metrics.instrumentation.jvm.ProcessMetrics;
 import io.prometheus.metrics.model.registry.PrometheusRegistry;
-import io.vertx.core.impl.ConcurrentHashSet;
 
 /** The Prometheus metrics system. */
 public class PrometheusMetricsSystem implements ObservableMetricsSystem {
@@ -246,7 +245,7 @@ public class PrometheusMetricsSystem implements ObservableMetricsSystem {
   private void registerCollector(
       final MetricCategory category, final PrometheusCollector collector) {
     final Collection<PrometheusCollector> categoryCollectors =
-        this.collectors.computeIfAbsent(category, key -> new ConcurrentHashSet<>());
+        this.collectors.computeIfAbsent(category, key -> ConcurrentHashMap.newKeySet());
 
     // unregister if already present
     categoryCollectors.stream()

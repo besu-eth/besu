@@ -1,0 +1,40 @@
+{
+  "request": "{ logs( filter: { fromBlock:20, toBlock: 24 }) { index  topics  data account{address} transaction{hash block {number}} } }",
+  "response": {
+    "data": {
+      "logs": [
+        {
+          "index": "0x0",
+          "topics": [
+            "0x65c9ac8011e286e89d02a269890f41d67ca2cc597b2c76c7c69321ff492be580"
+          ],
+          "data": "0x000000000000000000000000000000000000000000000000000000000000002a",
+          "account": {
+            "address": "0x6295ee1b4f6dd65047762f924ecd367c17eabf8f"
+          },
+          "transaction": {
+            "hash": "0x97a385bf570ced7821c6495b3877ddd2afd5c452f350f0d4876e98d9161389c6",
+            "block": {
+              "number": "0x17"
+            }
+          }
+        },
+        {
+          "index": "0x0",
+          "topics": [],
+          "data": "0x000000000000000000000000000000000000000000000000000000000000002a",
+          "account": {
+            "address": "0x6295ee1b4f6dd65047762f924ecd367c17eabf8f"
+          },
+          "transaction": {
+            "hash": "0x5ecd942096ab3f70c5bcc8f3a98f88c4ff0a3bd986417df9948eb1819db76d0e",
+            "block": {
+              "number": "0x18"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "statusCode": 200
+}

@@ -85,6 +85,13 @@ public class GraphQlOptions {
       description = "Path to the file containing the password for the TLS truststore")
   private String graphqlTlsTruststorePasswordFile;
 
+  @CommandLine.Option(
+      names = {"--graphql-max-blocks-range"},
+      description =
+          "Specifies the maximum number of blocks that can be retrieved by a single GraphQL "
+              + "blocks(from,to) query. Must be >=0. 0 specifies no limit (default: ${DEFAULT-VALUE})")
+  private final Long graphQLMaxBlockRange = GraphQLConfiguration.DEFAULT_MAX_BLOCK_RANGE;
+
   /** Default constructor */
   public GraphQlOptions() {}
 
@@ -95,6 +102,10 @@ public class GraphQlOptions {
    * @param commandLine CommandLine instance
    */
   public void validate(final Logger logger, final CommandLine commandLine) {
+    if (graphQLMaxBlockRange < 0) {
+      throw new CommandLine.ParameterException(
+          commandLine, "--graphql-max-blocks-range must be >= 0 (0 specifies no limit)");
+    }
     CommandLineUtils.checkOptionDependencies(
         logger,
         commandLine,
@@ -148,6 +159,7 @@ public class GraphQlOptions {
     graphQLConfiguration.setMtlsEnabled(graphqlMtlsEnabled);
     graphQLConfiguration.setTlsTrustStorePath(graphqlTlsTruststoreFile);
     graphQLConfiguration.setTlsTrustStorePasswordFile(graphqlTlsTruststorePasswordFile);
+    graphQLConfiguration.setMaxBlockRange(graphQLMaxBlockRange);
 
     return graphQLConfiguration;
   }

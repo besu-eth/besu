@@ -674,6 +674,23 @@ public class BytesValueRLPInputTest {
   }
 
   @Test
+  public void readListRejectsWhenExceedingMaxElements() {
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    out.writeList(List.of(1, 2, 3), (v, o) -> o.writeInt(v));
+    assertThatThrownBy(() -> RLP.input(out.encoded()).readList(RLPInput::readInt, 2))
+        .isInstanceOf(RLPException.class)
+        .hasMessageContaining("exceeds the maximum permitted size");
+  }
+
+  @Test
+  public void readListAcceptsWhenExactlyAtMaxElements() {
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    out.writeList(List.of(1, 2, 3), (v, o) -> o.writeInt(v));
+    final List<Integer> result = RLP.input(out.encoded()).readList(RLPInput::readInt, 3);
+    assertThat(result).containsExactly(1, 2, 3);
+  }
+
+  @Test
   public void decodeValueWithLeadingZerosAsSignedLong() {
     RLPInput in = RLP.input(h("0x8800000000000000D0"));
     assertThat(in.readLong()).isEqualTo(208);

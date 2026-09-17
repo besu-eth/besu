@@ -49,7 +49,6 @@ class GenesisConfigTest {
   void shouldLoadMainnetConfigFile() {
     final GenesisConfig config = GenesisConfig.mainnet();
     // Sanity check some basic properties to confirm this is the mainnet file.
-    assertThat(config.getConfigOptions().isEthHash()).isTrue();
     assertThat(config.getConfigOptions().getChainId()).hasValue(MAINNET_CHAIN_ID);
     assertThat(
             config
@@ -66,7 +65,6 @@ class GenesisConfigTest {
   void shouldLoadDevelopmentConfigFile() {
     final GenesisConfig config = GenesisConfig.fromResource("/dev.json");
     // Sanity check some basic properties to confirm this is the dev file.
-    assertThat(config.getConfigOptions().isEthHash()).isTrue();
     assertThat(config.getConfigOptions().getChainId()).hasValue(DEVELOPMENT_CHAIN_ID);
     assertThat(
             config
@@ -274,16 +272,6 @@ class GenesisConfigTest {
     assertThat(sepoliaOptions.getDepositContractAddress()).isPresent();
     assertThat(sepoliaOptions.getDepositContractAddress().get())
         .isEqualTo(Address.fromHexString("0x7f02c3e3c98b133055b8b348b2ac625669ed295d"));
-  }
-
-  @Test
-  void assertHoleskyDepositContractAddress() {
-    GenesisConfigOptions holeskyOptions =
-        GenesisConfig.fromResource("/holesky.json").getConfigOptions();
-
-    assertThat(holeskyOptions.getDepositContractAddress()).isPresent();
-    assertThat(holeskyOptions.getDepositContractAddress().get())
-        .isEqualTo(Address.fromHexString("0x4242424242424242424242424242424242424242"));
   }
 
   @Test

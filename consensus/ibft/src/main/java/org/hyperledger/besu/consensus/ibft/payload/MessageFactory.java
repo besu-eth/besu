@@ -36,6 +36,7 @@ import org.apache.tuweni.bytes.Bytes32;
 public class MessageFactory {
 
   private final NodeKey nodeKey;
+  private final boolean useLegacyEncoding;
 
   /**
    * Instantiates a new Message factory.
@@ -43,7 +44,22 @@ public class MessageFactory {
    * @param nodeKey the node key
    */
   public MessageFactory(final NodeKey nodeKey) {
+    this(nodeKey, false);
+  }
+
+  private MessageFactory(final NodeKey nodeKey, final boolean useLegacyEncoding) {
     this.nodeKey = nodeKey;
+    this.useLegacyEncoding = useLegacyEncoding;
+  }
+
+  /**
+   * Creates a MessageFactory that encodes messages in pre-26.1.0 wire format (BAL slot omitted).
+   *
+   * @param nodeKey the node key
+   * @return a legacy-encoding MessageFactory
+   */
+  public static MessageFactory withLegacyEncoding(final NodeKey nodeKey) {
+    return new MessageFactory(nodeKey, true);
   }
 
   /**
@@ -63,8 +79,10 @@ public class MessageFactory {
 
     final ProposalPayload payload = new ProposalPayload(roundIdentifier, block.getHash());
 
-    return new Proposal(
-        createSignedMessage(payload), block, blockAccessList, roundChangeCertificate);
+    final SignedData<ProposalPayload> signedPayload = createSignedMessage(payload);
+    return useLegacyEncoding
+        ? Proposal.withLegacyEncoding(signedPayload, block, blockAccessList, roundChangeCertificate)
+        : new Proposal(signedPayload, block, blockAccessList, roundChangeCertificate);
   }
 
   /**
@@ -129,10 +147,13 @@ public class MessageFactory {
         new RoundChangePayload(
             roundIdentifier,
             preparedRoundArtifacts.map(PreparedRoundArtifacts::getPreparedCertificate));
-    return new RoundChange(
-        createSignedMessage(payload),
-        preparedRoundArtifacts.map(PreparedRoundArtifacts::getBlock),
-        preparedRoundArtifacts.flatMap(PreparedRoundArtifacts::getBlockAccessList));
+    final SignedData<RoundChangePayload> signedPayload = createSignedMessage(payload);
+    final Optional<Block> block = preparedRoundArtifacts.map(PreparedRoundArtifacts::getBlock);
+    final Optional<BlockAccessList> bal =
+        preparedRoundArtifacts.flatMap(PreparedRoundArtifacts::getBlockAccessList);
+    return useLegacyEncoding
+        ? RoundChange.withLegacyEncoding(signedPayload, block, bal)
+        : new RoundChange(signedPayload, block, bal);
   }
 
   private <M extends Payload> SignedData<M> createSignedMessage(final M payload) {

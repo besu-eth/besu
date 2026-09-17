@@ -25,8 +25,19 @@ import java.util.stream.Stream;
 public class FilterRepository {
 
   private final Map<String, Filter> filters = new ConcurrentHashMap<>();
+  private final int maxFilterCount;
 
-  public FilterRepository() {}
+  /**
+   * Constructs a repository that rejects new filters once {@code maxFilterCount} live filters
+   * exist. Filters are retained until they are uninstalled or swept by the expiry monitor, so this
+   * bounds the server-side memory a client can pin by creating filters.
+   *
+   * @param maxFilterCount the maximum number of concurrently active filters; a value {@code <= 0}
+   *     means no limit
+   */
+  public FilterRepository(final int maxFilterCount) {
+    this.maxFilterCount = maxFilterCount;
+  }
 
   Collection<Filter> getFilters() {
     return new ArrayList<>(filters.values());
@@ -69,6 +80,10 @@ public class FilterRepository {
     if (exists(filter.getId())) {
       throw new IllegalArgumentException(
           String.format("Filter with id %s already exists", filter.getId()));
+    }
+
+    if (maxFilterCount > 0 && filters.size() >= maxFilterCount) {
+      throw new FilterCountExceededException(maxFilterCount);
     }
 
     filters.put(filter.getId(), filter);

@@ -36,8 +36,8 @@ public final class GetAccountRangeMessage extends AbstractSnapMessageData {
   }
 
   public static GetAccountRangeMessage readFrom(final MessageData message) {
-    if (message instanceof GetAccountRangeMessage) {
-      return (GetAccountRangeMessage) message;
+    if (message instanceof GetAccountRangeMessage getAccountRangeMessage) {
+      return getAccountRangeMessage;
     }
     final int code = message.getCode();
     if (code != SnapV1.GET_ACCOUNT_RANGE) {
@@ -66,20 +66,6 @@ public final class GetAccountRangeMessage extends AbstractSnapMessageData {
     tmp.writeBigIntegerScalar(sizeRequest);
     tmp.endList();
     return new GetAccountRangeMessage(tmp.encoded());
-  }
-
-  @Override
-  protected Bytes wrap(final BigInteger requestId) {
-    final Range range = range(false);
-    final BytesValueRLPOutput tmp = new BytesValueRLPOutput();
-    tmp.startList();
-    tmp.writeBigIntegerScalar(requestId);
-    tmp.writeBytes(range.worldStateRootHash().getBytes());
-    tmp.writeBytes(range.startKeyHash().getBytes());
-    tmp.writeBytes(range.endKeyHash().getBytes());
-    tmp.writeBigIntegerScalar(range.responseBytes());
-    tmp.endList();
-    return tmp.encoded();
   }
 
   @Override

@@ -14,29 +14,29 @@
  */
 package org.hyperledger.besu.ethereum.referencetests;
 
-import static org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig.createStatefulConfigWithTrie;
+import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateConfig.createStatefulConfigWithTrie;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.BonsaiCachedMerkleTrieLoader;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.NoOpBonsaiCachedWorldStorageManager;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiPreImageProxy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogAddedEvent;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldStateUpdateAccumulator;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.cache.PathBasedCachedWorldStorageManager;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogAddedEvent;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogManager;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.cache.NoOpBonsaiWorldStateCacheManager;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.cache.PathBasedWorldStateCacheManager;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.metrics.ObservableMetricsSystem;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.trielogs.TrieLog;
 
 import java.util.ArrayList;
@@ -57,6 +57,8 @@ public class BonsaiReferenceTestWorldState extends BonsaiWorldState
     implements ReferenceTestWorldState {
 
   private static final Logger LOG = LoggerFactory.getLogger(BonsaiReferenceTestWorldState.class);
+  private static final ReferenceTestStateRootCommitter REFERENCE_TEST_STATE_ROOT_COMMITTER =
+      new ReferenceTestStateRootCommitter();
 
   private final BonsaiReferenceTestWorldStateStorage refTestStorage;
   private final BonsaiPreImageProxy preImageProxy;
@@ -66,18 +68,18 @@ public class BonsaiReferenceTestWorldState extends BonsaiWorldState
   protected BonsaiReferenceTestWorldState(
       final BonsaiReferenceTestWorldStateStorage worldStateKeyValueStorage,
       final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader,
-      final PathBasedCachedWorldStorageManager cachedWorldStorageManager,
+      final PathBasedWorldStateCacheManager worldStateCacheManager,
       final TrieLogManager trieLogManager,
       final BonsaiPreImageProxy preImageProxy,
       final EvmConfiguration evmConfiguration) {
     super(
         worldStateKeyValueStorage,
         bonsaiCachedMerkleTrieLoader,
-        cachedWorldStorageManager,
+        worldStateCacheManager,
         trieLogManager,
         evmConfiguration,
         createStatefulConfigWithTrie(),
-        new CodeCache());
+        new BonsaiCodeCache());
     this.refTestStorage = worldStateKeyValueStorage;
     this.preImageProxy = preImageProxy;
     this.evmConfiguration = evmConfiguration;
@@ -100,7 +102,7 @@ public class BonsaiReferenceTestWorldState extends BonsaiWorldState
     return new BonsaiReferenceTestWorldState(
         layerCopy,
         bonsaiCachedMerkleTrieLoader,
-        cachedWorldStorageManager,
+        worldStateCacheManager,
         trieLogManager,
         preImageProxy,
         evmConfiguration);
@@ -116,6 +118,11 @@ public class BonsaiReferenceTestWorldState extends BonsaiWorldState
   @Override
   protected void verifyWorldStateRoot(final Hash calculatedStateRoot, final BlockHeader header) {
     // The test harness validates the root hash, no need to validate in-line for reference test
+  }
+
+  @Override
+  public void persist(final BlockHeader blockHeader) {
+    persist(blockHeader, REFERENCE_TEST_STATE_ROOT_COMMITTER);
   }
 
   @Override
@@ -241,9 +248,9 @@ public class BonsaiReferenceTestWorldState extends BonsaiWorldState
     final BonsaiReferenceTestWorldStateStorage worldStateKeyValueStorage =
         new BonsaiReferenceTestWorldStateStorage(bonsaiWorldStateKeyValueStorage, preImageProxy);
 
-    final NoOpBonsaiCachedWorldStorageManager noOpCachedWorldStorageManager =
-        new NoOpBonsaiCachedWorldStorageManager(
-            bonsaiWorldStateKeyValueStorage, EvmConfiguration.DEFAULT, new CodeCache());
+    final NoOpBonsaiWorldStateCacheManager noOpCachedWorldStorageManager =
+        new NoOpBonsaiWorldStateCacheManager(
+            bonsaiWorldStateKeyValueStorage, EvmConfiguration.DEFAULT, new BonsaiCodeCache());
 
     final BonsaiReferenceTestWorldState worldState =
         new BonsaiReferenceTestWorldState(
@@ -285,7 +292,7 @@ public class BonsaiReferenceTestWorldState extends BonsaiWorldState
         final PathBasedWorldState forWorldState) {
       // notify trie log added observers, synchronously
       TrieLog trieLog = trieLogFactory.create(localUpdater, forBlockHeader);
-      trieLogCache.put(forBlockHeader.getHash(), trieLogFactory.serialize(trieLog));
+      trieLogCache.put(forBlockHeader.getBlockHash(), trieLogFactory.serialize(trieLog));
       trieLogObservers.forEach(o -> o.onTrieLogAdded(new TrieLogAddedEvent(trieLog)));
     }
 
@@ -303,7 +310,7 @@ public class BonsaiReferenceTestWorldState extends BonsaiWorldState
   }
 
   @Override
-  protected Hash hashAndSavePreImage(final Bytes value) {
+  public Hash hashAndSavePreImage(final Bytes value) {
     // by default do not save has preImages
     return preImageProxy.hashAndSavePreImage(value);
   }

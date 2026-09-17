@@ -39,7 +39,8 @@ public class EthNetworkConfigTest {
   public void testDefaultMainnetConfig() {
     EthNetworkConfig config = EthNetworkConfig.getNetworkConfig(NetworkDefinition.MAINNET);
     assertThat(config.dnsDiscoveryUrl()).isEqualTo(MAINNET_DISCOVERY_URL);
-    assertThat(config.bootNodes()).isEqualTo(MAINNET_BOOTSTRAP_NODES);
+    assertThat(config.enodeBootNodes()).isEqualTo(MAINNET_BOOTSTRAP_NODES);
+    assertThat(config.enrBootNodes()).isNotEmpty();
     assertThat(config.networkId()).isEqualTo(BigInteger.ONE);
   }
 
@@ -47,7 +48,7 @@ public class EthNetworkConfigTest {
   public void testDefaultSepoliaConfig() {
     EthNetworkConfig config = EthNetworkConfig.getNetworkConfig(NetworkDefinition.SEPOLIA);
     assertThat(config.dnsDiscoveryUrl()).isEqualTo(SEPOLIA_DISCOVERY_URL);
-    assertThat(config.bootNodes()).isEqualTo(SEPOLIA_BOOTSTRAP_NODES);
+    assertThat(config.enodeBootNodes()).isEqualTo(SEPOLIA_BOOTSTRAP_NODES);
     assertThat(config.networkId()).isEqualTo(BigInteger.valueOf(11155111));
   }
 
@@ -55,7 +56,8 @@ public class EthNetworkConfigTest {
   public void testDefaultHoodiConfig() {
     EthNetworkConfig config = EthNetworkConfig.getNetworkConfig(NetworkDefinition.HOODI);
     assertThat(config.dnsDiscoveryUrl()).isEqualTo(HOODI_DISCOVERY_URL);
-    assertThat(config.bootNodes()).isEqualTo(HOODI_BOOTSTRAP_NODES);
+    assertThat(config.enodeBootNodes()).isEqualTo(HOODI_BOOTSTRAP_NODES);
+    assertThat(config.enrBootNodes()).isNotEmpty();
     assertThat(config.networkId()).isEqualTo(BigInteger.valueOf(560048));
   }
 
@@ -63,7 +65,7 @@ public class EthNetworkConfigTest {
   public void testDefaultDevConfig() {
     EthNetworkConfig config = EthNetworkConfig.getNetworkConfig(NetworkDefinition.DEV);
     assertThat(config.dnsDiscoveryUrl()).isNull();
-    assertThat(config.bootNodes()).isEmpty();
+    assertThat(config.enodeBootNodes()).isEmpty();
     assertThat(config.networkId()).isEqualTo(BigInteger.valueOf(2018));
   }
 
@@ -71,7 +73,7 @@ public class EthNetworkConfigTest {
   public void testDefaultFutureConfig() {
     EthNetworkConfig config = EthNetworkConfig.getNetworkConfig(NetworkDefinition.FUTURE_EIPS);
     assertThat(config.dnsDiscoveryUrl()).isNull();
-    assertThat(config.bootNodes()).isEmpty();
+    assertThat(config.enodeBootNodes()).isEmpty();
     assertThat(config.networkId()).isEqualTo(BigInteger.valueOf(2022));
   }
 
@@ -80,7 +82,7 @@ public class EthNetworkConfigTest {
     EthNetworkConfig config =
         EthNetworkConfig.getNetworkConfig(NetworkDefinition.EXPERIMENTAL_EIPS);
     assertThat(config.dnsDiscoveryUrl()).isNull();
-    assertThat(config.bootNodes()).isEmpty();
+    assertThat(config.enodeBootNodes()).isEmpty();
     assertThat(config.networkId()).isEqualTo(BigInteger.valueOf(2023));
   }
 
@@ -102,7 +104,7 @@ public class EthNetworkConfigTest {
     assertThat(config.genesisConfig().getConfigOptions().getChainId())
         .contains(BigInteger.valueOf(1234567));
     assertThat(config.dnsDiscoveryUrl()).isNotNull();
-    assertThat(config.bootNodes()).isNotEmpty();
+    assertThat(config.enodeBootNodes()).isNotEmpty();
     assertThat(config.networkId()).isEqualTo(BigInteger.valueOf(42));
   }
 

@@ -32,15 +32,11 @@ public enum MessageType {
   }
 
   public static MessageType forNumber(final int value) {
-    switch (value) {
-      case 0:
-        return PING;
-      case 1:
-        return PONG;
-      case 2:
-        return DATA;
-      default:
-        return null;
-    }
+    return switch (value) {
+      case 0 -> PING;
+      case 1 -> PONG;
+      case 2 -> DATA;
+      default -> null;
+    };
   }
 }

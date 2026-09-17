@@ -18,10 +18,10 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
-import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitter;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
+import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
 
 import java.util.Optional;
 import java.util.function.Function;
@@ -64,7 +64,14 @@ public class Tracer {
     }
 
     @Override
-    public void persist(final BlockHeader blockHeader, final StateRootCommitter committer) {
+    public void persist(final org.hyperledger.besu.plugin.data.BlockHeader blockHeader) {
+      mutableWorldState.persist(blockHeader);
+    }
+
+    @Override
+    public void persist(
+        final org.hyperledger.besu.plugin.data.BlockHeader blockHeader,
+        final StateRootCommitter committer) {
       mutableWorldState.persist(blockHeader, committer);
     }
 

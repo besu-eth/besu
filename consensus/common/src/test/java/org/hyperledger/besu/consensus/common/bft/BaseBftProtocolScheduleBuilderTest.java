@@ -45,6 +45,7 @@ import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 import org.junit.jupiter.api.Test;
 
@@ -246,6 +247,11 @@ public class BaseBftProtocolScheduleBuilderTest {
   }
 
   private ProtocolSchedule createProtocolSchedule(final List<ForkSpec<BftConfigOptions>> forks) {
+    return createProtocolSchedule(new ForksSchedule<>(forks));
+  }
+
+  private ProtocolSchedule createProtocolSchedule(
+      final ForksSchedule<BftConfigOptions> forkSchedule) {
     final BaseBftProtocolScheduleBuilder bftProtocolSchedule =
         new BaseBftProtocolScheduleBuilder() {
           @Override
@@ -254,17 +260,57 @@ public class BaseBftProtocolScheduleBuilderTest {
             return new BlockHeaderValidator.Builder();
           }
         };
-    return bftProtocolSchedule.createProtocolSchedule(
-        genesisConfig,
-        new ForksSchedule<>(forks),
-        false,
-        bftExtraDataCodec,
-        EvmConfiguration.DEFAULT,
-        MiningConfiguration.MINING_DISABLED,
-        new BadBlockManager(),
-        false,
-        BalConfiguration.DEFAULT,
-        new NoOpMetricsSystem());
+    final BftProtocolSchedule protocolSchedule =
+        bftProtocolSchedule.createProtocolSchedule(
+            genesisConfig,
+            forkSchedule,
+            false,
+            bftExtraDataCodec,
+            EvmConfiguration.DEFAULT,
+            MiningConfiguration.MINING_DISABLED,
+            new BadBlockManager(),
+            false,
+            BalConfiguration.DEFAULT,
+            new NoOpMetricsSystem());
+
+    return protocolSchedule;
+  }
+
+  @Test
+  public void ensureBlockPeriodInProtocolSpecMatchConfig() {
+    final BftConfigOptions configBlockPeriod2 = createBftConfigBlockPeriod(2);
+    when(genesisConfig.getBftConfigOptions()).thenReturn(configBlockPeriod2);
+    when(genesisConfig.getLondonBlockNumber()).thenReturn(OptionalLong.of(50));
+
+    // All forks after block 100 should be time based forks and retrieval from the fork
+    // schedule should be based on block timestamp not block number
+    when(genesisConfig.getShanghaiTime()).thenReturn(OptionalLong.of(100));
+    TransitionsConfigOptions transitions = TransitionsConfigOptions.DEFAULT;
+    when(genesisConfig.getTransitions()).thenReturn(transitions);
+
+    final BftConfigOptions configBlockPeriod3 = createBftConfigBlockPeriod(3);
+    final BftConfigOptions configBlockPeriod4 = createBftConfigBlockPeriod(4);
+
+    ForksSchedule<BftConfigOptions> forkSchedule =
+        new ForksSchedule<>(
+            List.of(
+                new ForkSpec<>(0, configBlockPeriod2),
+                new ForkSpec<>(123456, configBlockPeriod3),
+                new ForkSpec<>(999999, configBlockPeriod4)));
+
+    createProtocolSchedule(forkSchedule);
+
+    // Creating a protocol schedule updates the fork schedule with fork types
+    assertThat(forkSchedule.getFork(0, 0).getForkType()).isEqualTo(ForkSpec.ForkScheduleType.BLOCK);
+    assertThat(forkSchedule.getFork(10, 0).getForkType())
+        .isEqualTo(ForkSpec.ForkScheduleType.BLOCK);
+    assertThat(forkSchedule.getFork(10, 0).getValue().getBlockPeriodSeconds()).isEqualTo(2);
+    assertThat(forkSchedule.getFork(10, 123456).getForkType())
+        .isEqualTo(ForkSpec.ForkScheduleType.TIME);
+    assertThat(forkSchedule.getFork(10, 123456).getValue().getBlockPeriodSeconds()).isEqualTo(3);
+    assertThat(forkSchedule.getFork(10, 999999).getForkType())
+        .isEqualTo(ForkSpec.ForkScheduleType.TIME);
+    assertThat(forkSchedule.getFork(10, 999999).getValue().getBlockPeriodSeconds()).isEqualTo(4);
   }
 
   private BftConfigOptions createBftConfig(final BigInteger blockReward) {
@@ -276,6 +322,15 @@ public class BaseBftProtocolScheduleBuilderTest {
     final BftConfigOptions bftConfig = mock(JsonBftConfigOptions.class);
     when(bftConfig.getMiningBeneficiary()).thenReturn(miningBeneficiary);
     when(bftConfig.getBlockRewardWei()).thenReturn(blockReward);
+    when(bftConfig.getEpochLength()).thenReturn(3000L);
+
+    return bftConfig;
+  }
+
+  private BftConfigOptions createBftConfigBlockPeriod(final int blockPeriod) {
+    final BftConfigOptions bftConfig = mock(JsonBftConfigOptions.class);
+    when(bftConfig.getBlockPeriodSeconds()).thenReturn(blockPeriod);
+    when(bftConfig.getBlockRewardWei()).thenReturn(BigInteger.ONE);
     when(bftConfig.getEpochLength()).thenReturn(3000L);
 
     return bftConfig;

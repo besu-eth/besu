@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -25,17 +26,19 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.Tracer;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTrace;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTracer;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.OpCodeLoggerTracerResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.StructLog;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.api.query.TransactionWithMetadata;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
@@ -43,6 +46,7 @@ import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
 import org.hyperledger.besu.evm.precompile.PrecompileContractRegistry;
 import org.hyperledger.besu.evm.tracing.TraceFrame;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -108,7 +112,7 @@ public class DebugTraceTransactionTest {
   @Test
   public void shouldTraceTheTransactionUsingTheTransactionTracer() {
     final TransactionWithMetadata transactionWithMetadata =
-        new TransactionWithMetadata(transaction, 12L, Optional.empty(), blockHash, 2);
+        new TransactionWithMetadata(transaction, 12L, Optional.empty(), blockHash, 2, 0L);
     final Map<String, Boolean> map = new HashMap<>();
     map.put("disableStorage", true);
     final Object[] params = new Object[] {transactionHash, map};
@@ -167,7 +171,7 @@ public class DebugTraceTransactionTest {
         (OpCodeLoggerTracerResult) response.getResult();
 
     assertThat(transactionResult.getGas()).isEqualTo(73);
-    assertThat(transactionResult.getReturnValue()).isEqualTo("1234");
+    assertThat(transactionResult.getReturnValue()).isEqualTo("0x1234");
     final List<StructLog> expectedStructLogs = Collections.singletonList(new StructLog(traceFrame));
     assertThat(transactionResult.getStructLogs()).isEqualTo(expectedStructLogs);
     assertThat(transactionResult.getStructLogs().size()).isEqualTo(1);
@@ -176,53 +180,44 @@ public class DebugTraceTransactionTest {
         .isEqualTo(StructLog.toCompactHex(stackBytes[0], true));
     assertThat(transactionResult.getStructLogs().get(0).memory().length).isEqualTo(1);
     assertThat(transactionResult.getStructLogs().get(0).memory()[0])
-        .isEqualTo(StructLog.toCompactHex(memoryBytes[0], true));
+        .isEqualTo(StructLog.toBytes32Hex(memoryBytes[0]));
   }
 
   @Test
   public void shouldNotTraceTheTransactionIfNotFound() {
-    final Map<String, Boolean> map = new HashMap<>();
-    map.put("disableStorage", true);
-    final Object[] params = new Object[] {transactionHash, map};
+    final Object[] params = new Object[] {transactionHash};
     final JsonRpcRequestContext request =
         new JsonRpcRequestContext(new JsonRpcRequest("2.0", "debug_traceTransaction", params));
-    final TransactionProcessingResult result = mock(TransactionProcessingResult.class);
 
-    final TraceFrame traceFrame =
-        TraceFrame.builder()
-            .setPc(12)
-            .setOpcode("NONE")
-            .setOpcodeNumber(Integer.MAX_VALUE)
-            .setGasRemaining(45L)
-            .setGasCost(OptionalLong.of(56L))
-            .setGasRefund(0L)
-            .setDepth(2)
-            .setRecipient(null)
-            .setValue(Wei.ZERO)
-            .setInputData(Bytes.EMPTY)
-            .setOutputData(Bytes.EMPTY)
-            .setWorldUpdater(null)
-            .setRevertReason(Optional.of(Bytes.fromHexString("0x1122334455667788")))
-            .setStackItemsProduced(0)
-            .setVirtualOperation(false)
-            .build();
-    final List<TraceFrame> traceFrames = Collections.singletonList(traceFrame);
-    final TransactionTrace transactionTrace =
-        new TransactionTrace(transaction, result, traceFrames);
-    when(transaction.getGasLimit()).thenReturn(100L);
-    when(result.getGasRemaining()).thenReturn(27L);
-    when(result.getOutput()).thenReturn(Bytes.fromHexString("1234"));
-    when(blockchainQueries.headBlockNumber()).thenReturn(12L);
     when(blockchainQueries.transactionByHash(transactionHash)).thenReturn(Optional.empty());
-    when(transactionTracer.traceTransaction(
-            any(Tracer.TraceableState.class),
-            eq(blockHash),
-            eq(transactionHash),
-            any(DebugOperationTracer.class)))
-        .thenReturn(Optional.of(transactionTrace));
-    final JsonRpcSuccessResponse response =
-        (JsonRpcSuccessResponse) debugTraceTransaction.response(request);
 
-    assertThat(response.getResult()).isNull();
+    final JsonRpcResponse response = debugTraceTransaction.response(request);
+    assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
+    final JsonRpcErrorResponse errorResponse = (JsonRpcErrorResponse) response;
+    assertThat(errorResponse.getErrorType())
+        .isEqualByComparingTo(RpcErrorType.TRANSACTION_NOT_FOUND);
+  }
+
+  @Test
+  public void shouldRejectPrestateDiffModeWithIncludeEmptyAsInvalidParams() {
+    final TransactionWithMetadata transactionWithMetadata =
+        new TransactionWithMetadata(transaction, 12L, Optional.empty(), blockHash, 2, 0L);
+    when(blockchainQueries.transactionByHash(transactionHash))
+        .thenReturn(Optional.of(transactionWithMetadata));
+    final Map<String, Object> tracerConfig = new HashMap<>();
+    tracerConfig.put("diffMode", true);
+    tracerConfig.put("includeEmpty", true);
+    final Map<String, Object> options = new HashMap<>();
+    options.put("tracer", "prestateTracer");
+    options.put("tracerConfig", tracerConfig);
+    final Object[] params = new Object[] {transactionHash, options};
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(new JsonRpcRequest("2.0", "debug_traceTransaction", params));
+
+    assertThatThrownBy(() -> debugTraceTransaction.response(request))
+        .isInstanceOf(InvalidJsonRpcParameters.class)
+        .hasMessage("cannot use diffMode with includeEmpty")
+        .extracting(e -> ((InvalidJsonRpcParameters) e).getRpcErrorType())
+        .isEqualTo(RpcErrorType.INVALID_TRANSACTION_TRACE_PARAMS);
   }
 }

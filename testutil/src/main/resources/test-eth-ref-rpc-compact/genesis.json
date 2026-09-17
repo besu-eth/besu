@@ -14,8 +14,7 @@
       "berlinBlock": 0,
       "londonBlock": 0,
       "arrowGlacierBlock": 0,
-      "grayGlacierBlock": 0,
-      "ethash": {}
+      "grayGlacierBlock": 0
     },
     "nonce": "0x0",
     "timestamp": "0x0",

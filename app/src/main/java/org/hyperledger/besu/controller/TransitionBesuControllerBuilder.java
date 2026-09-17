@@ -27,6 +27,7 @@ import org.hyperledger.besu.ethereum.ConsensusContext;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.chain.ChainDataPruner;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
@@ -42,6 +43,7 @@ import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidator;
 import org.hyperledger.besu.ethereum.eth.sync.DefaultSynchronizer;
 import org.hyperledger.besu.ethereum.eth.sync.PivotBlockSelector;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncAlgorithmFactory;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncContext;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
@@ -122,7 +124,8 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
             metricsSystem,
             ethProtocolManager.ethContext(),
             syncState,
-            storageProvider);
+            storageProvider,
+            new BackwardSyncAlgorithmFactory());
 
     final TransitionCoordinator composedCoordinator =
         new TransitionCoordinator(
@@ -230,7 +233,8 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
       final PeerTaskExecutor peerTaskExecutor,
       final SyncState syncState,
       final EthProtocolManager ethProtocolManager,
-      final PivotBlockSelector pivotBlockSelector) {
+      final PivotBlockSelector pivotBlockSelector,
+      final Optional<ChainDataPruner> chainDataPruner) {
 
     DefaultSynchronizer sync =
         super.createSynchronizer(
@@ -241,7 +245,8 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
             peerTaskExecutor,
             syncState,
             ethProtocolManager,
-            pivotBlockSelector);
+            pivotBlockSelector,
+            chainDataPruner);
 
     if (genesisConfigOptions.getTerminalTotalDifficulty().isPresent()) {
       LOG.info(
@@ -263,6 +268,8 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
         (isPoS, priorState, difficultyStoppedAt) -> {
           if (isPoS) {
             // if we transitioned to post-merge, stop and disable any mining
+            // Note: this callback can run on the BFT event thread itself (during import of the
+            // terminal block), so stop() must remain safe to call from that thread.
             composedCoordinator.getPreMergeObject().disable();
             composedCoordinator.getPreMergeObject().stop();
             // set the blockchoiceRule to never reorg, rely on forkchoiceUpdated instead
@@ -294,6 +301,9 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
   public BesuController build() {
     final BesuController controller = super.build();
     mergeBesuControllerBuilder.getPostMergeContext().setSyncState(controller.getSyncState());
+    if (!p2pEnabled) {
+      controller.getSyncState().setReachedTerminalDifficulty(true);
+    }
     return controller;
   }
 
@@ -371,12 +381,6 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
       final TransactionPoolConfiguration transactionPoolConfiguration) {
     super.transactionPoolConfiguration(transactionPoolConfiguration);
     return propagateConfig(z -> z.transactionPoolConfiguration(transactionPoolConfiguration));
-  }
-
-  @Override
-  public BesuControllerBuilder isRevertReasonEnabled(final boolean isRevertReasonEnabled) {
-    super.isRevertReasonEnabled(isRevertReasonEnabled);
-    return propagateConfig(z -> z.isRevertReasonEnabled(isRevertReasonEnabled));
   }
 
   @Override

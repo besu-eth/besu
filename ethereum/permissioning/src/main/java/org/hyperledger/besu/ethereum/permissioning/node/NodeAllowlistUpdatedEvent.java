@@ -23,10 +23,10 @@ import java.util.Objects;
 public class NodeAllowlistUpdatedEvent {
 
   private final List<EnodeURL> addedNodes;
-  private final List<EnodeURL> removedNodes;
+  private final List<? extends EnodeURL> removedNodes;
 
   public NodeAllowlistUpdatedEvent(
-      final List<EnodeURL> addedNodes, final List<EnodeURL> removedNodes) {
+      final List<EnodeURL> addedNodes, final List<? extends EnodeURL> removedNodes) {
     this.addedNodes = addedNodes != null ? addedNodes : Collections.emptyList();
     this.removedNodes = removedNodes != null ? removedNodes : Collections.emptyList();
   }
@@ -35,7 +35,7 @@ public class NodeAllowlistUpdatedEvent {
     return addedNodes;
   }
 
-  public List<EnodeURL> getRemovedNodes() {
+  public List<? extends EnodeURL> getRemovedNodes() {
     return removedNodes;
   }
 

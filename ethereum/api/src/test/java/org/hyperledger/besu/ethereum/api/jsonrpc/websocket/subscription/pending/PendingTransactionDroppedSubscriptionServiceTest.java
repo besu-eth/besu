@@ -59,6 +59,11 @@ public class PendingTransactionDroppedSubscriptionServiceTest {
         public boolean stopTracking() {
           return false;
         }
+
+        @Override
+        public boolean stopBroadcasting() {
+          return false;
+        }
       };
 
   @Mock private SubscriptionManager subscriptionManager;

@@ -16,10 +16,12 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
@@ -42,6 +44,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
@@ -105,9 +108,29 @@ public class EthGasPriceTest {
     final JsonRpcResponse actualResponse = method.response(request);
     assertThat(actualResponse).usingRecursiveComparison().isEqualTo(expectedResponse);
 
-    verify(blockchain).getChainHeadBlock();
-    verify(blockchain, times(99)).getBlockByNumber(anyLong());
-    verifyNoMoreInteractions(blockchain);
+    // Fee-sample collector walks the last 100 blocks via getBlockHeaders + per-block
+    // getBlockBody. The exact number of getBlockBody calls is bounded by the window size.
+    verify(blockchain).getChainHeadHeader();
+    verify(blockchain).getBlockHeaders(anyLong(), eq(100));
+  }
+
+  @Test
+  public void shouldReturnLowerBoundWhenFeeOracleSnapshotCannotLoadFullWindow() {
+    final JsonRpcRequestContext request = requestWithParams();
+    final String expectedWei = "0x4d2"; // minGasPrice > nextBlockBaseFee
+    miningConfiguration.setMinTransactionGasPrice(Wei.fromHexString(expectedWei));
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcSuccessResponse(request.getRequest().getId(), expectedWei);
+
+    mockBaseFeeMarket();
+    mockBlockchain(1000, 1);
+    when(blockchain.getBlockBody(any(Hash.class))).thenReturn(Optional.empty());
+
+    final JsonRpcResponse actualResponse = method.response(request);
+
+    assertThat(actualResponse).usingRecursiveComparison().isEqualTo(expectedResponse);
+    verify(blockchain).getChainHeadHeader();
+    verify(blockchain).getBlockHeaders(anyLong(), eq(100));
   }
 
   @Test
@@ -126,8 +149,7 @@ public class EthGasPriceTest {
     final JsonRpcResponse actualResponse = method.response(request);
     assertThat(actualResponse).usingRecursiveComparison().isEqualTo(expectedResponse);
 
-    verify(blockchain).getChainHeadBlock();
-    verifyNoMoreInteractions(blockchain);
+    verify(blockchain).getChainHeadHeader();
   }
 
   @Test
@@ -144,9 +166,10 @@ public class EthGasPriceTest {
     final JsonRpcResponse actualResponse = method.response(request);
     assertThat(actualResponse).usingRecursiveComparison().isEqualTo(expectedResponse);
 
-    verify(blockchain).getChainHeadBlock();
-    verify(blockchain, times(99)).getBlockByNumber(anyLong());
-    verifyNoMoreInteractions(blockchain);
+    // Fee-sample collector walks the last 100 blocks via getBlockHeaders + per-block
+    // getBlockBody. The exact number of getBlockBody calls is bounded by the window size.
+    verify(blockchain).getChainHeadHeader();
+    verify(blockchain).getBlockHeaders(anyLong(), eq(100));
   }
 
   @Test
@@ -163,9 +186,10 @@ public class EthGasPriceTest {
     final JsonRpcResponse actualResponse = method.response(request);
     assertThat(actualResponse).usingRecursiveComparison().isEqualTo(expectedResponse);
 
-    verify(blockchain).getChainHeadBlock();
-    verify(blockchain, times(80)).getBlockByNumber(anyLong());
-    verifyNoMoreInteractions(blockchain);
+    verify(blockchain).getChainHeadHeader();
+    // Short-chain window: chainHead=80 with default getGasPriceBlocks=100 means startBlock=0,
+    // so the bulk header fetch covers all 81 blocks (genesis through head).
+    verify(blockchain).getBlockHeaders(anyLong(), eq(81));
   }
 
   /**
@@ -200,6 +224,57 @@ public class EthGasPriceTest {
     long lowerBoundCoefficient = 120;
     long upperBoundCoefficient = 200;
     verifyGasPriceLimit(lowerBoundCoefficient, upperBoundCoefficient, gasPrice);
+  }
+
+  @Test
+  public void whenGasPriceBlocksIsZeroReturnLowerBoundWithoutSamplingHistoricalBlocks() {
+    mockBaseFeeMarket();
+
+    // Only stub chain head header — getChainHeadBlock and getBlockByNumber must never be called
+    final Block chainHeadBlock = createFakeBlock(1000L, 1, DEFAULT_BASE_FEE);
+    when(blockchain.getChainHeadHeader()).thenReturn(chainHeadBlock.getHeader());
+
+    method =
+        createEthGasPriceMethod(ImmutableApiConfiguration.builder().gasPriceBlocks(0L).build());
+
+    final JsonRpcRequestContext request = requestWithParams();
+    // gasPriceBlocks=0 → no historical block sampling; returns gasPriceLowerBound() directly.
+    // nextBlockBaseFee = DEFAULT_BASE_FEE − EIP-1559 delta(gasUsed=21_000, gasLimit=100_000) =
+    // 92_750
+    // lowerBound = max(nextBlockBaseFee=92_750, DEFAULT_MIN_GAS_PRICE=1_000) = 92_750
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcSuccessResponse(request.getRequest().getId(), Wei.of(92_750).toShortHexString());
+
+    final JsonRpcResponse actualResponse = method.response(request);
+
+    assertThat(actualResponse).usingRecursiveComparison().isEqualTo(expectedResponse);
+    verify(blockchain).getChainHeadHeader();
+    verify(blockchain, never()).getChainHeadBlock();
+    verify(blockchain, never()).getBlockByNumber(anyLong());
+    verifyNoMoreInteractions(blockchain);
+  }
+
+  @Test
+  public void whenGasPriceBlocksIsZeroAndMinGasPriceIsZeroReturnZero() {
+    miningConfiguration.setMinTransactionGasPrice(Wei.ZERO);
+    mockGasPriceMarket();
+
+    when(blockchain.getChainHeadHeader()).thenReturn(createFakeBlock(0, 0, null).getHeader());
+
+    final var methodWithZeroBlocks =
+        createEthGasPriceMethod(ImmutableApiConfiguration.builder().gasPriceBlocks(0L).build());
+
+    final JsonRpcRequestContext request = requestWithParams();
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcSuccessResponse(request.getRequest().getId(), Wei.ZERO.toShortHexString());
+
+    assertThat(methodWithZeroBlocks.response(request))
+        .usingRecursiveComparison()
+        .isEqualTo(expectedResponse);
+    verify(blockchain).getChainHeadHeader();
+    verify(blockchain, never()).getChainHeadBlock();
+    verify(blockchain, never()).getBlockByNumber(anyLong());
+    verifyNoMoreInteractions(blockchain);
   }
 
   private static Stream<Arguments> ethGasPriceAtGenesis() {
@@ -250,8 +325,7 @@ public class EthGasPriceTest {
     final JsonRpcResponse actualResponse = method.response(request);
     assertThat(actualResponse).usingRecursiveComparison().isEqualTo(expectedResponse);
 
-    verify(blockchain).getChainHeadBlock();
-    verifyNoMoreInteractions(blockchain);
+    verify(blockchain).getChainHeadHeader();
   }
 
   /**
@@ -307,9 +381,11 @@ public class EthGasPriceTest {
   private void mockBlockchain(
       final Wei genesisBaseFee, final long chainHeadBlockNumber, final int txsNum) {
     final var blocksByNumber = new HashMap<Long, Block>();
+    final var blocksByHash = new HashMap<Hash, Block>();
 
     final var genesisBlock = createFakeBlock(0, 0, genesisBaseFee);
     blocksByNumber.put(0L, genesisBlock);
+    blocksByHash.put(genesisBlock.getHash(), genesisBlock);
 
     final var baseFeeMarket = FeeMarket.cancunDefault(0, Optional.empty());
 
@@ -322,18 +398,32 @@ public class EthGasPriceTest {
               parentHeader.getBaseFee().get(),
               parentHeader.getGasUsed(),
               parentHeader.getGasLimit());
-      blocksByNumber.put(i, createFakeBlock(i, txsNum, baseFee));
+      final var block = createFakeBlock(i, txsNum, baseFee);
+      blocksByNumber.put(i, block);
+      blocksByHash.put(block.getHash(), block);
     }
 
-    when(blockchain.getChainHeadBlock()).thenReturn(blocksByNumber.get(chainHeadBlockNumber));
-    if (chainHeadBlockNumber > 0) {
-      when(blockchain.getBlockByNumber(anyLong()))
-          .thenAnswer(
-              invocation -> Optional.of(blocksByNumber.get(invocation.getArgument(0, Long.class))));
-    }
+    final Block chainHeadBlock = blocksByNumber.get(chainHeadBlockNumber);
+    lenient().when(blockchain.getChainHeadHeader()).thenReturn(chainHeadBlock.getHeader());
+    // The fee-sample collector walks `getBlockHeaders(start, count)` (parent-hash walk inside
+    // DefaultBlockchain) and then resolves each body by hash.
     lenient()
-        .when(blockchain.getChainHeadHeader())
-        .thenReturn(blocksByNumber.get(chainHeadBlockNumber).getHeader());
+        .when(blockchain.getBlockHeaders(anyLong(), anyInt()))
+        .thenAnswer(
+            invocation -> {
+              final long start = invocation.getArgument(0, Long.class);
+              final int count = invocation.getArgument(1, Integer.class);
+              return IntStream.range(0, count)
+                  .mapToObj(idx -> blocksByNumber.get(start + idx).getHeader())
+                  .toList();
+            });
+    lenient()
+        .when(blockchain.getBlockBody(any(Hash.class)))
+        .thenAnswer(
+            invocation -> {
+              final Hash hash = invocation.getArgument(0, Hash.class);
+              return Optional.ofNullable(blocksByHash.get(hash)).map(Block::getBody);
+            });
   }
 
   private Block createFakeBlock(final long height, final int txsNum, final Wei baseFee) {
@@ -372,7 +462,7 @@ public class EthGasPriceTest {
             null,
             null,
             null,
-            null),
+            new MainnetBlockHeaderFunctions()),
         new BlockBody(
             IntStream.range(0, txsNum)
                 .mapToObj(

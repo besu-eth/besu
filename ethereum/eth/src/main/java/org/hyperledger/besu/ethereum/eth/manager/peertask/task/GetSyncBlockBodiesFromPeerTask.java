@@ -21,10 +21,12 @@ import org.hyperledger.besu.ethereum.eth.manager.peertask.InvalidPeerTaskRespons
 import org.hyperledger.besu.ethereum.eth.manager.task.BodyIdentifier;
 import org.hyperledger.besu.ethereum.eth.messages.BlockBodiesMessage;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,17 +56,22 @@ public class GetSyncBlockBodiesFromPeerTask extends AbstractGetBodiesFromPeerTas
   }
 
   @Override
-  public List<SyncBlock> processResponse(final MessageData messageData)
+  public List<SyncBlock> processResponse(
+      final MessageData messageData, final Set<Capability> agreedCapabilities)
       throws InvalidPeerTaskResponseException {
     // Blocks returned by this method are in the same order as the headers, but might not be
     // complete
     if (messageData == null) {
-      throw new InvalidPeerTaskResponseException();
+      throw new InvalidPeerTaskResponseException("Null response");
     }
     final BlockBodiesMessage blocksMessage = BlockBodiesMessage.readFrom(messageData);
     final List<SyncBlockBody> blockBodies = blocksMessage.syncBodies(protocolSchedule);
-    if (blockBodies.isEmpty() || blockBodies.size() > blockHeaders.size()) {
-      throw new InvalidPeerTaskResponseException();
+    if (blockBodies.isEmpty()) {
+      throw new InvalidPeerTaskResponseException("Empty response");
+    }
+    if (blockBodies.size() > blockHeaders.size()) {
+      throw new InvalidPeerTaskResponseException(
+          "Got %d bodies, expected at most %d".formatted(blockBodies.size(), blockHeaders.size()));
     }
 
     for (int i = 0; i < blockBodies.size(); i++) {
@@ -73,9 +80,10 @@ public class GetSyncBlockBodiesFromPeerTask extends AbstractGetBodiesFromPeerTas
       if (!blockBodyMatchesBlockHeader(blockBody, blockHeader)) {
         LOG.atDebug()
             .setMessage("Received block body does not match block header: {}")
-            .addArgument(blockHeader.getBlockHash())
+            .addArgument(blockHeader::getBlockHash)
             .log();
-        throw new InvalidPeerTaskResponseException();
+        throw new InvalidPeerTaskResponseException(
+            "Received block body does not match block header: " + blockHeader.getBlockHash());
       }
 
       blocks.add(new SyncBlock(blockHeader, blockBody));

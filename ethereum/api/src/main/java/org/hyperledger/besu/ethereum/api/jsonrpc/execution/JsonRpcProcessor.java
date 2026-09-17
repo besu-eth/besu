@@ -19,6 +19,10 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestId;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 
+import java.io.IOException;
+import java.io.OutputStream;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.opentelemetry.api.trace.Span;
 
 public interface JsonRpcProcessor {
@@ -27,4 +31,15 @@ public interface JsonRpcProcessor {
       final JsonRpcMethod method,
       final Span metricSpan,
       final JsonRpcRequestContext request);
+
+  default void streamProcess(
+      final JsonRpcRequestId id,
+      final JsonRpcMethod method,
+      final Span metricSpan,
+      final JsonRpcRequestContext request,
+      final OutputStream out,
+      final ObjectMapper mapper)
+      throws IOException {
+    throw new UnsupportedOperationException();
+  }
 }

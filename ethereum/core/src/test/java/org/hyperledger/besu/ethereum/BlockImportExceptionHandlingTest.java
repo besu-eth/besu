@@ -15,8 +15,9 @@
 package org.hyperledger.besu.ethereum;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig.createStatefulConfigWithTrie;
+import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateConfig.createStatefulConfigWithTrie;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
@@ -33,6 +34,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.BlockAccessListValidator;
 import org.hyperledger.besu.ethereum.mainnet.BlockBodyValidator;
 import org.hyperledger.besu.ethereum.mainnet.BlockHeaderValidator;
 import org.hyperledger.besu.ethereum.mainnet.BlockProcessor;
@@ -44,10 +46,10 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.FrontierPreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
-import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitterFactoryDefault;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitterFactory;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiWorldStateProvider;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
@@ -83,6 +85,8 @@ class BlockImportExceptionHandlingTest {
           BalConfiguration.DEFAULT);
   private final BlockHeaderValidator blockHeaderValidator = mock(BlockHeaderValidator.class);
   private final BlockBodyValidator blockBodyValidator = mock(BlockBodyValidator.class);
+  private final BlockAccessListValidator blockAccessListValidator =
+      mock(BlockAccessListValidator.class);
   private final ProtocolContext protocolContext = mock(ProtocolContext.class);
   private final ProtocolSpec protocolSpec = mock(ProtocolSpec.class);
   private final GasCalculator gasCalculator = mock(GasCalculator.class);
@@ -111,7 +115,7 @@ class BlockImportExceptionHandlingTest {
                   worldStateStorageCoordinator.worldStateKeyValueStorage(),
               EvmConfiguration.DEFAULT,
               createStatefulConfigWithTrie(),
-              new CodeCache()));
+              new BonsaiCodeCache()));
 
   private final BadBlockManager badBlockManager = new BadBlockManager();
 
@@ -126,11 +130,12 @@ class BlockImportExceptionHandlingTest {
     when(protocolSpec.getGasCalculator()).thenReturn(gasCalculator);
     when(protocolSpec.getGasLimitCalculator()).thenReturn(gasLimitCalculator);
     when(protocolSpec.getFeeMarket()).thenReturn(feeMarket);
+    when(blockAccessListValidator.validate(any(), any(), anyInt())).thenReturn(true);
     when(protocolSpec.getStateRootCommitterFactory())
-        .thenReturn(new StateRootCommitterFactoryDefault());
+        .thenReturn(new StateRootCommitterFactory(BalConfiguration.DISABLED));
     mainnetBlockValidator =
         MainnetBlockValidatorBuilder.frontier(
-            blockHeaderValidator, blockBodyValidator, blockProcessor);
+            blockHeaderValidator, blockBodyValidator, blockProcessor, blockAccessListValidator);
   }
 
   @Test

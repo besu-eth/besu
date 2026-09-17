@@ -51,7 +51,6 @@ import java.util.Optional;
 import java.util.StringJoiner;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
-import javax.annotation.Nullable;
 
 import com.google.common.annotations.VisibleForTesting;
 import io.opentelemetry.api.OpenTelemetry;
@@ -84,6 +83,7 @@ import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
 import io.vertx.ext.web.handler.BodyHandler;
 import io.vertx.ext.web.handler.CorsHandler;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -202,8 +202,8 @@ public class JsonRpcHttpService {
     this.livenessService = livenessService;
     this.readinessService = readinessService;
     this.maxActiveConnections = config.getMaxActiveConnections();
-    if (metricsSystem instanceof OpenTelemetrySystem) {
-      this.tracerProvider = ((OpenTelemetrySystem) metricsSystem).getTracerProvider();
+    if (metricsSystem instanceof OpenTelemetrySystem openTelemetrySystem) {
+      this.tracerProvider = openTelemetrySystem.getTracerProvider();
     }
     this.metricsSystem = metricsSystem;
   }
@@ -235,7 +235,8 @@ public class JsonRpcHttpService {
 
       httpServer
           .requestHandler(buildRouter())
-          .listen(
+          .listen()
+          .onComplete(
               res -> {
                 if (!res.failed()) {
                   resultFuture.complete(null);
@@ -536,15 +537,17 @@ public class JsonRpcHttpService {
     }
 
     final CompletableFuture<?> resultFuture = new CompletableFuture<>();
-    httpServer.close(
-        res -> {
-          if (res.failed()) {
-            resultFuture.completeExceptionally(res.cause());
-          } else {
-            httpServer = null;
-            resultFuture.complete(null);
-          }
-        });
+    httpServer
+        .close()
+        .onComplete(
+            res -> {
+              if (res.failed()) {
+                resultFuture.completeExceptionally(res.cause());
+              } else {
+                httpServer = null;
+                resultFuture.complete(null);
+              }
+            });
     return resultFuture;
   }
 

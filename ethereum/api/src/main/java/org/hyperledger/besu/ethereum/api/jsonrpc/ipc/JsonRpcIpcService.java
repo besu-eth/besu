@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.ipc;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.INVALID_REQUEST;
 
 import org.hyperledger.besu.ethereum.api.handlers.JsonRpcParserHandler;
+import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcObjectMapperFactory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.execution.JsonRpcExecutor;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
@@ -37,9 +38,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectWriter;
-import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.buffer.Buffer;
@@ -57,8 +56,7 @@ public class JsonRpcIpcService {
 
   private static final Logger LOG = LoggerFactory.getLogger(JsonRpcIpcService.class);
   private static final ObjectWriter JSON_OBJECT_WRITER =
-      new ObjectMapper()
-          .registerModule(new Jdk8Module())
+      JsonRpcObjectMapperFactory.getResponseMapper()
           .writer()
           .without(JsonGenerator.Feature.FLUSH_PASSED_TO_STREAM)
           .with(JsonGenerator.Feature.AUTO_CLOSE_TARGET);
@@ -140,26 +138,23 @@ public class JsonRpcIpcService {
       final String connectionId) {
     vertx
         .<JsonRpcResponse>executeBlocking(
-            promise -> {
-              final JsonRpcResponse jsonRpcResponse =
-                  jsonRpcExecutor.execute(
-                      Optional.empty(),
-                      null,
-                      null,
-                      closedSocket::get,
-                      jsonRpcRequest,
-                      req -> {
-                        if (subscriptionManager.isPresent()) {
-                          final WebSocketRpcRequest websocketRequest =
-                              req.mapTo(WebSocketRpcRequest.class);
-                          websocketRequest.setConnectionId(connectionId);
-                          return websocketRequest;
-                        } else {
-                          return req.mapTo(JsonRpcRequest.class);
-                        }
-                      });
-              promise.complete(jsonRpcResponse);
-            })
+            () ->
+                jsonRpcExecutor.execute(
+                    Optional.empty(),
+                    null,
+                    null,
+                    closedSocket::get,
+                    jsonRpcRequest,
+                    req -> {
+                      if (subscriptionManager.isPresent()) {
+                        final WebSocketRpcRequest websocketRequest =
+                            req.mapTo(WebSocketRpcRequest.class);
+                        websocketRequest.setConnectionId(connectionId);
+                        return websocketRequest;
+                      } else {
+                        return req.mapTo(JsonRpcRequest.class);
+                      }
+                    }))
         .onSuccess(
             jsonRpcResponse -> {
               if (!closedSocket.get()) {
@@ -188,7 +183,7 @@ public class JsonRpcIpcService {
     } else {
       vertx
           .<List<JsonRpcResponse>>executeBlocking(
-              promise -> {
+              () -> {
                 List<JsonRpcResponse> responses = new ArrayList<>();
                 for (int i = 0; i < batchJsonRpcRequest.size(); i++) {
                   final JsonObject jsonRequest;
@@ -207,7 +202,7 @@ public class JsonRpcIpcService {
                           jsonRequest,
                           req -> req.mapTo(JsonRpcRequest.class)));
                 }
-                promise.complete(responses);
+                return responses;
               })
           .onSuccess(
               jsonRpcBatchResponse -> {

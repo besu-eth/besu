@@ -29,4 +29,11 @@ public interface RemovalReason {
    * @return true if no more tracking is needed
    */
   boolean stopTracking();
+
+  /**
+   * Return true if we should stop broadcasting this tx to other peers
+   *
+   * @return true if broadcasting must be stopped
+   */
+  boolean stopBroadcasting();
 }

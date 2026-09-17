@@ -29,11 +29,11 @@ import org.hyperledger.besu.evm.account.MutableAccount;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.TreeMap;
-import javax.annotation.Nullable;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
+import org.jspecify.annotations.Nullable;
 
 /**
  * An implementation of {@link MutableAccount} that tracks updates made to the account since the
@@ -317,18 +317,6 @@ public class JournaledAccount implements MutableAccount, Undoable {
     }
     storageWasCleared = true;
     updatedStorage.clear();
-  }
-
-  /**
-   * Does this account have any storage slots that are set to non-zero values?
-   *
-   * @return true if the account has no storage values set to non-zero values. False if any storage
-   *     is set.
-   */
-  @Override
-  public boolean isStorageEmpty() {
-    return updatedStorage.isEmpty()
-        && (storageWasCleared || account == null || account.isStorageEmpty());
   }
 
   /**

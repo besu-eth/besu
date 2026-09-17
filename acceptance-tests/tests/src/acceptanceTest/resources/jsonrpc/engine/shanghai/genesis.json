@@ -13,8 +13,7 @@
     "berlinBlock":0,
     "londonBlock":0,
     "terminalTotalDifficulty":0,
-    "shanghaiTime":10,
-    "ethash": {}
+    "shanghaiTime":10
   },
   "nonce":"0x42",
   "timestamp":"0x0",

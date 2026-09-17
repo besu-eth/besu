@@ -67,7 +67,7 @@ public class WebSocketServiceTLSTest {
     config.setHost("localhost");
     websocketMethods =
         new WebSocketMethodsFactory(
-                new SubscriptionManager(new NoOpMetricsSystem()), new HashMap<>())
+                new SubscriptionManager(new NoOpMetricsSystem()), new HashMap<>(), 0)
             .methods();
     webSocketMessageHandlerSpy =
         spy(
@@ -421,7 +421,7 @@ public class WebSocketServiceTLSTest {
     WebSocketClientOptions clientOptions =
         new WebSocketClientOptions()
             .setSsl(true)
-            .setKeyStoreOptions(
+            .setKeyCertOptions(
                 new JksOptions()
                     .setPath(clientKeystoreFile.getAbsolutePath())
                     .setPassword("password"))

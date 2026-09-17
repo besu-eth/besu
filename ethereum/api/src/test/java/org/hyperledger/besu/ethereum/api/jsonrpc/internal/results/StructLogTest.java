@@ -101,15 +101,25 @@ public class StructLogTest {
     assertThat(structLog.gas()).isEqualTo(gas);
     assertThat(structLog.gasCost()).isEqualTo(gasCost.getAsLong());
     assertThat(structLog.memory())
-        .isEqualTo(new String[] {"0x1", "0x2", "0x3", "0x4", "0x5", "0x0"});
+        .isEqualTo(
+            new String[] {
+              "0x0000000000000000000000000000000000000000000000000000000000000001",
+              "0x0000000000000000000000000000000000000000000000000000000000000002",
+              "0x0000000000000000000000000000000000000000000000000000000000000003",
+              "0x0000000000000000000000000000000000000000000000000000000000000004",
+              "0x0000000000000000000000000000000000000000000000000000000000000005",
+              "0x0000000000000000000000000000000000000000000000000000000000000000"
+            });
     assertThat(structLog.op()).isEqualTo(op);
     assertThat(structLog.pc()).isEqualTo(1);
     assertThat(structLog.stack()).isEqualTo(new String[] {"0x0", "0x1", "0x2", "0x3"});
     assertThat(structLog.storage())
         .isEqualTo(
             Map.of(
-                "1", "2233333",
-                "2", "4455667"));
+                "0x0000000000000000000000000000000000000000000000000000000000000001",
+                "0x0000000000000000000000000000000000000000000000000000000002233333",
+                "0x0000000000000000000000000000000000000000000000000000000000000002",
+                "0x0000000000000000000000000000000000000000000000000000000004455667"));
     assertThat(structLog.reason()).isEqualTo("0x1");
   }
 
@@ -169,8 +179,8 @@ public class StructLogTest {
             + "\"gasCost\":10,"
             + "\"depth\":1,"
             + "\"stack\":[\"0x0\",\"0x1\",\"0x2\",\"0x3\"],"
-            + "\"memory\":[\"0x1\",\"0x2\",\"0x23\",\"0x4\",\"0xe5\",\"0x0\"],"
-            + "\"storage\":{\"1\":\"2233333\",\"2\":\"4455667\"},"
+            + "\"memory\":[\"0x0000000000000000000000000000000000000000000000000000000000000001\",\"0x0000000000000000000000000000000000000000000000000000000000000002\",\"0x0000000000000000000000000000000000000000000000000000000000000023\",\"0x0000000000000000000000000000000000000000000000000000000000000004\",\"0x00000000000000000000000000000000000000000000000000000000000000e5\",\"0x0000000000000000000000000000000000000000000000000000000000000000\"],"
+            + "\"storage\":{\"0x0000000000000000000000000000000000000000000000000000000000000001\":\"0x0000000000000000000000000000000000000000000000000000000002233333\",\"0x0000000000000000000000000000000000000000000000000000000000000002\":\"0x0000000000000000000000000000000000000000000000000000000004455667\"},"
             + "\"reason\":\"0x53756e696665642066756e6473\""
             + "}";
 
@@ -235,5 +245,51 @@ public class StructLogTest {
     Bytes bytes = Bytes.fromHexString("0x0102030405060708090a");
     String result = StructLog.toCompactHex(bytes, true);
     assertEquals("0x102030405060708090a", result, "Expected correct hex output for large data");
+  }
+
+  // --- returnData tests ---
+
+  @Test
+  public void returnDataShouldBePresentWhenCaptured() {
+    setupMinimalTraceFrameForReturnDataTests();
+    when(traceFrame.getReturnData()).thenReturn(Optional.of(Bytes.fromHexString("0xdeadbeef")));
+
+    final StructLog log = new StructLog(traceFrame);
+
+    assertThat(log.returnData()).isEqualTo("0xdeadbeef");
+  }
+
+  @Test
+  public void returnDataShouldBeNullWhenNotCaptured() {
+    setupMinimalTraceFrameForReturnDataTests();
+    when(traceFrame.getReturnData()).thenReturn(Optional.empty());
+
+    final StructLog log = new StructLog(traceFrame);
+
+    assertThat(log.returnData()).isNull();
+  }
+
+  @Test
+  public void returnDataShouldBeAbsentFromJsonWhenNotCaptured() throws Exception {
+    setupMinimalTraceFrameForReturnDataTests();
+    when(traceFrame.getReturnData()).thenReturn(Optional.empty());
+
+    final StructLog log = new StructLog(traceFrame);
+    final String json = objectMapper.writeValueAsString(log);
+
+    assertThat(json).doesNotContain("returnData");
+  }
+
+  private void setupMinimalTraceFrameForReturnDataTests() {
+    when(traceFrame.getDepth()).thenReturn(0);
+    when(traceFrame.getGasRemaining()).thenReturn(0L);
+    when(traceFrame.getGasCost()).thenReturn(OptionalLong.empty());
+    when(traceFrame.getGasRefund()).thenReturn(0L);
+    when(traceFrame.getMemory()).thenReturn(Optional.empty());
+    when(traceFrame.getOpcode()).thenReturn("PUSH1");
+    when(traceFrame.getPc()).thenReturn(0);
+    when(traceFrame.getStack()).thenReturn(Optional.empty());
+    when(traceFrame.getStorage()).thenReturn(Optional.empty());
+    when(traceFrame.getRevertReason()).thenReturn(Optional.empty());
   }
 }

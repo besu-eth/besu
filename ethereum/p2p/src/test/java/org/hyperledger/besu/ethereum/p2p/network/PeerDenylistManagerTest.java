@@ -29,16 +29,22 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.PeerInfo;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 public class PeerDenylistManagerTest {
-  private final Peer localNode = generatePeer();
-  private final PeerDenylistManager peerDenylistManager;
-  private final PeerPermissionsDenylist denylist;
-  private final MaintainedPeers maintainedPeers = new MaintainedPeers();
+  private int ipModifier;
+  private Peer localNode;
+  private PeerDenylistManager peerDenylistManager;
+  private PeerPermissionsDenylist denylist;
+  private MaintainedPeers maintainedPeers;
 
-  public PeerDenylistManagerTest() {
+  @BeforeEach
+  public void beforeTest() {
+    ipModifier = 1;
+    localNode = generatePeer();
     denylist = PeerPermissionsDenylist.create();
+    maintainedPeers = new MaintainedPeers();
     peerDenylistManager = new PeerDenylistManager(denylist, maintainedPeers);
   }
 
@@ -120,6 +126,63 @@ public class PeerDenylistManagerTest {
     checkPermissions(denylist, peer.getPeer(), true);
   }
 
+  @Test
+  public void denylistPeerForMismatchedNetwork() {
+    final PeerConnection peer = generatePeerConnection();
+
+    checkPermissions(denylist, peer.getPeer(), true);
+    peerDenylistManager.onDisconnect(
+        peer, DisconnectReason.SUBPROTOCOL_TRIGGERED_MISMATCHED_NETWORK, false);
+    checkPermissions(denylist, peer.getPeer(), false);
+  }
+
+  @Test
+  public void denylistPeerForMismatchedGenesisHash() {
+    final PeerConnection peer = generatePeerConnection();
+
+    checkPermissions(denylist, peer.getPeer(), true);
+    peerDenylistManager.onDisconnect(
+        peer, DisconnectReason.SUBPROTOCOL_TRIGGERED_MISMATCHED_GENESIS_HASH, false);
+    checkPermissions(denylist, peer.getPeer(), false);
+  }
+
+  @Test
+  public void denylistPeerForNullNodeId() {
+    final PeerConnection peer = generatePeerConnection();
+
+    checkPermissions(denylist, peer.getPeer(), true);
+    peerDenylistManager.onDisconnect(peer, DisconnectReason.NULL_NODE_ID, false);
+    checkPermissions(denylist, peer.getPeer(), false);
+  }
+
+  @Test
+  public void denylistPeerForLocalIdentity() {
+    final PeerConnection peer = generatePeerConnection();
+
+    checkPermissions(denylist, peer.getPeer(), true);
+    peerDenylistManager.onDisconnect(peer, DisconnectReason.LOCAL_IDENTITY, false);
+    checkPermissions(denylist, peer.getPeer(), false);
+  }
+
+  @Test
+  public void denylistPeerForUnexpectedId() {
+    final PeerConnection peer = generatePeerConnection();
+
+    checkPermissions(denylist, peer.getPeer(), true);
+    peerDenylistManager.onDisconnect(peer, DisconnectReason.UNEXPECTED_ID, false);
+    checkPermissions(denylist, peer.getPeer(), false);
+  }
+
+  @Test
+  public void doesNotDenylistPeerForMismatchedForkId() {
+    final PeerConnection peer = generatePeerConnection();
+
+    checkPermissions(denylist, peer.getPeer(), true);
+    peerDenylistManager.onDisconnect(
+        peer, DisconnectReason.SUBPROTOCOL_TRIGGERED_MISMATCHED_FORKID, false);
+    checkPermissions(denylist, peer.getPeer(), true);
+  }
+
   private void checkPermissions(
       final PeerPermissionsDenylist denylist, final Peer remotePeer, final boolean expectedResult) {
     for (PeerPermissions.Action action : PeerPermissions.Action.values()) {
@@ -144,7 +207,7 @@ public class PeerDenylistManagerTest {
     return DefaultPeer.fromEnodeURL(
         EnodeURLImpl.builder()
             .nodeId(Peer.randomId())
-            .ipAddress("10.9.8.7")
+            .ipAddress("10.9.8." + ipModifier++)
             .discoveryPort(65535)
             .listeningPort(65534)
             .build());

@@ -16,8 +16,11 @@ package org.hyperledger.besu.plugin.services.storage.rocksdb.segmented;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.atMostOnce;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
@@ -299,6 +302,45 @@ public class LayeredKeyValueStorageTest {
     assertArrayEquals(value2, resultList.get(1).getValue());
     assertArrayEquals(key3, resultList.get(2).getKey());
     assertArrayEquals(value3, resultList.get(2).getValue());
+  }
+
+  @Test
+  void isClosedReturnsFalseWhenRootIsOpen() {
+    when(parentStorage.isClosed()).thenReturn(false);
+    assertFalse(layeredKeyValueStorage.isClosed());
+  }
+
+  @Test
+  void isClosedReturnsTrueWhenRootIsClosed() {
+    when(parentStorage.isClosed()).thenReturn(true);
+    assertTrue(layeredKeyValueStorage.isClosed());
+  }
+
+  /**
+   * Verifies that isClosed() on a deep chain only queries the root storage once after the closed
+   * state has been cached, regardless of chain depth. This is the O(1) correctness test for the
+   * volatile closedCache fix that eliminates the O(N) recursion hot path (besu-eth/besu#10498).
+   */
+  @Test
+  void isClosedCachesResultOnDeepChainAndQueriesRootAtMostOnce() {
+    // build a chain of depth 100: top -> layer99 -> ... -> layer1 -> parentStorage (the mock root)
+    int depth = 100;
+    LayeredKeyValueStorage top = layeredKeyValueStorage; // wraps parentStorage directly
+    for (int i = 0; i < depth - 1; i++) {
+      top = new LayeredKeyValueStorage(top);
+    }
+
+    when(parentStorage.isClosed()).thenReturn(true);
+
+    // First call at the top of the chain should propagate down to the root and cache at each layer
+    assertTrue(top.isClosed());
+
+    // Second call on the same instance must NOT reach the root again (cache hit)
+    assertTrue(top.isClosed());
+
+    // The root mock should have been queried at most once across both top-level calls because the
+    // intermediate layers cache the result and short-circuit before reaching the root
+    verify(parentStorage, atMostOnce()).isClosed();
   }
 
   /**

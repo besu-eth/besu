@@ -22,15 +22,22 @@ import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
 import org.hyperledger.besu.ethereum.p2p.config.DiscoveryConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
 import org.hyperledger.besu.ethereum.p2p.discovery.DiscoveryPeer;
-import org.hyperledger.besu.ethereum.p2p.discovery.HostEndpoint;
+import org.hyperledger.besu.ethereum.p2p.discovery.DiscoveryPeerFactory;
 import org.hyperledger.besu.ethereum.p2p.discovery.NodeRecordManager;
 import org.hyperledger.besu.ethereum.p2p.discovery.PeerDiscoveryAgent;
 import org.hyperledger.besu.ethereum.p2p.discovery.PeerDiscoveryAgentFactory;
+import org.hyperledger.besu.ethereum.p2p.discovery.dns.EthereumNodeRecord;
+import org.hyperledger.besu.ethereum.p2p.peers.DefaultPeerId;
+import org.hyperledger.besu.ethereum.p2p.peers.Peer;
+import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions;
 import org.hyperledger.besu.ethereum.p2p.rlpx.RlpxAgent;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.nat.NatService;
+import org.hyperledger.besu.plugin.services.MetricsSystem;
 
 import java.net.InetSocketAddress;
+import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -38,127 +45,281 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.ethereum.beacon.discovery.AddressAccessPolicy;
 import org.ethereum.beacon.discovery.DiscoverySystemBuilder;
 import org.ethereum.beacon.discovery.MutableDiscoverySystem;
+import org.ethereum.beacon.discovery.crypto.Signer;
+import org.ethereum.beacon.discovery.network.NettyDiscoveryServer;
 import org.ethereum.beacon.discovery.schema.NodeRecord;
+import org.ethereum.beacon.discovery.storage.NewAddressHandler;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
- * Factory for creating DiscV5 {@link PeerDiscoveryAgent} instances backed by the Ethereum Discovery
- * v5 {@link DiscoverySystemBuilder}.
+ * Factory for creating DiscV5 {@link PeerDiscoveryAgent} instances.
  *
- * <p>This factory is responsible for:
+ * <p>This factory is responsible for wiring together the dependencies needed by {@link
+ * PeerDiscoveryAgentV5}. It intentionally does <em>not</em> initialize the local node record or
+ * build the {@link MutableDiscoverySystem} — both are deferred to {@link
+ * PeerDiscoveryAgentV5#start(int)}, where the actual RLPx TCP port is known.
  *
- * <ul>
- *   <li>Initializing the local {@link NodeRecord} via {@link NodeRecordManager}
- *   <li>Configuring and building a mutable DiscV5 discovery system
- *   <li>Wiring Besu-specific components such as fork ID handling and node key services
- * </ul>
- *
- * <p>The resulting {@link PeerDiscoveryAgent} integrates DiscV5 discovery with Besu’s P2P
+ * <p>The resulting {@link PeerDiscoveryAgent} integrates DiscV5 discovery with Besu's P2P
  * networking stack.
  */
 public final class PeerDiscoveryAgentFactoryV5 implements PeerDiscoveryAgentFactory {
+  private static final Logger LOG = LoggerFactory.getLogger(PeerDiscoveryAgentFactoryV5.class);
+
   private final NetworkingConfiguration config;
 
   private final NodeRecordManager nodeRecordManager;
   private final NodeKey nodeKey;
+  private final PeerPermissions peerPermissions;
   private final ForkIdManager forkIdManager;
+  private final MetricsSystem metricsSystem;
+
+  // Non-null when BOTH mode injects pre-bound discovery servers instead of calling builder.listen()
+  private final List<NettyDiscoveryServer> customDiscoveryServers;
 
   /**
    * Creates a new DiscV5 peer discovery agent factory.
    *
    * @param nodeKey the local node key used for identity and signing
    * @param config the networking configuration
+   * @param peerPermissions peer permissions to enforce on discovered peers (including subnet
+   *     filtering via {@link org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissionSubnet})
    * @param natService NAT service for external address discovery
+   * @param metricsSystem metrics system for registering DiscV5 metrics (bucket stats, etc.)
    * @param storageProvider storage provider for persisting node records
    * @param forkIdManager manager providing fork ID information for peer compatibility
    */
   public PeerDiscoveryAgentFactoryV5(
       final NodeKey nodeKey,
       final NetworkingConfiguration config,
+      final PeerPermissions peerPermissions,
       final NatService natService,
+      final MetricsSystem metricsSystem,
       final StorageProvider storageProvider,
       final ForkIdManager forkIdManager) {
-    this.config = config;
-    this.nodeKey = nodeKey;
-    this.forkIdManager = forkIdManager;
-    this.nodeRecordManager =
-        new NodeRecordManager(storageProvider, nodeKey, forkIdManager, natService);
+    this(
+        config,
+        nodeKey,
+        peerPermissions,
+        forkIdManager,
+        metricsSystem,
+        new NodeRecordManager(storageProvider, nodeKey, forkIdManager, natService));
+  }
+
+  /** Package-private constructor for testing with a pre-built {@link NodeRecordManager}. */
+  PeerDiscoveryAgentFactoryV5(
+      final NetworkingConfiguration config,
+      final NodeKey nodeKey,
+      final PeerPermissions peerPermissions,
+      final ForkIdManager forkIdManager,
+      final MetricsSystem metricsSystem,
+      final NodeRecordManager nodeRecordManager) {
+    this(config, nodeKey, peerPermissions, forkIdManager, metricsSystem, nodeRecordManager, null);
   }
 
   /**
-   * Creates and configures a DiscV5 {@link PeerDiscoveryAgent}.
+   * Package-private constructor for BOTH mode: injects pre-bound {@link NettyDiscoveryServer}
+   * instances instead of calling {@code builder.listen(...)}.
+   */
+  PeerDiscoveryAgentFactoryV5(
+      final NetworkingConfiguration config,
+      final NodeKey nodeKey,
+      final PeerPermissions peerPermissions,
+      final ForkIdManager forkIdManager,
+      final MetricsSystem metricsSystem,
+      final NodeRecordManager nodeRecordManager,
+      final List<NettyDiscoveryServer> customDiscoveryServers) {
+    this.config = Objects.requireNonNull(config, "config must not be null");
+    this.nodeKey = Objects.requireNonNull(nodeKey, "nodeKey must not be null");
+    this.peerPermissions =
+        Objects.requireNonNull(peerPermissions, "peerPermissions must not be null");
+    this.forkIdManager = Objects.requireNonNull(forkIdManager, "forkIdManager must not be null");
+    this.metricsSystem = Objects.requireNonNull(metricsSystem, "metricsSystem must not be null");
+    this.nodeRecordManager =
+        Objects.requireNonNull(nodeRecordManager, "nodeRecordManager must not be null");
+    this.customDiscoveryServers = customDiscoveryServers;
+  }
+
+  /**
+   * Creates a DiscV5 {@link PeerDiscoveryAgent}.
+   *
+   * <p>The local node record and discovery system are built lazily during {@link
+   * PeerDiscoveryAgentV5#start(int)} so that the ENR {@code tcp}/{@code tcp6} fields receive the
+   * actual RLPx TCP port rather than the discovery bind port.
    *
    * @param rlpxAgent the RLPx agent
-   * @return a fully configured DiscV5 peer discovery agent
-   * @throws IllegalStateException if the local node record has not been initialized
+   * @return a configured DiscV5 peer discovery agent ready to be started
    */
   @Override
   public PeerDiscoveryAgent create(final RlpxAgent rlpxAgent) {
-    final NodeRecord localNodeRecord = initializeLocalNodeRecord();
-
-    final DiscoveryConfiguration disc = config.discoveryConfiguration();
-    final DiscoverySystemBuilder builder =
-        new DiscoverySystemBuilder()
-            .signer(new LocalNodeKeySigner(nodeKey))
-            .localNodeRecord(localNodeRecord)
-            .localNodeRecordListener((previous, updated) -> nodeRecordManager.updateNodeRecord())
-            .newAddressHandler((nodeRecord, newAddress) -> Optional.of(nodeRecord))
-            // TODO Integrate address filtering based on peer permissions
-            .addressAccessPolicy(AddressAccessPolicy.ALLOW_ALL);
-
-    if (disc.isDualStackEnabled()) {
-      final InetSocketAddress ipv4 = new InetSocketAddress(disc.getBindHost(), disc.getBindPort());
-      final InetSocketAddress ipv6 =
-          new InetSocketAddress(disc.getBindHostIpv6().orElseThrow(), disc.getBindPortIpv6());
-      builder.listen(ipv4, ipv6);
-    } else {
-      builder.listen(disc.getBindHost(), disc.getBindPort());
-    }
-
-    final MutableDiscoverySystem discoverySystem = builder.buildMutable();
-
     return new PeerDiscoveryAgentV5(
-        discoverySystem,
         config,
+        peerPermissions,
         forkIdManager,
         nodeRecordManager,
         rlpxAgent,
-        disc.isPreferIpv6Outbound());
+        metricsSystem,
+        config.discoveryConfiguration().isPreferIpv6Outbound(),
+        buildDefaultDiscoverySystemFactory());
+  }
+
+  /** Creates the {@link PeerDiscoveryAgentV5.DiscoverySystemFactory} for this factory. */
+  private PeerDiscoveryAgentV5.DiscoverySystemFactory buildDefaultDiscoverySystemFactory() {
+    final DiscoveryConfiguration discoveryConfig = config.discoveryConfiguration();
+
+    return (localNodeRecord, nodeRecordListener) -> {
+      final DiscoverySystemBuilder builder =
+          new DiscoverySystemBuilder()
+              .signer(new NodeKeySigner(nodeKey))
+              .localNodeRecord(localNodeRecord)
+              .localNodeRecordListener(nodeRecordListener)
+              // The discovery library's default newAddressHandler auto-rewrites the local ENR
+              // from peer reports; we replace it explicitly. When --p2p-host-ipv6 is pinned we
+              // install NOOP to suppress that default. Otherwise we install IpV6NewAddressHandler
+              // to route validated IPv6 peer-consensus reports into NodeRecordManager for
+              // auto-discovery. IPv4 reports are always ignored here — NatService
+              // (UPnP/NAT-PMP/MANUAL) handles IPv4 external address resolution at startup.
+              .newAddressHandler(
+                  discoveryConfig.getAdvertisedHostIpv6().isPresent()
+                      ? NewAddressHandler.NOOP
+                      : new IpV6NewAddressHandler(nodeRecordManager))
+              .addressAccessPolicy(createAddressAccessPolicy())
+              .bootnodes(
+                  discoveryConfig.getEnrBootnodes().stream()
+                      .map(EthereumNodeRecord::nodeRecord)
+                      .toList());
+
+      if (customDiscoveryServers != null && !customDiscoveryServers.isEmpty()) {
+        // BOTH mode: use pre-bound shared channels instead of binding new sockets
+        builder.discoveryServers(customDiscoveryServers.toArray(new NettyDiscoveryServer[0]));
+      } else if (discoveryConfig.isDualStackEnabled()) {
+        final InetSocketAddress ipv4 =
+            new InetSocketAddress(discoveryConfig.getBindHost(), discoveryConfig.getBindPort());
+        final InetSocketAddress ipv6 =
+            new InetSocketAddress(
+                discoveryConfig
+                    .getBindHostIpv6()
+                    .orElseThrow(
+                        () ->
+                            new IllegalStateException(
+                                "Discovery dual-stack is enabled but bindHostIpv6 is not set")),
+                discoveryConfig.getBindPortIpv6());
+        builder.listen(ipv4, ipv6);
+      } else {
+        builder.listen(discoveryConfig.getBindHost(), discoveryConfig.getBindPort());
+      }
+
+      return builder.buildMutable();
+    };
   }
 
   /**
-   * Initializes the local node record using the {@link NodeRecordManager}.
+   * Creates an {@link AddressAccessPolicy} that delegates IP-level checks to {@link
+   * PeerPermissions#isPermitted(InetSocketAddress)} and full peer identity checks to {@link
+   * PeerPermissions#isPermitted(Peer, Peer, Action)}.
    *
-   * @return the initialized local {@link NodeRecord}
-   * @throws IllegalStateException if the local node record has not been initialized
+   * <p>The {@code allow(InetSocketAddress)} method delegates to {@code
+   * peerPermissions.isPermitted(address)}, which in turn checks subnet restrictions via {@link
+   * org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissionSubnet} if configured. This
+   * provides the earliest possible filtering — raw UDP packets from disallowed IPs are dropped
+   * before protocol processing.
+   *
+   * <p>The {@code allow(NodeRecord)} method first checks the node record's addresses via the same
+   * IP-level permissions, then creates a {@link DiscoveryPeer} from the ENR and checks full {@link
+   * PeerPermissions} including node ID-based and enode-based rules.
+   *
+   * @return the address access policy
    */
-  private NodeRecord initializeLocalNodeRecord() {
-    final DiscoveryConfiguration disc = config.discoveryConfiguration();
-    nodeRecordManager.initializeLocalNode(
-        new HostEndpoint(disc.getAdvertisedHost(), disc.getBindPort(), disc.getBindPort()),
-        disc.getAdvertisedHostIpv6()
-            .map(host -> new HostEndpoint(host, disc.getBindPortIpv6(), disc.getBindPortIpv6())));
+  AddressAccessPolicy createAddressAccessPolicy() {
+    if (peerPermissions == PeerPermissions.NOOP) {
+      return AddressAccessPolicy.ALLOW_ALL;
+    }
 
-    return nodeRecordManager
-        .getLocalNode()
-        .flatMap(DiscoveryPeer::getNodeRecord)
-        .orElseThrow(() -> new IllegalStateException("Local node record not initialized"));
+    return new AddressAccessPolicy() {
+      @Override
+      public boolean allow(final InetSocketAddress address) {
+        return peerPermissions.isPermitted(address);
+      }
+
+      @Override
+      public boolean allow(final NodeRecord record) {
+        // Check IP-level permissions on all available addresses (IPv4 and IPv6).
+        // A dual-stack ENR carries separate ip/ip6, udp/udp6, tcp/tcp6 fields;
+        // every advertised address must pass the subnet check.
+        final Optional<InetSocketAddress> udp = record.getUdpAddress();
+        final Optional<InetSocketAddress> udp6 = record.getUdp6Address();
+        final Optional<InetSocketAddress> tcp = record.getTcpAddress();
+        final Optional<InetSocketAddress> tcp6 = record.getTcp6Address();
+
+        if (!isAddressPermitted(udp)
+            || !isAddressPermitted(udp6)
+            || !isAddressPermitted(tcp)
+            || !isAddressPermitted(tcp6)) {
+          return false;
+        }
+
+        final Peer localNode =
+            nodeRecordManager
+                .getLocalNode()
+                .map(Peer.class::cast)
+                // Defensive: in practice the local node is always initialized before the
+                // discovery system starts (see PeerDiscoveryAgentV5.initializeLocalNodeRecord),
+                // so this branch should never execute. Reject rather than bypass identity
+                // checks — the peer will be re-discovered on the next FINDNODE round.
+                .orElse(null);
+        if (localNode == null) {
+          return false;
+        }
+
+        if (udp.isEmpty() && udp6.isEmpty() && tcp.isEmpty() && tcp6.isEmpty()) {
+          // No address to build a full DiscoveryPeer — fall back to node-ID-only check.
+          // Implementations that need an IP (e.g. subnet filters) default to true since
+          // there is nothing to filter on; only ID-based checks (e.g. denylists) fire.
+          try {
+            final Bytes publicKey = EthereumNodeRecord.uncompressedPublicKey(record);
+            return peerPermissions.isPermitted(
+                localNode,
+                new DefaultPeerId(publicKey),
+                PeerPermissions.Action.DISCOVERY_ALLOW_IN_PEER_TABLE);
+          } catch (final RuntimeException e) {
+            LOG.debug("DiscV5: Rejecting peer with missing or malformed secp256k1 key", e);
+            return false;
+          }
+        }
+
+        try {
+          final DiscoveryPeer remotePeer =
+              DiscoveryPeerFactory.fromNodeRecord(
+                  record, config.discoveryConfiguration().isPreferIpv6Outbound());
+          return peerPermissions.isPermitted(
+              localNode, remotePeer, PeerPermissions.Action.DISCOVERY_ALLOW_IN_PEER_TABLE);
+        } catch (final RuntimeException e) {
+          LOG.trace("DiscV5: Rejecting peer with malformed NodeRecord", e);
+          return false;
+        }
+      }
+
+      private boolean isAddressPermitted(final Optional<InetSocketAddress> address) {
+        return address.isEmpty() || peerPermissions.isPermitted(address.get());
+      }
+    };
   }
 
   /**
-   * An implementation of the {@link org.ethereum.beacon.discovery.crypto.Signer} interface that
-   * uses a local {@link NodeKey} for signing and key agreement.
+   * An implementation of the {@link Signer} interface that uses the node's {@link NodeKey} for
+   * signing and key agreement.
    */
-  private static class LocalNodeKeySigner implements org.ethereum.beacon.discovery.crypto.Signer {
+  private static class NodeKeySigner implements Signer {
     private final SignatureAlgorithm signatureAlgorithm = SignatureAlgorithmFactory.getInstance();
 
     private final NodeKey nodeKey;
 
     /**
-     * Creates a new LocalNodeKeySigner.
+     * Creates a new NodeKeySigner.
      *
      * @param nodeKey the node key to use for signing and key agreement
      */
-    public LocalNodeKeySigner(final NodeKey nodeKey) {
+    public NodeKeySigner(final NodeKey nodeKey) {
       this.nodeKey = nodeKey;
     }
 
@@ -170,8 +331,21 @@ public final class PeerDiscoveryAgentFactoryV5 implements PeerDiscoveryAgentFact
      */
     @Override
     public Bytes deriveECDHKeyAgreement(final Bytes remotePubKey) {
-      SECPPublicKey publicKey = signatureAlgorithm.createPublicKey(remotePubKey);
-      return nodeKey.calculateECDHKeyAgreement(publicKey);
+      final Bytes uncompressedKey;
+      if (remotePubKey.size() == 33) {
+        // Compressed key (0x02/0x03 prefix) — decompress to the 64-byte format without prefix
+        final byte[] encoded =
+            signatureAlgorithm
+                .getCurve()
+                .getCurve()
+                .decodePoint(remotePubKey.toArrayUnsafe())
+                .getEncoded(false);
+        uncompressedKey = Bytes.wrap(encoded, 1, 64);
+      } else {
+        uncompressedKey = remotePubKey;
+      }
+      final SECPPublicKey publicKey = signatureAlgorithm.createPublicKey(uncompressedKey);
+      return nodeKey.calculateECDHKeyAgreementCompressed(publicKey);
     }
 
     /**

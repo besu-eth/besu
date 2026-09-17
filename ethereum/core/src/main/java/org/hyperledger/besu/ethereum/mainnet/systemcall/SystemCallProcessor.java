@@ -26,9 +26,11 @@ import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
 import org.hyperledger.besu.evm.processor.AbstractMessageProcessor;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
+import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
 
 import java.util.Deque;
 import java.util.Optional;
@@ -46,6 +48,13 @@ public class SystemCallProcessor {
    * independent of the gas limit of the block
    */
   private static final long SYSTEM_CALL_GAS_LIMIT = 30_000_000L;
+
+  /**
+   * EIP-8037: maximum number of SSTOREs the state-gas reservoir of a system call must be sized to
+   * cover. The reservoir gets {@code STATE_BYTES_PER_STORAGE_SLOT * cpsb *
+   * SYSTEM_MAX_SSTORES_PER_CALL} extra gas on top of {@link #SYSTEM_CALL_GAS_LIMIT}.
+   */
+  private static final long SYSTEM_MAX_SSTORES_PER_CALL = 16L;
 
   /** The system address */
   static final Address SYSTEM_ADDRESS =
@@ -72,15 +81,17 @@ public class SystemCallProcessor {
       final Optional<AccessLocationTracker> accessLocationTracker) {
     WorldUpdater blockUpdater = context.getWorldState().updater();
     WorldUpdater systemCallUpdater = blockUpdater.updater();
+    // EIP-7928: the account is read before we can know whether there is code to run, so an absent
+    // system contract still belongs in the access list.
+    accessLocationTracker.ifPresent(tracker -> tracker.addTouchedAccount(callAddress));
     final Account maybeContract = systemCallUpdater.get(callAddress);
-    if (maybeContract == null) {
-      LOG.error("Invalid system call address: {}", callAddress);
-      throw new InvalidSystemCallAddressException("Invalid system call address: " + callAddress);
-    }
-    if (maybeContract.getCode().isEmpty()) {
-      LOG.error("Invalid system call address: {}", callAddress);
-      throw new InvalidSystemCallAddressException(
-          "Invalid system call, no code at address " + callAddress);
+    if (maybeContract == null || maybeContract.getCode().isEmpty()) {
+      // Throwing skips the flush at the end of a successful call, so flush here instead.
+      applyAccessLocationTracker(accessLocationTracker, context, systemCallUpdater);
+      throw new SystemCallNoCodeAtAddressException(
+          maybeContract == null
+              ? "Invalid system call address: " + callAddress
+              : "Invalid system call, no code at address " + callAddress);
     }
 
     final AbstractMessageProcessor processor =
@@ -94,16 +105,20 @@ public class SystemCallProcessor {
             inputData,
             accessLocationTracker);
 
+    // System calls are untraced by default. A tracer is only passed when it is block-aware,
+    // enabled, and opts into system-call tracing. Otherwise, OperationTracer.NO_TRACING is used.
+    final OperationTracer tracer =
+        context.getOperationTracer() instanceof BlockAwareOperationTracer blockAwareTracer
+                && blockAwareTracer.isEnabled()
+                && blockAwareTracer.isSystemCallTracingEnabled()
+            ? blockAwareTracer
+            : OperationTracer.NO_TRACING;
     Deque<MessageFrame> stack = frame.getMessageFrameStack();
     while (!stack.isEmpty()) {
-      processor.process(stack.peekFirst(), OperationTracer.NO_TRACING);
+      processor.process(stack.peekFirst(), tracer);
     }
 
-    accessLocationTracker.ifPresent(
-        tracker ->
-            context
-                .getBlockAccessListBuilder()
-                .ifPresent(builder -> builder.apply(tracker, systemCallUpdater)));
+    applyAccessLocationTracker(accessLocationTracker, context, systemCallUpdater);
 
     if (frame.getState() == MessageFrame.State.COMPLETED_SUCCESS) {
       systemCallUpdater.commit();
@@ -123,6 +138,17 @@ public class SystemCallProcessor {
             .map(haltReason -> "System call halted: " + haltReason.getDescription())
             .orElse("System call did not execute to completion");
     throw new RuntimeException(errorMessage);
+  }
+
+  private static void applyAccessLocationTracker(
+      final Optional<AccessLocationTracker> accessLocationTracker,
+      final BlockProcessingContext context,
+      final WorldUpdater systemCallUpdater) {
+    accessLocationTracker.ifPresent(
+        tracker ->
+            context
+                .getBlockAccessListBuilder()
+                .ifPresent(builder -> builder.apply(tracker, systemCallUpdater)));
   }
 
   private MessageFrame createMessageFrame(
@@ -155,6 +181,12 @@ public class SystemCallProcessor {
             .inputData(inputData)
             .sender(SYSTEM_ADDRESS)
             .blockHashLookup(blockHashLookup)
+            // EIP-8037: seed the state-gas reservoir so state-gas growth alone cannot OOG the call.
+            // The reservoir is sized to cover up to SYSTEM_MAX_SSTORES_PER_CALL storage-set
+            // charges.
+            // Pre-Amsterdam storageSetStateGas() is 0, so this seeds an empty reservoir (no
+            // effect).
+            .initialStateGasReservoir(systemCallStateGasReservoir())
             .code(getCode(worldUpdater.get(callAddress), processor));
 
     maybeAccessLocationTracker.ifPresent(
@@ -164,6 +196,12 @@ public class SystemCallProcessor {
         });
 
     return builder.build();
+  }
+
+  private long systemCallStateGasReservoir() {
+    final StateGasCostCalculator stateGasCalc =
+        mainnetTransactionProcessor.getGasCalculator().stateGasCostCalculator();
+    return stateGasCalc.storageSetStateGas() * SYSTEM_MAX_SSTORES_PER_CALL;
   }
 
   private Code getCode(final Account contract, final AbstractMessageProcessor processor) {

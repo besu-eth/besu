@@ -36,7 +36,6 @@ import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
@@ -59,13 +58,16 @@ import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStoragePrefixedKeyBlockchainStorage;
 import org.hyperledger.besu.ethereum.storage.keyvalue.VariablesKeyValueStorage;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
+import org.hyperledger.besu.evm.account.Account;
+import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.data.AddedBlockContext;
 import org.hyperledger.besu.plugin.data.LogWithMetadata;
 import org.hyperledger.besu.plugin.data.PropagatedBlockContext;
 import org.hyperledger.besu.plugin.data.SyncStatus;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 import org.hyperledger.besu.testutil.TestClock;
@@ -77,11 +79,12 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -93,9 +96,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 public class BesuEventsImplTest {
 
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
-  private static final KeyPair KEY_PAIR1 = SIGNATURE_ALGORITHM.get().generateKeyPair();
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
+  private static final KeyPair KEY_PAIR1 = SIGNATURE_ALGORITHM.generateKeyPair();
   private static final org.hyperledger.besu.ethereum.core.Transaction TX1 = createTransaction(0);
   private static final org.hyperledger.besu.ethereum.core.Transaction TX2 = createTransaction(1);
 
@@ -112,6 +115,8 @@ public class BesuEventsImplTest {
   @Mock private ProtocolSpec mockProtocolSpec;
   @Mock private WorldStateArchive mockWorldStateArchive;
   @Mock private MutableWorldState mockWorldState;
+  @Mock private Account mockSenderAccount;
+  @Mock private GasCalculator mockGasCalculator;
   private TransactionPool transactionPool;
   private BlockBroadcaster blockBroadcaster;
   private BesuEventsImpl serviceImpl;
@@ -143,6 +148,7 @@ public class BesuEventsImplTest {
         .when(mockProtocolSpec.getTransactionValidatorFactory())
         .thenReturn(mockTransactionValidatorFactory);
     lenient().when(mockProtocolSpec.getFeeMarket()).thenReturn(FeeMarket.london(0L));
+    lenient().when(mockProtocolSpec.getGasCalculator()).thenReturn(mockGasCalculator);
     lenient()
         .when(
             mockTransactionValidatorFactory
@@ -155,6 +161,9 @@ public class BesuEventsImplTest {
     lenient()
         .when(mockWorldStateArchive.getWorldState(any(WorldStateQueryParams.class)))
         .thenReturn(Optional.of(mockWorldState));
+    lenient().when(mockWorldStateArchive.getWorldState()).thenReturn(mockWorldState);
+    lenient().when(mockWorldState.get(any())).thenReturn(mockSenderAccount);
+    lenient().when(mockSenderAccount.getBalance()).thenReturn(Wei.of(10_000_000_000_000_000L));
 
     blockBroadcaster = new BlockBroadcaster(mockEthContext, 10 * ByteUnits.MEGABYTE);
     syncState = new SyncState(blockchain, mockEthPeers);
@@ -214,6 +223,64 @@ public class BesuEventsImplTest {
 
     clearSyncTarget();
     assertThat(result.get()).isNull();
+  }
+
+  /**
+   * A sync-status listener registered through {@code BesuEvents.addSyncStatusListener} is invoked
+   * by SyncState on whichever thread changed the sync target. If SyncState holds its own monitor
+   * across that callback, any plugin listener that waits on another thread causes the node to hang.
+   */
+  @Test
+  public void pluginSyncStatusListenerWaitingOnAnotherThreadDoesNotBlockBlockImport()
+      throws Exception {
+    final CountDownLatch inPluginCallback = new CountDownLatch(1);
+    final CountDownLatch blockAppended = new CountDownLatch(1);
+    final AtomicBoolean importProgressedDuringCallback = new AtomicBoolean();
+
+    // The same call ReadinessCheckPlugin.start() makes, with a listener that waits on a worker
+    // instead of assigning a field.
+    serviceImpl.addSyncStatusListener(
+        _ -> {
+          inPluginCallback.countDown();
+          try {
+            importProgressedDuringCallback.set(blockAppended.await(5, TimeUnit.SECONDS));
+          } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+          }
+        });
+
+    final Thread importer =
+        new Thread(
+            () -> {
+              try {
+                if (!inPluginCallback.await(5, TimeUnit.SECONDS)) {
+                  return;
+                }
+                // Appending fires SyncState's own block-added observer, which calls the
+                // synchronized checkInSync() on this thread.
+                final Block block =
+                    gen.block(
+                        new BlockDataGenerator.BlockOptions()
+                            .setParentHash(blockchain.getGenesisBlock().getHash()));
+                blockchain.appendBlock(block, gen.receipts(block));
+              } catch (final InterruptedException e) {
+                Thread.currentThread().interrupt();
+              } finally {
+                blockAppended.countDown();
+              }
+            },
+            "block-importer");
+    importer.start();
+
+    // Publishes on this thread, as the chain-download loop does in production.
+    setSyncTarget();
+    importer.join(TimeUnit.SECONDS.toMillis(30));
+
+    assertThat(importProgressedDuringCallback)
+        .withFailMessage(
+            "a block import could not proceed while a plugin sync-status listener was running: "
+                + "SyncState is holding its monitor across subscriber callbacks")
+        .isTrue();
   }
 
   private void setSyncTarget() {

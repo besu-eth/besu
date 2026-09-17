@@ -14,13 +14,11 @@
  */
 package org.hyperledger.besu.evm.operation;
 
-import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.UInt256;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
 import org.apache.tuweni.bytes.Bytes;
-import org.apache.tuweni.bytes.Bytes32;
 
 /** The SMod operation. */
 public class SModOperationOptimized extends AbstractFixedCostOperation {
@@ -37,8 +35,7 @@ public class SModOperationOptimized extends AbstractFixedCostOperation {
   }
 
   @Override
-  public Operation.OperationResult executeFixedCostOperation(
-      final MessageFrame frame, final EVM evm) {
+  public Operation.OperationResult executeFixedCostOperation(final MessageFrame frame) {
     return staticOperation(frame);
   }
 
@@ -52,16 +49,11 @@ public class SModOperationOptimized extends AbstractFixedCostOperation {
     final Bytes value0 = frame.popStackItem();
     final Bytes value1 = frame.popStackItem();
 
-    Bytes resultBytes;
-    if (value1.isZero()) {
-      resultBytes = (Bytes) Bytes32.ZERO;
-    } else {
-      UInt256 b0 = UInt256.fromBytesBE(value0.toArrayUnsafe());
-      UInt256 b1 = UInt256.fromBytesBE(value1.toArrayUnsafe());
-      resultBytes = Bytes.wrap(b0.signedMod(b1).toBytesBE());
-    }
-    frame.pushStackItem(resultBytes);
+    UInt256 b0 = UInt256.fromBytesBE(value0.toArrayUnsafe());
+    UInt256 b1 = UInt256.fromBytesBE(value1.toArrayUnsafe());
+    Bytes resultBytes = Bytes.wrap(b0.signedMod(b1).toBytesBE());
 
+    frame.pushStackItem(resultBytes);
     return smodSuccess;
   }
 }

@@ -58,10 +58,8 @@ class TrieLogSubCommandTest extends CommandTestAbstract {
         .dataStorageConfiguration(dataStorageConfigurationArgumentCaptor.capture());
     final List<DataStorageConfiguration> configs =
         dataStorageConfigurationArgumentCaptor.getAllValues();
-    assertThat(configs.get(0).getPathBasedExtraStorageConfiguration().getLimitTrieLogsEnabled())
-        .isTrue();
-    assertThat(configs.get(1).getPathBasedExtraStorageConfiguration().getLimitTrieLogsEnabled())
-        .isFalse();
+    assertThat(configs.get(0).getExtraStorageConfiguration().getLimitTrieLogsEnabled()).isTrue();
+    assertThat(configs.get(1).getExtraStorageConfiguration().getLimitTrieLogsEnabled()).isFalse();
   }
 
   @Test
@@ -74,8 +72,6 @@ class TrieLogSubCommandTest extends CommandTestAbstract {
     assertThat(configs)
         .allMatch(
             dataStorageConfiguration ->
-                dataStorageConfiguration
-                    .getPathBasedExtraStorageConfiguration()
-                    .getLimitTrieLogsEnabled());
+                dataStorageConfiguration.getExtraStorageConfiguration().getLimitTrieLogsEnabled());
   }
 }

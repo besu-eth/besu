@@ -191,6 +191,105 @@ public class FutureMessageBufferTest {
   }
 
   @Test
+  public void byteBudgetEvictsMessagesEvenWhenWellUnderCountLimit() {
+    // Regression test asserting that a message-count limit alone does not bound memory when
+    // individual messages (e.g. QBFT PROPOSALs carrying a full block) are multiple megabytes.
+    final int oversizedMessageBytes = 4 * 1024 * 1024;
+    final long maxTotalBytes = 10 * 1024 * 1024;
+    final FutureMessageBuffer<Message> byteBoundedBuffer =
+        new FutureMessageBuffer<>(
+            10,
+            1000,
+            0,
+            maxTotalBytes,
+            (Message m) -> (long) m.getData().getSize(),
+            (msgChainHeight, message) -> {});
+
+    for (int i = 0; i < 100; i++) {
+      byteBoundedBuffer.addMessage(1, createOversizedMessage(oversizedMessageBytes));
+    }
+
+    assertThat(byteBoundedBuffer.totalMessageBytes()).isLessThanOrEqualTo(maxTotalBytes);
+    assertThat(byteBoundedBuffer.totalMessagesSize()).isLessThan(100);
+  }
+
+  private DefaultMessage createOversizedMessage(final int sizeBytes) {
+    final MessageData messageData = new RawMessage(0, Bytes.random(sizeBytes));
+    return new DefaultMessage(peerConnection, messageData);
+  }
+
+  private FutureMessageBuffer<Message> newByteTrackingBuffer(
+      final long futureMessagesMaxDistance, final long futureMessagesLimit) {
+    return new FutureMessageBuffer<>(
+        futureMessagesMaxDistance,
+        futureMessagesLimit,
+        0,
+        Long.MAX_VALUE,
+        (Message m) -> (long) m.getData().getSize(),
+        (msgChainHeight, message) -> {});
+  }
+
+  @Test
+  public void totalMessageBytesUpdatedWhenMessagesAdded() {
+    final FutureMessageBuffer<Message> buffer = newByteTrackingBuffer(5, 10);
+
+    buffer.addMessage(1, createOversizedMessage(100));
+    assertThat(buffer.totalMessageBytes()).isEqualTo(100);
+
+    buffer.addMessage(2, createOversizedMessage(200));
+    assertThat(buffer.totalMessageBytes()).isEqualTo(300);
+
+    buffer.addMessage(1, createOversizedMessage(50));
+    assertThat(buffer.totalMessageBytes()).isEqualTo(350);
+  }
+
+  @Test
+  public void totalMessageBytesUpdatedWhenMessagesAreRetrieved() {
+    final FutureMessageBuffer<Message> buffer = newByteTrackingBuffer(10, 10);
+
+    buffer.addMessage(1, createOversizedMessage(100));
+    buffer.addMessage(2, createOversizedMessage(200));
+    buffer.addMessage(3, createOversizedMessage(300));
+    assertThat(buffer.totalMessageBytes()).isEqualTo(600);
+
+    buffer.retrieveMessagesForHeight(1);
+    assertThat(buffer.totalMessageBytes()).isEqualTo(500);
+
+    buffer.retrieveMessagesForHeight(2);
+    assertThat(buffer.totalMessageBytes()).isEqualTo(300);
+
+    buffer.retrieveMessagesForHeight(3);
+    assertThat(buffer.totalMessageBytes()).isZero();
+  }
+
+  @Test
+  public void totalMessageBytesUpdatedWhenMessagesAreEvicted() {
+    final FutureMessageBuffer<Message> buffer = newByteTrackingBuffer(5, 5);
+
+    buffer.addMessage(1, createOversizedMessage(10));
+    buffer.addMessage(1, createOversizedMessage(20));
+    buffer.addMessage(2, createOversizedMessage(30));
+    buffer.addMessage(2, createOversizedMessage(40));
+    buffer.addMessage(2, createOversizedMessage(50));
+    assertThat(buffer.totalMessageBytes()).isEqualTo(150);
+
+    // 6th message over the count limit evicts all of height 2 (30 + 40 + 50 = 120)
+    buffer.addMessage(1, createOversizedMessage(5));
+    assertThat(buffer.totalMessagesSize()).isEqualTo(3);
+    assertThat(buffer.totalMessageBytes()).isEqualTo(35);
+
+    buffer.addMessage(1, createOversizedMessage(1));
+    buffer.addMessage(1, createOversizedMessage(1));
+    assertThat(buffer.totalMessagesSize()).isEqualTo(5);
+    assertThat(buffer.totalMessageBytes()).isEqualTo(37);
+
+    // only height 1 remains, so the next addition evicts the oldest message (10) instead
+    buffer.addMessage(1, createOversizedMessage(2));
+    assertThat(buffer.totalMessagesSize()).isEqualTo(5);
+    assertThat(buffer.totalMessageBytes()).isEqualTo(29);
+  }
+
+  @Test
   @SuppressWarnings("unchecked")
   public void triggersHandlerWhenFutureMessageAreAdded() {
     final var futureMessageHandler =

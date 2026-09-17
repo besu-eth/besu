@@ -136,7 +136,6 @@ class GethGenesisTransformationTest extends CommandTestAbstract {
 
     final GenesisConfigOptions config = cmd.getGenesisConfigOptionsSupplier().get();
     assertThat(config.getChainId()).hasValue(java.math.BigInteger.valueOf(1337));
-    assertThat(config.isEthHash()).isTrue();
   }
 
   @Test

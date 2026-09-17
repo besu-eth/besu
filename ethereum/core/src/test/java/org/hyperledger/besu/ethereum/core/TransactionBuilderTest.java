@@ -32,16 +32,14 @@ import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
-import java.util.function.Supplier;
 import java.util.stream.Stream;
 
-import com.google.common.base.Suppliers;
 import org.junit.jupiter.api.Test;
 
 class TransactionBuilderTest {
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
-  private static final KeyPair senderKeys = SIGNATURE_ALGORITHM.get().generateKeyPair();
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
+  private static final KeyPair senderKeys = SIGNATURE_ALGORITHM.generateKeyPair();
 
   @Test
   void guessTypeCanGuessAllTypes() {
@@ -109,6 +107,20 @@ class TransactionBuilderTest {
     } catch (IllegalArgumentException iea) {
       assertThat(iea).hasMessage("Blob transaction must have at least one versioned hash");
     }
+  }
+
+  @Test
+  void emptyCodeDelegationListBuilds() {
+    // an empty authorization_list is a validity rule, not an encoding one, so building succeeds
+    TransactionTestFixture ttf =
+        new TransactionTestFixture()
+            .type(TransactionType.DELEGATE_CODE)
+            .chainId(Optional.of(BigInteger.ONE))
+            .maxFeePerGas(Optional.of(Wei.of(5)))
+            .maxPriorityFeePerGas(Optional.of(Wei.of(5)))
+            .codeDelegations(List.of());
+
+    assertThat(ttf.createTransaction(senderKeys).getCodeDelegationList()).contains(List.of());
   }
 
   @Test

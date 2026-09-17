@@ -14,13 +14,13 @@
  */
 package org.hyperledger.besu.ethereum.eth.sync;
 
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.FastSyncState;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 
 import java.util.concurrent.CompletableFuture;
 
 public interface PivotBlockSelector {
 
-  CompletableFuture<FastSyncState> selectNewPivotBlock();
+  CompletableFuture<SnapSyncProcessState> selectNewPivotBlock();
 
   CompletableFuture<Void> prepareRetry();
 

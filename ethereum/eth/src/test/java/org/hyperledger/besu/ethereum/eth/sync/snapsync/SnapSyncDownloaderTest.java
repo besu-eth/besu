@@ -1,0 +1,779 @@
+/*
+ * Copyright ConsenSys AG.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+package org.hyperledger.besu.ethereum.eth.sync.snapsync;
+
+import static java.util.concurrent.CompletableFuture.completedFuture;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.when;
+
+import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
+import org.hyperledger.besu.ethereum.eth.sync.ChainDownloader;
+import org.hyperledger.besu.ethereum.eth.sync.TrailingPeerRequirements;
+import org.hyperledger.besu.ethereum.eth.sync.common.NoSyncRequiredState;
+import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncActions;
+import org.hyperledger.besu.ethereum.eth.sync.common.SyncError;
+import org.hyperledger.besu.ethereum.eth.sync.common.SyncException;
+import org.hyperledger.besu.ethereum.eth.sync.common.WrongChainException;
+import org.hyperledger.besu.ethereum.eth.sync.worldstate.StalledDownloadException;
+import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldStateDownloader;
+import org.hyperledger.besu.metrics.SyncDurationMetrics;
+
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.OptionalLong;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
+
+import org.assertj.core.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+public class SnapSyncDownloaderTest {
+
+  @SuppressWarnings("unchecked")
+  private final PivotSyncActions fastSyncActions = mock(PivotSyncActions.class);
+
+  private final WorldStateDownloader worldStateDownloader = mock(WorldStateDownloader.class);
+
+  private final ChainDownloader chainDownloader = mock(ChainDownloader.class);
+
+  private final Path fastSyncDataDirectory = null;
+  private SnapSyncDownloader downloader;
+
+  public void setup() {
+    setup(OptionalLong.empty());
+  }
+
+  public void setup(final OptionalLong checkpointBlockNumber) {
+    downloader =
+        new SnapSyncDownloader(
+            fastSyncActions,
+            worldStateDownloader,
+            fastSyncDataDirectory,
+            new SnapSyncProcessState(),
+            SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS,
+            checkpointBlockNumber);
+  }
+
+  @Test
+  public void shouldCompleteFastSyncSuccessfully() {
+    setup();
+    final SnapSyncProcessState selectPivotBlockState = new SnapSyncProcessState(50);
+    final BlockHeader pivotBlockHeader = new BlockHeaderTestFixture().number(50).buildHeader();
+    final SnapSyncProcessState resolvePivotBlockHeaderState =
+        new SnapSyncProcessState(pivotBlockHeader);
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
+        .thenReturn(completedFuture(selectPivotBlockState));
+    when(fastSyncActions.resolvePivotBlockHeader(selectPivotBlockState))
+        .thenReturn(completedFuture(resolvePivotBlockHeaderState));
+    when(fastSyncActions.createChainDownloader(
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+        .thenReturn(chainDownloader);
+    when(chainDownloader.start()).thenReturn(completedFuture(null));
+    when(worldStateDownloader.run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader))))
+        .thenReturn(completedFuture(null));
+
+    final CompletableFuture<SnapSyncProcessState> result = downloader.start();
+
+    verify(fastSyncActions).selectPivotBlock(new SnapSyncProcessState());
+    verify(fastSyncActions).resolvePivotBlockHeader(selectPivotBlockState);
+    verify(fastSyncActions)
+        .createChainDownloader(
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
+    verify(chainDownloader).start();
+    verify(worldStateDownloader).setChainDownloader(chainDownloader);
+    verify(worldStateDownloader)
+        .run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader)));
+    verifyNoMoreInteractions(fastSyncActions, worldStateDownloader);
+    assertThat(result).isCompletedWithValue(snapSyncState(pivotBlockHeader));
+  }
+
+  @Test
+  public void shouldNotDownloadAnythingWhenPivotIsGenesis() {
+    setup();
+    final SnapSyncProcessState selectPivotBlockState = new SnapSyncProcessState(0);
+    final BlockHeader genesisPivot = new BlockHeaderTestFixture().number(0).buildHeader();
+    final SnapSyncProcessState resolvedState = new SnapSyncProcessState(genesisPivot);
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
+        .thenReturn(completedFuture(selectPivotBlockState));
+    when(fastSyncActions.resolvePivotBlockHeader(selectPivotBlockState))
+        .thenReturn(completedFuture(resolvedState));
+
+    final CompletableFuture<SnapSyncProcessState> result = downloader.start();
+
+    // A genesis pivot means no snap sync is required: the node hands off to full/backward sync and
+    // no chain download or world-state download is started.
+    assertThat(result).isCompleted();
+    assertThat(result.join()).isInstanceOf(NoSyncRequiredState.class);
+    verify(fastSyncActions, never()).createChainDownloader(any(), any());
+    verify(worldStateDownloader, never()).run(any(), any());
+  }
+
+  @Test
+  public void shouldWaitForAHigherPivotWhenPivotIsBelowTheCheckpoint() {
+    // The consensus client has not caught up to the checkpoint the operator configured, so the
+    // pivot it offers is below it. Snap syncing that range is impossible: Stage 1 stops at the
+    // checkpoint and Stage 2 only downloads bodies above it. Nothing may be started.
+    setup(OptionalLong.of(100));
+    final SnapSyncProcessState selectPivotBlockState = new SnapSyncProcessState(50);
+    final BlockHeader pivotBelowCheckpoint = new BlockHeaderTestFixture().number(50).buildHeader();
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
+        .thenReturn(completedFuture(selectPivotBlockState));
+    when(fastSyncActions.resolvePivotBlockHeader(selectPivotBlockState))
+        .thenReturn(completedFuture(new SnapSyncProcessState(pivotBelowCheckpoint)));
+    // Do not run the scheduled retry: this test only asserts that the wait is scheduled.
+    when(fastSyncActions.scheduleFutureTask(any(), any())).thenReturn(new CompletableFuture<>());
+
+    final CompletableFuture<SnapSyncProcessState> result = downloader.start();
+
+    verify(fastSyncActions, never()).createChainDownloader(any(), any());
+    verify(worldStateDownloader, never()).run(any(), any());
+    // Re-pivot after a delay, not immediately: the pivot selector returns the same block until the
+    // chain head has advanced, so an immediate retry would spin on it.
+    verify(fastSyncActions).scheduleFutureTask(any(), eq(Duration.ofSeconds(5)));
+    assertThat(result).isNotDone();
+  }
+
+  @Test
+  public void shouldWaitWhenPivotIsExactlyAtTheCheckpoint() {
+    // A pivot at the checkpoint leaves no range for Stage 2 either, so it is treated the same way.
+    setup(OptionalLong.of(100));
+    final SnapSyncProcessState selectPivotBlockState = new SnapSyncProcessState(100);
+    final BlockHeader pivotAtCheckpoint = new BlockHeaderTestFixture().number(100).buildHeader();
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
+        .thenReturn(completedFuture(selectPivotBlockState));
+    when(fastSyncActions.resolvePivotBlockHeader(selectPivotBlockState))
+        .thenReturn(completedFuture(new SnapSyncProcessState(pivotAtCheckpoint)));
+    when(fastSyncActions.scheduleFutureTask(any(), any())).thenReturn(new CompletableFuture<>());
+
+    final CompletableFuture<SnapSyncProcessState> result = downloader.start();
+
+    verify(fastSyncActions, never()).createChainDownloader(any(), any());
+    verify(worldStateDownloader, never()).run(any(), any());
+    assertThat(result).isNotDone();
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void shouldStartDownloadingOnceAPivotAboveTheCheckpointIsOffered() {
+    setup(OptionalLong.of(100));
+    final SnapSyncProcessState belowCheckpointState = new SnapSyncProcessState(50);
+    final SnapSyncProcessState aboveCheckpointState = new SnapSyncProcessState(150);
+    final BlockHeader pivotBelowCheckpoint = new BlockHeaderTestFixture().number(50).buildHeader();
+    final BlockHeader pivotAboveCheckpoint = new BlockHeaderTestFixture().number(150).buildHeader();
+
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
+        .thenReturn(completedFuture(belowCheckpointState), completedFuture(aboveCheckpointState));
+    when(fastSyncActions.resolvePivotBlockHeader(belowCheckpointState))
+        .thenReturn(completedFuture(new SnapSyncProcessState(pivotBelowCheckpoint)));
+    when(fastSyncActions.resolvePivotBlockHeader(aboveCheckpointState))
+        .thenReturn(completedFuture(new SnapSyncProcessState(pivotAboveCheckpoint)));
+    // Run the scheduled retry inline so the second pivot is picked up within the test.
+    when(fastSyncActions.scheduleFutureTask(any(), any()))
+        .thenAnswer(invocation -> ((Supplier<?>) invocation.getArgument(0)).get());
+    when(fastSyncActions.createChainDownloader(
+            snapSyncState(pivotAboveCheckpoint), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+        .thenReturn(chainDownloader);
+    when(chainDownloader.start()).thenReturn(completedFuture(null));
+    when(worldStateDownloader.run(
+            any(PivotSyncActions.class), eq(snapSyncState(pivotAboveCheckpoint))))
+        .thenReturn(completedFuture(null));
+
+    final CompletableFuture<SnapSyncProcessState> result = downloader.start();
+
+    // The below-checkpoint pivot never started a download; the retry with a higher pivot did.
+    verify(fastSyncActions, never())
+        .createChainDownloader(
+            eq(snapSyncState(pivotBelowCheckpoint)),
+            eq(SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS));
+    verify(fastSyncActions, times(2)).selectPivotBlock(new SnapSyncProcessState());
+    verify(chainDownloader).start();
+    assertThat(result).isCompletedWithValue(snapSyncState(pivotAboveCheckpoint));
+  }
+
+  @Test
+  public void shouldResumeFastSync() {
+    setup();
+    final BlockHeader pivotBlockHeader = new BlockHeaderTestFixture().number(50).buildHeader();
+    final SnapSyncProcessState fastSyncState = new SnapSyncProcessState(pivotBlockHeader);
+    final CompletableFuture<SnapSyncProcessState> complete = completedFuture(fastSyncState);
+    when(fastSyncActions.selectPivotBlock(fastSyncState)).thenReturn(complete);
+    when(fastSyncActions.resolvePivotBlockHeader(fastSyncState)).thenReturn(complete);
+    when(fastSyncActions.createChainDownloader(
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+        .thenReturn(chainDownloader);
+    when(chainDownloader.start()).thenReturn(completedFuture(null));
+    when(worldStateDownloader.run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader))))
+        .thenReturn(completedFuture(null));
+
+    final SnapSyncDownloader resumedDownloader =
+        new SnapSyncDownloader(
+            fastSyncActions,
+            worldStateDownloader,
+            fastSyncDataDirectory,
+            fastSyncState,
+            SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS,
+            OptionalLong.empty());
+
+    final CompletableFuture<SnapSyncProcessState> result = resumedDownloader.start();
+
+    verify(fastSyncActions).selectPivotBlock(fastSyncState);
+    verify(fastSyncActions).resolvePivotBlockHeader(fastSyncState);
+    verify(fastSyncActions)
+        .createChainDownloader(
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
+    verify(chainDownloader).start();
+    verify(worldStateDownloader).setChainDownloader(chainDownloader);
+    verify(worldStateDownloader)
+        .run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader)));
+    verifyNoMoreInteractions(fastSyncActions, worldStateDownloader);
+    assertThat(result).isCompletedWithValue(snapSyncState(pivotBlockHeader));
+  }
+
+  @Test
+  public void shouldRePivotWhenSelectPivotBlockFails() {
+    setup();
+    final SnapSyncProcessState selectPivotBlockState = new SnapSyncProcessState(50);
+    final BlockHeader pivotBlockHeader = new BlockHeaderTestFixture().number(50).buildHeader();
+    final SnapSyncProcessState resolvePivotBlockHeaderState =
+        new SnapSyncProcessState(pivotBlockHeader);
+
+    // A SyncException is treated as a transient (bad-peer) failure: the downloader re-pivots and
+    // succeeds on the retry rather than aborting.
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
+        .thenThrow(new SyncException(SyncError.UNEXPECTED_ERROR))
+        .thenReturn(completedFuture(selectPivotBlockState));
+    when(fastSyncActions.resolvePivotBlockHeader(selectPivotBlockState))
+        .thenReturn(completedFuture(resolvePivotBlockHeaderState));
+    when(fastSyncActions.createChainDownloader(
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+        .thenReturn(chainDownloader);
+    when(chainDownloader.start()).thenReturn(completedFuture(null));
+    when(worldStateDownloader.run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader))))
+        .thenReturn(completedFuture(null));
+
+    final CompletableFuture<SnapSyncProcessState> result = downloader.start();
+
+    // selectPivotBlock was called twice: the failed attempt, then the successful re-pivot.
+    verify(fastSyncActions, times(2)).selectPivotBlock(new SnapSyncProcessState());
+    assertThat(result).isCompletedWithValue(snapSyncState(pivotBlockHeader));
+  }
+
+  @Test
+  public void shouldRePivotOnCheckpointReorg() {
+    setup();
+    final SnapSyncProcessState selectPivotBlockState = new SnapSyncProcessState(50);
+    final BlockHeader pivotBlockHeader = new BlockHeaderTestFixture().number(50).buildHeader();
+    final SnapSyncProcessState resolvePivotBlockHeaderState =
+        new SnapSyncProcessState(pivotBlockHeader);
+
+    // A pivot that does not descend from the trusted checkpoint is treated like a genesis-boundary
+    // mismatch: the downloader re-pivots to a fresh block and succeeds on the retry rather than
+    // aborting.
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
+        .thenThrow(new WrongChainException("trusted checkpoint reorged"))
+        .thenReturn(completedFuture(selectPivotBlockState));
+    when(fastSyncActions.resolvePivotBlockHeader(selectPivotBlockState))
+        .thenReturn(completedFuture(resolvePivotBlockHeaderState));
+    when(fastSyncActions.createChainDownloader(
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+        .thenReturn(chainDownloader);
+    when(chainDownloader.start()).thenReturn(completedFuture(null));
+    when(worldStateDownloader.run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader))))
+        .thenReturn(completedFuture(null));
+
+    final CompletableFuture<SnapSyncProcessState> result = downloader.start();
+
+    // selectPivotBlock was called twice: the failed attempt, then the successful re-pivot.
+    verify(fastSyncActions, times(2)).selectPivotBlock(new SnapSyncProcessState());
+    assertThat(result).isCompletedWithValue(snapSyncState(pivotBlockHeader));
+  }
+
+  @Test
+  public void shouldKeepRePivotingWhenWrongChainRepeatsPastTheWarnThreshold() {
+    setup();
+    final SnapSyncProcessState selectPivotBlockState = new SnapSyncProcessState(50);
+    final BlockHeader pivotBlockHeader = new BlockHeaderTestFixture().number(50).buildHeader();
+    final SnapSyncProcessState resolvePivotBlockHeaderState =
+        new SnapSyncProcessState(pivotBlockHeader);
+
+    // Consecutive wrong-chain failures escalate to a warning about the trusted checkpoint, but must
+    // not change the control flow: the downloader keeps re-pivoting and still succeeds once a pivot
+    // on the trusted chain is found.
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
+        .thenThrow(new WrongChainException("checkpoint mismatch 1"))
+        .thenThrow(new WrongChainException("checkpoint mismatch 2"))
+        .thenThrow(new WrongChainException("checkpoint mismatch 3"))
+        .thenThrow(new WrongChainException("checkpoint mismatch 4"))
+        .thenReturn(completedFuture(selectPivotBlockState));
+    when(fastSyncActions.resolvePivotBlockHeader(selectPivotBlockState))
+        .thenReturn(completedFuture(resolvePivotBlockHeaderState));
+    when(fastSyncActions.createChainDownloader(
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+        .thenReturn(chainDownloader);
+    when(chainDownloader.start()).thenReturn(completedFuture(null));
+    when(worldStateDownloader.run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader))))
+        .thenReturn(completedFuture(null));
+
+    final CompletableFuture<SnapSyncProcessState> result = downloader.start();
+
+    // Four failed attempts, then the successful re-pivot.
+    verify(fastSyncActions, times(5)).selectPivotBlock(new SnapSyncProcessState());
+    assertThat(result).isCompletedWithValue(snapSyncState(pivotBlockHeader));
+  }
+
+  @Test
+  public void shouldAbortIfWorldStateDownloadFails() {
+    setup();
+    final CompletableFuture<Void> worldStateFuture = new CompletableFuture<>();
+    final CompletableFuture<Void> chainFuture = new CompletableFuture<>();
+    final SnapSyncProcessState selectPivotBlockState = new SnapSyncProcessState(50);
+    final BlockHeader pivotBlockHeader = new BlockHeaderTestFixture().number(50).buildHeader();
+    final SnapSyncProcessState resolvePivotBlockHeaderState =
+        new SnapSyncProcessState(pivotBlockHeader);
+
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
+        .thenReturn(completedFuture(selectPivotBlockState));
+    when(fastSyncActions.resolvePivotBlockHeader(selectPivotBlockState))
+        .thenReturn(completedFuture(resolvePivotBlockHeaderState));
+    when(fastSyncActions.createChainDownloader(
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+        .thenReturn(chainDownloader);
+    when(chainDownloader.start()).thenReturn(chainFuture);
+    when(worldStateDownloader.run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader))))
+        .thenReturn(worldStateFuture);
+
+    final CompletableFuture<SnapSyncProcessState> result = downloader.start();
+
+    verify(fastSyncActions).selectPivotBlock(new SnapSyncProcessState());
+    verify(fastSyncActions).resolvePivotBlockHeader(selectPivotBlockState);
+    verify(fastSyncActions)
+        .createChainDownloader(
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
+    verify(worldStateDownloader).setChainDownloader(chainDownloader);
+    verify(worldStateDownloader)
+        .run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader)));
+    verifyNoMoreInteractions(fastSyncActions, worldStateDownloader);
+
+    assertThat(result).isNotDone();
+
+    worldStateFuture.completeExceptionally(new SyncException(SyncError.NO_PEERS_AVAILABLE));
+    verify(chainDownloader).cancel();
+    chainFuture.completeExceptionally(new CancellationException());
+    assertCompletedExceptionally(result, SyncError.NO_PEERS_AVAILABLE);
+    assertThat(chainFuture).isCancelled();
+  }
+
+  @Test
+  public void shouldAbortIfChainDownloadFails() {
+    setup();
+    final CompletableFuture<Void> chainFuture = new CompletableFuture<>();
+    final CompletableFuture<Void> worldStateFuture = new CompletableFuture<>();
+    final SnapSyncProcessState selectPivotBlockState = new SnapSyncProcessState(50);
+    final BlockHeader pivotBlockHeader = new BlockHeaderTestFixture().number(50).buildHeader();
+    final SnapSyncProcessState resolvePivotBlockHeaderState =
+        new SnapSyncProcessState(pivotBlockHeader);
+
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
+        .thenReturn(completedFuture(selectPivotBlockState));
+    when(fastSyncActions.resolvePivotBlockHeader(selectPivotBlockState))
+        .thenReturn(completedFuture(resolvePivotBlockHeaderState));
+    when(fastSyncActions.createChainDownloader(
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+        .thenReturn(chainDownloader);
+    when(chainDownloader.start()).thenReturn(chainFuture);
+    when(worldStateDownloader.run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader))))
+        .thenReturn(worldStateFuture);
+
+    final CompletableFuture<SnapSyncProcessState> result = downloader.start();
+
+    verify(fastSyncActions).selectPivotBlock(new SnapSyncProcessState());
+    verify(fastSyncActions).resolvePivotBlockHeader(selectPivotBlockState);
+    verify(fastSyncActions)
+        .createChainDownloader(
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
+    verify(worldStateDownloader).setChainDownloader(chainDownloader);
+    verify(worldStateDownloader)
+        .run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader)));
+    verifyNoMoreInteractions(fastSyncActions);
+    verifyNoMoreInteractions(worldStateDownloader);
+
+    assertThat(result).isNotDone();
+
+    chainFuture.completeExceptionally(new SyncException(SyncError.NO_PEERS_AVAILABLE));
+    assertCompletedExceptionally(result, SyncError.NO_PEERS_AVAILABLE);
+    assertThat(worldStateFuture).isCancelled();
+  }
+
+  @Test
+  public void shouldAbortIfStopped() {
+    setup();
+    final SnapSyncProcessState selectPivotBlockState = new SnapSyncProcessState(50);
+    final BlockHeader pivotBlockHeader = new BlockHeaderTestFixture().number(50).buildHeader();
+    final SnapSyncProcessState resolvePivotBlockHeaderState =
+        new SnapSyncProcessState(pivotBlockHeader);
+
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
+        .thenReturn(completedFuture(selectPivotBlockState));
+    doAnswer(
+            invocation -> {
+              CompletableFuture<SnapSyncProcessState> future = new CompletableFuture<>();
+              Executors.newSingleThreadScheduledExecutor()
+                  .schedule(
+                      () -> future.complete(resolvePivotBlockHeaderState),
+                      500,
+                      TimeUnit.MILLISECONDS);
+              return future;
+            })
+        .when(fastSyncActions)
+        .resolvePivotBlockHeader(selectPivotBlockState);
+
+    final CompletableFuture<SnapSyncProcessState> result = downloader.start();
+    downloader.stop();
+
+    Throwable thrown = catchThrowable(() -> result.get());
+    assertThat(thrown).hasCauseExactlyInstanceOf(CancellationException.class);
+
+    verify(fastSyncActions).selectPivotBlock(new SnapSyncProcessState());
+    verify(fastSyncActions).resolvePivotBlockHeader(selectPivotBlockState);
+    verify(worldStateDownloader).cancel();
+    verifyNoMoreInteractions(fastSyncActions, worldStateDownloader);
+  }
+
+  @Test
+  public void shouldNotConsiderFastSyncCompleteIfOnlyWorldStateDownloadIsComplete() {
+    setup();
+    final CompletableFuture<Void> chainFuture = new CompletableFuture<>();
+    final CompletableFuture<Void> worldStateFuture = new CompletableFuture<>();
+    final SnapSyncProcessState selectPivotBlockState = new SnapSyncProcessState(50);
+    final BlockHeader pivotBlockHeader = new BlockHeaderTestFixture().number(50).buildHeader();
+    final SnapSyncProcessState resolvePivotBlockHeaderState =
+        new SnapSyncProcessState(pivotBlockHeader);
+
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
+        .thenReturn(completedFuture(selectPivotBlockState));
+    when(fastSyncActions.resolvePivotBlockHeader(selectPivotBlockState))
+        .thenReturn(completedFuture(resolvePivotBlockHeaderState));
+    when(fastSyncActions.createChainDownloader(
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+        .thenReturn(chainDownloader);
+    when(chainDownloader.start()).thenReturn(chainFuture);
+    when(worldStateDownloader.run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader))))
+        .thenReturn(worldStateFuture);
+
+    final CompletableFuture<SnapSyncProcessState> result = downloader.start();
+
+    verify(fastSyncActions).selectPivotBlock(new SnapSyncProcessState());
+    verify(fastSyncActions).resolvePivotBlockHeader(selectPivotBlockState);
+    verify(fastSyncActions)
+        .createChainDownloader(
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
+    verify(worldStateDownloader).setChainDownloader(chainDownloader);
+    verify(worldStateDownloader)
+        .run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader)));
+    verifyNoMoreInteractions(fastSyncActions);
+    verifyNoMoreInteractions(worldStateDownloader);
+
+    assertThat(result).isNotDone();
+
+    worldStateFuture.complete(null);
+    assertThat(result).isNotDone();
+  }
+
+  @Test
+  public void shouldNotConsiderFastSyncCompleteIfOnlyChainDownloadIsComplete() {
+    setup();
+    final CompletableFuture<Void> chainFuture = new CompletableFuture<>();
+    final CompletableFuture<Void> worldStateFuture = new CompletableFuture<>();
+    final SnapSyncProcessState selectPivotBlockState = new SnapSyncProcessState(50);
+    final BlockHeader pivotBlockHeader = new BlockHeaderTestFixture().number(50).buildHeader();
+    final SnapSyncProcessState resolvePivotBlockHeaderState =
+        new SnapSyncProcessState(pivotBlockHeader);
+
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
+        .thenReturn(completedFuture(selectPivotBlockState));
+    when(fastSyncActions.resolvePivotBlockHeader(selectPivotBlockState))
+        .thenReturn(completedFuture(resolvePivotBlockHeaderState));
+    when(fastSyncActions.createChainDownloader(
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+        .thenReturn(chainDownloader);
+    when(chainDownloader.start()).thenReturn(chainFuture);
+    when(worldStateDownloader.run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader))))
+        .thenReturn(worldStateFuture);
+
+    final CompletableFuture<SnapSyncProcessState> result = downloader.start();
+
+    verify(fastSyncActions).selectPivotBlock(new SnapSyncProcessState());
+    verify(fastSyncActions).resolvePivotBlockHeader(selectPivotBlockState);
+    verify(fastSyncActions)
+        .createChainDownloader(
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
+    verify(worldStateDownloader).setChainDownloader(chainDownloader);
+    verify(worldStateDownloader)
+        .run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader)));
+    verifyNoMoreInteractions(fastSyncActions);
+    verifyNoMoreInteractions(worldStateDownloader);
+
+    assertThat(result).isNotDone();
+
+    chainFuture.complete(null);
+    assertThat(result).isNotDone();
+  }
+
+  @SuppressWarnings("unchecked")
+  @Test
+  public void shouldResetPivotSyncStateAndRestartProcessIfWorldStateIsUnavailable() {
+    setup();
+    final CompletableFuture<Void> firstWorldStateFuture = new CompletableFuture<>();
+    final CompletableFuture<Void> secondWorldStateFuture = new CompletableFuture<>();
+    final CompletableFuture<Void> chainFuture = new CompletableFuture<>();
+    final ChainDownloader secondChainDownloader = mock(ChainDownloader.class);
+    final SnapSyncProcessState selectPivotBlockState = new SnapSyncProcessState(50);
+    final SnapSyncProcessState secondSelectPivotBlockState = new SnapSyncProcessState(90);
+    final BlockHeader pivotBlockHeader = new BlockHeaderTestFixture().number(50).buildHeader();
+    final BlockHeader secondPivotBlockHeader =
+        new BlockHeaderTestFixture().number(90).buildHeader();
+    final SnapSyncProcessState resolvePivotBlockHeaderState =
+        new SnapSyncProcessState(pivotBlockHeader);
+    final SnapSyncProcessState secondDownloadPivotBlockHeaderState =
+        new SnapSyncProcessState(secondPivotBlockHeader);
+
+    // First attempt
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
+        .thenReturn(
+            completedFuture(selectPivotBlockState), completedFuture(secondSelectPivotBlockState));
+    when(fastSyncActions.resolvePivotBlockHeader(selectPivotBlockState))
+        .thenReturn(completedFuture(resolvePivotBlockHeaderState));
+    when(fastSyncActions.createChainDownloader(
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+        .thenReturn(chainDownloader);
+    when(chainDownloader.start()).thenReturn(chainFuture);
+    when(worldStateDownloader.run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader))))
+        .thenReturn(firstWorldStateFuture);
+
+    // Second attempt with new pivot block
+    when(fastSyncActions.resolvePivotBlockHeader(secondSelectPivotBlockState))
+        .thenReturn(completedFuture(secondDownloadPivotBlockHeaderState));
+
+    when(fastSyncActions.createChainDownloader(
+            snapSyncState(secondPivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+        .thenReturn(secondChainDownloader);
+    when(secondChainDownloader.start()).thenReturn(completedFuture(null));
+    when(worldStateDownloader.run(
+            any(PivotSyncActions.class), eq(snapSyncState(secondPivotBlockHeader))))
+        .thenReturn(secondWorldStateFuture);
+
+    final CompletableFuture<SnapSyncProcessState> result = downloader.start();
+
+    verify(fastSyncActions).selectPivotBlock(new SnapSyncProcessState());
+    verify(fastSyncActions).resolvePivotBlockHeader(selectPivotBlockState);
+    verify(fastSyncActions)
+        .createChainDownloader(
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
+    verify(worldStateDownloader).setChainDownloader(chainDownloader);
+    verify(worldStateDownloader)
+        .run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader)));
+    verifyNoMoreInteractions(fastSyncActions, worldStateDownloader);
+
+    assertThat(result).isNotDone();
+
+    firstWorldStateFuture.completeExceptionally(new StalledDownloadException("test"));
+    assertThat(result).isNotDone();
+    verify(chainDownloader).cancel();
+    // A real chain downloader would cause the chainFuture to complete when cancel is called.
+    chainFuture.completeExceptionally(new CancellationException());
+
+    verify(fastSyncActions, times(2)).selectPivotBlock(new SnapSyncProcessState());
+    verify(fastSyncActions).resolvePivotBlockHeader(secondSelectPivotBlockState);
+    verify(fastSyncActions)
+        .createChainDownloader(
+            snapSyncState(secondPivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
+    verify(worldStateDownloader).setChainDownloader(secondChainDownloader);
+    verify(worldStateDownloader)
+        .run(any(PivotSyncActions.class), eq(snapSyncState(secondPivotBlockHeader)));
+    verifyNoMoreInteractions(fastSyncActions, worldStateDownloader);
+
+    secondWorldStateFuture.complete(null);
+
+    assertThat(result).isCompletedWithValue(snapSyncState(secondPivotBlockHeader));
+  }
+
+  @SuppressWarnings("unchecked")
+  @Test
+  public void shouldResetPivotSyncStateAndRestartProcessIfANonFastSyncExceptionOccurs() {
+    setup();
+    final CompletableFuture<Void> firstWorldStateFuture = new CompletableFuture<>();
+    final CompletableFuture<Void> secondWorldStateFuture = new CompletableFuture<>();
+    final CompletableFuture<Void> chainFuture = new CompletableFuture<>();
+    final ChainDownloader secondChainDownloader = mock(ChainDownloader.class);
+    final SnapSyncProcessState selectPivotBlockState = new SnapSyncProcessState(50);
+    final SnapSyncProcessState secondSelectPivotBlockState = new SnapSyncProcessState(90);
+    final BlockHeader pivotBlockHeader = new BlockHeaderTestFixture().number(50).buildHeader();
+    final BlockHeader secondPivotBlockHeader =
+        new BlockHeaderTestFixture().number(90).buildHeader();
+    final SnapSyncProcessState resolvePivotBlockHeaderState =
+        new SnapSyncProcessState(pivotBlockHeader);
+    final SnapSyncProcessState secondDownloadPivotBlockHeaderState =
+        new SnapSyncProcessState(secondPivotBlockHeader);
+
+    // First attempt
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
+        .thenReturn(
+            completedFuture(selectPivotBlockState), completedFuture(secondSelectPivotBlockState));
+    when(fastSyncActions.resolvePivotBlockHeader(selectPivotBlockState))
+        .thenReturn(completedFuture(resolvePivotBlockHeaderState));
+    when(fastSyncActions.createChainDownloader(
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+        .thenReturn(chainDownloader);
+    when(chainDownloader.start()).thenReturn(chainFuture);
+    when(worldStateDownloader.run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader))))
+        .thenReturn(firstWorldStateFuture);
+    when(fastSyncActions.scheduleFutureTask(any(), any()))
+        .thenAnswer(invocation -> ((Supplier) invocation.getArgument(0)).get());
+
+    // Second attempt
+    when(fastSyncActions.resolvePivotBlockHeader(secondSelectPivotBlockState))
+        .thenReturn(completedFuture(secondDownloadPivotBlockHeaderState));
+
+    when(fastSyncActions.createChainDownloader(
+            snapSyncState(secondPivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+        .thenReturn(secondChainDownloader);
+    when(secondChainDownloader.start()).thenReturn(completedFuture(null));
+    when(worldStateDownloader.run(
+            any(PivotSyncActions.class), eq(snapSyncState(secondPivotBlockHeader))))
+        .thenReturn(secondWorldStateFuture);
+
+    final CompletableFuture<SnapSyncProcessState> result = downloader.start();
+
+    verify(fastSyncActions).selectPivotBlock(new SnapSyncProcessState());
+    verify(fastSyncActions).resolvePivotBlockHeader(selectPivotBlockState);
+    verify(fastSyncActions)
+        .createChainDownloader(
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
+    verify(worldStateDownloader).setChainDownloader(chainDownloader);
+    verify(worldStateDownloader)
+        .run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader)));
+    verifyNoMoreInteractions(fastSyncActions, worldStateDownloader);
+
+    assertThat(result).isNotDone();
+
+    firstWorldStateFuture.completeExceptionally(new RuntimeException("Test"));
+
+    assertThat(result).isNotDone();
+    verify(chainDownloader).cancel();
+    // A real chain downloader would cause the chainFuture to complete when cancel is called.
+    chainFuture.completeExceptionally(new CancellationException());
+
+    verify(fastSyncActions).scheduleFutureTask(any(), any());
+    verify(fastSyncActions, times(2)).selectPivotBlock(new SnapSyncProcessState());
+    verify(fastSyncActions).resolvePivotBlockHeader(secondSelectPivotBlockState);
+    verify(fastSyncActions)
+        .createChainDownloader(
+            snapSyncState(secondPivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
+    verify(worldStateDownloader).setChainDownloader(secondChainDownloader);
+    verify(worldStateDownloader)
+        .run(any(PivotSyncActions.class), eq(snapSyncState(secondPivotBlockHeader)));
+    verifyNoMoreInteractions(fastSyncActions, worldStateDownloader);
+
+    secondWorldStateFuture.complete(null);
+
+    assertThat(result).isCompletedWithValue(snapSyncState(secondPivotBlockHeader));
+  }
+
+  @Test
+  public void shouldNotHaveTrailingPeerRequirementsBeforePivotBlockSelected() {
+    setup();
+    downloader.start();
+    Assertions.assertThat(downloader.calculateTrailingPeerRequirements()).isEmpty();
+  }
+
+  @Test
+  public void shouldNotAllowPeersBeforePivotBlockOnceSelected() {
+    setup();
+    final SnapSyncProcessState selectPivotBlockState = new SnapSyncProcessState(50);
+    final BlockHeader pivotBlockHeader = new BlockHeaderTestFixture().number(50).buildHeader();
+    final SnapSyncProcessState resolvePivotBlockHeaderState =
+        new SnapSyncProcessState(pivotBlockHeader);
+
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
+        .thenReturn(completedFuture(selectPivotBlockState));
+    when(fastSyncActions.resolvePivotBlockHeader(selectPivotBlockState))
+        .thenReturn(completedFuture(resolvePivotBlockHeaderState));
+    when(fastSyncActions.createChainDownloader(
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+        .thenReturn(chainDownloader);
+    when(chainDownloader.start()).thenReturn(new CompletableFuture<>());
+    when(worldStateDownloader.run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader))))
+        .thenReturn(new CompletableFuture<>());
+
+    downloader.start();
+    Assertions.assertThat(downloader.calculateTrailingPeerRequirements())
+        .contains(new TrailingPeerRequirements(50, 0));
+  }
+
+  @Test
+  public void shouldNotHaveTrailingPeerRequirementsAfterDownloadCompletes() {
+    setup();
+    final SnapSyncProcessState selectPivotBlockState = new SnapSyncProcessState(50);
+    final BlockHeader pivotBlockHeader = new BlockHeaderTestFixture().number(50).buildHeader();
+    final SnapSyncProcessState resolvePivotBlockHeaderState =
+        new SnapSyncProcessState(pivotBlockHeader);
+
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
+        .thenReturn(completedFuture(selectPivotBlockState));
+    when(fastSyncActions.resolvePivotBlockHeader(selectPivotBlockState))
+        .thenReturn(completedFuture(resolvePivotBlockHeaderState));
+    when(fastSyncActions.createChainDownloader(
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+        .thenReturn(chainDownloader);
+    when(chainDownloader.start()).thenReturn(completedFuture(null));
+    when(worldStateDownloader.run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader))))
+        .thenReturn(completedFuture(null));
+
+    final CompletableFuture<SnapSyncProcessState> result = downloader.start();
+    assertThat(result).isDone();
+
+    Assertions.assertThat(downloader.calculateTrailingPeerRequirements()).isEmpty();
+  }
+
+  private SnapSyncProcessState snapSyncState(final BlockHeader pivotBlockHeader) {
+    return new SnapSyncProcessState(pivotBlockHeader);
+  }
+
+  private <T> void assertCompletedExceptionally(
+      final CompletableFuture<T> future, final SyncError expectedError) {
+    assertThat(future).isCompletedExceptionally();
+    future.exceptionally(
+        actualError -> {
+          assertThat(actualError)
+              .isInstanceOf(SyncException.class)
+              .extracting(ex -> ((SyncException) ex).getError())
+              .isEqualTo(expectedError);
+          return null;
+        });
+  }
+}

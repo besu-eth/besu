@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.eth.manager.peertask;
 
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection.PeerNotConnected;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.SubProtocol;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
@@ -30,6 +31,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -126,7 +128,8 @@ public class PeerTaskExecutor {
               inflightRequestGauge.labels(inflightRequests::get, taskClassName);
               return inflightRequests;
             });
-    MessageData requestMessageData = peerTask.getRequestMessage();
+    final Set<Capability> agreedCapabilities = peer.getAgreedCapabilities();
+    MessageData requestMessageData = peerTask.getRequestMessage(agreedCapabilities);
     SubProtocol peerTaskSubProtocol = peerTask.getSubProtocol();
     PeerTaskExecutorResult<T> executorResult;
     int retriesRemaining = peerTask.getRetriesWithSamePeer();
@@ -144,7 +147,7 @@ public class PeerTaskExecutor {
             throw new InvalidPeerTaskResponseException("Null response");
           }
 
-          result = peerTask.processResponse(responseMessageData);
+          result = peerTask.processResponse(responseMessageData, agreedCapabilities);
         } finally {
           inflightRequestCountForThisTaskClass.decrementAndGet();
         }
@@ -178,9 +181,19 @@ public class PeerTaskExecutor {
             new PeerTaskExecutorResult<>(
                 Optional.empty(), PeerTaskExecutorResponseCode.PEER_DISCONNECTED, List.of(peer));
 
-      } catch (InterruptedException | TimeoutException e) {
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
         peer.recordRequestTimeout(peerTaskSubProtocol.getName(), requestMessageData.getCode());
         timeoutCounter.labels(taskClassName).inc();
+        LOG.debug("Interrupted executing {} against peer {}", taskClassName, peer.getLoggableId());
+        executorResult =
+            new PeerTaskExecutorResult<>(
+                Optional.empty(), PeerTaskExecutorResponseCode.TIMEOUT, List.of(peer));
+
+      } catch (TimeoutException e) {
+        peer.recordRequestTimeout(peerTaskSubProtocol.getName(), requestMessageData.getCode());
+        timeoutCounter.labels(taskClassName).inc();
+        LOG.debug("Timeout executing {} against peer {}", taskClassName, peer.getLoggableId());
         executorResult =
             new PeerTaskExecutorResult<>(
                 Optional.empty(), PeerTaskExecutorResponseCode.TIMEOUT, List.of(peer));
@@ -204,7 +217,7 @@ public class PeerTaskExecutor {
         peer.disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
         executorResult =
             new PeerTaskExecutorResult<>(
-                Optional.empty(), PeerTaskExecutorResponseCode.INVALID_RESPONSE, List.of(peer));
+                Optional.empty(), PeerTaskExecutorResponseCode.PEER_DISCONNECTED, List.of(peer));
 
       } catch (Exception e) {
         internalExceptionCounter.labels(taskClassName).inc();

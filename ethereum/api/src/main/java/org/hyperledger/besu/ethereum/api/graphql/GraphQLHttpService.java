@@ -41,6 +41,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.net.MediaType;
@@ -59,7 +60,7 @@ import io.vertx.core.http.HttpServerRequest;
 import io.vertx.core.http.HttpServerResponse;
 import io.vertx.core.json.DecodeException;
 import io.vertx.core.json.Json;
-import io.vertx.core.json.jackson.JacksonCodec;
+import io.vertx.core.json.jackson.DatabindCodec;
 import io.vertx.core.net.HostAndPort;
 import io.vertx.core.net.JksOptions;
 import io.vertx.ext.web.Router;
@@ -222,7 +223,8 @@ public class GraphQLHttpService {
     final CompletableFuture<?> resultFuture = new CompletableFuture<>();
     httpServer
         .requestHandler(router)
-        .listen(
+        .listen()
+        .onComplete(
             res -> {
               if (!res.failed()) {
                 resultFuture.complete(null);
@@ -295,15 +297,17 @@ public class GraphQLHttpService {
     }
 
     final CompletableFuture<?> resultFuture = new CompletableFuture<>();
-    httpServer.close(
-        res -> {
-          if (res.failed()) {
-            resultFuture.completeExceptionally(res.cause());
-          } else {
-            httpServer = null;
-            resultFuture.complete(null);
-          }
-        });
+    httpServer
+        .close()
+        .onComplete(
+            res -> {
+              if (res.failed()) {
+                resultFuture.completeExceptionally(res.cause());
+              } else {
+                httpServer = null;
+                resultFuture.complete(null);
+              }
+            });
     return resultFuture;
   }
 
@@ -365,7 +369,11 @@ public class GraphQLHttpService {
           operationName = request.getParam("operationName");
           final String variableString = request.getParam("variables");
           if (variableString != null) {
-            variables = JacksonCodec.decodeValue(variableString, MAP_TYPE);
+            try {
+              variables = DatabindCodec.mapper().readValue(variableString, MAP_TYPE);
+            } catch (final JsonProcessingException e) {
+              throw new DecodeException(e.getMessage(), e);
+            }
           } else {
             variables = Collections.emptyMap();
           }
@@ -398,37 +406,30 @@ public class GraphQLHttpService {
       }
 
       final HttpServerResponse response = routingContext.response();
-      vertx.executeBlocking(
-          future -> {
-            try {
-              final GraphQLResponse graphQLResponse = process(query, operationName, variables);
-              future.complete(graphQLResponse);
-            } catch (final Exception e) {
-              future.fail(e);
-            }
-          },
-          false,
-          (res) -> {
-            if (response.closed()) {
-              return;
-            }
-            response.putHeader("Content-Type", MediaType.JSON_UTF_8.toString());
-            if (res.failed()) {
-              response.setStatusCode(HttpResponseStatus.INTERNAL_SERVER_ERROR.code());
-              response.end(
-                  serialise(
-                      new GraphQLErrorResponse(
-                          Collections.singletonMap(
-                              "errors",
-                              Collections.singletonList(
-                                  Collections.singletonMap(
-                                      "message", res.cause().getMessage()))))));
-            } else {
-              final GraphQLResponse graphQLResponse = (GraphQLResponse) res.result();
-              response.setStatusCode(status(graphQLResponse).code());
-              response.end(serialise(graphQLResponse));
-            }
-          });
+      vertx
+          .executeBlocking(() -> process(query, operationName, variables), false)
+          .onComplete(
+              (res) -> {
+                if (response.closed()) {
+                  return;
+                }
+                response.putHeader("Content-Type", MediaType.JSON_UTF_8.toString());
+                if (res.failed()) {
+                  response.setStatusCode(HttpResponseStatus.INTERNAL_SERVER_ERROR.code());
+                  response.end(
+                      serialise(
+                          new GraphQLErrorResponse(
+                              Collections.singletonMap(
+                                  "errors",
+                                  Collections.singletonList(
+                                      Collections.singletonMap(
+                                          "message", res.cause().getMessage()))))));
+                } else {
+                  final GraphQLResponse graphQLResponse = res.result();
+                  response.setStatusCode(status(graphQLResponse).code());
+                  response.end(serialise(graphQLResponse));
+                }
+              });
 
     } catch (final DecodeException ex) {
       handleGraphQLError(routingContext, ex);

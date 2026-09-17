@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
-import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod;
@@ -25,8 +24,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineGetClien
 import java.util.Collections;
 import java.util.List;
 
-import io.vertx.core.Vertx;
-
 public class EngineGetClientVersionV1 extends ExecutionEngineJsonRpcMethod {
   private static final String ENGINE_CLIENT_CODE = "BU";
   private static final String ENGINE_CLIENT_NAME = "Besu";
@@ -35,12 +32,10 @@ public class EngineGetClientVersionV1 extends ExecutionEngineJsonRpcMethod {
   private final String commit;
 
   public EngineGetClientVersionV1(
-      final Vertx vertx,
-      final ProtocolContext protocolContext,
-      final EngineCallListener engineCallListener,
+      final ConstructorArguments constructorArguments,
       final String clientVersion,
       final String commit) {
-    super(vertx, protocolContext, engineCallListener);
+    super(constructorArguments, null, null);
     this.clientVersion = clientVersion;
     this.commit = commit;
   }

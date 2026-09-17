@@ -31,6 +31,9 @@ public final class EvmTool {
     LogConfigurator.setLevel("", "OFF");
     final EvmToolCommand evmToolCommand = new EvmToolCommand();
 
-    evmToolCommand.execute(args);
+    final int exitCode = evmToolCommand.execute(args);
+    // Exit explicitly: returning from main always yields 0, which would hide a subcommand failure
+    // from CI and gradle.
+    System.exit(exitCode);
   }
 }

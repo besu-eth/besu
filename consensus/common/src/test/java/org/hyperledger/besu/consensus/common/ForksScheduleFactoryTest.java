@@ -77,9 +77,9 @@ public class ForksScheduleFactoryTest {
 
     final ForksSchedule<BftConfigOptions> schedule =
         ForksScheduleFactory.create(genesisConfigOptions, List.of(fork1, fork2), specCreator);
-    assertThat(schedule.getFork(0)).isEqualTo(genesisForkSpec);
-    assertThat(schedule.getFork(1)).isEqualTo(new ForkSpec<>(1, configOptions1));
-    assertThat(schedule.getFork(2)).isEqualTo(new ForkSpec<>(2, configOptions2));
+    assertThat(schedule.getFork(0, 0)).isEqualTo(genesisForkSpec);
+    assertThat(schedule.getFork(1, 0)).isEqualTo(new ForkSpec<>(1, configOptions1));
+    assertThat(schedule.getFork(2, 0)).isEqualTo(new ForkSpec<>(2, configOptions2));
   }
 
   private MutableBftConfigOptions createBftConfigOptions(

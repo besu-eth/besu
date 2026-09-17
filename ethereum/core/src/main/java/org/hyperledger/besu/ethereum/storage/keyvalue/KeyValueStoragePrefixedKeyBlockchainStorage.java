@@ -20,6 +20,7 @@ import static org.hyperledger.besu.ethereum.chain.VariablesStorage.Keys.FORK_HEA
 import static org.hyperledger.besu.ethereum.chain.VariablesStorage.Keys.SAFE_BLOCK_HASH;
 import static org.hyperledger.besu.ethereum.chain.VariablesStorage.Keys.SEQ_NO_STORE;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.BlockchainStorage;
 import org.hyperledger.besu.ethereum.chain.TransactionLocation;
@@ -28,6 +29,7 @@ import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.core.Difficulty;
+import org.hyperledger.besu.ethereum.core.SyncBlockAccessList;
 import org.hyperledger.besu.ethereum.core.SyncBlockBody;
 import org.hyperledger.besu.ethereum.core.SyncTransactionReceipt;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
@@ -67,6 +69,7 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
   private static final Bytes TOTAL_DIFFICULTY_PREFIX = Bytes.of(6);
   private static final Bytes TRANSACTION_LOCATION_PREFIX = Bytes.of(7);
   private static final Bytes BLOCK_ACCESS_LIST_PREFIX = Bytes.of(8);
+  private static final Bytes SENDER_NONCE_TO_TX_HASH_PREFIX = Bytes.of(9);
   private static final SimpleNoCopyRlpEncoder NO_COPY_RLP_ENCODER = new SimpleNoCopyRlpEncoder();
 
   final KeyValueStorage blockchainStorage;
@@ -175,6 +178,16 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
   public Optional<TransactionLocation> getTransactionLocation(final Hash transactionHash) {
     return get(TRANSACTION_LOCATION_PREFIX, transactionHash.getBytes())
         .map(bytes -> TransactionLocation.readFrom(RLP.input(bytes)));
+  }
+
+  @Override
+  public Optional<Hash> getTransactionHashBySenderAndNonce(final Address sender, final long nonce) {
+    return get(SENDER_NONCE_TO_TX_HASH_PREFIX, senderNonceKey(sender, nonce))
+        .map(bytes -> Hash.wrap(Bytes32.wrap(bytes, 0)));
+  }
+
+  private static Bytes senderNonceKey(final Address sender, final long nonce) {
+    return Bytes.concatenate(sender.getBytes(), Bytes.ofUnsignedLong(nonce));
   }
 
   @Override
@@ -344,6 +357,12 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
     }
 
     @Override
+    public void putSyncBlockAccessList(
+        final Hash blockHash, final SyncBlockAccessList syncBlockAccessList) {
+      set(BLOCK_ACCESS_LIST_PREFIX, blockHash.getBytes(), syncBlockAccessList.getRlp());
+    }
+
+    @Override
     public void putTransactionLocation(
         final Hash transactionHash, final TransactionLocation transactionLocation) {
       set(
@@ -365,7 +384,9 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
           TRANSACTION_RECEIPTS_PREFIX,
           blockHash.getBytes(),
           NO_COPY_RLP_ENCODER.encodeList(
-              transactionReceipts.stream().map(SyncTransactionReceipt::getRlpBytes).toList()));
+              transactionReceipts.stream()
+                  .map(r -> normalizeReceiptRlpElement(r.getRlpBytes()))
+                  .toList()));
     }
 
     @Override
@@ -429,6 +450,20 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
     }
 
     @Override
+    public void putTransactionHashBySenderAndNonce(
+        final Address sender, final long nonce, final Hash transactionHash) {
+      set(
+          SENDER_NONCE_TO_TX_HASH_PREFIX,
+          senderNonceKey(sender, nonce),
+          transactionHash.getBytes());
+    }
+
+    @Override
+    public void removeTransactionHashBySenderAndNonce(final Address sender, final long nonce) {
+      remove(SENDER_NONCE_TO_TX_HASH_PREFIX, senderNonceKey(sender, nonce));
+    }
+
+    @Override
     public void removeTotalDifficulty(final Hash blockHash) {
       remove(TOTAL_DIFFICULTY_PREFIX, blockHash.getBytes());
     }
@@ -452,6 +487,22 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
 
     private void remove(final Bytes prefix, final Bytes key) {
       blockchainTransaction.remove(Bytes.concatenate(prefix, key).toArrayUnsafe());
+    }
+
+    /**
+     * Normalizes a receipt RLP element for storage.
+     *
+     * <p>EIP-2718 typed receipts received from the network arrive via readBytes() which strips the
+     * outer RLP bytes-element wrapper, leaving raw typeCode||rlp_body (first byte in 0x01-0x7f).
+     * These must be re-wrapped as a single RLP bytes element so that
+     * TransactionReceiptDecoder.decodeTypedReceiptComponents can decode them. Receipts that are
+     * already valid RLP elements (first byte >= 0x80) are stored as-is.
+     */
+    private Bytes normalizeReceiptRlpElement(final Bytes rawBytes) {
+      if (rawBytes.isEmpty() || Byte.toUnsignedInt(rawBytes.get(0)) >= 0x80) {
+        return rawBytes;
+      }
+      return NO_COPY_RLP_ENCODER.encode(rawBytes);
     }
 
     private Bytes rlpEncode(final List<TransactionReceipt> receipts) {

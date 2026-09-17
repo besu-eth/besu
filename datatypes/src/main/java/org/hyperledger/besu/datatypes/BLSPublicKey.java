@@ -21,6 +21,7 @@ import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import org.apache.tuweni.bytes.Bytes;
+import org.jspecify.annotations.Nullable;
 
 /** A BLS public key. */
 public class BLSPublicKey extends BytesHolder {
@@ -74,7 +75,7 @@ public class BLSPublicKey extends BytesHolder {
    *     representation of a BLSPublicKey.
    */
   @JsonCreator
-  public static BLSPublicKey fromHexString(final String str) {
+  public static @Nullable BLSPublicKey fromHexString(final String str) {
     if (str == null) return null;
     return wrap(Bytes.fromHexStringLenient(str, SIZE));
   }

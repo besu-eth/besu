@@ -17,7 +17,6 @@ package org.hyperledger.besu.tests.acceptance.dsl.node.configuration;
 import static java.util.Arrays.asList;
 import static java.util.stream.Collectors.toList;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.RpcApis.ADMIN;
-import static org.hyperledger.besu.ethereum.api.jsonrpc.RpcApis.CLIQUE;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.RpcApis.IBFT;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.RpcApis.PLUGINS;
 import static org.hyperledger.besu.tests.acceptance.dsl.transaction.bft.ConsensusType.QBFT;
@@ -36,7 +35,6 @@ import org.hyperledger.besu.tests.acceptance.dsl.node.BesuNode;
 import org.hyperledger.besu.tests.acceptance.dsl.node.Node;
 import org.hyperledger.besu.tests.acceptance.dsl.node.RunnableNode;
 import org.hyperledger.besu.tests.acceptance.dsl.node.configuration.genesis.GenesisConfigurationFactory;
-import org.hyperledger.besu.tests.acceptance.dsl.node.configuration.genesis.GenesisConfigurationFactory.CliqueOptions;
 
 import java.io.File;
 import java.io.IOException;
@@ -46,7 +44,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.function.UnaryOperator;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -117,19 +114,14 @@ public class BesuNodeFactory {
   public BesuNode createNode(
       final String name, final UnaryOperator<BesuNodeConfigurationBuilder> configModifier)
       throws IOException {
-    final BesuNodeConfigurationBuilder configBuilder =
-        configModifier.apply(new BesuNodeConfigurationBuilder().name(name));
-    return create(configBuilder.build());
-  }
+    final String[] enableRpcApis = new String[] {ADMIN.name()};
 
-  public Node createArchiveNodeThatMustNotBeTheBootnode(final String name) throws IOException {
-    return create(
+    final BesuNodeConfigurationBuilder builder =
         new BesuNodeConfigurationBuilder()
             .name(name)
-            .jsonRpcEnabled()
-            .webSocketEnabled()
-            .bootnodeEligible(false)
-            .build());
+            .jsonRpcConfiguration(node.createJsonRpcWithRpcApiEnabledConfig(enableRpcApis));
+
+    return create(configModifier.apply(builder).build());
   }
 
   public Node createQbftNodeThatMustNotBeTheBootnode(final String name) throws IOException {
@@ -233,15 +225,6 @@ public class BesuNodeFactory {
             .build());
   }
 
-  public BesuNode createNodeWithP2pDisabled(final String name) throws IOException {
-    return create(
-        new BesuNodeConfigurationBuilder()
-            .name(name)
-            .p2pEnabled(false)
-            .jsonRpcConfiguration(node.createJsonRpcEnabledConfig())
-            .build());
-  }
-
   public BesuNode createArchiveNodeWithRpcDisabled(final String name) throws IOException {
     return create(new BesuNodeConfigurationBuilder().name(name).build());
   }
@@ -310,40 +293,14 @@ public class BesuNodeFactory {
     return createQbftNode(name, UnaryOperator.identity());
   }
 
-  public BesuNode createCliqueNode(final String name) throws IOException {
-    return createCliqueNode(name, UnaryOperator.identity());
-  }
-
-  public BesuNode createCliqueNode(
-      final String name, final UnaryOperator<BesuNodeConfigurationBuilder> configModifier)
-      throws IOException {
-    final List<String> enableRpcApis = new ArrayList<>(Arrays.asList());
-    enableRpcApis.addAll(List.of(IBFT.name(), ADMIN.name(), CLIQUE.name()));
-    BesuNodeConfigurationBuilder builder =
-        new BesuNodeConfigurationBuilder()
-            .name(name)
-            .jsonRpcConfiguration(
-                node.createJsonRpcWithRpcApiEnabledConfig(enableRpcApis.toArray(String[]::new)))
-            .webSocketConfiguration(node.createWebSocketEnabledConfig())
-            .devMode(false)
-            .jsonRpcTxPool()
-            .genesisConfigProvider(GenesisConfigurationFactory::createCliqueGenesisConfig);
-
-    builder = configModifier.apply(builder);
-
-    return create(builder.build());
-  }
-
   public BesuNode createQbftNode(
       final String name, final UnaryOperator<BesuNodeConfigurationBuilder> configModifier)
       throws IOException {
-    final List<String> enableRpcApis = new ArrayList<>(Arrays.asList());
-    enableRpcApis.addAll(List.of(QBFT.name(), ADMIN.name()));
+    final String[] enableRpcApis = new String[] {QBFT.name(), ADMIN.name()};
     BesuNodeConfigurationBuilder builder =
         new BesuNodeConfigurationBuilder()
             .name(name)
-            .jsonRpcConfiguration(
-                node.createJsonRpcWithRpcApiEnabledConfig(enableRpcApis.toArray(String[]::new)))
+            .jsonRpcConfiguration(node.createJsonRpcWithRpcApiEnabledConfig(enableRpcApis))
             .webSocketConfiguration(node.createWebSocketEnabledConfig())
             .devMode(false)
             .jsonRpcTxPool()
@@ -356,68 +313,6 @@ public class BesuNodeFactory {
 
   public BesuNode createQbftNodeWithRevertReasonEnabled(final String name) throws IOException {
     return createQbftNode(name, BesuNodeConfigurationBuilder::revertReasonEnabled);
-  }
-
-  public BesuNode createCliquePluginsNode(
-      final String name,
-      final List<String> plugins,
-      final List<String> extraCLIOptions,
-      final String... extraRpcApis)
-      throws IOException {
-
-    final List<String> enableRpcApis = new ArrayList<>(Arrays.asList(extraRpcApis));
-    enableRpcApis.addAll(List.of(IBFT.name(), ADMIN.name(), PLUGINS.name(), CLIQUE.name()));
-
-    return create(
-        new BesuNodeConfigurationBuilder()
-            .name(name)
-            .jsonRpcConfiguration(
-                node.createJsonRpcWithRpcApiEnabledConfig(enableRpcApis.toArray(String[]::new)))
-            .webSocketConfiguration(node.createWebSocketEnabledConfig())
-            .plugins(plugins)
-            .extraCLIOptions(extraCLIOptions)
-            .devMode(false)
-            .jsonRpcTxPool()
-            .genesisConfigProvider(
-                validators ->
-                    GenesisConfigurationFactory.createCliqueGenesisConfig(
-                        validators, CliqueOptions.DEFAULT))
-            .build());
-  }
-
-  public BesuNode createCliqueNode(final String name, final CliqueOptions cliqueOptions)
-      throws IOException {
-    return createCliqueNodeWithExtraCliOptionsAndRpcApis(name, cliqueOptions, List.of());
-  }
-
-  public BesuNode createCliqueNodeWithExtraCliOptionsAndRpcApis(
-      final String name, final CliqueOptions cliqueOptions, final List<String> extraCliOptions)
-      throws IOException {
-    return createCliqueNodeWithExtraCliOptionsAndRpcApis(
-        name, cliqueOptions, extraCliOptions, Set.of());
-  }
-
-  public BesuNode createCliqueNodeWithExtraCliOptionsAndRpcApis(
-      final String name,
-      final CliqueOptions cliqueOptions,
-      final List<String> extraCliOptions,
-      final Set<String> extraRpcApis)
-      throws IOException {
-    return create(
-        new BesuNodeConfigurationBuilder()
-            .name(name)
-            .miningEnabled()
-            .jsonRpcConfiguration(node.createJsonRpcWithCliqueEnabledConfig(extraRpcApis))
-            .webSocketConfiguration(node.createWebSocketEnabledConfig())
-            .inProcessRpcConfiguration(node.createInProcessRpcConfiguration(extraRpcApis))
-            .devMode(false)
-            .jsonRpcTxPool()
-            .genesisConfigProvider(
-                validators ->
-                    GenesisConfigurationFactory.createCliqueGenesisConfig(
-                        validators, cliqueOptions))
-            .extraCLIOptions(extraCliOptions)
-            .build());
   }
 
   public BesuNode createIbft2NonValidatorBootnode(final String name, final String genesisFile)
@@ -463,34 +358,26 @@ public class BesuNodeFactory {
             .build());
   }
 
-  public BesuNode createIbft2Node(final String name, final String genesisFile) throws IOException {
-    return create(
-        new BesuNodeConfigurationBuilder()
-            .name(name)
-            .miningEnabled()
-            .jsonRpcConfiguration(node.createJsonRpcWithIbft2AdminEnabledConfig())
-            .webSocketConfiguration(node.createWebSocketEnabledConfig())
-            .devMode(false)
-            .genesisConfigProvider(
-                validators ->
-                    GenesisConfigurationFactory.createIbft2GenesisConfigFilterBootnode(
-                        validators, genesisFile))
-            .bootnodeEligible(false)
-            .build());
+  public BesuNode createIbft2Node(final String name, final DataStorageFormat storageFormat)
+      throws IOException {
+    return createIbft2Node(name, storageFormat, false);
   }
 
-  public BesuNode createIbft2Node(
-      final String name, final boolean fixedPort, final DataStorageFormat storageFormat)
+  public BesuNode createIbft2NodeFixedPort(final String name, final DataStorageFormat storageFormat)
+      throws IOException {
+    return createIbft2Node(name, storageFormat, true);
+  }
+
+  private BesuNode createIbft2Node(
+      final String name, final DataStorageFormat storageFormat, final boolean fixedPort)
       throws IOException {
     JsonRpcConfiguration rpcConfig = node.createJsonRpcWithIbft2EnabledConfig(false);
     rpcConfig.addRpcApi("ADMIN,TXPOOL");
     if (fixedPort) {
-      rpcConfig.setPort(
-          Math.abs(name.hashCode() % 60000)
-              + 1024); // Generate a consistent port for p2p based on node name
+      rpcConfig.setPort(fixedRpcPort(name));
     }
 
-    BesuNodeConfigurationBuilder builder =
+    final BesuNodeConfigurationBuilder builder =
         new BesuNodeConfigurationBuilder()
             .name(name)
             .miningEnabled()
@@ -503,27 +390,45 @@ public class BesuNodeFactory {
                     : DataStorageConfiguration.DEFAULT_BONSAI_CONFIG)
             .genesisConfigProvider(GenesisConfigurationFactory::createIbft2GenesisConfig);
     if (fixedPort) {
-      builder.p2pPort(
-          Math.abs(name.hashCode() % 60000)
-              + 1024
-              + 500); // Generate a consistent port for p2p based on node name (+ 500 to avoid
-      // clashing with RPC port or other nodes with a similar name)
+      builder.p2pPort(fixedP2pPort(name));
     }
     return create(builder.build());
   }
 
-  public BesuNode createQbftNode(
-      final String name, final boolean fixedPort, final DataStorageFormat storageFormat)
+  // Deterministic per-node ports derived from the node name, so a node that is stopped and
+  // restarted rebinds the *same* address. Only the BFT soak test uses the *FixedPort factory
+  // methods: it restarts nodes (including the discovery bootnode) and relies on stable ports for
+  // re-peering. All other BFT acceptance tests use ephemeral ports (#11020) to avoid intermittent
+  // port-already-in-use failures when parallel test cases hash to the same port.
+  private static int fixedRpcPort(final String name) {
+    return Math.abs(name.hashCode() % 60000) + 1024;
+  }
+
+  private static int fixedP2pPort(final String name) {
+    // +500 to avoid clashing with the RPC port of a node whose name hashes nearby.
+    return Math.abs(name.hashCode() % 60000) + 1024 + 500;
+  }
+
+  public BesuNode createQbftNode(final String name, final DataStorageFormat storageFormat)
+      throws IOException {
+    return createQbftNode(name, storageFormat, false);
+  }
+
+  public BesuNode createQbftNodeFixedPort(final String name, final DataStorageFormat storageFormat)
+      throws IOException {
+    return createQbftNode(name, storageFormat, true);
+  }
+
+  private BesuNode createQbftNode(
+      final String name, final DataStorageFormat storageFormat, final boolean fixedPort)
       throws IOException {
     JsonRpcConfiguration rpcConfig = node.createJsonRpcWithQbftEnabledConfig(false);
     rpcConfig.addRpcApi("ADMIN,TXPOOL");
     if (fixedPort) {
-      rpcConfig.setPort(
-          Math.abs(name.hashCode() % 60000)
-              + 1024); // Generate a consistent port for p2p based on node name
+      rpcConfig.setPort(fixedRpcPort(name));
     }
 
-    BesuNodeConfigurationBuilder builder =
+    final BesuNodeConfigurationBuilder builder =
         new BesuNodeConfigurationBuilder()
             .name(name)
             .miningEnabled()
@@ -538,11 +443,7 @@ public class BesuNodeFactory {
                         : DataStorageConfiguration.DEFAULT_BONSAI_ARCHIVE_CONFIG)
             .genesisConfigProvider(GenesisConfigurationFactory::createQbftGenesisConfig);
     if (fixedPort) {
-      builder.p2pPort(
-          Math.abs(name.hashCode() % 60000)
-              + 1024
-              + 500); // Generate a consistent port for p2p based on node name (+ 500 to avoid
-      // clashing with RPC port or other nodes with a similar name)
+      builder.p2pPort(fixedP2pPort(name));
     }
     return create(builder.build());
   }
@@ -574,18 +475,12 @@ public class BesuNodeFactory {
             .build());
   }
 
-  public BesuNode createQbftMigrationNode(
-      final String name, final boolean fixedPort, final DataStorageFormat storageFormat)
+  public BesuNode createQbftMigrationNode(final String name, final DataStorageFormat storageFormat)
       throws IOException {
     JsonRpcConfiguration rpcConfig = node.createJsonRpcWithQbftEnabledConfig(false);
     rpcConfig.addRpcApi("ADMIN,TXPOOL");
-    if (fixedPort) {
-      rpcConfig.setPort(
-          Math.abs(name.hashCode() % 60000)
-              + 1024); // Generate a consistent port for p2p based on node name
-    }
 
-    BesuNodeConfigurationBuilder builder =
+    return create(
         new BesuNodeConfigurationBuilder()
             .name(name)
             .miningEnabled()
@@ -596,15 +491,8 @@ public class BesuNodeFactory {
                 storageFormat == DataStorageFormat.FOREST
                     ? DataStorageConfiguration.DEFAULT_FOREST_CONFIG
                     : DataStorageConfiguration.DEFAULT_BONSAI_CONFIG)
-            .genesisConfigProvider(GenesisConfigurationFactory::createQbftMigrationGenesisConfig);
-    if (fixedPort) {
-      builder.p2pPort(
-          Math.abs(name.hashCode() % 60000)
-              + 1024
-              + 500); // Generate a consistent port for p2p based on node name (+ 500 to avoid
-      // clashing with RPC port or other nodes with a similar name)
-    }
-    return create(builder.build());
+            .genesisConfigProvider(GenesisConfigurationFactory::createQbftMigrationGenesisConfig)
+            .build());
   }
 
   public BesuNode createCustomGenesisNode(
@@ -637,6 +525,11 @@ public class BesuNodeFactory {
 
   public BesuNode createExecutionEngineGenesisNode(final String name, final String genesisPath)
       throws IOException {
+    return createExecutionEngineGenesisNode(name, genesisPath, true);
+  }
+
+  public BesuNode createExecutionEngineGenesisNode(
+      final String name, final String genesisPath, final boolean p2pEnabled) throws IOException {
     final String genesisFile = GenesisConfigurationFactory.readGenesisFile(genesisPath);
 
     return create(
@@ -645,6 +538,7 @@ public class BesuNodeFactory {
             .genesisConfigProvider((a) -> Optional.of(genesisFile))
             .devMode(false)
             .bootnodeEligible(false)
+            .p2pEnabled(p2pEnabled)
             .miningConfiguration(
                 MiningConfiguration.newDefault()
                     .setCoinbase(AddressHelpers.ofValue(1))
@@ -659,55 +553,8 @@ public class BesuNodeFactory {
             .build());
   }
 
-  public BesuNode createCliqueNodeWithValidators(final String name, final String... validators)
-      throws IOException {
-    return createCliqueNodeWithValidators(name, CliqueOptions.DEFAULT, validators);
-  }
-
-  public BesuNode createCliqueNodeWithValidators(
-      final String name, final CliqueOptions cliqueOptions, final String... validators)
-      throws IOException {
-
-    return create(
-        new BesuNodeConfigurationBuilder()
-            .name(name)
-            .miningEnabled()
-            .jsonRpcConfiguration(node.createJsonRpcWithCliqueEnabledConfig(Set.of()))
-            .webSocketConfiguration(node.createWebSocketEnabledConfig())
-            .jsonRpcTxPool()
-            .devMode(false)
-            .genesisConfigProvider(
-                nodes ->
-                    node.createGenesisConfigForValidators(
-                        asList(validators),
-                        nodes,
-                        vs ->
-                            GenesisConfigurationFactory.createCliqueGenesisConfig(
-                                vs, cliqueOptions)))
-            .build());
-  }
-
   public BesuNode createIbft2NodeWithValidators(final String name, final String... validators)
       throws IOException {
-
-    return create(
-        new BesuNodeConfigurationBuilder()
-            .name(name)
-            .miningEnabled()
-            .jsonRpcConfiguration(node.createJsonRpcWithIbft2EnabledConfig(false))
-            .webSocketConfiguration(node.createWebSocketEnabledConfig())
-            .devMode(false)
-            .genesisConfigProvider(
-                nodes ->
-                    node.createGenesisConfigForValidators(
-                        asList(validators),
-                        nodes,
-                        GenesisConfigurationFactory::createIbft2GenesisConfig))
-            .build());
-  }
-
-  public BesuNode createQbftTLSNodeWithValidators(
-      final String name, final String type, final String... validators) throws IOException {
 
     return create(
         new BesuNodeConfigurationBuilder()
@@ -789,33 +636,22 @@ public class BesuNodeFactory {
   }
 
   public BesuNode createNodeWithNonDefaultSignatureAlgorithm(
-      final String name,
-      final String genesisPath,
-      final KeyPair keyPair,
-      final List<Node> staticNodes)
-      throws IOException {
+      final String name, final KeyPair keyPair, final List<Node> staticNodes) throws IOException {
     BesuNodeConfigurationBuilder builder =
-        createNodeConfigurationWithNonDefaultSignatureAlgorithm(
-            name, genesisPath, keyPair, staticNodes);
+        createNodeConfigurationWithNonDefaultSignatureAlgorithm(name, keyPair, staticNodes);
     return create(builder.build());
   }
 
   public BesuNodeConfigurationBuilder createNodeConfigurationWithNonDefaultSignatureAlgorithm(
-      final String name,
-      final String genesisPath,
-      final KeyPair keyPair,
-      final List<Node> staticNodes) {
+      final String name, final KeyPair keyPair, final List<Node> staticNodes) {
 
-    final List<String> enableRpcApis = new ArrayList<>(Arrays.asList());
-    enableRpcApis.addAll(List.of(QBFT.name(), ADMIN.name()));
-
+    final String[] enableRpcApis = new String[] {QBFT.name(), ADMIN.name()};
     BesuNodeConfigurationBuilder builder =
         createConfigurationBuilderWithStaticNodes(name, staticNodes);
 
     builder =
         builder
-            .jsonRpcConfiguration(
-                node.createJsonRpcWithRpcApiEnabledConfig(enableRpcApis.toArray(String[]::new)))
+            .jsonRpcConfiguration(node.createJsonRpcWithRpcApiEnabledConfig(enableRpcApis))
             .webSocketConfiguration(node.createWebSocketEnabledConfig())
             .devMode(false)
             .jsonRpcTxPool()

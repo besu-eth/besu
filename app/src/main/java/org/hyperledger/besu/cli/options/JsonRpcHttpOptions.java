@@ -302,10 +302,14 @@ public class JsonRpcHttpOptions {
    * @param hostsAllowlist List of hosts allowed
    * @param defaultHostAddress Default host address
    * @param timeoutSec timeout in seconds
+   * @param streamingTimeoutSec timeout in seconds for streaming methods
    * @return A JsonRpcConfiguration instance
    */
   public JsonRpcConfiguration jsonRpcConfiguration(
-      final List<String> hostsAllowlist, final String defaultHostAddress, final Long timeoutSec) {
+      final List<String> hostsAllowlist,
+      final String defaultHostAddress,
+      final Long timeoutSec,
+      final Long streamingTimeoutSec) {
 
     final JsonRpcConfiguration jsonRpcConfiguration = this.jsonRpcConfiguration();
 
@@ -313,6 +317,7 @@ public class JsonRpcHttpOptions {
         Strings.isNullOrEmpty(rpcHttpHost) ? defaultHostAddress : rpcHttpHost);
     jsonRpcConfiguration.setHostsAllowlist(hostsAllowlist);
     jsonRpcConfiguration.setHttpTimeoutSec(timeoutSec);
+    jsonRpcConfiguration.setHttpStreamingTimeoutSec(streamingTimeoutSec);
     return jsonRpcConfiguration;
   }
 

@@ -16,7 +16,7 @@ package org.hyperledger.besu.ethereum.p2p.discovery;
 
 import org.hyperledger.besu.ethereum.forkid.ForkId;
 import org.hyperledger.besu.ethereum.p2p.peers.DefaultPeer;
-import org.hyperledger.besu.plugin.data.EnodeURL;
+import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 
 import java.util.Optional;
 
@@ -24,10 +24,12 @@ import org.ethereum.beacon.discovery.schema.NodeRecord;
 
 public class DiscoveryPeer extends DefaultPeer {
   private long lastAttemptedConnection = 0;
-  private NodeRecord nodeRecord;
-  private Optional<ForkId> forkId = Optional.empty();
+  // The local-node DiscoveryPeer is shared across the DiscV4/DiscV5 threads via NodeRecordManager;
+  // volatile gives readers the JMM visibility guarantee for writes made under its lock.
+  private volatile NodeRecord nodeRecord;
+  private volatile Optional<ForkId> forkId = Optional.empty();
 
-  protected DiscoveryPeer(final EnodeURL enodeURL) {
+  protected DiscoveryPeer(final EnodeURLImpl enodeURL) {
     super(enodeURL);
   }
 

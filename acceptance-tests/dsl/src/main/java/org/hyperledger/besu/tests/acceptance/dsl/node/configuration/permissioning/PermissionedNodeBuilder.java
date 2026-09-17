@@ -183,7 +183,7 @@ public class PermissionedNodeBuilder {
         localConfigNodesPermissioningFile = createTemporaryPermissionsFile();
       }
 
-      final List<EnodeURL> nodeAllowList =
+      final List<EnodeURLImpl> nodeAllowList =
           localConfigPermittedNodes.stream()
               .map(EnodeURLImpl::fromURI)
               .collect(Collectors.toList());

@@ -34,6 +34,7 @@ import java.util.Optional;
 
 /** Defines the protocol behaviours for a blockchain using a BFT consensus mechanism. */
 public class IbftProtocolScheduleBuilder extends BaseBftProtocolScheduleBuilder {
+
   /** Default constructor. */
   protected IbftProtocolScheduleBuilder() {}
 
@@ -51,6 +52,7 @@ public class IbftProtocolScheduleBuilder extends BaseBftProtocolScheduleBuilder 
    * @param balConfiguration configuration related to block-level access lists
    * @param metricsSystem A metricSystem instance to be able to expose metrics in the underlying
    *     calls
+   * @param blockGasLimit the genesis block gas limit
    * @return the protocol schedule
    */
   public static BftProtocolSchedule create(
@@ -63,7 +65,8 @@ public class IbftProtocolScheduleBuilder extends BaseBftProtocolScheduleBuilder 
       final BadBlockManager badBlockManager,
       final boolean isParallelTxProcessingEnabled,
       final BalConfiguration balConfiguration,
-      final MetricsSystem metricsSystem) {
+      final MetricsSystem metricsSystem,
+      final long blockGasLimit) {
     return new IbftProtocolScheduleBuilder()
         .createProtocolSchedule(
             config,
@@ -75,7 +78,8 @@ public class IbftProtocolScheduleBuilder extends BaseBftProtocolScheduleBuilder 
             badBlockManager,
             isParallelTxProcessingEnabled,
             balConfiguration,
-            metricsSystem);
+            metricsSystem,
+            blockGasLimit);
   }
 
   /**
@@ -91,6 +95,7 @@ public class IbftProtocolScheduleBuilder extends BaseBftProtocolScheduleBuilder 
    * @param balConfiguration configuration related to block-level access lists
    * @param metricsSystem A metricSystem instance to be able to expose metrics in the underlying
    *     calls
+   * @param blockGasLimit the genesis block gas limit
    * @return the protocol schedule
    */
   public static BftProtocolSchedule create(
@@ -102,11 +107,56 @@ public class IbftProtocolScheduleBuilder extends BaseBftProtocolScheduleBuilder 
       final BadBlockManager badBlockManager,
       final boolean isParallelTxProcessingEnabled,
       final BalConfiguration balConfiguration,
-      final MetricsSystem metricsSystem) {
+      final MetricsSystem metricsSystem,
+      final long blockGasLimit) {
     return create(
         config,
         forksSchedule,
         false,
+        bftExtraDataCodec,
+        evmConfiguration,
+        miningConfiguration,
+        badBlockManager,
+        isParallelTxProcessingEnabled,
+        balConfiguration,
+        metricsSystem,
+        blockGasLimit);
+  }
+
+  /**
+   * Creates a protocol schedule with the specified block gas limit for validation.
+   *
+   * @param config the config
+   * @param forksSchedule the forks schedule
+   * @param isRevertReasonEnabled the is revert reason enabled
+   * @param bftExtraDataCodec the bft extra data codec
+   * @param evmConfiguration the evm configuration
+   * @param miningConfiguration the mining parameters
+   * @param badBlockManager the cache to use to keep invalid blocks
+   * @param isParallelTxProcessingEnabled indicates whether parallel transaction is enabled
+   * @param balConfiguration configuration related to block-level access lists
+   * @param metricsSystem A metricSystem instance to be able to expose metrics in the underlying
+   *     calls
+   * @param blockGasLimit the genesis block gas limit
+   * @return the protocol schedule
+   */
+  public BftProtocolSchedule createProtocolSchedule(
+      final GenesisConfigOptions config,
+      final ForksSchedule<? extends BftConfigOptions> forksSchedule,
+      final boolean isRevertReasonEnabled,
+      final BftExtraDataCodec bftExtraDataCodec,
+      final EvmConfiguration evmConfiguration,
+      final MiningConfiguration miningConfiguration,
+      final BadBlockManager badBlockManager,
+      final boolean isParallelTxProcessingEnabled,
+      final BalConfiguration balConfiguration,
+      final MetricsSystem metricsSystem,
+      final long blockGasLimit) {
+    this.blockGasLimit = blockGasLimit;
+    return super.createProtocolSchedule(
+        config,
+        forksSchedule,
+        isRevertReasonEnabled,
         bftExtraDataCodec,
         evmConfiguration,
         miningConfiguration,

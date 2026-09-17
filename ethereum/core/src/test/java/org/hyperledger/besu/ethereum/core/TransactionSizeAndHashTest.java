@@ -36,9 +36,7 @@ import org.hyperledger.besu.ethereum.core.kzg.KZGProof;
 
 import java.math.BigInteger;
 import java.util.List;
-import java.util.function.Supplier;
 
-import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.bytes.Bytes48;
@@ -46,17 +44,15 @@ import org.junit.jupiter.api.Test;
 
 public class TransactionSizeAndHashTest {
 
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
 
   // Fake signature for transactions to not fail being processed.
   private static final SECPSignature FAKE_SIGNATURE =
-      SIGNATURE_ALGORITHM
-          .get()
-          .createSignature(
-              SIGNATURE_ALGORITHM.get().getHalfCurveOrder(),
-              SIGNATURE_ALGORITHM.get().getHalfCurveOrder(),
-              (byte) 0);
+      SIGNATURE_ALGORITHM.createSignature(
+          SIGNATURE_ALGORITHM.getHalfCurveOrder(),
+          SIGNATURE_ALGORITHM.getHalfCurveOrder(),
+          (byte) 0);
 
   @Test
   public void returnsRightSizeForFrontierTx() {
@@ -311,6 +307,11 @@ public class TransactionSizeAndHashTest {
   }
 
   private static Transaction buildBlobTransaction() {
+    final KZGCommitment commitment = new KZGCommitment(Bytes48.fromHexStringLenient("0x0987"));
+    final VersionedHash versionedHash =
+        new VersionedHash(
+            VersionedHash.SHA256_VERSION_ID,
+            Hash.wrap(org.hyperledger.besu.crypto.Hash.sha256(commitment.getData())));
     return Transaction.builder()
         .type(TransactionType.BLOB)
         .chainId(BigInteger.ONE)
@@ -324,21 +325,14 @@ public class TransactionSizeAndHashTest {
         .value(Wei.of(2000L))
         .payload(Bytes.fromHexString("0x12345678"))
         .maxFeePerBlobGas(Wei.of(250L))
-        .versionedHashes(
-            List.of(
-                new VersionedHash(
-                    Bytes32.fromHexString(
-                        "0x0122334455667788991011121314151617181920212223242526272829303101"))))
+        .versionedHashes(List.of(versionedHash))
         .blobsWithCommitments(
             new BlobsWithCommitments(
                 BlobType.KZG_PROOF,
-                List.of(new KZGCommitment(Bytes48.fromHexStringLenient("0x0987"))),
+                List.of(commitment),
                 List.of(new Blob(Bytes.fromHexString("0x0987"))),
                 List.of(new KZGProof(Bytes48.fromHexStringLenient("0x1234"))),
-                List.of(
-                    new VersionedHash(
-                        Bytes32.fromHexStringLenient(
-                            "0x0122334455667788991011121314151617181920212223242526272829303101")))))
+                List.of(versionedHash)))
         .signature(FAKE_SIGNATURE)
         .build();
   }
