@@ -14,15 +14,18 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
+import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.transaction.CallParameter;
 
 import java.util.Arrays;
+import java.util.Optional;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,6 +57,35 @@ public class CallParameterUtil {
       }
     }
     return callParams;
+  }
+
+  public static Optional<RpcErrorType> validateCallParamsForFork(
+      final CallParameter callParams, final ProtocolSpec protocolSpec) {
+    final HardforkId forkId = protocolSpec.getHardforkId();
+    if (!(forkId instanceof HardforkId.MainnetHardforkId mainnetFork)) {
+      return Optional.empty();
+    }
+    if (callParams.getAccessList().isPresent()
+        && mainnetFork.compareTo(HardforkId.MainnetHardforkId.BERLIN) < 0) {
+      return Optional.of(RpcErrorType.INVALID_CALL_PARAMS);
+    }
+    if (callParams.getBlobVersionedHashes().isPresent()
+        && mainnetFork.compareTo(HardforkId.MainnetHardforkId.CANCUN) < 0) {
+      return Optional.of(RpcErrorType.INVALID_CALL_PARAMS);
+    }
+    if (!callParams.getCodeDelegationAuthorizations().isEmpty()
+        && mainnetFork.compareTo(HardforkId.MainnetHardforkId.PRAGUE) < 0) {
+      return Optional.of(RpcErrorType.INVALID_CALL_PARAMS);
+    }
+    return Optional.empty();
+  }
+
+  public static boolean isBerlinActive(final ProtocolSpec protocolSpec) {
+    final HardforkId forkId = protocolSpec.getHardforkId();
+    if (!(forkId instanceof HardforkId.MainnetHardforkId mainnetFork)) {
+      return true;
+    }
+    return mainnetFork.compareTo(HardforkId.MainnetHardforkId.BERLIN) >= 0;
   }
 
   public static boolean isAllowExceedingBalance(

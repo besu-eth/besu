@@ -32,6 +32,8 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSucces
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
@@ -52,13 +54,16 @@ import com.google.common.annotations.VisibleForTesting;
 public class EthCall extends AbstractBlockParameterOrBlockHashMethod {
   private final TransactionSimulator transactionSimulator;
   private final LabelledMetric<Counter> gasUsedCounter;
+  private final ProtocolSchedule protocolSchedule;
 
   public EthCall(
       final BlockchainQueries blockchainQueries,
       final TransactionSimulator transactionSimulator,
-      final MetricsSystem metricsSystem) {
+      final MetricsSystem metricsSystem,
+      final ProtocolSchedule protocolSchedule) {
     super(blockchainQueries);
     this.transactionSimulator = transactionSimulator;
+    this.protocolSchedule = protocolSchedule;
     this.gasUsedCounter =
         metricsSystem.createLabelledCounter(
             BesuMetricCategory.RPC,
@@ -97,8 +102,13 @@ public class EthCall extends AbstractBlockParameterOrBlockHashMethod {
   protected Object resultByBlockHeader(
       final JsonRpcRequestContext request, final BlockHeader header) {
     CallParameter callParams = CallParameterUtil.validateAndGetCallParams(request);
+    final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(header);
+    final Optional<RpcErrorType> forkError =
+        CallParameterUtil.validateCallParamsForFork(callParams, protocolSpec);
+    if (forkError.isPresent()) {
+      return errorResponse(request, forkError.get());
+    }
     Optional<StateOverrideMap> maybeStateOverrides = getAddressStateOverrideMap(request);
-    // TODO implement for block overrides
 
     return transactionSimulator
         .process(
