@@ -101,13 +101,7 @@ public class BadBlockManager {
     return Optional.ofNullable(badBlocks.getIfPresent(hash));
   }
 
-  /**
-   * Return the header of an invalid block, whether the full block or only its header is known
-   *
-   * @param hash of the block
-   * @return the header of an invalid block
-   */
-  public Optional<BlockHeader> getBadBlockHeader(final Hash hash) {
+  private Optional<BlockHeader> getBadBlockHeader(final Hash hash) {
     return getBadBlock(hash)
         .map(Block::getHeader)
         .or(() -> Optional.ofNullable(badHeaders.getIfPresent(hash)));
@@ -121,6 +115,32 @@ public class BadBlockManager {
 
   public boolean isBadBlock(final Hash blockHash) {
     return badBlocks.asMap().containsKey(blockHash) || badHeaders.asMap().containsKey(blockHash);
+  }
+
+  /**
+   * Check whether a block is bad, either because it is known as bad or because its parent is. A
+   * block whose parent is bad is recorded as bad too, inheriting the parent's latest valid hash.
+   *
+   * @param block the block to check
+   * @return true if the block is bad
+   */
+  public boolean isBadBlock(final Block block) {
+    if (isBadBlock(block.getHash())) {
+      return true;
+    }
+
+    // a block extending an invalid chain is invalid too
+    final Hash parentHash = block.getHeader().getParentHash();
+    final Optional<BlockHeader> maybeBadParentHeader = getBadBlockHeader(parentHash);
+    if (maybeBadParentHeader.isEmpty()) {
+      return false;
+    }
+
+    addBadBlock(block, BadBlockCause.fromBadAncestorHeader(maybeBadParentHeader.get()));
+    getLatestValidHash(parentHash)
+        .ifPresent(latestValidHash -> addLatestValidHash(block.getHash(), latestValidHash));
+
+    return true;
   }
 
   public void addLatestValidHash(final Hash blockHash, final Hash latestValidHash) {

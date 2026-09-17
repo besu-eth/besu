@@ -447,7 +447,6 @@ public class BackwardSyncContextTest {
     Block block = Mockito.mock(Block.class);
     BlockHeader blockHeader = Mockito.mock(BlockHeader.class);
     when(block.getHash()).thenReturn(Hash.fromHexStringLenient("0x42"));
-    when(block.getHeader()).thenReturn(blockHeader);
     when(blockHeader.getHash()).thenReturn(Hash.fromHexStringLenient("0x42"));
     BadChainListener badChainListener = Mockito.mock(BadChainListener.class);
     context.subscribeBadChainListener(badChainListener);
@@ -481,7 +480,6 @@ public class BackwardSyncContextTest {
     Block block = Mockito.mock(Block.class);
     BlockHeader blockHeader = Mockito.mock(BlockHeader.class);
     when(block.getHash()).thenReturn(Hash.fromHexStringLenient("0x42"));
-    when(block.getHeader()).thenReturn(blockHeader);
     when(blockHeader.getHash()).thenReturn(Hash.fromHexStringLenient("0x42"));
     BadChainListener badChainListener = Mockito.mock(BadChainListener.class);
     context.subscribeBadChainListener(badChainListener);
@@ -514,7 +512,6 @@ public class BackwardSyncContextTest {
     Block block = Mockito.mock(Block.class);
     BlockHeader blockHeader = Mockito.mock(BlockHeader.class);
     when(block.getHash()).thenReturn(Hash.fromHexStringLenient("0x42"));
-    when(block.getHeader()).thenReturn(blockHeader);
     when(blockHeader.getHash()).thenReturn(Hash.fromHexStringLenient("0x42"));
     BadChainListener badChainListener = Mockito.mock(BadChainListener.class);
     context.subscribeBadChainListener(badChainListener);

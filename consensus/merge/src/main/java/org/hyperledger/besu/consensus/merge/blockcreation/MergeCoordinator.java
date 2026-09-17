@@ -1013,6 +1013,11 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   }
 
   @Override
+  public boolean isBadBlock(final Block block) {
+    return protocolContext.getBadBlockManager().isBadBlock(block);
+  }
+
+  @Override
   public Optional<Hash> getLatestValidHashOfBadBlock(final Hash blockHash) {
     return protocolContext.getBadBlockManager().getLatestValidHash(blockHash);
   }

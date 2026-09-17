@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.chain;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockchainSetupUtil;
@@ -36,6 +37,32 @@ public class BadBlockManagerTest {
   final Block block = chainUtil.getBlock(1);
   final Block block2 = chainUtil.getBlock(2);
   final BadBlockManager badBlockManager = new BadBlockManager();
+
+  @Test
+  public void isBadBlock_recordsChildOfBadBlockAsBad() {
+    final Hash latestValidHash = Hash.fromHexStringLenient("0x1337");
+    badBlockManager.addBadBlock(block, BadBlockCause.fromValidationFailure("failed"));
+    badBlockManager.addLatestValidHash(block.getHash(), latestValidHash);
+
+    assertThat(badBlockManager.isBadBlock(block2)).isTrue();
+    assertThat(badBlockManager.getBadBlock(block2.getHash())).contains(block2);
+    assertThat(badBlockManager.getLatestValidHash(block2.getHash())).contains(latestValidHash);
+  }
+
+  @Test
+  public void isBadBlock_recordsChildOfBadHeaderAsBad() {
+    badBlockManager.addBadHeader(block.getHeader(), BadBlockCause.fromValidationFailure("failed"));
+
+    assertThat(badBlockManager.isBadBlock(block2)).isTrue();
+    assertThat(badBlockManager.getBadBlock(block2.getHash())).contains(block2);
+    assertThat(badBlockManager.getLatestValidHash(block2.getHash())).isEmpty();
+  }
+
+  @Test
+  public void isBadBlock_falseWhenNeitherBlockNorParentIsBad() {
+    assertThat(badBlockManager.isBadBlock(block2)).isFalse();
+    assertThat(badBlockManager.getBadBlocks()).isEmpty();
+  }
 
   @Test
   public void addBadBlock_addsBlock() {

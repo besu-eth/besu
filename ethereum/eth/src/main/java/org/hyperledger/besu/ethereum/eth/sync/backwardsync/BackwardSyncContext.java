@@ -19,7 +19,6 @@ import static org.hyperledger.besu.util.FutureUtils.exceptionallyCompose;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.BlockValidator;
 import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -319,14 +318,7 @@ public class BackwardSyncContext {
   }
 
   protected Void saveBlock(final Block block) {
-    final BadBlockManager badBlockManager = getProtocolContext().getBadBlockManager();
-    final Optional<BlockHeader> maybeBadParentHeader =
-        badBlockManager.getBadBlockHeader(block.getHeader().getParentHash());
-    if (maybeBadParentHeader.isPresent() && !badBlockManager.isBadBlock(block.getHash())) {
-      badBlockManager.addBadBlock(
-          block, BadBlockCause.fromBadAncestorHeader(maybeBadParentHeader.get()));
-    }
-    if (badBlockManager.isBadBlock(block.getHash())) {
+    if (getProtocolContext().getBadBlockManager().isBadBlock(block)) {
       // re-executing a known bad block cannot succeed and only keeps the session spinning
       emitBadChainEvent(block);
       dropBadAncestors();

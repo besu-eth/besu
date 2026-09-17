@@ -39,8 +39,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcRespon
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadStatusV1;
-import org.hyperledger.besu.ethereum.chain.BadBlockCause;
-import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -175,7 +173,9 @@ public sealed class EngineNewPayloadV1<
       return respondWithInvalid(reqId, blockParam, null, getInvalidBlockHashStatus(), errorMessage);
     }
 
-    if (mergeCoordinator.isBadBlock(blockParam.getBlockHash())) {
+    final var unvalidatedBlock = new Block(newBlockHeader, createBlockBody(blockParam));
+
+    if (mergeCoordinator.isBadBlock(unvalidatedBlock)) {
       return respondWithInvalid(
           reqId,
           blockParam,
@@ -186,28 +186,8 @@ public sealed class EngineNewPayloadV1<
           "Block already present in bad block manager.");
     }
 
-    // a payload extending an invalid chain is invalid too; answering SYNCING would start a backward
-    // sync that re-executes the bad ancestor
-    final BadBlockManager badBlockManager = protocolContext.getBadBlockManager();
-    final Optional<BlockHeader> maybeBadParentHeader =
-        badBlockManager.getBadBlockHeader(blockParam.getParentHash());
-    if (maybeBadParentHeader.isPresent()) {
-      final Hash latestValidHash =
-          badBlockManager.getLatestValidHash(blockParam.getParentHash()).orElse(null);
-      badBlockManager.addBadBlock(
-          new Block(newBlockHeader, createBlockBody(blockParam)),
-          BadBlockCause.fromBadAncestorHeader(maybeBadParentHeader.get()));
-      if (latestValidHash != null) {
-        badBlockManager.addLatestValidHash(blockParam.getBlockHash(), latestValidHash);
-      }
-      return respondWithInvalid(
-          reqId, blockParam, latestValidHash, INVALID, "Block descends from a bad block.");
-    }
-
     final Optional<BlockHeader> maybeParentHeader =
         protocolContext.getBlockchain().getBlockHeader(blockParam.getParentHash());
-
-    final var unvalidatedBlock = new Block(newBlockHeader, createBlockBody(blockParam));
 
     // 3. Client software MAY initiate a sync process if requisite data for payload validation is
     // missing. Sync process is specified in the Sync section.
@@ -299,7 +279,7 @@ public sealed class EngineNewPayloadV1<
           return new JsonRpcErrorResponse(reqId, RpcErrorType.INTERNAL_ERROR);
         }
       }
-      badBlockManager.addLatestValidHash(block.getHash(), latestValidAncestor);
+      protocolContext.getBadBlockManager().addLatestValidHash(block.getHash(), latestValidAncestor);
       return respondWithInvalid(
           reqId,
           blockParam,

@@ -227,7 +227,7 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
     badBlockManager.addBadBlock(
         new Block(mockHeader, new BlockBody(emptyList(), emptyList())),
         BadBlockCause.fromValidationFailure("error 42"));
-    when(mergeCoordinator.isBadBlock(mockHeader.getHash())).thenReturn(true);
+    when(mergeCoordinator.isBadBlock(any(Block.class))).thenReturn(true);
     when(mergeCoordinator.getLatestValidHashOfBadBlock(mockHeader.getHash()))
         .thenAnswer(invocation -> badBlockManager.getLatestValidHash(mockHeader.getHash()));
 
@@ -254,7 +254,7 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
     BlockHeader mockHeader = createBlockHeader(getMinSupportedTimestamp());
     Hash latestValidHash = Hash.hash(Bytes32.fromHexStringLenient("0xcafebabe"));
 
-    when(mergeCoordinator.isBadBlock(mockHeader.getHash())).thenReturn(true);
+    when(mergeCoordinator.isBadBlock(any(Block.class))).thenReturn(true);
     when(mergeCoordinator.getLatestValidHashOfBadBlock(mockHeader.getHash()))
         .thenReturn(Optional.of(latestValidHash));
 
@@ -264,47 +264,6 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
     assertThat(res.getLatestValidHash()).isEqualTo(Optional.of(latestValidHash));
     assertThat(res.getStatus()).isEqualTo(INVALID);
     verify(engineCallListener, times(1)).executionEngineCalled();
-  }
-
-  @Test
-  public void shouldReturnInvalidWhenParentIsABadBlock() {
-    final BlockHeader badParent = createBlockHeader(getMinSupportedTimestamp() - 1);
-    badBlockManager.addBadBlock(
-        new Block(badParent, new BlockBody(emptyList(), emptyList())),
-        BadBlockCause.fromValidationFailure("error 42"));
-    badBlockManager.addLatestValidHash(badParent.getHash(), mockHash);
-    final BlockHeader mockHeader =
-        createBlockHeader(
-            getMinSupportedTimestamp(), fixture -> fixture.parentHash(badParent.getHash()));
-
-    final PayloadStatusV1 res =
-        fromSuccessResp(resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList()))));
-
-    assertThat(res.getStatus()).isEqualTo(INVALID);
-    assertThat(res.getLatestValidHash()).contains(mockHash);
-    assertThat(res.getError()).isEqualTo("Block descends from a bad block.");
-    assertThat(badBlockManager.isBadBlock(mockHeader.getHash())).isTrue();
-    assertThat(badBlockManager.getLatestValidHash(mockHeader.getHash())).contains(mockHash);
-    verify(mergeCoordinator, never()).appendNewPayloadToSync(any());
-    verify(mergeCoordinator, never()).rememberBlock(any(), any());
-  }
-
-  @Test
-  public void shouldReturnInvalidWhenParentIsABadHeader() {
-    final BlockHeader badParent = createBlockHeader(getMinSupportedTimestamp() - 1);
-    badBlockManager.addBadHeader(badParent, BadBlockCause.fromValidationFailure("error 42"));
-    final BlockHeader mockHeader =
-        createBlockHeader(
-            getMinSupportedTimestamp(), fixture -> fixture.parentHash(badParent.getHash()));
-
-    final PayloadStatusV1 res =
-        fromSuccessResp(resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList()))));
-
-    assertThat(res.getStatus()).isEqualTo(INVALID);
-    assertThat(res.getLatestValidHash()).isEmpty();
-    assertThat(badBlockManager.isBadBlock(mockHeader.getHash())).isTrue();
-    verify(mergeCoordinator, never()).appendNewPayloadToSync(any());
-    verify(mergeCoordinator, never()).rememberBlock(any(), any());
   }
 
   @Test
@@ -450,7 +409,7 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
 
   @Test
   public void shouldReturnInvalidWhenBadBlock() {
-    when(mergeCoordinator.isBadBlock(any(Hash.class))).thenReturn(true);
+    when(mergeCoordinator.isBadBlock(any(Block.class))).thenReturn(true);
     BlockHeader mockHeader = createBlockHeader(getMinSupportedTimestamp());
     var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList())));
     PayloadStatusV1 res = fromSuccessResp(resp);
