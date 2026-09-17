@@ -17,7 +17,6 @@ package org.hyperledger.besu;
 import static java.lang.Thread.sleep;
 
 import org.hyperledger.besu.cli.BesuCommand;
-import org.hyperledger.besu.cli.options.PluginsConfigurationOptions;
 import org.hyperledger.besu.controller.BesuController;
 import org.hyperledger.besu.crypto.KeyPairUtil;
 import org.hyperledger.besu.ethereum.api.graphql.GraphQLHttpService;
@@ -288,9 +287,6 @@ public class Runner implements AutoCloseable {
   private void ephemeryRestartPrepare(final BesuCommand besuCommand) {
     besuCommand.getBesuPluginContext().resetState();
     besuCommand.getRocksDBPlugin().reset();
-    besuCommand
-        .getBesuPluginContext()
-        .initialize(PluginsConfigurationOptions.fromCommandLine(besuCommand.getCommandLine()));
     besuCommand.getBesuPluginContext().registerPlugins();
   }
 

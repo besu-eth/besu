@@ -47,15 +47,16 @@ public class TestBlockchainServicePlugin implements BesuPlugin {
   boolean enabled = false;
 
   @Override
+  public void defineOptions(final PicoCLIOptions options) {
+    options.addPicoCLIOptions("blockchain-service", this);
+  }
+
+  @Override
   public void register(final ServiceManager serviceManager) {
     LOG.info("Registering TestBlockchainServicePlugin");
     this.serviceManager = serviceManager;
-    serviceManager
-        .getService(PicoCLIOptions.class)
-        .orElseThrow()
-        .addPicoCLIOptions("blockchain-service", this);
 
-    callbackDir = new File(System.getProperty("besu.plugins.dir", "plugins"));
+    callbackDir = PluginCallbackDir.of(serviceManager);
   }
 
   @Override

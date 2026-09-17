@@ -19,7 +19,9 @@ package org.hyperledger.besu.plugin.services;
  * library annotations will be inspected and the object will be passed into a
  * picocli.CommandLine.addMixin call.
  *
- * <p>This service will be available during the registration callbacks.
+ * <p>Options can only be added from {@code BesuPlugin#defineOptions(PicoCLIOptions)}, which
+ * receives this service as its argument. Adding options later, for instance from {@code
+ * BesuPlugin#register}, fails Besu startup.
  *
  * <p>CLI arguments should conform to the <a
  * href="https://github.com/hyperledger/besu/blob/master/CLI-STYLE-GUIDE.md">CLI-STYLE-GUIDE.md</a>
@@ -28,8 +30,8 @@ package org.hyperledger.besu.plugin.services;
 public interface PicoCLIOptions extends BesuService {
 
   /**
-   * During the registration callback plugins can register CLI options that should be added to
-   * Besu's CLI startup.
+   * Declares CLI options to add to Besu's command line. The parsed values are visible in the option
+   * object's fields from {@code BesuPlugin#register} onwards.
    *
    * @param namespace A namespace prefix. All registered options must start with this prefix
    * @param optionObject The instance of the object to be inspected. PicoCLI will reflect the fields

@@ -44,6 +44,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNotNull;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -120,6 +121,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 import picocli.CommandLine;
@@ -298,6 +300,36 @@ public class BesuCommandTest extends CommandTestAbstract {
     assertThat(commandOutput.toString(UTF_8))
         .isEqualToIgnoringWhitespace(BesuVersionUtils.version());
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void callingHelpDefinesPluginOptionsButDoesNotRegisterPlugins() {
+    parseCommand("--help");
+    verify(getBesuPluginContext()).defineOptions(any());
+    verify(getBesuPluginContext(), never()).registerPlugins();
+  }
+
+  @Test
+  public void callingVersionDoesNotRegisterPlugins() {
+    parseCommand("--version");
+    verify(getBesuPluginContext(), never()).registerPlugins();
+  }
+
+  @Test
+  public void callingSubcommandHelpDoesNotRegisterPlugins() {
+    parseCommand("blocks", "--help");
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandOutput.toString(UTF_8)).contains("blocks");
+    verify(getBesuPluginContext(), never()).registerPlugins();
+  }
+
+  @Test
+  public void pluginsRegisterAfterTheirOptionsAreDefined() {
+    parseCommand();
+    final InOrder inOrder = inOrder(getBesuPluginContext());
+    inOrder.verify(getBesuPluginContext()).defineOptions(any());
+    inOrder.verify(getBesuPluginContext()).registerPlugins();
+    inOrder.verify(getBesuPluginContext()).startPlugins();
   }
 
   @Test

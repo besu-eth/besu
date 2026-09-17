@@ -76,20 +76,16 @@ public abstract class AbstractTestTransactionSelectorPlugin implements BesuPlugi
   }
 
   @Override
-  public void register(final ServiceManager serviceManager) {
-    this.serviceManager = serviceManager;
-    serviceManager
-        .getService(PicoCLIOptions.class)
-        .orElseThrow()
-        .addPicoCLIOptions("tx-selector" + pluginNum, this);
-
-    callbackDir = new File(System.getProperty("besu.plugins.dir", "plugins"));
+  public void defineOptions(final PicoCLIOptions options) {
+    options.addPicoCLIOptions("tx-selector" + pluginNum, this);
   }
 
-  protected abstract boolean isEnabled();
-
   @Override
-  public void beforeExternalServices() {
+  public void register(final ServiceManager serviceManager) {
+    this.serviceManager = serviceManager;
+
+    callbackDir = PluginCallbackDir.of(serviceManager);
+
     if (isEnabled()) {
       serviceManager
           .getService(TransactionSelectionService.class)
@@ -175,6 +171,8 @@ public abstract class AbstractTestTransactionSelectorPlugin implements BesuPlugi
               });
     }
   }
+
+  protected abstract boolean isEnabled();
 
   @Override
   public void start() {}

@@ -36,7 +36,7 @@ public class TestStorageConfigurationPlugin implements BesuPlugin {
   public void register(final ServiceManager serviceManager) {
     LOG.info("Registering TestStorageConfigurationPlugin");
     this.serviceManager = serviceManager;
-    callbackDir = new File(System.getProperty("besu.plugins.dir", "plugins"));
+    callbackDir = PluginCallbackDir.of(serviceManager);
   }
 
   @Override

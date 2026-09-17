@@ -39,19 +39,19 @@ public class BadCLIOptionsPlugin implements BesuPlugin {
   private File callbackDir;
 
   @Override
-  public void register(final ServiceManager context) {
-    LOG.info("Registering BadCliOptionsPlugin");
+  public void defineOptions(final PicoCLIOptions options) {
+    LOG.info("Defining options of BadCliOptionsPlugin");
+    // no service is available here, so the callback dir comes from the system property
     callbackDir = new File(System.getProperty("besu.plugins.dir", "plugins"));
     writeStatus("init");
-
     if (System.getProperty("TEST_BAD_CLI", "false").equals("true")) {
-      context
-          .getService(PicoCLIOptions.class)
-          .ifPresent(
-              picoCLIOptions ->
-                  picoCLIOptions.addPicoCLIOptions("bad-cli", BadCLIOptionsPlugin.this));
+      options.addPicoCLIOptions("bad-cli", BadCLIOptionsPlugin.this);
     }
+  }
 
+  @Override
+  public void register(final ServiceManager context) {
+    LOG.info("Registering BadCliOptionsPlugin");
     writeStatus("register");
   }
 

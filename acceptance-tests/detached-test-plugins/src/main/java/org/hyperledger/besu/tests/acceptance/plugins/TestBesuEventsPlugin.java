@@ -48,7 +48,7 @@ public class TestBesuEventsPlugin implements BesuPlugin {
   public void register(final ServiceManager context) {
     this.context = context;
     LOG.info("Registered");
-    callbackDir = new File(System.getProperty("besu.plugins.dir", "plugins"));
+    callbackDir = PluginCallbackDir.of(context);
   }
 
   @Override
