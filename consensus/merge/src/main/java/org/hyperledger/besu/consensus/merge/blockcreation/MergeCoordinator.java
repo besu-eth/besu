@@ -29,7 +29,6 @@ import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.blockcreation.BlockCreationTiming;
 import org.hyperledger.besu.ethereum.blockcreation.BlockCreator.BlockCreationResult;
-import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
@@ -68,6 +67,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes32;
@@ -851,10 +851,8 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
             () ->
                 protocolContext
                     .getBadBlockManager()
-                    .getBadBlock(parentHash)
-                    .flatMap(
-                        badParent ->
-                            findValidAncestor(chain, badParent.getHeader().getParentHash())));
+                    .getBadHeader(parentHash)
+                    .flatMap(badParent -> findValidAncestor(chain, badParent.getParentHash())));
   }
 
   @Override
@@ -963,26 +961,20 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
             ? Optional.of(parentHeader.get().getHash())
             : Optional.empty();
 
-    // Bad block has already been marked, but we need to mark the bad block's descendants
-    badBlockDescendants.forEach(
-        block -> {
-          LOG.trace("Add descendant block {} to bad blocks", block.getHash());
-          badBlockManager.addBadBlock(
-              block, BadBlockCause.fromBadAncestorHeader(badBlock.getHeader()));
-          maybeLatestValidHash.ifPresent(
-              latestValidHash ->
-                  badBlockManager.addLatestValidHash(block.getHash(), latestValidHash));
-        });
+    // Bad block has already been marked, record its latest valid hash so later children inherit it
+    if (badBlockManager.getLatestValidHash(badBlock.getHash()).isEmpty()) {
+      maybeLatestValidHash.ifPresent(
+          latestValidHash ->
+              badBlockManager.addLatestValidHash(badBlock.getHash(), latestValidHash));
+    }
 
-    badBlockHeaderDescendants.forEach(
-        header -> {
-          LOG.trace("Add descendant header {} to bad blocks", header.getHash());
-          badBlockManager.addBadHeader(
-              header, BadBlockCause.fromBadAncestorHeader(badBlock.getHeader()));
-          maybeLatestValidHash.ifPresent(
-              latestValidHash ->
-                  badBlockManager.addLatestValidHash(header.getHash(), latestValidHash));
-        });
+    Stream.concat(
+            badBlockDescendants.stream().map(Block::getHeader), badBlockHeaderDescendants.stream())
+        .forEach(
+            header -> {
+              LOG.trace("Add descendant {} to bad blocks", header.getHash());
+              badBlockManager.addBadDescendant(header, badBlock.getHeader(), maybeLatestValidHash);
+            });
   }
 
   /**
@@ -1012,11 +1004,6 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   public boolean isBadBlock(final Hash blockHash) {
     final BadBlockManager badBlockManager = protocolContext.getBadBlockManager();
     return badBlockManager.isBadBlock(blockHash);
-  }
-
-  @Override
-  public boolean isBadBlock(final Block block) {
-    return protocolContext.getBadBlockManager().isBadBlock(block);
   }
 
   @Override

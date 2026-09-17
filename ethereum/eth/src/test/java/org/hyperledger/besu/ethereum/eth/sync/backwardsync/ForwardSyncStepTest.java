@@ -15,12 +15,8 @@
 package org.hyperledger.besu.ethereum.eth.sync.backwardsync;
 
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
-import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createInMemoryBlockchain;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.config.StubGenesisConfigOptions;
@@ -210,19 +206,6 @@ public class ForwardSyncStepTest {
     final CompletableFuture<Void> completableFuture1 =
         phase.possibleRequestBodies(Collections.emptyList());
     assertThat(completableFuture1.isDone()).isTrue();
-  }
-
-  @Test
-  public void shouldPropagateBlockImportFailureWithoutReducingBatchSize() {
-    doThrow(new BackwardSyncException("bad block")).when(context).saveBlock(any());
-    ForwardSyncStep step =
-        new ForwardSyncStep(context, createBackwardChain(LOCAL_HEIGHT, LOCAL_HEIGHT + 3));
-
-    final CompletableFuture<Void> future =
-        step.possibleRequestBodies(List.of(getBlockByNumber(LOCAL_HEIGHT + 1).getHeader()));
-
-    assertThatThrownBy(future::get).hasRootCauseInstanceOf(BackwardSyncException.class);
-    verify(context, never()).halveBatchSize();
   }
 
   @Test

@@ -39,6 +39,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcRespon
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadStatusV1;
+import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -173,21 +174,30 @@ public sealed class EngineNewPayloadV1<
       return respondWithInvalid(reqId, blockParam, null, getInvalidBlockHashStatus(), errorMessage);
     }
 
-    final var unvalidatedBlock = new Block(newBlockHeader, createBlockBody(blockParam));
-
-    if (mergeCoordinator.isBadBlock(unvalidatedBlock)) {
+    final BadBlockManager badBlockManager = protocolContext.getBadBlockManager();
+    final Optional<String> maybeBadBlockError =
+        badBlockManager.isBadBlock(blockParam.getBlockHash())
+            ? Optional.of("Block is a known bad block.")
+            : badBlockManager
+                .checkAndMarkBadDescendant(newBlockHeader)
+                .map(badParent -> "Block descends from bad block " + badParent.toLogString());
+    if (maybeBadBlockError.isPresent()) {
       return respondWithInvalid(
           reqId,
           blockParam,
           mergeCoordinator
               .getLatestValidHashOfBadBlock(blockParam.getBlockHash())
-              .orElse(Hash.ZERO),
+              // none may be stored, but the ancestry can still lead back to the chain
+              .or(() -> mergeCoordinator.getLatestValidAncestor(blockParam.getParentHash()))
+              .orElse(null),
           INVALID,
-          "Block already present in bad block manager.");
+          maybeBadBlockError.get());
     }
 
     final Optional<BlockHeader> maybeParentHeader =
         protocolContext.getBlockchain().getBlockHeader(blockParam.getParentHash());
+
+    final var unvalidatedBlock = new Block(newBlockHeader, createBlockBody(blockParam));
 
     // 3. Client software MAY initiate a sync process if requisite data for payload validation is
     // missing. Sync process is specified in the Sync section.

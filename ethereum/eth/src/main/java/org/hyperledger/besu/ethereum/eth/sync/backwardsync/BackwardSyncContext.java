@@ -318,16 +318,6 @@ public class BackwardSyncContext {
   }
 
   protected Void saveBlock(final Block block) {
-    if (getProtocolContext().getBadBlockManager().isBadBlock(block)) {
-      // re-executing a known bad block cannot succeed and only keeps the session spinning
-      emitBadChainEvent(block);
-      dropBadAncestors();
-      throw new BackwardSyncException(
-          "Cannot save block "
-              + block.toLogString()
-              + " because it is or descends from a bad block");
-    }
-
     LOG.atTrace().setMessage("Going to validate block {}").addArgument(block::toLogString).log();
     var optResult =
         this.getBlockValidatorForBlock(block)
@@ -362,8 +352,10 @@ public class BackwardSyncContext {
                 + " backward sync halted. Run debug_resyncWorldState to recover.",
             false);
       }
-      emitBadChainEvent(block);
-      dropBadAncestors();
+      // descendants are only bad if the block itself is, not after a local failure or missing data
+      if (getProtocolContext().getBadBlockManager().isBadBlock(block.getHash())) {
+        emitBadChainEvent(block);
+      }
       throw new BackwardSyncException(
           "Cannot save block "
               + block.toLogString()
@@ -426,16 +418,6 @@ public class BackwardSyncContext {
 
     badChainListeners.forEach(
         listener -> listener.onBadChain(badBlock, badBlockDescendants, badBlockHeaderDescendants));
-  }
-
-  private void dropBadAncestors() {
-    final BadBlockManager badBlockManager = getProtocolContext().getBadBlockManager();
-    Optional<BlockHeader> maybeFirstAncestor = backwardChain.getFirstAncestorHeader();
-    while (maybeFirstAncestor.isPresent()
-        && badBlockManager.isBadBlock(maybeFirstAncestor.get().getHash())) {
-      backwardChain.dropFirstHeader();
-      maybeFirstAncestor = backwardChain.getFirstAncestorHeader();
-    }
   }
 
   private void logBlockImportProgress(final long currImportedHeight) {

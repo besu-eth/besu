@@ -24,7 +24,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
@@ -63,13 +62,6 @@ public class ForwardSyncStep {
           .thenApply(this::saveBlocks)
           .exceptionally(
               throwable -> {
-                // a block that fails to import must end the session, retrying it with a smaller
-                // batch would re-execute it forever
-                if (isBackwardSyncException(throwable)) {
-                  throw throwable instanceof CompletionException completionException
-                      ? completionException
-                      : new CompletionException(throwable);
-                }
                 context.halveBatchSize();
                 LOG.atDebug()
                     .setMessage(
@@ -148,16 +140,5 @@ public class ForwardSyncStep {
       context.resetBatchSize();
     }
     return null;
-  }
-
-  private static boolean isBackwardSyncException(final Throwable throwable) {
-    Throwable cause = throwable;
-    while (cause != null) {
-      if (cause instanceof BackwardSyncException) {
-        return true;
-      }
-      cause = cause.getCause();
-    }
-    return false;
   }
 }

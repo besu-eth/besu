@@ -167,15 +167,17 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
     when(blockchain.getBlockHeader(validParent.getHash())).thenReturn(Optional.of(validParent));
 
     // Simulate MainnetBlockValidator.handleFailedBlockProcessing — add the bad block
-    // to the manager directly. (The direct add path intentionally does NOT record a
-    // latestValidHash for B itself; only the descendants in stage 2 get one.)
+    // to the manager directly, without a latestValidHash for B itself.
     badBlockManager.addBadBlock(badBlock, BadBlockCause.fromValidationFailure("BAL mismatch"));
 
     // Simulate BackwardSyncContext.emitBadChainEvent firing — MergeCoordinator is
     // registered as a BadChainListener in its constructor and receives the descendant list.
     mergeCoordinator.onBadChain(badBlock, emptyList(), List.of(descendantHeader));
 
-    // onBadChain propagated "bad" status and latestValidHash to the descendant.
+    // onBadChain recorded the latestValidHash for B and propagated "bad" status and
+    // latestValidHash to the descendant.
+    assertThat(mergeCoordinator.getLatestValidHashOfBadBlock(badBlock.getHash()))
+        .contains(validParent.getHash());
     assertThat(mergeCoordinator.isBadBlock(descendantHeader.getHash())).isTrue();
     assertThat(mergeCoordinator.getLatestValidHashOfBadBlock(descendantHeader.getHash()))
         .contains(validParent.getHash());

@@ -60,6 +60,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.referencetests.ForestReferenceTestWorldState;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
+import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
 import java.nio.charset.StandardCharsets;
@@ -117,6 +118,8 @@ public class BackwardSyncContextTest {
   @Mock(answer = Answers.RETURNS_DEEP_STUBS)
   private ProtocolContext protocolContext;
 
+  private final BadBlockManager badBlockManager = new BadBlockManager();
+
   @Mock(answer = Answers.RETURNS_DEEP_STUBS)
   private MetricsSystem metricsSystem;
 
@@ -157,6 +160,7 @@ public class BackwardSyncContextTest {
       }
     }
     when(protocolContext.getBlockchain()).thenReturn(localBlockchain);
+    when(protocolContext.getBadBlockManager()).thenReturn(badBlockManager);
     EthProtocolManager ethProtocolManager =
         EthProtocolManagerTestBuilder.builder()
             .setProtocolSchedule(protocolSchedule)
@@ -463,6 +467,8 @@ public class BackwardSyncContextTest {
 
     doReturn(blockValidator).when(context).getBlockValidatorForBlock(any());
     BlockProcessingResult result = new BlockProcessingResult("custom error");
+    // the validator records an invalid block as bad
+    badBlockManager.addBadBlock(block, BadBlockCause.fromValidationFailure("custom error"));
     doReturn(result).when(blockValidator).validateAndProcessBlock(any(), any(), any(), any());
 
     assertThatThrownBy(() -> context.saveBlock(block))
@@ -472,6 +478,30 @@ public class BackwardSyncContextTest {
     verify(badChainListener)
         .onBadChain(
             block, Collections.emptyList(), List.of(childBlockHeader, grandChildBlockHeader));
+  }
+
+  @Test
+  public void shouldNotEmitBadChainEventWhenFailedBlockIsNotRecordedAsBad() {
+    Block block = Mockito.mock(Block.class);
+    BlockHeader blockHeader = Mockito.mock(BlockHeader.class);
+    when(block.getHash()).thenReturn(Hash.fromHexStringLenient("0x42"));
+    when(blockHeader.getHash()).thenReturn(Hash.fromHexStringLenient("0x42"));
+    BadChainListener badChainListener = Mockito.mock(BadChainListener.class);
+    context.subscribeBadChainListener(badChainListener);
+
+    backwardChain.clear();
+    backwardChain.prependAncestorsHeader(
+        remoteBlockchain.getBlockByNumber(LOCAL_HEIGHT + 1).get().getHeader());
+    backwardChain.prependAncestorsHeader(blockHeader);
+
+    doReturn(blockValidator).when(context).getBlockValidatorForBlock(any());
+    BlockProcessingResult result =
+        new BlockProcessingResult(Optional.empty(), new StorageException("database bedlam"));
+    doReturn(result).when(blockValidator).validateAndProcessBlock(any(), any(), any(), any());
+
+    assertThatThrownBy(() -> context.saveBlock(block)).isInstanceOf(BackwardSyncException.class);
+
+    verify(badChainListener, never()).onBadChain(any(), any(), any());
   }
 
   @Test
@@ -493,6 +523,8 @@ public class BackwardSyncContextTest {
 
     doReturn(blockValidator).when(context).getBlockValidatorForBlock(any());
     BlockProcessingResult result = new BlockProcessingResult("custom error");
+    // the validator records an invalid block as bad
+    badBlockManager.addBadBlock(block, BadBlockCause.fromValidationFailure("custom error"));
     doReturn(result).when(blockValidator).validateAndProcessBlock(any(), any(), any(), any());
 
     assertThatThrownBy(() -> context.saveBlock(block))
@@ -528,6 +560,8 @@ public class BackwardSyncContextTest {
 
     doReturn(blockValidator).when(context).getBlockValidatorForBlock(any());
     BlockProcessingResult result = new BlockProcessingResult("custom error");
+    // the validator records an invalid block as bad
+    badBlockManager.addBadBlock(block, BadBlockCause.fromValidationFailure("custom error"));
     doReturn(result).when(blockValidator).validateAndProcessBlock(any(), any(), any(), any());
 
     assertThatThrownBy(() -> context.saveBlock(block))
@@ -538,41 +572,6 @@ public class BackwardSyncContextTest {
     verify(badChainListener)
         .onBadChain(eq(block), badBlockDescendants.capture(), eq(Collections.emptyList()));
     assertThat(badBlockDescendants.getValue()).hasSize(TEST_MAX_BAD_CHAIN_EVENT_ENTRIES);
-  }
-
-  @Test
-  public void shouldNotReexecuteKnownBadBlock() {
-    final BadBlockManager badBlockManager = new BadBlockManager();
-    when(protocolContext.getBadBlockManager()).thenReturn(badBlockManager);
-    final Block badBlock = remoteBlockchain.getBlockByNumber(LOCAL_HEIGHT + 1).orElseThrow();
-    badBlockManager.addBadBlock(badBlock, BadBlockCause.fromValidationFailure("custom error"));
-    final BadChainListener badChainListener = Mockito.mock(BadChainListener.class);
-    context.subscribeBadChainListener(badChainListener);
-
-    assertThatThrownBy(() -> context.saveBlock(badBlock))
-        .isInstanceOf(BackwardSyncException.class)
-        .hasMessageContaining("bad block");
-
-    verify(blockValidator, never()).validateAndProcessBlock(any(), any(), any(), any());
-    verify(badChainListener).onBadChain(eq(badBlock), any(), any());
-    assertThat(backwardChain.getFirstAncestorHeader())
-        .contains(remoteBlockchain.getBlockHeader(LOCAL_HEIGHT + 2).orElseThrow());
-  }
-
-  @Test
-  public void shouldMarkChildOfBadBlockAsBadWithoutExecutingIt() {
-    final BadBlockManager badBlockManager = new BadBlockManager();
-    when(protocolContext.getBadBlockManager()).thenReturn(badBlockManager);
-    final Block badParent = remoteBlockchain.getBlockByNumber(LOCAL_HEIGHT + 1).orElseThrow();
-    badBlockManager.addBadBlock(badParent, BadBlockCause.fromValidationFailure("custom error"));
-    final Block child = remoteBlockchain.getBlockByNumber(LOCAL_HEIGHT + 2).orElseThrow();
-
-    assertThatThrownBy(() -> context.saveBlock(child))
-        .isInstanceOf(BackwardSyncException.class)
-        .hasMessageContaining("bad block");
-
-    assertThat(badBlockManager.isBadBlock(child.getHash())).isTrue();
-    verify(blockValidator, never()).validateAndProcessBlock(any(), any(), any(), any());
   }
 
   @Test

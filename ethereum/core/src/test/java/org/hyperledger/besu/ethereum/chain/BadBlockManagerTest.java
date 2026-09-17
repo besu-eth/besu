@@ -39,29 +39,43 @@ public class BadBlockManagerTest {
   final BadBlockManager badBlockManager = new BadBlockManager();
 
   @Test
-  public void isBadBlock_recordsChildOfBadBlockAsBad() {
+  public void checkAndMarkBadDescendant_marksChildOfBadBlockAsBadHeader() {
     final Hash latestValidHash = Hash.fromHexStringLenient("0x1337");
     badBlockManager.addBadBlock(block, BadBlockCause.fromValidationFailure("failed"));
     badBlockManager.addLatestValidHash(block.getHash(), latestValidHash);
 
-    assertThat(badBlockManager.isBadBlock(block2)).isTrue();
-    assertThat(badBlockManager.getBadBlock(block2.getHash())).contains(block2);
+    assertThat(badBlockManager.checkAndMarkBadDescendant(block2.getHeader()))
+        .contains(block.getHeader());
+    assertThat(badBlockManager.getBadBlock(block2.getHash())).isEmpty();
+    assertThat(badBlockManager.getBadHeader(block2.getHash())).contains(block2.getHeader());
     assertThat(badBlockManager.getLatestValidHash(block2.getHash())).contains(latestValidHash);
   }
 
   @Test
-  public void isBadBlock_recordsChildOfBadHeaderAsBad() {
+  public void checkAndMarkBadDescendant_marksChildOfBadHeaderAsBadHeader() {
     badBlockManager.addBadHeader(block.getHeader(), BadBlockCause.fromValidationFailure("failed"));
 
-    assertThat(badBlockManager.isBadBlock(block2)).isTrue();
-    assertThat(badBlockManager.getBadBlock(block2.getHash())).contains(block2);
+    assertThat(badBlockManager.checkAndMarkBadDescendant(block2.getHeader()))
+        .contains(block.getHeader());
+    assertThat(badBlockManager.getBadHeader(block2.getHash())).contains(block2.getHeader());
     assertThat(badBlockManager.getLatestValidHash(block2.getHash())).isEmpty();
   }
 
   @Test
-  public void isBadBlock_falseWhenNeitherBlockNorParentIsBad() {
-    assertThat(badBlockManager.isBadBlock(block2)).isFalse();
+  public void checkAndMarkBadDescendant_doesNotReRecordKnownBadBlock() {
+    badBlockManager.addBadBlock(block, BadBlockCause.fromValidationFailure("failed"));
+    badBlockManager.addBadBlock(block2, BadBlockCause.fromValidationFailure("failed"));
+
+    assertThat(badBlockManager.checkAndMarkBadDescendant(block2.getHeader()))
+        .contains(block.getHeader());
+    assertThat(badBlockManager.getBadHeaders()).isEmpty();
+  }
+
+  @Test
+  public void checkAndMarkBadDescendant_falseWhenNeitherBlockNorParentIsBad() {
+    assertThat(badBlockManager.checkAndMarkBadDescendant(block2.getHeader())).isEmpty();
     assertThat(badBlockManager.getBadBlocks()).isEmpty();
+    assertThat(badBlockManager.getBadHeaders()).isEmpty();
   }
 
   @Test

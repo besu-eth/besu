@@ -101,7 +101,13 @@ public class BadBlockManager {
     return Optional.ofNullable(badBlocks.getIfPresent(hash));
   }
 
-  private Optional<BlockHeader> getBadBlockHeader(final Hash hash) {
+  /**
+   * Return the header of an invalid block, whether the full block or only its header is known
+   *
+   * @param hash of the block
+   * @return the header of an invalid block
+   */
+  public Optional<BlockHeader> getBadHeader(final Hash hash) {
     return getBadBlock(hash)
         .map(Block::getHeader)
         .or(() -> Optional.ofNullable(badHeaders.getIfPresent(hash)));
@@ -118,29 +124,37 @@ public class BadBlockManager {
   }
 
   /**
-   * Check whether a block is bad, either because it is known as bad or because its parent is. A
-   * block whose parent is bad is recorded as bad too, inheriting the parent's latest valid hash.
+   * Record a block as bad because it descends from a bad block. Only the header is kept, the body
+   * of a block that was never executed is not needed to reject its own descendants.
    *
-   * @param block the block to check
-   * @return true if the block is bad
+   * @param descendant the header of the descendant
+   * @param badAncestor the header of the bad ancestor
+   * @param maybeLatestValidHash the latest valid hash of the chain, if known
    */
-  public boolean isBadBlock(final Block block) {
-    if (isBadBlock(block.getHash())) {
-      return true;
+  public void addBadDescendant(
+      final BlockHeader descendant,
+      final BlockHeader badAncestor,
+      final Optional<Hash> maybeLatestValidHash) {
+    addBadHeader(descendant, BadBlockCause.fromBadAncestorHeader(badAncestor));
+    maybeLatestValidHash.ifPresent(
+        latestValidHash -> addLatestValidHash(descendant.getHash(), latestValidHash));
+  }
+
+  /**
+   * Check whether a block descends from a bad block, recording it as a bad descendant that inherits
+   * the parent's latest valid hash if so. Only the direct parent is checked, deeper ancestors are
+   * covered as long as every block in between has been checked.
+   *
+   * @param header the header of the block to check
+   * @return the header of the bad parent, empty if the parent is not known as bad
+   */
+  public Optional<BlockHeader> checkAndMarkBadDescendant(final BlockHeader header) {
+    final Hash parentHash = header.getParentHash();
+    final Optional<BlockHeader> maybeBadParentHeader = getBadHeader(parentHash);
+    if (maybeBadParentHeader.isPresent() && !isBadBlock(header.getHash())) {
+      addBadDescendant(header, maybeBadParentHeader.get(), getLatestValidHash(parentHash));
     }
-
-    // a block extending an invalid chain is invalid too
-    final Hash parentHash = block.getHeader().getParentHash();
-    final Optional<BlockHeader> maybeBadParentHeader = getBadBlockHeader(parentHash);
-    if (maybeBadParentHeader.isEmpty()) {
-      return false;
-    }
-
-    addBadBlock(block, BadBlockCause.fromBadAncestorHeader(maybeBadParentHeader.get()));
-    getLatestValidHash(parentHash)
-        .ifPresent(latestValidHash -> addLatestValidHash(block.getHash(), latestValidHash));
-
-    return true;
+    return maybeBadParentHeader;
   }
 
   public void addLatestValidHash(final Hash blockHash, final Hash latestValidHash) {

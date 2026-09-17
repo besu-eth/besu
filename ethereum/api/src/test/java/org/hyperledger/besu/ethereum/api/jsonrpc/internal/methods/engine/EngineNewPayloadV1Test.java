@@ -227,14 +227,13 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
     badBlockManager.addBadBlock(
         new Block(mockHeader, new BlockBody(emptyList(), emptyList())),
         BadBlockCause.fromValidationFailure("error 42"));
-    when(mergeCoordinator.isBadBlock(any(Block.class))).thenReturn(true);
     when(mergeCoordinator.getLatestValidHashOfBadBlock(mockHeader.getHash()))
         .thenAnswer(invocation -> badBlockManager.getLatestValidHash(mockHeader.getHash()));
 
     final PayloadStatusV1 second = fromSuccessResp(resp(requestParams(payload)));
     assertThat(second.getStatus()).isEqualTo(INVALID);
     assertThat(second.getLatestValidHash()).contains(mockHash);
-    assertThat(second.getError()).isEqualTo("Block already present in bad block manager.");
+    assertThat(second.getError()).isEqualTo("Block is a known bad block.");
   }
 
   @Test
@@ -254,7 +253,7 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
     BlockHeader mockHeader = createBlockHeader(getMinSupportedTimestamp());
     Hash latestValidHash = Hash.hash(Bytes32.fromHexStringLenient("0xcafebabe"));
 
-    when(mergeCoordinator.isBadBlock(any(Block.class))).thenReturn(true);
+    badBlockManager.addBadHeader(mockHeader, BadBlockCause.fromValidationFailure("error 42"));
     when(mergeCoordinator.getLatestValidHashOfBadBlock(mockHeader.getHash()))
         .thenReturn(Optional.of(latestValidHash));
 
@@ -409,13 +408,52 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
 
   @Test
   public void shouldReturnInvalidWhenBadBlock() {
-    when(mergeCoordinator.isBadBlock(any(Block.class))).thenReturn(true);
     BlockHeader mockHeader = createBlockHeader(getMinSupportedTimestamp());
+    badBlockManager.addBadHeader(mockHeader, BadBlockCause.fromValidationFailure("error 42"));
     var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList())));
     PayloadStatusV1 res = fromSuccessResp(resp);
-    assertThat(res.getLatestValidHash()).contains(Hash.ZERO);
+    assertThat(res.getLatestValidHash()).isEmpty();
     assertThat(res.getStatus()).isEqualTo(INVALID);
-    assertThat(res.getError()).isEqualTo("Block already present in bad block manager.");
+    assertThat(res.getError()).isEqualTo("Block is a known bad block.");
+    verify(engineCallListener, times(1)).executionEngineCalled();
+  }
+
+  @Test
+  public void shouldReturnLatestValidAncestorWhenBadBlockHasNoStoredLatestValidHash() {
+    BlockHeader mockHeader = createBlockHeader(getMinSupportedTimestamp());
+    badBlockManager.addBadHeader(mockHeader, BadBlockCause.fromValidationFailure("error 42"));
+    when(mergeCoordinator.getLatestValidAncestor(mockHeader.getParentHash()))
+        .thenReturn(Optional.of(mockHash));
+
+    var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList())));
+
+    PayloadStatusV1 res = fromSuccessResp(resp);
+    assertThat(res.getStatus()).isEqualTo(INVALID);
+    assertThat(res.getLatestValidHash()).contains(mockHash);
+  }
+
+  @Test
+  public void shouldReturnInvalidWhenParentIsBadBlock() {
+    final BlockHeader badParentHeader = createBlockHeader(getMinSupportedTimestamp());
+    final Hash latestValidHash = Hash.hash(Bytes32.fromHexStringLenient("0xcafebabe"));
+    badBlockManager.addBadHeader(badParentHeader, BadBlockCause.fromValidationFailure("error 42"));
+    badBlockManager.addLatestValidHash(badParentHeader.getHash(), latestValidHash);
+    final BlockHeader childHeader =
+        createBlockHeader(
+            getMinSupportedTimestamp() + 1,
+            fixture -> fixture.parentHash(badParentHeader.getHash()));
+    when(mergeCoordinator.getLatestValidHashOfBadBlock(childHeader.getHash()))
+        .thenAnswer(invocation -> badBlockManager.getLatestValidHash(childHeader.getHash()));
+
+    var resp = resp(requestParams(mockEnginePayloadParam(childHeader, emptyList())));
+
+    PayloadStatusV1 res = fromSuccessResp(resp);
+    assertThat(res.getStatus()).isEqualTo(INVALID);
+    assertThat(res.getLatestValidHash()).contains(latestValidHash);
+    assertThat(res.getError())
+        .isEqualTo("Block descends from bad block " + badParentHeader.toLogString());
+    assertThat(badBlockManager.isBadBlock(childHeader.getHash())).isTrue();
+    verify(mergeCoordinator, never()).appendNewPayloadToSync(any());
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 
