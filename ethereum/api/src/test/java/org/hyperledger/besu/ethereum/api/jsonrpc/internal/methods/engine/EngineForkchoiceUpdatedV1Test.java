@@ -475,6 +475,30 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
   }
 
   @Test
+  public void shouldReturnInternalErrorWhenHeadCannotBeSet() {
+    final BlockHeader mockParent = blockHeaderBuilder.number(9L).buildHeader();
+    final BlockHeader mockHeader =
+        setupValidForkchoiceUpdate(bhb -> bhb.number(10L).parentHash(mockParent.getHash()));
+
+    when(mergeCoordinator.updateForkChoice(mockHeader, mockParent.getHash(), mockParent.getHash()))
+        .thenReturn(
+            ForkchoiceResult.withFailure(
+                ForkchoiceResult.Status.INTERNAL_ERROR,
+                "Failed to set new head",
+                Optional.empty()));
+
+    final JsonRpcResponse resp =
+        resp(
+            new ForkchoiceStateV1(
+                mockHeader.getBlockHash(), mockParent.getBlockHash(), mockParent.getBlockHash()),
+            Optional.empty());
+
+    assertThat(resp.getType()).isEqualTo(RpcResponseType.ERROR);
+    assertThat(((JsonRpcErrorResponse) resp).getErrorType()).isEqualTo(RpcErrorType.INTERNAL_ERROR);
+    verify(engineCallListener, times(1)).executionEngineCalled();
+  }
+
+  @Test
   public void shouldReturnValidWithoutFinalizedWithPayload() {
     final BlockHeader mockHeader =
         blockHeaderBuilder.timestamp(getMinSupportedTimestamp()).buildHeader();

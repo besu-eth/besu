@@ -229,8 +229,7 @@ public sealed class EngineForkchoiceUpdatedV1<
     // forkchoiceState and only if the payload referenced by forkchoiceState.headBlockHash is VALID.
     // The processing flow is as follows:
     if (forkchoiceResult.shouldNotProceedToPayloadBuildProcess()) {
-      logFCU(INVALID, forkChoice);
-      return handleNonValidForkchoiceUpdate(requestId, forkchoiceResult);
+      return handleNonValidForkchoiceUpdate(requestId, forkChoice, forkchoiceResult);
     }
 
     PayloadIdentifier payloadId = null;
@@ -404,7 +403,12 @@ public sealed class EngineForkchoiceUpdatedV1<
   }
 
   private JsonRpcResponse handleNonValidForkchoiceUpdate(
-      final Object requestId, final ForkchoiceResult result) {
+      final Object requestId, final ForkchoiceStateV1 forkChoice, final ForkchoiceResult result) {
+    if (result.getStatus() == ForkchoiceResult.Status.INTERNAL_ERROR) {
+      return new JsonRpcErrorResponse(
+          requestId, RpcErrorType.INTERNAL_ERROR, result.getErrorMessage().orElse(null));
+    }
+    logFCU(INVALID, forkChoice);
     final Optional<Hash> latestValid = result.getLatestValid();
     if (result.getStatus() == ForkchoiceResult.Status.INVALID) {
       return new JsonRpcSuccessResponse(

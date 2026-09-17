@@ -903,6 +903,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     assertThat(result.getErrorMessage()).isPresent();
     assertThat(result.getErrorMessage().get())
         .isEqualTo("new head timestamp not greater than parent");
+    assertThat(result.getLatestValid()).contains(parentHeader.getHash());
 
     verify(blockchain, never()).setFinalized(childHeader.getHash());
     verify(mergeContext, never()).setFinalized(childHeader);
@@ -1241,8 +1242,9 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
             block3Header, block1Header.getHash(), block1Header.getHash());
 
     assertThat(result.shouldNotProceedToPayloadBuildProcess()).isTrue();
-    assertThat(result.getStatus()).isEqualTo(ForkchoiceResult.Status.INVALID);
+    assertThat(result.getStatus()).isEqualTo(ForkchoiceResult.Status.INTERNAL_ERROR);
     assertThat(result.getErrorMessage()).isPresent();
+    assertThat(result.getLatestValid()).isEmpty();
 
     assertThat(blockchain.getChainHeadHash()).isEqualTo(block2Header.getHash());
 

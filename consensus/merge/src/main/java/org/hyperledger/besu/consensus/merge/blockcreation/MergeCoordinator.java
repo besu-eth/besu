@@ -15,6 +15,7 @@
 package org.hyperledger.besu.consensus.merge.blockcreation;
 
 import static java.util.stream.Collectors.joining;
+import static org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.ForkchoiceResult.Status.INTERNAL_ERROR;
 import static org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.ForkchoiceResult.Status.INVALID;
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withBlockHeaderAndUpdateNodeHead;
 
@@ -707,20 +708,23 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     final MutableBlockchain blockchain = protocolContext.getBlockchain();
     final Optional<BlockHeader> newFinalized = blockchain.getBlockHeader(finalizedBlockHash);
 
-    final Optional<Hash> latestValid = getLatestValidAncestor(newHead);
-
     // TODO this check should be implicit and already done when newPayload was processed
     Optional<BlockHeader> parentOfNewHead = blockchain.getBlockHeader(newHead.getParentHash());
     if (parentOfNewHead.isPresent()
         && Long.compareUnsigned(newHead.getTimestamp(), parentOfNewHead.get().getTimestamp())
             <= 0) {
       return ForkchoiceResult.withFailure(
-          INVALID, "new head timestamp not greater than parent", latestValid);
+          INVALID,
+          "new head timestamp not greater than parent",
+          getLatestValidAncestor(newHead.getParentHash()));
     }
 
     if (!setNewHead(blockchain, newHead)) {
       LOG.warn("Failed to move world state to new head {}", newHead.toLogString());
-      return ForkchoiceResult.withFailure(INVALID, "Failed to set new head", latestValid);
+      // the head was already validated by newPayload, failing to move to it says nothing about its
+      // validity
+      return ForkchoiceResult.withFailure(
+          INTERNAL_ERROR, "Failed to set new head", Optional.empty());
     }
 
     // set and persist the new finalized block if it is present
