@@ -967,7 +967,8 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     badBlockDescendants.forEach(
         block -> {
           LOG.trace("Add descendant block {} to bad blocks", block.getHash());
-          badBlockManager.addBadBlock(block, BadBlockCause.fromBadAncestorBlock(badBlock));
+          badBlockManager.addBadBlock(
+              block, BadBlockCause.fromBadAncestorHeader(badBlock.getHeader()));
           maybeLatestValidHash.ifPresent(
               latestValidHash ->
                   badBlockManager.addLatestValidHash(block.getHash(), latestValidHash));
@@ -976,7 +977,8 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     badBlockHeaderDescendants.forEach(
         header -> {
           LOG.trace("Add descendant header {} to bad blocks", header.getHash());
-          badBlockManager.addBadHeader(header, BadBlockCause.fromBadAncestorBlock(badBlock));
+          badBlockManager.addBadHeader(
+              header, BadBlockCause.fromBadAncestorHeader(badBlock.getHeader()));
           maybeLatestValidHash.ifPresent(
               latestValidHash ->
                   badBlockManager.addLatestValidHash(header.getHash(), latestValidHash));

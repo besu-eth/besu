@@ -17,7 +17,6 @@ package org.hyperledger.besu.ethereum.chain;
 import static org.hyperledger.besu.plugin.data.BadBlockCause.BadBlockReason.DESCENDS_FROM_BAD_BLOCK;
 import static org.hyperledger.besu.plugin.data.BadBlockCause.BadBlockReason.SPEC_VALIDATION_FAILURE;
 
-import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 
 import com.google.common.base.MoreObjects;
@@ -26,10 +25,6 @@ public class BadBlockCause implements org.hyperledger.besu.plugin.data.BadBlockC
 
   private final BadBlockReason reason;
   private final String description;
-
-  public static BadBlockCause fromBadAncestorBlock(final Block badAncestor) {
-    return fromBadAncestorHeader(badAncestor.getHeader());
-  }
 
   public static BadBlockCause fromBadAncestorHeader(final BlockHeader badAncestor) {
     final String description =
