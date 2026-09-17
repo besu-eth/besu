@@ -40,6 +40,7 @@ import org.bouncycastle.jcajce.provider.asymmetric.ec.KeyPairGeneratorSpi;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.math.ec.ECAlgorithms;
 import org.bouncycastle.math.ec.ECPoint;
+import org.jspecify.annotations.Nullable;
 
 /** The Abstract secp256. */
 public abstract class AbstractSECP256 implements SignatureAlgorithm {
@@ -293,7 +294,7 @@ public abstract class AbstractSECP256 implements SignatureAlgorithm {
    * @param dataHash Hash of the data that was signed.
    * @return An ECKey containing only the public part, or null if recovery wasn't possible.
    */
-  protected BigInteger recoverFromSignature(
+  protected @Nullable BigInteger recoverFromSignature(
       final int recId, final BigInteger r, final BigInteger s, final Bytes32 dataHash) {
     assert (recId >= 0);
     assert (r.signum() >= 0);
