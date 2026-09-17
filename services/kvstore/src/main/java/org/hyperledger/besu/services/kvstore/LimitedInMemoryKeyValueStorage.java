@@ -23,6 +23,7 @@ import org.hyperledger.besu.plugin.services.storage.KeyValueStorageTransaction;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.locks.Lock;
@@ -36,6 +37,7 @@ import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableSet;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.tuweni.bytes.Bytes;
+import org.jspecify.annotations.Nullable;
 
 /**
  * This KeyValueStorage will keep data in memory up to some maximum number of elements. Elements are
@@ -164,19 +166,19 @@ public class LimitedInMemoryKeyValueStorage implements KeyValueStorage {
 
   private class MemoryTransaction implements KeyValueStorageTransaction {
 
-    private Map<Bytes, byte[]> updatedValues = new HashMap<>();
-    private Set<Bytes> removedKeys = new HashSet<>();
+    private @Nullable Map<Bytes, byte[]> updatedValues = new HashMap<>();
+    private @Nullable Set<Bytes> removedKeys = new HashSet<>();
 
     @Override
     public void put(final byte[] key, final byte[] value) {
-      updatedValues.put(Bytes.wrap(key), value);
-      removedKeys.remove(Bytes.wrap(key));
+      Objects.requireNonNull(updatedValues).put(Bytes.wrap(key), value);
+      Objects.requireNonNull(removedKeys).remove(Bytes.wrap(key));
     }
 
     @Override
     public void remove(final byte[] key) {
-      removedKeys.add(Bytes.wrap(key));
-      updatedValues.remove(Bytes.wrap(key));
+      Objects.requireNonNull(removedKeys).add(Bytes.wrap(key));
+      Objects.requireNonNull(updatedValues).remove(Bytes.wrap(key));
     }
 
     @Override
@@ -184,8 +186,8 @@ public class LimitedInMemoryKeyValueStorage implements KeyValueStorage {
       final Lock lock = rwLock.writeLock();
       lock.lock();
       try {
-        storage.putAll(updatedValues);
-        storage.invalidateAll(removedKeys);
+        storage.putAll(Objects.requireNonNull(updatedValues));
+        storage.invalidateAll(Objects.requireNonNull(removedKeys));
         updatedValues = null;
         removedKeys = null;
       } finally {
@@ -200,8 +202,8 @@ public class LimitedInMemoryKeyValueStorage implements KeyValueStorage {
 
     @Override
     public void close() {
-      updatedValues.clear();
-      removedKeys.clear();
+      Objects.requireNonNull(updatedValues).clear();
+      Objects.requireNonNull(removedKeys).clear();
     }
   }
 }
