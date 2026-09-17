@@ -101,6 +101,18 @@ public class BadBlockManager {
     return Optional.ofNullable(badBlocks.getIfPresent(hash));
   }
 
+  /**
+   * Return the header of an invalid block, whether the full block or only its header is known
+   *
+   * @param hash of the block
+   * @return the header of an invalid block
+   */
+  public Optional<BlockHeader> getBadBlockHeader(final Hash hash) {
+    return getBadBlock(hash)
+        .map(Block::getHeader)
+        .or(() -> Optional.ofNullable(badHeaders.getIfPresent(hash)));
+  }
+
   public void addBadHeader(final BlockHeader header, final BadBlockCause cause) {
     LOG.debug("Register bad block header {} with cause: {}", header.toLogString(), cause);
     badHeaders.put(header.getHash(), header);

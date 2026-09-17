@@ -267,6 +267,47 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
   }
 
   @Test
+  public void shouldReturnInvalidWhenParentIsABadBlock() {
+    final BlockHeader badParent = createBlockHeader(getMinSupportedTimestamp() - 1);
+    badBlockManager.addBadBlock(
+        new Block(badParent, new BlockBody(emptyList(), emptyList())),
+        BadBlockCause.fromValidationFailure("error 42"));
+    badBlockManager.addLatestValidHash(badParent.getHash(), mockHash);
+    final BlockHeader mockHeader =
+        createBlockHeader(
+            getMinSupportedTimestamp(), fixture -> fixture.parentHash(badParent.getHash()));
+
+    final PayloadStatusV1 res =
+        fromSuccessResp(resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList()))));
+
+    assertThat(res.getStatus()).isEqualTo(INVALID);
+    assertThat(res.getLatestValidHash()).contains(mockHash);
+    assertThat(res.getError()).isEqualTo("Block descends from a bad block.");
+    assertThat(badBlockManager.isBadBlock(mockHeader.getHash())).isTrue();
+    assertThat(badBlockManager.getLatestValidHash(mockHeader.getHash())).contains(mockHash);
+    verify(mergeCoordinator, never()).appendNewPayloadToSync(any());
+    verify(mergeCoordinator, never()).rememberBlock(any(), any());
+  }
+
+  @Test
+  public void shouldReturnInvalidWhenParentIsABadHeader() {
+    final BlockHeader badParent = createBlockHeader(getMinSupportedTimestamp() - 1);
+    badBlockManager.addBadHeader(badParent, BadBlockCause.fromValidationFailure("error 42"));
+    final BlockHeader mockHeader =
+        createBlockHeader(
+            getMinSupportedTimestamp(), fixture -> fixture.parentHash(badParent.getHash()));
+
+    final PayloadStatusV1 res =
+        fromSuccessResp(resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList()))));
+
+    assertThat(res.getStatus()).isEqualTo(INVALID);
+    assertThat(res.getLatestValidHash()).isEmpty();
+    assertThat(badBlockManager.isBadBlock(mockHeader.getHash())).isTrue();
+    verify(mergeCoordinator, never()).appendNewPayloadToSync(any());
+    verify(mergeCoordinator, never()).rememberBlock(any(), any());
+  }
+
+  @Test
   public void shouldNotReturnInvalidOnStorageException() {
     BlockHeader mockHeader =
         setupPayloadV1(

@@ -19,6 +19,7 @@ import static org.hyperledger.besu.util.FutureUtils.exceptionallyCompose;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.BlockValidator;
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -318,6 +319,23 @@ public class BackwardSyncContext {
   }
 
   protected Void saveBlock(final Block block) {
+    final BadBlockManager badBlockManager = getProtocolContext().getBadBlockManager();
+    final Optional<BlockHeader> maybeBadParentHeader =
+        badBlockManager.getBadBlockHeader(block.getHeader().getParentHash());
+    if (maybeBadParentHeader.isPresent() && !badBlockManager.isBadBlock(block.getHash())) {
+      badBlockManager.addBadBlock(
+          block, BadBlockCause.fromBadAncestorHeader(maybeBadParentHeader.get()));
+    }
+    if (badBlockManager.isBadBlock(block.getHash())) {
+      // re-executing a known bad block cannot succeed and only keeps the session spinning
+      emitBadChainEvent(block);
+      dropBadAncestors();
+      throw new BackwardSyncException(
+          "Cannot save block "
+              + block.toLogString()
+              + " because it is or descends from a bad block");
+    }
+
     LOG.atTrace().setMessage("Going to validate block {}").addArgument(block::toLogString).log();
     var optResult =
         this.getBlockValidatorForBlock(block)
@@ -353,6 +371,7 @@ public class BackwardSyncContext {
             false);
       }
       emitBadChainEvent(block);
+      dropBadAncestors();
       throw new BackwardSyncException(
           "Cannot save block "
               + block.toLogString()
@@ -415,6 +434,16 @@ public class BackwardSyncContext {
 
     badChainListeners.forEach(
         listener -> listener.onBadChain(badBlock, badBlockDescendants, badBlockHeaderDescendants));
+  }
+
+  private void dropBadAncestors() {
+    final BadBlockManager badBlockManager = getProtocolContext().getBadBlockManager();
+    Optional<BlockHeader> maybeFirstAncestor = backwardChain.getFirstAncestorHeader();
+    while (maybeFirstAncestor.isPresent()
+        && badBlockManager.isBadBlock(maybeFirstAncestor.get().getHash())) {
+      backwardChain.dropFirstHeader();
+      maybeFirstAncestor = backwardChain.getFirstAncestorHeader();
+    }
   }
 
   private void logBlockImportProgress(final long currImportedHeight) {
