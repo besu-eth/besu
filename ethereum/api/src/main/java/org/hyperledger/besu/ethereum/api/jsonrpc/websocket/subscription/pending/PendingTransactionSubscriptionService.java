@@ -18,6 +18,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.Subscrip
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.SubscriptionManager;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.request.SubscriptionType;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionAddedListener;
 
 import java.util.List;
@@ -31,8 +32,8 @@ public class PendingTransactionSubscriptionService implements PendingTransaction
   }
 
   @Override
-  public void onTransactionAdded(final Transaction pendingTransaction) {
-    notifySubscribers(pendingTransaction);
+  public void onPendingTransactionAdded(final PendingTransaction pendingTransaction) {
+    notifySubscribers(pendingTransaction.getTransaction());
   }
 
   private void notifySubscribers(final Transaction pendingTransaction) {

@@ -147,9 +147,8 @@ public class TransactionPool implements BlockAddedObserver {
         ethContext.getScheduler().createOrderedProcessor(this::processBlockAddedEvent);
     this.cacheForBlobsOfTransactionsAddedToABlock = blobCache;
     initializeBlobMetrics();
-    subscribePendingTransactions(this::mapBlobsOnTransactionAdded);
-    subscribeDroppedTransactions(
-        (transaction, reason) -> unmapBlobsOnTransactionDropped(transaction));
+    subscribePendingTransactions(ptx -> mapBlobsOnTransactionAdded(ptx.getTransaction()));
+    subscribeDroppedTransactions((ptx, _) -> unmapBlobsOnTransactionDropped(ptx.getTransaction()));
     subscribeDroppedTransactions(transactionBroadcaster);
   }
 
@@ -833,9 +832,7 @@ public class TransactionPool implements BlockAddedObserver {
 
     void subscribe() {
       onAddedListenerId = pendingTransactions.subscribePendingTransactions(this::onAdded);
-      onDroppedListenerId =
-          pendingTransactions.subscribeDroppedTransactions(
-              (transaction, reason) -> onDropped(transaction, reason));
+      onDroppedListenerId = pendingTransactions.subscribeDroppedTransactions(this::onDropped);
     }
 
     void unsubscribe() {
@@ -843,12 +840,14 @@ public class TransactionPool implements BlockAddedObserver {
       pendingTransactions.unsubscribeDroppedTransactions(onDroppedListenerId);
     }
 
-    private void onDropped(final Transaction transaction, final RemovalReason reason) {
-      onDroppedListeners.forEach(listener -> listener.onTransactionDropped(transaction, reason));
+    private void onDropped(
+        final PendingTransaction pendingTransaction, final RemovalReason reason) {
+      onDroppedListeners.forEach(
+          listener -> listener.onPendingTransactionDropped(pendingTransaction, reason));
     }
 
-    private void onAdded(final Transaction transaction) {
-      onAddedListeners.forEach(listener -> listener.onTransactionAdded(transaction));
+    private void onAdded(final PendingTransaction pendingTransaction) {
+      onAddedListeners.forEach(listener -> listener.onPendingTransactionAdded(pendingTransaction));
     }
   }
 

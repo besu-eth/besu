@@ -180,7 +180,8 @@ public class TransactionBroadcaster
   }
 
   @Override
-  public void onTransactionDropped(final Transaction transaction, final RemovalReason reason) {
-    transactionTracker.onTransactionDropped(transaction, reason);
+  public void onPendingTransactionDropped(
+      final PendingTransaction pendingTransaction, final RemovalReason reason) {
+    transactionTracker.onPendingTransactionDropped(pendingTransaction, reason);
   }
 }
