@@ -17,6 +17,7 @@ package org.hyperledger.besu.tests.acceptance.bftsoak;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.config.JsonUtil;
+import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SECP256K1;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.CodeDelegation;
@@ -64,6 +65,17 @@ public class BftMiningSoakTest extends ParameterizedBftTestBase {
 
   private static final long TEN_SECONDS = Duration.of(10, ChronoUnit.SECONDS).toMillis();
 
+  // Block gas limit for the soak test chain, applied at genesis. It must be large enough for the
+  // post-Osaka large-transaction test below
+  private static final long SOAK_BLOCK_GAS_LIMIT = 50_000_000L;
+
+  // Osaka activates the EIP-7825 per-transaction gas limit cap (16,777,216 gas). The BFT
+  // pertxgaslimit genesis option overrides that cap
+  private static final long OSAKA_PER_TX_GAS_LIMIT_OVERRIDE = 40_000_000L;
+
+  // Above the EIP-7825 default cap, below the pertxgaslimit override and the block gas limit.
+  private static final long LARGE_TX_GAS_LIMIT = 30_000_000L;
+
   static int getTestDurationMins() {
     // Use a default soak time of 70 mins
     return Integer.getInteger("acctests.soakTimeMins", 70);
@@ -90,6 +102,14 @@ public class BftMiningSoakTest extends ParameterizedBftTestBase {
     // give to run the soak test results in a time-per-step lower than this then the time
     // needs to be increased.
     assertThat(getTestDurationMins() / NUM_STEPS).isGreaterThanOrEqualTo(3);
+
+    // Pre-generate each node's genesis (the cluster only generates it for nodes that don't
+    // already have one) and raise the block gas limit so the post-Osaka large-transaction test
+    // has room in a block.
+    final List<BesuNode> allNodes = List.of(minerNode1, minerNode2, minerNode3, minerNode4);
+    for (final BesuNode node : allNodes) {
+      raiseGenesisBlockGasLimit(node, allNodes);
+    }
 
     cluster.start(minerNode1, minerNode2, minerNode3, minerNode4);
 
@@ -386,6 +406,10 @@ public class BftMiningSoakTest extends ParameterizedBftTestBase {
                 secp256k1.createKeyPair(
                     secp256k1.createPrivateKey(authorizerPrivateKey.toUnsignedBigInteger())));
 
+    final KeyPair sponsorKeyPair =
+        secp256k1.createKeyPair(
+            secp256k1.createPrivateKey(sponsorPrivateKey.toUnsignedBigInteger()));
+
     final Transaction eip7702Tx =
         Transaction.builder()
             .type(TransactionType.DELEGATE_CODE)
@@ -399,9 +423,7 @@ public class BftMiningSoakTest extends ParameterizedBftTestBase {
             .payload(Bytes.EMPTY)
             .accessList(List.of())
             .codeDelegations(List.of(codeDelegation))
-            .signAndBuild(
-                secp256k1.createKeyPair(
-                    secp256k1.createPrivateKey(sponsorPrivateKey.toUnsignedBigInteger())));
+            .signAndBuild(sponsorKeyPair);
 
     final String eip7702TxHash =
         minerNode1.execute(ethTransactions.sendRawTransaction(eip7702Tx.encoded().toHexString()));
@@ -421,6 +443,60 @@ public class BftMiningSoakTest extends ParameterizedBftTestBase {
     final Bytes expectedDelegationCode =
         Bytes.concatenate(Bytes.fromHexString("ef0100"), delegationTarget.getBytes());
     assertThat(authorizerCode).isEqualTo(expectedDelegationCode);
+
+    // Osaka introduced the EIP-7825 per-transaction gas limit cap (16,777,216 gas). The Osaka
+    // genesis update set the BFT pertxgaslimit option to raise that cap
+    LOG.info(
+        "Submitting a {} gas transaction, above the default Osaka per-transaction cap of ~16.7M",
+        LARGE_TX_GAS_LIMIT);
+    final Transaction largeGasTx =
+        Transaction.builder()
+            .type(TransactionType.EIP1559)
+            .chainId(BigInteger.valueOf(4))
+            .nonce(1)
+            .maxPriorityFeePerGas(Wei.of(1000))
+            .maxFeePerGas(Wei.of(1000))
+            .gasLimit(LARGE_TX_GAS_LIMIT)
+            .to(authorizerAddress)
+            .value(Wei.of(1))
+            .payload(Bytes.EMPTY)
+            .accessList(List.of())
+            .signAndBuild(sponsorKeyPair);
+
+    final String largeGasTxHash =
+        minerNode1.execute(ethTransactions.sendRawTransaction(largeGasTx.encoded().toHexString()));
+
+    Optional<TransactionReceipt> largeGasTxReceipt = Optional.empty();
+    final long largeTxWaitStart = System.currentTimeMillis();
+    while (largeGasTxReceipt.isEmpty() && System.currentTimeMillis() - largeTxWaitStart < 60_000) {
+      Thread.sleep(TEN_SECONDS);
+      largeGasTxReceipt = minerNode1.execute(ethTransactions.getTransactionReceipt(largeGasTxHash));
+    }
+    assertThat(largeGasTxReceipt).isPresent();
+    assertThat(largeGasTxReceipt.get().getStatus()).isEqualTo("0x1");
+
+    // The override should raise the cap, not remove it, so a transaction above pertxgaslimit is
+    // still rejected.
+    LOG.info("Checking a transaction above the overridden per-transaction cap is still rejected");
+    final Transaction overCapTx =
+        Transaction.builder()
+            .type(TransactionType.EIP1559)
+            .chainId(BigInteger.valueOf(4))
+            .nonce(2)
+            .maxPriorityFeePerGas(Wei.of(1000))
+            .maxFeePerGas(Wei.of(1000))
+            .gasLimit(OSAKA_PER_TX_GAS_LIMIT_OVERRIDE + 1)
+            .to(authorizerAddress)
+            .value(Wei.of(1))
+            .payload(Bytes.EMPTY)
+            .accessList(List.of())
+            .signAndBuild(sponsorKeyPair);
+    try {
+      minerNode1.execute(ethTransactions.sendRawTransaction(overCapTx.encoded().toHexString()));
+      Assertions.fail("Transaction above the pertxgaslimit override should have been rejected");
+    } catch (RuntimeException e) {
+      assertThat(e.getMessage()).containsIgnoringCase("gas limit");
+    }
 
     // Archive node test. Check the state of the contract when it was first updated in the test
     LOG.info(
@@ -478,8 +554,22 @@ public class BftMiningSoakTest extends ParameterizedBftTestBase {
           JsonUtil.objectNodeFromString(minerNode.getGenesisConfig().get());
       final ObjectNode config = (ObjectNode) genesisConfigNode.get("config");
       config.put("osakaTime", blockTimestamp);
+      // Osaka activates the EIP-7825 per-transaction gas limit cap (16,777,216 gas). Raise it
+      // via the BFT pertxgaslimit
+      final String bftConfigKey = config.has("qbft") ? "qbft" : "ibft2";
+      ((ObjectNode) config.get(bftConfigKey)).put("pertxgaslimit", OSAKA_PER_TX_GAS_LIMIT_OVERRIDE);
       minerNode.setGenesisConfig(genesisConfigNode.toString());
     }
+  }
+
+  /** Pre-generates the node's genesis and sets the block gas limit */
+  private static void raiseGenesisBlockGasLimit(
+      final BesuNode node, final List<BesuNode> allNodes) {
+    final Optional<String> genesis = node.getGenesisConfigProvider().create(allNodes);
+    assertThat(genesis).isPresent();
+    final ObjectNode genesisNode = JsonUtil.objectNodeFromString(genesis.get());
+    genesisNode.put("gasLimit", "0x" + Long.toHexString(SOAK_BLOCK_GAS_LIMIT));
+    node.setGenesisConfig(genesisNode.toString());
   }
 
   private void upgradeToLondon(
