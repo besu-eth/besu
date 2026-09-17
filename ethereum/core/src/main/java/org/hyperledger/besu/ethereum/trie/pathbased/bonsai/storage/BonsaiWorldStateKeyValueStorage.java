@@ -609,21 +609,25 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
 
     @Override
     public void commit() {
+      trieNodeStrategy.onBeforeCommit(worldStorage, composedWorldStateTransaction);
       trieLogStorageTransaction.commit();
       composedWorldStateTransaction.commit();
     }
 
     public void commitTrieLogOnly() {
+      trieNodeStrategy.onRollback(composedWorldStateTransaction);
       trieLogStorageTransaction.commit();
       composedWorldStateTransaction.close();
     }
 
     public void commitComposedOnly() {
+      trieNodeStrategy.onBeforeCommit(worldStorage, composedWorldStateTransaction);
       composedWorldStateTransaction.commit();
       trieLogStorageTransaction.close();
     }
 
     public void rollback() {
+      trieNodeStrategy.onRollback(composedWorldStateTransaction);
       composedWorldStateTransaction.rollback();
       trieLogStorageTransaction.rollback();
     }
