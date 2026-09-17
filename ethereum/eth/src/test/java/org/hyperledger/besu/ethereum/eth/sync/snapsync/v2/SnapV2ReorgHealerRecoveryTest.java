@@ -16,10 +16,14 @@ package org.hyperledger.besu.ethereum.eth.sync.snapsync.v2;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hyperledger.besu.ethereum.eth.sync.snapsync.v2.ReorgBlockchainBuilder.accountExists;
+import static org.hyperledger.besu.ethereum.eth.sync.snapsync.v2.ReorgBlockchainBuilder.fullAccountRange;
+import static org.hyperledger.besu.ethereum.eth.sync.snapsync.v2.ReorgBlockchainBuilder.readAccount;
+import static org.hyperledger.besu.ethereum.eth.sync.snapsync.v2.ReorgBlockchainBuilder.readCode;
+import static org.hyperledger.besu.ethereum.eth.sync.snapsync.v2.ReorgBlockchainBuilder.readStorageSlot;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
@@ -27,7 +31,6 @@ import org.hyperledger.besu.ethereum.eth.manager.snap.SnapTestServing;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedAccountRangeTracker;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedStorageRangeTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
-import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
@@ -35,7 +38,6 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -158,27 +160,28 @@ class SnapV2ReorgHealerRecoveryTest {
             block2s.getHeader(), newPivotBlock.getHeader(), accountTracker, storageTracker);
 
     // Accounts the canonical fork touched come from the canonical BALs.
-    assertThat(readAccount(ALICE).getBalance()).isEqualTo(Wei.of(80));
-    assertThat(readAccount(FRANK).getBalance()).isEqualTo(Wei.of(140));
-    assertThat(readAccount(GRACE).getBalance()).isEqualTo(Wei.of(50));
+    assertThat(readAccount(localCoordinator, ALICE).getBalance()).isEqualTo(Wei.of(80));
+    assertThat(readAccount(localCoordinator, FRANK).getBalance()).isEqualTo(Wei.of(140));
+    assertThat(readAccount(localCoordinator, GRACE).getBalance()).isEqualTo(Wei.of(50));
     // Untouched by either fork.
-    assertThat(readAccount(BOB).getBalance()).isEqualTo(Wei.of(100));
+    assertThat(readAccount(localCoordinator, BOB).getBalance()).isEqualTo(Wei.of(100));
     // Orphaned-fork-only scalar change: restored by the re-fetch.
-    assertThat(readAccount(DAVE).getBalance()).isEqualTo(Wei.of(75));
+    assertThat(readAccount(localCoordinator, DAVE).getBalance()).isEqualTo(Wei.of(75));
     // Orphaned-fork-only code change: record restored; the code was already local.
-    assertThat(readAccount(CAROL).getCodeHash()).isEqualTo(Hash.hash(CAROL_CODE_W));
-    assertThat(readCode(CAROL)).hasValue(CAROL_CODE_W);
+    assertThat(readAccount(localCoordinator, CAROL).getCodeHash())
+        .isEqualTo(Hash.hash(CAROL_CODE_W));
+    assertThat(readCode(localCoordinator, CAROL)).hasValue(CAROL_CODE_W);
     assertThat(codeFetches).hasValue(0);
 
     // Frank's storage: overlapping slot s1 restored, orphaned-only slot s2 removed,
     // canonical-only slot s3 created by the BALs.
-    assertThat(readStorageSlot(FRANK, S1)).hasValue(UInt256.valueOf(7));
-    assertThat(readStorageSlot(FRANK, S2)).isEmpty();
-    assertThat(readStorageSlot(FRANK, S3)).hasValue(UInt256.valueOf(555));
+    assertThat(readStorageSlot(localCoordinator, FRANK, S1)).hasValue(UInt256.valueOf(7));
+    assertThat(readStorageSlot(localCoordinator, FRANK, S2)).isEmpty();
+    assertThat(readStorageSlot(localCoordinator, FRANK, S3)).hasValue(UInt256.valueOf(555));
 
     // The contract created only on the orphaned fork is deleted with its storage.
-    assertThat(accountExists(NEW_CONTRACT)).isFalse();
-    assertThat(readStorageSlot(NEW_CONTRACT, SN)).isEmpty();
+    assertThat(accountExists(localCoordinator, NEW_CONTRACT)).isFalse();
+    assertThat(readStorageSlot(localCoordinator, NEW_CONTRACT, SN)).isEmpty();
     assertThat(result.deletedAccounts()).containsExactly(NEW_CONTRACT.addressHash());
 
     // Re-fetched surviving accounts report their canonical storage roots.
@@ -235,7 +238,7 @@ class SnapV2ReorgHealerRecoveryTest {
     assertThat(codeFetches).hasValue(0);
     assertThat(result.deletedAccounts()).isEmpty();
     assertThat(result.correctedStorageRoots()).isEmpty();
-    assertThat(readAccount(ALICE).getBalance()).isEqualTo(Wei.of(80));
+    assertThat(readAccount(localCoordinator, ALICE).getBalance()).isEqualTo(Wei.of(80));
     assertThat(worldStateRoot(localCoordinator)).isEqualTo(canonicalRoot);
   }
 
@@ -294,8 +297,8 @@ class SnapV2ReorgHealerRecoveryTest {
                 PETE, Map.of(SP1, UInt256.valueOf(10), SP2, UInt256.valueOf(20))),
             3L);
     applyTo(localCoordinator, 3, 3, accountTracker, storageTracker);
-    assertThat(readStorageSlot(PETE, SP1)).hasValue(UInt256.valueOf(10));
-    assertThat(readStorageSlot(PETE, SP2)).isEmpty();
+    assertThat(readStorageSlot(localCoordinator, PETE, SP1)).hasValue(UInt256.valueOf(10));
+    assertThat(readStorageSlot(localCoordinator, PETE, SP2)).isEmpty();
 
     // Canonical fork: balance only.
     final Block block3c =
@@ -318,9 +321,9 @@ class SnapV2ReorgHealerRecoveryTest {
 
     // Balance from the canonical BAL; the downloaded slot is restored from the re-fetch. sp2 was
     // never downloaded and the canonical fork never touched it, so it is not re-fetched.
-    assertThat(readAccount(PETE).getBalance()).isEqualTo(Wei.of(300));
-    assertThat(readStorageSlot(PETE, SP1)).hasValue(UInt256.valueOf(1));
-    assertThat(readStorageSlot(PETE, SP2)).isEmpty();
+    assertThat(readAccount(localCoordinator, PETE).getBalance()).isEqualTo(Wei.of(300));
+    assertThat(readStorageSlot(localCoordinator, PETE, SP1)).hasValue(UInt256.valueOf(1));
+    assertThat(readStorageSlot(localCoordinator, PETE, SP2)).isEmpty();
     assertThat(accountFetches).hasValue(1);
     assertThat(storageFetches).hasValue(1);
     assertThat(codeFetches).hasValue(0);
@@ -330,7 +333,8 @@ class SnapV2ReorgHealerRecoveryTest {
     // equality is asserted here: the local storage stays incomplete until sp2's chunk arrives
     // via the ongoing download.
     final PmtStateTrieAccountValue canonicalPete = readAccount(canonicalCoordinator, PETE);
-    assertThat(readAccount(PETE).getStorageRoot()).isEqualTo(canonicalPete.getStorageRoot());
+    assertThat(readAccount(localCoordinator, PETE).getStorageRoot())
+        .isEqualTo(canonicalPete.getStorageRoot());
     assertThat(result.deletedAccounts()).isEmpty();
     assertThat(result.correctedStorageRoots())
         .containsEntry(PETE.addressHash(), Bytes32.wrap(canonicalPete.getStorageRoot().getBytes()));
@@ -370,7 +374,7 @@ class SnapV2ReorgHealerRecoveryTest {
             b.balWithStorageChanges(NEW_CONTRACT, Map.of(SN, UInt256.valueOf(5))));
     final Block block2s = b.appendStale(block1.getHeader(), orphanedBal, 2L);
     applyTo(localCoordinator, 2, 2, accountTracker, storageTracker);
-    assertThat(readStorageSlot(NEW_CONTRACT, SN)).hasValue(UInt256.valueOf(5));
+    assertThat(readStorageSlot(localCoordinator, NEW_CONTRACT, SN)).hasValue(UInt256.valueOf(5));
 
     final Block block2c =
         b.appendCanonical(block1.getHeader(), b.balWithBalances(Map.of(ALICE, Wei.of(80))), 2L);
@@ -387,10 +391,10 @@ class SnapV2ReorgHealerRecoveryTest {
         healer.recoverFromReorg(
             block2s.getHeader(), newPivotBlock.getHeader(), accountTracker, storageTracker);
 
-    assertThat(accountExists(NEW_CONTRACT)).isFalse();
-    assertThat(readStorageSlot(NEW_CONTRACT, SN)).isEmpty();
+    assertThat(accountExists(localCoordinator, NEW_CONTRACT)).isFalse();
+    assertThat(readStorageSlot(localCoordinator, NEW_CONTRACT, SN)).isEmpty();
     assertThat(result.deletedAccounts()).containsExactly(NEW_CONTRACT.addressHash());
-    assertThat(readAccount(ALICE).getBalance()).isEqualTo(Wei.of(80));
+    assertThat(readAccount(localCoordinator, ALICE).getBalance()).isEqualTo(Wei.of(80));
     assertThat(worldStateRoot(localCoordinator)).isEqualTo(canonicalRoot);
   }
 
@@ -476,48 +480,5 @@ class SnapV2ReorgHealerRecoveryTest {
 
   private static Hash worldStateRoot(final WorldStateStorageCoordinator coordinator) {
     return coordinator.getTrieNodeUnsafe(Bytes.EMPTY).map(Hash::hash).orElse(Hash.EMPTY_TRIE_HASH);
-  }
-
-  private static DownloadedAccountRangeTracker fullAccountRange() {
-    final DownloadedAccountRangeTracker tracker = new DownloadedAccountRangeTracker();
-    tracker.registerPending(Bytes32.ZERO, MAX_KEY, 0);
-    return tracker;
-  }
-
-  private PmtStateTrieAccountValue readAccount(final Address address) {
-    return readAccount(localCoordinator, address);
-  }
-
-  private static PmtStateTrieAccountValue readAccount(
-      final WorldStateStorageCoordinator coordinator, final Address address) {
-    return PmtStateTrieAccountValue.readFrom(
-        RLP.input(readAccountBytes(coordinator, address).orElseThrow()));
-  }
-
-  private boolean accountExists(final Address address) {
-    return readAccountBytes(localCoordinator, address).isPresent();
-  }
-
-  private static Optional<Bytes> readAccountBytes(
-      final WorldStateStorageCoordinator coordinator, final Address address) {
-    return coordinator.applyForStrategy(
-        bonsai -> bonsai.getAccount(address.addressHash()), forest -> Optional.<Bytes>empty());
-  }
-
-  private Optional<UInt256> readStorageSlot(final Address address, final UInt256 slotKey) {
-    return localCoordinator
-        .applyForStrategy(
-            bonsai ->
-                bonsai.getStorageValueByStorageSlotKey(
-                    address.addressHash(), new StorageSlotKey(slotKey)),
-            forest -> Optional.<Bytes>empty())
-        .map(UInt256::fromBytes);
-  }
-
-  private Optional<Bytes> readCode(final Address address) {
-    final PmtStateTrieAccountValue account = readAccount(address);
-    return localCoordinator.applyForStrategy(
-        bonsai -> bonsai.getCode(account.getCodeHash(), address.addressHash()),
-        forest -> Optional.<Bytes>empty());
   }
 }
