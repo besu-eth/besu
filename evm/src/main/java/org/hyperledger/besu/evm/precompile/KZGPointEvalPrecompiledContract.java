@@ -146,12 +146,14 @@ public class KZGPointEvalPrecompiledContract implements PrecompiledContract {
                   PRECOMPILE_NAME, AbstractPrecompiledContract.CacheMetric.HIT));
           return res.cachedResult();
         } else {
-          LOG.debug(
-              "false positive kzgPointEval {}, cache key {}, cached input: {}, input: {}",
-              input.getClass().getSimpleName(),
-              cacheKey,
-              res.cachedInput().toHexString(),
-              input.toHexString());
+          if (LOG.isDebugEnabled()) {
+            LOG.debug(
+                "false positive kzgPointEval {}, cache key {}, cached input: {}, input: {}",
+                input.getClass().getSimpleName(),
+                cacheKey,
+                res.cachedInput().toHexString(),
+                input.toHexString());
+          }
 
           cacheEventConsumer.accept(
               new AbstractPrecompiledContract.CacheEvent(

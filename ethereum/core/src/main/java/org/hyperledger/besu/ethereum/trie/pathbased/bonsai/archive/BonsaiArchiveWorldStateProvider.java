@@ -195,8 +195,11 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
   // back the state root, block hash and block number
   protected Optional<MutableWorldState> rollMutableArchiveStateToBlockHash(
       final PathBasedWorldState mutableState, final Hash blockHash) {
-    LOG.trace(
-        "Rolling mutable archive world state to block hash {}", blockHash.getBytes().toHexString());
+    if (LOG.isTraceEnabled()) {
+      LOG.trace(
+          "Rolling mutable archive world state to block hash {}",
+          blockHash.getBytes().toHexString());
+    }
     try {
       // Simply persist the block hash/number and state root for this archive state
       mutableState.persist(blockchain.getBlockHeader(blockHash).get());

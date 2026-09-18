@@ -129,13 +129,15 @@ public abstract class AbstractBLS12PrecompiledContract implements PrecompiledCon
                   name, AbstractPrecompiledContract.CacheMetric.HIT));
           return res.cachedResult();
         } else {
-          LOG.debug(
-              "false positive {} {}, cache key {}, cached input: {}, input: {}",
-              name,
-              input.getClass().getSimpleName(),
-              cacheKey,
-              res.cachedInput().toHexString(),
-              cachedInput.toHexString());
+          if (LOG.isDebugEnabled()) {
+            LOG.debug(
+                "false positive {} {}, cache key {}, cached input: {}, input: {}",
+                name,
+                input.getClass().getSimpleName(),
+                cacheKey,
+                res.cachedInput().toHexString(),
+                cachedInput.toHexString());
+          }
 
           cacheEventConsumer.accept(
               new AbstractPrecompiledContract.CacheEvent(
