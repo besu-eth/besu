@@ -42,6 +42,7 @@
 - A block carrying a transaction whose gas limit exceeds the block's is now rejected for that, rather than reported as an EIP-7928 block access list failure. The access list item budget is checked before the block runs, so it pre-empted the gas error. [#11195](https://github.com/besu-eth/besu/pull/11195)
 
 ### Additions and Improvements
+- Add `debug_getModifiedAccountsByNumber` and `debug_getModifiedAccountsByHash` JSON-RPC methods. [#11323](https://github.com/besu-eth/besu/pull/11323)
 - Implement native `callTracer` execution tracing, reducing memory use for `debug_trace*`. [#11077](https://github.com/besu-eth/besu/pull/11077)
 - Implement native `4byteTracer` execution tracing, reducing memory use for `debug_trace*`. [#11271](https://github.com/besu-eth/besu/pull/11271)
 - Add `flatCallTracer` for `debug_trace*` methods, matching geth output. [#11273](https://github.com/besu-eth/besu/pull/11273)
