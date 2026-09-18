@@ -187,6 +187,7 @@ public class QbftProtocolScheduleBuilder extends BaseBftProtocolScheduleBuilder 
             ? Duration.ofMillis(qbftConfigOptions.getBlockPeriodMilliseconds())
             : Duration.ofSeconds(qbftConfigOptions.getBlockPeriodSeconds()),
         qbftConfigOptions.isValidatorContractMode(),
+        qbftConfigOptions.isGoQuorumCompatibilityMode(),
         baseFeeMarket);
   }
 }

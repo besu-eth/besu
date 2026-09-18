@@ -47,30 +47,41 @@ public class QbftBlockHeaderValidationRulesetFactory {
    *
    * @param minimumTimeBetweenBlocks the minimum amount of time that must elapse between blocks.
    * @param useValidatorContract whether validator selection is using a validator contract
+   * @param isGoQuorumCompatibilityMode whether GoQuorum compatibility mode is enabled, in which
+   *     case the block gas-limit range and delta validation is skipped.
    * @param baseFeeMarket an {@link Optional} wrapping {@link BaseFeeMarket} class if appropriate.
    * @return BlockHeaderValidator configured for assessing bft block headers
    */
   public static BlockHeaderValidator.Builder blockHeaderValidator(
       final Duration minimumTimeBetweenBlocks,
       final boolean useValidatorContract,
+      final boolean isGoQuorumCompatibilityMode,
       final Optional<BaseFeeMarket> baseFeeMarket) {
     BlockHeaderValidator.Builder ruleBuilder =
         new BlockHeaderValidator.Builder()
             .addRule(new AncestryValidationRule())
-            .addRule(new GasUsageValidationRule())
-            .addRule(
-                new GasLimitRangeAndDeltaValidationRule(
-                    DEFAULT_MIN_GAS_LIMIT, DEFAULT_MAX_GAS_LIMIT, baseFeeMarket))
-            .addRule(new TimestampBoundedByFutureParameter(1))
-            .addRule(
-                new ConstantFieldValidationRule<>(
-                    "MixHash", BlockHeader::getMixHash, BftHelpers.EXPECTED_MIX_HASH))
-            .addRule(
-                new ConstantFieldValidationRule<>(
-                    "Difficulty", BlockHeader::getDifficulty, UInt256.ONE))
-            .addRule(new QbftValidatorsValidationRule(useValidatorContract))
-            .addRule(new BftCoinbaseValidationRule())
-            .addRule(new BftCommitSealsValidationRule());
+            .addRule(new GasUsageValidationRule());
+
+    // GoQuorum's QBFT permits proposers to change the gas limit by an arbitrary amount per block,
+    // so in goQuorum compatibility mode we skip Besu's gas-limit range and delta validation to
+    // allow such chains to be imported (see issue #10723).
+    if (!isGoQuorumCompatibilityMode) {
+      ruleBuilder.addRule(
+          new GasLimitRangeAndDeltaValidationRule(
+              DEFAULT_MIN_GAS_LIMIT, DEFAULT_MAX_GAS_LIMIT, baseFeeMarket));
+    }
+
+    ruleBuilder
+        .addRule(new TimestampBoundedByFutureParameter(1))
+        .addRule(
+            new ConstantFieldValidationRule<>(
+                "MixHash", BlockHeader::getMixHash, BftHelpers.EXPECTED_MIX_HASH))
+        .addRule(
+            new ConstantFieldValidationRule<>(
+                "Difficulty", BlockHeader::getDifficulty, UInt256.ONE))
+        .addRule(new QbftValidatorsValidationRule(useValidatorContract))
+        .addRule(new BftCoinbaseValidationRule())
+        .addRule(new BftCommitSealsValidationRule());
 
     // Currently the minimum acceptable time between blocks is 1 second. The timestamp of an
     // Ethereum header is stored as seconds since Unix epoch so blocks being produced more
