@@ -32,14 +32,15 @@ import org.openjdk.jmh.annotations.Warmup;
 import org.openjdk.jmh.infra.Blackhole;
 
 @State(Scope.Thread)
-@Warmup(iterations = 2, time = 1, timeUnit = TimeUnit.SECONDS)
+@Warmup(iterations = 3, time = 1, timeUnit = TimeUnit.SECONDS)
 @OutputTimeUnit(value = TimeUnit.NANOSECONDS)
 @Measurement(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
 @BenchmarkMode(Mode.AverageTime)
-public abstract class UnaryOperationBenchmark {
-
+public abstract class BinaryOperationNoPushBenchmark {
   protected static final int SAMPLE_SIZE = 30_000;
+
   protected Bytes[] aPool;
+  protected Bytes[] bPool;
   protected int index;
   protected MessageFrame frame;
 
@@ -47,15 +48,19 @@ public abstract class UnaryOperationBenchmark {
   public void setUp() {
     frame = BenchmarkHelper.createMessageCallFrame();
     aPool = new Bytes[SAMPLE_SIZE];
+    bPool = new Bytes[SAMPLE_SIZE];
     BenchmarkHelper.fillPool(aPool);
+    BenchmarkHelper.fillPool(bPool);
     index = 0;
   }
 
   @Benchmark
   public void executeOperation(final Blackhole blackhole) {
+    frame.pushStackItem(bPool[index]);
     frame.pushStackItem(aPool[index]);
+
     blackhole.consume(invoke(frame));
-    frame.popStackItem();
+
     index = (index + 1) % SAMPLE_SIZE;
   }
 

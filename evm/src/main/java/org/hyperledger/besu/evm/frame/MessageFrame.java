@@ -28,6 +28,7 @@ import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.internal.MemoryEntry;
 import org.hyperledger.besu.evm.internal.OperandStack;
 import org.hyperledger.besu.evm.internal.StorageEntry;
+import org.hyperledger.besu.evm.internal.TransientStorageKey;
 import org.hyperledger.besu.evm.internal.UnderflowException;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
@@ -35,16 +36,15 @@ import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.TreeSet;
 import java.util.function.Consumer;
 
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
-import com.google.common.collect.Table;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.bytes.MutableBytes;
@@ -1180,7 +1180,7 @@ public class MessageFrame {
    * @return true if the storage slot was already warmed up
    */
   public boolean warmUpStorage(final Address address, final Bytes32 slot) {
-    return txValues.warmedUpStorage().put(address, slot, Boolean.TRUE) != null;
+    return !txValues.warmedUpStorage().add(new TransientStorageKey(address, slot));
   }
 
   /**
@@ -1454,7 +1454,7 @@ public class MessageFrame {
    *
    * @return the warmed up storage
    */
-  public Table<Address, Bytes32, Boolean> getWarmedUpStorage() {
+  public UndoSet<TransientStorageKey> getWarmedUpStorage() {
     return txValues.warmedUpStorage();
   }
 
@@ -1484,7 +1484,7 @@ public class MessageFrame {
    * @return the data value read
    */
   public Bytes32 getTransientStorageValue(final Address accountAddress, final Bytes32 slot) {
-    Bytes32 v = txValues.transientStorage().get(accountAddress, slot);
+    Bytes32 v = txValues.transientStorage().get(new TransientStorageKey(accountAddress, slot));
     return v == null ? Bytes32.ZERO : v;
   }
 
@@ -1497,7 +1497,7 @@ public class MessageFrame {
    */
   public void setTransientStorageValue(
       final Address accountAddress, final Bytes32 slot, final Bytes32 value) {
-    txValues.transientStorage().put(accountAddress, slot, value);
+    txValues.transientStorage().put(new TransientStorageKey(accountAddress, slot), value);
   }
 
   /** Undo all the changes done by this message frame, such as when a revert is called for. */
@@ -1923,11 +1923,7 @@ public class MessageFrame {
       TxValues newTxValues;
 
       if (parentMessageFrame == null) {
-        // A TreeSet (sorted by Address's natural ordering) is used instead of a HashSet:
-        // Address's hashCode() is a grindable base-31 hash with no direct Comparable<Address>
-        // declaration, so HashMap/HashSet bucket treeification never engages, letting an
-        // attacker force O(n) bucket walks per insert.
-        TreeSet<Address> warmedUpAddresses = new TreeSet<>();
+        HashSet<Address> warmedUpAddresses = new HashSet<>();
         warmedUpAddresses.add(contract);
         newTxValues =
             TxValues.forTransaction(

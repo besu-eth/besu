@@ -213,7 +213,8 @@ class LogRollingTests {
     assertKeyValueStorageEqual(trieBranchStorage, secondTrieBranchStorage);
     // trie logs won't be the same, we shouldn't generate logs on rolls.
     assertKeyValueSubset(trieLogStorage, secondTrieLogStorage);
-    assertThat(secondWorldState.rootHash()).isEqualByComparingTo(worldState.rootHash());
+    assertThat(secondWorldState.rootHash().getBytes())
+        .isEqualByComparingTo(worldState.rootHash().getBytes());
   }
 
   @Test
@@ -274,7 +275,8 @@ class LogRollingTests {
     assertKeyValueStorageEqual(trieBranchStorage, secondTrieBranchStorage);
     // trie logs won't be the same, we shouldn't generate logs on rolls.
     assertKeyValueSubset(trieLogStorage, secondTrieLogStorage);
-    assertThat(secondWorldState.rootHash()).isEqualByComparingTo(worldState.rootHash());
+    assertThat(secondWorldState.rootHash().getBytes())
+        .isEqualByComparingTo(worldState.rootHash().getBytes());
   }
 
   @Test
@@ -339,7 +341,8 @@ class LogRollingTests {
     assertKeyValueStorageEqual(trieBranchStorage, secondTrieBranchStorage);
     // trie logs won't be the same, we don't delete the roll back log
     assertKeyValueSubset(trieLogStorage, secondTrieLogStorage);
-    assertThat(secondWorldState.rootHash()).isEqualByComparingTo(worldState.rootHash());
+    assertThat(secondWorldState.rootHash().getBytes())
+        .isEqualByComparingTo(worldState.rootHash().getBytes());
   }
 
   private TrieLogLayer getTrieLogLayer(final KeyValueStorage storage, final Hash key) {
