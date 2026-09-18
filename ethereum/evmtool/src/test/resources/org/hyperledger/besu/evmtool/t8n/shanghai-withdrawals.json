@@ -73,7 +73,7 @@
       "rejected": [
         {
           "index": 0,
-          "error": "transaction up-front cost 0x1319718a5000 exceeds transaction sender account balance 0x0 for sender 0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b"
+          "error": "transaction up-front gas cost 0x1319718a5000 exceeds transaction sender account balance 0x0 for sender 0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b"
         }
       ],
       "currentDifficulty": null,

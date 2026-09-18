@@ -21,7 +21,7 @@
       "id": 4,
       "error": {
         "code": -32004,
-        "message": "Upfront cost exceeds account balance (transaction up-front cost 0x340ab63a021fc9aa exceeds transaction sender account balance 0x340ab63a021fc9a9 for sender 0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b)"
+        "message": "Insufficient funds for transfer (transfer value 0x340ab63a021fc9aa exceeds transaction sender account balance 0x340ab63a021fc9a9 for sender 0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b)"
       }
     }
   ],

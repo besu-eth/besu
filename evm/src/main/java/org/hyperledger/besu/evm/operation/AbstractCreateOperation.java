@@ -134,7 +134,7 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
       targetExists = existingTarget != null && !existingTarget.isEmpty();
     }
 
-    // EIP-8037: regular gas is deducted before state gas is charged (ordering requirement).
+    // EIP-8037: execution gas is deducted before state gas is charged (ordering requirement).
     frame.decrementRemainingGas(cost);
     if (!targetExists && !frame.consumeStateGas(stateGasCalc.newContractStateGas())) {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
@@ -161,7 +161,7 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
    * @param codeSupplier a supplier for the initcode, if needed for costing
    * @return the long
    */
-  protected abstract long cost(final MessageFrame frame, Supplier<Code> codeSupplier);
+  public abstract long cost(final MessageFrame frame, Supplier<Code> codeSupplier);
 
   /**
    * Target contract address.
@@ -188,7 +188,7 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
    * @param frame the message frame the operation executed in
    * @return the requested initcode size
    */
-  protected long getInputSize(final MessageFrame frame) {
+  public long getInputSize(final MessageFrame frame) {
     return clampedToLong(frame.getStackItem(2));
   }
 

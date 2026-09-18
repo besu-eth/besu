@@ -17,10 +17,10 @@ package org.hyperledger.besu.ethereum.mainnet.parallelization;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.account.PathBasedAccount;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedValue;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.preload.StorageConsumingMap;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiValue;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.StorageConsumingMap;
 
 import java.util.HashSet;
 import java.util.Objects;
@@ -55,7 +55,7 @@ public class TransactionCollisionDetector {
       final Transaction transaction,
       final Address miningBeneficiary,
       final ParallelizedTransactionContext parallelizedTransactionContext,
-      final PathBasedWorldStateUpdateAccumulator<? extends PathBasedAccount> blockAccumulator) {
+      final PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount> blockAccumulator) {
     final Set<Address> addressesTouchedByTransaction =
         getAddressesTouchedByTransaction(
             transaction, Optional.of(parallelizedTransactionContext.transactionAccumulator()));
@@ -138,7 +138,7 @@ public class TransactionCollisionDetector {
     HashSet<StorageSlotKey> slots = new HashSet<>();
     accumulator.ifPresent(
         pathBasedWorldStateUpdateAccumulator -> {
-          final StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>> map =
+          final StorageConsumingMap<StorageSlotKey, BonsaiValue<UInt256>> map =
               pathBasedWorldStateUpdateAccumulator.getStorageToUpdate().get(address);
           if (map != null) {
             map.forEach(
@@ -170,12 +170,12 @@ public class TransactionCollisionDetector {
    */
   private Optional<AccountUpdateContext> getAddressTouchedByBlock(
       final Address addressToFind,
-      final Optional<PathBasedWorldStateUpdateAccumulator<? extends PathBasedAccount>>
+      final Optional<PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount>>
           maybeBlockAccumulator) {
     if (maybeBlockAccumulator.isPresent()) {
-      final PathBasedWorldStateUpdateAccumulator<? extends PathBasedAccount> blockAccumulator =
+      final PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount> blockAccumulator =
           maybeBlockAccumulator.get();
-      final PathBasedValue<? extends PathBasedAccount> pathBasedValue =
+      final BonsaiValue<? extends BonsaiAccount> pathBasedValue =
           blockAccumulator.getAccountsToUpdate().get(addressToFind);
       if (pathBasedValue != null) {
         return Optional.of(
@@ -207,7 +207,7 @@ public class TransactionCollisionDetector {
     HashSet<StorageSlotKey> slots = new HashSet<>();
     accumulator.ifPresent(
         pathBasedWorldStateUpdateAccumulator -> {
-          final StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>> map =
+          final StorageConsumingMap<StorageSlotKey, BonsaiValue<UInt256>> map =
               pathBasedWorldStateUpdateAccumulator.getStorageToUpdate().get(address);
           if (map != null) {
             map.forEach(
@@ -235,7 +235,7 @@ public class TransactionCollisionDetector {
    * @return true if the account state properties are equal excluding storage, false otherwise.
    */
   private boolean areAccountDetailsEqualExcludingStorage(
-      final PathBasedAccount prior, final PathBasedAccount next) {
+      final BonsaiAccount prior, final BonsaiAccount next) {
     return (prior == null && next == null)
         || (prior != null
             && next != null

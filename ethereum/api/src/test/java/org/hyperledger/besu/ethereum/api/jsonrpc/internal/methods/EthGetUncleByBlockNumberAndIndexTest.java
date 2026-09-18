@@ -36,7 +36,6 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
-import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 
@@ -125,7 +124,7 @@ public class EthGetUncleByBlockNumberAndIndexTest {
     final Block block =
         new Block(header, new BlockBody(Collections.emptyList(), Collections.emptyList()));
     return new BlockResult(
-        header, Collections.emptyList(), Collections.emptyList(), Difficulty.ZERO, block.getSize());
+        header, Collections.emptyList(), Collections.emptyList(), block.getSize());
   }
 
   private JsonRpcRequestContext getUncleByBlockNumberAndIndex(final Object[] params) {

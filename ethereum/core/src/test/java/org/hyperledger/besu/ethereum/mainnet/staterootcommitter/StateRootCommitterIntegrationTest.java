@@ -15,7 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet.staterootcommitter;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig.createStatefulConfigWithTrie;
+import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateConfig.createStatefulConfigWithTrie;
 
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.datatypes.Address;
@@ -48,16 +48,16 @@ import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
 import org.hyperledger.besu.ethereum.storage.keyvalue.WorldStatePreimageKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.forest.worldview.ForestMutableWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.BonsaiTrieLogFactory;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogLayer;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogLayer;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
@@ -633,7 +633,7 @@ class StateRootCommitterIntegrationTest {
                       ImmutableBalConfiguration.builder().build(),
                       new NoOpMetricsSystem())
                   .createProtocolSchedule(),
-              new PathBasedCodeCache());
+              new BonsaiCodeCache());
       final MutableBlockchain blockchain =
           InMemoryKeyValueStorageProvider.createInMemoryBlockchain(genesisState.getBlock());
 
@@ -647,12 +647,11 @@ class StateRootCommitterIntegrationTest {
           new BonsaiWorldStateProvider(
               bonsaiKv,
               blockchain,
-              DataStorageConfiguration.DEFAULT_BONSAI_CONFIG
-                  .getPathBasedExtraStorageConfiguration(),
+              DataStorageConfiguration.DEFAULT_BONSAI_CONFIG.getExtraStorageConfiguration(),
               new BonsaiCachedMerkleTrieLoader(new NoOpMetricsSystem()),
               null,
               EvmConfiguration.DEFAULT,
-              new PathBasedCodeCache());
+              new BonsaiCodeCache());
       genesisState.writeStateTo(bonsaiArchive.getWorldState());
 
       final BonsaiWorldState bonsaiWorldState =
@@ -661,7 +660,7 @@ class StateRootCommitterIntegrationTest {
               bonsaiKv,
               EvmConfiguration.DEFAULT,
               createStatefulConfigWithTrie(),
-              new PathBasedCodeCache());
+              new BonsaiCodeCache());
 
       final InMemoryKeyValueStorageProvider forestProvider = new InMemoryKeyValueStorageProvider();
       final ForestMutableWorldState forestWorldState =
@@ -905,8 +904,7 @@ class StateRootCommitterIntegrationTest {
                   new NoOpMetricsSystem())
               .createProtocolSchedule();
       final GenesisState genesisState =
-          GenesisState.fromConfig(
-              GenesisConfig.mainnet(), protocolSchedule, new PathBasedCodeCache());
+          GenesisState.fromConfig(GenesisConfig.mainnet(), protocolSchedule, new BonsaiCodeCache());
       final MutableBlockchain blockchain =
           InMemoryKeyValueStorageProvider.createInMemoryBlockchain(genesisState.getBlock());
       final BonsaiWorldStateKeyValueStorage kvStorage =
@@ -916,12 +914,11 @@ class StateRootCommitterIntegrationTest {
           new BonsaiWorldStateProvider(
               kvStorage,
               blockchain,
-              DataStorageConfiguration.DEFAULT_BONSAI_CONFIG
-                  .getPathBasedExtraStorageConfiguration(),
+              DataStorageConfiguration.DEFAULT_BONSAI_CONFIG.getExtraStorageConfiguration(),
               new BonsaiCachedMerkleTrieLoader(new NoOpMetricsSystem()),
               null,
               EvmConfiguration.DEFAULT,
-              new PathBasedCodeCache());
+              new BonsaiCodeCache());
       genesisState.writeStateTo(archive.getWorldState());
       final ProtocolContext protocolContext =
           new ProtocolContext.Builder()

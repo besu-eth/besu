@@ -62,29 +62,12 @@ public class TransactionTraceParamsTest {
   }
 
   @Test
-  public void nonOpcodeTracerShouldEnableMemoryByDefault() throws Exception {
-    // Non-opcode tracers (e.g. callTracer) need memory for internal operations
-    // such as extracting CREATE init code, so memory should be enabled by default
+  public void nonOpcodeTracerLeavesMemoryDisabledByDefault() throws Exception {
+    // Native tracers (callTracer, prestateTracer, 4byteTracer, flatCallTracer) never read
+    // captured memory, so the opcode-tracer default (off) applies to them too.
     final TransactionTraceParams callTracerParams =
         MAPPER.readValue("{\"tracer\": \"callTracer\"}", TransactionTraceParams.class);
-    final OpCodeTracerConfig config = callTracerParams.traceOptions().opCodeTracerConfig();
-
-    assertThat(config.traceMemory())
-        .describedAs("callTracer should have memory enabled by default")
-        .isTrue();
-  }
-
-  @Test
-  public void nonOpcodeTracerShouldRespectExplicitDisableMemory() throws Exception {
-    // When user explicitly sets disableMemory, it should be respected even for callTracer
-    final TransactionTraceParams params =
-        MAPPER.readValue(
-            "{\"tracer\": \"callTracer\", \"disableMemory\": true}", TransactionTraceParams.class);
-    final OpCodeTracerConfig config = params.traceOptions().opCodeTracerConfig();
-
-    assertThat(config.traceMemory())
-        .describedAs("explicit disableMemory=true should be respected")
-        .isFalse();
+    assertThat(callTracerParams.traceOptions().opCodeTracerConfig().traceMemory()).isFalse();
   }
 
   @Test
@@ -119,18 +102,6 @@ public class TransactionTraceParamsTest {
     assertThat(config.traceMemory())
         .describedAs("enableMemory should take precedence over disableMemory")
         .isTrue();
-  }
-
-  @Test
-  public void nonOpcodeTracerShouldRespectExplicitEnableMemoryFalse() throws Exception {
-    final TransactionTraceParams params =
-        MAPPER.readValue(
-            "{\"tracer\": \"callTracer\", \"enableMemory\": false}", TransactionTraceParams.class);
-    final OpCodeTracerConfig config = params.traceOptions().opCodeTracerConfig();
-
-    assertThat(config.traceMemory())
-        .describedAs("explicit enableMemory=false should be respected for callTracer")
-        .isFalse();
   }
 
   @Test
@@ -169,5 +140,18 @@ public class TransactionTraceParamsTest {
     assertThat(config.traceReturnData())
         .describedAs("traceReturnData should default to false when enableReturnData is absent")
         .isFalse();
+  }
+
+  @Test
+  public void prestateTracerShouldRejectDiffModeWithIncludeEmpty() throws Exception {
+    final TransactionTraceParams params =
+        MAPPER.readValue(
+            "{\"tracer\": \"prestateTracer\", \"tracerConfig\": {\"diffMode\": true,"
+                + " \"includeEmpty\": true}}",
+            TransactionTraceParams.class);
+
+    assertThatThrownBy(params::traceOptions)
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("cannot use diffMode with includeEmpty");
   }
 }

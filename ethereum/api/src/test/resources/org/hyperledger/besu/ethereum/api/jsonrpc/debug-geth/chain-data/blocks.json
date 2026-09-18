@@ -418,7 +418,7 @@
     },
     {
       "number": "0x17",
-      "transactions" : [
+      "transactions": [
         {
           "comment": "Proxy call to another contract. Using STATICCALL.",
           "secretKey": "0xc87509a1c067bbde78beb793e6fa76530b6382a4c0241e5e4a9ec0a0f44dc0d3",
@@ -431,7 +431,7 @@
     },
     {
       "number": "0x18",
-      "transactions" : [
+      "transactions": [
         {
           "comment": "Proxy call to another contract - several levels deep. Using CALL and STATICCALL.",
           "secretKey": "0x8f2a55949038a9610f50fb23b5883af3b4ecb3c3bb792cbcefbd1542c692be63",
@@ -464,7 +464,7 @@
     },
     {
       "number": "0x1A",
-      "transactions" : [
+      "transactions": [
         {
           "comment": "Proxy call to another contract - 1 level deep with gas refund.",
           "secretKey": "0x8f2a55949038a9610f50fb23b5883af3b4ecb3c3bb792cbcefbd1542c692be63",
@@ -477,7 +477,7 @@
     },
     {
       "number": "0x1B",
-      "transactions" : [
+      "transactions": [
         {
           "comment": "Self destruct and send contract balance to the same address provided in the to field.",
           "secretKey": "0x8f2a55949038a9610f50fb23b5883af3b4ecb3c3bb792cbcefbd1542c692be63",
@@ -502,25 +502,25 @@
     },
     {
       "number": "0x1D",
-      "transactions" : [
+      "transactions": [
         {
           "comment": "Stack underflow during contract creation",
           "secretKey": "0x8f2a55949038a9610f50fb23b5883af3b4ecb3c3bb792cbcefbd1542c692be63",
-          "data" : "0x6000f1",
-          "gasLimit" : "0x011940",
-          "gasPrice" : "0xEF"
+          "data": "0x6000f1",
+          "gasLimit": "0x011940",
+          "gasPrice": "0xEF"
         }
       ]
     },
     {
       "number": "0x1E",
-      "transactions" : [
+      "transactions": [
         {
           "comment": "Transaction to test refund_CallToSuicideTwice_d0g0v0_Istanbul",
           "secretKey": "0x8f2a55949038a9610f50fb23b5883af3b4ecb3c3bb792cbcefbd1542c692be63",
-          "data" : "0x00000000000000000000000000000000000000000000000000000000000001f4",
-          "gasLimit" : "0x989680",
-          "gasPrice" : "0xEF",
+          "data": "0x00000000000000000000000000000000000000000000000000000000000001f4",
+          "gasLimit": "0x989680",
+          "gasPrice": "0xEF",
           "to": "0160000000000000000000000000000000000000",
           "value": "0x0a"
         }
@@ -528,7 +528,7 @@
     },
     {
       "number": "0x1F",
-      "transactions" : [
+      "transactions": [
         {
           "comment": "Call Precompiled contract directly",
           "secretKey": "0xc87509a1c067bbde78beb793e6fa76530b6382a4c0241e5e4a9ec0a0f44dc0d3",
@@ -540,7 +540,7 @@
     },
     {
       "number": "0x20",
-      "transactions" : [
+      "transactions": [
         {
           "comment": "Call to a contract creation that fails with a depth of 1",
           "secretKey": "0x8f2a55949038a9610f50fb23b5883af3b4ecb3c3bb792cbcefbd1542c692be63",
@@ -553,7 +553,7 @@
     },
     {
       "number": "0x21",
-      "transactions" : [
+      "transactions": [
         {
           "comment": "Call to a contract creation that fails with a stack underflow",
           "secretKey": "0x8f2a55949038a9610f50fb23b5883af3b4ecb3c3bb792cbcefbd1542c692be63",
@@ -565,7 +565,7 @@
     },
     {
       "number": "0x22",
-      "transactions" : [
+      "transactions": [
         {
           "comment": "Failed CREATE: Out of gas - attempts to create SimpleContract with only 20,000 gas",
           "secretKey": "0xc87509a1c067bbde78beb793e6fa76530b6382a4c0241e5e4a9ec0a0f44dc0d3",
@@ -609,6 +609,70 @@
           "gasPrice": "0xEF",
           "to": "0x0040000000000000000000000000000000000000",
           "data": "0x000000000000000000000000834ade89f14b5a724cd4bee5c5b5883c65ae46ba"
+        }
+      ]
+    },
+    {
+      "number": 36,
+      "transactions": [
+        {
+          "comment": "Exercise BALANCE/EXTCODEHASH/EXTCODESIZE/EXTCODECOPY against an existing contract, plus BALANCE against a never-existed address",
+          "secretKey": "0xc87509a1c067bbde78beb793e6fa76530b6382a4c0241e5e4a9ec0a0f44dc0d3",
+          "gasLimit": "0xFFFFF2",
+          "gasPrice": "0xEF",
+          "data": "0x738f0483125fcb9aaaefa9209d8e9d7b9c8b9fb90f3150738f0483125fcb9aaaefa9209d8e9d7b9c8b9fb90f3f50738f0483125fcb9aaaefa9209d8e9d7b9c8b9fb90f3b50600060006000738f0483125fcb9aaaefa9209d8e9d7b9c8b9fb90f3c73000000000000000000000000000000feedbeef315000"
+        }
+      ]
+    },
+    {
+      "number": 37,
+      "transactions": [
+        {
+          "comment": "EIP-7702 SetCodeTransaction: authorize a fresh EOA to delegate to the pre-deployed SELFDESTRUCT(calldataload(0)) contract at 0x0020...",
+          "secretKey": "0xc87509a1c067bbde78beb793e6fa76530b6382a4c0241e5e4a9ec0a0f44dc0d3",
+          "type": 4,
+          "gasLimit": "0x186A0",
+          "maxFeePerGas": "0xEF",
+          "maxPriorityFeePerGas": "0xEF",
+          "to": "0x627306090abaB3A6e1400e9345bC60c78a8BEf57",
+          "value": "0x0",
+          "data": "0x",
+          "authorizationList": [
+            {
+              "chainId": 1982,
+              "address": "0x0020000000000000000000000000000000000000",
+              "nonce": 0,
+              "authoritySecretKey": "0x093ce6a2f2ffc698d5a4972940feedf2eadbf9fcd0d503e1e441d2e476831f3e"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "number": 38,
+      "transactions": [
+        {
+          "comment": "Call the now-delegated EOA directly as tx-level 'to', exercising the tx-level 7702 delegation-target lookup",
+          "secretKey": "0xc87509a1c067bbde78beb793e6fa76530b6382a4c0241e5e4a9ec0a0f44dc0d3",
+          "gasLimit": "0x186A0",
+          "gasPrice": "0xEF",
+          "to": "0xa0C74aCCcd420e5FFd116D1e9e91bdf5f23C94EA",
+          "value": "0x0",
+          "data": "0x"
+        }
+      ]
+    },
+    {
+      "number": 39,
+      "transactions": [
+        {
+          "comment": "Call the generic CALL proxy targeting the delegated EOA, exercising the CALL-family 7702 delegation-target lookup",
+          "secretKey": "0xc87509a1c067bbde78beb793e6fa76530b6382a4c0241e5e4a9ec0a0f44dc0d3",
+          "gasLimit": "0x30D40",
+          "gasPrice": "0xEF",
+          "to": "0x0040000000000000000000000000000000000000",
+          "value": "0x0",
+          "data": "0x000000000000000000000000a0c74acccd420e5ffd116d1e9e91bdf5f23c94ea"
         }
       ]
     }

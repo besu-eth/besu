@@ -60,14 +60,14 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
 import org.hyperledger.besu.ethereum.eth.transactions.sorter.BaseFeePendingTransactionsSorter;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
+import org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.ImmutableDataStorageConfiguration;
-import org.hyperledger.besu.ethereum.worldstate.ImmutablePathBasedExtraStorageConfiguration;
-import org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration;
+import org.hyperledger.besu.ethereum.worldstate.ImmutableExtraStorageConfiguration;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
@@ -124,7 +124,7 @@ public class MergeCoordinatorCacheReorgTest implements MergeGenesisConfigHelper 
 
   private final ProtocolSchedule protocolSchedule = spy(getMergeProtocolSchedule());
   private final GenesisState genesisState =
-      GenesisState.fromConfig(getPosGenesisConfig(), protocolSchedule, new PathBasedCodeCache());
+      GenesisState.fromConfig(getPosGenesisConfig(), protocolSchedule, new BonsaiCodeCache());
 
   private final Address coinbase = genesisAllocations(getPosGenesisConfig()).findFirst().get();
   private final MutableBlockchain blockchain =
@@ -157,10 +157,10 @@ public class MergeCoordinatorCacheReorgTest implements MergeGenesisConfigHelper 
     final DataStorageConfiguration dataStorageConfig =
         ImmutableDataStorageConfiguration.builder()
             .dataStorageFormat(DataStorageFormat.BONSAI)
-            .pathBasedExtraStorageConfiguration(
-                ImmutablePathBasedExtraStorageConfiguration.builder()
+            .extraStorageConfiguration(
+                ImmutableExtraStorageConfiguration.builder()
                     .unstable(
-                        ImmutablePathBasedExtraStorageConfiguration.PathBasedUnstable.builder()
+                        ImmutableExtraStorageConfiguration.Unstable.builder()
                             .bonsaiCrossBlockCacheEnabled(true)
                             .build())
                     .build())
@@ -178,11 +178,11 @@ public class MergeCoordinatorCacheReorgTest implements MergeGenesisConfigHelper 
         new BonsaiWorldStateProvider(
             worldStateKeyValueStorage,
             blockchain,
-            PathBasedExtraStorageConfiguration.DEFAULT,
+            ExtraStorageConfiguration.DEFAULT,
             cachedMerkleTrieLoader,
             pluginContext,
             EvmConfiguration.DEFAULT,
-            new PathBasedCodeCache());
+            new BonsaiCodeCache());
 
     protocolContext =
         new ProtocolContext.Builder()

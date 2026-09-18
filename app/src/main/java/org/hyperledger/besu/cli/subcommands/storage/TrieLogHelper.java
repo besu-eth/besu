@@ -15,10 +15,10 @@
 package org.hyperledger.besu.cli.subcommands.storage;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static org.hyperledger.besu.cli.options.storage.PathBasedExtraStorageOptions.MAX_LAYERS_TO_LOAD;
-import static org.hyperledger.besu.cli.options.storage.PathBasedExtraStorageOptions.TRIE_LOG_PRUNING_WINDOW_SIZE;
+import static org.hyperledger.besu.cli.options.storage.ExtraStorageOptions.MAX_LAYERS_TO_LOAD;
+import static org.hyperledger.besu.cli.options.storage.ExtraStorageOptions.TRIE_LOG_PRUNING_WINDOW_SIZE;
 import static org.hyperledger.besu.controller.BesuController.DATABASE_PATH;
-import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.DEFAULT_TRIE_LOG_PRUNING_WINDOW_SIZE;
+import static org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration.DEFAULT_TRIE_LOG_PRUNING_WINDOW_SIZE;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
@@ -26,11 +26,11 @@ import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLP;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.BonsaiTrieLogFactory;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogLayer;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogLayer;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
-import org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration;
+import org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration;
 
 import java.io.File;
 import java.io.IOException;
@@ -61,7 +61,7 @@ public class TrieLogHelper {
 
   boolean prune(
       final DataStorageConfiguration config,
-      final PathBasedWorldStateKeyValueStorage rootWorldStateStorage,
+      final BonsaiWorldStateKeyValueStorage rootWorldStateStorage,
       final MutableBlockchain blockchain,
       final Path dataDirectoryPath) {
 
@@ -70,7 +70,7 @@ public class TrieLogHelper {
 
     validatePruneConfiguration(config);
 
-    final long layersToRetain = config.getPathBasedExtraStorageConfiguration().getMaxLayersToLoad();
+    final long layersToRetain = config.getExtraStorageConfiguration().getMaxLayersToLoad();
 
     final long chainHeight = blockchain.getChainHeadBlockNumber();
 
@@ -117,7 +117,7 @@ public class TrieLogHelper {
   }
 
   private void processTrieLogBatches(
-      final PathBasedWorldStateKeyValueStorage rootWorldStateStorage,
+      final BonsaiWorldStateKeyValueStorage rootWorldStateStorage,
       final MutableBlockchain blockchain,
       final long chainHeight,
       final long lastBlockNumberToRetainTrieLogsFor,
@@ -146,14 +146,14 @@ public class TrieLogHelper {
 
   private void saveTrieLogBatches(
       final String batchFileName,
-      final PathBasedWorldStateKeyValueStorage rootWorldStateStorage,
+      final BonsaiWorldStateKeyValueStorage rootWorldStateStorage,
       final List<Hash> trieLogKeys) {
 
     saveTrieLogsAsRlpInFile(trieLogKeys, rootWorldStateStorage, batchFileName);
   }
 
   private void restoreTrieLogBatches(
-      final PathBasedWorldStateKeyValueStorage rootWorldStateStorage,
+      final BonsaiWorldStateKeyValueStorage rootWorldStateStorage,
       final long batchNumber,
       final String batchFileNameBase) {
 
@@ -201,7 +201,7 @@ public class TrieLogHelper {
       final MutableBlockchain blockchain,
       final long chainHeight,
       final long lastBlockNumberToRetainTrieLogsFor,
-      final PathBasedWorldStateKeyValueStorage rootWorldStateStorage,
+      final BonsaiWorldStateKeyValueStorage rootWorldStateStorage,
       final long layersToRetain) {
 
     if (lastBlockNumberToRetainTrieLogsFor < 0) {
@@ -241,7 +241,7 @@ public class TrieLogHelper {
   }
 
   private void recreateTrieLogs(
-      final PathBasedWorldStateKeyValueStorage rootWorldStateStorage,
+      final BonsaiWorldStateKeyValueStorage rootWorldStateStorage,
       final long batchNumber,
       final String batchFileNameBase) {
     // process in chunk to avoid OOM
@@ -260,7 +260,7 @@ public class TrieLogHelper {
       final int chunkSize,
       final List<byte[]> keys,
       final IdentityHashMap<byte[], byte[]> trieLogsToRetain,
-      final PathBasedWorldStateKeyValueStorage rootWorldStateStorage) {
+      final BonsaiWorldStateKeyValueStorage rootWorldStateStorage) {
 
     var updater = rootWorldStateStorage.updater();
     int endIndex = Math.min(startIndex + chunkSize, keys.size());
@@ -277,14 +277,13 @@ public class TrieLogHelper {
 
   @VisibleForTesting
   void validatePruneConfiguration(final DataStorageConfiguration config) {
-    final PathBasedExtraStorageConfiguration subStorageConfiguration =
-        config.getPathBasedExtraStorageConfiguration();
+    final ExtraStorageConfiguration subStorageConfiguration = config.getExtraStorageConfiguration();
     checkArgument(
         subStorageConfiguration.getMaxLayersToLoad()
-            >= PathBasedExtraStorageConfiguration.MINIMUM_TRIE_LOG_RETENTION_LIMIT,
+            >= ExtraStorageConfiguration.MINIMUM_TRIE_LOG_RETENTION_LIMIT,
         String.format(
             MAX_LAYERS_TO_LOAD + " minimum value is %d",
-            PathBasedExtraStorageConfiguration.MINIMUM_TRIE_LOG_RETENTION_LIMIT));
+            ExtraStorageConfiguration.MINIMUM_TRIE_LOG_RETENTION_LIMIT));
     checkArgument(
         subStorageConfiguration.getTrieLogPruningWindowSize() > 0,
         String.format(
@@ -301,7 +300,7 @@ public class TrieLogHelper {
 
   private void saveTrieLogsAsRlpInFile(
       final List<Hash> trieLogsKeys,
-      final PathBasedWorldStateKeyValueStorage rootWorldStateStorage,
+      final BonsaiWorldStateKeyValueStorage rootWorldStateStorage,
       final String batchFileName) {
     File file = new File(batchFileName);
     if (file.exists()) {
@@ -347,8 +346,7 @@ public class TrieLogHelper {
   }
 
   private IdentityHashMap<byte[], byte[]> getTrieLogs(
-      final List<Hash> trieLogKeys,
-      final PathBasedWorldStateKeyValueStorage rootWorldStateStorage) {
+      final List<Hash> trieLogKeys, final BonsaiWorldStateKeyValueStorage rootWorldStateStorage) {
     IdentityHashMap<byte[], byte[]> trieLogsToRetain = new IdentityHashMap<>();
 
     LOG.info("Obtaining trielogs from db, this may take a few minutes...");
@@ -362,7 +360,7 @@ public class TrieLogHelper {
   }
 
   TrieLogCount getCount(
-      final PathBasedWorldStateKeyValueStorage rootWorldStateStorage,
+      final BonsaiWorldStateKeyValueStorage rootWorldStateStorage,
       final int limit,
       final Blockchain blockchain) {
     final AtomicInteger total = new AtomicInteger();
@@ -403,7 +401,7 @@ public class TrieLogHelper {
   }
 
   void importTrieLog(
-      final PathBasedWorldStateKeyValueStorage rootWorldStateStorage, final Path trieLogFilePath) {
+      final BonsaiWorldStateKeyValueStorage rootWorldStateStorage, final Path trieLogFilePath) {
 
     var trieLog = readTrieLogsAsRlpFromFile(trieLogFilePath.toString());
 
@@ -413,7 +411,7 @@ public class TrieLogHelper {
   }
 
   void exportTrieLog(
-      final PathBasedWorldStateKeyValueStorage rootWorldStateStorage,
+      final BonsaiWorldStateKeyValueStorage rootWorldStateStorage,
       final List<Hash> trieLogHash,
       final Path directoryPath)
       throws IOException {

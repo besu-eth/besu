@@ -1,0 +1,112 @@
+{
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "debug_traceBlockByNumber",
+    "params": [
+      "0x16",
+      {
+        "tracer": "prestateTracer",
+        "tracerConfig": {
+          "diffMode": false,
+          "disableStorage": true
+        }
+      }
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": [
+      {
+        "txHash": "0x06b8e435a500c6a620ef869ab364ab5af3014542436e6e84b44fcb67de28d1e3",
+        "result": {
+          "0x0010000000000000000000000000000000000000": {
+            "balance": "0x0",
+            "code": "0x6020356000355560603560403555",
+            "codeHash": "0x6df1b93e5dde9915499fe86eb1f82cb512c4c5d48f6d25e23be3e2d43fe1a0a9"
+          },
+          "0x0060000000000000000000000000000000000000": {
+            "balance": "0x0",
+            "code": "0x602060006020360380602060003760006000355af460206000f3",
+            "codeHash": "0xf084dc577e2e7b91669486fa70eac6abf90e71ee0ea6beb961496a332f724b37"
+          },
+          "0x627306090abab3a6e1400e9345bc60c78a8bef57": {
+            "balance": "0xefffffffffffffffff6c681e6",
+            "nonce": 14
+          },
+          "0x71562b71999873db5b286df957af199ec94617f7": {
+            "balance": "0x2e0ca0069"
+          }
+        }
+      },
+      {
+        "txHash": "0x42007b5834c97f5607d0691fdb997536a1b1dfcc319d16caf6b60c45a42872ef",
+        "result": {
+          "0x0010000000000000000000000000000000000000": {
+            "balance": "0x0",
+            "code": "0x6020356000355560603560403555",
+            "codeHash": "0x6df1b93e5dde9915499fe86eb1f82cb512c4c5d48f6d25e23be3e2d43fe1a0a9"
+          },
+          "0x0060000000000000000000000000000000000000": {
+            "balance": "0x0",
+            "code": "0x602060006020360380602060003760006000355af460206000f3",
+            "codeHash": "0xf084dc577e2e7b91669486fa70eac6abf90e71ee0ea6beb961496a332f724b37"
+          },
+          "0x627306090abab3a6e1400e9345bc60c78a8bef57": {
+            "balance": "0xefffffffffffffffff5cc5dc5",
+            "nonce": 15
+          },
+          "0x71562b71999873db5b286df957af199ec94617f7": {
+            "balance": "0x2e1c3189b"
+          }
+        }
+      },
+      {
+        "txHash": "0x9a10dc2f41f2d334df8bc0cc0f019fd61ea8d76f5e441df346338f7c88034491",
+        "result": {
+          "0x0010000000000000000000000000000000000000": {
+            "balance": "0x0",
+            "code": "0x6020356000355560603560403555",
+            "codeHash": "0x6df1b93e5dde9915499fe86eb1f82cb512c4c5d48f6d25e23be3e2d43fe1a0a9"
+          },
+          "0x0060000000000000000000000000000000000000": {
+            "balance": "0x0",
+            "code": "0x602060006020360380602060003760006000355af460206000f3",
+            "codeHash": "0xf084dc577e2e7b91669486fa70eac6abf90e71ee0ea6beb961496a332f724b37"
+          },
+          "0x627306090abab3a6e1400e9345bc60c78a8bef57": {
+            "balance": "0xefffffffffffffffff54ef28c",
+            "nonce": 16
+          },
+          "0x71562b71999873db5b286df957af199ec94617f7": {
+            "balance": "0x2e23ffd7d"
+          }
+        }
+      },
+      {
+        "txHash": "0x77543a0ac5191d7b342cce4c90aed5cca76e67c9b00aa0da43aa944d0d615f4f",
+        "result": {
+          "0x0010000000000000000000000000000000000000": {
+            "balance": "0x0",
+            "code": "0x6020356000355560603560403555",
+            "codeHash": "0x6df1b93e5dde9915499fe86eb1f82cb512c4c5d48f6d25e23be3e2d43fe1a0a9"
+          },
+          "0x0060000000000000000000000000000000000000": {
+            "balance": "0x0",
+            "code": "0x602060006020360380602060003760006000355af460206000f3",
+            "codeHash": "0xf084dc577e2e7b91669486fa70eac6abf90e71ee0ea6beb961496a332f724b37"
+          },
+          "0x627306090abab3a6e1400e9345bc60c78a8bef57": {
+            "balance": "0xefffffffffffffffff4f4f263",
+            "nonce": 17
+          },
+          "0x71562b71999873db5b286df957af199ec94617f7": {
+            "balance": "0x2e2999d3f"
+          }
+        }
+      }
+    ]
+  },
+  "statusCode": 200
+}

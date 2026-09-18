@@ -242,11 +242,6 @@ public sealed class EngineNewPayloadV1<
       return respondWith(reqId, blockParam, null, SYNCING);
     }
 
-    if (mergeContext.get().isSyncing()) {
-      logger().debug("We are syncing");
-      return respondWith(reqId, blockParam, null, SYNCING);
-    }
-
     // an ancestor is always found here: the parent header is present in the chain (needsSync is
     // false) and getLatestValidAncestor only returns empty when it is not; this is also why Besu
     // never responds with ACCEPTED — a payload whose parent is known is always fully validated,
@@ -284,6 +279,7 @@ public sealed class EngineNewPayloadV1<
           return new JsonRpcErrorResponse(reqId, RpcErrorType.INTERNAL_ERROR);
         }
       }
+      protocolContext.getBadBlockManager().addLatestValidHash(block.getHash(), latestValidAncestor);
       return respondWithInvalid(
           reqId,
           blockParam,

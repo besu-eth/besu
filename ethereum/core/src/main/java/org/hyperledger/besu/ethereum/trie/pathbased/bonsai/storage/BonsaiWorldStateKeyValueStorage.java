@@ -25,14 +25,13 @@ import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.FlatDbCacheManager;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.VersionedFlatDbCacheManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFlatDbStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFlatDbStrategyProvider;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiTrieNodeStrategy;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.TrieNodeStrategy;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.cache.FlatDbCacheManager;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.cache.VersionedFlatDbCacheManager;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.FlatDbStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.FlatDbStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.BonsaiTrieNodeStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeStrategy;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.evm.account.AccountStorageEntry;
@@ -44,22 +43,42 @@ import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
+import org.hyperledger.besu.util.Subscribers;
 
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 
+import kotlin.Pair;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValueStorage
-    implements WorldStateKeyValueStorage {
+public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorage, AutoCloseable {
   private static final Logger LOG = LoggerFactory.getLogger(BonsaiWorldStateKeyValueStorage.class);
+
+  // 0x776f726c64526f6f74
+  public static final byte[] WORLD_ROOT_HASH_KEY = "worldRoot".getBytes(StandardCharsets.UTF_8);
+  // 0x776f726c64426c6f636b48617368
+  public static final byte[] WORLD_BLOCK_HASH_KEY =
+      "worldBlockHash".getBytes(StandardCharsets.UTF_8);
+  // 0x776f726c64426c6f636b4e756d626572
+  public static final byte[] WORLD_BLOCK_NUMBER_KEY =
+      "worldBlockNumber".getBytes(StandardCharsets.UTF_8);
+
+  private final AtomicBoolean shouldClose = new AtomicBoolean(false);
+  protected final AtomicBoolean isClosed = new AtomicBoolean(false);
+  protected final Subscribers<StorageSubscriber> subscribers = Subscribers.create();
+  protected final SegmentedKeyValueStorage composedWorldStateStorage;
+  protected final KeyValueStorage trieLogStorage;
 
   protected final BonsaiFlatDbStrategyProvider flatDbStrategyProvider;
   protected final FlatDbCacheManager cacheManager;
@@ -82,11 +101,12 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
       final MetricsSystem metricsSystem,
       final DataStorageConfiguration dataStorageConfiguration,
       final FlatDbCacheManager cacheManager) {
-    super(
+    this.composedWorldStateStorage =
         provider.getStorageBySegmentIdentifiers(
             List.of(
-                ACCOUNT_INFO_STATE, CODE_STORAGE, ACCOUNT_STORAGE_STORAGE, TRIE_BRANCH_STORAGE)),
-        provider.getStorageBySegmentIdentifier(KeyValueSegmentIdentifier.TRIE_LOG_STORAGE));
+                ACCOUNT_INFO_STATE, CODE_STORAGE, ACCOUNT_STORAGE_STORAGE, TRIE_BRANCH_STORAGE));
+    this.trieLogStorage =
+        provider.getStorageBySegmentIdentifier(KeyValueSegmentIdentifier.TRIE_LOG_STORAGE);
     this.flatDbStrategyProvider =
         new BonsaiFlatDbStrategyProvider(metricsSystem, dataStorageConfiguration);
     flatDbStrategyProvider.loadFlatDbStrategy(composedWorldStateStorage);
@@ -118,7 +138,8 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
       final FlatDbCacheManager cacheManager,
       final long cacheVersion,
       final TrieNodeStrategy trieNodeStrategy) {
-    super(composedWorldStateStorage, trieLogStorage);
+    this.composedWorldStateStorage = composedWorldStateStorage;
+    this.trieLogStorage = trieLogStorage;
     this.flatDbStrategyProvider = flatDbStrategyProvider;
     this.cacheManager = cacheManager;
     this.cacheVersion = cacheVersion;
@@ -138,16 +159,16 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
   private static FlatDbCacheManager createCacheManager(
       final DataStorageConfiguration dataStorageConfiguration, final MetricsSystem metricsSystem) {
     if (dataStorageConfiguration
-        .getPathBasedExtraStorageConfiguration()
+        .getExtraStorageConfiguration()
         .getUnstable()
         .getBonsaiCrossBlockCacheEnabled()) {
       return new VersionedFlatDbCacheManager(
           dataStorageConfiguration
-              .getPathBasedExtraStorageConfiguration()
+              .getExtraStorageConfiguration()
               .getUnstable()
               .getBonsaiCrossBlockCacheAccountSize(),
           dataStorageConfiguration
-              .getPathBasedExtraStorageConfiguration()
+              .getExtraStorageConfiguration()
               .getUnstable()
               .getBonsaiCrossBlockCacheStorageSize(),
           metricsSystem);
@@ -156,12 +177,147 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
     }
   }
 
+  public SegmentedKeyValueStorage getComposedWorldStateStorage() {
+    return composedWorldStateStorage;
+  }
+
+  public KeyValueStorage getTrieLogStorage() {
+    return trieLogStorage;
+  }
+
+  public Optional<byte[]> getTrieLog(final Hash blockHash) {
+    return trieLogStorage.get(blockHash.getBytes().toArrayUnsafe());
+  }
+
+  public Stream<byte[]> streamTrieLogKeys(final long limit) {
+    return trieLogStorage.streamKeys().limit(limit);
+  }
+
+  public Optional<Bytes> getStateTrieNode(final Bytes location) {
+    return composedWorldStateStorage
+        .get(TRIE_BRANCH_STORAGE, location.toArrayUnsafe())
+        .map(Bytes::wrap);
+  }
+
+  public Optional<Bytes> getWorldStateRootHash() {
+    return composedWorldStateStorage.get(TRIE_BRANCH_STORAGE, WORLD_ROOT_HASH_KEY).map(Bytes::wrap);
+  }
+
+  public Optional<Hash> getWorldStateBlockHash() {
+    return composedWorldStateStorage
+        .get(TRIE_BRANCH_STORAGE, WORLD_BLOCK_HASH_KEY)
+        .map(Bytes32::wrap)
+        .map(Hash::wrap);
+  }
+
+  public Optional<Long> getWorldStateBlockNumber() {
+    return composedWorldStateStorage
+        .get(TRIE_BRANCH_STORAGE, WORLD_BLOCK_NUMBER_KEY)
+        .map(bytes -> Bytes.wrap(bytes).toLong());
+  }
+
+  public NavigableMap<Bytes32, Bytes> streamFlatAccounts(
+      final Bytes startKeyHash, final Bytes32 endKeyHash, final long max) {
+    return getFlatDbStrategy()
+        .streamAccountFlatDatabase(composedWorldStateStorage, startKeyHash, endKeyHash, max);
+  }
+
+  public NavigableMap<Bytes32, Bytes> streamFlatAccounts(
+      final Bytes startKeyHash, final Predicate<Pair<Bytes32, Bytes>> takeWhile) {
+    return getFlatDbStrategy()
+        .streamAccountFlatDatabase(composedWorldStateStorage, startKeyHash, takeWhile);
+  }
+
+  public NavigableMap<Bytes32, Bytes> streamFlatStorages(
+      final Hash accountHash, final Bytes startKeyHash, final Bytes32 endKeyHash, final long max) {
+    return getFlatDbStrategy()
+        .streamStorageFlatDatabase(
+            composedWorldStateStorage, accountHash, startKeyHash, endKeyHash, max);
+  }
+
+  public NavigableMap<Bytes32, Bytes> streamFlatStorages(
+      final Hash accountHash,
+      final Bytes startKeyHash,
+      final Predicate<Pair<Bytes32, Bytes>> takeWhile) {
+    return getFlatDbStrategy()
+        .streamStorageFlatDatabase(composedWorldStateStorage, accountHash, startKeyHash, takeWhile);
+  }
+
+  public boolean isWorldStateAvailable(final Bytes32 rootHash, final Hash blockHash) {
+    return composedWorldStateStorage
+        .get(TRIE_BRANCH_STORAGE, WORLD_ROOT_HASH_KEY)
+        .map(Bytes32::wrap)
+        .map(
+            hash ->
+                hash.equals(rootHash)
+                    || trieLogStorage.containsKey(blockHash.getBytes().toArrayUnsafe()))
+        .orElse(false);
+  }
+
+  public void clearTrieLog() {
+    subscribers.forEach(StorageSubscriber::onClearTrieLog);
+    trieLogStorage.clear();
+  }
+
+  public void clearTrie() {
+    subscribers.forEach(StorageSubscriber::onClearTrie);
+    composedWorldStateStorage.clear(TRIE_BRANCH_STORAGE);
+  }
+
+  public boolean pruneTrieLog(final Hash blockHash) {
+    try {
+      return trieLogStorage.tryDelete(blockHash.getBytes().toArrayUnsafe());
+    } catch (Exception e) {
+      LOG.error("Error pruning trie log for block hash {}", blockHash, e);
+      return false;
+    }
+  }
+
+  @Override
+  public synchronized void close() throws Exception {
+    shouldClose.set(true);
+    tryClose();
+  }
+
+  public synchronized long subscribe(final StorageSubscriber sub) {
+    if (isClosed.get()) {
+      throw new RuntimeException("Storage is marked to close or has already closed");
+    }
+    return subscribers.subscribe(sub);
+  }
+
+  public synchronized void unSubscribe(final long id) {
+    subscribers.unsubscribe(id);
+    try {
+      tryClose();
+    } catch (Exception e) {
+      LOG.atWarn()
+          .setMessage("exception while trying to close : {}")
+          .addArgument(e::getMessage)
+          .log();
+    }
+  }
+
+  protected synchronized void tryClose() throws Exception {
+    if (shouldClose.get() && subscribers.getSubscriberCount() < 1) {
+      doClose();
+    }
+  }
+
+  protected synchronized void doClose() throws Exception {
+    if (!isClosed.get()) {
+      subscribers.forEach(StorageSubscriber::onCloseStorage);
+      composedWorldStateStorage.close();
+      trieLogStorage.close();
+      isClosed.set(true);
+    }
+  }
+
   @Override
   public DataStorageFormat getDataStorageFormat() {
     return DataStorageFormat.BONSAI;
   }
 
-  @Override
   public FlatDbMode getFlatDbMode() {
     return flatDbStrategyProvider.getFlatDbMode();
   }
@@ -273,20 +429,22 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
 
   @Override
   public void clear() {
-    super.clear();
+    subscribers.forEach(StorageSubscriber::onClearStorage);
+    getFlatDbStrategy().clearAll(composedWorldStateStorage);
+    composedWorldStateStorage.clear(TRIE_BRANCH_STORAGE);
+    trieLogStorage.clear();
     cacheManager.clear(ACCOUNT_INFO_STATE);
     cacheManager.clear(ACCOUNT_STORAGE_STORAGE);
     flatDbStrategyProvider.loadFlatDbStrategy(composedWorldStateStorage);
   }
 
-  @Override
   public void clearFlatDatabase() {
-    super.clearFlatDatabase();
+    subscribers.forEach(StorageSubscriber::onClearFlatDatabaseStorage);
+    getFlatDbStrategy().resetOnResync(composedWorldStateStorage);
     cacheManager.clear(ACCOUNT_INFO_STATE);
     cacheManager.clear(ACCOUNT_STORAGE_STORAGE);
   }
 
-  @Override
   public BonsaiFlatDbStrategy getFlatDbStrategy() {
     return (BonsaiFlatDbStrategy)
         flatDbStrategyProvider.getFlatDbStrategy(composedWorldStateStorage);
@@ -336,7 +494,7 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
   }
 
   /** Base updater that writes directly to storage without cache management. */
-  public static class Updater implements PathBasedWorldStateKeyValueStorage.Updater {
+  public static class Updater implements WorldStateKeyValueStorage.Updater {
 
     protected final SegmentedKeyValueStorageTransaction composedWorldStateTransaction;
     protected final KeyValueStorageTransaction trieLogStorageTransaction;
@@ -392,7 +550,6 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
       return this;
     }
 
-    @Override
     public Updater saveWorldState(final Bytes blockHash, final Bytes32 nodeHash, final Bytes node) {
       composedWorldStateTransaction.put(
           TRIE_BRANCH_STORAGE, Bytes.EMPTY.toArrayUnsafe(), node.toArrayUnsafe());
@@ -442,12 +599,10 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
           worldStorage, composedWorldStateTransaction, accountHash, slotHash);
     }
 
-    @Override
     public SegmentedKeyValueStorageTransaction getWorldStateTransaction() {
       return composedWorldStateTransaction;
     }
 
-    @Override
     public KeyValueStorageTransaction getTrieLogStorageTransaction() {
       return trieLogStorageTransaction;
     }
@@ -458,19 +613,16 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
       composedWorldStateTransaction.commit();
     }
 
-    @Override
     public void commitTrieLogOnly() {
       trieLogStorageTransaction.commit();
       composedWorldStateTransaction.close();
     }
 
-    @Override
     public void commitComposedOnly() {
       composedWorldStateTransaction.commit();
       trieLogStorageTransaction.close();
     }
 
-    @Override
     public void rollback() {
       composedWorldStateTransaction.rollback();
       trieLogStorageTransaction.rollback();

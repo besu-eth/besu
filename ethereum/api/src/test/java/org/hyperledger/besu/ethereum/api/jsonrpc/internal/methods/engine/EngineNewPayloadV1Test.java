@@ -48,6 +48,8 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadStatusV1;
+import org.hyperledger.besu.ethereum.chain.BadBlockCause;
+import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
@@ -116,12 +118,16 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
 
   @Mock protected TransactionPool transactionPool;
 
+  protected BadBlockManager badBlockManager;
+
   @BeforeEach
   @Override
   public void before() {
     super.before();
+    badBlockManager = new BadBlockManager();
     when(protocolContext.safeConsensusContext(any())).thenReturn(Optional.of(mergeContext));
     when(protocolContext.getBlockchain()).thenReturn(blockchain);
+    when(protocolContext.getBadBlockManager()).thenReturn(badBlockManager);
     when(protocolSchedule.getByBlockHeader(any())).thenReturn(protocolSpec);
     when(protocolContext.getWorldStateArchive()).thenReturn(worldStateArchive);
     when(ethPeers.peerCount()).thenReturn(1);
@@ -202,7 +208,33 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
     assertThat(res.getLatestValidHash().get()).isEqualTo(mockHash);
     assertThat(res.getStatus()).isEqualTo(INVALID);
     assertThat(res.getError()).isEqualTo("error 42");
+    assertThat(badBlockManager.getLatestValidHash(mockHeader.getHash())).contains(mockHash);
     verify(engineCallListener, times(1)).executionEngineCalled();
+  }
+
+  @Test
+  public void shouldReuseStoredLatestValidHashOnRepeatedInvalidPayload() {
+    // #11299: second newPayload for the same invalid hash must reuse the stored LVH, not Hash.ZERO.
+    final BlockHeader mockHeader =
+        setupPayloadV1(getMinSupportedTimestamp(), new BlockProcessingResult("error 42"));
+    final var payload = mockEnginePayloadParam(mockHeader, emptyList());
+
+    final PayloadStatusV1 first = fromSuccessResp(resp(requestParams(payload)));
+    assertThat(first.getStatus()).isEqualTo(INVALID);
+    assertThat(first.getLatestValidHash()).contains(mockHash);
+    assertThat(badBlockManager.getLatestValidHash(mockHeader.getHash())).contains(mockHash);
+
+    badBlockManager.addBadBlock(
+        new Block(mockHeader, new BlockBody(emptyList(), emptyList())),
+        BadBlockCause.fromValidationFailure("error 42"));
+    when(mergeCoordinator.isBadBlock(mockHeader.getHash())).thenReturn(true);
+    when(mergeCoordinator.getLatestValidHashOfBadBlock(mockHeader.getHash()))
+        .thenAnswer(invocation -> badBlockManager.getLatestValidHash(mockHeader.getHash()));
+
+    final PayloadStatusV1 second = fromSuccessResp(resp(requestParams(payload)));
+    assertThat(second.getStatus()).isEqualTo(INVALID);
+    assertThat(second.getLatestValidHash()).contains(mockHash);
+    assertThat(second.getError()).isEqualTo("Block already present in bad block manager.");
   }
 
   @Test
@@ -318,16 +350,15 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
   }
 
   @Test
-  public void shouldRespondWithSyncingDuringForwardSync() {
-    BlockHeader mockHeader = setupPayloadV1(getMinSupportedTimestamp());
+  public void shouldReturnValidDuringForwardSync() {
+    BlockHeader mockHeader =
+        setupPayloadV1(
+            getMinSupportedTimestamp(),
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))));
     when(mergeContext.isSyncing()).thenReturn(Boolean.TRUE);
     var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList())));
 
-    PayloadStatusV1 res = fromSuccessResp(resp);
-    assertThat(res.getError()).isNull();
-    assertThat(res.getStatus()).isEqualTo(SYNCING);
-    assertThat(res.getLatestValidHash()).isEmpty();
-    verify(engineCallListener, times(1)).executionEngineCalled();
+    assertValidResponse(mockHeader, resp);
   }
 
   @Test

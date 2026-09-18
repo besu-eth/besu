@@ -31,10 +31,10 @@ import org.slf4j.LoggerFactory;
  * evaluating transactions based on block size. It checks if a transaction is too large for the
  * block and determines the selection result accordingly.
  *
- * <p>For EIP-8037 multidimensional gas, this selector tracks both regular and state gas dimensions.
- * Pre-processing bounds both dimensions by the transaction's gasLimit, since either one could
- * consume the whole limit. Post-processing then re-checks the block against max(regular, state)
- * once execution has revealed the actual split.
+ * <p>For EIP-8037 multidimensional gas, this selector tracks both execution and state gas
+ * dimensions. Pre-processing bounds both dimensions by the transaction's gasLimit, since either one
+ * could consume the whole limit. Post-processing then re-checks the block against max(execution,
+ * state) once execution has revealed the actual split.
  */
 public class BlockSizeTransactionSelector extends AbstractStatefulTransactionSelector<GasState> {
   private static final Logger LOG = LoggerFactory.getLogger(BlockSizeTransactionSelector.class);
@@ -83,8 +83,8 @@ public class BlockSizeTransactionSelector extends AbstractStatefulTransactionSel
   public TransactionSelectionResult evaluateTransactionPostProcessing(
       final TransactionEvaluationContext evaluationContext,
       final TransactionProcessingResult processingResult) {
-    final long txRegularGasUsed =
-        gasAccountingStrategy.calculateTransactionRegularGas(
+    final long txExecutionGasUsed =
+        gasAccountingStrategy.calculateTransactionExecutionGas(
             evaluationContext.getTransaction(), processingResult);
     // EIP-8037: the state dimension is the state gas the transaction actually consumed, which is
     // only known now that it has executed.
@@ -92,18 +92,18 @@ public class BlockSizeTransactionSelector extends AbstractStatefulTransactionSel
 
     final GasState state = getWorkingState();
     final GasState newState =
-        new GasState(state.regularGas() + txRegularGasUsed, state.stateGas() + stateGasUsed);
+        new GasState(state.executionGas() + txExecutionGasUsed, state.stateGas() + stateGasUsed);
     setWorkingState(newState);
 
     final long gasMetered =
-        gasAccountingStrategy.effectiveGasUsed(newState.regularGas(), newState.stateGas());
+        gasAccountingStrategy.effectiveGasUsed(newState.executionGas(), newState.stateGas());
     if (gasMetered > blockGasLimit) {
       LOG.atTrace()
           .setMessage(
               "Transaction {} exceeds block gas limit post-processing:"
-                  + " regularGas={}, stateGas={}, gasMetered={}, blockGasLimit={}")
+                  + " executionGas={}, stateGas={}, gasMetered={}, blockGasLimit={}")
           .addArgument(evaluationContext.getPendingTransaction()::toTraceLog)
-          .addArgument(newState.regularGas())
+          .addArgument(newState.executionGas())
           .addArgument(newState.stateGas())
           .addArgument(gasMetered)
           .addArgument(blockGasLimit)
@@ -115,21 +115,21 @@ public class BlockSizeTransactionSelector extends AbstractStatefulTransactionSel
 
   /**
    * Checks if the transaction is too large for the block using the gas accounting strategy. For 1D
-   * gas this checks the regular gas dimension only; for 2D gas (EIP-8037) it bounds both dimensions
-   * by the transaction's gas limit, since either one could consume the whole limit.
+   * gas this checks the execution gas dimension only; for 2D gas (EIP-8037) it bounds both
+   * dimensions by the transaction's gas limit, since either one could consume the whole limit.
    *
-   * <p>The post-processing check verifies that gas metered (max of regular, state) stays within the
-   * block gas limit after processing reveals the actual regular/state gas split.
+   * <p>The post-processing check verifies that gas metered (max of execution, state) stays within
+   * the block gas limit after processing reveals the actual execution/state gas split.
    *
    * @param transaction The transaction to be checked.
-   * @param state The current gas state with regular and state gas.
+   * @param state The current gas state with execution and state gas.
    * @return True if the transaction is too large for the block, false otherwise.
    */
   private boolean transactionTooLargeForBlock(final Transaction transaction, final GasState state) {
     return !gasAccountingStrategy.hasBlockCapacity(
         transaction.getGasLimit(),
-        stateGasCostCalculator.transactionRegularGasLimit(),
-        state.regularGas(),
+        stateGasCostCalculator.transactionExecutionGasLimit(),
+        state.executionGas(),
         state.stateGas(),
         blockGasLimit);
   }
@@ -142,7 +142,7 @@ public class BlockSizeTransactionSelector extends AbstractStatefulTransactionSel
    */
   private boolean blockFull(final GasState state) {
     final long gasUsed =
-        gasAccountingStrategy.effectiveGasUsed(state.regularGas(), state.stateGas());
+        gasAccountingStrategy.effectiveGasUsed(state.executionGas(), state.stateGas());
     final long gasRemaining = blockGasLimit - gasUsed;
 
     if (gasRemaining < context.gasCalculator().getMinimumTransactionCost()) {

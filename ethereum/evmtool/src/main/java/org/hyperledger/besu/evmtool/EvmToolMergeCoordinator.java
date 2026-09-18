@@ -102,8 +102,7 @@ public class EvmToolMergeCoordinator implements MergeMiningCoordinator {
               protocolContext
                   .getWorldStateArchive()
                   .getWorldState(
-                      org.hyperledger.besu.ethereum.trie.pathbased.common.provider
-                          .WorldStateQueryParams.newBuilder()
+                      org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.newBuilder()
                           .withBlockHeader(block.getHeader())
                           .withShouldWorldStateUpdateHead(true)
                           .build());
