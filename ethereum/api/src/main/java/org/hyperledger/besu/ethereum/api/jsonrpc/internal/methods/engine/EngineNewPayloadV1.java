@@ -242,6 +242,19 @@ public sealed class EngineNewPayloadV1<
       return respondWith(reqId, blockParam, null, SYNCING);
     }
 
+    // Guard against snap sync flat-DB writes racing with block execution: CachedUpdater.commit()
+    // writes pivot-state values to RocksDB before the versioned cache, so a concurrent read
+    // misses the cache and falls through to a mid-write RocksDB, returning a stale balance.
+    if (!mergeContext.get().isInitialSyncDone()) {
+      logger()
+          .atInfo()
+          .setMessage("initial sync in progress, returning SYNCING for new payload #{} ({})")
+          .addArgument(blockParam::getBlockNumber)
+          .addArgument(blockParam::getBlockHash)
+          .log();
+      return respondWith(reqId, blockParam, null, SYNCING);
+    }
+
     // an ancestor is always found here: the parent header is present in the chain (needsSync is
     // false) and getLatestValidAncestor only returns empty when it is not; this is also why Besu
     // never responds with ACCEPTED — a payload whose parent is known is always fully validated,

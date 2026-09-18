@@ -672,6 +672,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
     return blockAccessListApplier.applyBlockAccessLists(
         currentPivotBlockHeader.getNumber() + 1,
         newPivotBlockHeader.getNumber(),
+        Optional.of(Bytes32.wrap(currentPivotBlockHeader.getStateRoot().getBytes())),
         accountRangeTracker,
         storageRangeTracker);
   }

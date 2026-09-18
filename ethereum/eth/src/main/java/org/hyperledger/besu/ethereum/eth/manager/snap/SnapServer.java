@@ -39,6 +39,7 @@ import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.CompactEncoding;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
+import org.hyperledger.besu.ethereum.trie.forest.ForestWorldStateArchive;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
@@ -102,7 +103,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
   private final long maxMillisPerRequest;
 
   // provide worldstate storage by root hash
-  private Function<Hash, Optional<BonsaiWorldStateKeyValueStorage>> worldStateStorageProvider =
+  private Function<Hash, Optional<SnapWorldStateStorage>> worldStateStorageProvider =
       __ -> Optional.empty();
 
   SnapServer(
@@ -151,7 +152,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
   SnapServer(
       final EthMessages snapMessages,
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
-      final Function<Hash, Optional<BonsaiWorldStateKeyValueStorage>> worldStateStorageProvider) {
+      final Function<Hash, Optional<SnapWorldStateStorage>> worldStateStorageProvider) {
     this(
         snapMessages,
         worldStateStorageCoordinator,
@@ -163,7 +164,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
   SnapServer(
       final EthMessages snapMessages,
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
-      final Function<Hash, Optional<BonsaiWorldStateKeyValueStorage>> worldStateStorageProvider,
+      final Function<Hash, Optional<SnapWorldStateStorage>> worldStateStorageProvider,
       final long maxMillisPerRequest) {
     this.snapServerEnabled = true;
     this.snapMessages = snapMessages;
@@ -185,49 +186,74 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
 
   public synchronized SnapServer start() {
     if (!isStarted.get() && snapServerEnabled) {
-      // if we are bonsai and full flat, we can provide a worldstate storage:
       var worldStateKeyValueStorage = worldStateStorageCoordinator.worldStateKeyValueStorage();
       if (worldStateKeyValueStorage.getDataStorageFormat().isBonsaiFormat()
           && (worldStateStorageCoordinator.isMatchingFlatMode(FlatDbMode.FULL)
               || worldStateStorageCoordinator.isMatchingFlatMode(FlatDbMode.ARCHIVE))) {
-        LOGGER.info("Starting SnapServer with Bonsai full flat db");
-        var bonsaiArchive =
-            protocolContext
-                .map(ProtocolContext::getWorldStateArchive)
-                .map(BonsaiWorldStateProvider.class::cast);
-        var cachedStorageManagerOpt =
-            bonsaiArchive.map(archive -> archive.getWorldStateCacheManager());
-
-        if (cachedStorageManagerOpt.isPresent()) {
-          var cachedStorageManager = cachedStorageManagerOpt.get();
-          this.worldStateStorageProvider =
-              rootHash ->
-                  cachedStorageManager
-                      .getStorageByRootHash(rootHash)
-                      .map(BonsaiWorldStateKeyValueStorage.class::cast);
-
-          // when we start we need to build the cache of latest 128 worldstates
-          // trielogs-to-root-hash:
-          var blockchain = protocolContext.map(ProtocolContext::getBlockchain).orElse(null);
-
-          // at startup, prime the latest worldstates by roothash:
-          cachedStorageManager.primeRootToBlockHashCache(blockchain, PRIME_STATE_ROOT_CACHE_LIMIT);
-
-          var flatDbStrategy =
-              ((BonsaiWorldStateKeyValueStorage)
-                      worldStateStorageCoordinator.worldStateKeyValueStorage())
-                  .getFlatDbStrategy();
-          if (!flatDbStrategy.isCodeByCodeHash()) {
-            LOGGER.warn("SnapServer requires code stored by codehash, but it is not enabled");
-          }
-        } else {
-          LOGGER.warn(
-              "SnapServer started without cached storage manager, this should only happen in tests");
-        }
-        isStarted.set(true);
+        startBonsaiSnapServer();
+      } else if (!worldStateKeyValueStorage.getDataStorageFormat().isBonsaiFormat()) {
+        startForestSnapServer();
       }
     }
     return this;
+  }
+
+  private void startBonsaiSnapServer() {
+    LOGGER.info("Starting SnapServer with Bonsai full flat db");
+    var bonsaiArchive =
+        protocolContext
+            .map(ProtocolContext::getWorldStateArchive)
+            .map(BonsaiWorldStateProvider.class::cast);
+    var cachedStorageManagerOpt = bonsaiArchive.map(archive -> archive.getWorldStateCacheManager());
+
+    if (cachedStorageManagerOpt.isPresent()) {
+      var cachedStorageManager = cachedStorageManagerOpt.get();
+      this.worldStateStorageProvider =
+          rootHash ->
+              cachedStorageManager
+                  .getStorageByRootHash(rootHash)
+                  .map(BonsaiWorldStateKeyValueStorage.class::cast)
+                  .map(BonsaiSnapWorldStateStorage::new);
+
+      // at startup, prime the latest worldstates by roothash:
+      var blockchain = protocolContext.map(ProtocolContext::getBlockchain).orElse(null);
+      cachedStorageManager.primeRootToBlockHashCache(blockchain, PRIME_STATE_ROOT_CACHE_LIMIT);
+
+      var flatDbStrategy =
+          ((BonsaiWorldStateKeyValueStorage)
+                  worldStateStorageCoordinator.worldStateKeyValueStorage())
+              .getFlatDbStrategy();
+      if (!flatDbStrategy.isCodeByCodeHash()) {
+        LOGGER.warn("SnapServer requires code stored by codehash, but it is not enabled");
+      }
+    } else {
+      LOGGER.warn(
+          "SnapServer started without cached storage manager, this should only happen in tests");
+    }
+    isStarted.set(true);
+  }
+
+  private void startForestSnapServer() {
+    LOGGER.info("Starting SnapServer with Forest storage (trie traversal)");
+    var forestArchive =
+        protocolContext
+            .map(ProtocolContext::getWorldStateArchive)
+            .flatMap(
+                archive ->
+                    archive instanceof ForestWorldStateArchive forestWorldStateArchive
+                        ? Optional.of(forestWorldStateArchive)
+                        : Optional.empty());
+    if (forestArchive.isPresent()) {
+      var forestStorage = forestArchive.get().getWorldStateStorage();
+      this.worldStateStorageProvider =
+          rootHash ->
+              forestStorage.isWorldStateAvailable(Bytes32.wrap(rootHash.getBytes()))
+                  ? Optional.of(new ForestSnapWorldStateStorage(forestStorage, rootHash))
+                  : Optional.empty();
+      isStarted.set(true);
+    } else {
+      LOGGER.warn("SnapServer: Forest world state archive not found, snap serving disabled");
+    }
   }
 
   public synchronized SnapServer stop() {
@@ -340,7 +366,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
       return worldStateStorageProvider
           .apply(range.worldStateRootHash())
           .map(
-              storage -> {
+              (SnapWorldStateStorage storage) -> {
                 LOGGER.trace("obtained worldstate in {}", stopWatch);
                 ResponseSizePredicate<Pair<Bytes32, Bytes>> responseSizePredicate =
                     new ResponseSizePredicate<>(
@@ -377,7 +403,8 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
                 }
 
                 final var worldStateProof =
-                    new WorldStateProofProvider(new WorldStateStorageCoordinator(storage));
+                    new WorldStateProofProvider(
+                        new WorldStateStorageCoordinator(storage.asWorldStateKeyValueStorage()));
                 final List<Bytes> proof =
                     worldStateProof.getAccountProofRelatedNodes(
                         range.worldStateRootHash(), Bytes32.wrap(range.startKeyHash().getBytes()));
@@ -443,7 +470,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
       return worldStateStorageProvider
           .apply(range.worldStateRootHash())
           .map(
-              storage -> {
+              (SnapWorldStateStorage storage) -> {
                 LOGGER.trace("obtained worldstate in {}", stopWatch);
                 // reusable predicate to limit by rec count and bytes:
                 var responsePredicate =
@@ -478,7 +505,8 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
                 ArrayDeque<NavigableMap<Bytes32, Bytes>> collectedStorages = new ArrayDeque<>();
                 List<Bytes> proofNodes = new ArrayList<>();
                 final var worldStateProof =
-                    new WorldStateProofProvider(new WorldStateStorageCoordinator(storage));
+                    new WorldStateProofProvider(
+                        new WorldStateStorageCoordinator(storage.asWorldStateKeyValueStorage()));
 
                 int accountLookups = 0;
                 for (var forAccountHash : range.accountHashes()) {
@@ -647,7 +675,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
       return worldStateStorageProvider
           .apply(triePaths.worldStateRootHash())
           .map(
-              storage -> {
+              (SnapWorldStateStorage storage) -> {
                 LOGGER.trace("obtained worldstate in {}", stopWatch);
                 ArrayList<Bytes> trieNodes = new ArrayList<>();
                 final ExceedingPredicate<Bytes> trieNodesResponseSizePredicate =
@@ -823,12 +851,8 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
     }
   }
 
-  Hash getAccountStorageRoot(
-      final Bytes32 accountHash, final BonsaiWorldStateKeyValueStorage storage) {
-    return storage
-        .getTrieNodeUnsafe(Bytes.concatenate(accountHash, Bytes.EMPTY))
-        .map(Hash::hash)
-        .orElse(Hash.EMPTY_TRIE_HASH);
+  Hash getAccountStorageRoot(final Bytes32 accountHash, final SnapWorldStateStorage storage) {
+    return storage.getAccountStorageRoot(Hash.wrap(accountHash));
   }
 
   private static String asLogHash(final Bytes32 hash) {

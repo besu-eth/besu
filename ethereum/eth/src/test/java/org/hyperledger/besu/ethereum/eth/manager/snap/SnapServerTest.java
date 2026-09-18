@@ -100,13 +100,13 @@ public class SnapServerTest {
   StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie;
   WorldStateProofProvider proofProvider;
 
-  Function<Hash, Optional<BonsaiWorldStateKeyValueStorage>> spyProvider =
+  Function<Hash, Optional<SnapWorldStateStorage>> spyProvider =
       spy(
-          new Function<Hash, Optional<BonsaiWorldStateKeyValueStorage>>() {
+          new Function<Hash, Optional<SnapWorldStateStorage>>() {
             // explicit non-final class is necessary for Mockito to spy:
             @Override
-            public Optional<BonsaiWorldStateKeyValueStorage> apply(final Hash hash) {
-              return Optional.of(inMemoryStorage);
+            public Optional<SnapWorldStateStorage> apply(final Hash hash) {
+              return Optional.of(new BonsaiSnapWorldStateStorage(inMemoryStorage));
             }
           });
 
@@ -157,11 +157,11 @@ public class SnapServerTest {
 
     spyProvider =
         spy(
-            new Function<Hash, Optional<BonsaiWorldStateKeyValueStorage>>() {
+            new Function<Hash, Optional<SnapWorldStateStorage>>() {
               // explicit non-final class is necessary for Mockito to spy:
               @Override
-              public Optional<BonsaiWorldStateKeyValueStorage> apply(final Hash hash) {
-                return Optional.of(inMemoryStorage);
+              public Optional<SnapWorldStateStorage> apply(final Hash hash) {
+                return Optional.of(new BonsaiSnapWorldStateStorage(inMemoryStorage));
               }
             });
 

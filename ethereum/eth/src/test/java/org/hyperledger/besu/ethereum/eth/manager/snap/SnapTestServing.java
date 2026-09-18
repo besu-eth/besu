@@ -57,12 +57,13 @@ public class SnapTestServing {
   public SnapTestServing(
       final BonsaiWorldStateKeyValueStorage storage, final Hash servedStateRoot) {
     this.servedStateRoot = servedStateRoot;
+    final BonsaiSnapWorldStateStorage snapStorage = new BonsaiSnapWorldStateStorage(storage);
     this.snapServer =
         new SnapServer(
                 new EthMessages(),
                 new WorldStateStorageCoordinator(storage),
                 rootHash ->
-                    servedStateRoot.equals(rootHash) ? Optional.of(storage) : Optional.empty(),
+                    servedStateRoot.equals(rootHash) ? Optional.of(snapStorage) : Optional.empty(),
                 Long.MAX_VALUE)
             .start();
   }

@@ -305,6 +305,21 @@ class ReorgBlockchainBuilder {
     return finalizeBal(changes);
   }
 
+  BlockAccessList balWithNonces(final Map<Address, Long> nonces) {
+    final List<BlockAccessList.AccountChanges> changes = new ArrayList<>();
+    for (final Map.Entry<Address, Long> entry : nonces.entrySet()) {
+      changes.add(
+          new BlockAccessList.AccountChanges(
+              entry.getKey(),
+              List.of(),
+              List.of(),
+              List.of(),
+              List.of(new BlockAccessList.NonceChange(0, entry.getValue())),
+              List.of()));
+    }
+    return finalizeBal(changes);
+  }
+
   BlockAccessList balWithStorageChanges(
       final Address account, final Map<UInt256, UInt256> slotValues) {
     final List<BlockAccessList.SlotChanges> slotChanges = new ArrayList<>();
@@ -341,6 +356,10 @@ class ReorgBlockchainBuilder {
                 List.of(),
                 List.of(new BlockAccessList.NonceChange(0, newNonce)),
                 List.of())));
+  }
+
+  BlockAccessList balWithCode(final Address address, final Bytes newCode) {
+    return balWithCodeChange(address, newCode);
   }
 
   BlockAccessList balWithCodeChange(final Address address, final Bytes newCode) {

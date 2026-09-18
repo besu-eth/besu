@@ -35,6 +35,7 @@ import org.hyperledger.besu.ethereum.mainnet.ScheduleBasedBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.metrics.SyncDurationMetrics;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
+import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.services.tasks.InMemoryTasksPriorityQueues;
 
 import java.nio.file.Path;
@@ -129,11 +130,11 @@ public class SnapDownloaderFactory {
         createSnapWorldStateDownloaderTaskCollection();
     final WorldStateDownloader snapWorldStateDownloader;
     if (snap2Enabled) {
-      if (!worldStateStorageCoordinator.getDataStorageFormat().isBonsaiFormat()) {
+      if (!snap2SupportsFormat(worldStateStorageCoordinator.getDataStorageFormat())) {
         throw new IllegalStateException(
-            "Snap/2 synchronization requires a Bonsai data storage format, but "
+            "Snap/2 synchronization does not support the "
                 + worldStateStorageCoordinator.getDataStorageFormat()
-                + " is configured");
+                + " data storage format");
       }
       snapWorldStateDownloader =
           new SnapV2WorldStateDownloader(
@@ -189,6 +190,10 @@ public class SnapDownloaderFactory {
                 .orElse(OptionalLong.empty()));
     syncState.setWorldStateDownloadStatus(snapWorldStateDownloader);
     return Optional.of(fastSyncDownloader);
+  }
+
+  static boolean snap2SupportsFormat(final DataStorageFormat format) {
+    return format.isBonsaiFormat() || format == DataStorageFormat.FOREST;
   }
 
   /**
