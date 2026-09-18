@@ -280,6 +280,53 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
   }
 
   @Test
+  public void shouldReturnInvalidWithoutSyncingWhenHeadDescendsFromBadBlock() {
+    final BlockHeader mockParent = blockHeaderBuilder.buildHeader();
+    blockHeaderBuilder.parentHash(mockParent.getHash());
+    final BlockHeader mockHeader = blockHeaderBuilder.buildHeader();
+    final Hash latestValidHash = Hash.hash(Bytes32.fromHexStringLenient("0xcafebabe"));
+    when(mergeCoordinator.isBadBlock(mockHeader.getHash())).thenReturn(false);
+    when(mergeCoordinator.checkAndMarkBadDescendant(mockHeader.getHash())).thenReturn(true);
+    when(mergeCoordinator.getLatestValidHashOfBadBlock(mockHeader.getHash()))
+        .thenReturn(Optional.of(latestValidHash));
+
+    final JsonRpcResponse resp =
+        resp(
+            new ForkchoiceStateV1(
+                mockHeader.getHash(), mockHeader.getParentHash(), mockHeader.getParentHash()),
+            Optional.empty());
+
+    assertThat(resp.getType()).isEqualTo(RpcResponseType.SUCCESS);
+    final ForkchoiceUpdatedResultV1 result =
+        (ForkchoiceUpdatedResultV1) ((JsonRpcSuccessResponse) resp).getResult();
+    assertThat(result.getPayloadStatus().getStatus()).isEqualTo(INVALID);
+    assertThat(result.getPayloadStatus().getLatestValidHash())
+        .isEqualTo(Optional.of(latestValidHash));
+    assertThat(result.getPayloadId()).isNull();
+    verify(mergeCoordinator, never()).getOrSyncHeadByHash(any(), any());
+    verify(engineCallListener, times(1)).executionEngineCalled();
+    verify(mergeContext, never()).fireNewUnverifiedForkchoiceEvent(any(), any(), any());
+  }
+
+  @Test
+  public void shouldReturnNullLatestValidHashWhenNoneIsKnownForABadHead() {
+    final BlockHeader mockHeader = blockHeaderBuilder.buildHeader();
+    when(mergeCoordinator.isBadBlock(mockHeader.getHash())).thenReturn(true);
+    when(mergeCoordinator.getLatestValidHashOfBadBlock(mockHeader.getHash()))
+        .thenReturn(Optional.empty());
+
+    final JsonRpcResponse resp =
+        resp(new ForkchoiceStateV1(mockHeader.getHash(), Hash.ZERO, Hash.ZERO), Optional.empty());
+
+    assertThat(resp.getType()).isEqualTo(RpcResponseType.SUCCESS);
+    final ForkchoiceUpdatedResultV1 result =
+        (ForkchoiceUpdatedResultV1) ((JsonRpcSuccessResponse) resp).getResult();
+    assertThat(result.getPayloadStatus().getStatus()).isEqualTo(INVALID);
+    assertThat(result.getPayloadStatus().getLatestValidHash()).isEmpty();
+    verify(mergeCoordinator, never()).getOrSyncHeadByHash(any(), any());
+  }
+
+  @Test
   public void shouldReturnValidWithoutFinalizedOrPayload() {
     final BlockHeader mockHeader = blockHeaderBuilder.buildHeader();
     when(mergeCoordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO))

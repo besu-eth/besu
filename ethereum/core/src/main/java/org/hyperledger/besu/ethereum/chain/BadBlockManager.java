@@ -27,6 +27,7 @@ import java.util.Optional;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.RemovalNotification;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,12 +35,32 @@ public class BadBlockManager {
   private static final Logger LOG = LoggerFactory.getLogger(BadBlockManager.class);
 
   public static final int MAX_BAD_BLOCKS_SIZE = 100;
-  private final Cache<Hash, Block> badBlocks =
-      CacheBuilder.newBuilder().maximumSize(MAX_BAD_BLOCKS_SIZE).concurrencyLevel(1).build();
+
+  /**
+   * A bad chain can grow by one block per slot for as long as the consensus client stays on it, so
+   * the caches that only hold a hash or a header track far more entries than the ones holding
+   * bodies.
+   */
+  public static final int MAX_BAD_CHAIN_SIZE = 1024;
+
   private final Cache<Hash, BlockHeader> badHeaders =
-      CacheBuilder.newBuilder().maximumSize(MAX_BAD_BLOCKS_SIZE).concurrencyLevel(1).build();
+      CacheBuilder.newBuilder().maximumSize(MAX_BAD_CHAIN_SIZE).concurrencyLevel(1).build();
+  private final Cache<Hash, Block> badBlocks =
+      CacheBuilder.newBuilder()
+          .maximumSize(MAX_BAD_BLOCKS_SIZE)
+          .concurrencyLevel(1)
+          .removalListener(
+              (RemovalNotification<Hash, Block> notification) -> {
+                // an executed bad block must stay detectable after its body is evicted: its
+                // descendants outlive it in the larger header cache and their detection walks
+                // through its hash
+                if (notification.wasEvicted()) {
+                  badHeaders.put(notification.getKey(), notification.getValue().getHeader());
+                }
+              })
+          .build();
   private final Cache<Hash, Hash> latestValidHashes =
-      CacheBuilder.newBuilder().maximumSize(MAX_BAD_BLOCKS_SIZE).concurrencyLevel(1).build();
+      CacheBuilder.newBuilder().maximumSize(MAX_BAD_CHAIN_SIZE).concurrencyLevel(1).build();
   private final Cache<Hash, BlockAccessList> blockAccessLists =
       CacheBuilder.newBuilder().maximumSize(MAX_BAD_BLOCKS_SIZE).concurrencyLevel(1).build();
   private final Cache<Hash, BlockAccessList> generatedBlockAccessLists =
@@ -101,6 +122,18 @@ public class BadBlockManager {
     return Optional.ofNullable(badBlocks.getIfPresent(hash));
   }
 
+  /**
+   * Return the header of an invalid block, whether the full block or only its header is known
+   *
+   * @param hash of the block
+   * @return the header of an invalid block
+   */
+  public Optional<BlockHeader> getBadHeader(final Hash hash) {
+    return getBadBlock(hash)
+        .map(Block::getHeader)
+        .or(() -> Optional.ofNullable(badHeaders.getIfPresent(hash)));
+  }
+
   public void addBadHeader(final BlockHeader header, final BadBlockCause cause) {
     LOG.debug("Register bad block header {} with cause: {}", header.toLogString(), cause);
     badHeaders.put(header.getHash(), header);
@@ -109,6 +142,50 @@ public class BadBlockManager {
 
   public boolean isBadBlock(final Hash blockHash) {
     return badBlocks.asMap().containsKey(blockHash) || badHeaders.asMap().containsKey(blockHash);
+  }
+
+  /**
+   * Indicate whether any bad block or bad header is currently tracked, as a cheap in-memory
+   * pre-check before more expensive descendant lookups.
+   *
+   * @return true when no bad block or header is tracked
+   */
+  public boolean isEmpty() {
+    return badBlocks.size() == 0 && badHeaders.size() == 0;
+  }
+
+  /**
+   * Record a block as bad because it descends from a bad block. Only the header is kept, the body
+   * of a block that was never executed is not needed to reject its own descendants.
+   *
+   * @param descendant the header of the descendant
+   * @param badAncestor the header of the bad ancestor
+   * @param maybeLatestValidHash the latest valid hash of the chain, if known
+   */
+  public void addBadDescendant(
+      final BlockHeader descendant,
+      final BlockHeader badAncestor,
+      final Optional<Hash> maybeLatestValidHash) {
+    addBadHeader(descendant, BadBlockCause.fromBadAncestorHeader(badAncestor));
+    maybeLatestValidHash.ifPresent(
+        latestValidHash -> addLatestValidHash(descendant.getHash(), latestValidHash));
+  }
+
+  /**
+   * Check whether a block descends from a bad block, recording it as a bad descendant that inherits
+   * the parent's latest valid hash if so. Only the direct parent is checked, deeper ancestors are
+   * covered as long as every block in between has been checked.
+   *
+   * @param header the header of the block to check
+   * @return the header of the bad parent, empty if the parent is not known as bad
+   */
+  public Optional<BlockHeader> checkAndMarkBadDescendant(final BlockHeader header) {
+    final Hash parentHash = header.getParentHash();
+    final Optional<BlockHeader> maybeBadParentHeader = getBadHeader(parentHash);
+    if (maybeBadParentHeader.isPresent() && !isBadBlock(header.getHash())) {
+      addBadDescendant(header, maybeBadParentHeader.get(), getLatestValidHash(parentHash));
+    }
+    return maybeBadParentHeader;
   }
 
   public void addLatestValidHash(final Hash blockHash, final Hash latestValidHash) {

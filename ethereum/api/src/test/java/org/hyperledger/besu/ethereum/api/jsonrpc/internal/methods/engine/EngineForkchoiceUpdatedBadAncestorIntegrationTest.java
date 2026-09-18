@@ -24,7 +24,6 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.merge.MergeContext;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeCoordinator;
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
@@ -167,15 +166,17 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
     when(blockchain.getBlockHeader(validParent.getHash())).thenReturn(Optional.of(validParent));
 
     // Simulate MainnetBlockValidator.handleFailedBlockProcessing — add the bad block
-    // to the manager directly. (The direct add path intentionally does NOT record a
-    // latestValidHash for B itself; only the descendants in stage 2 get one.)
+    // to the manager directly, without a latestValidHash for B itself.
     badBlockManager.addBadBlock(badBlock, BadBlockCause.fromValidationFailure("BAL mismatch"));
 
     // Simulate BackwardSyncContext.emitBadChainEvent firing — MergeCoordinator is
     // registered as a BadChainListener in its constructor and receives the descendant list.
     mergeCoordinator.onBadChain(badBlock, emptyList(), List.of(descendantHeader));
 
-    // onBadChain propagated "bad" status and latestValidHash to the descendant.
+    // onBadChain recorded the latestValidHash for B and propagated "bad" status and
+    // latestValidHash to the descendant.
+    assertThat(mergeCoordinator.getLatestValidHashOfBadBlock(badBlock.getHash()))
+        .contains(validParent.getHash());
     assertThat(mergeCoordinator.isBadBlock(descendantHeader.getHash())).isTrue();
     assertThat(mergeCoordinator.getLatestValidHashOfBadBlock(descendantHeader.getHash()))
         .contains(validParent.getHash());
@@ -226,10 +227,12 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
   }
 
   @Test
-  public void shouldReturnInvalidWithZeroHashWhenBadBlockParentIsUnknown() {
+  public void shouldReturnInvalidWithNullLatestValidHashWhenBadBlockParentIsUnknown() {
     // Same shape as the previous test, except the bad block's parent is NOT in the blockchain.
-    // This models a deep backward-sync failure where we never resolved the ancestor — onBadChain
-    // cannot compute a latestValidHash, so the fcU short-circuit must fall back to Hash.ZERO.
+    // This models a deep backward-sync failure where we never resolved the ancestor — no
+    // latestValidHash is stored and walking the bad ancestry does not reach the chain, so the
+    // answer must be null: the spec reserves 0x0 for asserting an invalid ancestry all the way
+    // back to the pre-merge terminal block.
     final BlockHeader unknownParent = headerBuilder.number(100L).buildHeader();
     final BlockHeader badHeader =
         headerBuilder.number(101L).parentHash(unknownParent.getHash()).buildHeader();
@@ -255,7 +258,7 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
     final ForkchoiceUpdatedResultV1 forkchoiceResult =
         (ForkchoiceUpdatedResultV1) ((JsonRpcSuccessResponse) response).getResult();
     assertThat(forkchoiceResult.getPayloadStatus().getStatus()).isEqualTo(INVALID);
-    assertThat(forkchoiceResult.getPayloadStatus().getLatestValidHash()).contains(Hash.ZERO);
+    assertThat(forkchoiceResult.getPayloadStatus().getLatestValidHash()).isEmpty();
     final String error = forkchoiceResult.getPayloadStatus().getError();
     assertThat(error).contains(descendantHeader.getHash().toString());
     assertThat(error).containsIgnoringCase("invalid");

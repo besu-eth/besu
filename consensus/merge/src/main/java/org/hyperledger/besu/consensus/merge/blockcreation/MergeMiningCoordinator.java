@@ -204,6 +204,15 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
   boolean isBadBlock(Hash blockHash);
 
   /**
+   * Check whether a block that has not been imported yet descends from a bad block, recording it as
+   * bad if it does.
+   *
+   * @param blockHash the block hash
+   * @return true if the block descends from a bad block
+   */
+  boolean checkAndMarkBadDescendant(Hash blockHash);
+
+  /**
    * Gets latest valid hash of bad block.
    *
    * @param blockHash the block hash

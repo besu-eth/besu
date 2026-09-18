@@ -48,7 +48,7 @@ public class BackwardSyncContext {
   private static final int DEFAULT_MAX_RETRIES = 2;
   private static final long MILLIS_DELAY_BETWEEN_PROGRESS_LOG = 10_000L;
   private static final long DEFAULT_MILLIS_BETWEEN_RETRIES = 5000;
-  private static final int DEFAULT_MAX_CHAIN_EVENT_ENTRIES = BadBlockManager.MAX_BAD_BLOCKS_SIZE;
+  private static final int DEFAULT_MAX_CHAIN_EVENT_ENTRIES = BadBlockManager.MAX_BAD_CHAIN_SIZE;
 
   protected final ProtocolContext protocolContext;
   private final ProtocolSchedule protocolSchedule;
@@ -352,7 +352,10 @@ public class BackwardSyncContext {
                 + " backward sync halted. Run debug_resyncWorldState to recover.",
             false);
       }
-      emitBadChainEvent(block);
+      // descendants are only bad if the block itself is, not after a local failure or missing data
+      if (getProtocolContext().getBadBlockManager().isBadBlock(block.getHash())) {
+        emitBadChainEvent(block);
+      }
       throw new BackwardSyncException(
           "Cannot save block "
               + block.toLogString()
@@ -401,11 +404,16 @@ public class BackwardSyncContext {
     Optional<Hash> descendant = backwardChain.getDescendant(badBlock.getHash());
 
     while (descendant.isPresent()
-        && badBlockDescendants.size() < maxBadChainEventEntries
-        && badBlockHeaderDescendants.size() < maxBadChainEventEntries) {
+        && badBlockDescendants.size() + badBlockHeaderDescendants.size()
+            < maxBadChainEventEntries) {
       final Optional<Block> block = backwardChain.getBlock(descendant.get());
       if (block.isPresent()) {
-        badBlockDescendants.add(block.get());
+        // cap the bodies kept alive at once, marking a descendant bad only needs its header
+        if (badBlockDescendants.size() < BadBlockManager.MAX_BAD_BLOCKS_SIZE) {
+          badBlockDescendants.add(block.get());
+        } else {
+          badBlockHeaderDescendants.add(block.get().getHeader());
+        }
       } else {
         backwardChain.getHeader(descendant.get()).ifPresent(badBlockHeaderDescendants::add);
       }

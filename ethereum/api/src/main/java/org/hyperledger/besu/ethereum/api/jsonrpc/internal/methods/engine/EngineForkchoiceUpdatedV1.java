@@ -128,15 +128,20 @@ public sealed class EngineForkchoiceUpdatedV1<
       return new JsonRpcErrorResponse(requestId, structResult);
     }
 
-    if (mergeCoordinator.isBadBlock(forkChoice.getHeadBlockHash())) {
+    // a head that descends from a bad block must not start a backward sync, it would re-execute the
+    // bad block on every forkchoice update
+    if (mergeCoordinator.isBadBlock(forkChoice.getHeadBlockHash())
+        || mergeCoordinator.checkAndMarkBadDescendant(forkChoice.getHeadBlockHash())) {
       logFCU(INVALID, forkChoice);
       return new JsonRpcSuccessResponse(
           requestId,
           new ForkchoiceUpdatedResultV1(
               INVALID,
+              // null when no valid ancestor can be determined, Hash.ZERO would assert invalid
+              // ancestry all the way back to the pre-merge terminal block
               mergeCoordinator
                   .getLatestValidHashOfBadBlock(forkChoice.getHeadBlockHash())
-                  .orElse(Hash.ZERO),
+                  .orElse(null),
               null,
               Optional.of(forkChoice.getHeadBlockHash() + " is an invalid block")));
     }
