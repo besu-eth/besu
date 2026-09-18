@@ -419,20 +419,6 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
   }
 
   @Test
-  public void shouldReturnLatestValidAncestorWhenBadBlockHasNoStoredLatestValidHash() {
-    BlockHeader mockHeader = createBlockHeader(getMinSupportedTimestamp());
-    badBlockManager.addBadHeader(mockHeader, BadBlockCause.fromValidationFailure("error 42"));
-    when(mergeCoordinator.getLatestValidAncestor(mockHeader.getParentHash()))
-        .thenReturn(Optional.of(mockHash));
-
-    var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList())));
-
-    PayloadStatusV1 res = fromSuccessResp(resp);
-    assertThat(res.getStatus()).isEqualTo(INVALID);
-    assertThat(res.getLatestValidHash()).contains(mockHash);
-  }
-
-  @Test
   public void shouldReturnInvalidWhenParentIsBadBlock() {
     final BlockHeader badParentHeader = createBlockHeader(getMinSupportedTimestamp());
     final Hash latestValidHash = Hash.hash(Bytes32.fromHexStringLenient("0xcafebabe"));
@@ -444,6 +430,8 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
             fixture -> fixture.parentHash(badParentHeader.getHash()));
     when(mergeCoordinator.getLatestValidHashOfBadBlock(childHeader.getHash()))
         .thenAnswer(invocation -> badBlockManager.getLatestValidHash(childHeader.getHash()));
+    // without initial sync done the sync branch is dead and the never() verify below is vacuous
+    when(mergeContext.isInitialSyncDone()).thenReturn(true);
 
     var resp = resp(requestParams(mockEnginePayloadParam(childHeader, emptyList())));
 

@@ -1092,6 +1092,10 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
   public void assertCheckAndMarkBadDescendantIgnoresAHeaderTheBackwardChainDoesNotKnow() {
     final BlockHeader unknown =
         headerGenerator.parentHash(Hash.fromHexStringLenient("0xbeef")).buildHeader();
+    // a bad block must be known, an empty manager short-circuits before the backward chain
+    badBlockManager.addBadHeader(
+        headerGenerator.parentHash(Hash.fromHexStringLenient("0xdead")).buildHeader(),
+        BadBlockCause.fromValidationFailure("failed"));
 
     final BackwardChain backwardChain = mock(BackwardChain.class);
     when(backwardSyncContext.getBackwardChain()).thenReturn(backwardChain);
@@ -1099,6 +1103,45 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
 
     assertThat(coordinator.checkAndMarkBadDescendant(unknown.getHash())).isFalse();
     assertThat(badBlockManager.isBadBlock(unknown.getHash())).isFalse();
+  }
+
+  @Test
+  public void assertCheckAndMarkBadDescendantIsFreeWhenNoBadBlockIsKnown() {
+    assertThat(coordinator.checkAndMarkBadDescendant(Hash.fromHexStringLenient("0xbeef")))
+        .isFalse();
+
+    verify(backwardSyncContext, never()).getBackwardChain();
+  }
+
+  @Test
+  public void assertCheckAndMarkBadDescendantIgnoresAHeadWhoseParentIsOnTheChain() {
+    final BlockHeader chainParent = blockchain.getChainHeadHeader();
+    // a stale entry for a block that made it onto the chain must not condemn its descendants
+    badBlockManager.addBadHeader(chainParent, BadBlockCause.fromValidationFailure("stale"));
+    final BlockHeader child = headerGenerator.parentHash(chainParent.getHash()).buildHeader();
+
+    final BackwardChain backwardChain = mock(BackwardChain.class);
+    when(backwardSyncContext.getBackwardChain()).thenReturn(backwardChain);
+    when(backwardChain.getHeader(child.getHash())).thenReturn(Optional.of(child));
+
+    assertThat(coordinator.checkAndMarkBadDescendant(child.getHash())).isFalse();
+    assertThat(badBlockManager.isBadBlock(child.getHash())).isFalse();
+  }
+
+  @Test
+  public void assertGetLatestValidHashOfBadBlockWalksTheBadAncestryAndRemembersTheResult() {
+    final BlockHeader badParent =
+        headerGenerator.parentHash(genesisState.getBlock().getHash()).buildHeader();
+    final BlockHeader badChild = headerGenerator.parentHash(badParent.getHash()).buildHeader();
+    badBlockManager.addBadHeader(badParent, BadBlockCause.fromValidationFailure("failed"));
+    badBlockManager.addBadHeader(badChild, BadBlockCause.fromValidationFailure("failed"));
+
+    final Hash expected =
+        coordinator.getLatestValidAncestor(genesisState.getBlock().getHash()).orElseThrow();
+
+    assertThat(coordinator.getLatestValidHashOfBadBlock(badChild.getHash())).contains(expected);
+    // the walked result is remembered so the next call does not walk again
+    assertThat(badBlockManager.getLatestValidHash(badChild.getHash())).contains(expected);
   }
 
   @ParameterizedTest(name = "{index}: {0}")

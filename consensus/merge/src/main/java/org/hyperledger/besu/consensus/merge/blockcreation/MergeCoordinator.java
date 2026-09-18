@@ -1008,17 +1008,43 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
 
   @Override
   public boolean checkAndMarkBadDescendant(final Hash blockHash) {
+    final BadBlockManager badBlockManager = protocolContext.getBadBlockManager();
+    // nothing to descend from, keep the forkchoice hot path free of storage reads
+    if (badBlockManager.isEmpty()) {
+      return false;
+    }
     // only a header we already know can be linked to its parent, anything else must be synced
     return backwardSyncContext
         .getBackwardChain()
         .getHeader(blockHash)
-        .flatMap(header -> protocolContext.getBadBlockManager().checkAndMarkBadDescendant(header))
+        .filter(header -> badBlockManager.isBadBlock(header.getParentHash()))
+        // a parent that made it onto the chain cannot be bad, a stale entry, e.g. left by a
+        // transient local failure, must not condemn its descendants
+        .filter(
+            header ->
+                protocolContext.getBlockchain().getBlockHeader(header.getParentHash()).isEmpty())
+        .flatMap(badBlockManager::checkAndMarkBadDescendant)
         .isPresent();
   }
 
   @Override
   public Optional<Hash> getLatestValidHashOfBadBlock(final Hash blockHash) {
-    return protocolContext.getBadBlockManager().getLatestValidHash(blockHash);
+    final BadBlockManager badBlockManager = protocolContext.getBadBlockManager();
+    final Optional<Hash> maybeStored = badBlockManager.getLatestValidHash(blockHash);
+    if (maybeStored.isPresent()) {
+      return maybeStored;
+    }
+    // nothing stored, but the recorded bad ancestry can still lead back to the chain; remember
+    // the result so engine_newPayload and engine_forkchoiceUpdated answer alike and later
+    // descendants inherit it
+    final Optional<Hash> maybeAncestor =
+        badBlockManager
+            .getBadHeader(blockHash)
+            .flatMap(
+                header ->
+                    findValidAncestor(protocolContext.getBlockchain(), header.getParentHash()));
+    maybeAncestor.ifPresent(ancestor -> badBlockManager.addLatestValidHash(blockHash, ancestor));
+    return maybeAncestor;
   }
 
   private boolean isPoSHeader(final BlockHeader header) {

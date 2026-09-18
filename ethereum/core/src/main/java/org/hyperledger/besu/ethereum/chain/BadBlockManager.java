@@ -27,6 +27,7 @@ import java.util.Optional;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.RemovalNotification;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,10 +43,22 @@ public class BadBlockManager {
    */
   public static final int MAX_BAD_CHAIN_SIZE = 1024;
 
-  private final Cache<Hash, Block> badBlocks =
-      CacheBuilder.newBuilder().maximumSize(MAX_BAD_BLOCKS_SIZE).concurrencyLevel(1).build();
   private final Cache<Hash, BlockHeader> badHeaders =
       CacheBuilder.newBuilder().maximumSize(MAX_BAD_CHAIN_SIZE).concurrencyLevel(1).build();
+  private final Cache<Hash, Block> badBlocks =
+      CacheBuilder.newBuilder()
+          .maximumSize(MAX_BAD_BLOCKS_SIZE)
+          .concurrencyLevel(1)
+          .removalListener(
+              (RemovalNotification<Hash, Block> notification) -> {
+                // an executed bad block must stay detectable after its body is evicted: its
+                // descendants outlive it in the larger header cache and their detection walks
+                // through its hash
+                if (notification.wasEvicted()) {
+                  badHeaders.put(notification.getKey(), notification.getValue().getHeader());
+                }
+              })
+          .build();
   private final Cache<Hash, Hash> latestValidHashes =
       CacheBuilder.newBuilder().maximumSize(MAX_BAD_CHAIN_SIZE).concurrencyLevel(1).build();
   private final Cache<Hash, BlockAccessList> blockAccessLists =
@@ -129,6 +142,16 @@ public class BadBlockManager {
 
   public boolean isBadBlock(final Hash blockHash) {
     return badBlocks.asMap().containsKey(blockHash) || badHeaders.asMap().containsKey(blockHash);
+  }
+
+  /**
+   * Indicate whether any bad block or bad header is currently tracked, as a cheap in-memory
+   * pre-check before more expensive descendant lookups.
+   *
+   * @return true when no bad block or header is tracked
+   */
+  public boolean isEmpty() {
+    return badBlocks.size() == 0 && badHeaders.size() == 0;
   }
 
   /**

@@ -309,6 +309,24 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
   }
 
   @Test
+  public void shouldReturnNullLatestValidHashWhenNoneIsKnownForABadHead() {
+    final BlockHeader mockHeader = blockHeaderBuilder.buildHeader();
+    when(mergeCoordinator.isBadBlock(mockHeader.getHash())).thenReturn(true);
+    when(mergeCoordinator.getLatestValidHashOfBadBlock(mockHeader.getHash()))
+        .thenReturn(Optional.empty());
+
+    final JsonRpcResponse resp =
+        resp(new ForkchoiceStateV1(mockHeader.getHash(), Hash.ZERO, Hash.ZERO), Optional.empty());
+
+    assertThat(resp.getType()).isEqualTo(RpcResponseType.SUCCESS);
+    final ForkchoiceUpdatedResultV1 result =
+        (ForkchoiceUpdatedResultV1) ((JsonRpcSuccessResponse) resp).getResult();
+    assertThat(result.getPayloadStatus().getStatus()).isEqualTo(INVALID);
+    assertThat(result.getPayloadStatus().getLatestValidHash()).isEmpty();
+    verify(mergeCoordinator, never()).getOrSyncHeadByHash(any(), any());
+  }
+
+  @Test
   public void shouldReturnValidWithoutFinalizedOrPayload() {
     final BlockHeader mockHeader = blockHeaderBuilder.buildHeader();
     when(mergeCoordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO))

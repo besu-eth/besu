@@ -137,9 +137,11 @@ public sealed class EngineForkchoiceUpdatedV1<
           requestId,
           new ForkchoiceUpdatedResultV1(
               INVALID,
+              // null when no valid ancestor can be determined, Hash.ZERO would assert invalid
+              // ancestry all the way back to the pre-merge terminal block
               mergeCoordinator
                   .getLatestValidHashOfBadBlock(forkChoice.getHeadBlockHash())
-                  .orElse(Hash.ZERO),
+                  .orElse(null),
               null,
               Optional.of(forkChoice.getHeadBlockHash() + " is an invalid block")));
     }
