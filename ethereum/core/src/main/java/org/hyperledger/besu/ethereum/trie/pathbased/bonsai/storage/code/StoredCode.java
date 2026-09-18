@@ -32,10 +32,10 @@ public record StoredCode(Bytes code, long[] jumpDestBitMask) {
   }
 
   public Code toCode(final Hash codeHash) {
-    final Code result = new Code(code, codeHash);
-    if (jumpDestBitMask != null) {
-      result.setJumpDestBitMask(jumpDestBitMask);
+    if (jumpDestBitMask == null) {
+      return new Code(code, codeHash);
     }
-    return result;
+    // The analysis being present is what lets the storage value be kept as it is, without a copy
+    return new Code(code, codeHash, jumpDestBitMask);
   }
 }

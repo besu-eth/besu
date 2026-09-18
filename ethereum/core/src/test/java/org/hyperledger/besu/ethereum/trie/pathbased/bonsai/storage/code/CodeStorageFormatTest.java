@@ -59,9 +59,11 @@ class CodeStorageFormatTest {
 
   @Test
   void storedAnalysisIsUsedAsIs() {
-    final Code code = CodeStorageFormat.decode(CodeStorageFormat.encode(CODE)).toCode(Hash.EMPTY);
+    final StoredCode stored = CodeStorageFormat.decode(CodeStorageFormat.encode(CODE));
+    final Code code = stored.toCode(Hash.EMPTY);
 
-    assertThat(code.getJumpDestBitMask()).isNotNull();
+    assertThat(code.getJumpDestBitMask()).isSameAs(stored.jumpDestBitMask());
+    assertThat(code.getBytes()).isSameAs(stored.code());
     assertThat(code.isJumpDestInvalid(2)).isFalse();
     assertThat(code.isJumpDestInvalid(1)).isTrue();
     assertThat(code.isJumpDestInvalid(4)).isTrue();

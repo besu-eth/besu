@@ -64,6 +64,21 @@ public class Code {
   }
 
   /**
+   * Constructor for code whose jump destination analysis is already known, so the bytes are kept as
+   * given, whether that is a whole array or a slice of one, and no copy is made.
+   *
+   * @param byteCode The byte representation of the code.
+   * @param codeHash the hash of the bytecode
+   * @param jumpDestBitMask the jump destination bitmask of the code, one bit per byte
+   */
+  public Code(final Bytes byteCode, final Hash codeHash, final long[] jumpDestBitMask) {
+    this.bytes = byteCode;
+    this.codeHash = codeHash;
+    this.size = byteCode.size();
+    this.jumpDestBitMask = jumpDestBitMask;
+  }
+
+  /**
    * Returns true if the object is equal to this; otherwise false.
    *
    * @param other The object to compare this with.
