@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPOutput;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.StoredCode;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldView;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.ModificationNotAllowedException;
@@ -240,8 +241,11 @@ public class BonsaiAccount implements MutableAccount, AccountValue {
     }
 
     // cache miss get the code from the disk, set it and put it in the cache
-    final Bytes byteCode = context.getCode(address, codeHash).orElse(Bytes.EMPTY);
-    code = new Code(byteCode, codeHash);
+    code =
+        context
+            .getStoredCode(address, codeHash)
+            .orElse(StoredCode.withoutAnalysis(Bytes.EMPTY))
+            .toCode(codeHash);
     Optional.ofNullable(codeCache).ifPresent(c -> c.put(codeHash, code));
 
     return code;

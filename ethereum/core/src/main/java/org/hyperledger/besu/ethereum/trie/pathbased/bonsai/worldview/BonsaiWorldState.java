@@ -27,6 +27,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateLayerStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.StoredCode;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
@@ -150,6 +151,11 @@ public class BonsaiWorldState extends PathBasedWorldState {
   @Override
   public Optional<Bytes> getCode(@NotNull final Address address, final Hash codeHash) {
     return getWorldStateStorage().getCode(codeHash, address.addressHash());
+  }
+
+  @Override
+  public Optional<StoredCode> getStoredCode(final Address address, final Hash codeHash) {
+    return getWorldStateStorage().getStoredCode(codeHash, address.addressHash());
   }
 
   @Override

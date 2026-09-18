@@ -28,6 +28,7 @@ import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.FlatDbCacheManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.VersionedFlatDbCacheManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.CodeStorageFormat;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.StoredCode;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFlatDbStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFlatDbStrategyProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.FlatDbStrategy;
@@ -374,10 +375,14 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
   }
 
   public Optional<Bytes> getCode(final Hash codeHash, final Hash accountHash) {
+    return getStoredCode(codeHash, accountHash).map(StoredCode::code);
+  }
+
+  public Optional<StoredCode> getStoredCode(final Hash codeHash, final Hash accountHash) {
     if (codeHash.equals(Hash.EMPTY)) {
-      return Optional.of(Bytes.EMPTY);
+      return Optional.of(StoredCode.withoutAnalysis(Bytes.EMPTY));
     }
-    return getFlatDbStrategy().getFlatCode(codeHash, accountHash, composedWorldStateStorage);
+    return getFlatDbStrategy().getFlatStoredCode(codeHash, accountHash, composedWorldStateStorage);
   }
 
   public Optional<Bytes> getAccountStateTrieNode(final Bytes location, final Bytes32 nodeHash) {

@@ -26,12 +26,12 @@ import org.apache.tuweni.bytes.Bytes;
 
 public class AccountHashCodeStorageStrategy implements CodeStorageStrategy {
   @Override
-  public Optional<Bytes> getFlatCode(
+  public Optional<StoredCode> getFlatStoredCode(
       final Hash codeHash, final Hash accountHash, final SegmentedKeyValueStorage storage) {
     return storage
         .get(CODE_STORAGE, accountHash.getBytes().toArrayUnsafe())
         .map(CodeStorageFormat::decode)
-        .filter(code -> Hash.hash(code).equals(codeHash));
+        .filter(stored -> Hash.hash(stored.code()).equals(codeHash));
   }
 
   @Override
