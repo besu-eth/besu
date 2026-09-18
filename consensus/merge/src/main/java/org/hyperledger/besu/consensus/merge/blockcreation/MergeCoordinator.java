@@ -1007,6 +1007,16 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   }
 
   @Override
+  public boolean checkAndMarkBadDescendant(final Hash blockHash) {
+    // only a header we already know can be linked to its parent, anything else must be synced
+    return backwardSyncContext
+        .getBackwardChain()
+        .getHeader(blockHash)
+        .flatMap(header -> protocolContext.getBadBlockManager().checkAndMarkBadDescendant(header))
+        .isPresent();
+  }
+
+  @Override
   public Optional<Hash> getLatestValidHashOfBadBlock(final Hash blockHash) {
     return protocolContext.getBadBlockManager().getLatestValidHash(blockHash);
   }

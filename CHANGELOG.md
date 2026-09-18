@@ -41,7 +41,7 @@
 - `engine_newPayloadV4`+ now returns `-32602` for an `executionRequests` element consisting only of a type byte, as execution-apis requires, including when that type byte is one Besu does not recognize. Such an element was previously answered with an `INVALID` payload status. [#11194](https://github.com/besu-eth/besu/pull/11194)
 - A block carrying a transaction whose gas limit exceeds the block's is now rejected for that, rather than reported as an EIP-7928 block access list failure. The access list item budget is checked before the block runs, so it pre-empted the gas error. [#11195](https://github.com/besu-eth/besu/pull/11195)
 - `engine_forkchoiceUpdated` now returns an internal error instead of `INVALID` with `latestValidHash` set to the head when a valid head cannot be applied locally. [#11317](https://github.com/besu-eth/besu/pull/11317)
-- `engine_newPayload` now returns `INVALID` instead of `SYNCING` for a payload whose parent is a known bad block, which could trap backward sync in an endless re-execution loop. [#11313](https://github.com/besu-eth/besu/pull/11313)
+- `engine_newPayload` and `engine_forkchoiceUpdated` now return `INVALID` instead of `SYNCING` for a block whose parent is a known bad block, rather than backward syncing to it. [#11313](https://github.com/besu-eth/besu/pull/11313)
 
 ### Additions and Improvements
 - Implement native `callTracer` execution tracing, reducing memory use for `debug_trace*`. [#11077](https://github.com/besu-eth/besu/pull/11077)

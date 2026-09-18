@@ -34,12 +34,20 @@ public class BadBlockManager {
   private static final Logger LOG = LoggerFactory.getLogger(BadBlockManager.class);
 
   public static final int MAX_BAD_BLOCKS_SIZE = 100;
+
+  /**
+   * A bad chain can grow by one block per slot for as long as the consensus client stays on it, so
+   * the caches that only hold a hash or a header track far more entries than the ones holding
+   * bodies.
+   */
+  public static final int MAX_BAD_CHAIN_SIZE = 1024;
+
   private final Cache<Hash, Block> badBlocks =
       CacheBuilder.newBuilder().maximumSize(MAX_BAD_BLOCKS_SIZE).concurrencyLevel(1).build();
   private final Cache<Hash, BlockHeader> badHeaders =
-      CacheBuilder.newBuilder().maximumSize(MAX_BAD_BLOCKS_SIZE).concurrencyLevel(1).build();
+      CacheBuilder.newBuilder().maximumSize(MAX_BAD_CHAIN_SIZE).concurrencyLevel(1).build();
   private final Cache<Hash, Hash> latestValidHashes =
-      CacheBuilder.newBuilder().maximumSize(MAX_BAD_BLOCKS_SIZE).concurrencyLevel(1).build();
+      CacheBuilder.newBuilder().maximumSize(MAX_BAD_CHAIN_SIZE).concurrencyLevel(1).build();
   private final Cache<Hash, BlockAccessList> blockAccessLists =
       CacheBuilder.newBuilder().maximumSize(MAX_BAD_BLOCKS_SIZE).concurrencyLevel(1).build();
   private final Cache<Hash, BlockAccessList> generatedBlockAccessLists =

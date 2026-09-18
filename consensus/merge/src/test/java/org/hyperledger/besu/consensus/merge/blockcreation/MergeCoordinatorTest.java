@@ -47,6 +47,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.BlockAddedEvent;
 import org.hyperledger.besu.ethereum.chain.BlockAddedObserver;
@@ -64,6 +65,7 @@ import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
+import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardChain;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncContext;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.ImmutableTransactionPoolConfiguration;
@@ -1069,6 +1071,34 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     assertThat(res).isNotPresent();
     verify(backwardSyncContext, never()).maybeUpdateTargetHeight(any());
     verify(backwardSyncContext, never()).syncBackwardsUntil(any(Hash.class));
+  }
+
+  @Test
+  public void assertCheckAndMarkBadDescendantMarksTheChildOfABadBlock() {
+    final BlockHeader badParent =
+        headerGenerator.parentHash(Hash.fromHexStringLenient("0xbeef")).buildHeader();
+    final BlockHeader child = headerGenerator.parentHash(badParent.getHash()).buildHeader();
+    badBlockManager.addBadHeader(badParent, BadBlockCause.fromValidationFailure("failed"));
+
+    final BackwardChain backwardChain = mock(BackwardChain.class);
+    when(backwardSyncContext.getBackwardChain()).thenReturn(backwardChain);
+    when(backwardChain.getHeader(child.getHash())).thenReturn(Optional.of(child));
+
+    assertThat(coordinator.checkAndMarkBadDescendant(child.getHash())).isTrue();
+    assertThat(badBlockManager.isBadBlock(child.getHash())).isTrue();
+  }
+
+  @Test
+  public void assertCheckAndMarkBadDescendantIgnoresAHeaderTheBackwardChainDoesNotKnow() {
+    final BlockHeader unknown =
+        headerGenerator.parentHash(Hash.fromHexStringLenient("0xbeef")).buildHeader();
+
+    final BackwardChain backwardChain = mock(BackwardChain.class);
+    when(backwardSyncContext.getBackwardChain()).thenReturn(backwardChain);
+    when(backwardChain.getHeader(unknown.getHash())).thenReturn(Optional.empty());
+
+    assertThat(coordinator.checkAndMarkBadDescendant(unknown.getHash())).isFalse();
+    assertThat(badBlockManager.isBadBlock(unknown.getHash())).isFalse();
   }
 
   @ParameterizedTest(name = "{index}: {0}")
