@@ -90,9 +90,6 @@ public final class CodeStorageFormat {
       return;
     }
     final Optional<byte[]> lastMigrated = storage.get(CODE_STORAGE, MIGRATION_KEY);
-    LOG.info(
-        "Migrating the code storage format, {}",
-        lastMigrated.isPresent() ? "resuming where it stopped" : "starting");
     final long start = System.currentTimeMillis();
     long entries = 0;
     long batchBytes = 0;
@@ -106,6 +103,12 @@ public final class CodeStorageFormat {
         final byte[] key = entry.getKey();
         if (isReservedKey(key) || lastMigrated.map(k -> Arrays.equals(k, key)).orElse(false)) {
           continue;
+        }
+        if (entries == 0) {
+          // In-memory and fresh databases have nothing to migrate and stay quiet
+          LOG.info(
+              "Migrating the code storage format, {}",
+              lastMigrated.isPresent() ? "resuming where it stopped" : "starting");
         }
         final byte[] value = encode(Bytes.wrap(entry.getValue()));
         transaction.put(CODE_STORAGE, key, value);
@@ -121,7 +124,9 @@ public final class CodeStorageFormat {
     }
     markCurrent(transaction);
     transaction.commit();
-    LOG.info(
-        "Migrated {} code entries in {} s", entries, (System.currentTimeMillis() - start) / 1000);
+    if (entries > 0) {
+      LOG.info(
+          "Migrated {} code entries in {} s", entries, (System.currentTimeMillis() - start) / 1000);
+    }
   }
 }
