@@ -10,7 +10,7 @@ To try out this example, start the Open Telemetry Collector and the Zipkin servi
 
 Start besu with:
 
-`$> OTEL_RESOURCE_ATTRIBUTES="service.name=besu-dev" OTEL_EXPORTER_OTLP_INSECURE=true ./gradlew run --args="--network=dev --rpc-http-enabled --metrics-enabled --metrics-protocol=opentelemetry"`
+`$> OTEL_RESOURCE_ATTRIBUTES="service.name=besu-dev" OTEL_EXPORTER_OTLP_INSECURE=true ./gradlew run --args="--network=ephemery --rpc-http-enabled --metrics-enabled --metrics-protocol=opentelemetry"`
 
 Try interacting with the JSON-RPC API. Here is a simple example using cURL:
 
