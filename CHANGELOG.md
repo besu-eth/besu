@@ -48,6 +48,7 @@
 - Implement native `prestateTracer` execution tracing, reducing memory use for `debug_trace*`. [#11289](https://github.com/besu-eth/besu/pull/11289)
 - Upgrade the stable reference tests to `tests@v20.0.2`, now published from the `ethereum/execution-specs` repository. [#11175](https://github.com/besu-eth/besu/pull/11175)
 - `eth_simulate` now returns EIP-7708 transfer logs for Amsterdam [#11154](https://github.com/besu-eth/besu/pull/11154)
+- Accounts a block only reads are no longer rewritten into the flat database, the account trie and the trie log on persist. [#11324](https://github.com/besu-eth/besu/pull/11324)
 
 ## 26.8.1
 

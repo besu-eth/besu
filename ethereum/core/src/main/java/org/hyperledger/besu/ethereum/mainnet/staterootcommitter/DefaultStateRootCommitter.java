@@ -36,10 +36,12 @@ import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
 import org.hyperledger.besu.plugin.services.worldstate.StateRootComputation;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -118,12 +120,14 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
       }
 
       final MerkleTrie<Bytes, Bytes> accountTrie = bonsai.createAccountStateTrie();
+      final Set<Address> untouched = untouchedAccounts();
 
       // Step 1: launch storage trie updates concurrently for every touched account.
       for (final Map.Entry<Address, StorageConsumingMap<StorageSlotKey, BonsaiValue<UInt256>>>
           storageAccountUpdate : worldStateUpdater.getStorageToUpdate().entrySet()) {
         final Address address = storageAccountUpdate.getKey();
-        if (worldStateUpdater.getAccountsToUpdate().containsKey(address)) {
+        if (worldStateUpdater.getAccountsToUpdate().containsKey(address)
+            && !untouched.contains(address)) {
           storageFutures.put(
               address,
               CompletableFuture.supplyAsync(
@@ -137,6 +141,9 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
           worldStateUpdater.getAccountsToUpdate().entrySet()) {
         final Address address = accountUpdate.getKey();
         final BonsaiValue<BonsaiAccount> accountValue = accountUpdate.getValue();
+        if (untouched.contains(address)) {
+          continue;
+        }
         final Hash addressHash = addressHasher.apply(bonsai, address);
         try {
           if (accountValue.getUpdated() == null) {
@@ -162,6 +169,35 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
           (location, hash, value) -> u -> u.putAccountStateTrieNode(location, hash, value));
       writeSink.addAll(writes);
       return Hash.wrap(accountTrie.getRootHash());
+    }
+
+    /** Accounts the block only read; putting one back would rewrite its whole trie path. */
+    private Set<Address> untouchedAccounts() {
+      final Set<Address> untouched = new HashSet<>();
+      for (final Map.Entry<Address, BonsaiValue<BonsaiAccount>> accountUpdate :
+          worldStateUpdater.getAccountsToUpdate().entrySet()) {
+        final Address address = accountUpdate.getKey();
+        if (accountUpdate.getValue().isUnchanged()
+            && !worldStateUpdater.getStorageToClear().contains(address)
+            && !hasStorageChanges(address)) {
+          untouched.add(address);
+        }
+      }
+      return untouched;
+    }
+
+    private boolean hasStorageChanges(final Address address) {
+      final StorageConsumingMap<StorageSlotKey, BonsaiValue<UInt256>> slots =
+          worldStateUpdater.getStorageToUpdate().get(address);
+      if (slots == null) {
+        return false;
+      }
+      for (final BonsaiValue<UInt256> slot : slots.values()) {
+        if (!slot.isUnchanged()) {
+          return true;
+        }
+      }
+      return false;
     }
 
     private Optional<Bytes> resolveUpdatedAccount(

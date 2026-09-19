@@ -49,13 +49,12 @@ public class BonsaiTrieLogFactory implements TrieLogFactory {
     layer.setBlockNumber(blockHeader.getNumber());
     for (final var updatedAccount : accumulator.getAccountsToUpdate().entrySet()) {
       final var bonsaiValue = updatedAccount.getValue();
-      final var oldAccountValue = bonsaiValue.getPrior();
-      final var newAccountValue = bonsaiValue.getUpdated();
-      if (oldAccountValue == null && newAccountValue == null) {
-        // by default do not persist empty reads of accounts to the trie log
+      if (bonsaiValue.isUnchanged()) {
+        // by default do not persist reads of accounts to the trie log
         continue;
       }
-      layer.addAccountChange(updatedAccount.getKey(), oldAccountValue, newAccountValue);
+      layer.addAccountChange(
+          updatedAccount.getKey(), bonsaiValue.getPrior(), bonsaiValue.getUpdated());
     }
 
     for (final var updatedCode : accumulator.getCodeToUpdate().entrySet()) {

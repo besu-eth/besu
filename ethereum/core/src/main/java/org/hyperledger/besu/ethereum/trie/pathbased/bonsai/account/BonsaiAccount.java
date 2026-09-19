@@ -359,6 +359,30 @@ public class BonsaiAccount implements MutableAccount, AccountValue {
     this.storageRoot = storageRoot;
   }
 
+  /**
+   * Equal when they serialize to the same state trie value; pending storage writes are not part of
+   * it.
+   */
+  @Override
+  public boolean equals(final Object o) {
+    if (this == o) {
+      return true;
+    }
+    if (!(o instanceof BonsaiAccount that)) {
+      return false;
+    }
+    return nonce == that.nonce
+        && Objects.equals(address, that.address)
+        && Objects.equals(balance, that.balance)
+        && Objects.equals(storageRoot, that.storageRoot)
+        && Objects.equals(codeHash, that.codeHash);
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(address, nonce, balance, storageRoot, codeHash);
+  }
+
   @Override
   public String toString() {
     return "AccountState{"

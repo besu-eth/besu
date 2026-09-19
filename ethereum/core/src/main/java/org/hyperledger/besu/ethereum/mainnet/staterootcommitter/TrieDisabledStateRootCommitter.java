@@ -99,6 +99,9 @@ public enum TrieDisabledStateRootCommitter implements StateRootCommitter {
       for (final Map.Entry<Address, BonsaiValue<BonsaiAccount>> accountUpdate :
           worldStateUpdater.getAccountsToUpdate().entrySet()) {
         final BonsaiValue<BonsaiAccount> accountValue = accountUpdate.getValue();
+        if (accountValue.isUnchanged()) {
+          continue;
+        }
         final Hash addressHash = accountUpdate.getKey().addressHash();
         if (accountValue.getUpdated() == null) {
           sink.removeAccountInfoState(addressHash);
