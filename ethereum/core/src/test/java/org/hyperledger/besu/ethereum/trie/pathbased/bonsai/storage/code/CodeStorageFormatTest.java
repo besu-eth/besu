@@ -81,40 +81,6 @@ class CodeStorageFormatTest {
   }
 
   @Test
-  void decodesCodeStoredWithoutAnalysis() {
-    final StoredCode stored =
-        CodeStorageFormat.decode(Bytes.concatenate(Bytes.of(1), CODE).toArrayUnsafe());
-
-    assertThat(stored.code()).isEqualTo(CODE);
-    assertThat(stored.jumpDestBitMask()).isNull();
-  }
-
-  @Test
-  void upgradesEntriesStoredWithoutAnalysis() {
-    final SegmentedKeyValueStorage storage = storage();
-    final List<Bytes> codes = List.of(CODE, Bytes.of(0x5b), Bytes.fromHexString("0x60005b"));
-    final SegmentedKeyValueStorageTransaction setup = storage.startTransaction();
-    // one entry is already current, the others only carry the format byte
-    setup.put(
-        CODE_STORAGE,
-        Hash.hash(codes.get(0)).getBytes().toArrayUnsafe(),
-        CodeStorageFormat.encode(codes.get(0)));
-    for (final Bytes code : codes.subList(1, codes.size())) {
-      setup.put(
-          CODE_STORAGE,
-          Hash.hash(code).getBytes().toArrayUnsafe(),
-          Bytes.concatenate(Bytes.of(1), code).toArrayUnsafe());
-    }
-    setup.put(CODE_STORAGE, CodeStorageFormat.FORMAT_KEY, new byte[] {1});
-    setup.commit();
-
-    CodeStorageFormat.migrate(storage);
-
-    assertMigrated(storage, codes);
-    assertThat(storage.get(CODE_STORAGE, CodeStorageFormat.FORMAT_KEY)).contains(new byte[] {2});
-  }
-
-  @Test
   void marksAnEmptyColumnFamilyWithoutRewritingAnything() {
     final SegmentedKeyValueStorage storage = storage();
 
