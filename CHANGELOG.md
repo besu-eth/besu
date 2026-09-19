@@ -49,7 +49,7 @@
 - Implement native `prestateTracer` execution tracing, reducing memory use for `debug_trace*`. [#11289](https://github.com/besu-eth/besu/pull/11289)
 - Upgrade the stable reference tests to `tests@v20.0.2`, now published from the `ethereum/execution-specs` repository. [#11175](https://github.com/besu-eth/besu/pull/11175)
 - `eth_simulate` now returns EIP-7708 transfer logs for Amsterdam [#11154](https://github.com/besu-eth/besu/pull/11154)
-- The jump destination analysis of contract code is computed once, when the code is stored, instead of on every code cache miss. [#11325](https://github.com/besu-eth/besu/pull/11325)
+- The jump destination analysis of contract code is computed once, when the code is stored, instead of on every code cache miss. [#11327](https://github.com/besu-eth/besu/pull/11327)
 
 ## 26.8.1
 
