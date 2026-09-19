@@ -33,9 +33,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * The value layout of the code column family: a format byte, then the code and whatever the format
- * stores next to it. Since the byte, entries of older formats can sit next to current ones and are
- * read as they are; a migration only brings them up to date once, so that no code is ever loaded
- * without the data its format carries.
+ * stores next to it, so that a later format can sit next to this one and be told apart from it.
  *
  * <p>The column family records the format all its entries have reached under a reserved key, so
  * that code written before the format byte existed is migrated exactly once, whatever else has been
@@ -52,18 +50,15 @@ public final class CodeStorageFormat {
   public static final byte[] MIGRATION_KEY =
       "codeStorageMigration".getBytes(StandardCharsets.UTF_8);
 
-  /** The code alone. */
-  static final byte CODE = 1;
-
   /**
    * The code length, the code and its jump destination bitmask, so that a load never has to walk
    * the code.
    */
-  static final byte CODE_WITH_JUMPDEST_ANALYSIS = 2;
+  static final byte CODE_WITH_JUMPDEST_ANALYSIS = 1;
 
   static final byte CURRENT = CODE_WITH_JUMPDEST_ANALYSIS;
 
-  private static final int ANALYSIS_HEADER_SIZE = Byte.BYTES + Integer.BYTES;
+  private static final int HEADER_SIZE = Byte.BYTES + Integer.BYTES;
 
   private static final long MIGRATION_BATCH_BYTES = 64L << 20;
 
@@ -75,8 +70,7 @@ public final class CodeStorageFormat {
 
   public static byte[] encode(final Bytes code) {
     final long[] jumpDestBitMask = Code.jumpDestBitMaskOf(code);
-    final byte[] value =
-        new byte[ANALYSIS_HEADER_SIZE + code.size() + jumpDestBitMask.length * Long.BYTES];
+    final byte[] value = new byte[HEADER_SIZE + code.size() + jumpDestBitMask.length * Long.BYTES];
     final ByteBuffer buffer = ByteBuffer.wrap(value);
     buffer.put(CODE_WITH_JUMPDEST_ANALYSIS).putInt(code.size()).put(code.toArrayUnsafe());
     buffer.asLongBuffer().put(jumpDestBitMask);
@@ -87,24 +81,19 @@ public final class CodeStorageFormat {
     if (value.length == 0) {
       throw new IllegalStateException("Empty code storage value");
     }
-    return switch (value[0]) {
-      case CODE -> StoredCode.withoutAnalysis(Bytes.wrap(value, 1, value.length - 1));
-      case CODE_WITH_JUMPDEST_ANALYSIS -> decodeWithAnalysis(value);
-      default -> throw new IllegalStateException("Unknown code storage format " + value[0]);
-    };
-  }
-
-  private static StoredCode decodeWithAnalysis(final byte[] value) {
+    if (value[0] != CODE_WITH_JUMPDEST_ANALYSIS) {
+      throw new IllegalStateException("Unknown code storage format " + value[0]);
+    }
     final ByteBuffer buffer = ByteBuffer.wrap(value, 1, value.length - 1);
     final int codeSize = buffer.getInt();
     final long[] jumpDestBitMask = new long[(codeSize >> 6) + 1];
-    if (value.length != ANALYSIS_HEADER_SIZE + codeSize + jumpDestBitMask.length * Long.BYTES) {
+    if (value.length != HEADER_SIZE + codeSize + jumpDestBitMask.length * Long.BYTES) {
       throw new IllegalStateException(
           "Stored code of " + codeSize + " bytes has a value of " + value.length + " bytes");
     }
-    buffer.position(ANALYSIS_HEADER_SIZE + codeSize);
+    buffer.position(HEADER_SIZE + codeSize);
     buffer.asLongBuffer().get(jumpDestBitMask);
-    return new StoredCode(Bytes.wrap(value, ANALYSIS_HEADER_SIZE, codeSize), jumpDestBitMask);
+    return new StoredCode(Bytes.wrap(value, HEADER_SIZE, codeSize), jumpDestBitMask);
   }
 
   /** Marks an empty or freshly cleared column family as being in the current format. */
@@ -114,18 +103,15 @@ public final class CodeStorageFormat {
   }
 
   /**
-   * Rewrites every entry of the column family that is behind the current format, unless that has
+   * Rewrites every entry of a column family written before the format byte existed, unless that has
    * been done already. Runs before the storage is handed out, so nothing writes code concurrently.
    * The progress is committed with every batch, so an interrupted migration carries on where it
    * stopped instead of encoding entries twice.
    */
   public static void migrate(final SegmentedKeyValueStorage storage) {
-    final Optional<byte[]> reached = storage.get(CODE_STORAGE, FORMAT_KEY);
-    if (reached.isPresent() && reached.get()[0] == CURRENT) {
+    if (storage.get(CODE_STORAGE, FORMAT_KEY).isPresent()) {
       return;
     }
-    // Without a format byte to go by, every entry is bare code
-    final boolean legacy = reached.isEmpty();
     final Optional<byte[]> lastMigrated = storage.get(CODE_STORAGE, MIGRATION_KEY);
     final long start = System.currentTimeMillis();
     long entries = 0;
@@ -138,10 +124,7 @@ public final class CodeStorageFormat {
       for (final var iterator = stream.iterator(); iterator.hasNext(); ) {
         final Pair<byte[], byte[]> entry = iterator.next();
         final byte[] key = entry.getKey();
-        final byte[] stored = entry.getValue();
-        if (isReservedKey(key)
-            || lastMigrated.map(k -> Arrays.equals(k, key)).orElse(false)
-            || (!legacy && stored[0] == CURRENT)) {
+        if (isReservedKey(key) || lastMigrated.map(k -> Arrays.equals(k, key)).orElse(false)) {
           continue;
         }
         if (entries == 0) {
@@ -150,8 +133,7 @@ public final class CodeStorageFormat {
               "Migrating the code storage format, {}",
               lastMigrated.isPresent() ? "resuming where it stopped" : "starting");
         }
-        final Bytes code = legacy ? Bytes.wrap(stored) : decode(stored).code();
-        final byte[] value = encode(code);
+        final byte[] value = encode(Bytes.wrap(entry.getValue()));
         transaction.put(CODE_STORAGE, key, value);
         transaction.put(CODE_STORAGE, MIGRATION_KEY, key);
         entries++;
