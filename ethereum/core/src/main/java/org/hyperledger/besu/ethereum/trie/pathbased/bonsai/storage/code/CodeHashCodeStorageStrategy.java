@@ -27,9 +27,11 @@ import org.apache.tuweni.bytes.Bytes;
 public class CodeHashCodeStorageStrategy implements CodeStorageStrategy {
 
   @Override
-  public Optional<Bytes> getFlatCode(
+  public Optional<StoredCode> getFlatStoredCode(
       final Hash codeHash, final Hash accountHash, final SegmentedKeyValueStorage storage) {
-    return storage.get(CODE_STORAGE, codeHash.getBytes().toArrayUnsafe()).map(Bytes::wrap);
+    return storage
+        .get(CODE_STORAGE, codeHash.getBytes().toArrayUnsafe())
+        .map(CodeStorageFormat::decode);
   }
 
   @Override
@@ -39,7 +41,8 @@ public class CodeHashCodeStorageStrategy implements CodeStorageStrategy {
       final Hash accountHash,
       final Hash codeHash,
       final Bytes code) {
-    transaction.put(CODE_STORAGE, codeHash.getBytes().toArrayUnsafe(), code.toArrayUnsafe());
+    transaction.put(
+        CODE_STORAGE, codeHash.getBytes().toArrayUnsafe(), CodeStorageFormat.encode(code));
   }
 
   @Override
@@ -50,7 +53,7 @@ public class CodeHashCodeStorageStrategy implements CodeStorageStrategy {
       final Hash codeHash) {}
 
   public static boolean isCodeHashValue(final byte[] key, final byte[] value) {
-    final Hash valueHash = Hash.hash(Bytes.wrap(value));
+    final Hash valueHash = Hash.hash(CodeStorageFormat.decode(value).code());
     return Bytes.wrap(key).equals(valueHash.getBytes());
   }
 }

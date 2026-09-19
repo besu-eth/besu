@@ -24,8 +24,13 @@ import org.apache.tuweni.bytes.Bytes;
 
 public interface CodeStorageStrategy {
 
-  Optional<Bytes> getFlatCode(
+  Optional<StoredCode> getFlatStoredCode(
       final Hash codeHash, final Hash accountHash, final SegmentedKeyValueStorage storage);
+
+  default Optional<Bytes> getFlatCode(
+      final Hash codeHash, final Hash accountHash, final SegmentedKeyValueStorage storage) {
+    return getFlatStoredCode(codeHash, accountHash, storage).map(StoredCode::code);
+  }
 
   void putFlatCode(
       final SegmentedKeyValueStorage storage,

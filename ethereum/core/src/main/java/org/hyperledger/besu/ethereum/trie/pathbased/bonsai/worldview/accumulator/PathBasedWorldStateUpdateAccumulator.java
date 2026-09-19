@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.StoredCode;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldView;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.AccountConsumingMap;
@@ -46,6 +47,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -606,16 +608,37 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
 
   @Override
   public Optional<Bytes> getCode(final Address address, final Hash codeHash) {
+    return getStoredCode(address, codeHash).map(StoredCode::code);
+  }
+
+  @Override
+  public Optional<StoredCode> getStoredCode(final Address address, final Hash codeHash) {
     final BonsaiValue<Bytes> localCode = codeToUpdate.get(address);
     if (localCode == null) {
+      final AtomicReference<StoredCode> loaded = new AtomicReference<>();
       final Supplier<Bytes> loader =
-          Suppliers.memoize(() -> wrappedWorldView().getCode(address, codeHash).orElse(null));
+          Suppliers.memoize(
+              () ->
+                  wrappedWorldView()
+                      .getStoredCode(address, codeHash)
+                      .map(
+                          storedCode -> {
+                            loaded.set(storedCode);
+                            return storedCode.code();
+                          })
+                      .orElse(null));
       final BonsaiValue<Bytes> codeValue = BonsaiValue.withLazy(loader, loader);
       onCodeValueLoaded(address, codeValue);
       codeToUpdate.put(address, codeValue);
-      return Optional.ofNullable(codeValue.getUpdated());
+      final Bytes updated = codeValue.getUpdated();
+      // the hook may have replaced the loaded value, and only the loaded one has its analysis
+      final StoredCode storedCode = loaded.get();
+      if (storedCode != null && storedCode.code() == updated) {
+        return Optional.of(storedCode);
+      }
+      return Optional.ofNullable(updated).map(StoredCode::withoutAnalysis);
     } else {
-      return Optional.ofNullable(localCode.getUpdated());
+      return Optional.ofNullable(localCode.getUpdated()).map(StoredCode::withoutAnalysis);
     }
   }
 

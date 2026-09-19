@@ -64,6 +64,21 @@ public class Code {
   }
 
   /**
+   * Constructor for code whose jump destination analysis is already known, so the bytes are kept as
+   * given, whether that is a whole array or a slice of one, and no copy is made.
+   *
+   * @param byteCode The byte representation of the code.
+   * @param codeHash the hash of the bytecode
+   * @param jumpDestBitMask the jump destination bitmask of the code, one bit per byte
+   */
+  public Code(final Bytes byteCode, final Hash codeHash, final long[] jumpDestBitMask) {
+    this.bytes = byteCode;
+    this.codeHash = codeHash;
+    this.size = byteCode.size();
+    this.jumpDestBitMask = jumpDestBitMask;
+  }
+
+  /**
    * Returns true if the object is equal to this; otherwise false.
    *
    * @param other The object to compare this with.
@@ -183,6 +198,17 @@ public class Code {
    */
   public void setJumpDestBitMask(final long[] jumpDestBitMask) {
     this.jumpDestBitMask = jumpDestBitMask;
+  }
+
+  /**
+   * Computes the jump destination bitmask of the given code without keeping a {@link Code} for it,
+   * so that it can be stored next to the code and set with {@link #setJumpDestBitMask} later.
+   *
+   * @param byteCode The byte representation of the code.
+   * @return the bitmask, one bit per code byte
+   */
+  public static long[] jumpDestBitMaskOf(final Bytes byteCode) {
+    return new Code(byteCode).calculateJumpDestBitMask();
   }
 
   /**
