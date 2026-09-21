@@ -28,6 +28,7 @@ import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.util.Subscribers;
 
@@ -318,6 +319,10 @@ public class BackwardSyncContext {
   }
 
   protected Void saveBlock(final Block block) {
+    return saveBlock(block, Optional.empty());
+  }
+
+  protected Void saveBlock(final Block block, final Optional<BlockAccessList> blockAccessList) {
     LOG.atTrace().setMessage("Going to validate block {}").addArgument(block::toLogString).log();
     var optResult =
         this.getBlockValidatorForBlock(block)
@@ -325,7 +330,9 @@ public class BackwardSyncContext {
                 this.getProtocolContext(),
                 block,
                 HeaderValidationMode.FULL,
-                HeaderValidationMode.NONE);
+                HeaderValidationMode.NONE,
+                blockAccessList,
+                true);
     if (optResult.isSuccessful()) {
       LOG.atTrace()
           .setMessage("Block {} was validated, going to move the head")

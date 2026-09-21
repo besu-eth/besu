@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createInMemoryBlockchain;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.spy;
@@ -166,7 +167,7 @@ public class BackwardSyncContextTest {
     EthProtocolManagerTestUtil.createPeer(ethProtocolManager);
     EthContext ethContext = ethProtocolManager.ethContext();
 
-    when(blockValidator.validateAndProcessBlock(any(), any(), any(), any()))
+    when(blockValidator.validateAndProcessBlock(any(), any(), any(), any(), any(), anyBoolean()))
         .thenAnswer(
             invocation -> {
               final Object[] arguments = invocation.getArguments();
@@ -461,7 +462,9 @@ public class BackwardSyncContextTest {
 
     doReturn(blockValidator).when(context).getBlockValidatorForBlock(any());
     BlockProcessingResult result = new BlockProcessingResult("custom error");
-    doReturn(result).when(blockValidator).validateAndProcessBlock(any(), any(), any(), any());
+    doReturn(result)
+        .when(blockValidator)
+        .validateAndProcessBlock(any(), any(), any(), any(), any(), anyBoolean());
 
     assertThatThrownBy(() -> context.saveBlock(block))
         .isInstanceOf(BackwardSyncException.class)
@@ -491,7 +494,9 @@ public class BackwardSyncContextTest {
 
     doReturn(blockValidator).when(context).getBlockValidatorForBlock(any());
     BlockProcessingResult result = new BlockProcessingResult("custom error");
-    doReturn(result).when(blockValidator).validateAndProcessBlock(any(), any(), any(), any());
+    doReturn(result)
+        .when(blockValidator)
+        .validateAndProcessBlock(any(), any(), any(), any(), any(), anyBoolean());
 
     assertThatThrownBy(() -> context.saveBlock(block))
         .isInstanceOf(BackwardSyncException.class)
@@ -526,7 +531,9 @@ public class BackwardSyncContextTest {
 
     doReturn(blockValidator).when(context).getBlockValidatorForBlock(any());
     BlockProcessingResult result = new BlockProcessingResult("custom error");
-    doReturn(result).when(blockValidator).validateAndProcessBlock(any(), any(), any(), any());
+    doReturn(result)
+        .when(blockValidator)
+        .validateAndProcessBlock(any(), any(), any(), any(), any(), anyBoolean());
 
     assertThatThrownBy(() -> context.saveBlock(block))
         .isInstanceOf(BackwardSyncException.class)
