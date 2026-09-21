@@ -103,6 +103,7 @@ public class DebugTraceBlockStreamer {
   private int writePos;
   private boolean firstStructLog;
   private boolean firstTx;
+  private int logIndexOffset;
 
   public DebugTraceBlockStreamer(
       final Block block,
@@ -150,6 +151,7 @@ public class DebugTraceBlockStreamer {
     this.rawOut = out;
     this.writePos = 0;
     this.firstTx = true;
+    this.logIndexOffset = 0;
 
     try {
       writeByte('[');
@@ -226,6 +228,7 @@ public class DebugTraceBlockStreamer {
 
   public List<Object> accumulateAll() {
     final List<Object> results = new ArrayList<>();
+    this.logIndexOffset = 0;
     Tracer.processTracing(
         blockchainQueries,
         Optional.of(block.getHeader()),
@@ -331,7 +334,8 @@ public class DebugTraceBlockStreamer {
       final BlockHeader header,
       final Wei blobGasPrice,
       final BlockHashLookup blockHashLookup) {
-    final DebugTraceTransactionStep step = DebugTraceTransactionStep.of(traceOptions, protocolSpec);
+    final DebugTraceTransactionStep step =
+        DebugTraceTransactionStep.of(traceOptions, protocolSpec, logIndexOffset);
 
     final TransactionProcessingResult result =
         transactionProcessor.processTransaction(
@@ -344,6 +348,7 @@ public class DebugTraceBlockStreamer {
             ImmutableTransactionValidationParams.builder().build(),
             blobGasPrice,
             Optional.empty());
+    logIndexOffset += result.getLogs().size();
 
     final TransactionTrace transactionTrace =
         new TransactionTrace(
