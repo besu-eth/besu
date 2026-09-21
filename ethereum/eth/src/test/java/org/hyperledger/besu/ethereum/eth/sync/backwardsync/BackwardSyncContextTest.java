@@ -538,31 +538,32 @@ public class BackwardSyncContextTest {
   @Test
   public void shouldUpdateTargetHeightWhenStatusPresent() {
     // Given
-    when(backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(context))
-        .thenReturn(backwardSyncAlgorithm);
-    // Never completes, so the session stays published and its target height can be updated.
-    when(backwardSyncAlgorithm.executeBackwardsSync(null)).thenReturn(new CompletableFuture<>());
-
-    BlockHeader unknownBlockHeader = Mockito.mock(BlockHeader.class);
-    when(unknownBlockHeader.getParentHash()).thenReturn(Hash.fromHexStringLenient("0x41"));
-    when(unknownBlockHeader.getHash()).thenReturn(Hash.fromHexStringLenient("0x42"));
-    when(unknownBlockHeader.getNumber()).thenReturn(42L);
-    Block unknownBlock = Mockito.mock(Block.class);
-    when(unknownBlock.getHeader()).thenReturn(unknownBlockHeader);
-    when(unknownBlock.getHash()).thenReturn(Hash.fromHexStringLenient("0x42"));
-    when(unknownBlock.toRlp()).thenReturn(Bytes.EMPTY);
-
-    context.syncBackwardsUntil(unknownBlock); // set the status
-    assertThat(context.getStatus().getTargetChainHeight()).isEqualTo(42);
-    final Hash backwardChainHash =
-        remoteBlockchain.getBlockByNumber(LOCAL_HEIGHT + 4).get().getHash();
-    final Block backwardChainBlock = backwardChain.getTrustedBlock(backwardChainHash);
+    startSyncSessionWithTargetHeight(10L);
+    assertThat(context.getStatus().getTargetChainHeight()).isEqualTo(10);
 
     // When
-    context.maybeUpdateTargetHeight(backwardChainBlock.getHash());
+    context.maybeUpdateTargetHeight(trustedBlockHash(LOCAL_HEIGHT + 4));
 
     // Then
     assertThat(context.getStatus().getTargetChainHeight()).isEqualTo(29);
+  }
+
+  @Test
+  public void shouldNotLowerTargetHeightWhenAnOlderHeadArrivesAfterANewerOne() {
+    // Given
+    startSyncSessionWithTargetHeight(42L);
+    assertThat(context.getStatus().getTargetChainHeight()).isEqualTo(42);
+
+    // When the consensus client hands us a head it caught up to earlier
+    context.maybeUpdateTargetHeight(trustedBlockHash(LOCAL_HEIGHT + 4));
+
+    // Then
+    assertThat(context.getStatus().getTargetChainHeight()).isEqualTo(42);
+  }
+
+  private Hash trustedBlockHash(final int blockNumber) {
+    final Hash backwardChainHash = remoteBlockchain.getBlockByNumber(blockNumber).get().getHash();
+    return backwardChain.getTrustedBlock(backwardChainHash).getHash();
   }
 
   @Test
@@ -612,8 +613,8 @@ public class BackwardSyncContextTest {
   private void startSyncSessionWithTargetHeight(final long targetHeight) {
     when(backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(context))
         .thenReturn(backwardSyncAlgorithm);
-    when(backwardSyncAlgorithm.executeBackwardsSync(null))
-        .thenReturn(CompletableFuture.completedFuture(null));
+    // Never completes, so the session stays published and its target height can be updated.
+    when(backwardSyncAlgorithm.executeBackwardsSync(null)).thenReturn(new CompletableFuture<>());
     context.syncBackwardsUntil(unknownBlock(targetHeight));
   }
 

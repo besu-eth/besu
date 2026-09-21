@@ -602,8 +602,15 @@ public class BackwardSyncContext {
       this.initialChainHeight = protocolContext.getBlockchain().getChainHeadBlockNumber();
     }
 
+    /**
+     * Raises the height this session is working towards. The consensus client hands us the heads it
+     * has caught up to so far before it hands us the live one, so an older head arriving after a
+     * newer one must not walk the target back down.
+     *
+     * @param newTargetHeight height of a head the consensus client has given us
+     */
     public void updateTargetHeight(final long newTargetHeight) {
-      targetChainHeight = newTargetHeight;
+      targetChainHeight = Math.max(targetChainHeight, newTargetHeight);
     }
 
     public boolean progressLogDue() {
