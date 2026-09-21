@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.chain.pluginadapter;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -38,6 +39,7 @@ import org.hyperledger.besu.plugin.services.Subscription;
 import org.hyperledger.besu.util.Subscribers;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -140,6 +142,42 @@ class BlockchainServiceImplTest {
     subscription.close();
     appendBlockOn(block);
     assertThat(all).isEmpty();
+  }
+
+  @Test
+  void logFilterListsMustNotBeNull() {
+    assertThatThrownBy(() -> service.subscribeLogs(null, List.of(), log -> {}))
+        .isInstanceOf(NullPointerException.class)
+        .hasMessage("addresses");
+    assertThatThrownBy(() -> service.subscribeLogs(List.of(), null, log -> {}))
+        .isInstanceOf(NullPointerException.class)
+        .hasMessage("topics");
+  }
+
+  @Test
+  void nullTopicPositionOrEntryAcceptsAnyValue() {
+    final Block block =
+        gen.block(
+            new BlockDataGenerator.BlockOptions()
+                .setParentHash(blockchain.getGenesisBlock().getHash())
+                .setBlockNumber(1));
+    final List<TransactionReceipt> receipts =
+        block.getBody().getTransactions().stream().map(tx -> gen.receipt(gen.logs(2, 2))).toList();
+    final Log sample = receipts.get(0).getLogsList().get(0);
+    final Bytes32 secondTopic = Bytes32.wrap(sample.getTopics().get(1).getBytes().toArray());
+
+    // eth_getLogs style: any value at position 0, the sample's topic at position 1
+    final List<LogWithMetadata> nullPosition = new ArrayList<>();
+    service.subscribeLogs(List.of(), Arrays.asList(null, List.of(secondTopic)), nullPosition::add);
+    final List<LogWithMetadata> nullEntry = new ArrayList<>();
+    service.subscribeLogs(
+        List.of(), List.of(Arrays.asList((Bytes32) null), List.of(secondTopic)), nullEntry::add);
+
+    blockchain.appendBlock(block, receipts);
+    assertThat(nullPosition)
+        .isNotEmpty()
+        .allMatch(log -> log.getTopics().get(1).equals(sample.getTopics().get(1)));
+    assertThat(nullEntry).containsExactlyElementsOf(nullPosition);
   }
 
   @Test

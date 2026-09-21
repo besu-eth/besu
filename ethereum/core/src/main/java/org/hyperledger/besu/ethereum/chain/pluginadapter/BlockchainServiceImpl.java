@@ -288,9 +288,11 @@ public class BlockchainServiceImpl implements BlockchainService {
         topics.stream()
             .map(
                 position ->
-                    position.stream()
-                        .map(topic -> topic == null ? null : LogTopic.wrap(topic))
-                        .toList())
+                    position == null
+                        ? List.<LogTopic>of()
+                        : position.stream()
+                            .map(topic -> topic == null ? null : LogTopic.wrap(topic))
+                            .toList())
             .toList();
     final long id =
         blockchain.observeLogs(

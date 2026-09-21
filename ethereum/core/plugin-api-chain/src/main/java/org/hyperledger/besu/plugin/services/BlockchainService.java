@@ -224,7 +224,8 @@ public interface BlockchainService extends BesuService {
    * Subscribes to logs, both added and removed, emitted by each new block and matching the given
    * filter. An empty address list matches any address. Topics are matched by position: the outer
    * list is the topic position, each inner list the accepted values at that position, and an empty
-   * inner list accepts any value there, as does a {@code null} entry in an inner list.
+   * inner list accepts any value there, as does a {@code null} inner list or a {@code null} entry
+   * in an inner list.
    *
    * @param addresses the contract addresses to match, empty for any
    * @param topics the topics to match by position, empty for any
