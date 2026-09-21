@@ -52,8 +52,10 @@ import org.hyperledger.besu.plugin.services.chain.spi.BlockReorgListener;
 import org.hyperledger.besu.plugin.services.chain.spi.LogListener;
 
 import java.math.BigInteger;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -284,6 +286,7 @@ public class BlockchainServiceImpl implements BlockchainService {
       final List<Address> addresses, final List<List<Bytes32>> topics, final LogListener listener) {
     requireNonNull(addresses, "addresses");
     requireNonNull(topics, "topics");
+    final Set<Address> addressCriteria = new HashSet<>(addresses);
     final List<List<LogTopic>> topicCriteria =
         topics.stream()
             .map(
@@ -297,7 +300,7 @@ public class BlockchainServiceImpl implements BlockchainService {
     final long id =
         blockchain.observeLogs(
             logWithMetadata -> {
-              if (matches(logWithMetadata, addresses, topicCriteria)) {
+              if (matches(logWithMetadata, addressCriteria, topicCriteria)) {
                 listener.onLogEmitted(logWithMetadata);
               }
             });
@@ -314,7 +317,7 @@ public class BlockchainServiceImpl implements BlockchainService {
   // position, an empty or null-containing position accepting anything there.
   private static boolean matches(
       final LogWithMetadata log,
-      final List<Address> addresses,
+      final Set<Address> addresses,
       final List<List<LogTopic>> topicCriteria) {
     if (!addresses.isEmpty() && !addresses.contains(log.getLogger())) {
       return false;
