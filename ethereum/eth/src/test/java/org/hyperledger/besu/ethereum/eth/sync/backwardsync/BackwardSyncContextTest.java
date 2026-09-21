@@ -45,6 +45,7 @@ import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
+import org.hyperledger.besu.ethereum.eth.manager.ChainHeadEstimate;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManager;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManagerTestBuilder;
@@ -562,6 +563,71 @@ public class BackwardSyncContextTest {
 
     // Then
     assertThat(context.getStatus().getTargetChainHeight()).isEqualTo(29);
+  }
+
+  @Test
+  public void shouldEstimateChainHeightFromPeersWhenConsensusClientTargetLagsBehind() {
+    startSyncSessionWithTargetHeight(42L);
+    final ChainHeadEstimate bestPeer = Mockito.mock(ChainHeadEstimate.class);
+    when(bestPeer.getEstimatedHeight()).thenReturn(8042L);
+    when(syncState.getBestPeerChainHead()).thenReturn(Optional.of(bestPeer));
+
+    assertThat(context.estimatedChainHeight(30L)).isEqualTo(8042L);
+  }
+
+  @Test
+  public void shouldEstimateChainHeightFromTargetWhenNoPeerEstimateIsAvailable() {
+    startSyncSessionWithTargetHeight(42L);
+    when(syncState.getBestPeerChainHead()).thenReturn(Optional.empty());
+
+    assertThat(context.estimatedChainHeight(30L)).isEqualTo(42L);
+  }
+
+  @Test
+  public void shouldNeverEstimateChainHeightBelowTheCurrentHeight() {
+    startSyncSessionWithTargetHeight(42L);
+    final ChainHeadEstimate stalePeer = Mockito.mock(ChainHeadEstimate.class);
+    when(stalePeer.getEstimatedHeight()).thenReturn(10L);
+    when(syncState.getBestPeerChainHead()).thenReturn(Optional.of(stalePeer));
+
+    assertThat(context.estimatedChainHeight(50L)).isEqualTo(50L);
+  }
+
+  @Test
+  public void shouldReportSyncingOnlyWhileSessionIsRunning() {
+    final CompletableFuture<Void> session = new CompletableFuture<>();
+    when(backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(context))
+        .thenReturn(backwardSyncAlgorithm);
+    when(backwardSyncAlgorithm.executeBackwardsSync(null)).thenReturn(session);
+
+    assertThat(context.isSyncing()).isFalse();
+
+    context.syncBackwardsUntil(unknownBlock(42L));
+    assertThat(context.isSyncing()).isTrue();
+
+    session.complete(null);
+    assertThat(context.isSyncing()).isFalse();
+  }
+
+  private void startSyncSessionWithTargetHeight(final long targetHeight) {
+    when(backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(context))
+        .thenReturn(backwardSyncAlgorithm);
+    when(backwardSyncAlgorithm.executeBackwardsSync(null))
+        .thenReturn(CompletableFuture.completedFuture(null));
+    context.syncBackwardsUntil(unknownBlock(targetHeight));
+  }
+
+  private Block unknownBlock(final long number) {
+    final Hash hash = Hash.fromHexStringLenient("0x42");
+    final BlockHeader header = Mockito.mock(BlockHeader.class);
+    when(header.getParentHash()).thenReturn(Hash.fromHexStringLenient("0x41"));
+    when(header.getHash()).thenReturn(hash);
+    when(header.getNumber()).thenReturn(number);
+    final Block block = Mockito.mock(Block.class);
+    when(block.getHeader()).thenReturn(header);
+    when(block.getHash()).thenReturn(hash);
+    when(block.toRlp()).thenReturn(Bytes.EMPTY);
+    return block;
   }
 
   @Test

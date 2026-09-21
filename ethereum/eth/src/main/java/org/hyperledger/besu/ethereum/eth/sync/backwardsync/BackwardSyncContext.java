@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.eth.manager.ChainHeadEstimate;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
@@ -522,27 +523,51 @@ public class BackwardSyncContext {
     }
   }
 
+  /**
+   * Height the chain is expected to reach, estimated from our peers. The target supplied by the
+   * consensus client is only the head it has told us about so far, which while it is itself
+   * catching up stays just above our own head and would make the sync look almost complete.
+   *
+   * @param currentHeight height we have imported so far
+   * @return the best chain height known to this node
+   */
+  @VisibleForTesting
+  long estimatedChainHeight(final long currentHeight) {
+    final long peerHeight =
+        syncState
+            .getBestPeerChainHead()
+            .map(ChainHeadEstimate::getEstimatedHeight)
+            .orElse(currentHeight);
+    final Status currentStatus = getStatus();
+    final long targetHeight =
+        currentStatus == null ? currentHeight : currentStatus.getTargetChainHeight();
+    return Math.max(Math.max(peerHeight, targetHeight), currentHeight);
+  }
+
   private void logBlockImportProgress(final long currImportedHeight) {
     final Status currentStatus = getStatus();
-    final long targetHeight = currentStatus.getTargetChainHeight();
+    if (currentStatus == null || !currentStatus.progressLogDue()) {
+      return;
+    }
     final long initialHeight = currentStatus.getInitialChainHeight();
-    final long estimatedTotal = targetHeight - initialHeight;
+    final long estimatedChainHeight = estimatedChainHeight(currImportedHeight);
     final long imported = currImportedHeight - initialHeight;
+    final long remaining = estimatedChainHeight - currImportedHeight;
+    final long estimatedTotal = imported + remaining;
 
-    final float completedPercentage = 100.0f * imported / estimatedTotal;
-
-    if (completedPercentage < 100.0f) {
-      if (currentStatus.progressLogDue() && targetHeight > 0) {
-        LOG.info(
-            String.format(
-                "Backward sync phase 2 of 2, %.2f%% completed, imported %d blocks of at least %d (current head %d, target head %d). Peers: %d",
-                completedPercentage,
-                imported,
-                estimatedTotal,
-                currImportedHeight,
-                currentStatus.getTargetChainHeight(),
-                getEthContext().getEthPeers().peerCount()));
-      }
+    if (remaining > 0) {
+      // the head can be rewound below the height the session started at, by a reorg
+      final float completedPercentage =
+          imported <= 0 || estimatedTotal <= 0 ? 0.0f : 100.0f * imported / estimatedTotal;
+      LOG.info(
+          String.format(
+              "Backward sync phase 2 of 2, %.2f%% completed, imported %d blocks, %d to go (current head %d, estimated chain head %d). Peers: %d",
+              completedPercentage,
+              imported,
+              remaining,
+              currImportedHeight,
+              estimatedChainHeight,
+              getEthContext().getEthPeers().peerCount()));
     } else {
       LOG.info(
           String.format(
