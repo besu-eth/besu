@@ -546,34 +546,44 @@ public class BackwardSyncContext {
 
   private void logBlockImportProgress(final long currImportedHeight) {
     final Status currentStatus = getStatus();
-    if (currentStatus == null || !currentStatus.progressLogDue()) {
+    if (currentStatus == null) {
       return;
     }
-    final long initialHeight = currentStatus.getInitialChainHeight();
     final long estimatedChainHeight = estimatedChainHeight(currImportedHeight);
-    final long imported = currImportedHeight - initialHeight;
     final long remaining = estimatedChainHeight - currImportedHeight;
+    // importing a block cannot tell us the session is over, only the algorithm knows that
+    if (remaining <= 0 || !currentStatus.progressLogDue()) {
+      return;
+    }
+    final long imported = currImportedHeight - currentStatus.getInitialChainHeight();
     final long estimatedTotal = imported + remaining;
 
-    if (remaining > 0) {
-      // the head can be rewound below the height the session started at, by a reorg
-      final float completedPercentage =
-          imported <= 0 || estimatedTotal <= 0 ? 0.0f : 100.0f * imported / estimatedTotal;
-      LOG.info(
-          String.format(
-              "Backward sync phase 2 of 2, %.2f%% completed, imported %d blocks, %d to go (current head %d, estimated chain head %d). Peers: %d",
-              completedPercentage,
-              imported,
-              remaining,
-              currImportedHeight,
-              estimatedChainHeight,
-              getEthContext().getEthPeers().peerCount()));
-    } else {
-      LOG.info(
-          String.format(
-              "Backward sync phase 2 of 2 completed, imported a total of %d blocks. Peers: %d",
-              imported, getEthContext().getEthPeers().peerCount()));
+    // the head can be rewound below the height the session started at, by a reorg
+    final float completedPercentage = imported <= 0 ? 0.0f : 100.0f * imported / estimatedTotal;
+
+    LOG.info(
+        String.format(
+            "Backward sync phase 2 of 2, %.2f%% completed, imported %d blocks, %d to go (current head %d, estimated chain head %d). Peers: %d",
+            completedPercentage,
+            imported,
+            remaining,
+            currImportedHeight,
+            estimatedChainHeight,
+            getEthContext().getEthPeers().peerCount()));
+  }
+
+  void logSessionCompleted() {
+    final Status currentStatus = getStatus();
+    if (currentStatus == null) {
+      return;
     }
+    final long imported =
+        protocolContext.getBlockchain().getChainHeadBlockNumber()
+            - currentStatus.getInitialChainHeight();
+    LOG.info(
+        String.format(
+            "Backward sync session completed, imported a total of %d blocks. Peers: %d",
+            imported, getEthContext().getEthPeers().peerCount()));
   }
 
   public SynchronizerConfiguration getSynchronizerConfiguration() {
