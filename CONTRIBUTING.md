@@ -94,7 +94,7 @@ Provide more context by answering these questions:
 
 Include details about your configuration and environment:
 
-- **Which version of Besu are you using?** Get the exact version by running `besu -v`.
+- **Which version of Besu are you using?** Get the exact version by running `besu --version`.
 - **What OS and version are you running?** For Linux, include the kernel (`uname -a`).
 - **Are you running in a virtual machine, Docker container, or cloud?** If so, include the relevant software, versions, and instance type.
 - **What version of Java are you running?** You can find it in the Besu log file at startup.
