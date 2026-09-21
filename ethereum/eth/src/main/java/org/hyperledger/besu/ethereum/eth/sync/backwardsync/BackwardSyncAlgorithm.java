@@ -69,7 +69,7 @@ public class BackwardSyncAlgorithm implements BesuEvents.InitialSyncCompletionLi
         context.getBackwardChain().getFirstAncestorHeader();
     if (maybeFirstAncestorHeader.isEmpty()) {
       this.finished = true;
-      LOG.info("Current backward sync session is done");
+      context.logSessionCompleted();
       context.getBackwardChain().clear();
       return CompletableFuture.completedFuture(null);
     }

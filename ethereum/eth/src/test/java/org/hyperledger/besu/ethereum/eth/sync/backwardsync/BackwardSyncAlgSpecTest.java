@@ -230,6 +230,24 @@ public class BackwardSyncAlgSpecTest {
   }
 
   @Test
+  public void shouldReportCompletionOnlyWhenWorkIsDone() {
+    doReturn(true).when(context).isReady();
+
+    final BackwardChain backwardChain = createBackwardChain(LOCAL_HEIGHT, LOCAL_HEIGHT + 10);
+    doReturn(backwardChain).when(context).getBackwardChain();
+    doReturn(CompletableFuture.completedFuture(null))
+        .when(algorithm)
+        .executeProcessKnownAncestors();
+
+    algorithm.pickNextStep();
+    verify(context, never()).logSessionCompleted();
+
+    backwardChain.clear();
+    algorithm.pickNextStep();
+    verify(context).logSessionCompleted();
+  }
+
+  @Test
   public void shouldSyncWhenThereIsUnprocessedHash() {
     final BackwardChain backwardChain = createBackwardChain(LOCAL_HEIGHT, LOCAL_HEIGHT + 10);
     doReturn(backwardChain).when(context).getBackwardChain();
