@@ -45,7 +45,15 @@ public sealed class EngineForkchoiceUpdatedV3<
       final ConstructorArguments constructorArguments,
       final HardforkId minFork,
       final HardforkId maxFork) {
-    super(constructorArguments, minFork, maxFork);
+    this(constructorArguments, minFork, maxFork, WorldStateRecoveryCoordinator.disabled());
+  }
+
+  public EngineForkchoiceUpdatedV3(
+      final ConstructorArguments constructorArguments,
+      final HardforkId minFork,
+      final HardforkId maxFork,
+      final WorldStateRecoveryCoordinator worldStateRecoveryCoordinator) {
+    super(constructorArguments, minFork, maxFork, worldStateRecoveryCoordinator);
   }
 
   @Override

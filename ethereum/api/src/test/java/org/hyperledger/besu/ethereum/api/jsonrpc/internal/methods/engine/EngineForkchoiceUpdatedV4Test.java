@@ -68,7 +68,8 @@ public class EngineForkchoiceUpdatedV4Test extends EngineForkchoiceUpdatedV3Test
             .maxRequestBlocks(0)
             .build(),
         AMSTERDAM,
-        null);
+        null,
+        recoveryCoordinator);
   }
 
   private JsonRpcResponse respWithCustodyColumns(

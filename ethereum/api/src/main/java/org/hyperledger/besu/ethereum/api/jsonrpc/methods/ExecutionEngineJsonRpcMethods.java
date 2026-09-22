@@ -56,7 +56,9 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineN
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineNewPayloadV4;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineNewPayloadV5;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineQosTimer;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.WorldStateRecoveryCoordinator;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
+import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
@@ -85,6 +87,7 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
   private final String commit;
   private final TransactionPool transactionPool;
   private final MetricsSystem metricsSystem;
+  private final Synchronizer synchronizer;
 
   ExecutionEngineJsonRpcMethods(
       final MiningCoordinator miningCoordinator,
@@ -95,7 +98,8 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
       final String clientVersion,
       final String commit,
       final TransactionPool transactionPool,
-      final MetricsSystem metricsSystem) {
+      final MetricsSystem metricsSystem,
+      final Synchronizer synchronizer) {
     this.mergeCoordinator =
         Optional.ofNullable(miningCoordinator)
             .filter(MiningCoordinator::isCompatibleWithEngineApi)
@@ -108,6 +112,7 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
     this.commit = commit;
     this.transactionPool = transactionPool;
     this.metricsSystem = metricsSystem;
+    this.synchronizer = synchronizer;
   }
 
   @Override
@@ -128,13 +133,16 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
             .metricsSystem(metricsSystem)
             .transactionPool(transactionPool)
             .maxRequestBlocks(GET_PAYLOAD_BODIES_MAX_REQUEST_SIZE);
+    final WorldStateRecoveryCoordinator worldStateRecoveryCoordinator =
+        new WorldStateRecoveryCoordinator(synchronizer);
 
     if (mergeCoordinator.isPresent()) {
       final ConstructorArguments constructorArguments =
           constructorArgumentsBuilder.mergeCoordinator(mergeCoordinator.get()).build();
       final List<JsonRpcMethod> executionEngineApisSupported = new ArrayList<>();
       executionEngineApisSupported.addAll(
-          createEngineForkchoiceUpdatedMethods(constructorArguments));
+          createEngineForkchoiceUpdatedMethods(
+              constructorArguments, worldStateRecoveryCoordinator));
       executionEngineApisSupported.addAll(createEngineNewPayloadMethods(constructorArguments));
       executionEngineApisSupported.addAll(createEngineGetPayloadMethods(constructorArguments));
       executionEngineApisSupported.addAll(
@@ -171,15 +179,31 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
   }
 
   private Collection<? extends JsonRpcMethod> createEngineForkchoiceUpdatedMethods(
-      final ConstructorArguments constructorArguments) {
+      final ConstructorArguments constructorArguments,
+      final WorldStateRecoveryCoordinator worldStateRecoveryCoordinator) {
 
     // special case at the first hardfork (Shanghai), before it was possible to call either V1 or V2
     // so both versions are scheduled at the beginning, and only V1 must be stopped at Shanghai
     // timestamp
-    return VersionScheduler.startsFromBeginningUntil(EngineForkchoiceUpdatedV1::new, SHANGHAI)
-        .thenAlsoFromBeginning(EngineForkchoiceUpdatedV2::new)
-        .thenFrom(CANCUN, EngineForkchoiceUpdatedV3::new)
-        .thenFrom(AMSTERDAM, EngineForkchoiceUpdatedV4::new)
+    return VersionScheduler.startsFromBeginningUntil(
+            (args, minFork, maxFork) ->
+                new EngineForkchoiceUpdatedV1<>(
+                    args, minFork, maxFork, worldStateRecoveryCoordinator),
+            SHANGHAI)
+        .thenAlsoFromBeginning(
+            (args, minFork, maxFork) ->
+                new EngineForkchoiceUpdatedV2<>(
+                    args, minFork, maxFork, worldStateRecoveryCoordinator))
+        .thenFrom(
+            CANCUN,
+            (args, minFork, maxFork) ->
+                new EngineForkchoiceUpdatedV3<>(
+                    args, minFork, maxFork, worldStateRecoveryCoordinator))
+        .thenFrom(
+            AMSTERDAM,
+            (args, minFork, maxFork) ->
+                new EngineForkchoiceUpdatedV4<>(
+                    args, minFork, maxFork, worldStateRecoveryCoordinator))
         .build(constructorArguments);
   }
 
