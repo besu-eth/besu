@@ -470,7 +470,9 @@ public class PeerDiscoveryController {
 
     if (peer.getFirstDiscovered() == 0L) {
       if (!peer.isListening()) {
-        LOG.trace("Skipping RLPx connection to discovery-only peer {}", peer.getLoggableId());
+        if (LOG.isTraceEnabled()) {
+          LOG.trace("Skipping RLPx connection to discovery-only peer {}", peer.getLoggableId());
+        }
         markBondedAndAddToPeerTable(peer);
         return;
       }
@@ -486,7 +488,9 @@ public class PeerDiscoveryController {
                         peer.getLoggableId(),
                         th.getMessage());
                   } else {
-                    LOG.debug("Handshake timed out with peer {}", peer.getLoggableId());
+                    if (LOG.isDebugEnabled()) {
+                      LOG.debug("Handshake timed out with peer {}", peer.getLoggableId());
+                    }
                   }
                   peerTable.invalidateIP(peer.getEndpoint());
                 }
