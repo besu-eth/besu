@@ -36,6 +36,7 @@ import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
+import java.util.Optional;
 import java.util.function.Function;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -134,7 +135,7 @@ class CachingFrontierStorageRootTrackerTest {
                     (location, hash) ->
                         worldState
                             .getWorldStateStorage()
-                            .getAccountStorageTrieNode(inv.<Hash>getArgument(0), location, hash),
+                            .getTrieNode(Optional.of(inv.<Hash>getArgument(0)), location, hash),
                     Bytes32.wrap(inv.<Hash>getArgument(1).getBytes()),
                     Function.identity(),
                     Function.identity()));

@@ -40,6 +40,7 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.TreeMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -90,8 +91,7 @@ public class AccountHealingTrackingTest {
         new StoredMerklePatriciaTrie<>(
             new StoredNodeFactory<>(
                 (location, hash) ->
-                    worldStateKeyValueStorage.getAccountStorageTrieNode(
-                        accountHash, location, hash),
+                    worldStateKeyValueStorage.getTrieNode(Optional.of(accountHash), location, hash),
                 Function.identity(),
                 Function.identity()),
             Bytes32.wrap(stateTrieAccountValue.getStorageRoot().getBytes()));
@@ -142,8 +142,7 @@ public class AccountHealingTrackingTest {
         new StoredMerklePatriciaTrie<>(
             new StoredNodeFactory<>(
                 (location, hash) ->
-                    worldStateKeyValueStorage.getAccountStorageTrieNode(
-                        accountHash, location, hash),
+                    worldStateKeyValueStorage.getTrieNode(Optional.of(accountHash), location, hash),
                 Function.identity(),
                 Function.identity()),
             Bytes32.wrap(stateTrieAccountValue.getStorageRoot().getBytes()));
@@ -184,8 +183,8 @@ public class AccountHealingTrackingTest {
     final List<Bytes> proofs =
         List.of(
             worldStateKeyValueStorage
-                .getAccountStorageTrieNode(
-                    accountHash,
+                .getTrieNode(
+                    Optional.of(accountHash),
                     Bytes.EMPTY,
                     Bytes32.wrap(stateTrieAccountValue.getStorageRoot().getBytes()))
                 .orElseThrow());
@@ -214,8 +213,7 @@ public class AccountHealingTrackingTest {
         new StoredMerklePatriciaTrie<>(
             new StoredNodeFactory<>(
                 (location, hash) ->
-                    worldStateKeyValueStorage.getAccountStorageTrieNode(
-                        accountHash, location, hash),
+                    worldStateKeyValueStorage.getTrieNode(Optional.of(accountHash), location, hash),
                 Function.identity(),
                 Function.identity()),
             Bytes32.wrap(stateTrieAccountValue.getStorageRoot().getBytes()));
@@ -255,8 +253,7 @@ public class AccountHealingTrackingTest {
         new StoredMerklePatriciaTrie<>(
             new StoredNodeFactory<>(
                 (location, hash) ->
-                    worldStateKeyValueStorage.getAccountStorageTrieNode(
-                        accountHash, location, hash),
+                    worldStateKeyValueStorage.getTrieNode(Optional.of(accountHash), location, hash),
                 Function.identity(),
                 Function.identity()),
             Bytes32.wrap(stateTrieAccountValue.getStorageRoot().getBytes()));

@@ -166,12 +166,12 @@ public class BonsaiWorldState extends PathBasedWorldState {
   }
 
   protected Optional<Bytes> getAccountStateTrieNode(final Bytes location, final Bytes32 nodeHash) {
-    return getWorldStateStorage().getAccountStateTrieNode(location, nodeHash);
+    return getWorldStateStorage().getTrieNode(location, nodeHash);
   }
 
   public Optional<Bytes> getStorageTrieNode(
       final Hash accountHash, final Bytes location, final Bytes32 nodeHash) {
-    return getWorldStateStorage().getAccountStorageTrieNode(accountHash, location, nodeHash);
+    return getWorldStateStorage().getTrieNode(Optional.of(accountHash), location, nodeHash);
   }
 
   @Override

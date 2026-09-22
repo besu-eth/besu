@@ -27,32 +27,25 @@ import org.apache.tuweni.bytes.Bytes32;
  * Defines the strategy for storing and retrieving account/storage trie branch nodes in key-value
  * storage. Implementations can use different key formats or storage segments; this is independent
  * of the flat-account/storage database strategies under {@code storage.flat}.
+ *
+ * <p>Both reads and writes take the account hash as an {@link Optional} ({@link Optional#empty()}
+ * for an account-trie node, present for a storage-trie node) rather than a pre-concatenated
+ * location, because implementations (e.g. the archive strategies) may need the raw account hash to
+ * index the node separately from the live key.
  */
 public interface TrieNodeStrategy {
 
-  Optional<Bytes> getFlatAccountTrieNode(
-      Bytes location, Bytes32 nodeHash, SegmentedKeyValueStorage storage);
+  Optional<Bytes> getTrieNode(
+      Optional<Hash> accountHash,
+      Bytes location,
+      Bytes32 nodeHash,
+      SegmentedKeyValueStorage storage);
 
-  Optional<Bytes> getFlatStorageTrieNode(
-      Hash accountHash, Bytes location, Bytes32 nodeHash, SegmentedKeyValueStorage storage);
-
-  void putFlatAccountTrieNode(
+  void putTrieNode(
       SegmentedKeyValueStorage storage,
       SegmentedKeyValueStorageTransaction transaction,
+      Optional<Hash> accountHash,
       Bytes location,
       Bytes32 nodeHash,
       Bytes node);
-
-  void putFlatStorageTrieNode(
-      SegmentedKeyValueStorage storage,
-      SegmentedKeyValueStorageTransaction transaction,
-      Hash accountHash,
-      Bytes location,
-      Bytes32 nodeHash,
-      Bytes node);
-
-  void removeFlatAccountStateTrieNode(
-      SegmentedKeyValueStorage storage,
-      SegmentedKeyValueStorageTransaction transaction,
-      Bytes location);
 }

@@ -331,7 +331,7 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
             getFlatDbStrategy()
                 .getFlatAccount(
                     this::getWorldStateRootHash,
-                    this::getAccountStateTrieNode,
+                    this::getTrieNode,
                     accountHash,
                     composedWorldStateStorage));
   }
@@ -365,7 +365,7 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
                 .getFlatStorageValueByStorageSlotKey(
                     this::getWorldStateRootHash,
                     storageRootSupplier,
-                    (location, hash) -> getAccountStorageTrieNode(accountHash, location, hash),
+                    (location, hash) -> getTrieNode(Optional.of(accountHash), location, hash),
                     accountHash,
                     storageSlotKey,
                     composedWorldStateStorage));
@@ -378,25 +378,33 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
     return getFlatDbStrategy().getFlatCode(codeHash, accountHash, composedWorldStateStorage);
   }
 
-  public Optional<Bytes> getAccountStateTrieNode(final Bytes location, final Bytes32 nodeHash) {
+  /**
+   * Reads an account-trie node at the given location via the configured {@link TrieNodeStrategy}.
+   */
+  public Optional<Bytes> getTrieNode(final Bytes location, final Bytes32 nodeHash) {
+    return getTrieNode(Optional.empty(), location, nodeHash);
+  }
+
+  /**
+   * Reads a trie node via the configured {@link TrieNodeStrategy}. {@code accountHash} is {@link
+   * Optional#empty()} for an account-trie node, or the owning account's hash for a storage-trie
+   * node.
+   */
+  public Optional<Bytes> getTrieNode(
+      final Optional<Hash> accountHash, final Bytes location, final Bytes32 nodeHash) {
     if (nodeHash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
       return Optional.of(MerkleTrie.EMPTY_TRIE_NODE);
     }
     return trieNodeStrategy
-        .getFlatAccountTrieNode(location, nodeHash, composedWorldStateStorage)
+        .getTrieNode(accountHash, location, nodeHash, composedWorldStateStorage)
         .filter(b -> Hash.hash(b).getBytes().equals(nodeHash));
   }
 
-  public Optional<Bytes> getAccountStorageTrieNode(
-      final Hash accountHash, final Bytes location, final Bytes32 nodeHash) {
-    if (nodeHash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
-      return Optional.of(MerkleTrie.EMPTY_TRIE_NODE);
-    }
-    return trieNodeStrategy
-        .getFlatStorageTrieNode(accountHash, location, nodeHash, composedWorldStateStorage)
-        .filter(b -> Hash.hash(b).getBytes().equals(nodeHash));
-  }
-
+  /**
+   * Unsafe raw read by fully-qualified live key (already accountHash-prefixed for storage nodes),
+   * with no node-hash verification. Reads the live {@code TRIE_BRANCH_STORAGE} segment directly and
+   * does not go through {@link TrieNodeStrategy}, so archive/read strategies are not applied.
+   */
   public Optional<Bytes> getTrieNodeUnsafe(final Bytes key) {
     return composedWorldStateStorage.get(TRIE_BRANCH_STORAGE, key.toArrayUnsafe()).map(Bytes::wrap);
   }
@@ -560,28 +568,20 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
       return this;
     }
 
-    public Updater putAccountStateTrieNode(
-        final Bytes location, final Bytes32 nodeHash, final Bytes node) {
+    /**
+     * Writes a trie node via the configured {@link TrieNodeStrategy}. {@code accountHash} is {@link
+     * Optional#empty()} for an account-trie node, or the owning account's hash for a storage-trie
+     * node (see {@link TrieNodeStrategy#putTrieNode}).
+     */
+    public synchronized Updater putTrieNode(
+        final Optional<Hash> accountHash,
+        final Bytes location,
+        final Bytes32 nodeHash,
+        final Bytes node) {
       if (nodeHash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
         return this;
       }
-      trieNodeStrategy.putFlatAccountTrieNode(
-          worldStorage, composedWorldStateTransaction, location, nodeHash, node);
-      return this;
-    }
-
-    public Updater removeAccountStateTrieNode(final Bytes location) {
-      trieNodeStrategy.removeFlatAccountStateTrieNode(
-          worldStorage, composedWorldStateTransaction, location);
-      return this;
-    }
-
-    public synchronized Updater putAccountStorageTrieNode(
-        final Hash accountHash, final Bytes location, final Bytes32 nodeHash, final Bytes node) {
-      if (nodeHash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
-        return this;
-      }
-      trieNodeStrategy.putFlatStorageTrieNode(
+      trieNodeStrategy.putTrieNode(
           worldStorage, composedWorldStateTransaction, accountHash, location, nodeHash, node);
       return this;
     }

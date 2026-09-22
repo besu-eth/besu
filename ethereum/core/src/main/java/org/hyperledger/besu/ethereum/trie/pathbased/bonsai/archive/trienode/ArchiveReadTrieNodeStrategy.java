@@ -28,8 +28,10 @@ import org.apache.tuweni.bytes.Bytes32;
 /**
  * A read-only {@link TrieNodeStrategy} that resolves trie-node RLP from the archive history store
  * for a fixed target block. Used by {@link BonsaiArchiveReadWorldStateStorageCoordinator} to serve
- * historical proofs without bypassing the standard {@code getAccountStateTrieNode} / {@code
- * getAccountStorageTrieNode} path.
+ * historical proofs without bypassing the standard {@code getTrieNode} path.
+ *
+ * <p>{@code accountHash} selects the archive key namespace: empty for an account-trie node, present
+ * for a storage-trie node. Location is never pre-concatenated.
  *
  * <p>All write methods throw {@link UnsupportedOperationException}: this strategy is instantiated
  * only for proof reads, never for block imports.
@@ -46,47 +48,26 @@ public final class ArchiveReadTrieNodeStrategy implements TrieNodeStrategy {
   }
 
   @Override
-  public Optional<Bytes> getFlatAccountTrieNode(
-      final Bytes location, final Bytes32 nodeHash, final SegmentedKeyValueStorage storage) {
-    return historyReader.nodeAt(ArchiveNodeKey.account(location), blockNumber);
-  }
-
-  @Override
-  public Optional<Bytes> getFlatStorageTrieNode(
-      final Hash accountHash,
+  public Optional<Bytes> getTrieNode(
+      final Optional<Hash> accountHash,
       final Bytes location,
       final Bytes32 nodeHash,
       final SegmentedKeyValueStorage storage) {
-    return historyReader.nodeAt(
-        ArchiveNodeKey.storage(accountHash.getBytes(), location), blockNumber);
+    final Bytes naturalKey =
+        accountHash
+            .map(hash -> ArchiveNodeKey.storage(hash.getBytes(), location))
+            .orElseGet(() -> ArchiveNodeKey.account(location));
+    return historyReader.nodeAt(naturalKey, blockNumber);
   }
 
   @Override
-  public void putFlatAccountTrieNode(
+  public void putTrieNode(
       final SegmentedKeyValueStorage storage,
       final SegmentedKeyValueStorageTransaction transaction,
+      final Optional<Hash> accountHash,
       final Bytes location,
       final Bytes32 nodeHash,
       final Bytes node) {
-    throw new UnsupportedOperationException("read-only archive strategy");
-  }
-
-  @Override
-  public void putFlatStorageTrieNode(
-      final SegmentedKeyValueStorage storage,
-      final SegmentedKeyValueStorageTransaction transaction,
-      final Hash accountHash,
-      final Bytes location,
-      final Bytes32 nodeHash,
-      final Bytes node) {
-    throw new UnsupportedOperationException("read-only archive strategy");
-  }
-
-  @Override
-  public void removeFlatAccountStateTrieNode(
-      final SegmentedKeyValueStorage storage,
-      final SegmentedKeyValueStorageTransaction transaction,
-      final Bytes location) {
     throw new UnsupportedOperationException("read-only archive strategy");
   }
 }

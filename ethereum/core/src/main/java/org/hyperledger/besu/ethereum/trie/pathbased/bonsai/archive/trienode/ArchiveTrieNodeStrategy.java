@@ -35,7 +35,7 @@ import org.apache.tuweni.bytes.Bytes32;
  * TRIE_BRANCH_STORAGE_ARCHIVE} so that historical {@code eth_getProof} requests can be served
  * without replaying trie-log diffs.
  *
- * <p>Each put is delegated to the wrapped {@code base} strategy first (live flat DB), then, if the
+ * <p>Each put is delegated to the wrapped {@code base} strategy first (live DB), then, if the
  * archive gate is open, the full bare-RLP node is written into the archive column family in the
  * same transaction under an {@link ArchiveNodeKey} that encodes the block number. Progress is
  * recorded atomically in the same transaction on the first archive write per transaction.
@@ -93,57 +93,31 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy {
   }
 
   @Override
-  public Optional<Bytes> getFlatAccountTrieNode(
-      final Bytes location, final Bytes32 nodeHash, final SegmentedKeyValueStorage storage) {
-    return base.getFlatAccountTrieNode(location, nodeHash, storage);
-  }
-
-  @Override
-  public Optional<Bytes> getFlatStorageTrieNode(
-      final Hash accountHash,
+  public Optional<Bytes> getTrieNode(
+      final Optional<Hash> accountHash,
       final Bytes location,
       final Bytes32 nodeHash,
       final SegmentedKeyValueStorage storage) {
-    return base.getFlatStorageTrieNode(accountHash, location, nodeHash, storage);
+    return base.getTrieNode(accountHash, location, nodeHash, storage);
   }
 
   @Override
-  public void putFlatAccountTrieNode(
+  public void putTrieNode(
       final SegmentedKeyValueStorage storage,
       final SegmentedKeyValueStorageTransaction transaction,
+      final Optional<Hash> accountHash,
       final Bytes location,
       final Bytes32 nodeHash,
       final Bytes node) {
-    base.putFlatAccountTrieNode(storage, transaction, location, nodeHash, node);
+    base.putTrieNode(storage, transaction, accountHash, location, nodeHash, node);
     final long block = currentBlockNumber(storage);
     if (shouldArchive(block)) {
-      historyStore.put(transaction, ArchiveNodeKey.account(location), block, node);
+      final Bytes naturalKey =
+          accountHash
+              .map(hash -> ArchiveNodeKey.storage(hash.getBytes(), location))
+              .orElseGet(() -> ArchiveNodeKey.account(location));
+      historyStore.put(transaction, naturalKey, block, node);
       maybeRecordProgress(transaction, block);
     }
-  }
-
-  @Override
-  public void putFlatStorageTrieNode(
-      final SegmentedKeyValueStorage storage,
-      final SegmentedKeyValueStorageTransaction transaction,
-      final Hash accountHash,
-      final Bytes location,
-      final Bytes32 nodeHash,
-      final Bytes node) {
-    base.putFlatStorageTrieNode(storage, transaction, accountHash, location, nodeHash, node);
-    final long block = currentBlockNumber(storage);
-    if (shouldArchive(block)) {
-      historyStore.put(
-          transaction, ArchiveNodeKey.storage(accountHash.getBytes(), location), block, node);
-      maybeRecordProgress(transaction, block);
-    }
-  }
-
-  @Override
-  public void removeFlatAccountStateTrieNode(
-      final SegmentedKeyValueStorage storage,
-      final SegmentedKeyValueStorageTransaction transaction,
-      final Bytes location) {
-    base.removeFlatAccountStateTrieNode(storage, transaction, location);
   }
 }

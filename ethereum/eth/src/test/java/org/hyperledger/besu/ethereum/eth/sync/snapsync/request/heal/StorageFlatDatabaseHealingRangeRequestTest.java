@@ -42,6 +42,7 @@ import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -108,7 +109,7 @@ class StorageFlatDatabaseHealingRangeRequestTest {
     final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
         new StoredMerklePatriciaTrie<>(
             (location, hash) ->
-                worldStateKeyValueStorage.getAccountStorageTrieNode(account0Hash, location, hash),
+                worldStateKeyValueStorage.getTrieNode(Optional.of(account0Hash), location, hash),
             Bytes32.wrap(account0StorageRoot.getBytes()),
             b -> b,
             b -> b);
@@ -167,7 +168,7 @@ class StorageFlatDatabaseHealingRangeRequestTest {
     final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
         new StoredMerklePatriciaTrie<>(
             (location, hash) ->
-                worldStateKeyValueStorage.getAccountStorageTrieNode(account0Hash, location, hash),
+                worldStateKeyValueStorage.getTrieNode(Optional.of(account0Hash), location, hash),
             Bytes32.wrap(account0StorageRoot.getBytes()),
             b -> b,
             b -> b);
@@ -212,7 +213,7 @@ class StorageFlatDatabaseHealingRangeRequestTest {
     final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
         new StoredMerklePatriciaTrie<>(
             (location, hash) ->
-                worldStateKeyValueStorage.getAccountStorageTrieNode(account0Hash, location, hash),
+                worldStateKeyValueStorage.getTrieNode(Optional.of(account0Hash), location, hash),
             Bytes32.wrap(account0StorageRoot.getBytes()),
             b -> b,
             b -> b);
@@ -269,7 +270,7 @@ class StorageFlatDatabaseHealingRangeRequestTest {
     final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
         new StoredMerklePatriciaTrie<>(
             (location, hash) ->
-                worldStateKeyValueStorage.getAccountStorageTrieNode(account0Hash, location, hash),
+                worldStateKeyValueStorage.getTrieNode(Optional.of(account0Hash), location, hash),
             Bytes32.wrap(account0StorageRoot.getBytes()),
             b -> b,
             b -> b);

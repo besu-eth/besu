@@ -38,6 +38,7 @@ import org.hyperledger.besu.services.tasks.Task;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -101,7 +102,7 @@ public class PersistDataStepTest {
     persistDataStep.persist(List.of(new StubTask(accountTrieNodeDataRequest)));
 
     verify(updater, times(1))
-        .putAccountStateTrieNode(location, Bytes32.wrap(hash.getBytes()), stateTrieNode);
+        .putTrieNode(Optional.empty(), location, Bytes32.wrap(hash.getBytes()), stateTrieNode);
     assertDataPersisted(result);
   }
 

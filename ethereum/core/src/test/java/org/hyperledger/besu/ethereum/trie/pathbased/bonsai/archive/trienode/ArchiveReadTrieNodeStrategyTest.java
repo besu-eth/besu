@@ -25,6 +25,7 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTran
 import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -70,7 +71,8 @@ class ArchiveReadTrieNodeStrategyTest {
     putArchive(location, 5L, node);
 
     final ArchiveReadTrieNodeStrategy strategy = new ArchiveReadTrieNodeStrategy(5L, historyReader);
-    assertThat(strategy.getFlatAccountTrieNode(location, keccak(node), storage)).contains(node);
+    assertThat(strategy.getTrieNode(Optional.empty(), location, keccak(node), storage))
+        .contains(node);
   }
 
   @Test
@@ -78,7 +80,7 @@ class ArchiveReadTrieNodeStrategyTest {
     final Bytes location = Bytes.of(0x0e);
 
     final ArchiveReadTrieNodeStrategy strategy = new ArchiveReadTrieNodeStrategy(5L, historyReader);
-    assertThat(strategy.getFlatAccountTrieNode(location, keccak(Bytes.of(0x99)), storage))
+    assertThat(strategy.getTrieNode(Optional.empty(), location, keccak(Bytes.of(0x99)), storage))
         .isEmpty();
   }
 
@@ -93,41 +95,20 @@ class ArchiveReadTrieNodeStrategyTest {
     putStorageArchive(accountHash, location, 3L, node);
 
     final ArchiveReadTrieNodeStrategy strategy = new ArchiveReadTrieNodeStrategy(3L, historyReader);
-    assertThat(strategy.getFlatStorageTrieNode(accountHash, location, keccak(node), storage))
+    assertThat(strategy.getTrieNode(Optional.of(accountHash), location, keccak(node), storage))
         .contains(node);
     // Account-trie key must not match the storage-trie entry
-    assertThat(strategy.getFlatAccountTrieNode(location, keccak(node), storage)).isEmpty();
+    assertThat(strategy.getTrieNode(Optional.empty(), location, keccak(node), storage)).isEmpty();
   }
 
   @Test
-  void putFlatAccountTrieNodeThrows() {
+  void putTrieNodeThrows() {
     final ArchiveReadTrieNodeStrategy strategy = new ArchiveReadTrieNodeStrategy(0L, historyReader);
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
     assertThatThrownBy(
             () ->
-                strategy.putFlatAccountTrieNode(
-                    storage, tx, Bytes.of(0x01), Bytes32.ZERO, Bytes.of(0x00)))
-        .isInstanceOf(UnsupportedOperationException.class);
-    tx.rollback();
-  }
-
-  @Test
-  void putFlatStorageTrieNodeThrows() {
-    final ArchiveReadTrieNodeStrategy strategy = new ArchiveReadTrieNodeStrategy(0L, historyReader);
-    final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    assertThatThrownBy(
-            () ->
-                strategy.putFlatStorageTrieNode(
-                    storage, tx, Hash.EMPTY, Bytes.of(0x01), Bytes32.ZERO, Bytes.of(0x00)))
-        .isInstanceOf(UnsupportedOperationException.class);
-    tx.rollback();
-  }
-
-  @Test
-  void removeFlatAccountStateTrieNodeThrows() {
-    final ArchiveReadTrieNodeStrategy strategy = new ArchiveReadTrieNodeStrategy(0L, historyReader);
-    final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    assertThatThrownBy(() -> strategy.removeFlatAccountStateTrieNode(storage, tx, Bytes.of(0x01)))
+                strategy.putTrieNode(
+                    storage, tx, Optional.empty(), Bytes.of(0x01), Bytes32.ZERO, Bytes.of(0x00)))
         .isInstanceOf(UnsupportedOperationException.class);
     tx.rollback();
   }

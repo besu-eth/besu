@@ -39,6 +39,7 @@ import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NavigableMap;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
@@ -86,7 +87,7 @@ public class SnapV2StorageRangeRequest extends SnapV2DataRequest {
         (location, hash, value) -> {
           applyForStrategy(
               updater,
-              onBonsai -> onBonsai.putAccountStorageTrieNode(accountHash, location, hash, value),
+              onBonsai -> onBonsai.putTrieNode(Optional.of(accountHash), location, hash, value),
               onForest -> onForest.putAccountStorageTrieNode(hash, value));
           nbNodesSaved.incrementAndGet();
         };

@@ -364,7 +364,7 @@ public class SnapV2BlockAccessListApplier {
         (location, hash, value) ->
             applyForStrategy(
                 updater,
-                onBonsai -> onBonsai.putAccountStorageTrieNode(accountHash, location, hash, value),
+                onBonsai -> onBonsai.putTrieNode(Optional.of(accountHash), location, hash, value),
                 onForest -> {});
 
     for (final Hash slotHash : divergedSlots) {
@@ -549,7 +549,7 @@ public class SnapV2BlockAccessListApplier {
         (location, hash, value) ->
             applyForStrategy(
                 updater,
-                onBonsai -> onBonsai.putAccountStateTrieNode(location, hash, value),
+                onBonsai -> onBonsai.putTrieNode(Optional.empty(), location, hash, value),
                 onForest -> {});
 
     accountTrie.commit(nodeUpdater);
@@ -634,7 +634,7 @@ public class SnapV2BlockAccessListApplier {
         (location, hash, value) ->
             applyForStrategy(
                 updater,
-                onBonsai -> onBonsai.putAccountStorageTrieNode(accountHash, location, hash, value),
+                onBonsai -> onBonsai.putTrieNode(Optional.of(accountHash), location, hash, value),
                 onForest -> {});
 
     int downloadedSlots = 0;
