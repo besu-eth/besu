@@ -49,6 +49,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
+import java.util.function.BooleanSupplier;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.tuweni.bytes.Bytes;
@@ -146,7 +147,9 @@ public class DebugTraceBlockStreamer {
 
   // ── public API ────────────────────────────────────────────────────
 
-  public void streamTo(final OutputStream out, final ObjectMapper mapper) throws IOException {
+  public void streamTo(
+      final OutputStream out, final ObjectMapper mapper, final BooleanSupplier isAlive)
+      throws IOException {
     this.rawOut = out;
     this.writePos = 0;
     this.firstTx = true;
@@ -183,6 +186,7 @@ public class DebugTraceBlockStreamer {
 
             final List<Transaction> transactions = block.getBody().getTransactions();
             for (int i = 0; i < transactions.size(); i++) {
+              if (!isAlive.getAsBoolean()) break;
               final Transaction transaction = transactions.get(i);
               if (isOpcodeTracer) {
                 streamOpcodeTransaction(
@@ -224,7 +228,7 @@ public class DebugTraceBlockStreamer {
     }
   }
 
-  public List<Object> accumulateAll() {
+  public List<Object> accumulateAll(final BooleanSupplier isAlive) {
     final List<Object> results = new ArrayList<>();
     Tracer.processTracing(
         blockchainQueries,
@@ -252,6 +256,7 @@ public class DebugTraceBlockStreamer {
 
           final List<Transaction> transactions = block.getBody().getTransactions();
           for (int i = 0; i < transactions.size(); i++) {
+            if (!isAlive.getAsBoolean()) break;
             final Transaction transaction = transactions.get(i);
             results.add(
                 buildTransactionResult(

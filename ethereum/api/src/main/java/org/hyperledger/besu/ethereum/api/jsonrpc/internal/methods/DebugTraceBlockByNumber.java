@@ -96,7 +96,7 @@ public class DebugTraceBlockByNumber extends AbstractBlockParameterMethod
 
     final DebugTraceBlockStreamer streamer = result instanceof DebugTraceBlockStreamer s ? s : null;
     AbstractDebugTraceBlock.writeStreamingResponse(
-        requestContext.getRequest().getId(), streamer, out, mapper);
+        requestContext.getRequest().getId(), streamer, out, mapper, requestContext::isAlive);
   }
 
   /**
@@ -113,7 +113,7 @@ public class DebugTraceBlockByNumber extends AbstractBlockParameterMethod
       return new JsonRpcSuccessResponse(requestContext.getRequest().getId(), null);
     }
     return new JsonRpcSuccessResponse(
-        requestContext.getRequest().getId(), streamer.accumulateAll());
+        requestContext.getRequest().getId(), streamer.accumulateAll(requestContext::isAlive));
   }
 
   private TraceOptions getTraceOptions(final JsonRpcRequestContext request) {

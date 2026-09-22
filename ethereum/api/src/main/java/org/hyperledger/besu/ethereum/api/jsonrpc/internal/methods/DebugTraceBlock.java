@@ -41,6 +41,13 @@ import org.slf4j.LoggerFactory;
 public class DebugTraceBlock extends AbstractDebugTraceBlock {
 
   private static final Logger LOG = LoggerFactory.getLogger(DebugTraceBlock.class);
+
+  // Bounds on caller-supplied blocks to prevent unauthenticated DoS via debug_traceBlock.
+  // A caller controls every field of the replayed block; without these guards a 562-byte
+  // request can buy 40+ seconds of EVM execution or gigabytes of streaming output.
+  static final int MAX_TRACE_BLOCK_TX_COUNT = 300;
+  static final long MAX_TRACE_BLOCK_GAS_LIMIT = 50_000_000L;
+
   private final BlockHeaderFunctions blockHeaderFunctions;
 
   public DebugTraceBlock(
@@ -64,6 +71,20 @@ public class DebugTraceBlock extends AbstractDebugTraceBlock {
           .getBlockchain()
           .getBlockByHash(block.getHeader().getParentHash())
           .isEmpty()) {
+        return Optional.empty();
+      }
+      if (block.getBody().getTransactions().size() > MAX_TRACE_BLOCK_TX_COUNT) {
+        LOG.warn(
+            "debug_traceBlock rejected: tx count {} exceeds limit {}",
+            block.getBody().getTransactions().size(),
+            MAX_TRACE_BLOCK_TX_COUNT);
+        return Optional.empty();
+      }
+      if (block.getHeader().getGasLimit() > MAX_TRACE_BLOCK_GAS_LIMIT) {
+        LOG.warn(
+            "debug_traceBlock rejected: gasLimit {} exceeds limit {}",
+            block.getHeader().getGasLimit(),
+            MAX_TRACE_BLOCK_GAS_LIMIT);
         return Optional.empty();
       }
       return Optional.of(block);
@@ -92,6 +113,31 @@ public class DebugTraceBlock extends AbstractDebugTraceBlock {
       throw new InvalidJsonRpcParameters(
           "Invalid block params (index 0)", RpcErrorType.INVALID_BLOCK_PARAMS, e);
     }
+
+    if (block.getBody().getTransactions().size() > MAX_TRACE_BLOCK_TX_COUNT) {
+      LOG.warn(
+          "debug_traceBlock rejected: tx count {} exceeds limit {}",
+          block.getBody().getTransactions().size(),
+          MAX_TRACE_BLOCK_TX_COUNT);
+      mapper.writeValue(
+          out,
+          new JsonRpcErrorResponse(
+              requestContext.getRequest().getId(), RpcErrorType.EXCEEDS_RPC_TRACE_BLOCK_TX_COUNT));
+      return;
+    }
+
+    if (block.getHeader().getGasLimit() > MAX_TRACE_BLOCK_GAS_LIMIT) {
+      LOG.warn(
+          "debug_traceBlock rejected: gasLimit {} exceeds limit {}",
+          block.getHeader().getGasLimit(),
+          MAX_TRACE_BLOCK_GAS_LIMIT);
+      mapper.writeValue(
+          out,
+          new JsonRpcErrorResponse(
+              requestContext.getRequest().getId(), RpcErrorType.EXCEEDS_RPC_TRACE_BLOCK_GAS_LIMIT));
+      return;
+    }
+
     final TraceOptions traceOptions = getTraceOptions(requestContext);
 
     if (getBlockchainQueries()
@@ -100,7 +146,8 @@ public class DebugTraceBlock extends AbstractDebugTraceBlock {
         .isPresent()) {
       final DebugTraceBlockStreamer streamer =
           createStreamer(traceOptions, Optional.ofNullable(block));
-      writeStreamingResponse(requestContext.getRequest().getId(), streamer, out, mapper);
+      writeStreamingResponse(
+          requestContext.getRequest().getId(), streamer, out, mapper, requestContext::isAlive);
     } else {
       mapper.writeValue(
           out,
