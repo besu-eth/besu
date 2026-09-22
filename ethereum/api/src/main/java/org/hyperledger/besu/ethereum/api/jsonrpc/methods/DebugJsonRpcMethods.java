@@ -101,7 +101,10 @@ public class DebugJsonRpcMethods extends ApiGroupJsonRpcMethods {
 
     return mapOf(
         new DebugTraceTransaction(
-            blockchainQueries, new TransactionTracer(blockReplay), protocolSchedule),
+            blockchainQueries,
+            new TransactionTracer(blockReplay),
+            protocolSchedule,
+            apiConfiguration),
         new DebugAccountRange(blockchainQueries),
         new DebugStorageRangeAt(blockchainQueries, blockReplay),
         new DebugMetrics(metricsSystem),
