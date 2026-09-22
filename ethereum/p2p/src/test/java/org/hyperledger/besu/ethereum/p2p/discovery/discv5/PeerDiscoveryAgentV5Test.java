@@ -46,6 +46,7 @@ import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -461,15 +462,8 @@ class PeerDiscoveryAgentV5Test {
     }
   }
 
-  @Test
-  void saturatedNodeThrottlesToSlowCadenceInsteadOfStopping() throws Exception {
-    // 20 of 25 peers with the default 0.8 ratio → saturated. Fast cadence would fire ~1 round/s;
-    // the old hard stop fired none. Expect exactly one bootstrap round, then one more after the
-    // 5 s slow interval.
-    when(rlpxAgent.getConnectionCount()).thenReturn(20);
-    when(rlpxAgent.getMaxPeers()).thenReturn(25);
-    when(mockSystem.start()).thenReturn(CompletableFuture.completedFuture(null));
-
+  private PeerDiscoveryAgentV5 agentWithIntervals(
+      final int discoveryIntervalSeconds, final int slowIntervalSeconds) {
     final NetworkingConfiguration customConfig =
         ImmutableNetworkingConfiguration.builder()
             .discoveryConfiguration(
@@ -478,31 +472,100 @@ class PeerDiscoveryAgentV5Test {
                     .setAdvertisedHost("127.0.0.1")
                     .setBindHost("0.0.0.0")
                     .setBindPort(0)
-                    .setDiscV5DiscoveryIntervalSeconds(1)
-                    .setDiscV5SlowDiscoveryIntervalSeconds(5))
+                    .setDiscV5DiscoveryIntervalSeconds(discoveryIntervalSeconds)
+                    .setDiscV5SlowDiscoveryIntervalSeconds(slowIntervalSeconds))
             .build();
+    return new PeerDiscoveryAgentV5(
+        customConfig,
+        PeerPermissions.NOOP,
+        forkIdManager,
+        nodeRecordManager,
+        rlpxAgent,
+        new NoOpMetricsSystem(),
+        false,
+        (nodeRecord, listener) -> mockSystem);
+  }
 
-    final PeerDiscoveryAgentV5 customAgent =
-        new PeerDiscoveryAgentV5(
-            customConfig,
-            PeerPermissions.NOOP,
-            forkIdManager,
-            nodeRecordManager,
-            rlpxAgent,
-            new NoOpMetricsSystem(),
-            false,
-            (nodeRecord, listener) -> mockSystem);
+  @Test
+  void saturatedNodeSkipsRoundsWithinSlowInterval() throws Exception {
+    when(rlpxAgent.getConnectionCount()).thenReturn(20);
+    when(rlpxAgent.getMaxPeers()).thenReturn(25);
+    when(mockSystem.start()).thenReturn(CompletableFuture.completedFuture(null));
 
+    final PeerDiscoveryAgentV5 customAgent = agentWithIntervals(3600, 3600);
+    try {
+      customAgent.start(1234).get();
+      Awaitility.await()
+          .pollInterval(50, TimeUnit.MILLISECONDS)
+          .atMost(5, TimeUnit.SECONDS)
+          .untilAsserted(() -> verify(mockSystem, times(1)).searchForNewPeers());
+
+      customAgent.runDiscoveryTick().get();
+
+      // Bootstrap round happened well inside the 3600 s slow interval, so this tick is throttled.
+      verify(mockSystem, times(1)).searchForNewPeers();
+    } finally {
+      customAgent.stop();
+    }
+  }
+
+  @Test
+  void saturatedNodeRunsRoundAfterSlowInterval() throws Exception {
+    when(rlpxAgent.getConnectionCount()).thenReturn(20);
+    when(rlpxAgent.getMaxPeers()).thenReturn(25);
+    when(mockSystem.start()).thenReturn(CompletableFuture.completedFuture(null));
+
+    final PeerDiscoveryAgentV5 customAgent = agentWithIntervals(3600, 1);
     try {
       customAgent.start(1234).get();
 
-      Thread.sleep(2500);
-      verify(mockSystem, times(1)).searchForNewPeers();
-
+      // Each poll drives one tick; once the 1 s slow interval elapses a second round runs, so a
+      // saturated agent throttles rather than going dormant.
       Awaitility.await()
           .pollInterval(100, TimeUnit.MILLISECONDS)
-          .atMost(8, TimeUnit.SECONDS)
-          .untilAsserted(() -> verify(mockSystem, atLeast(2)).searchForNewPeers());
+          .atMost(15, TimeUnit.SECONDS)
+          .untilAsserted(
+              () -> {
+                customAgent.runDiscoveryTick().get();
+                verify(mockSystem, atLeast(2)).searchForNewPeers();
+              });
+    } finally {
+      customAgent.stop();
+    }
+  }
+
+  @Test
+  void roundSkippedWhileInProgressDoesNotConsumeSlowInterval() throws Exception {
+    when(rlpxAgent.getConnectionCount()).thenReturn(20);
+    when(rlpxAgent.getMaxPeers()).thenReturn(25);
+    when(mockSystem.start()).thenReturn(CompletableFuture.completedFuture(null));
+    final CompletableFuture<Collection<NodeRecord>> inFlight = new CompletableFuture<>();
+    when(mockSystem.searchForNewPeers())
+        .thenReturn(inFlight)
+        .thenReturn(CompletableFuture.completedFuture(List.of()));
+
+    final PeerDiscoveryAgentV5 customAgent = agentWithIntervals(3600, 1);
+    try {
+      customAgent.start(1234).get();
+      Awaitility.await()
+          .pollInterval(50, TimeUnit.MILLISECONDS)
+          .atMost(5, TimeUnit.SECONDS)
+          .untilAsserted(() -> verify(mockSystem, times(1)).searchForNewPeers());
+
+      // Lower-bound wait so the 1 s slow interval has expired. Oversleeping is harmless: the agent
+      // only ticks when driven below, so this is not a "nothing happened" window.
+      Thread.sleep(1_200);
+
+      // Slow interval is open, but the first round is still in flight, so no round starts.
+      customAgent.runDiscoveryTick().get();
+      verify(mockSystem, times(1)).searchForNewPeers();
+
+      inFlight.complete(List.of());
+
+      // The skipped attempt must not have reset the slow-interval timer: the next tick runs a
+      // round immediately instead of waiting another full interval.
+      customAgent.runDiscoveryTick().get();
+      verify(mockSystem, times(2)).searchForNewPeers();
     } finally {
       customAgent.stop();
     }
