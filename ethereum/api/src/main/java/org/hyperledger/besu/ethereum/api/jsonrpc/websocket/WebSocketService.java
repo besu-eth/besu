@@ -217,10 +217,12 @@ public class WebSocketService {
 
                 final Handler<Buffer> socketHandler =
                     buffer -> {
-                      LOG.debug(
-                          "Received Websocket request (binary frame) {} ({})",
-                          buffer.toString(),
-                          socketAddressAsString(socketAddress));
+                      if (LOG.isDebugEnabled()) {
+                        LOG.debug(
+                            "Received Websocket request (binary frame) {} ({})",
+                            buffer.toString(),
+                            socketAddressAsString(socketAddress));
+                      }
 
                       if (authenticationService.isPresent()) {
                         authenticationService

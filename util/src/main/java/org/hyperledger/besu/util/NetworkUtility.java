@@ -177,7 +177,9 @@ public class NetworkUtility {
       serverSocket.close();
       return false;
     } catch (IOException ex) {
-      LOG.trace(String.format("Failed to open port %d for TCP", port), ex);
+      if (LOG.isTraceEnabled()) {
+        LOG.trace(String.format("Failed to open port %d for TCP", port), ex);
+      }
     }
     return true;
   }
@@ -195,7 +197,9 @@ public class NetworkUtility {
       datagramSocket.close();
       return false;
     } catch (IOException ex) {
-      LOG.trace(String.format("failed to open port %d for UDP", port), ex);
+      if (LOG.isTraceEnabled()) {
+        LOG.trace(String.format("failed to open port %d for UDP", port), ex);
+      }
     }
     return true;
   }

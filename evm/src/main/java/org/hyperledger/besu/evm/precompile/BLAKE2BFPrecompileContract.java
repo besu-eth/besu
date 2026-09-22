@@ -92,12 +92,14 @@ public class BLAKE2BFPrecompileContract extends AbstractPrecompiledContract {
           cacheEventConsumer.accept(new CacheEvent(PRECOMPILE_NAME, CacheMetric.HIT));
           return res.cachedResult();
         } else {
-          LOG.debug(
-              "false positive blake2bf {}, cache key {}, cached input: {}, input: {}",
-              input.getClass().getSimpleName(),
-              cacheKey,
-              res.cachedInput().toHexString(),
-              input.toHexString());
+          if (LOG.isDebugEnabled()) {
+            LOG.debug(
+                "false positive blake2bf {}, cache key {}, cached input: {}, input: {}",
+                input.getClass().getSimpleName(),
+                cacheKey,
+                res.cachedInput().toHexString(),
+                input.toHexString());
+          }
 
           cacheEventConsumer.accept(new CacheEvent(PRECOMPILE_NAME, CacheMetric.FALSE_POSITIVE));
         }

@@ -79,7 +79,9 @@ public class RocksDBPlugin implements BesuPlugin {
   public void start() {
     LOG.debug("Starting plugin.");
     if (factory == null) {
-      LOG.trace("Applied configuration: {}", options.toString());
+      if (LOG.isTraceEnabled()) {
+        LOG.trace("Applied configuration: {}", options.toString());
+      }
       createFactoriesAndRegisterWithStorageService();
     }
   }
