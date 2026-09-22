@@ -26,6 +26,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.api.ImmutableApiConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
@@ -223,6 +224,36 @@ public class DebugTraceBlockTest {
     final JsonNode response = mapper.readTree(out.toByteArray());
     assertThat(response.has("error")).isTrue();
     assertThat(response.get("error").get("message").asText()).contains("Parent block not found");
+  }
+
+  @Test
+  public void serverStepLimitShouldTruncateStructLogs() throws IOException {
+    final BlockchainQueries blockchainQueries =
+        new BlockchainQueries(
+            fixture.getProtocolSchedule(),
+            fixture.getBlockchain(),
+            fixture.getStateArchive(),
+            MiningConfiguration.MINING_DISABLED);
+
+    final DebugTraceBlock limitedMethod =
+        new DebugTraceBlock(
+            fixture.getProtocolSchedule(),
+            blockchainQueries,
+            ImmutableApiConfiguration.builder().debugTraceStepLimit(3L).build());
+
+    final Object[] params = new Object[] {testBlock.toRlp().toString()};
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(new JsonRpcRequest("2.0", "debug_traceBlock", params));
+
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    limitedMethod.streamResponse(request, out, mapper);
+    final JsonNode response = mapper.readTree(out.toByteArray());
+    assertThat(response.has("result")).isTrue();
+    final JsonNode structLogs = response.get("result").get(0).get("result").get("structLogs");
+    assertThat(structLogs.isArray()).isTrue();
+    assertThat(structLogs.size())
+        .as("server step limit of 3 should cap structLogs at 3 entries (contract has 9 opcodes)")
+        .isEqualTo(3);
   }
 
   @Test

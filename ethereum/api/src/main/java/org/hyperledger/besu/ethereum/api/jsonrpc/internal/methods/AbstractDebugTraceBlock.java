@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
+import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter;
@@ -40,11 +41,21 @@ public abstract class AbstractDebugTraceBlock implements StreamingJsonRpcMethod 
 
   private final ProtocolSchedule protocolSchedule;
   private final Supplier<BlockchainQueries> blockchainQueriesSupplier;
+  private final long serverStepLimit;
 
   public AbstractDebugTraceBlock(
       final ProtocolSchedule protocolSchedule, final BlockchainQueries blockchainQueries) {
+    this(protocolSchedule, blockchainQueries, null);
+  }
+
+  public AbstractDebugTraceBlock(
+      final ProtocolSchedule protocolSchedule,
+      final BlockchainQueries blockchainQueries,
+      final ApiConfiguration apiConfiguration) {
     this.blockchainQueriesSupplier = Suppliers.ofInstance(blockchainQueries);
     this.protocolSchedule = protocolSchedule;
+    this.serverStepLimit =
+        apiConfiguration != null ? apiConfiguration.getDebugTraceStepLimit() : 0L;
   }
 
   protected BlockchainQueries getBlockchainQueries() {
@@ -102,7 +113,7 @@ public abstract class AbstractDebugTraceBlock implements StreamingJsonRpcMethod 
         .map(
             block ->
                 new DebugTraceBlockStreamer(
-                    block, traceOptions, protocolSchedule, getBlockchainQueries()))
+                    block, traceOptions, protocolSchedule, getBlockchainQueries(), serverStepLimit))
         .orElse(null);
   }
 

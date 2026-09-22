@@ -26,6 +26,7 @@ import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.api.ImmutableApiConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
@@ -75,17 +76,19 @@ public class DebugTraceBlockByNumberTest {
 
   private DebugTraceBlockByNumber debugTraceBlockByNumber;
   private Transaction testTransaction;
+  private ExecutionContextTestFixture fixture;
+  private BlockchainQueries blockchainQueries;
   private final ObjectMapper mapper = new ObjectMapper().registerModule(new Jdk8Module());
 
   @BeforeEach
   public void setUp() {
     final GenesisConfig genesisConfig = GenesisConfig.fromResource(GENESIS_RESOURCE);
-    final ExecutionContextTestFixture fixture =
+    fixture =
         ExecutionContextTestFixture.builder(genesisConfig)
             .dataStorageFormat(DataStorageFormat.BONSAI)
             .build();
 
-    final BlockchainQueries blockchainQueries =
+    blockchainQueries =
         new BlockchainQueries(
             fixture.getProtocolSchedule(),
             fixture.getBlockchain(),
@@ -220,6 +223,29 @@ public class DebugTraceBlockByNumberTest {
     final JsonRpcErrorResponse errorResponse = (JsonRpcErrorResponse) jsonRpcResponse;
     assertThat(errorResponse.getErrorType())
         .isEqualByComparingTo(RpcErrorType.GENESIS_BLOCK_NOT_TRACEABLE);
+  }
+
+  @Test
+  public void serverStepLimitShouldTruncateStructLogs() throws IOException {
+    final DebugTraceBlockByNumber limitedMethod =
+        new DebugTraceBlockByNumber(
+            fixture.getProtocolSchedule(),
+            blockchainQueries,
+            ImmutableApiConfiguration.builder().debugTraceStepLimit(3L).build());
+
+    final Object[] params = new Object[] {"0x1"};
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(new JsonRpcRequest("2.0", "debug_traceBlockByNumber", params));
+
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    limitedMethod.streamResponse(request, out, mapper);
+    final JsonNode response = mapper.readTree(out.toByteArray());
+    assertThat(response.has("result")).isTrue();
+    final JsonNode structLogs = response.get("result").get(0).get("result").get("structLogs");
+    assertThat(structLogs.isArray()).isTrue();
+    assertThat(structLogs.size())
+        .as("server step limit of 3 should cap structLogs at 3 entries (contract has 9 opcodes)")
+        .isEqualTo(3);
   }
 
   @Test

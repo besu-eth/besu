@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
@@ -38,7 +39,14 @@ public class DebugTraceBlockByHash extends AbstractDebugTraceBlock {
 
   public DebugTraceBlockByHash(
       final ProtocolSchedule protocolSchedule, final BlockchainQueries blockchainQueries) {
-    super(protocolSchedule, blockchainQueries);
+    this(protocolSchedule, blockchainQueries, null);
+  }
+
+  public DebugTraceBlockByHash(
+      final ProtocolSchedule protocolSchedule,
+      final BlockchainQueries blockchainQueries,
+      final ApiConfiguration apiConfiguration) {
+    super(protocolSchedule, blockchainQueries, apiConfiguration);
   }
 
   @Override
