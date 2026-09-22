@@ -307,6 +307,63 @@ public class RoundChangeTest {
   }
 
   @Test
+  public void decodeWithCapAcceptsPreparesAtCap() {
+    final NodeKey key = NodeKeyUtils.generate();
+    final RoundChangePayload rcPayload =
+        new RoundChangePayload(new ConsensusRoundIdentifier(1, 0), Optional.empty());
+    final SignedData<RoundChangePayload> signedRc =
+        SignedData.create(
+            rcPayload, key.sign(Bytes32.wrap(rcPayload.hashForSignature().getBytes())));
+
+    final PreparePayload preparePayload =
+        new PreparePayload(new ConsensusRoundIdentifier(1, 0), Hash.ZERO);
+    final SignedData<PreparePayload> onePrepare =
+        SignedData.create(
+            preparePayload, key.sign(Bytes32.wrap(preparePayload.hashForSignature().getBytes())));
+
+    final Bytes encoded =
+        new RoundChange(
+                signedRc,
+                Optional.empty(),
+                Optional.empty(),
+                blockEncoder,
+                Collections.nCopies(3, onePrepare))
+            .encode();
+
+    final RoundChange decoded = RoundChange.decode(encoded, blockEncoder, 3);
+    assertThat(decoded.getPrepares()).hasSize(3);
+  }
+
+  @Test
+  public void decodeWithCapRejectsPreparesExceedingCap() {
+    final NodeKey key = NodeKeyUtils.generate();
+    final RoundChangePayload rcPayload =
+        new RoundChangePayload(new ConsensusRoundIdentifier(1, 0), Optional.empty());
+    final SignedData<RoundChangePayload> signedRc =
+        SignedData.create(
+            rcPayload, key.sign(Bytes32.wrap(rcPayload.hashForSignature().getBytes())));
+
+    final PreparePayload preparePayload =
+        new PreparePayload(new ConsensusRoundIdentifier(1, 0), Hash.ZERO);
+    final SignedData<PreparePayload> onePrepare =
+        SignedData.create(
+            preparePayload, key.sign(Bytes32.wrap(preparePayload.hashForSignature().getBytes())));
+
+    final Bytes oversized =
+        new RoundChange(
+                signedRc,
+                Optional.empty(),
+                Optional.empty(),
+                blockEncoder,
+                Collections.nCopies(4, onePrepare))
+            .encode();
+
+    assertThatThrownBy(() -> RoundChange.decode(oversized, blockEncoder, 3))
+        .isInstanceOf(RLPException.class)
+        .hasMessageContaining("exceeds the maximum permitted size");
+  }
+
+  @Test
   public void legacyEncodingOmitsBlockAccessListSlot() {
     // When useLegacyEncoding=true, RoundChange.encode() emits 3 top-level items - the BAL slot
     // is omitted when absent. Required for interop with Besu 25.x peers during rolling upgrade.

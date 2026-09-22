@@ -15,6 +15,7 @@
 package org.hyperledger.besu.consensus.qbft.core.messagewrappers;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.consensus.common.bft.ConsensusRoundIdentifier;
 import org.hyperledger.besu.consensus.common.bft.payload.SignedData;
@@ -25,11 +26,30 @@ import org.hyperledger.besu.cryptoservices.NodeKeyUtils;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Util;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.Test;
 
 public class PrepareTest {
+
+  @Test
+  public void decodeSequenceReadsSequenceNumber() {
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final PreparePayload payload =
+        new PreparePayload(new ConsensusRoundIdentifier(42L, 0), Hash.ZERO);
+    final SignedData<PreparePayload> signed =
+        SignedData.create(
+            payload, nodeKey.sign(Bytes32.wrap(payload.hashForSignature().getBytes())));
+    assertThat(Prepare.decodeSequence(new Prepare(signed).encode())).isEqualTo(42L);
+  }
+
+  @Test
+  public void decodeSequenceThrowsRlpExceptionForMalformedData() {
+    assertThatThrownBy(() -> Prepare.decodeSequence(Bytes.of(0x01, 0x02, 0x03)))
+        .isInstanceOf(RLPException.class);
+  }
 
   @Test
   public void canRoundTripAPrepareMessage() {

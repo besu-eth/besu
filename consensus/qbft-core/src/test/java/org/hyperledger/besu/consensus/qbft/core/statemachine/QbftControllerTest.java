@@ -18,8 +18,11 @@ import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.util.Lists.newArrayList;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -52,11 +55,14 @@ import org.hyperledger.besu.consensus.qbft.core.types.QbftNewChainHead;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftReceivedMessageEvent;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 
 import java.util.Collections;
 import java.util.List;
 
 import com.google.common.collect.ImmutableList;
+import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -118,7 +124,7 @@ public class QbftControllerTest {
     when(nextBlock.getNumber()).thenReturn(5L);
 
     when(qbftFinalState.isLocalNodeValidator()).thenReturn(true);
-    when(messageTracker.hasSeenMessage(any())).thenReturn(false);
+    when(messageTracker.hasSeenMessage(any(Bytes32.class))).thenReturn(false);
   }
 
   private void constructQbftController() {
@@ -413,21 +419,20 @@ public class QbftControllerTest {
 
   @Test
   public void duplicatedMessagesAreNotProcessed() {
-    when(messageTracker.hasSeenMessage(proposalMessageData)).thenReturn(true);
+    when(messageTracker.hasSeenMessage(any(Bytes32.class))).thenReturn(true);
     setupProposal(roundIdentifier, validator);
     verifyNotHandledAndNoFutureMsgs(new QbftReceivedMessageEventFixture(proposalMessage));
-    verify(messageTracker, never()).addSeenMessage(proposalMessageData);
+    verify(messageTracker, never()).addSeenMessage(any(Bytes32.class));
   }
 
   @Test
   public void uniqueMessagesAreAddedAsSeen() {
-    when(messageTracker.hasSeenMessage(proposalMessageData)).thenReturn(false);
     setupProposal(roundIdentifier, validator);
     constructQbftController();
     qbftController.start();
     qbftController.handleMessageEvent(new QbftReceivedMessageEventFixture(proposalMessage));
 
-    verify(messageTracker).addSeenMessage(proposalMessageData);
+    verify(messageTracker).addSeenMessage(any(Bytes32.class));
   }
 
   @Test
@@ -471,12 +476,22 @@ public class QbftControllerTest {
     verifyNoMoreInteractions(blockHeightManager);
   }
 
+  private static Bytes minimalSequenceBytes(final int depth, final long sequence) {
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    for (int i = 0; i < depth; i++) out.startList();
+    out.writeLongScalar(sequence);
+    for (int i = 0; i < depth; i++) out.endList();
+    return out.encoded();
+  }
+
   private void setupProposal(
       final ConsensusRoundIdentifier roundIdentifier, final Address validator) {
     when(proposal.getAuthor()).thenReturn(validator);
     when(proposal.getRoundIdentifier()).thenReturn(roundIdentifier);
     when(proposalMessageData.getCode()).thenReturn(QbftV1.PROPOSAL);
-    when(proposalMessageData.decode(blockEncoder)).thenReturn(proposal);
+    when(proposalMessageData.getData())
+        .thenReturn(minimalSequenceBytes(3, roundIdentifier.getSequenceNumber()));
+    when(proposalMessageData.decode(eq(blockEncoder), anyInt())).thenReturn(proposal);
     proposalMessage = new QbftMessageFixture(proposalMessageData);
   }
 
@@ -485,6 +500,8 @@ public class QbftControllerTest {
     when(prepare.getAuthor()).thenReturn(validator);
     when(prepare.getRoundIdentifier()).thenReturn(roundIdentifier);
     when(prepareMessageData.getCode()).thenReturn(QbftV1.PREPARE);
+    when(prepareMessageData.getData())
+        .thenReturn(minimalSequenceBytes(2, roundIdentifier.getSequenceNumber()));
     when(prepareMessageData.decode()).thenReturn(prepare);
     prepareMessage = new QbftMessageFixture(prepareMessageData);
   }
@@ -494,6 +511,8 @@ public class QbftControllerTest {
     when(commit.getAuthor()).thenReturn(validator);
     when(commit.getRoundIdentifier()).thenReturn(roundIdentifier);
     when(commitMessageData.getCode()).thenReturn(QbftV1.COMMIT);
+    when(commitMessageData.getData())
+        .thenReturn(minimalSequenceBytes(2, roundIdentifier.getSequenceNumber()));
     when(commitMessageData.decode()).thenReturn(commit);
     commitMessage = new QbftMessageFixture(commitMessageData);
   }
@@ -503,8 +522,32 @@ public class QbftControllerTest {
     when(roundChange.getAuthor()).thenReturn(validator);
     when(roundChange.getRoundIdentifier()).thenReturn(roundIdentifier);
     when(roundChangeMessageData.getCode()).thenReturn(QbftV1.ROUND_CHANGE);
-    when(roundChangeMessageData.decode(blockEncoder)).thenReturn(roundChange);
+    when(roundChangeMessageData.getData())
+        .thenReturn(minimalSequenceBytes(3, roundIdentifier.getSequenceNumber()));
+    when(roundChangeMessageData.decode(eq(blockEncoder), anyInt())).thenReturn(roundChange);
     roundChangeMessage = new QbftMessageFixture(roundChangeMessageData);
+  }
+
+  @Test
+  public void malformedBufferedMessageDoesNotAbortReplayOfSubsequentMessages() {
+    final PrepareMessageData malformedData = mock(PrepareMessageData.class);
+    when(malformedData.getCode()).thenReturn(QbftV1.PREPARE);
+    when(malformedData.getData())
+        .thenReturn(minimalSequenceBytes(2, roundIdentifier.getSequenceNumber()));
+    when(malformedData.decode()).thenThrow(new IllegalArgumentException("malformed message body"));
+    final QbftMessage malformedMessage = new QbftMessageFixture(malformedData);
+
+    setupPrepare(roundIdentifier, validator);
+
+    when(futureMessageBuffer.retrieveMessagesForHeight(4L))
+        .thenReturn(List.of(malformedMessage, prepareMessage));
+
+    constructQbftController();
+    qbftController.start();
+
+    // The valid prepare must still be processed despite the malformed message preceding it
+    verify(blockHeightManager).handlePreparePayload(prepare);
+    verify(qbftGossiper).send(prepareMessage, true);
   }
 
   @Test
@@ -522,5 +565,31 @@ public class QbftControllerTest {
     qbftController.start();
     qbftController.stop();
     assertThatNoException().isThrownBy(() -> qbftController.start());
+  }
+
+  @Test
+  public void futureHeightMessageIsBufferedWithoutFullDecode() {
+    // Future-height messages must be stored raw — no block/certificate decode should occur.
+    setupProposal(futureRoundIdentifier, validator);
+    constructQbftController();
+    qbftController.start();
+    qbftController.handleMessageEvent(new QbftReceivedMessageEventFixture(proposalMessage));
+
+    verify(futureMessageBuffer)
+        .addMessage(futureRoundIdentifier.getSequenceNumber(), proposalMessage);
+    // decode(blockEncoder, anyInt()) must never be called for a future-height message
+    verify(proposalMessageData, never()).decode(eq(blockEncoder), anyInt());
+  }
+
+  @Test
+  public void currentHeightMessageDecodesWithValidatorCountAsCap() {
+    // The cap passed to decode must equal the number of known validators.
+    final int expectedCap = 1; // qbftFinalState.getValidators() returns ImmutableList.of(validator)
+    setupProposal(roundIdentifier, validator);
+    constructQbftController();
+    qbftController.start();
+    qbftController.handleMessageEvent(new QbftReceivedMessageEventFixture(proposalMessage));
+
+    verify(proposalMessageData).decode(eq(blockEncoder), eq(expectedCap));
   }
 }
