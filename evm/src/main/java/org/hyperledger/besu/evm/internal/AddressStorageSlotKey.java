@@ -17,7 +17,6 @@ package org.hyperledger.besu.evm.internal;
 import org.hyperledger.besu.datatypes.Address;
 
 import java.util.Arrays;
-import java.util.Objects;
 
 import org.apache.tuweni.bytes.Bytes32;
 
@@ -27,8 +26,8 @@ import org.apache.tuweni.bytes.Bytes32;
  * @param address the address part of the key
  * @param slot the slot part of the key
  */
-public record AdrressStorageSlotKey(Address address, Bytes32 slot)
-    implements Comparable<AdrressStorageSlotKey> {
+public record AddressStorageSlotKey(Address address, Bytes32 slot)
+    implements Comparable<AddressStorageSlotKey> {
   @Override
   public int hashCode() {
     int initialValue = Arrays.hashCode(address.getBytes().toArrayUnsafe());
@@ -39,14 +38,16 @@ public record AdrressStorageSlotKey(Address address, Bytes32 slot)
   public boolean equals(final Object obj) {
     if (this == obj) {
       return true;
-    } else if (obj instanceof AdrressStorageSlotKey other) {
-      return Objects.equals(address, other.address) && Objects.equals(slot, other.slot);
+    } else if (obj instanceof AddressStorageSlotKey other) {
+      return Arrays.equals(
+              address.getBytes().toArrayUnsafe(), other.address.getBytes().toArrayUnsafe())
+          && Arrays.equals(slot.toArrayUnsafe(), other.slot.toArrayUnsafe());
     }
     return false;
   }
 
   @Override
-  public int compareTo(final AdrressStorageSlotKey other) {
+  public int compareTo(final AddressStorageSlotKey other) {
     if (this == other) {
       return 0;
     }

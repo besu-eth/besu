@@ -25,7 +25,7 @@ import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
-import org.hyperledger.besu.evm.internal.AdrressStorageSlotKey;
+import org.hyperledger.besu.evm.internal.AddressStorageSlotKey;
 import org.hyperledger.besu.evm.internal.MemoryEntry;
 import org.hyperledger.besu.evm.internal.OperandStack;
 import org.hyperledger.besu.evm.internal.StorageEntry;
@@ -1485,7 +1485,7 @@ public class MessageFrame {
    * @return the data value read
    */
   public Bytes32 getTransientStorageValue(final Address accountAddress, final Bytes32 slot) {
-    Bytes32 v = txValues.transientStorage().get(new AdrressStorageSlotKey(accountAddress, slot));
+    Bytes32 v = txValues.transientStorage().get(new AddressStorageSlotKey(accountAddress, slot));
     return v == null ? Bytes32.ZERO : v;
   }
 
@@ -1498,7 +1498,7 @@ public class MessageFrame {
    */
   public void setTransientStorageValue(
       final Address accountAddress, final Bytes32 slot, final Bytes32 value) {
-    txValues.transientStorage().put(new AdrressStorageSlotKey(accountAddress, slot), value);
+    txValues.transientStorage().put(new AddressStorageSlotKey(accountAddress, slot), value);
   }
 
   /** Undo all the changes done by this message frame, such as when a revert is called for. */

@@ -22,7 +22,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
-import org.hyperledger.besu.evm.internal.AdrressStorageSlotKey;
+import org.hyperledger.besu.evm.internal.AddressStorageSlotKey;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -54,7 +54,7 @@ public class TxValues {
   private final Deque<MessageFrame> messageFrameStack;
   private final Address miningBeneficiary;
   private final Optional<List<VersionedHash>> versionedHashes;
-  private final UndoMap<AdrressStorageSlotKey, Bytes32> transientStorage;
+  private final UndoMap<AddressStorageSlotKey, Bytes32> transientStorage;
   private final UndoSet<Address> creates;
   private final UndoSet<Address> selfDestructs;
   private final UndoScalar<Long> gasRefunds;
@@ -73,7 +73,7 @@ public class TxValues {
       final Deque<MessageFrame> messageFrameStack,
       final Address miningBeneficiary,
       final Optional<List<VersionedHash>> versionedHashes,
-      final UndoMap<AdrressStorageSlotKey, Bytes32> transientStorage,
+      final UndoMap<AddressStorageSlotKey, Bytes32> transientStorage,
       final UndoSet<Address> creates,
       final UndoSet<Address> selfDestructs,
       final UndoScalar<Long> gasRefunds,
@@ -266,7 +266,7 @@ public class TxValues {
    *
    * @return the transient storage
    */
-  public UndoMap<AdrressStorageSlotKey, Bytes32> transientStorage() {
+  public UndoMap<AddressStorageSlotKey, Bytes32> transientStorage() {
     return transientStorage;
   }
 
