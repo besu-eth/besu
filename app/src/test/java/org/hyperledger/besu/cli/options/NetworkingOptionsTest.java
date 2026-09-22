@@ -180,6 +180,42 @@ public class NetworkingOptionsTest
   }
 
   @Test
+  public void discV5SlowDiscoveryIntervalSecondsFlag_isSet() {
+    final TestBesuCommand cmd = parseCommand("--Xv5-slow-discovery-interval-seconds", "45");
+
+    final NetworkingOptions options = cmd.getNetworkingOptions();
+    final NetworkingConfiguration networkingConfig = options.toDomainObject();
+    assertThat(networkingConfig.discoveryConfiguration().getDiscV5SlowDiscoveryIntervalSeconds())
+        .isEqualTo(45);
+  }
+
+  @Test
+  public void discV5SlowDiscoveryIntervalSecondsFlag_isNotSet() {
+    final TestBesuCommand cmd = parseCommand();
+
+    final NetworkingOptions options = cmd.getNetworkingOptions();
+    final NetworkingConfiguration networkingConfig = options.toDomainObject();
+    assertThat(networkingConfig.discoveryConfiguration().getDiscV5SlowDiscoveryIntervalSeconds())
+        .isEqualTo(30);
+  }
+
+  @Test
+  public void discV5MinimumPeerRatioAboveOneIsRejected() {
+    internalTestFailure(
+        "--Xv5-minimum-peer-ratio must be greater than 0 and at most 1",
+        "--Xv5-minimum-peer-ratio",
+        "1.5");
+  }
+
+  @Test
+  public void discV5SlowDiscoveryIntervalSecondsOfZeroIsRejected() {
+    internalTestFailure(
+        "--Xv5-slow-discovery-interval-seconds must be greater than 0",
+        "--Xv5-slow-discovery-interval-seconds",
+        "0");
+  }
+
+  @Test
   public void checkFilterByForkIdNotSet() {
     final TestBesuCommand cmd = parseCommand();
 

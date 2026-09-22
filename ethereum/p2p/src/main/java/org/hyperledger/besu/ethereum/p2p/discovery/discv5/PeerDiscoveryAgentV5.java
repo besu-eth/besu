@@ -65,8 +65,8 @@ import org.slf4j.LoggerFactory;
  * <p>Discovery cadence:
  *
  * <ul>
- *   <li>Fast (1 second) while the node is under-connected
- *   <li>Slow (30 seconds) once a sufficient number of peers has been reached
+ *   <li>Fast (configurable, default 1 second) while the node is under-connected
+ *   <li>Slow (configurable, default 30 seconds) once the minimum peer ratio is reached
  * </ul>
  *
  * <p>Discovered peers are filtered for readiness, fork compatibility, and reachability before
@@ -114,6 +114,11 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
   private final AtomicBoolean stopped = new AtomicBoolean(false);
   // Indicates whether a discovery operation is currently in progress
   private final AtomicBoolean discoveryInProgress = new AtomicBoolean(false);
+
+  // Cadence state; accessed only from the single-threaded discovery scheduler.
+  private boolean everSearched = false;
+  private long lastDiscoveryRoundNanos = 0L;
+  private boolean slowCadenceActive = false;
 
   /**
    * Creates a new DiscV5 peer discovery agent.
@@ -428,17 +433,48 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
     return address.map(a -> a.getPort() == 0).orElse(true);
   }
 
-  /** Determines whether the RLPx agent has reached a sufficient number of connected peers. */
-  private boolean hasSufficientPeers() {
-    return rlpxAgent.getConnectionCount()
-        >= rlpxAgent.getMaxPeers() * discoveryConfig.getDiscV5MinimumPeerRatio();
+  /**
+   * Returns {@code true} if the RLPx agent has reached a sufficient number of connected peers. A
+   * {@code true} result throttles discovery to the slow cadence rather than stopping it.
+   *
+   * @param connectionCount the sampled number of active RLPx connections
+   */
+  private boolean hasSufficientPeers(final int connectionCount) {
+    return connectionCount >= rlpxAgent.getMaxPeers() * discoveryConfig.getDiscV5MinimumPeerRatio();
   }
 
-  /** Periodic discovery task that enforces adaptive cadence and triggers peer discovery. */
+  /**
+   * Periodic discovery task. Runs a discovery round on every tick while the node is
+   * under-connected, and at most once per slow interval once the peer count has reached the
+   * configured minimum ratio.
+   */
   private void discoveryTick() {
-    if (stopped.get() || hasSufficientPeers()) {
+    if (stopped.get()) {
       return;
     }
+    final int connectionCount = rlpxAgent.getConnectionCount();
+    final boolean saturated = hasSufficientPeers(connectionCount);
+    if (saturated != slowCadenceActive) {
+      slowCadenceActive = saturated;
+      if (LOG.isDebugEnabled()) {
+        LOG.debug(
+            "DiscV5 discovery switching to {} cadence ({}s): {} connected peers, threshold {}",
+            saturated ? "slow" : "fast",
+            saturated
+                ? discoveryConfig.getDiscV5SlowDiscoveryIntervalSeconds()
+                : discoveryConfig.getDiscV5DiscoveryIntervalSeconds(),
+            connectionCount,
+            rlpxAgent.getMaxPeers() * discoveryConfig.getDiscV5MinimumPeerRatio());
+      }
+    }
+    if (saturated
+        && everSearched
+        && System.nanoTime() - lastDiscoveryRoundNanos
+            < TimeUnit.SECONDS.toNanos(discoveryConfig.getDiscV5SlowDiscoveryIntervalSeconds())) {
+      return;
+    }
+    everSearched = true;
+    lastDiscoveryRoundNanos = System.nanoTime();
     discoverAndConnect();
   }
 

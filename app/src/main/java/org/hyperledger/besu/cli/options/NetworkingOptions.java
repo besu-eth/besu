@@ -42,6 +42,8 @@ public class NetworkingOptions implements CLIOptions<NetworkingConfiguration> {
   private static final String DISCV5_DISCOVERY_INTERVAL_SECONDS =
       "--Xv5-discovery-interval-seconds";
   private static final String DISCV5_DISCOVERY_TIMEOUT_SECONDS = "--Xv5-discovery-timeout-seconds";
+  private static final String DISCV5_SLOW_DISCOVERY_INTERVAL_SECONDS =
+      "--Xv5-slow-discovery-interval-seconds";
   private static final String DISCV5_MINIMUM_PEER_RATIO = "--Xv5-minimum-peer-ratio";
 
   @CommandLine.Option(
@@ -104,6 +106,15 @@ public class NetworkingOptions implements CLIOptions<NetworkingConfiguration> {
   private Duration discV5DiscoveryTimeoutSeconds = Duration.ofSeconds(60);
 
   @CommandLine.Option(
+      names = DISCV5_SLOW_DISCOVERY_INTERVAL_SECONDS,
+      hidden = true,
+      paramLabel = "<INTEGER>",
+      description =
+          "The interval (in seconds) between DiscV5 peer discovery cycles once the peer count reaches the minimum peer ratio (default: 30)",
+      converter = DurationSecondsConverter.class)
+  private Duration discV5SlowDiscoveryIntervalSeconds = Duration.ofSeconds(30);
+
+  @CommandLine.Option(
       names = DISCV5_MINIMUM_PEER_RATIO,
       hidden = true,
       paramLabel = "<DOUBLE>",
@@ -145,9 +156,14 @@ public class NetworkingOptions implements CLIOptions<NetworkingConfiguration> {
    * @param commandLine the parsed command line input
    */
   public void validate(final CommandLine commandLine) {
-    if (discV5MinimumPeerRatio <= 0) {
+    if (discV5MinimumPeerRatio <= 0 || discV5MinimumPeerRatio > 1) {
       throw new CommandLine.ParameterException(
-          commandLine, DISCV5_MINIMUM_PEER_RATIO + " must be non-negative");
+          commandLine, DISCV5_MINIMUM_PEER_RATIO + " must be greater than 0 and at most 1");
+    }
+    if (discV5SlowDiscoveryIntervalSeconds.isZero()
+        || discV5SlowDiscoveryIntervalSeconds.isNegative()) {
+      throw new CommandLine.ParameterException(
+          commandLine, DISCV5_SLOW_DISCOVERY_INTERVAL_SECONDS + " must be greater than 0");
     }
   }
 
@@ -157,6 +173,8 @@ public class NetworkingOptions implements CLIOptions<NetworkingConfiguration> {
     discovery.setFilterOnEnrForkId(filterOnEnrForkId);
     discovery.setDiscV5DiscoveryIntervalSeconds((int) discV5DiscoveryIntervalSeconds.toSeconds());
     discovery.setDiscV5DiscoveryTimeoutSeconds((int) discV5DiscoveryTimeoutSeconds.toSeconds());
+    discovery.setDiscV5SlowDiscoveryIntervalSeconds(
+        (int) discV5SlowDiscoveryIntervalSeconds.toSeconds());
     discovery.setDiscV5MinimumPeerRatio(discV5MinimumPeerRatio);
 
     return ImmutableNetworkingConfiguration.builder()

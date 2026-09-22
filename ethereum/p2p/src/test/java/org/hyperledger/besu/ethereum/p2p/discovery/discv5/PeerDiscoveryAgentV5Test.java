@@ -17,10 +17,12 @@ package org.hyperledger.besu.ethereum.p2p.discovery.discv5;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -416,7 +418,8 @@ class PeerDiscoveryAgentV5Test {
   @Test
   void discoveryRunsWhenPeerCountBelowConfiguredMinimumRatio() throws Exception {
     // With 20 connections out of 25 max peers:
-    //   default ratio 0.8 → 20 >= 20 → hasSufficientPeers() is true → discovery stops
+    //   default ratio 0.8 → 20 >= 20 → hasSufficientPeers() is true → discovery throttles to the
+    // slow cadence
     //   custom  ratio 0.9 → 20 >= 22.5 → hasSufficientPeers() is false → discovery runs
     // This verifies that the config value is actually read rather than the old hard-coded 0.8.
     when(rlpxAgent.getConnectionCount()).thenReturn(20);
@@ -453,6 +456,53 @@ class PeerDiscoveryAgentV5Test {
           .pollInterval(50, TimeUnit.MILLISECONDS)
           .atMost(3, TimeUnit.SECONDS)
           .untilAsserted(() -> verify(mockSystem, atLeastOnce()).searchForNewPeers());
+    } finally {
+      customAgent.stop();
+    }
+  }
+
+  @Test
+  void saturatedNodeThrottlesToSlowCadenceInsteadOfStopping() throws Exception {
+    // 20 of 25 peers with the default 0.8 ratio → saturated. Fast cadence would fire ~1 round/s;
+    // the old hard stop fired none. Expect exactly one bootstrap round, then one more after the
+    // 5 s slow interval.
+    when(rlpxAgent.getConnectionCount()).thenReturn(20);
+    when(rlpxAgent.getMaxPeers()).thenReturn(25);
+    when(mockSystem.start()).thenReturn(CompletableFuture.completedFuture(null));
+
+    final NetworkingConfiguration customConfig =
+        ImmutableNetworkingConfiguration.builder()
+            .discoveryConfiguration(
+                DiscoveryConfiguration.create()
+                    .setEnabled(true)
+                    .setAdvertisedHost("127.0.0.1")
+                    .setBindHost("0.0.0.0")
+                    .setBindPort(0)
+                    .setDiscV5DiscoveryIntervalSeconds(1)
+                    .setDiscV5SlowDiscoveryIntervalSeconds(5))
+            .build();
+
+    final PeerDiscoveryAgentV5 customAgent =
+        new PeerDiscoveryAgentV5(
+            customConfig,
+            PeerPermissions.NOOP,
+            forkIdManager,
+            nodeRecordManager,
+            rlpxAgent,
+            new NoOpMetricsSystem(),
+            false,
+            (nodeRecord, listener) -> mockSystem);
+
+    try {
+      customAgent.start(1234).get();
+
+      Thread.sleep(2500);
+      verify(mockSystem, times(1)).searchForNewPeers();
+
+      Awaitility.await()
+          .pollInterval(100, TimeUnit.MILLISECONDS)
+          .atMost(8, TimeUnit.SECONDS)
+          .untilAsserted(() -> verify(mockSystem, atLeast(2)).searchForNewPeers());
     } finally {
       customAgent.stop();
     }

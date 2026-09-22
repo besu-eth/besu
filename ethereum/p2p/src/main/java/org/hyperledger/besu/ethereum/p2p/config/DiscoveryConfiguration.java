@@ -44,6 +44,7 @@ public class DiscoveryConfiguration {
   private boolean preferIpv6Outbound = false;
   private int discV5DiscoveryIntervalSeconds = 1;
   private int discV5DiscoveryTimeoutSeconds = 60;
+  private int discV5SlowDiscoveryIntervalSeconds = 30;
   private double discV5MinimumPeerRatio = 0.8;
   private DiscoveryMode discoveryMode = DiscoveryMode.getDefault();
 
@@ -226,6 +227,16 @@ public class DiscoveryConfiguration {
   public DiscoveryConfiguration setDiscV5DiscoveryTimeoutSeconds(
       final int discV5DiscoveryTimeoutSeconds) {
     this.discV5DiscoveryTimeoutSeconds = discV5DiscoveryTimeoutSeconds;
+    return this;
+  }
+
+  public int getDiscV5SlowDiscoveryIntervalSeconds() {
+    return discV5SlowDiscoveryIntervalSeconds;
+  }
+
+  public DiscoveryConfiguration setDiscV5SlowDiscoveryIntervalSeconds(
+      final int discV5SlowDiscoveryIntervalSeconds) {
+    this.discV5SlowDiscoveryIntervalSeconds = discV5SlowDiscoveryIntervalSeconds;
     return this;
   }
 

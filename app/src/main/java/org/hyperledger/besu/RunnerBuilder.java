@@ -734,6 +734,8 @@ public class RunnerBuilder {
           networkingConfiguration.discoveryConfiguration().getDiscV5DiscoveryIntervalSeconds());
       discoveryConfiguration.setDiscV5DiscoveryTimeoutSeconds(
           networkingConfiguration.discoveryConfiguration().getDiscV5DiscoveryTimeoutSeconds());
+      discoveryConfiguration.setDiscV5SlowDiscoveryIntervalSeconds(
+          networkingConfiguration.discoveryConfiguration().getDiscV5SlowDiscoveryIntervalSeconds());
       discoveryConfiguration.setDiscV5MinimumPeerRatio(
           networkingConfiguration.discoveryConfiguration().getDiscV5MinimumPeerRatio());
     } else {
