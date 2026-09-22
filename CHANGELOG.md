@@ -9,6 +9,7 @@
 - `eth_feeHistory` now rejects reward percentiles outside `[0, 100]`, not strictly increasing, or more than 100 values (`-32602`), instead of sorting unordered input or silently omitting `reward` for oversize lists. [#11055](https://github.com/besu-eth/besu/issues/11055)
 - Removed the EIP-7610 storage collision check: contract creation no longer aborts when the destination address has non-empty storage but a zero nonce and no code, restoring the EIP-684 conditions for every fork. EIP-7610 was declined for inclusion in Glamsterdam (EIP-7773) and removed from the execution specs retroactively; no mainnet account is affected. `Account.isStorageEmpty()`, which existed only for this check, is removed from the `besu-evm` API. [#11175](https://github.com/besu-eth/besu/pull/11175)
 - Besu now exits on `OutOfMemoryError` (`-XX:+ExitOnOutOfMemoryError`). Use a restart policy, or set `JAVA_OPTS=-XX:-ExitOnOutOfMemoryError` to opt out. [#11300](https://github.com/besu-eth/besu/pull/11300)
+- The default discovery mode is now `BOTH`: nodes run DiscV4 and DiscV5 concurrently unless `--discovery-mode=V4` or `--discovery-mode=V5` selects a single protocol.
 
 ### Upcoming Breaking Changes
 - Plugin API
