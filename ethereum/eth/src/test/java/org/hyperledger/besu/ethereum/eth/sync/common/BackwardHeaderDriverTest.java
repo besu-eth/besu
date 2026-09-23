@@ -135,8 +135,31 @@ public class BackwardHeaderDriverTest {
     final List<BlockHeader> invalidHeaders = getHeaders(50, 51, 52);
 
     assertThatThrownBy(() -> driver.accept(invalidHeaders))
-        .isInstanceOf(IllegalStateException.class)
-        .hasMessageContaining("Received invalid header list: expected hash");
+        .isInstanceOf(WrongChainException.class)
+        .hasMessageContaining("Received invalid header list: expected hash")
+        .hasMessageContaining("re-pivoting");
+    verify(blockchain, times(1)).storeBlockHeaders(any());
+  }
+
+  @Test
+  public void shouldThrowWhenLaterBatchDoesNotMatchExpectedParentHash() {
+    final BackwardHeaderDriver driver =
+        new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, anchorHeader, blockchain);
+
+    // First batch chains correctly onto the pivot.
+    final List<BlockHeader> validBatch = getHeaders(99, 98, 97, 96);
+    driver.accept(validBatch);
+
+    // Second batch does not chain onto the first batch's lowest header (skipping blocks).
+    final List<BlockHeader> invalidHeaders = getHeaders(50, 51, 52);
+
+    assertThatThrownBy(() -> driver.accept(invalidHeaders))
+        .isInstanceOf(WrongChainException.class)
+        .hasMessageContaining("Received invalid header list: expected hash")
+        .hasMessageContaining("re-pivoting");
+    // Pivot store (constructor) + first valid batch store = 2; the invalid second batch is never
+    // stored.
+    verify(blockchain, times(2)).storeBlockHeaders(any());
   }
 
   @Test

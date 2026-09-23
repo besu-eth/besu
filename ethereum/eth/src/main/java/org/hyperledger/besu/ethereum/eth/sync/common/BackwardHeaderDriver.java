@@ -181,9 +181,10 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
               + " ,but got "
               + blockHeaders.getFirst().getHash()
               + " from block with number "
-              + blockHeaders.getFirst().getNumber();
-      LOG.warn(message);
-      throw new IllegalStateException(message);
+              + blockHeaders.getFirst().getNumber()
+              + "; re-pivoting.";
+      LOG.debug(message);
+      throw new WrongChainException(message);
     }
 
     lowestImportedHeader = blockHeaders.getLast();

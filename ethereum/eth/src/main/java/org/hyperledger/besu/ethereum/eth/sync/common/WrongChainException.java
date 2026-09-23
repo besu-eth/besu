@@ -16,9 +16,11 @@
 package org.hyperledger.besu.ethereum.eth.sync.common;
 
 /**
- * Signals that the pivot does not descend from the chain we trust — the downloaded headers do not
- * link to the trust anchor (genesis or the trusted checkpoint) — so no amount of downloading from
- * the current pivot can produce a valid chain.
+ * Signals that headers downloaded during snap sync Stage 1 do not form a valid chain back to a
+ * trusted point — either because they do not link to the trust anchor (genesis or the trusted
+ * checkpoint), or because a batch does not chain onto the currently tracked pivot/anchor header
+ * (which can happen if the pivot was captured mid-reorg) — so retrying against the same cached
+ * state cannot succeed and a fresh pivot must be selected.
  */
 public class WrongChainException extends RuntimeException {
 
