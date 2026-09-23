@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 
@@ -24,13 +25,8 @@ import org.apache.tuweni.bytes.Bytes;
 
 public interface CodeStorageStrategy {
 
-  Optional<StoredCode> getFlatStoredCode(
+  Optional<Code> getFlatCode(
       final Hash codeHash, final Hash accountHash, final SegmentedKeyValueStorage storage);
-
-  default Optional<Bytes> getFlatCode(
-      final Hash codeHash, final Hash accountHash, final SegmentedKeyValueStorage storage) {
-    return getFlatStoredCode(codeHash, accountHash, storage).map(StoredCode::code);
-  }
 
   void putFlatCode(
       final SegmentedKeyValueStorage storage,

@@ -20,7 +20,7 @@ import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.Bonsai
 
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.AccountHashCodeStorageStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.CodeHashCodeStorageStrategy;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.CodeStorageFormat;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.CodeStorageMigration;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.CodeStorageStrategy;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
@@ -98,7 +98,7 @@ public abstract class FlatDbStrategyProvider {
   private Optional<Boolean> detectCodeStorageByHash(
       final SegmentedKeyValueStorage composedWorldStateStorage) {
     return composedWorldStateStorage.stream(CODE_STORAGE)
-        .filter(keypair -> !CodeStorageFormat.isReservedKey(keypair.getKey()))
+        .filter(keypair -> !CodeStorageMigration.isReservedKey(keypair.getKey()))
         .findFirst()
         .map(
             keypair ->

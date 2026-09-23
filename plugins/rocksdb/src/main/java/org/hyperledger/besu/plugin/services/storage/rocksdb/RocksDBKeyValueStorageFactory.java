@@ -15,11 +15,10 @@
 package org.hyperledger.besu.plugin.services.storage.rocksdb;
 
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.BONSAI_ARCHIVE_WITH_CODE_FORMAT;
-import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.BONSAI_ARCHIVE_WITH_RECEIPT_COMPACTION;
-import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.BONSAI_ARCHIVE_WITH_VARIABLES;
+import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.BONSAI_ORIGINAL;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.BONSAI_WITH_CODE_FORMAT;
-import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.BONSAI_WITH_RECEIPT_COMPACTION;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.BONSAI_WITH_VARIABLES;
+import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.FOREST_ORIGINAL;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.FOREST_WITH_RECEIPT_COMPACTION;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.FOREST_WITH_VARIABLES;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.BLOB_BLOCKCHAIN_GARBAGE_COLLECTION_ENABLED;
@@ -355,17 +354,12 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
     // reflect the change to the runtime version, and return it.
 
     // Besu supports both formats of receipts, and the world state storage migrates the code column
-    // family itself when it is opened, so no upgrade is needed other than updating metadata
+    // family itself when it is opened, so every version past the original one only needs its
+    // metadata updated
     final VersionedStorageFormat existingVersionedStorageFormat =
         existingMetadata.getVersionedStorageFormat();
-    if ((existingVersionedStorageFormat == FOREST_WITH_VARIABLES
-            && runtimeVersion == FOREST_WITH_RECEIPT_COMPACTION)
-        || ((existingVersionedStorageFormat == BONSAI_WITH_VARIABLES
-                || existingVersionedStorageFormat == BONSAI_WITH_RECEIPT_COMPACTION)
-            && runtimeVersion == BONSAI_WITH_CODE_FORMAT)
-        || ((existingVersionedStorageFormat == BONSAI_ARCHIVE_WITH_VARIABLES
-                || existingVersionedStorageFormat == BONSAI_ARCHIVE_WITH_RECEIPT_COMPACTION)
-            && runtimeVersion == BONSAI_ARCHIVE_WITH_CODE_FORMAT)) {
+    if (existingVersionedStorageFormat != FOREST_ORIGINAL
+        && existingVersionedStorageFormat != BONSAI_ORIGINAL) {
       final DatabaseMetadata metadata = new DatabaseMetadata(runtimeVersion);
       try {
         metadata.writeToDirectory(dataDir);

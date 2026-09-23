@@ -26,7 +26,6 @@ import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.StoredCode;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.evm.Code;
@@ -75,10 +74,10 @@ class StoredJumpDestAnalysisTest {
 
   @Test
   void persistedCodeIsStoredWithItsAnalysis() {
-    final StoredCode stored = storage.getStoredCode(Hash.hash(CODE), CONTRACT.addressHash()).get();
+    final Code stored = storage.getStoredCode(Hash.hash(CODE), CONTRACT.addressHash()).get();
 
-    assertThat(stored.code()).isEqualTo(CODE);
-    assertThat(stored.jumpDestBitMask()).isEqualTo(Code.jumpDestBitMaskOf(CODE));
+    assertThat(stored.getBytes()).isEqualTo(CODE);
+    assertThat(stored.getJumpDestBitMask()).isEqualTo(Code.jumpDestBitMaskOf(CODE));
   }
 
   @Test
@@ -107,9 +106,9 @@ class StoredJumpDestAnalysisTest {
     final Bytes code = Bytes.fromHexString("0x5b5b60ff5b");
     storage.updater().putCode(Hash.EMPTY, Hash.hash(code), code).commit();
 
-    final StoredCode stored = storage.getStoredCode(Hash.hash(code), Hash.EMPTY).get();
+    final Code stored = storage.getStoredCode(Hash.hash(code), Hash.EMPTY).get();
 
-    assertThat(stored.code()).isEqualTo(code);
-    assertThat(stored.jumpDestBitMask()).containsExactly(0b10011L);
+    assertThat(stored.getBytes()).isEqualTo(code);
+    assertThat(stored.getJumpDestBitMask()).containsExactly(0b10011L);
   }
 }

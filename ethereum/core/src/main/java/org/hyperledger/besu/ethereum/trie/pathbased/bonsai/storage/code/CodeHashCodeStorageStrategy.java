@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.CODE_STORAGE;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 
@@ -27,11 +28,11 @@ import org.apache.tuweni.bytes.Bytes;
 public class CodeHashCodeStorageStrategy implements CodeStorageStrategy {
 
   @Override
-  public Optional<StoredCode> getFlatStoredCode(
+  public Optional<Code> getFlatCode(
       final Hash codeHash, final Hash accountHash, final SegmentedKeyValueStorage storage) {
     return storage
         .get(CODE_STORAGE, codeHash.getBytes().toArrayUnsafe())
-        .map(CodeStorageFormat::decode);
+        .map(value -> CodeStorageFormat.of(value).decode(value, codeHash));
   }
 
   @Override
@@ -42,7 +43,7 @@ public class CodeHashCodeStorageStrategy implements CodeStorageStrategy {
       final Hash codeHash,
       final Bytes code) {
     transaction.put(
-        CODE_STORAGE, codeHash.getBytes().toArrayUnsafe(), CodeStorageFormat.encode(code));
+        CODE_STORAGE, codeHash.getBytes().toArrayUnsafe(), CodeStorageFormat.CURRENT.encode(code));
   }
 
   @Override
@@ -53,7 +54,7 @@ public class CodeHashCodeStorageStrategy implements CodeStorageStrategy {
       final Hash codeHash) {}
 
   public static boolean isCodeHashValue(final byte[] key, final byte[] value) {
-    final Hash valueHash = Hash.hash(CodeStorageFormat.decode(value).code());
+    final Hash valueHash = CodeStorageFormat.of(value).decode(value, null).getCodeHash();
     return Bytes.wrap(key).equals(valueHash.getBytes());
   }
 }

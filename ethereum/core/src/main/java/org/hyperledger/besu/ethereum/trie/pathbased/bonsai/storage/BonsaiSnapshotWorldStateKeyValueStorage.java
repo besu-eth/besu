@@ -16,7 +16,7 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.StoredCode;
+import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SnappableKeyValueStorage;
@@ -89,7 +89,7 @@ public class BonsaiSnapshotWorldStateKeyValueStorage extends BonsaiWorldStateKey
   }
 
   @Override
-  public Optional<StoredCode> getStoredCode(final Hash codeHash, final Hash accountHash) {
+  public Optional<Code> getStoredCode(final Hash codeHash, final Hash accountHash) {
     return isClosedGet() ? Optional.empty() : super.getStoredCode(codeHash, accountHash);
   }
 
