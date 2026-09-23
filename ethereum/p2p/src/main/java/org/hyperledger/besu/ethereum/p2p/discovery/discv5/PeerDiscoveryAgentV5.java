@@ -67,8 +67,8 @@ import org.slf4j.LoggerFactory;
  * <p>Discovery cadence:
  *
  * <ul>
+ *   <li>Steady (configurable, default 30 seconds) once the minimum peer ratio is reached
  *   <li>Fast (configurable, default 1 second) while the node is under-connected
- *   <li>Slow (configurable, default 30 seconds) once the minimum peer ratio is reached
  * </ul>
  *
  * <p>Discovered peers are filtered for readiness, fork compatibility, and reachability before
@@ -118,10 +118,11 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
   private final AtomicBoolean discoveryInProgress = new AtomicBoolean(false);
 
   // Cadence state; accessed only from the single-threaded discovery scheduler and advanced only
-  // when a discovery round actually starts, so a skipped attempt does not consume a slow interval.
+  // when a discovery round actually starts, so a skipped attempt does not consume a steady
+  // interval.
   private boolean everSearched = false;
   private long lastDiscoveryRoundNanos = 0L;
-  private boolean slowCadenceActive = false;
+  private boolean saturatedCadenceActive = false;
 
   /**
    * Creates a new DiscV5 peer discovery agent.
@@ -224,7 +225,7 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
                   scheduler.scheduleAtFixedRate(
                       this::discoveryTick,
                       0,
-                      discoveryConfig.getDiscV5DiscoveryIntervalSeconds(),
+                      discoveryConfig.getDiscV5FastDiscoveryIntervalSeconds(),
                       TimeUnit.SECONDS);
                 }
               } catch (final RejectedExecutionException e) {
@@ -438,7 +439,7 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
 
   /**
    * Returns {@code true} if the RLPx agent has reached a sufficient number of connected peers. A
-   * {@code true} result throttles discovery to the slow cadence rather than stopping it.
+   * {@code true} result throttles discovery to the steady cadence rather than stopping it.
    *
    * @param connectionCount the sampled number of active RLPx connections
    */
@@ -448,7 +449,7 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
 
   /**
    * Periodic discovery task. Runs a discovery round on every tick while the node is
-   * under-connected, and at most once per slow interval once the peer count has reached the
+   * under-connected, and at most once per steady interval once the peer count has reached the
    * configured minimum ratio.
    */
   private void discoveryTick() {
@@ -457,15 +458,15 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
     }
     final int connectionCount = rlpxAgent.getConnectionCount();
     final boolean saturated = hasSufficientPeers(connectionCount);
-    if (saturated != slowCadenceActive) {
-      slowCadenceActive = saturated;
+    if (saturated != saturatedCadenceActive) {
+      saturatedCadenceActive = saturated;
       if (LOG.isDebugEnabled()) {
         LOG.debug(
             "DiscV5 discovery switching to {} cadence ({}s): {} connected peers, threshold {}",
-            saturated ? "slow" : "fast",
+            saturated ? "steady" : "fast",
             saturated
-                ? discoveryConfig.getDiscV5SlowDiscoveryIntervalSeconds()
-                : discoveryConfig.getDiscV5DiscoveryIntervalSeconds(),
+                ? discoveryConfig.getDiscV5DiscoveryIntervalSeconds()
+                : discoveryConfig.getDiscV5FastDiscoveryIntervalSeconds(),
             connectionCount,
             rlpxAgent.getMaxPeers() * discoveryConfig.getDiscV5MinimumPeerRatio());
       }
@@ -473,7 +474,7 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
     if (saturated
         && everSearched
         && System.nanoTime() - lastDiscoveryRoundNanos
-            < TimeUnit.SECONDS.toNanos(discoveryConfig.getDiscV5SlowDiscoveryIntervalSeconds())) {
+            < TimeUnit.SECONDS.toNanos(discoveryConfig.getDiscV5DiscoveryIntervalSeconds())) {
       return;
     }
     if (startDiscoveryRound()) {

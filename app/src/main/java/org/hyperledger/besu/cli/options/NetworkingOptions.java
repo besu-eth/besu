@@ -41,9 +41,9 @@ public class NetworkingOptions implements CLIOptions<NetworkingConfiguration> {
 
   private static final String DISCV5_DISCOVERY_INTERVAL_SECONDS =
       "--Xv5-discovery-interval-seconds";
+  private static final String DISCV5_FAST_DISCOVERY_INTERVAL_SECONDS =
+      "--Xv5-fast-discovery-interval-seconds";
   private static final String DISCV5_DISCOVERY_TIMEOUT_SECONDS = "--Xv5-discovery-timeout-seconds";
-  private static final String DISCV5_SLOW_DISCOVERY_INTERVAL_SECONDS =
-      "--Xv5-slow-discovery-interval-seconds";
   private static final String DISCV5_MINIMUM_PEER_RATIO = "--Xv5-minimum-peer-ratio";
 
   @CommandLine.Option(
@@ -92,9 +92,19 @@ public class NetworkingOptions implements CLIOptions<NetworkingConfiguration> {
       names = DISCV5_DISCOVERY_INTERVAL_SECONDS,
       hidden = true,
       paramLabel = "<INTEGER>",
-      description = "The interval (in seconds) between DiscV5 peer discovery cycles (default: 1)",
+      description =
+          "The interval (in seconds) between DiscV5 peer discovery cycles once the peer count reaches the minimum peer ratio (default: 30)",
       converter = DurationSecondsConverter.class)
-  private Duration discV5DiscoveryIntervalSeconds = Duration.ofSeconds(1);
+  private Duration discV5DiscoveryIntervalSeconds = Duration.ofSeconds(30);
+
+  @CommandLine.Option(
+      names = DISCV5_FAST_DISCOVERY_INTERVAL_SECONDS,
+      hidden = true,
+      paramLabel = "<INTEGER>",
+      description =
+          "The interval (in seconds) between DiscV5 peer discovery cycles while the peer count is below the minimum peer ratio (default: 1)",
+      converter = DurationSecondsConverter.class)
+  private Duration discV5FastDiscoveryIntervalSeconds = Duration.ofSeconds(1);
 
   @CommandLine.Option(
       names = DISCV5_DISCOVERY_TIMEOUT_SECONDS,
@@ -106,20 +116,11 @@ public class NetworkingOptions implements CLIOptions<NetworkingConfiguration> {
   private Duration discV5DiscoveryTimeoutSeconds = Duration.ofSeconds(60);
 
   @CommandLine.Option(
-      names = DISCV5_SLOW_DISCOVERY_INTERVAL_SECONDS,
-      hidden = true,
-      paramLabel = "<INTEGER>",
-      description =
-          "The interval (in seconds) between DiscV5 peer discovery cycles once the peer count reaches the minimum peer ratio (default: 30)",
-      converter = DurationSecondsConverter.class)
-  private Duration discV5SlowDiscoveryIntervalSeconds = Duration.ofSeconds(30);
-
-  @CommandLine.Option(
       names = DISCV5_MINIMUM_PEER_RATIO,
       hidden = true,
       paramLabel = "<DOUBLE>",
       description =
-          "Minimum ratio of connected peers to max peers required to switch to slow DiscV5 discovery cadence (default: 0.8)")
+          "Minimum ratio of connected peers to max peers required to switch to the steady DiscV5 discovery cadence (default: 0.8)")
   private double discV5MinimumPeerRatio = 0.8;
 
   private NetworkingOptions() {}
@@ -160,10 +161,14 @@ public class NetworkingOptions implements CLIOptions<NetworkingConfiguration> {
       throw new CommandLine.ParameterException(
           commandLine, DISCV5_MINIMUM_PEER_RATIO + " must be greater than 0 and at most 1");
     }
-    if (discV5SlowDiscoveryIntervalSeconds.isZero()
-        || discV5SlowDiscoveryIntervalSeconds.isNegative()) {
+    if (discV5DiscoveryIntervalSeconds.isZero() || discV5DiscoveryIntervalSeconds.isNegative()) {
       throw new CommandLine.ParameterException(
-          commandLine, DISCV5_SLOW_DISCOVERY_INTERVAL_SECONDS + " must be greater than 0");
+          commandLine, DISCV5_DISCOVERY_INTERVAL_SECONDS + " must be greater than 0");
+    }
+    if (discV5FastDiscoveryIntervalSeconds.isZero()
+        || discV5FastDiscoveryIntervalSeconds.isNegative()) {
+      throw new CommandLine.ParameterException(
+          commandLine, DISCV5_FAST_DISCOVERY_INTERVAL_SECONDS + " must be greater than 0");
     }
   }
 
@@ -172,9 +177,9 @@ public class NetworkingOptions implements CLIOptions<NetworkingConfiguration> {
     final var discovery = DiscoveryConfiguration.create();
     discovery.setFilterOnEnrForkId(filterOnEnrForkId);
     discovery.setDiscV5DiscoveryIntervalSeconds((int) discV5DiscoveryIntervalSeconds.toSeconds());
+    discovery.setDiscV5FastDiscoveryIntervalSeconds(
+        (int) discV5FastDiscoveryIntervalSeconds.toSeconds());
     discovery.setDiscV5DiscoveryTimeoutSeconds((int) discV5DiscoveryTimeoutSeconds.toSeconds());
-    discovery.setDiscV5SlowDiscoveryIntervalSeconds(
-        (int) discV5SlowDiscoveryIntervalSeconds.toSeconds());
     discovery.setDiscV5MinimumPeerRatio(discV5MinimumPeerRatio);
 
     return ImmutableNetworkingConfiguration.builder()

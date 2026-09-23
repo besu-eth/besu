@@ -180,23 +180,45 @@ public class NetworkingOptionsTest
   }
 
   @Test
-  public void discV5SlowDiscoveryIntervalSecondsFlag_isSet() {
-    final TestBesuCommand cmd = parseCommand("--Xv5-slow-discovery-interval-seconds", "45");
+  public void discV5DiscoveryIntervalSecondsFlag_isSet() {
+    final TestBesuCommand cmd = parseCommand("--Xv5-discovery-interval-seconds", "45");
 
     final NetworkingOptions options = cmd.getNetworkingOptions();
     final NetworkingConfiguration networkingConfig = options.toDomainObject();
-    assertThat(networkingConfig.discoveryConfiguration().getDiscV5SlowDiscoveryIntervalSeconds())
+    assertThat(networkingConfig.discoveryConfiguration().getDiscV5DiscoveryIntervalSeconds())
         .isEqualTo(45);
   }
 
   @Test
-  public void discV5SlowDiscoveryIntervalSecondsFlag_isNotSet() {
+  public void discV5DiscoveryIntervalSecondsFlag_isNotSet() {
     final TestBesuCommand cmd = parseCommand();
 
     final NetworkingOptions options = cmd.getNetworkingOptions();
     final NetworkingConfiguration networkingConfig = options.toDomainObject();
-    assertThat(networkingConfig.discoveryConfiguration().getDiscV5SlowDiscoveryIntervalSeconds())
+    assertThat(networkingConfig.discoveryConfiguration().getDiscV5DiscoveryIntervalSeconds())
         .isEqualTo(30);
+  }
+
+  @Test
+  public void discV5FastDiscoveryIntervalSecondsFlag_isSet() {
+    final TestBesuCommand cmd = parseCommand("--Xv5-fast-discovery-interval-seconds", "7");
+
+    final NetworkingOptions options = cmd.getNetworkingOptions();
+    final NetworkingConfiguration networkingConfig = options.toDomainObject();
+    assertThat(networkingConfig.discoveryConfiguration().getDiscV5FastDiscoveryIntervalSeconds())
+        .isEqualTo(7);
+    assertThat(networkingConfig.discoveryConfiguration().getDiscV5DiscoveryIntervalSeconds())
+        .isEqualTo(30);
+  }
+
+  @Test
+  public void discV5FastDiscoveryIntervalSecondsFlag_isNotSet() {
+    final TestBesuCommand cmd = parseCommand();
+
+    final NetworkingOptions options = cmd.getNetworkingOptions();
+    final NetworkingConfiguration networkingConfig = options.toDomainObject();
+    assertThat(networkingConfig.discoveryConfiguration().getDiscV5FastDiscoveryIntervalSeconds())
+        .isEqualTo(1);
   }
 
   @Test
@@ -208,10 +230,18 @@ public class NetworkingOptionsTest
   }
 
   @Test
-  public void discV5SlowDiscoveryIntervalSecondsOfZeroIsRejected() {
+  public void discV5DiscoveryIntervalSecondsOfZeroIsRejected() {
     internalTestFailure(
-        "--Xv5-slow-discovery-interval-seconds must be greater than 0",
-        "--Xv5-slow-discovery-interval-seconds",
+        "--Xv5-discovery-interval-seconds must be greater than 0",
+        "--Xv5-discovery-interval-seconds",
+        "0");
+  }
+
+  @Test
+  public void discV5FastDiscoveryIntervalSecondsOfZeroIsRejected() {
+    internalTestFailure(
+        "--Xv5-fast-discovery-interval-seconds must be greater than 0",
+        "--Xv5-fast-discovery-interval-seconds",
         "0");
   }
 

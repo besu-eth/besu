@@ -42,9 +42,9 @@ public class DiscoveryConfiguration {
   private int bindPortIpv6 = EnodeURLImpl.DEFAULT_LISTENING_PORT_IPV6;
   private Optional<String> advertisedHostIpv6 = Optional.empty();
   private boolean preferIpv6Outbound = false;
-  private int discV5DiscoveryIntervalSeconds = 1;
+  private int discV5DiscoveryIntervalSeconds = 30;
+  private int discV5FastDiscoveryIntervalSeconds = 1;
   private int discV5DiscoveryTimeoutSeconds = 60;
-  private int discV5SlowDiscoveryIntervalSeconds = 30;
   private double discV5MinimumPeerRatio = 0.8;
   private DiscoveryMode discoveryMode = DiscoveryMode.getDefault();
 
@@ -220,6 +220,16 @@ public class DiscoveryConfiguration {
     return this;
   }
 
+  public int getDiscV5FastDiscoveryIntervalSeconds() {
+    return discV5FastDiscoveryIntervalSeconds;
+  }
+
+  public DiscoveryConfiguration setDiscV5FastDiscoveryIntervalSeconds(
+      final int discV5FastDiscoveryIntervalSeconds) {
+    this.discV5FastDiscoveryIntervalSeconds = discV5FastDiscoveryIntervalSeconds;
+    return this;
+  }
+
   public int getDiscV5DiscoveryTimeoutSeconds() {
     return discV5DiscoveryTimeoutSeconds;
   }
@@ -227,16 +237,6 @@ public class DiscoveryConfiguration {
   public DiscoveryConfiguration setDiscV5DiscoveryTimeoutSeconds(
       final int discV5DiscoveryTimeoutSeconds) {
     this.discV5DiscoveryTimeoutSeconds = discV5DiscoveryTimeoutSeconds;
-    return this;
-  }
-
-  public int getDiscV5SlowDiscoveryIntervalSeconds() {
-    return discV5SlowDiscoveryIntervalSeconds;
-  }
-
-  public DiscoveryConfiguration setDiscV5SlowDiscoveryIntervalSeconds(
-      final int discV5SlowDiscoveryIntervalSeconds) {
-    this.discV5SlowDiscoveryIntervalSeconds = discV5SlowDiscoveryIntervalSeconds;
     return this;
   }
 
