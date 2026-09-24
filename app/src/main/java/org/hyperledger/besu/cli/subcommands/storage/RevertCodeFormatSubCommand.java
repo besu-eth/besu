@@ -57,8 +57,8 @@ public class RevertCodeFormatSubCommand implements Runnable {
   @Override
   public void run() {
     checkNotNull(parentCommand);
-    // opening the database migrates the code storage, so an interrupted revert is finished and
-    // redone rather than left half way
+    // opening the database migrates a code storage that is not in the current format, so a
+    // reverted one is migrated first and then reverted again
     try (final BesuController controller = parentCommand.besuCommand.buildController()) {
       CodeStorageMigration.revert(
           controller.getStorageProvider().getStorageBySegmentIdentifiers(List.of(CODE_STORAGE)));

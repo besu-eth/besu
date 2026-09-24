@@ -23,16 +23,16 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
 
-import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.tuweni.bytes.Bytes;
-import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.Test;
 
 class CodeStorageMigrationTest {
 
   private static final Bytes CODE = Bytes.fromHexString("0x605b5b615b5b5b");
+  private static final List<Bytes> CODES =
+      List.of(CODE, Bytes.of(0x5b), Bytes.fromHexString("0x60005b"));
 
   @Test
   void marksAnEmptyColumnFamilyWithoutRewritingAnything() {
@@ -41,140 +41,61 @@ class CodeStorageMigrationTest {
     CodeStorageMigration.migrate(storage);
 
     assertThat(storage.get(CODE_STORAGE, CodeStorageMigration.FORMAT_KEY)).isPresent();
-    assertThat(storage.get(CODE_STORAGE, CodeStorageMigration.MIGRATION_KEY)).isEmpty();
+    assertThat(storage.stream(CODE_STORAGE).count()).isEqualTo(1);
   }
 
   @Test
   void migratesLegacyEntriesOnce() {
     final SegmentedKeyValueStorage storage = storage();
-    final List<Bytes> codes = List.of(CODE, Bytes.of(0x5b), Bytes.fromHexString("0x60005b"));
-    final SegmentedKeyValueStorageTransaction setup = storage.startTransaction();
-    for (final Bytes code : codes) {
-      setup.put(CODE_STORAGE, Hash.hash(code).getBytes().toArrayUnsafe(), code.toArrayUnsafe());
-    }
-    setup.commit();
+    putBare(storage, CODES);
 
     CodeStorageMigration.migrate(storage);
-    assertMigrated(storage, codes);
+    assertMigrated(storage, CODES);
 
     // a second run finds the marker and leaves the entries alone
     CodeStorageMigration.migrate(storage);
-    assertMigrated(storage, codes);
-  }
-
-  @Test
-  void resumesAnInterruptedMigrationAfterTheLastMigratedKey() {
-    final SegmentedKeyValueStorage storage = storage();
-    final List<Bytes> codes = List.of(CODE, Bytes.of(0x5b), Bytes.fromHexString("0x60005b"));
-    final List<byte[]> keys =
-        codes.stream()
-            .<byte[]>map(code -> Hash.hash(code).getBytes().toArrayUnsafe())
-            .sorted((a, b) -> Bytes.wrap(a).compareTo(Bytes.wrap(b)))
-            .toList();
-    // the first two keys were rewritten and committed before the interruption
-    final SegmentedKeyValueStorageTransaction setup = storage.startTransaction();
-    for (int i = 0; i < keys.size(); i++) {
-      final Bytes code = codeFor(codes, keys.get(i));
-      setup.put(
-          CODE_STORAGE,
-          keys.get(i),
-          i < 2 ? CodeStorageFormat.CURRENT.encode(code) : code.toArrayUnsafe());
-    }
-    setup.put(CODE_STORAGE, CodeStorageMigration.MIGRATION_KEY, keys.get(1));
-    setup.commit();
-
-    CodeStorageMigration.migrate(storage);
-
-    assertMigrated(storage, codes);
-  }
-
-  @Test
-  void migratesManyBatchesInKeyOrder() {
-    final SegmentedKeyValueStorage storage = storage();
-    final List<Bytes> codes = new ArrayList<>();
-    final SegmentedKeyValueStorageTransaction setup = storage.startTransaction();
-    for (int i = 0; i < 200; i++) {
-      // each code differs, and the analysis has something to find
-      final Bytes code = Bytes.concatenate(Bytes.of(0x5b, 0x61, 0x5b), Bytes.ofUnsignedShort(i));
-      codes.add(code);
-      setup.put(CODE_STORAGE, Hash.hash(code).getBytes().toArrayUnsafe(), code.toArrayUnsafe());
-    }
-    setup.commit();
-
-    // batches of a single entry, so every batch commits its own resume marker
-    CodeStorageMigration.migrate(storage, 1);
-
-    assertMigrated(storage, codes);
+    assertMigrated(storage, CODES);
   }
 
   @Test
   void revertsMigratedEntriesToBareCode() {
     final SegmentedKeyValueStorage storage = storage();
-    final List<Bytes> codes = List.of(CODE, Bytes.of(0x5b), Bytes.fromHexString("0x60005b"));
-    putBare(storage, codes);
+    putBare(storage, CODES);
     CodeStorageMigration.migrate(storage);
 
     CodeStorageMigration.revert(storage);
+    assertBare(storage, CODES);
 
-    assertBare(storage, codes);
     // a second run has nothing to revert
     CodeStorageMigration.revert(storage);
-    assertBare(storage, codes);
+    assertBare(storage, CODES);
   }
 
   @Test
-  void revertsOnlyTheEntriesAnInterruptedMigrationEncoded() {
+  void migratesAgainAfterARevert() {
     final SegmentedKeyValueStorage storage = storage();
-    final List<Bytes> codes = List.of(CODE, Bytes.of(0x5b), Bytes.fromHexString("0x60005b"));
-    final List<byte[]> keys = sortedKeys(codes);
-    // the first two keys were rewritten and committed before the interruption
-    final SegmentedKeyValueStorageTransaction setup = storage.startTransaction();
-    for (int i = 0; i < keys.size(); i++) {
-      final Bytes code = codeFor(codes, keys.get(i));
-      setup.put(
-          CODE_STORAGE,
-          keys.get(i),
-          i < 2 ? CodeStorageFormat.CURRENT.encode(code) : code.toArrayUnsafe());
-    }
-    setup.put(CODE_STORAGE, CodeStorageMigration.MIGRATION_KEY, keys.get(1));
-    setup.commit();
-
+    putBare(storage, CODES);
+    CodeStorageMigration.migrate(storage);
     CodeStorageMigration.revert(storage);
-
-    assertBare(storage, codes);
-  }
-
-  @Test
-  void finishesAnInterruptedRevertBeforeMigrating() {
-    final SegmentedKeyValueStorage storage = storage();
-    final List<Bytes> codes = List.of(CODE, Bytes.of(0x5b), Bytes.fromHexString("0x60005b"));
-    final List<byte[]> keys = sortedKeys(codes);
-    // the first key was reverted and committed before the interruption
-    final SegmentedKeyValueStorageTransaction setup = storage.startTransaction();
-    for (int i = 0; i < keys.size(); i++) {
-      final Bytes code = codeFor(codes, keys.get(i));
-      setup.put(
-          CODE_STORAGE,
-          keys.get(i),
-          i < 1 ? code.toArrayUnsafe() : CodeStorageFormat.CURRENT.encode(code));
-    }
-    setup.put(
-        CODE_STORAGE,
-        CodeStorageMigration.FORMAT_KEY,
-        new byte[] {CodeStorageFormat.CURRENT.version});
-    setup.put(CODE_STORAGE, CodeStorageMigration.REVERT_KEY, keys.get(0));
-    setup.commit();
 
     CodeStorageMigration.migrate(storage);
 
-    assertMigrated(storage, codes);
-    assertThat(storage.get(CODE_STORAGE, CodeStorageMigration.REVERT_KEY)).isEmpty();
+    assertMigrated(storage, CODES);
+  }
+
+  @Test
+  void marksAClearedColumnFamilyAsCurrent() {
+    final SegmentedKeyValueStorage storage = storage();
+
+    CodeStorageMigration.markCurrent(storage);
+
+    assertThat(storage.get(CODE_STORAGE, CodeStorageMigration.FORMAT_KEY))
+        .contains(new byte[] {CodeStorageFormat.CURRENT.version});
   }
 
   @Test
   void reservedKeysAreNotCode() {
     assertThat(CodeStorageMigration.isReservedKey(CodeStorageMigration.FORMAT_KEY)).isTrue();
-    assertThat(CodeStorageMigration.isReservedKey(CodeStorageMigration.MIGRATION_KEY)).isTrue();
     assertThat(CodeStorageMigration.isReservedKey(Hash.hash(CODE).getBytes().toArrayUnsafe()))
         .isFalse();
   }
@@ -188,9 +109,9 @@ class CodeStorageMigrationTest {
       assertThat(stored.getBytes()).isEqualTo(code);
       assertThat(stored.getJumpDestBitMask()).isEqualTo(Code.jumpDestBitMaskOf(code));
     }
-    assertThat(storage.get(CODE_STORAGE, CodeStorageMigration.FORMAT_KEY)).isPresent();
-    assertThat(storage.get(CODE_STORAGE, CodeStorageMigration.MIGRATION_KEY)).isEmpty();
-    assertThat(storage.get(CODE_STORAGE, CodeStorageMigration.REVERT_KEY)).isEmpty();
+    assertThat(storage.get(CODE_STORAGE, CodeStorageMigration.FORMAT_KEY))
+        .contains(new byte[] {CodeStorageFormat.CURRENT.version});
+    assertThat(storage.stream(CODE_STORAGE).count()).isEqualTo(codes.size() + 1);
   }
 
   private static void putBare(final SegmentedKeyValueStorage storage, final List<Bytes> codes) {
@@ -207,22 +128,7 @@ class CodeStorageMigrationTest {
           .contains(code.toArrayUnsafe());
     }
     assertThat(storage.get(CODE_STORAGE, CodeStorageMigration.FORMAT_KEY)).isEmpty();
-    assertThat(storage.get(CODE_STORAGE, CodeStorageMigration.MIGRATION_KEY)).isEmpty();
-    assertThat(storage.get(CODE_STORAGE, CodeStorageMigration.REVERT_KEY)).isEmpty();
-  }
-
-  private static List<byte[]> sortedKeys(final List<Bytes> codes) {
-    return codes.stream()
-        .<byte[]>map(code -> Hash.hash(code).getBytes().toArrayUnsafe())
-        .sorted((a, b) -> Bytes.wrap(a).compareTo(Bytes.wrap(b)))
-        .toList();
-  }
-
-  private static Bytes codeFor(final List<Bytes> codes, final byte[] key) {
-    return codes.stream()
-        .filter(code -> Hash.hash(code).equals(Hash.wrap(Bytes32.wrap(key))))
-        .findFirst()
-        .orElseThrow();
+    assertThat(storage.stream(CODE_STORAGE).count()).isEqualTo(codes.size());
   }
 
   private static SegmentedKeyValueStorage storage() {
