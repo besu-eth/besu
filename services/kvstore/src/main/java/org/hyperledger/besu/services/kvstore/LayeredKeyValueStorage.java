@@ -91,17 +91,15 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
   public Optional<byte[]> get(final SegmentIdentifier segmentId, final byte[] key)
       throws StorageException {
     throwIfClosed();
-
-    final Lock lock = rwLock.readLock();
-    lock.lock();
-    try {
-      final Bytes wrapKey = Bytes.wrap(key);
-      final Optional<byte[]> foundKey =
-          hashValueStore.computeIfAbsent(segmentId, __ -> newSegmentMap()).get(wrapKey);
-      return foundKey == null ? parent.get(segmentId, key) : foundKey;
-    } finally {
-      lock.unlock();
+    final Bytes wrapKey = Bytes.wrap(key);
+    LayeredKeyValueStorage cur = this;
+    Optional<byte[]> found = cur.getLocal(segmentId, wrapKey);
+    while (found == null && cur.parent instanceof LayeredKeyValueStorage next) {
+      cur = next;
+      found = cur.getLocal(segmentId, wrapKey);
     }
+    if (found != null) return found;
+    return cur.parent.get(segmentId, key);
   }
 
   /**
@@ -119,23 +117,24 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
       final Bytes key,
       final Function<SegmentedKeyValueStorage, Optional<Bytes>> cacheGetFunction) {
     throwIfClosed();
+    LayeredKeyValueStorage cur = this;
+    Optional<byte[]> found = cur.getLocal(segmentId, key);
+    while (found == null && cur.parent instanceof LayeredKeyValueStorage next) {
+      cur = next;
+      found = cur.getLocal(segmentId, key);
+    }
+    if (found != null) return found.map(Bytes::wrap);
+    return cacheGetFunction != null
+        ? cacheGetFunction.apply(cur.parent)
+        : cur.parent.get(segmentId, key.toArrayUnsafe()).map(Bytes::wrap);
+  }
 
+  private Optional<byte[]> getLocal(final SegmentIdentifier segmentId, final Bytes key) {
     final Lock lock = rwLock.readLock();
     lock.lock();
     try {
-      final Optional<byte[]> foundKey =
-          hashValueStore.computeIfAbsent(segmentId, __ -> newSegmentMap()).get(key);
-
-      if (foundKey == null) {
-        if (parent instanceof LayeredKeyValueStorage layered) {
-          return layered.get(segmentId, key, cacheGetFunction);
-        }
-        if (cacheGetFunction != null) {
-          return cacheGetFunction.apply(parent);
-        }
-        return parent.get(segmentId, key.toArrayUnsafe()).map(Bytes::wrap);
-      }
-      return foundKey.map(Bytes::wrap);
+      final NavigableMap<Bytes, Optional<byte[]>> segment = hashValueStore.get(segmentId);
+      return segment == null ? null : segment.get(key);
     } finally {
       lock.unlock();
     }
@@ -216,12 +215,20 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
   @Override
   public Stream<Pair<byte[], byte[]>> stream(final SegmentIdentifier segmentId) {
     throwIfClosed();
+    return streamUnchecked(segmentId);
+  }
+
+  private Stream<Pair<byte[], byte[]>> streamUnchecked(final SegmentIdentifier segmentId) {
     var ourLayerState = hashValueStore.computeIfAbsent(segmentId, s -> newSegmentMap());
 
     PeekingIterator<Map.Entry<Bytes, Optional<byte[]>>> ourIterator =
         new PeekingIterator<>(ourLayerState.entrySet().stream().iterator());
+    Stream<Pair<byte[], byte[]>> parentStream =
+        parent instanceof LayeredKeyValueStorage layered
+            ? layered.streamUnchecked(segmentId)
+            : parent.stream(segmentId);
     PeekingIterator<Pair<byte[], byte[]>> parentIterator =
-        new PeekingIterator<>(parent.stream(segmentId).iterator());
+        new PeekingIterator<>(parentStream.iterator());
 
     return StreamSupport.stream(
             Spliterators.spliteratorUnknownSize(
@@ -294,7 +301,10 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
   @Override
   public Stream<byte[]> streamKeys(final SegmentIdentifier segmentId) {
     throwIfClosed();
+    return streamKeysUnchecked(segmentId);
+  }
 
+  private Stream<byte[]> streamKeysUnchecked(final SegmentIdentifier segmentId) {
     final Lock lock = rwLock.readLock();
     lock.lock();
     try {
@@ -304,13 +314,18 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
               .map(HashMap::new)
               .orElse(new HashMap<>());
 
+      Stream<byte[]> parentStream =
+          parent instanceof LayeredKeyValueStorage layered
+              ? layered.streamKeysUnchecked(segmentId)
+              : parent.streamKeys(segmentId);
+
       return Streams.concat(
           ourLayerState.entrySet().stream()
               .filter(entry -> entry.getValue().isPresent())
               .map(bytesEntry -> bytesEntry.getKey().toArrayUnsafe())
           // since we are layered, concat a parent stream filtered by our map entries:
           ,
-          parent.streamKeys(segmentId).filter(e -> !ourLayerState.containsKey(Bytes.of(e))));
+          parentStream.filter(e -> !ourLayerState.containsKey(Bytes.of(e))));
 
     } finally {
       lock.unlock();
@@ -366,13 +381,13 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
 
   @Override
   public boolean isClosed() {
-    if (closedCache) {
-      return true;
+    if (closedCache) return true;
+    SegmentedKeyValueStorage cur = parent;
+    while (cur instanceof LayeredKeyValueStorage layered) {
+      if (layered.closedCache) return closedCache = true;
+      cur = layered.parent;
     }
-    if (parent.isClosed()) {
-      closedCache = true;
-      return true;
-    }
+    if (cur.isClosed()) return closedCache = true;
     return false;
   }
 
