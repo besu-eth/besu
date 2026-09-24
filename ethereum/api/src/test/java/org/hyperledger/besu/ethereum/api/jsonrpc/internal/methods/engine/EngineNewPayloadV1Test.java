@@ -377,6 +377,27 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
   }
 
   @Test
+  public void shouldReturnSyncingWhenParentKnownButInitialSyncNotDone() {
+    // Parent is present so no backward sync is triggered, but initial sync is still in progress —
+    // block execution must be deferred to avoid reading incomplete world state.
+    BlockHeader mockHeader = createBlockHeader(getMinSupportedTimestamp());
+    when(blockchain.getBlockHeader(mockHeader.getParentHash()))
+        .thenReturn(Optional.of(mock(BlockHeader.class)));
+    when(mergeContext.isInitialSyncDone()).thenReturn(false);
+
+    var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList())));
+
+    PayloadStatusV1 res = fromSuccessResp(resp);
+    assertThat(res.getStatus()).isEqualTo(SYNCING);
+    assertThat(res.getLatestValidHash()).isEmpty();
+    assertThat(res.getError()).isNull();
+    verify(mergeCoordinator, never()).rememberBlock(any(), any());
+    verify(mergeCoordinator, never()).appendNewPayloadToSync(any());
+    verify(mergeContext, never()).fireNewPayloadEvent(any());
+    verify(engineCallListener, times(1)).executionEngineCalled();
+  }
+
+  @Test
   public void shouldNotAppendToBackwardSyncWhenInitialSyncNotDone() {
     BlockHeader mockHeader = createBlockHeader(getMinSupportedTimestamp());
     when(mergeContext.isInitialSyncDone()).thenReturn(false);
@@ -561,6 +582,7 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
     when(mergeCoordinator.getLatestValidAncestor(any(BlockHeader.class)))
         .thenReturn(Optional.of(mockHash));
     when(mergeCoordinator.rememberBlock(any(), any())).thenReturn(value);
+    when(mergeContext.isInitialSyncDone()).thenReturn(true);
     return mockHeader;
   }
 

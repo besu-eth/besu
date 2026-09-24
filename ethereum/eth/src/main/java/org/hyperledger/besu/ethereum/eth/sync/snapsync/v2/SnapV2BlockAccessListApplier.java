@@ -255,12 +255,19 @@ public class SnapV2BlockAccessListApplier {
 
     final Set<Hash> refetchedAccounts = new HashSet<>(plan.accountsToRefetch());
     refetchedAccounts.addAll(plan.slotsToRefetch().keySet());
+
+    final MerkleTrie<Bytes, Bytes> accountTrie = openAccountTrie();
+
     if (refetchedAccounts.isEmpty()) {
+      final WorldStateKeyValueStorage.Updater emptyUpdater = worldStateStorageCoordinator.updater();
+      final Bytes32 currentRoot = Bytes32.wrap(accountTrie.getRootHash());
+      applyForStrategy(
+          emptyUpdater, onBonsai -> {}, onForest -> onForest.putWorldStateRoot(currentRoot));
+      emptyUpdater.commit();
       return new ReorgRecoveryResult(Set.of(), Map.of());
     }
 
     final WorldStateKeyValueStorage.Updater updater = worldStateStorageCoordinator.updater();
-    final MerkleTrie<Bytes, Bytes> accountTrie = openAccountTrie();
 
     final Set<Hash> deletedAccounts = new HashSet<>();
     final Map<Hash, Bytes32> correctedRoots = new HashMap<>();
@@ -294,6 +301,7 @@ public class SnapV2BlockAccessListApplier {
           fetchedSlots,
           canonicalAccount,
           accountRangeTracker,
+          accountTrie,
           updater);
     }
 
@@ -314,6 +322,8 @@ public class SnapV2BlockAccessListApplier {
       correctedRoots.put(accountHash, Bytes32.wrap(canonicalAccount.getStorageRoot().getBytes()));
     }
 
+    final Bytes32 finalRoot = Bytes32.wrap(accountTrie.getRootHash());
+    applyForStrategy(updater, onBonsai -> {}, onForest -> onForest.putWorldStateRoot(finalRoot));
     stageAccountTrieChanges(accountTrie, updater);
     updater.commit();
 
@@ -351,9 +361,10 @@ public class SnapV2BlockAccessListApplier {
       final Map<Hash, Optional<UInt256>> fetchedSlots,
       final PmtStateTrieAccountValue canonicalAccount,
       final DownloadedAccountRangeTracker accountRangeTracker,
+      final MerkleTrie<Bytes, Bytes> accountTrie,
       final WorldStateKeyValueStorage.Updater updater) {
 
-    final PmtStateTrieAccountValue localAccount = readFlatAccount(accountHash);
+    final PmtStateTrieAccountValue localAccount = readAccount(accountHash, accountTrie);
     if (localAccount == null) {
       throw new WorldStateDownloaderException(
           "snap/2 reorg correction: account " + accountHash + " not found locally");
@@ -365,7 +376,7 @@ public class SnapV2BlockAccessListApplier {
             applyForStrategy(
                 updater,
                 onBonsai -> onBonsai.putAccountStorageTrieNode(accountHash, location, hash, value),
-                onForest -> {});
+                onForest -> onForest.putAccountStorageTrieNode(hash, value));
 
     for (final Hash slotHash : divergedSlots) {
       final Optional<UInt256> fetchedValue = fetchedSlots.get(slotHash);
@@ -428,7 +439,9 @@ public class SnapV2BlockAccessListApplier {
               + " was not fetched");
     }
     applyForStrategy(
-        updater, onBonsai -> onBonsai.putCode(accountHash, codeHash, code), onForest -> {});
+        updater,
+        onBonsai -> onBonsai.putCode(accountHash, codeHash, code),
+        onForest -> onForest.putCode(Bytes32.wrap(codeHash.getBytes()), code));
   }
 
   private boolean hasCodeLocally(final Hash codeHash, final Hash accountHash) {
@@ -469,10 +482,13 @@ public class SnapV2BlockAccessListApplier {
         (location, hash) -> worldStateStorageCoordinator.getAccountStateTrieNode(location, hash);
 
     final Bytes32 rootHash =
-        worldStateStorageCoordinator
-            .getTrieNodeUnsafe(Bytes.EMPTY)
-            .map(node -> Bytes32.wrap(Hash.hash(node).getBytes()))
-            .orElse(MerkleTrie.EMPTY_TRIE_NODE_HASH);
+        worldStateStorageCoordinator.applyForStrategy(
+            bonsai ->
+                worldStateStorageCoordinator
+                    .getTrieNodeUnsafe(Bytes.EMPTY)
+                    .map(node -> Bytes32.wrap(Hash.hash(node).getBytes()))
+                    .orElse(MerkleTrie.EMPTY_TRIE_NODE_HASH),
+            forest -> forest.getWorldStateRoot().orElse(MerkleTrie.EMPTY_TRIE_NODE_HASH));
 
     return new StoredMerklePatriciaTrie<>(accountNodeLoader, rootHash, identity, identity);
   }
@@ -497,7 +513,7 @@ public class SnapV2BlockAccessListApplier {
       final Hash accountHash = entry.getKey();
       final PerAccountChanges perAccount = entry.getValue();
 
-      final PmtStateTrieAccountValue existingAccount = readFlatAccount(accountHash);
+      final PmtStateTrieAccountValue existingAccount = readAccount(accountHash, accountTrie);
 
       final long newNonce = computeNewNonce(perAccount, existingAccount);
       final Wei newBalance = computeNewBalance(perAccount, existingAccount);
@@ -550,15 +566,16 @@ public class SnapV2BlockAccessListApplier {
             applyForStrategy(
                 updater,
                 onBonsai -> onBonsai.putAccountStateTrieNode(location, hash, value),
-                onForest -> {});
+                onForest -> onForest.putAccountStateTrieNode(hash, value));
 
     accountTrie.commit(nodeUpdater);
   }
 
-  private PmtStateTrieAccountValue readFlatAccount(final Hash accountHash) {
-    return readAccountData(
-        worldStateStorageCoordinator.applyForStrategy(
-            bonsai -> bonsai.getAccount(accountHash), forest -> Optional.<Bytes>empty()));
+  private PmtStateTrieAccountValue readAccount(
+      final Hash accountHash, final MerkleTrie<Bytes, Bytes> accountTrie) {
+    return worldStateStorageCoordinator.applyForStrategy(
+        bonsai -> readAccountData(bonsai.getAccount(accountHash)),
+        forest -> readTrieAccount(accountTrie, accountHash));
   }
 
   private static PmtStateTrieAccountValue readTrieAccount(
@@ -601,7 +618,7 @@ public class SnapV2BlockAccessListApplier {
     applyForStrategy(
         updater,
         onBonsai -> onBonsai.putCode(accountHash, codeHash, perAccount.latestCode),
-        onForest -> {});
+        onForest -> onForest.putCode(Bytes32.wrap(codeHash.getBytes()), perAccount.latestCode));
     return codeHash;
   }
 
@@ -635,7 +652,7 @@ public class SnapV2BlockAccessListApplier {
             applyForStrategy(
                 updater,
                 onBonsai -> onBonsai.putAccountStorageTrieNode(accountHash, location, hash, value),
-                onForest -> {});
+                onForest -> onForest.putAccountStorageTrieNode(hash, value));
 
     int downloadedSlots = 0;
     for (final PerAccountChanges.StorageSlotUpdate update : perAccount.storageChanges.values()) {
@@ -742,8 +759,11 @@ public class SnapV2BlockAccessListApplier {
 
   record BatchState(
       MerkleTrie<Bytes, Bytes> accountTrie, WorldStateKeyValueStorage.Updater updater) {
+
     void commit() {
       stageAccountTrieChanges(accountTrie, updater);
+      final Bytes32 newRoot = Bytes32.wrap(accountTrie.getRootHash());
+      applyForStrategy(updater, onBonsai -> {}, onForest -> onForest.putWorldStateRoot(newRoot));
       updater.commit();
     }
   }
