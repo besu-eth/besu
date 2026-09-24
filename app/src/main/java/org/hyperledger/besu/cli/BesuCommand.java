@@ -82,6 +82,7 @@ import org.hyperledger.besu.cli.subcommands.ValidateConfigSubCommand;
 import org.hyperledger.besu.cli.subcommands.blocks.BlocksSubCommand;
 import org.hyperledger.besu.cli.subcommands.operator.OperatorSubCommand;
 import org.hyperledger.besu.cli.subcommands.rlp.RLPSubCommand;
+import org.hyperledger.besu.cli.subcommands.storage.CodeFormatDowngradeWarning;
 import org.hyperledger.besu.cli.subcommands.storage.StorageSubCommand;
 import org.hyperledger.besu.cli.util.BesuCommandCustomFactory;
 import org.hyperledger.besu.cli.util.BootnodeResolver;
@@ -181,6 +182,7 @@ import org.hyperledger.besu.plugin.services.health.ReadinessCheckPlugin;
 import org.hyperledger.besu.plugin.services.securitymodule.SecurityModule;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBPlugin;
+import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.VersionedStorageFormat;
 import org.hyperledger.besu.plugin.storage.StorageConfiguration;
 import org.hyperledger.besu.services.BesuConfigurationImpl;
 import org.hyperledger.besu.services.BesuPluginContextImpl;
@@ -706,6 +708,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   private DataStorageConfiguration dataStorageConfiguration;
   private Collection<EnodeURLImpl> staticNodes;
   private BesuController besuController;
+  private List<String> originalArguments = List.of();
   private BesuConfigurationImpl pluginCommonConfiguration;
 
   private Optional<Checkpoint> checkpoint = Optional.empty();
@@ -863,6 +866,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       throw new IllegalArgumentException("BesuComponent must be provided");
     }
     this.besuComponent = besuComponent;
+    this.originalArguments = List.of(args);
     initializeCommandLineSettings(in);
 
     // Create the execution strategy chain.
@@ -1097,7 +1101,11 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       configurePrecompileCaching();
     }
 
+    final Optional<VersionedStorageFormat> storageFormatBeforeStart =
+        CodeFormatDowngradeWarning.storageFormat(dataDir());
     besuController = buildController();
+    CodeFormatDowngradeWarning.after(dataDir(), storageFormatBeforeStart, originalArguments)
+        .ifPresent(logger::warn);
 
     besuPluginContext.beforeExternalServices();
 

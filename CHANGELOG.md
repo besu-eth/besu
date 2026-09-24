@@ -64,7 +64,7 @@
 - Schedule the Amsterdam fork on Sepolia at timestamp `1791294816` (Tue, 06 Oct 2026, 13:53:36 UTC). [#11333](https://github.com/besu-eth/besu/pull/11333)
 - Update `Bouncycastle` to 1.85 to address CVEs `CVE-2026-8763` and `CVE-2026-13506`. [#11336](https://github.com/besu-eth/besu/pull/11336)
 - The jump destination analysis of contract code is computed once, when the code is stored, instead of on every code cache miss. [#11327](https://github.com/besu-eth/besu/pull/11327)
-- New `besu storage revert-code-format` subcommand reverts the contract code storage and the database metadata, so that a database upgraded to the versioned code format can be opened by an older Besu version again. [#11327](https://github.com/besu-eth/besu/pull/11327)
+- New `besu storage revert-code-format` subcommand reverts the contract code storage and the database metadata, so that a database upgraded to the versioned code format can be opened by an older Besu version again; Besu logs the exact command to run after the upgrade. [#11327](https://github.com/besu-eth/besu/pull/11327)
 
 ## 26.8.1
 
