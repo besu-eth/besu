@@ -8,6 +8,7 @@
 
 - Chain data pruning now retains blocks and block access lists for the EIP-4444 history expiry window (`HISTORY_PRUNE_EPOCHS` = 14299 epochs) instead of the weak subjectivity period (3533 epochs), as required by EIP-7928. The default and minimum of `--Xchain-pruning-blocks-retained`, `--Xchain-pruning-bals-retained` and `--Xchain-pruning-retained-minimum` change from `113056` to `457568` blocks. [#11316](https://github.com/besu-eth/besu/issues/11316)
 - `trace_filter` now honours `blockHash` and traces exactly that block, as `eth_getLogs` does. Previously the member was parsed and ignored, so `{"blockHash": ...}` traced the latest block, and with `fromBlock` or `toBlock` the hash was dropped. A non-null `blockHash` combined with a non-null `fromBlock` or `toBlock` is now rejected with `Invalid filter params` (`-32602`). An unknown or noncanonical hash returns `Block not found` (`-32000`), a canonical block without a stored body, as after history pruning, returns `Pruned history unavailable` (`4444`), and a block that cannot be traced on its parent state returns `World state unavailable` (`-32000`), including with `count: 0`. A null `blockHash` is still ignored. [#11407](https://github.com/besu-eth/besu/pull/11407)
+- Bonsai databases are upgraded on first start to a versioned contract code format (Bonsai database version 4, archive version 3); the upgrade takes a few minutes on mainnet, after which the database cannot be opened by an older version of Besu. [#11327](https://github.com/besu-eth/besu/pull/11327)
 
 ### Upcoming Breaking Changes
 - Plugin API
@@ -52,6 +53,7 @@
 - Add `engine_newPayloadWithWitnessV5` whose VALID response also carries the EIP-8025 execution witness [#11181](https://github.com/besu-eth/besu/pull/11181)
 - Add `--include-bals` option to `besu blocks export`, writing a `<to>.bals` sidecar with BALs for each exported block. [#11042](https://github.com/besu-eth/besu/pull/11042)
 - `callTracer` now honours the `withLog` tracer option. Each call frame that emitted logs carries a `logs` array of `{address, topics, data, position, index}`, where `index` equals the receipt `logIndex` of the same log and `position` is the number of subcalls the frame had made when the log was emitted. Logs of reverted frames are omitted, as specified in [execution-apis#855](https://github.com/ethereum/execution-apis/pull/855). [#11342](https://github.com/besu-eth/besu/pull/11342)
+- The jump destination analysis of contract code is computed once, when the code is stored, instead of on every code cache miss. [#11327](https://github.com/besu-eth/besu/pull/11327)
 
 ## 26.9.0
 

@@ -186,6 +186,17 @@ public class Code {
   }
 
   /**
+   * Computes the jump destination bitmask of the given code without keeping a {@link Code} for it,
+   * so that it can be stored next to the code and set with {@link #setJumpDestBitMask} later.
+   *
+   * @param byteCode The byte representation of the code.
+   * @return the bitmask, one bit per code byte
+   */
+  public static long[] jumpDestBitMaskOf(final Bytes byteCode) {
+    return new Code(byteCode).calculateJumpDestBitMask();
+  }
+
+  /**
    * Computes a bitmask where each bit set to 1 indicates a valid `JUMPDEST` opcode in the EVM
    * bytecode. The bitmap is organized in 64-byte chunks, each represented as a `long` (64 bits).
    * This is used for efficiently validating dynamic jumps (`JUMP`, `JUMPI`) at runtime.

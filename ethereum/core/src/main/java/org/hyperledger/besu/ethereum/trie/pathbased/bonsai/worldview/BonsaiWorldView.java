@@ -20,6 +20,7 @@ import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.evm.worldstate.WorldView;
 
@@ -33,6 +34,9 @@ import org.apache.tuweni.units.bigints.UInt256;
 public interface BonsaiWorldView extends WorldView {
 
   Optional<Bytes> getCode(Address address, final Hash codeHash);
+
+  /** The code, with its jump destination analysis when it comes from storage. */
+  Optional<Code> getStoredCode(Address address, final Hash codeHash);
 
   UInt256 getStorageValue(Address address, UInt256 key);
 
