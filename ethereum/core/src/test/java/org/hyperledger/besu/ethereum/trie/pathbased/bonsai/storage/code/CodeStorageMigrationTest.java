@@ -23,6 +23,7 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -83,6 +84,25 @@ class CodeStorageMigrationTest {
     setup.commit();
 
     CodeStorageMigration.migrate(storage);
+
+    assertMigrated(storage, codes);
+  }
+
+  @Test
+  void migratesManyBatchesInKeyOrder() {
+    final SegmentedKeyValueStorage storage = storage();
+    final List<Bytes> codes = new ArrayList<>();
+    final SegmentedKeyValueStorageTransaction setup = storage.startTransaction();
+    for (int i = 0; i < 200; i++) {
+      // each code differs, and the analysis has something to find
+      final Bytes code = Bytes.concatenate(Bytes.of(0x5b, 0x61, 0x5b), Bytes.ofUnsignedShort(i));
+      codes.add(code);
+      setup.put(CODE_STORAGE, Hash.hash(code).getBytes().toArrayUnsafe(), code.toArrayUnsafe());
+    }
+    setup.commit();
+
+    // batches of a single entry, so every batch commits its own resume marker
+    CodeStorageMigration.migrate(storage, 1);
 
     assertMigrated(storage, codes);
   }

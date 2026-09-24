@@ -20,8 +20,16 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.stream.Stream;
 
 import org.apache.commons.lang3.tuple.Pair;
@@ -49,6 +57,8 @@ public final class CodeStorageMigration {
 
   private static final long BATCH_BYTES = 64L << 20;
 
+  private static final long REPORT_INTERVAL_MILLIS = 30_000;
+
   private CodeStorageMigration() {}
 
   public static boolean isReservedKey(final byte[] key) {
@@ -70,51 +80,126 @@ public final class CodeStorageMigration {
   /**
    * Rewrites every entry of a column family written before the format byte existed, unless that has
    * been done already. Runs before the storage is handed out, so nothing writes code concurrently.
-   * The progress is committed with every batch, so an interrupted migration carries on where it
-   * stopped instead of encoding entries twice.
+   * The entries are read in key order, encoded in parallel and committed in batches, with the last
+   * key of every batch recorded next to it, so an interrupted migration carries on where it stopped
+   * instead of encoding entries twice. The commit of one batch overlaps with the read and encoding
+   * of the next.
    */
   public static void migrate(final SegmentedKeyValueStorage storage) {
+    migrate(storage, BATCH_BYTES);
+  }
+
+  static void migrate(final SegmentedKeyValueStorage storage, final long batchBytes) {
     if (storage.get(CODE_STORAGE, FORMAT_KEY).isPresent()) {
       return;
     }
     final Optional<byte[]> lastMigrated = storage.get(CODE_STORAGE, MIGRATION_KEY);
-    final long start = System.currentTimeMillis();
-    long entries = 0;
-    long batchBytes = 0;
-    SegmentedKeyValueStorageTransaction transaction = storage.startTransaction();
+    final Progress progress = new Progress(lastMigrated.isPresent());
+    final ExecutorService committer = Executors.newSingleThreadExecutor();
+    Future<?> lastCommit = CompletableFuture.completedFuture(null);
     try (final Stream<Pair<byte[], byte[]>> stream =
         lastMigrated
             .map(key -> storage.streamFromKey(CODE_STORAGE, key))
             .orElseGet(() -> storage.stream(CODE_STORAGE))) {
-      for (final var iterator = stream.iterator(); iterator.hasNext(); ) {
-        final Pair<byte[], byte[]> entry = iterator.next();
-        final byte[] key = entry.getKey();
-        if (isReservedKey(key) || lastMigrated.map(k -> Arrays.equals(k, key)).orElse(false)) {
-          continue;
-        }
-        if (entries == 0) {
-          // In-memory and fresh databases have nothing to migrate and stay quiet
-          LOG.info(
-              "Migrating the code storage format, {}",
-              lastMigrated.isPresent() ? "resuming where it stopped" : "starting");
-        }
-        final byte[] value = CodeStorageFormat.CURRENT.encode(Bytes.wrap(entry.getValue()));
-        transaction.put(CODE_STORAGE, key, value);
-        transaction.put(CODE_STORAGE, MIGRATION_KEY, key);
-        entries++;
-        batchBytes += value.length;
-        if (batchBytes >= BATCH_BYTES) {
-          transaction.commit();
-          transaction = storage.startTransaction();
-          batchBytes = 0;
-        }
+      final Iterator<Pair<byte[], byte[]>> entries =
+          stream
+              .filter(
+                  entry ->
+                      !isReservedKey(entry.getKey())
+                          && lastMigrated.map(k -> !Arrays.equals(k, entry.getKey())).orElse(true))
+              .iterator();
+      while (entries.hasNext()) {
+        final List<Pair<byte[], byte[]>> batch = nextBatch(entries, batchBytes);
+        final List<byte[]> encoded =
+            batch.parallelStream()
+                .map(entry -> CodeStorageFormat.CURRENT.encode(Bytes.wrap(entry.getValue())))
+                .toList();
+        // the previous commit ran while this batch was read and encoded; a failure stops here
+        lastCommit.get();
+        lastCommit = committer.submit(() -> commit(storage, batch, encoded));
+        progress.advance(batch);
+      }
+      lastCommit.get();
+      final SegmentedKeyValueStorageTransaction transaction = storage.startTransaction();
+      markCurrent(transaction);
+      transaction.commit();
+    } catch (final InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException("Interrupted while migrating the code storage", e);
+    } catch (final ExecutionException e) {
+      throw new IllegalStateException("Failed to migrate the code storage", e.getCause());
+    } finally {
+      committer.shutdownNow();
+    }
+    progress.finish();
+  }
+
+  private static List<Pair<byte[], byte[]>> nextBatch(
+      final Iterator<Pair<byte[], byte[]>> entries, final long batchBytes) {
+    final List<Pair<byte[], byte[]>> batch = new ArrayList<>();
+    long bytes = 0;
+    while (entries.hasNext() && bytes < batchBytes) {
+      final Pair<byte[], byte[]> entry = entries.next();
+      batch.add(entry);
+      bytes += entry.getValue().length;
+    }
+    return batch;
+  }
+
+  private static void commit(
+      final SegmentedKeyValueStorage storage,
+      final List<Pair<byte[], byte[]>> batch,
+      final List<byte[]> encoded) {
+    final SegmentedKeyValueStorageTransaction transaction = storage.startTransaction();
+    for (int i = 0; i < batch.size(); i++) {
+      transaction.put(CODE_STORAGE, batch.get(i).getKey(), encoded.get(i));
+    }
+    transaction.put(CODE_STORAGE, MIGRATION_KEY, batch.getLast().getKey());
+    transaction.commit();
+  }
+
+  /** Reports on the migration at a steady pace, but not at all when there is nothing to do. */
+  private static final class Progress {
+    private final boolean resumed;
+    private final long start = System.currentTimeMillis();
+    private long lastReport = start;
+    private long entries = 0;
+    private long codeBytes = 0;
+
+    Progress(final boolean resumed) {
+      this.resumed = resumed;
+    }
+
+    void advance(final List<Pair<byte[], byte[]>> batch) {
+      if (entries == 0) {
+        LOG.info(
+            "Migrating the code storage format, {}",
+            resumed ? "resuming where it stopped" : "starting");
+      }
+      entries += batch.size();
+      for (final Pair<byte[], byte[]> entry : batch) {
+        codeBytes += entry.getValue().length;
+      }
+      final long now = System.currentTimeMillis();
+      if (now - lastReport >= REPORT_INTERVAL_MILLIS) {
+        lastReport = now;
+        LOG.info(
+            "Code storage migration: {} entries, {} MB of code in {} s ({} MB/s)",
+            entries,
+            codeBytes >> 20,
+            (now - start) / 1000,
+            String.format("%.1f", codeBytes / 1048576.0 / Math.max(1, (now - start) / 1000)));
       }
     }
-    markCurrent(transaction);
-    transaction.commit();
-    if (entries > 0) {
-      LOG.info(
-          "Migrated {} code entries in {} s", entries, (System.currentTimeMillis() - start) / 1000);
+
+    void finish() {
+      if (entries > 0) {
+        LOG.info(
+            "Migrated {} code entries, {} MB of code, in {} s",
+            entries,
+            codeBytes >> 20,
+            (System.currentTimeMillis() - start) / 1000);
+      }
     }
   }
 }
