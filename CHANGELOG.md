@@ -10,6 +10,7 @@
 - Removed the EIP-7610 storage collision check: contract creation no longer aborts when the destination address has non-empty storage but a zero nonce and no code, restoring the EIP-684 conditions for every fork. EIP-7610 was declined for inclusion in Glamsterdam (EIP-7773) and removed from the execution specs retroactively; no mainnet account is affected. `Account.isStorageEmpty()`, which existed only for this check, is removed from the `besu-evm` API. [#11175](https://github.com/besu-eth/besu/pull/11175)
 - Besu now exits on `OutOfMemoryError` (`-XX:+ExitOnOutOfMemoryError`). Use a restart policy, or set `JAVA_OPTS=-XX:-ExitOnOutOfMemoryError` to opt out. [#11300](https://github.com/besu-eth/besu/pull/11300)
 - The default discovery mode is now `BOTH`: nodes run DiscV4 and DiscV5 concurrently unless `--discovery-mode=V4` or `--discovery-mode=V5` selects a single protocol. [#11344](https://github.com/besu-eth/besu/pull/11344)
+- Bonsai databases are upgraded on first start to a versioned contract code format (Bonsai database version 4, archive version 3); the upgrade takes a few minutes on mainnet, after which the database cannot be opened by an older version of Besu. [#11327](https://github.com/besu-eth/besu/pull/11327)
 
 ### Upcoming Breaking Changes
 - Plugin API
@@ -62,6 +63,8 @@
 - Tune layered txpool for upcoming Amsterdam 200M gas limit [#11335](https://github.com/besu-eth/besu/pull/11335)
 - Schedule the Amsterdam fork on Sepolia at timestamp `1791294816` (Tue, 06 Oct 2026, 13:53:36 UTC). [#11333](https://github.com/besu-eth/besu/pull/11333)
 - Update `Bouncycastle` to 1.85 to address CVEs `CVE-2026-8763` and `CVE-2026-13506`. [#11336](https://github.com/besu-eth/besu/pull/11336)
+- The jump destination analysis of contract code is computed once, when the code is stored, instead of on every code cache miss. [#11327](https://github.com/besu-eth/besu/pull/11327)
+- New `besu storage revert-code-format` subcommand reverts the contract code storage and the database metadata, so that a database upgraded to the versioned code format can be opened by an older Besu version again; Besu logs the exact command to run after the upgrade. [#11327](https://github.com/besu-eth/besu/pull/11327)
 
 ## 26.8.1
 

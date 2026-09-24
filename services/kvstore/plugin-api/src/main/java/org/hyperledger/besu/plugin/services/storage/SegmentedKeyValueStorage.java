@@ -17,8 +17,10 @@ package org.hyperledger.besu.plugin.services.storage;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 
 import java.io.Closeable;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BiFunction;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 
@@ -185,6 +187,38 @@ public interface SegmentedKeyValueStorage extends Closeable {
    * @param segmentIdentifier the segment identifier
    */
   void clear(SegmentIdentifier segmentIdentifier);
+
+  /**
+   * Replaces the whole content of a segment. Every entry is handed to the function in key order and
+   * replaced by the value it returns, or dropped when that is null, and the given entries are added
+   * on top. The segment changes in one step: it holds either its previous content or all of the new
+   * one, also when the process stops half way, in which case the implementation finishes the step
+   * when the storage is opened again. Nothing else may write to the segment while the rewrite runs.
+   *
+   * @param segmentIdentifier the segment identifier
+   * @param transform maps the key and value of an entry to its new value, or to null to drop it
+   * @param additions entries put after the existing ones have been rewritten
+   */
+  default void rewrite(
+      final SegmentIdentifier segmentIdentifier,
+      final BiFunction<byte[], byte[], byte[]> transform,
+      final List<Pair<byte[], byte[]>> additions) {
+    final SegmentedKeyValueStorageTransaction transaction = startTransaction();
+    try (final Stream<Pair<byte[], byte[]>> entries = stream(segmentIdentifier)) {
+      entries.forEach(
+          entry -> {
+            final byte[] value = transform.apply(entry.getKey(), entry.getValue());
+            if (value == null) {
+              transaction.remove(segmentIdentifier, entry.getKey());
+            } else {
+              transaction.put(segmentIdentifier, entry.getKey(), value);
+            }
+          });
+    }
+    additions.forEach(
+        entry -> transaction.put(segmentIdentifier, entry.getKey(), entry.getValue()));
+    transaction.commit();
+  }
 
   /**
    * Whether the underlying storage is closed.
