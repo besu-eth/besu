@@ -108,6 +108,70 @@ class CodeStorageMigrationTest {
   }
 
   @Test
+  void revertsMigratedEntriesToBareCode() {
+    final SegmentedKeyValueStorage storage = storage();
+    final List<Bytes> codes = List.of(CODE, Bytes.of(0x5b), Bytes.fromHexString("0x60005b"));
+    putBare(storage, codes);
+    CodeStorageMigration.migrate(storage);
+
+    CodeStorageMigration.revert(storage);
+
+    assertBare(storage, codes);
+    // a second run has nothing to revert
+    CodeStorageMigration.revert(storage);
+    assertBare(storage, codes);
+  }
+
+  @Test
+  void revertsOnlyTheEntriesAnInterruptedMigrationEncoded() {
+    final SegmentedKeyValueStorage storage = storage();
+    final List<Bytes> codes = List.of(CODE, Bytes.of(0x5b), Bytes.fromHexString("0x60005b"));
+    final List<byte[]> keys = sortedKeys(codes);
+    // the first two keys were rewritten and committed before the interruption
+    final SegmentedKeyValueStorageTransaction setup = storage.startTransaction();
+    for (int i = 0; i < keys.size(); i++) {
+      final Bytes code = codeFor(codes, keys.get(i));
+      setup.put(
+          CODE_STORAGE,
+          keys.get(i),
+          i < 2 ? CodeStorageFormat.CURRENT.encode(code) : code.toArrayUnsafe());
+    }
+    setup.put(CODE_STORAGE, CodeStorageMigration.MIGRATION_KEY, keys.get(1));
+    setup.commit();
+
+    CodeStorageMigration.revert(storage);
+
+    assertBare(storage, codes);
+  }
+
+  @Test
+  void finishesAnInterruptedRevertBeforeMigrating() {
+    final SegmentedKeyValueStorage storage = storage();
+    final List<Bytes> codes = List.of(CODE, Bytes.of(0x5b), Bytes.fromHexString("0x60005b"));
+    final List<byte[]> keys = sortedKeys(codes);
+    // the first key was reverted and committed before the interruption
+    final SegmentedKeyValueStorageTransaction setup = storage.startTransaction();
+    for (int i = 0; i < keys.size(); i++) {
+      final Bytes code = codeFor(codes, keys.get(i));
+      setup.put(
+          CODE_STORAGE,
+          keys.get(i),
+          i < 1 ? code.toArrayUnsafe() : CodeStorageFormat.CURRENT.encode(code));
+    }
+    setup.put(
+        CODE_STORAGE,
+        CodeStorageMigration.FORMAT_KEY,
+        new byte[] {CodeStorageFormat.CURRENT.version});
+    setup.put(CODE_STORAGE, CodeStorageMigration.REVERT_KEY, keys.get(0));
+    setup.commit();
+
+    CodeStorageMigration.migrate(storage);
+
+    assertMigrated(storage, codes);
+    assertThat(storage.get(CODE_STORAGE, CodeStorageMigration.REVERT_KEY)).isEmpty();
+  }
+
+  @Test
   void reservedKeysAreNotCode() {
     assertThat(CodeStorageMigration.isReservedKey(CodeStorageMigration.FORMAT_KEY)).isTrue();
     assertThat(CodeStorageMigration.isReservedKey(CodeStorageMigration.MIGRATION_KEY)).isTrue();
@@ -126,6 +190,32 @@ class CodeStorageMigrationTest {
     }
     assertThat(storage.get(CODE_STORAGE, CodeStorageMigration.FORMAT_KEY)).isPresent();
     assertThat(storage.get(CODE_STORAGE, CodeStorageMigration.MIGRATION_KEY)).isEmpty();
+    assertThat(storage.get(CODE_STORAGE, CodeStorageMigration.REVERT_KEY)).isEmpty();
+  }
+
+  private static void putBare(final SegmentedKeyValueStorage storage, final List<Bytes> codes) {
+    final SegmentedKeyValueStorageTransaction setup = storage.startTransaction();
+    for (final Bytes code : codes) {
+      setup.put(CODE_STORAGE, Hash.hash(code).getBytes().toArrayUnsafe(), code.toArrayUnsafe());
+    }
+    setup.commit();
+  }
+
+  private static void assertBare(final SegmentedKeyValueStorage storage, final List<Bytes> codes) {
+    for (final Bytes code : codes) {
+      assertThat(storage.get(CODE_STORAGE, Hash.hash(code).getBytes().toArrayUnsafe()))
+          .contains(code.toArrayUnsafe());
+    }
+    assertThat(storage.get(CODE_STORAGE, CodeStorageMigration.FORMAT_KEY)).isEmpty();
+    assertThat(storage.get(CODE_STORAGE, CodeStorageMigration.MIGRATION_KEY)).isEmpty();
+    assertThat(storage.get(CODE_STORAGE, CodeStorageMigration.REVERT_KEY)).isEmpty();
+  }
+
+  private static List<byte[]> sortedKeys(final List<Bytes> codes) {
+    return codes.stream()
+        .<byte[]>map(code -> Hash.hash(code).getBytes().toArrayUnsafe())
+        .sorted((a, b) -> Bytes.wrap(a).compareTo(Bytes.wrap(b)))
+        .toList();
   }
 
   private static Bytes codeFor(final List<Bytes> codes, final byte[] key) {

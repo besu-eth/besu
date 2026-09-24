@@ -24,17 +24,28 @@ import static org.hyperledger.besu.ethereum.core.VariablesStorageHelper.getSampl
 import static org.hyperledger.besu.ethereum.core.VariablesStorageHelper.populateBlockchainStorage;
 import static org.hyperledger.besu.ethereum.core.VariablesStorageHelper.populateVariablesStorage;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.BLOCKCHAIN;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.CODE_STORAGE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.VARIABLES;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.cli.CommandTestAbstract;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.storage.keyvalue.VariablesKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.CodeStorageMigration;
+import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat;
+import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.DatabaseMetadata;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
 import org.hyperledger.besu.services.kvstore.SegmentedKeyValueStorageAdapter;
 
+import java.io.IOException;
+import java.nio.file.Path;
+import java.util.List;
+
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
@@ -56,6 +67,38 @@ public class StorageSubCommandTest extends CommandTestAbstract {
     assertThat(commandOutput.toString(UTF_8))
         .contains("This command revert the modifications done by the variables storage feature");
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void storageRevertCodeFormatSubCommandExists() {
+    parseCommand("storage", "revert-code-format", "--help");
+
+    assertThat(commandOutput.toString(UTF_8))
+        .contains("Revert the contract code storage to the format read by Besu versions before");
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void revertCodeFormat(@TempDir final Path dataDir) throws IOException {
+    final var codeStorage = new SegmentedInMemoryKeyValueStorage();
+    when(storageProvider.getStorageBySegmentIdentifiers(List.of(CODE_STORAGE)))
+        .thenReturn(codeStorage);
+    final Bytes code = Bytes.fromHexString("0x605b5b");
+    final byte[] key = Hash.hash(code).getBytes().toArrayUnsafe();
+    final var setup = codeStorage.startTransaction();
+    setup.put(CODE_STORAGE, key, code.toArrayUnsafe());
+    setup.commit();
+    CodeStorageMigration.migrate(codeStorage);
+    new DatabaseMetadata(BaseVersionedStorageFormat.BONSAI_WITH_CODE_FORMAT)
+        .writeToDirectory(dataDir);
+
+    parseCommand("--data-path", dataDir.toString(), "storage", "revert-code-format");
+
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+    assertThat(codeStorage.get(CODE_STORAGE, key)).contains(code.toArrayUnsafe());
+    assertThat(codeStorage.get(CODE_STORAGE, CodeStorageMigration.FORMAT_KEY)).isEmpty();
+    assertThat(DatabaseMetadata.lookUpFrom(dataDir).getVersionedStorageFormat())
+        .isEqualTo(BaseVersionedStorageFormat.BONSAI_WITH_RECEIPT_COMPACTION);
   }
 
   @Test

@@ -30,6 +30,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.function.Function;
 import java.util.stream.Stream;
 
 import org.apache.commons.lang3.tuple.Pair;
@@ -38,12 +39,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Brings a code column family written before the format byte existed into the {@link
- * CodeStorageFormat}.
+ * Moves a code column family between the bare code older Besu versions wrote and the {@link
+ * CodeStorageFormat}, in either direction.
  *
  * <p>The column family records the format all its entries have reached under a reserved key, so
- * that the migration runs exactly once, whatever else has been cleared around it. A legacy value is
- * the bare code and cannot be told apart from a new one by inspection.
+ * that the migration runs exactly once, whatever else has been cleared around it. A bare value
+ * cannot be told apart from an encoded one by inspection, so a rewrite under way records the last
+ * key it committed under a second reserved key and carries on from there when it is interrupted.
  */
 public final class CodeStorageMigration {
   private static final Logger LOG = LoggerFactory.getLogger(CodeStorageMigration.class);
@@ -55,6 +57,9 @@ public final class CodeStorageMigration {
   public static final byte[] MIGRATION_KEY =
       "codeStorageMigration".getBytes(StandardCharsets.UTF_8);
 
+  /** Reserved key holding the last key reverted, only present while a revert is under way. */
+  public static final byte[] REVERT_KEY = "codeStorageRevert".getBytes(StandardCharsets.UTF_8);
+
   private static final long BATCH_BYTES = 64L << 20;
 
   private static final long REPORT_INTERVAL_MILLIS = 30_000;
@@ -62,7 +67,9 @@ public final class CodeStorageMigration {
   private CodeStorageMigration() {}
 
   public static boolean isReservedKey(final byte[] key) {
-    return Arrays.equals(key, FORMAT_KEY) || Arrays.equals(key, MIGRATION_KEY);
+    return Arrays.equals(key, FORMAT_KEY)
+        || Arrays.equals(key, MIGRATION_KEY)
+        || Arrays.equals(key, REVERT_KEY);
   }
 
   /** Marks an empty or freshly cleared column family as being in the current format. */
@@ -75,30 +82,94 @@ public final class CodeStorageMigration {
   private static void markCurrent(final SegmentedKeyValueStorageTransaction transaction) {
     transaction.put(CODE_STORAGE, FORMAT_KEY, new byte[] {CodeStorageFormat.CURRENT.version});
     transaction.remove(CODE_STORAGE, MIGRATION_KEY);
+    transaction.remove(CODE_STORAGE, REVERT_KEY);
   }
 
   /**
-   * Rewrites every entry of a column family written before the format byte existed, unless that has
-   * been done already. Runs before the storage is handed out, so nothing writes code concurrently.
-   * The entries are read in key order, encoded in parallel and committed in batches, with the last
-   * key of every batch recorded next to it, so an interrupted migration carries on where it stopped
-   * instead of encoding entries twice. The commit of one batch overlaps with the read and encoding
-   * of the next.
+   * Rewrites every bare entry of a column family into the current format, unless that has been done
+   * already. Runs before the storage is handed out, so nothing writes code concurrently. A revert
+   * that was interrupted is finished first, so that every entry is bare when the migration starts.
    */
   public static void migrate(final SegmentedKeyValueStorage storage) {
     migrate(storage, BATCH_BYTES);
   }
 
   static void migrate(final SegmentedKeyValueStorage storage, final long batchBytes) {
+    if (storage.get(CODE_STORAGE, REVERT_KEY).isPresent()) {
+      LOG.info("Finishing an interrupted revert of the code storage format before migrating it");
+      revert(storage, batchBytes);
+    }
     if (storage.get(CODE_STORAGE, FORMAT_KEY).isPresent()) {
       return;
     }
+    rewrite(
+        storage,
+        "Migrating",
+        MIGRATION_KEY,
+        value -> CodeStorageFormat.CURRENT.encode(Bytes.wrap(value)),
+        batchBytes);
+    markCurrent(storage);
+  }
+
+  /**
+   * Rewrites every entry of a column family back into the bare code older Besu versions read,
+   * unless it holds bare code already. A migration that was interrupted leaves only the entries up
+   * to its last key encoded, and only those are reverted.
+   *
+   * @param storage the storage holding the code column family
+   */
+  public static void revert(final SegmentedKeyValueStorage storage) {
+    revert(storage, BATCH_BYTES);
+  }
+
+  static void revert(final SegmentedKeyValueStorage storage, final long batchBytes) {
     final Optional<byte[]> lastMigrated = storage.get(CODE_STORAGE, MIGRATION_KEY);
-    final Progress progress = new Progress(lastMigrated.isPresent());
+    if (storage.get(CODE_STORAGE, FORMAT_KEY).isEmpty() && lastMigrated.isEmpty()) {
+      return;
+    }
+    rewrite(
+        storage,
+        "Reverting",
+        REVERT_KEY,
+        value -> CodeStorageFormat.of(value).decode(value, null).getBytes().toArrayUnsafe(),
+        batchBytes,
+        lastMigrated);
+    final SegmentedKeyValueStorageTransaction transaction = storage.startTransaction();
+    transaction.remove(CODE_STORAGE, FORMAT_KEY);
+    transaction.remove(CODE_STORAGE, MIGRATION_KEY);
+    transaction.remove(CODE_STORAGE, REVERT_KEY);
+    transaction.commit();
+  }
+
+  private static void rewrite(
+      final SegmentedKeyValueStorage storage,
+      final String action,
+      final byte[] progressKey,
+      final Function<byte[], byte[]> transform,
+      final long batchBytes) {
+    rewrite(storage, action, progressKey, transform, batchBytes, Optional.empty());
+  }
+
+  /**
+   * Rewrites the entries in key order, from the one after the recorded progress up to the last key
+   * (inclusive) when there is one. The entries are transformed in parallel and committed in
+   * batches, with the last key of every batch recorded under the progress key, so an interrupted
+   * rewrite carries on where it stopped instead of transforming entries twice. The commit of one
+   * batch overlaps with the read and transformation of the next.
+   */
+  private static void rewrite(
+      final SegmentedKeyValueStorage storage,
+      final String action,
+      final byte[] progressKey,
+      final Function<byte[], byte[]> transform,
+      final long batchBytes,
+      final Optional<byte[]> lastKey) {
+    final Optional<byte[]> resumeAfter = storage.get(CODE_STORAGE, progressKey);
+    final Progress progress = new Progress(action, resumeAfter.isPresent());
     final ExecutorService committer = Executors.newSingleThreadExecutor();
     Future<?> lastCommit = CompletableFuture.completedFuture(null);
     try (final Stream<Pair<byte[], byte[]>> stream =
-        lastMigrated
+        resumeAfter
             .map(key -> storage.streamFromKey(CODE_STORAGE, key))
             .orElseGet(() -> storage.stream(CODE_STORAGE))) {
       final Iterator<Pair<byte[], byte[]>> entries =
@@ -106,28 +177,26 @@ public final class CodeStorageMigration {
               .filter(
                   entry ->
                       !isReservedKey(entry.getKey())
-                          && lastMigrated.map(k -> !Arrays.equals(k, entry.getKey())).orElse(true))
+                          && resumeAfter.map(k -> !Arrays.equals(k, entry.getKey())).orElse(true))
+              .takeWhile(
+                  entry ->
+                      lastKey.map(k -> Arrays.compareUnsigned(entry.getKey(), k) <= 0).orElse(true))
               .iterator();
       while (entries.hasNext()) {
         final List<Pair<byte[], byte[]>> batch = nextBatch(entries, batchBytes);
-        final List<byte[]> encoded =
-            batch.parallelStream()
-                .map(entry -> CodeStorageFormat.CURRENT.encode(Bytes.wrap(entry.getValue())))
-                .toList();
-        // the previous commit ran while this batch was read and encoded; a failure stops here
+        final List<byte[]> rewritten =
+            batch.parallelStream().map(entry -> transform.apply(entry.getValue())).toList();
+        // the previous commit ran while this batch was read and rewritten; a failure stops here
         lastCommit.get();
-        lastCommit = committer.submit(() -> commit(storage, batch, encoded));
+        lastCommit = committer.submit(() -> commit(storage, progressKey, batch, rewritten));
         progress.advance(batch);
       }
       lastCommit.get();
-      final SegmentedKeyValueStorageTransaction transaction = storage.startTransaction();
-      markCurrent(transaction);
-      transaction.commit();
     } catch (final InterruptedException e) {
       Thread.currentThread().interrupt();
-      throw new IllegalStateException("Interrupted while migrating the code storage", e);
+      throw new IllegalStateException("Interrupted while rewriting the code storage", e);
     } catch (final ExecutionException e) {
-      throw new IllegalStateException("Failed to migrate the code storage", e.getCause());
+      throw new IllegalStateException("Failed to rewrite the code storage", e.getCause());
     } finally {
       committer.shutdownNow();
     }
@@ -148,56 +217,62 @@ public final class CodeStorageMigration {
 
   private static void commit(
       final SegmentedKeyValueStorage storage,
+      final byte[] progressKey,
       final List<Pair<byte[], byte[]>> batch,
-      final List<byte[]> encoded) {
+      final List<byte[]> rewritten) {
     final SegmentedKeyValueStorageTransaction transaction = storage.startTransaction();
     for (int i = 0; i < batch.size(); i++) {
-      transaction.put(CODE_STORAGE, batch.get(i).getKey(), encoded.get(i));
+      transaction.put(CODE_STORAGE, batch.get(i).getKey(), rewritten.get(i));
     }
-    transaction.put(CODE_STORAGE, MIGRATION_KEY, batch.getLast().getKey());
+    transaction.put(CODE_STORAGE, progressKey, batch.getLast().getKey());
     transaction.commit();
   }
 
-  /** Reports on the migration at a steady pace, but not at all when there is nothing to do. */
+  /** Reports on a rewrite at a steady pace, but not at all when there is nothing to do. */
   private static final class Progress {
+    private final String action;
     private final boolean resumed;
     private final long start = System.currentTimeMillis();
     private long lastReport = start;
     private long entries = 0;
-    private long codeBytes = 0;
+    private long valueBytes = 0;
 
-    Progress(final boolean resumed) {
+    Progress(final String action, final boolean resumed) {
+      this.action = action;
       this.resumed = resumed;
     }
 
     void advance(final List<Pair<byte[], byte[]>> batch) {
       if (entries == 0) {
         LOG.info(
-            "Migrating the code storage format, {}",
+            "{} the code storage format, {}",
+            action,
             resumed ? "resuming where it stopped" : "starting");
       }
       entries += batch.size();
       for (final Pair<byte[], byte[]> entry : batch) {
-        codeBytes += entry.getValue().length;
+        valueBytes += entry.getValue().length;
       }
       final long now = System.currentTimeMillis();
       if (now - lastReport >= REPORT_INTERVAL_MILLIS) {
         lastReport = now;
         LOG.info(
-            "Code storage migration: {} entries, {} MB of code in {} s ({} MB/s)",
+            "{} the code storage format: {} entries, {} MB in {} s ({} MB/s)",
+            action,
             entries,
-            codeBytes >> 20,
+            valueBytes >> 20,
             (now - start) / 1000,
-            String.format("%.1f", codeBytes / 1048576.0 / Math.max(1, (now - start) / 1000)));
+            String.format("%.1f", valueBytes / 1048576.0 / Math.max(1, (now - start) / 1000)));
       }
     }
 
     void finish() {
       if (entries > 0) {
         LOG.info(
-            "Migrated {} code entries, {} MB of code, in {} s",
+            "{} the code storage format done: {} entries, {} MB in {} s",
+            action,
             entries,
-            codeBytes >> 20,
+            valueBytes >> 20,
             (System.currentTimeMillis() - start) / 1000);
       }
     }
