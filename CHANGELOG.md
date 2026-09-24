@@ -9,6 +9,7 @@
 - `eth_feeHistory` now rejects reward percentiles outside `[0, 100]`, not strictly increasing, or more than 100 values (`-32602`), instead of sorting unordered input or silently omitting `reward` for oversize lists. [#11055](https://github.com/besu-eth/besu/issues/11055)
 - Removed the EIP-7610 storage collision check: contract creation no longer aborts when the destination address has non-empty storage but a zero nonce and no code, restoring the EIP-684 conditions for every fork. EIP-7610 was declined for inclusion in Glamsterdam (EIP-7773) and removed from the execution specs retroactively; no mainnet account is affected. `Account.isStorageEmpty()`, which existed only for this check, is removed from the `besu-evm` API. [#11175](https://github.com/besu-eth/besu/pull/11175)
 - Besu now exits on `OutOfMemoryError` (`-XX:+ExitOnOutOfMemoryError`). Use a restart policy, or set `JAVA_OPTS=-XX:-ExitOnOutOfMemoryError` to opt out. [#11300](https://github.com/besu-eth/besu/pull/11300)
+- The default discovery mode is now `BOTH`: nodes run DiscV4 and DiscV5 concurrently unless `--discovery-mode=V4` or `--discovery-mode=V5` selects a single protocol. [#11344](https://github.com/besu-eth/besu/pull/11344)
 
 ### Upcoming Breaking Changes
 - Plugin API
@@ -47,6 +48,9 @@
 - `engine_forkchoiceUpdated` now initiates world-state recovery and returns `SYNCING` when a known head is missing its world state, allowing the node to recover without a restart. [#11238](https://github.com/besu-eth/besu/issues/11238)
 - Fix performance regression with TLOAD/TSTORE caused by wrong backing implementation of transient storage. [#11319](https://github.com/besu-eth/besu/pull/11319)
 - Avoid RLPx connection attempts to discovery-only bootnodes with listening port `0` (and to ENRs without a `tcp`/`tcp6` field); they serve discovery only and stay bonded for FINDNODE.
+- DiscV5 discovery now throttles to `--Xv5-discovery-interval-seconds` (default 30s) once connected peers reach `--Xv5-minimum-peer-ratio` of `--max-peers`, instead of stopping peer search entirely. Below that ratio it runs at `--Xv5-fast-discovery-interval-seconds` (default 1s). [#11344](https://github.com/besu-eth/besu/pull/11344)
+- Backward sync no longer retries a block every few milliseconds when its parent world state is unavailable. The forward sync step swallowed the error meant to stop backward sync, so the same block was fetched, validated and logged in a tight loop. The `Backward sync halted` warning is now also logged only once per block. [#11303](https://github.com/besu-eth/besu/pull/11303)
+- JSON-RPC response streaming no longer parks a Vert.x worker thread for the full backpressure timeout after the client has gone away, so a client that stops reading a large response can no longer starve the worker pool that also serves the Engine API. [#11146](https://github.com/besu-eth/besu/pull/11146)
 
 ### Additions and Improvements
 - Plugin API: the `BesuEvents` event families move onto the feature services that own them. `BlockchainService` gains `subscribeBlockPropagated`, `subscribeBlockAdded`, `subscribeBlockReorg`, `subscribeLogs` and `subscribeBadBlock`; `TransactionPoolService` gains `subscribeTransactionAdded` and `subscribeTransactionDropped`; `SynchronizationService` gains `subscribeSyncStatus` and `subscribeInitialSyncCompletion`. Each returns a `Subscription` whose `close()` unsubscribes that one listener, replacing the `long` id and paired `remove*` method, so an id can no longer be handed to the wrong family's remover, and initial sync completion becomes unsubscribable for the first time. The listener interfaces keep their signatures and move out of `BesuEvents` into an `spi` package in each module. `BesuEvents` keeps working unchanged and is deprecated. [#11283](https://github.com/besu-eth/besu/pull/11283)
@@ -58,6 +62,7 @@
 - `eth_simulate` now returns EIP-7708 transfer logs for Amsterdam [#11154](https://github.com/besu-eth/besu/pull/11154)
 - Tune layered txpool for upcoming Amsterdam 200M gas limit [#11335](https://github.com/besu-eth/besu/pull/11335)
 - Schedule the Amsterdam fork on Sepolia at timestamp `1791294816` (Tue, 06 Oct 2026, 13:53:36 UTC). [#11333](https://github.com/besu-eth/besu/pull/11333)
+- Update `Bouncycastle` to 1.85 to address CVEs `CVE-2026-8763` and `CVE-2026-13506`. [#11336](https://github.com/besu-eth/besu/pull/11336)
 
 ## 26.8.1
 

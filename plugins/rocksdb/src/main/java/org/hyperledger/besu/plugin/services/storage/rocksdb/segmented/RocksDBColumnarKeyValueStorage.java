@@ -32,11 +32,17 @@ import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksD
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -56,6 +62,7 @@ import org.rocksdb.ConfigOptions;
 import org.rocksdb.DBOptions;
 import org.rocksdb.Env;
 import org.rocksdb.LRUCache;
+import org.rocksdb.LiveFileMetaData;
 import org.rocksdb.Options;
 import org.rocksdb.OptionsUtil;
 import org.rocksdb.ReadOptions;
@@ -90,6 +97,9 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
 
   /** RocksDb Time to roll a log file (1 day = 3600 * 24 seconds) */
   private static final long TIME_TO_ROLL_LOG_FILE = 86_400L;
+
+  /** Number of threads used to parallelize table cache warm-up seeks */
+  private static final int TABLE_CACHE_WARMUP_THREAD_COUNT = 8;
 
   static {
     RocksDbUtil.loadNativeLibrary();
@@ -402,6 +412,95 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
                                               + segment.getName()));
                       return new RocksDbSegmentIdentifier(getDB(), columnHandle);
                     }));
+  }
+
+  /** Runs the configured startup warm-ups when enabled. */
+  public void warmUpAtStartup() {
+    if (configuration.isTableCacheWarmupEnabled()) {
+      warmUpTableCache();
+    }
+  }
+
+  /**
+   * Warms the RocksDB table cache by seeking to the smallest key of each live SST file, forcing
+   * RocksDB to open the table readers and load their footers, indexes and filters.
+   *
+   * <p>Files are warmed deepest LSM level first (L0 last) so that if the LRU table cache
+   * self-evicts during the warm-up, the readers still cached at the end are the ones probed by
+   * every read. Seeks are parallelized: the table cache is thread-safe and reader opens are
+   * IO-bound. Best-effort: any failure is logged and never fails startup.
+   */
+  protected void warmUpTableCache() {
+    ExecutorService pool = null;
+    ReadOptions warmUpReadOptions = null;
+    try {
+      final long start = System.currentTimeMillis();
+      final List<LiveFileMetaData> files = getDB().getLiveFilesMetaData();
+      LOG.debug("Table cache warm-up starting: {} live files", files.size());
+      final int maxOpenFiles = configuration.getMaxOpenFiles();
+      if (maxOpenFiles > 0 && files.size() > maxOpenFiles) {
+        LOG.warn(
+            "Table cache warm-up: {} live files exceed max open files ({}), the table cache will self-evict during warm-up and only the most recently opened readers will stay cached",
+            files.size(),
+            maxOpenFiles);
+      }
+      // Deepest level first, L0 last: what remains in the LRU table cache at the end are the
+      // readers of the upper levels, which are probed by every read.
+      files.sort(Comparator.comparingInt(LiveFileMetaData::level).reversed());
+      final Map<Bytes, ColumnFamilyHandle> handlesByName = new HashMap<>();
+      for (final ColumnFamilyHandle handle : columnHandles) {
+        handlesByName.put(Bytes.of(handle.getName()), handle);
+      }
+      final AtomicInteger seeks = new AtomicInteger();
+      pool =
+          Executors.newFixedThreadPool(
+              TABLE_CACHE_WARMUP_THREAD_COUNT,
+              runnable -> {
+                final Thread thread = new Thread(runnable, "rocksdb-table-cache-warmup");
+                thread.setDaemon(true);
+                return thread;
+              });
+      warmUpReadOptions = new ReadOptions().setVerifyChecksums(false);
+      final ReadOptions readOptionsForWarmup = warmUpReadOptions;
+      for (final LiveFileMetaData file : files) {
+        final ColumnFamilyHandle handle = handlesByName.get(Bytes.of(file.columnFamilyName()));
+        if (handle == null) {
+          continue;
+        }
+        pool.submit(
+            () -> {
+              try (final RocksIterator it = getDB().newIterator(handle, readOptionsForWarmup)) {
+                it.seek(file.smallestKey());
+              }
+              final int done = seeks.incrementAndGet();
+              if (done % 1000 == 0) {
+                LOG.debug("Table cache warm-up progress: {}/{} files", done, files.size());
+              }
+            });
+      }
+      pool.shutdown();
+      if (!pool.awaitTermination(30, TimeUnit.MINUTES)) {
+        LOG.warn("Table cache warm-up did not complete in time, continuing startup");
+      } else {
+        LOG.debug(
+            "Table cache warm-up complete: {} files in {} ms; table readers mem: {}",
+            seeks.get(),
+            System.currentTimeMillis() - start,
+            getDB().getProperty("rocksdb.estimate-table-readers-mem"));
+      }
+    } catch (final InterruptedException e) {
+      Thread.currentThread().interrupt();
+      LOG.warn("Table cache warm-up interrupted, continuing startup");
+    } catch (final Throwable t) {
+      LOG.error("Table cache warm-up failed", t);
+    } finally {
+      if (pool != null) {
+        pool.shutdownNow();
+      }
+      if (warmUpReadOptions != null && (pool == null || pool.isTerminated())) {
+        warmUpReadOptions.close();
+      }
+    }
   }
 
   /**

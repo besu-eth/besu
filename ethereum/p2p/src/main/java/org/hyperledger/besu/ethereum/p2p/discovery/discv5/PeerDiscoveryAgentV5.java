@@ -40,6 +40,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -48,6 +49,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes;
 import org.ethereum.beacon.discovery.MutableDiscoverySystem;
 import org.ethereum.beacon.discovery.schema.NodeRecord;
@@ -65,8 +67,8 @@ import org.slf4j.LoggerFactory;
  * <p>Discovery cadence:
  *
  * <ul>
- *   <li>Fast (1 second) while the node is under-connected
- *   <li>Slow (30 seconds) once a sufficient number of peers has been reached
+ *   <li>Steady (configurable, default 30 seconds) once the minimum peer ratio is reached
+ *   <li>Fast (configurable, default 1 second) while the node is under-connected
  * </ul>
  *
  * <p>Discovered peers are filtered for readiness, fork compatibility, and reachability before
@@ -114,6 +116,13 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
   private final AtomicBoolean stopped = new AtomicBoolean(false);
   // Indicates whether a discovery operation is currently in progress
   private final AtomicBoolean discoveryInProgress = new AtomicBoolean(false);
+
+  // Cadence state; accessed only from the single-threaded discovery scheduler and advanced only
+  // when a discovery round actually starts, so a skipped attempt does not consume a steady
+  // interval.
+  private boolean everSearched = false;
+  private long lastDiscoveryRoundNanos = 0L;
+  private boolean saturatedCadenceActive = false;
 
   /**
    * Creates a new DiscV5 peer discovery agent.
@@ -216,7 +225,7 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
                   scheduler.scheduleAtFixedRate(
                       this::discoveryTick,
                       0,
-                      discoveryConfig.getDiscV5DiscoveryIntervalSeconds(),
+                      discoveryConfig.getDiscV5FastDiscoveryIntervalSeconds(),
                       TimeUnit.SECONDS);
                 }
               } catch (final RejectedExecutionException e) {
@@ -428,29 +437,80 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
     return address.map(a -> a.getPort() == 0).orElse(true);
   }
 
-  /** Determines whether the RLPx agent has reached a sufficient number of connected peers. */
-  private boolean hasSufficientPeers() {
-    return rlpxAgent.getConnectionCount()
-        >= rlpxAgent.getMaxPeers() * discoveryConfig.getDiscV5MinimumPeerRatio();
+  /**
+   * Returns {@code true} if the RLPx agent has reached a sufficient number of connected peers. A
+   * {@code true} result throttles discovery to the steady cadence rather than stopping it.
+   *
+   * @param connectionCount the sampled number of active RLPx connections
+   */
+  private boolean hasSufficientPeers(final int connectionCount) {
+    return connectionCount >= rlpxAgent.getMaxPeers() * discoveryConfig.getDiscV5MinimumPeerRatio();
   }
 
-  /** Periodic discovery task that enforces adaptive cadence and triggers peer discovery. */
+  /**
+   * Periodic discovery task. Runs a discovery round on every tick while the node is
+   * under-connected, and at most once per steady interval once the peer count has reached the
+   * configured minimum ratio.
+   */
   private void discoveryTick() {
-    if (stopped.get() || hasSufficientPeers()) {
+    if (stopped.get()) {
       return;
     }
-    discoverAndConnect();
+    final int connectionCount = rlpxAgent.getConnectionCount();
+    final boolean saturated = hasSufficientPeers(connectionCount);
+    if (saturated != saturatedCadenceActive) {
+      saturatedCadenceActive = saturated;
+      if (LOG.isDebugEnabled()) {
+        LOG.debug(
+            "DiscV5 discovery switching to {} cadence ({}s): {} connected peers, threshold {}",
+            saturated ? "steady" : "fast",
+            saturated
+                ? discoveryConfig.getDiscV5DiscoveryIntervalSeconds()
+                : discoveryConfig.getDiscV5FastDiscoveryIntervalSeconds(),
+            connectionCount,
+            rlpxAgent.getMaxPeers() * discoveryConfig.getDiscV5MinimumPeerRatio());
+      }
+    }
+    if (saturated
+        && everSearched
+        && System.nanoTime() - lastDiscoveryRoundNanos
+            < TimeUnit.SECONDS.toNanos(discoveryConfig.getDiscV5DiscoveryIntervalSeconds())) {
+      return;
+    }
+    if (startDiscoveryRound()) {
+      everSearched = true;
+      lastDiscoveryRoundNanos = System.nanoTime();
+    }
   }
 
-  /** Executes a DiscV5 peer search and attempts outbound connections to suitable peers. */
-  private void discoverAndConnect() {
+  /**
+   * Runs a single discovery tick on the discovery scheduler thread.
+   *
+   * <p>Tests drive the cadence with this instead of waiting on the periodic schedule. Submitting to
+   * the scheduler keeps the single-threaded access invariant of the cadence fields intact, and the
+   * returned future establishes happens-before for assertions made on the test thread.
+   *
+   * @return a future completed once the tick has run
+   */
+  @VisibleForTesting
+  Future<?> runDiscoveryTick() {
+    return scheduler.submit(this::discoveryTick);
+  }
+
+  /**
+   * Executes a DiscV5 peer search and attempts outbound connections to suitable peers.
+   *
+   * @return {@code true} if a search was issued, {@code false} if a round was already in progress
+   *     or the discovery system is unavailable
+   */
+  private boolean startDiscoveryRound() {
     if (!discoveryInProgress.compareAndSet(false, true)) {
-      return;
+      return false;
     }
     final MutableDiscoverySystem system = discoverySystem.get();
     if (system == null) {
       discoveryInProgress.set(false);
-      return;
+      return false;
     }
     final long startNanos = System.nanoTime();
     system
@@ -478,6 +538,7 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
                 discoveryInProgress.set(false);
               }
             });
+    return true;
   }
 
   /**

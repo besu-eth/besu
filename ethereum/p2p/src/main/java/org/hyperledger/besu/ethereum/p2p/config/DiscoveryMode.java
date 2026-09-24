@@ -31,6 +31,6 @@ public enum DiscoveryMode {
    * @return the default discovery mode
    */
   public static DiscoveryMode getDefault() {
-    return V4;
+    return BOTH;
   }
 }

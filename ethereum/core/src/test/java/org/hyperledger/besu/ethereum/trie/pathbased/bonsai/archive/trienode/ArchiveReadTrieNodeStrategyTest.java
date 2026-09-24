@@ -52,14 +52,20 @@ class ArchiveReadTrieNodeStrategyTest {
 
   private void putArchive(final Bytes location, final long block, final Bytes node) {
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    historyStore.put(tx, ArchiveNodeKey.account(location), block, node);
+    historyStore.putEncoded(
+        tx,
+        ArchiveNodeKey.historyKey(ArchiveNodeKey.account(location), block),
+        ArchiveNodeHistoryStore.encodeStoredValue(0, ArchiveTrieNodeCodec.encodeFull(node)));
     tx.commit();
   }
 
   private void putStorageArchive(
       final Hash accountHash, final Bytes location, final long block, final Bytes node) {
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    historyStore.put(tx, ArchiveNodeKey.storage(accountHash.getBytes(), location), block, node);
+    historyStore.putEncoded(
+        tx,
+        ArchiveNodeKey.historyKey(ArchiveNodeKey.storage(accountHash.getBytes(), location), block),
+        ArchiveNodeHistoryStore.encodeStoredValue(0, ArchiveTrieNodeCodec.encodeFull(node)));
     tx.commit();
   }
 
@@ -107,18 +113,6 @@ class ArchiveReadTrieNodeStrategyTest {
             () ->
                 strategy.putFlatAccountTrieNode(
                     storage, tx, Bytes.of(0x01), Bytes32.ZERO, Bytes.of(0x00)))
-        .isInstanceOf(UnsupportedOperationException.class);
-    tx.rollback();
-  }
-
-  @Test
-  void putFlatStorageTrieNodeThrows() {
-    final ArchiveReadTrieNodeStrategy strategy = new ArchiveReadTrieNodeStrategy(0L, historyReader);
-    final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    assertThatThrownBy(
-            () ->
-                strategy.putFlatStorageTrieNode(
-                    storage, tx, Hash.EMPTY, Bytes.of(0x01), Bytes32.ZERO, Bytes.of(0x00)))
         .isInstanceOf(UnsupportedOperationException.class);
     tx.rollback();
   }
