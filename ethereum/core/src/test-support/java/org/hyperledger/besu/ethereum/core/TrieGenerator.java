@@ -20,6 +20,9 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
+import org.hyperledger.besu.ethereum.trie.RangeManager;
+import org.hyperledger.besu.ethereum.trie.RangeStorageEntriesCollector;
+import org.hyperledger.besu.ethereum.trie.TrieIterator;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
@@ -27,6 +30,8 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 
 import java.util.List;
+import java.util.NavigableMap;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -133,5 +138,53 @@ public class TrieGenerator {
       final WorldStateStorageCoordinator worldStateStorageCoordinator) {
     return new StoredMerklePatriciaTrie<>(
         worldStateStorageCoordinator::getAccountStateTrieNode, b -> b, b -> b);
+  }
+
+  public static NavigableMap<Bytes32, Bytes> collectEntries(
+      final MerkleTrie<Bytes, Bytes> trie,
+      final Bytes32 startKeyHash,
+      final Bytes32 endKeyHash,
+      final int limit) {
+    final RangeStorageEntriesCollector collector =
+        RangeStorageEntriesCollector.createCollector(
+            startKeyHash, endKeyHash, limit, Integer.MAX_VALUE);
+    final TrieIterator<Bytes> visitor = RangeStorageEntriesCollector.createVisitor(collector);
+    return (TreeMap<Bytes32, Bytes>)
+        trie.entriesFrom(
+            root ->
+                RangeStorageEntriesCollector.collectEntries(
+                    collector, visitor, root, startKeyHash));
+  }
+
+  public static NavigableMap<Bytes32, Bytes> collectEntries(final MerkleTrie<Bytes, Bytes> trie) {
+    return collectEntries(trie, Bytes32.ZERO, RangeManager.MAX_RANGE, Integer.MAX_VALUE);
+  }
+
+  public static NavigableMap<Bytes32, Bytes> collectAccountEntries(
+      final WorldStateStorageCoordinator coordinator, final Hash stateRoot) {
+    return collectEntries(
+        new StoredMerklePatriciaTrie<>(
+            coordinator::getAccountStateTrieNode,
+            Bytes32.wrap(stateRoot.getBytes()),
+            b -> b,
+            b -> b));
+  }
+
+  public static NavigableMap<Bytes32, Bytes> collectStorageEntries(
+      final WorldStateStorageCoordinator coordinator,
+      final Hash accountHash,
+      final Bytes32 storageRoot) {
+    return collectEntries(
+        new StoredMerklePatriciaTrie<>(
+            (location, hash) -> coordinator.getAccountStorageTrieNode(accountHash, location, hash),
+            storageRoot,
+            b -> b,
+            b -> b));
+  }
+
+  public static PmtStateTrieAccountValue readAccount(
+      final BonsaiWorldStateKeyValueStorage storage, final Bytes32 accountHash) {
+    return PmtStateTrieAccountValue.readFrom(
+        RLP.input(storage.getAccount(Hash.wrap(accountHash)).orElseThrow()));
   }
 }
