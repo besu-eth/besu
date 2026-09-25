@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.BlockAccessListValidator;
 import org.hyperledger.besu.ethereum.mainnet.BlockBodyValidator;
+import org.hyperledger.besu.ethereum.mainnet.BlockExecutionContext;
 import org.hyperledger.besu.ethereum.mainnet.BlockHeaderValidator;
 import org.hyperledger.besu.ethereum.mainnet.BlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidationMode;
@@ -353,7 +354,12 @@ public class MainnetBlockValidator implements BlockValidator {
       final Optional<BlockAccessList> blockAccessList) {
 
     return blockProcessor.processBlock(
-        context, context.getBlockchain(), worldState, block, blockAccessList);
+        BlockExecutionContext.builder()
+            .protocolContext(context)
+            .worldState(worldState)
+            .block(block)
+            .blockAccessList(blockAccessList)
+            .build());
   }
 
   @Override

@@ -57,15 +57,11 @@ import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.MainnetBlockValidatorBuilder;
-import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.chain.Blockchain;
-import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.core.feemarket.CoinbaseFeePriceCalculator;
 import org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor.TransactionReceiptFactory;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFactory;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.CancunPreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.FrontierPreExecutionProcessor;
@@ -1469,63 +1465,9 @@ public abstract class MainnetProtocolSpecs {
   private record DaoBlockProcessor(BlockProcessor wrapped) implements BlockProcessor {
 
     @Override
-    public BlockProcessingResult processBlock(
-        final ProtocolContext protocolContext,
-        final Blockchain blockchain,
-        final MutableWorldState worldState,
-        final Block block) {
-      updateWorldStateForDao(worldState);
-      return wrapped.processBlock(
-          protocolContext,
-          blockchain,
-          worldState,
-          block,
-          new AbstractBlockProcessor.PreprocessingFunction.NoPreprocessing());
-    }
-
-    @Override
-    public BlockProcessingResult processBlock(
-        final ProtocolContext protocolContext,
-        final Blockchain blockchain,
-        final MutableWorldState worldState,
-        final Block block,
-        final Optional<BlockAccessList> blockAccessList) {
-      updateWorldStateForDao(worldState);
-      return wrapped.processBlock(protocolContext, blockchain, worldState, block, blockAccessList);
-    }
-
-    @Override
-    public BlockProcessingResult processBlock(
-        final ProtocolContext protocolContext,
-        final Blockchain blockchain,
-        final MutableWorldState worldState,
-        final Block block,
-        final AbstractBlockProcessor.PreprocessingFunction preprocessingBlockFunction) {
-      return processBlock(
-          protocolContext,
-          blockchain,
-          worldState,
-          block,
-          Optional.empty(),
-          preprocessingBlockFunction);
-    }
-
-    @Override
-    public BlockProcessingResult processBlock(
-        final ProtocolContext protocolContext,
-        final Blockchain blockchain,
-        final MutableWorldState worldState,
-        final Block block,
-        final Optional<BlockAccessList> blockAccessList,
-        final AbstractBlockProcessor.PreprocessingFunction preprocessingBlockFunction) {
-      updateWorldStateForDao(worldState);
-      return wrapped.processBlock(
-          protocolContext,
-          blockchain,
-          worldState,
-          block,
-          blockAccessList,
-          preprocessingBlockFunction);
+    public BlockProcessingResult processBlock(final BlockExecutionContext context) {
+      updateWorldStateForDao(context.getWorldState());
+      return wrapped.processBlock(context);
     }
 
     private static final Address DAO_REFUND_CONTRACT_ADDRESS =
