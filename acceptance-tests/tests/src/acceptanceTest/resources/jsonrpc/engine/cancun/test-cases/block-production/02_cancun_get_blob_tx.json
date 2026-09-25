@@ -1,5 +1,38 @@
 {
-  "request" : {"jsonrpc":"2.0","id":6,"method":"eth_getTransactionByHash","params":["0xd6dce7e67d5e8f035ffd1d5371d466f34617efb8fa7bae4444eb5796db70e664"]},
-  "response":  {"jsonrpc":"2.0","id":6,"result":{"accessList" : [ ],"blockHash":null,"blockNumber":null,"blockTimestamp" : null,"from":"0x47b62d14c5d04d5b1489a4e46cee3ada098b1839","gas":"0x186a0","gasPrice":"0x6fc23ac00","maxPriorityFeePerGas":"0x3b9aca00","maxFeePerGas":"0x6fc23ac00","maxFeePerBlobGas":"0x1","hash":"0xd6dce7e67d5e8f035ffd1d5371d466f34617efb8fa7bae4444eb5796db70e664","input":"0x","nonce":"0x0","to":"0x0000000000000000000000000000000000020000","transactionIndex":null,"type":"0x3","value":"0x0","yParity":"0x0","v" : "0x0","r":"0x32cce3b2db8b3486309f8b6c9d8bbb367c9296f0e0d62327bf42f96df84ebd7f","s":"0x12dced294af4ec7abd490fcf0192a7d3dbcf6124be14c5b6c9f874d22269db06","blobVersionedHashes":["0x010657f37554c781402a22917dee2f75def7ab966d7b770905398eba3c444014"],"chainId":"0x7"}},
-  "statusCode" : 200
+  "request": {
+    "jsonrpc": "2.0",
+    "id": 6,
+    "method": "eth_getTransactionByHash",
+    "params": [
+      "0xd6dce7e67d5e8f035ffd1d5371d466f34617efb8fa7bae4444eb5796db70e664"
+    ]
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 6,
+    "result": {
+      "accessList": [],
+      "from": "0x47b62d14c5d04d5b1489a4e46cee3ada098b1839",
+      "gas": "0x186a0",
+      "gasPrice": "0x6fc23ac00",
+      "maxPriorityFeePerGas": "0x3b9aca00",
+      "maxFeePerGas": "0x6fc23ac00",
+      "maxFeePerBlobGas": "0x1",
+      "hash": "0xd6dce7e67d5e8f035ffd1d5371d466f34617efb8fa7bae4444eb5796db70e664",
+      "input": "0x",
+      "nonce": "0x0",
+      "to": "0x0000000000000000000000000000000000020000",
+      "type": "0x3",
+      "value": "0x0",
+      "yParity": "0x0",
+      "v": "0x0",
+      "r": "0x32cce3b2db8b3486309f8b6c9d8bbb367c9296f0e0d62327bf42f96df84ebd7f",
+      "s": "0x12dced294af4ec7abd490fcf0192a7d3dbcf6124be14c5b6c9f874d22269db06",
+      "blobVersionedHashes": [
+        "0x010657f37554c781402a22917dee2f75def7ab966d7b770905398eba3c444014"
+      ],
+      "chainId": "0x7"
+    }
+  },
+  "statusCode": 200
 }
