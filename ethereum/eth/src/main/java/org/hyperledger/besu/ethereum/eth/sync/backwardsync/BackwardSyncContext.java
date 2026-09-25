@@ -453,8 +453,8 @@ public class BackwardSyncContext {
       if (!badBlockManager.isBadBlock(descendantHash)) {
         final Optional<Block> block = backwardChain.getBlock(descendantHash);
         if (block.isPresent()) {
-          // cap the bodies kept alive at once, marking a descendant bad only needs its header
-          if (badBlockDescendants.size() < BadBlockManager.MAX_BAD_BLOCKS_SIZE) {
+          // marking a descendant bad only needs its header
+          if (badBlockDescendants.size() < BadBlockManager.MAX_BAD_DESCENDANT_BODIES) {
             badBlockDescendants.add(block.get());
           } else {
             badBlockHeaderDescendants.add(block.get().getHeader());

@@ -855,9 +855,15 @@ public class BackwardSyncContextTest {
         .hasMessageContaining("custom error");
 
     final ArgumentCaptor<List<Block>> badBlockDescendants = ArgumentCaptor.forClass(List.class);
+    final ArgumentCaptor<List<BlockHeader>> badBlockHeaderDescendants =
+        ArgumentCaptor.forClass(List.class);
     verify(badChainListener)
-        .onBadChain(eq(blockHeader), badBlockDescendants.capture(), eq(Collections.emptyList()));
-    assertThat(badBlockDescendants.getValue()).hasSize(TEST_MAX_BAD_CHAIN_EVENT_ENTRIES);
+        .onBadChain(
+            eq(blockHeader), badBlockDescendants.capture(), badBlockHeaderDescendants.capture());
+    // the bodies beyond the descendant body cap are handed over as headers
+    assertThat(badBlockDescendants.getValue()).hasSize(BadBlockManager.MAX_BAD_DESCENDANT_BODIES);
+    assertThat(badBlockHeaderDescendants.getValue())
+        .hasSize(TEST_MAX_BAD_CHAIN_EVENT_ENTRIES - BadBlockManager.MAX_BAD_DESCENDANT_BODIES);
   }
 
   @Test

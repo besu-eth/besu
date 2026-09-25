@@ -100,6 +100,10 @@ public class MainnetBlockValidatorTest {
     return Stream.of(
         Arguments.of("StorageException", new StorageException("Database closed"), false),
         Arguments.of("MerkleTrieException", new MerkleTrieException("Missing trie node"), false),
+        Arguments.of(
+            "wrapped StorageException",
+            new RuntimeException(new StorageException("Database closed")),
+            false),
         Arguments.of("RuntimeException", new RuntimeException("Oops"), true));
   }
 

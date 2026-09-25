@@ -19,6 +19,8 @@ import org.hyperledger.besu.plugin.services.exception.StorageException;
 
 import java.util.Optional;
 
+import com.google.common.base.Throwables;
+
 /**
  * Represents the result of a block validation. This class holds the success status, error message,
  * and cause of the validation.
@@ -106,12 +108,15 @@ public class BlockValidationResult {
   }
 
   /**
-   * Whether a throwable denotes a fault of this node rather than of the block being processed.
+   * Whether a throwable denotes a fault of this node rather than of the block being processed. A
+   * fault raised on a worker thread arrives wrapped, so the whole causal chain is inspected.
    *
    * @param throwable the throwable
    * @return true for a storage or trie fault
    */
   public static boolean isLocalFailure(final Throwable throwable) {
-    return throwable instanceof StorageException || throwable instanceof MerkleTrieException;
+    return Throwables.getCausalChain(throwable).stream()
+        .anyMatch(
+            cause -> cause instanceof StorageException || cause instanceof MerkleTrieException);
   }
 }

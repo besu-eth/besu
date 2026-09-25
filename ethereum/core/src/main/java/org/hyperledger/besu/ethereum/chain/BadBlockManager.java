@@ -51,6 +51,13 @@ public class BadBlockManager {
    */
   public static final int MAX_BAD_CHAIN_SIZE = 1024;
 
+  /**
+   * Descendants that were never executed share the body cache with the blocks that failed
+   * validation; keeping them well below the cache size leaves the failed blocks in place for the
+   * debug RPCs.
+   */
+  public static final int MAX_BAD_DESCENDANT_BODIES = 20;
+
   /** A bad block and its cause are evicted together, so a tracked block never loses its cause. */
   private record BadBlock(Block block, BadBlockCause cause) {}
 
