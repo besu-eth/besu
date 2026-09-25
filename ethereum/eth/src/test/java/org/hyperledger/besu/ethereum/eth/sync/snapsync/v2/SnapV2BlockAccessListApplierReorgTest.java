@@ -20,26 +20,21 @@ import static org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordina
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Block;
-import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedAccountRangeTracker;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedStorageRangeTracker;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldStateDownloaderException;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
-import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
-import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 
 import java.util.Map;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
-import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
 
@@ -50,29 +45,9 @@ import org.junit.jupiter.api.Test;
  * touched, while leaving everything else unchanged — entries touched only on the orphaned fork
  * (corrected later by the re-fetch step) and entries untouched by either fork.
  */
-class SnapV2BlockAccessListApplierReorgTest {
+class SnapV2BlockAccessListApplierReorgTest extends SnapV2TestFixtures {
 
-  private static final Address ALICE =
-      Address.fromHexString("0x1111111111111111111111111111111111111111");
-  private static final Address BOB =
-      Address.fromHexString("0x2222222222222222222222222222222222222222");
-  private static final Address CHARLIE =
-      Address.fromHexString("0x3333333333333333333333333333333333333333");
-  private static final Address DAVE =
-      Address.fromHexString("0x4444444444444444444444444444444444444444");
-  private static final Address FRANK =
-      Address.fromHexString("0x6666666666666666666666666666666666666666");
-  private static final Address GRACE =
-      Address.fromHexString("0x7777777777777777777777777777777777777777");
-
-  private static final Bytes32 MAX_KEY =
-      Bytes32.fromHexString("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
-
-  private final BonsaiWorldStateKeyValueStorage bonsaiStorage =
-      new BonsaiWorldStateKeyValueStorage(
-          new InMemoryKeyValueStorageProvider(),
-          new NoOpMetricsSystem(),
-          DataStorageConfiguration.DEFAULT_BONSAI_CONFIG);
+  private final BonsaiWorldStateKeyValueStorage bonsaiStorage = newBonsaiStorage();
   private final WorldStateStorageCoordinator coordinator =
       new WorldStateStorageCoordinator(bonsaiStorage);
 
@@ -371,7 +346,7 @@ class SnapV2BlockAccessListApplierReorgTest {
     seedAccount(ALICE, Wei.of(50));
 
     // Only Alice's single-account range has been downloaded.
-    final DownloadedAccountRangeTracker accountTracker = persistedAccounts(ALICE);
+    final DownloadedAccountRangeTracker accountTracker = accountRangeTracker(true, ALICE);
 
     applier(b)
         .applyBlockAccessLists(
@@ -405,15 +380,15 @@ class SnapV2BlockAccessListApplierReorgTest {
     final Bytes code = Bytes.of(0x60, 0x80);
 
     final Block block1 = b.appendBlockWithBal(b.header(0), b.emptyBal(), 1L);
-    b.appendStale(block1.getHeader(), b.balWithBalanceTouches(ALICE, CHARLIE), 2L);
+    b.appendStale(block1.getHeader(), b.balWithBalanceTouches(ALICE, CAROL), 2L);
     final Block block2c =
         b.appendCanonical(
             block1.getHeader(),
-            b.merge(b.balWithNonceChange(ALICE, 7L), b.balWithCodeChange(CHARLIE, code)),
+            b.merge(b.balWithNonceChange(ALICE, 7L), b.balWithCodeChange(CAROL, code)),
             2L);
 
     seedAccount(ALICE, Wei.of(50));
-    seedAccount(CHARLIE, Wei.of(1));
+    seedAccount(CAROL, Wei.of(1));
 
     applier(b)
         .applyBlockAccessLists(
@@ -429,9 +404,9 @@ class SnapV2BlockAccessListApplierReorgTest {
     assertThat(alice.getBalance()).isEqualTo(Wei.of(50));
 
     // Charlie: code stored and code hash updated (the "deployed on both forks" case).
-    final PmtStateTrieAccountValue charlie = readAccount(CHARLIE);
+    final PmtStateTrieAccountValue charlie = readAccount(CAROL);
     assertThat(charlie.getCodeHash()).isEqualTo(Hash.hash(code));
-    assertThat(readCode(CHARLIE)).hasValue(code);
+    assertThat(readCode(CAROL)).hasValue(code);
   }
 
   // ---------------------------------------------------------------------------
@@ -529,28 +504,12 @@ class SnapV2BlockAccessListApplierReorgTest {
   }
 
   // ---------------------------------------------------------------------------
-  // Helpers: applier factory, tracker factories, and flat-state seed/read.
+  // Helpers
   // ---------------------------------------------------------------------------
 
   private SnapV2BlockAccessListApplier applier(final ReorgBlockchainBuilder b) {
     return new SnapV2BlockAccessListApplier(
         coordinator, b.blockchain(), ReorgBlockchainBuilder.balEnabledSchedule());
-  }
-
-  private static DownloadedAccountRangeTracker fullAccountRange() {
-    final DownloadedAccountRangeTracker tracker = new DownloadedAccountRangeTracker();
-    tracker.registerPending(Bytes32.ZERO, MAX_KEY, 0);
-    return tracker;
-  }
-
-  /** Completed single-account ranges for exactly the given accounts. */
-  private static DownloadedAccountRangeTracker persistedAccounts(final Address... accounts) {
-    final DownloadedAccountRangeTracker tracker = new DownloadedAccountRangeTracker();
-    for (final Address account : accounts) {
-      final Bytes32 accountHash = Bytes32.wrap(account.addressHash().getBytes());
-      tracker.registerPending(accountHash, accountHash, 0);
-    }
-    return tracker;
   }
 
   private void seedAccount(final Address address, final Wei balance) {
@@ -581,32 +540,18 @@ class SnapV2BlockAccessListApplierReorgTest {
   }
 
   private PmtStateTrieAccountValue readAccount(final Address address) {
-    return PmtStateTrieAccountValue.readFrom(RLP.input(readAccountBytes(address).orElseThrow()));
+    return readAccount(coordinator, address);
   }
 
   private boolean accountExists(final Address address) {
-    return readAccountBytes(address).isPresent();
-  }
-
-  private Optional<Bytes> readAccountBytes(final Address address) {
-    return coordinator.applyForStrategy(
-        bonsai -> bonsai.getAccount(address.addressHash()), forest -> Optional.<Bytes>empty());
+    return accountExists(coordinator, address);
   }
 
   private Optional<UInt256> readStorageSlot(final Address address, final UInt256 slotKey) {
-    return coordinator
-        .applyForStrategy(
-            bonsai ->
-                bonsai.getStorageValueByStorageSlotKey(
-                    address.addressHash(), new StorageSlotKey(slotKey)),
-            forest -> Optional.<Bytes>empty())
-        .map(UInt256::fromBytes);
+    return readStorageSlot(coordinator, address, slotKey);
   }
 
   private Optional<Bytes> readCode(final Address address) {
-    final PmtStateTrieAccountValue account = readAccount(address);
-    return coordinator.applyForStrategy(
-        bonsai -> bonsai.getCode(account.getCodeHash(), address.addressHash()),
-        forest -> Optional.<Bytes>empty());
+    return readCode(coordinator, address);
   }
 }

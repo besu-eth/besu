@@ -19,20 +19,15 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Block;
-import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.eth.manager.snap.SnapTestServing;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedAccountRangeTracker;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedStorageRangeTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
-import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
-import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
-import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.util.Map;
 import java.util.Optional;
@@ -52,24 +47,7 @@ import org.junit.jupiter.api.Test;
  * scenarios is that the local account trie root becomes identical to the canonical state root — the
  * same check the sync runs at completion.
  */
-class SnapV2ReorgHealerRecoveryTest {
-
-  private static final Address ALICE =
-      Address.fromHexString("0x1111111111111111111111111111111111111111");
-  private static final Address BOB =
-      Address.fromHexString("0x2222222222222222222222222222222222222222");
-  private static final Address CAROL =
-      Address.fromHexString("0x3333333333333333333333333333333333333333");
-  private static final Address DAVE =
-      Address.fromHexString("0x4444444444444444444444444444444444444444");
-  private static final Address FRANK =
-      Address.fromHexString("0x6666666666666666666666666666666666666666");
-  private static final Address GRACE =
-      Address.fromHexString("0x7777777777777777777777777777777777777777");
-  private static final Address NEW_CONTRACT =
-      Address.fromHexString("0x9999999999999999999999999999999999999999");
-  private static final Address PETE =
-      Address.fromHexString("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+class SnapV2ReorgHealerRecoveryTest extends SnapV2TestFixtures {
 
   private static final UInt256 S1 = UInt256.valueOf(1);
   private static final UInt256 S2 = UInt256.valueOf(2);
@@ -81,9 +59,6 @@ class SnapV2ReorgHealerRecoveryTest {
   private static final Bytes CAROL_CODE_W = Bytes.fromHexString("0x6080604052348015600e");
   private static final Bytes CAROL_CODE_O = Bytes.fromHexString("0x6080604052348015600f");
   private static final Bytes NC_CODE = Bytes.fromHexString("0x60806040523480156010");
-
-  private static final Bytes32 MAX_KEY =
-      Bytes32.fromHexString("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
 
   private final BonsaiWorldStateKeyValueStorage localStorage = newBonsaiStorage();
   private final WorldStateStorageCoordinator localCoordinator =
@@ -429,7 +404,6 @@ class SnapV2ReorgHealerRecoveryTest {
   // Helpers
   // ---------------------------------------------------------------------------
 
-  /** A healer whose fetcher serves from the canonical world state, counting calls per seam. */
   private SnapV2ReorgHealer healerServing(
       final Hash canonicalRoot,
       final AtomicInteger accountFetches,
@@ -467,57 +441,19 @@ class SnapV2ReorgHealerRecoveryTest {
         .commit();
   }
 
-  private static BonsaiWorldStateKeyValueStorage newBonsaiStorage() {
-    return new BonsaiWorldStateKeyValueStorage(
-        new InMemoryKeyValueStorageProvider(),
-        new NoOpMetricsSystem(),
-        DataStorageConfiguration.DEFAULT_BONSAI_CONFIG);
-  }
-
-  private static Hash worldStateRoot(final WorldStateStorageCoordinator coordinator) {
-    return coordinator.getTrieNodeUnsafe(Bytes.EMPTY).map(Hash::hash).orElse(Hash.EMPTY_TRIE_HASH);
-  }
-
-  private static DownloadedAccountRangeTracker fullAccountRange() {
-    final DownloadedAccountRangeTracker tracker = new DownloadedAccountRangeTracker();
-    tracker.registerPending(Bytes32.ZERO, MAX_KEY, 0);
-    return tracker;
-  }
-
   private PmtStateTrieAccountValue readAccount(final Address address) {
     return readAccount(localCoordinator, address);
   }
 
-  private static PmtStateTrieAccountValue readAccount(
-      final WorldStateStorageCoordinator coordinator, final Address address) {
-    return PmtStateTrieAccountValue.readFrom(
-        RLP.input(readAccountBytes(coordinator, address).orElseThrow()));
-  }
-
   private boolean accountExists(final Address address) {
-    return readAccountBytes(localCoordinator, address).isPresent();
-  }
-
-  private static Optional<Bytes> readAccountBytes(
-      final WorldStateStorageCoordinator coordinator, final Address address) {
-    return coordinator.applyForStrategy(
-        bonsai -> bonsai.getAccount(address.addressHash()), forest -> Optional.<Bytes>empty());
+    return accountExists(localCoordinator, address);
   }
 
   private Optional<UInt256> readStorageSlot(final Address address, final UInt256 slotKey) {
-    return localCoordinator
-        .applyForStrategy(
-            bonsai ->
-                bonsai.getStorageValueByStorageSlotKey(
-                    address.addressHash(), new StorageSlotKey(slotKey)),
-            forest -> Optional.<Bytes>empty())
-        .map(UInt256::fromBytes);
+    return readStorageSlot(localCoordinator, address, slotKey);
   }
 
   private Optional<Bytes> readCode(final Address address) {
-    final PmtStateTrieAccountValue account = readAccount(address);
-    return localCoordinator.applyForStrategy(
-        bonsai -> bonsai.getCode(account.getCodeHash(), address.addressHash()),
-        forest -> Optional.<Bytes>empty());
+    return readCode(localCoordinator, address);
   }
 }

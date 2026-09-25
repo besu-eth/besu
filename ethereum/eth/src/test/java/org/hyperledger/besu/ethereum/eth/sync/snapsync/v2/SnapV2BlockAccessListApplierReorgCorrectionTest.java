@@ -23,7 +23,6 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
-import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedAccountRangeTracker;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedStorageRangeTracker;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldStateDownloaderException;
@@ -36,9 +35,7 @@ import org.hyperledger.besu.ethereum.trie.StoredNode;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredNodeFactory;
-import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
-import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 
 import java.util.ArrayList;
@@ -62,25 +59,13 @@ import org.junit.jupiter.api.Test;
  * plans and fetched state: canonical code storage for restored accounts, fetch-coverage validation,
  * and the storage-root consistency check on completed accounts.
  */
-class SnapV2BlockAccessListApplierReorgCorrectionTest {
-
-  private static final Address CAROL =
-      Address.fromHexString("0x3333333333333333333333333333333333333333");
-  private static final Address FRANK =
-      Address.fromHexString("0x6666666666666666666666666666666666666666");
+class SnapV2BlockAccessListApplierReorgCorrectionTest extends SnapV2TestFixtures {
 
   private static final Bytes CAROL_CODE_W = Bytes.fromHexString("0x6080604052348015600e");
   private static final Bytes CAROL_CODE_O = Bytes.fromHexString("0x6080604052348015600f");
   private static final UInt256 S1 = UInt256.valueOf(1);
 
-  private static final Bytes32 MAX_KEY =
-      Bytes32.fromHexString("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
-
-  private final BonsaiWorldStateKeyValueStorage bonsaiStorage =
-      new BonsaiWorldStateKeyValueStorage(
-          new InMemoryKeyValueStorageProvider(),
-          new NoOpMetricsSystem(),
-          DataStorageConfiguration.DEFAULT_BONSAI_CONFIG);
+  private final BonsaiWorldStateKeyValueStorage bonsaiStorage = newBonsaiStorage();
   private final WorldStateStorageCoordinator coordinator =
       new WorldStateStorageCoordinator(bonsaiStorage);
   private final ReorgBlockchainBuilder b = new ReorgBlockchainBuilder();
@@ -320,24 +305,12 @@ class SnapV2BlockAccessListApplierReorgCorrectionTest {
   }
 
   private PmtStateTrieAccountValue readAccount(final Address address) {
-    return PmtStateTrieAccountValue.readFrom(
-        RLP.input(
-            coordinator
-                .applyForStrategy(
-                    bonsai -> bonsai.getAccount(address.addressHash()),
-                    forest -> Optional.<Bytes>empty())
-                .orElseThrow()));
+    return readAccount(coordinator, address);
   }
 
   private Optional<Bytes> readCode(final Address address, final Hash codeHash) {
     return coordinator.applyForStrategy(
         bonsai -> bonsai.getCode(codeHash, address.addressHash()),
         forest -> Optional.<Bytes>empty());
-  }
-
-  private static DownloadedAccountRangeTracker fullAccountRange() {
-    final DownloadedAccountRangeTracker tracker = new DownloadedAccountRangeTracker();
-    tracker.registerPending(Bytes32.ZERO, MAX_KEY, 0);
-    return tracker;
   }
 }
