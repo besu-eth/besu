@@ -19,6 +19,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.operation.AbstractCallOperation;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.operation.Operation.OperationResult;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder.OpCodeTracerConfig;
@@ -116,6 +117,12 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
 
     final Optional<Code> maybeCode =
         Optional.ofNullable(frame.getMessageFrameStack().peek()).map(MessageFrame::getCode);
+    // Capture the child's actual gas, including the fork's cap and value stipend, before it runs.
+    final OptionalLong gasAvailableForChildCall =
+        currentOperation instanceof AbstractCallOperation
+                && frame.getState() == MessageFrame.State.CODE_SUSPENDED
+            ? OptionalLong.of(frame.getMessageFrameStack().getFirst().getRemainingGas())
+            : operationResult.getGasAvailableForChildCall();
     lastFrame =
         TraceFrame.builder()
             .setPc(pc)
@@ -144,7 +151,7 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
             .setMaybeUpdatedMemory(frame.getMaybeUpdatedMemory())
             .setMaybeUpdatedStorage(frame.getMaybeUpdatedStorage())
             .setSoftFailureReason(operationResult.getSoftFailureReason())
-            .setGasAvailableForChildCall(operationResult.getGasAvailableForChildCall())
+            .setGasAvailableForChildCall(gasAvailableForChildCall)
             .build();
 
     traceFrames.add(lastFrame);
