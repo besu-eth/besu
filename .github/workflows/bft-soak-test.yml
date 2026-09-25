@@ -1,4 +1,4 @@
-name: bft-soak-test
+name: BFT Soak Test
 on:
   schedule:
     # Run once a day at 06:00 UTC

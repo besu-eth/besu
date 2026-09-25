@@ -43,6 +43,7 @@ import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.UnaryOperator;
 
@@ -422,6 +423,15 @@ public class BesuNodeFactory {
   private BesuNode createQbftNode(
       final String name, final DataStorageFormat storageFormat, final boolean fixedPort)
       throws IOException {
+    return createQbftNode(name, storageFormat, fixedPort, Map.of());
+  }
+
+  public BesuNode createQbftNode(
+      final String name,
+      final DataStorageFormat storageFormat,
+      final boolean fixedPort,
+      final Map<String, String> environment)
+      throws IOException {
     JsonRpcConfiguration rpcConfig = node.createJsonRpcWithQbftEnabledConfig(false);
     rpcConfig.addRpcApi("ADMIN,TXPOOL");
     if (fixedPort) {
@@ -441,7 +451,8 @@ public class BesuNodeFactory {
                     : storageFormat == DataStorageFormat.BONSAI
                         ? DataStorageConfiguration.DEFAULT_BONSAI_CONFIG
                         : DataStorageConfiguration.DEFAULT_BONSAI_ARCHIVE_CONFIG)
-            .genesisConfigProvider(GenesisConfigurationFactory::createQbftGenesisConfig);
+            .genesisConfigProvider(GenesisConfigurationFactory::createQbftGenesisConfig)
+            .environment(environment);
     if (fixedPort) {
       builder.p2pPort(fixedP2pPort(name));
     }
