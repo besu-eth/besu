@@ -38,7 +38,7 @@ import java.util.Map;
 
 import com.google.common.io.Resources;
 import org.apache.tuweni.bytes.Bytes;
-import org.apache.tuweni.units.bigints.UInt256;
+import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -75,9 +75,9 @@ public class EthCreateAccessListIntegrationTest {
             new AccessListEntry(
                 Address.fromHexString("0xbb00000000000000000000000000000000000000"),
                 List.of(
-                    UInt256.fromHexString(
+                    Bytes32.fromHexString(
                         "0x0000000000000000000000000000000000000000000000000000000000000001"),
-                    UInt256.fromHexString(
+                    Bytes32.fromHexString(
                         "0x0000000000000000000000000000000000000000000000000000000000000003"))));
 
     final CallParameter callParameter =
@@ -97,9 +97,9 @@ public class EthCreateAccessListIntegrationTest {
             new AccessListEntry(
                 Address.fromHexString("0xbb00000000000000000000000000000000000000"),
                 List.of(
-                    UInt256.fromHexString(
+                    Bytes32.fromHexString(
                         "0x0000000000000000000000000000000000000000000000000000000000000001"),
-                    UInt256.fromHexString(
+                    Bytes32.fromHexString(
                         "0x0000000000000000000000000000000000000000000000000000000000000003"))));
 
     final CallParameter callParameter =
@@ -238,8 +238,8 @@ public class EthCreateAccessListIntegrationTest {
     assertThat(response)
         .usingRecursiveComparison()
         // customize the comparison for the type that lazy compute the hashCode
-        .withEqualsForType(UInt256::equals, UInt256.class)
-        .withEqualsForType(Address::equals, Address.class)
+        .withEqualsForType(Bytes32::equals, Bytes32.class)
+        .withEqualsForType((x, y) -> x.getBytes().equals(y.getBytes()), Address.class)
         .isEqualTo(expectedResponse);
   }
 

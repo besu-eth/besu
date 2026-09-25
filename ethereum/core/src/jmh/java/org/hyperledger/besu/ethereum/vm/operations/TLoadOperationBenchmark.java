@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.vm.operations;
 
+import static org.hyperledger.besu.ethereum.vm.operations.BenchmarkHelper.fillPool;
 import static org.hyperledger.besu.ethereum.vm.operations.BenchmarkHelper.fillPoolWithCollidingHashes;
 import static org.hyperledger.besu.ethereum.vm.operations.BenchmarkHelper.fillPoolWithDistinctHashes;
 import static org.mockito.Mockito.mock;
@@ -40,14 +41,14 @@ import org.openjdk.jmh.infra.BenchmarkParams;
 public class TLoadOperationBenchmark extends UnaryOperationBenchmark implements GasCostBenchmark {
   TLoadOperation operation;
 
-  @Param({"DISTINCT_KEYS", "COLLIDING_KEYS"})
+  @Param({"DISTINCT_KEYS", "COLLIDING_KEYS", "RANDOM_KEYS"})
   private String scenario;
 
   @Param({"1000", "10000", "150000"})
   int slotCount;
 
   @Override
-  public void setUp() {
+  public void setUp() throws Exception {
     operation = new TLoadOperation(new CancunGasCalculator());
     frame =
         MessageFrame.builder()
@@ -74,8 +75,9 @@ public class TLoadOperationBenchmark extends UnaryOperationBenchmark implements 
 
     BenchmarkHelper.fillPool(valuePool);
     switch (scenario) {
-      case "DISTINCT_KEYS" -> fillPoolWithDistinctHashes(aPool, 0);
-      case "COLLIDING_KEYS" -> fillPoolWithCollidingHashes(aPool, 0);
+      case "RANDOM_KEYS" -> fillPool(aPool);
+      case "DISTINCT_KEYS" -> fillPoolWithDistinctHashes(aPool, frame.getRecipientAddress(), 0);
+      case "COLLIDING_KEYS" -> fillPoolWithCollidingHashes(aPool, frame.getRecipientAddress(), 0);
     }
 
     fillFrame(aPool, valuePool);
