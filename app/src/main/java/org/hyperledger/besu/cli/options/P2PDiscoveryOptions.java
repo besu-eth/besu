@@ -251,14 +251,13 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
   }
 
   // Boolean option to set that in a PoA network the bootnodes should always be queried during
-  // peer table refresh. If this flag is disabled bootnodes are only sent FINDN requests on first
-  // startup, meaning that an offline bootnode or network outage at the client can prevent it
-  // discovering any peers without a restart.
+  // the periodic peer table refresh. Regardless of this flag and of the network type, bootnodes
+  // are always retried while the node has fewer peers than it wants.
   @CommandLine.Option(
       names = {"--poa-discovery-retry-bootnodes"},
       description =
           "Always use of bootnodes for discovery in PoA networks. Disabling this reverts "
-              + " to the same behaviour as non-PoA networks, where neighbours are only discovered from bootnodes on first startup."
+              + " to the same behaviour as non-PoA networks, where bootnodes are only queried on first startup and while the node is under-peered."
               + "(default: ${DEFAULT-VALUE})",
       arity = "1")
   private final Boolean poaDiscoveryRetryBootnodes = true;
