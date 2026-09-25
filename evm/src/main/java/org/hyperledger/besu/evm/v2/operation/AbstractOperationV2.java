@@ -169,7 +169,7 @@ public abstract class AbstractOperationV2 implements Operation {
    * @param frame the current message execution frame
    * @return the value stored at the specified key
    */
-  protected UInt256 getStorageValue(
+  protected static UInt256 getStorageValue(
       final Account account, final UInt256 slotKey, final MessageFrame frame) {
     final UInt256 slotValue = account.getStorageValue(slotKey);
     frame

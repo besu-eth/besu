@@ -14,11 +14,14 @@
  */
 package org.hyperledger.besu.evm.v2.operation;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
+import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
+import org.hyperledger.besu.evm.gascalculator.StorageTransition;
 import org.hyperledger.besu.evm.v2.StackArithmetic;
 
 import java.util.function.Supplier;
@@ -27,14 +30,19 @@ import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * EVM v2 SSTORE operation using long[] stack representation.
  *
  * <p>Pops a storage key and new value from the stack, then writes the value to contract storage.
- * Applies EIP-2200 gas costs and refund accounting.
+ * Applies EIP-2200 gas costs and refund accounting, the EIP-8038 execution/state gas split, and
+ * EIP-8037 state gas metering.
  */
 public class SStoreOperationV2 extends AbstractOperationV2 {
+
+  private static final Logger LOG = LoggerFactory.getLogger(SStoreOperationV2.class);
 
   /** Minimum gas remaining for Frontier (no minimum). */
   public static final long FRONTIER_MINIMUM = 0L;
@@ -115,9 +123,9 @@ public class SStoreOperationV2 extends AbstractOperationV2 {
     // Pop 2
     frame.setTopV2(top - 2);
 
-    final MutableAccount account = frame.getWorldUpdater().getAccount(frame.getRecipientAddress());
-    frame.getEip7928AccessList().ifPresent(t -> t.addTouchedAccount(frame.getRecipientAddress()));
-
+    // EIP-8038: resolve the account ahead of the gas checks below, so that an SSTORE which halts
+    // for insufficient gas has still recorded the account in the block access list.
+    final MutableAccount account = getMutableAccount(frame.getRecipientAddress(), frame);
     if (account == null) {
       return ILLEGAL_STATE_CHANGE;
     }
@@ -136,30 +144,71 @@ public class SStoreOperationV2 extends AbstractOperationV2 {
     final UInt256 key = UInt256.fromBytes(keyBytes32);
     final UInt256 newValue = UInt256.fromBytes(Bytes32.wrap(newValueBytes));
 
-    final boolean slotIsWarm = frame.warmUpStorage(frame.getRecipientAddress(), keyBytes32);
+    final Address address = account.getAddress();
+    final boolean slotIsWarm = frame.warmUpStorage(address, keyBytes32);
+
+    // EIP-8038: the repriced access cost can exceed the EIP-2200 stipend, so the sentry above no
+    // longer guarantees the access is affordable. Check before the current-value read below, which
+    // would otherwise record the slot in the block access list (EIP-7928) for an unpaid access.
+    final long accessCost =
+        gasCalculator.getWarmStorageReadCost()
+            + (slotIsWarm ? 0L : gasCalculator.getSStoreColdAccessGasCost());
+    if (remainingGas < accessCost) {
+      return new OperationResult(accessCost, ExceptionalHaltReason.INSUFFICIENT_GAS);
+    }
+
     final Supplier<UInt256> currentValueSupplier =
-        Suppliers.memoize(() -> account.getStorageValue(key));
+        Suppliers.memoize(() -> getStorageValue(account, key, frame));
     final Supplier<UInt256> originalValueSupplier =
         Suppliers.memoize(() -> account.getOriginalStorageValue(key));
 
     final long cost =
-        gasCalculator.calculateStorageCost(newValue, currentValueSupplier, originalValueSupplier)
-            + (slotIsWarm ? 0L : gasCalculator.getColdSloadCost());
-
+        gasCalculator.slotAccessCost(newValue, currentValueSupplier, originalValueSupplier)
+            + (slotIsWarm ? 0L : gasCalculator.getSStoreColdAccessGasCost());
     if (remainingGas < cost) {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 
-    // Increment the refund counter
+    // EIP-8037: Deduct execution gas before charging state gas (ordering requirement).
+    // State gas draws from the reservoir first, then from gasRemaining; deducting execution
+    // gas first ensures the reservoir/gasRemaining split is correct.
+    frame.decrementRemainingGas(cost);
+
+    // Increment the refund counter.
     frame.incrementGasRefund(
         gasCalculator.calculateStorageRefundAmount(
             newValue, currentValueSupplier, originalValueSupplier));
 
+    if (LOG.isTraceEnabled()) {
+      LOG.trace(
+          "EIP-8037 REC_STORAGE depth={} addr={} key={} txEntryIsZero={} beforeIsZero={} afterIsZero={}",
+          frame.getDepth(),
+          address.toHexString(),
+          "0x" + key.toHexString().substring(2),
+          originalValueSupplier.get().isZero(),
+          currentValueSupplier.get().isZero(),
+          newValue.isZero());
+    }
+
+    final StateGasCostCalculator stateGasCalc = gasCalculator.stateGasCostCalculator();
+    final StorageTransition transition =
+        StorageTransition.of(newValue, currentValueSupplier, originalValueSupplier);
+    final long storageSetStateGas = stateGasCalc.storageSetStateGas();
+
+    // EIP-8037: Refund state gas for 0→X→0 (storage set then clear), otherwise charge state gas
+    // for a storage set (0 → nonzero). The two transitions are mutually exclusive.
+    if (transition.isUnwoundSet()) {
+      frame.refillStateGasReservoir(storageSetStateGas);
+    } else if (transition.isStorageSet() && !frame.consumeStateGas(storageSetStateGas)) {
+      return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
+    }
+
+    // Add execution gas back — the EVM loop will deduct it via the OperationResult.
+    frame.incrementRemainingGas(cost);
+
     account.setStorageValue(key, newValue);
     frame.storageWasUpdated(key, Bytes.wrap(newValueBytes));
-    frame
-        .getEip7928AccessList()
-        .ifPresent(t -> t.addSlotAccessForAccount(frame.getRecipientAddress(), key));
+    frame.getEip7928AccessList().ifPresent(t -> t.addSlotAccessForAccount(address, key));
 
     return new OperationResult(cost, null);
   }
