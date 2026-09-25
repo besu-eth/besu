@@ -65,6 +65,12 @@ public class TxPoolBesuPendingTransactions implements JsonRpcMethod {
           RpcErrorType.INVALID_TRANSACTION_LIMIT_PARAMS,
           e);
     }
+    if (limit < 0) {
+      // Stream#limit rejects a negative count, so this would otherwise surface as an internal error
+      throw new InvalidJsonRpcParameters(
+          "Invalid transaction limit parameter (index 0)",
+          RpcErrorType.INVALID_TRANSACTION_LIMIT_PARAMS);
+    }
     final List<Filter> filters;
     try {
       filters =
