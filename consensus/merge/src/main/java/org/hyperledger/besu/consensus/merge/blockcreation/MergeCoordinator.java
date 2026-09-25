@@ -1011,7 +1011,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   public Optional<BadBlockCause> checkAndMarkBadDescendant(final BlockHeader header) {
     final BadBlockManager badBlockManager = protocolContext.getBadBlockManager();
     // nothing to descend from, keep the engine hot path free of storage reads
-    if (badBlockManager.isEmpty()) {
+    if (!badBlockManager.isBadBlock(header.getParentHash())) {
       return Optional.empty();
     }
     // a parent that made it onto the chain cannot be bad, a stale entry, e.g. left by a transient

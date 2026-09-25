@@ -22,8 +22,11 @@ import org.hyperledger.besu.plugin.data.BadBlockCause.BadBlockReason;
 import org.hyperledger.besu.plugin.services.BesuEvents.BadBlockListener;
 import org.hyperledger.besu.util.Subscribers;
 
+import java.util.ArrayDeque;
 import java.util.Collection;
+import java.util.Deque;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.cache.Cache;
@@ -108,22 +111,40 @@ public class BadBlockManager {
   }
 
   /**
-   * Forget a single block, because it turned out to be valid after all. A block that is imported
-   * successfully cannot be bad, whatever an earlier attempt recorded.
+   * Forget a block that turned out to be valid after all, together with the descendants that were
+   * only marked on its account. A block that is imported successfully cannot be bad, whatever an
+   * earlier attempt recorded, and neither can a block be bad for descending from it. Synchronized
+   * with the descendant marking for the same reason as {@link #reset()}.
    *
    * @param blockHash the hash of the block to forget
    */
-  public void removeBadBlock(final Hash blockHash) {
-    if (!isBadBlock(blockHash) && latestValidHashes.getIfPresent(blockHash) == null) {
-      return;
+  public synchronized void removeBadBlock(final Hash blockHash) {
+    final Deque<Hash> toForget = new ArrayDeque<>();
+    toForget.add(blockHash);
+    while (!toForget.isEmpty()) {
+      final Hash hash = toForget.poll();
+      if (!isBadBlock(hash) && latestValidHashes.getIfPresent(hash) == null) {
+        continue;
+      }
+      LOG.debug("Forget bad block {} after it was imported successfully", hash);
+      Stream.concat(
+              badBlocks.asMap().values().stream().map(Block::getHeader),
+              badHeaders.asMap().values().stream())
+          .filter(header -> header.getParentHash().equals(hash))
+          .map(BlockHeader::getHash)
+          .filter(
+              childHash ->
+                  getBadBlockCause(childHash)
+                      .map(cause -> cause.getReason() == BadBlockReason.DESCENDS_FROM_BAD_BLOCK)
+                      .orElse(false))
+          .forEach(toForget::add);
+      this.badBlocks.invalidate(hash);
+      this.badHeaders.invalidate(hash);
+      this.latestValidHashes.invalidate(hash);
+      this.badBlockCauses.invalidate(hash);
+      this.blockAccessLists.invalidate(hash);
+      this.generatedBlockAccessLists.invalidate(hash);
     }
-    LOG.debug("Forget bad block {} after it was imported successfully", blockHash);
-    this.badBlocks.invalidate(blockHash);
-    this.badHeaders.invalidate(blockHash);
-    this.latestValidHashes.invalidate(blockHash);
-    this.badBlockCauses.invalidate(blockHash);
-    this.blockAccessLists.invalidate(blockHash);
-    this.generatedBlockAccessLists.invalidate(blockHash);
   }
 
   /**

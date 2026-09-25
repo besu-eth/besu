@@ -261,8 +261,7 @@ public class BackwardSyncContext {
             });
   }
 
-  public static Optional<BackwardSyncException> extractBackwardSyncException(
-      final Throwable throwable) {
+  private Optional<BackwardSyncException> extractBackwardSyncException(final Throwable throwable) {
     Throwable currentCause = throwable;
 
     while (currentCause != null) {
@@ -403,9 +402,8 @@ public class BackwardSyncContext {
   }
 
   /**
-   * Whether a failed validation condemns the block itself and, with it, its descendants. Local
-   * failures are exempted the same way engine_newPayload exempts them, so both paths classify a
-   * failure alike, and a block whose parent is missing was never validated.
+   * Whether a failed validation condemns the block itself and, with it, its descendants. A local
+   * failure says nothing about the block, and a block whose parent is missing was never validated.
    */
   private boolean isInvalidBlock(final Block block, final BlockProcessingResult result) {
     final boolean localFailure =
@@ -455,8 +453,8 @@ public class BackwardSyncContext {
 
     Optional<Hash> descendant = backwardChain.getDescendant(badBlock.getHash());
 
-    // descendants marked by an earlier session do not count against the cap, so a chain longer
-    // than the cap is marked one window further per session instead of the same prefix again
+    // descendants that are already marked do not count against the cap, so the marking of a chain
+    // longer than the cap makes progress on every session
     while (descendant.isPresent()
         && badBlockDescendants.size() + badBlockHeaderDescendants.size()
             < maxBadChainEventEntries) {

@@ -124,6 +124,23 @@ public class BadBlockManagerTest {
   }
 
   @Test
+  public void removeBadBlock_forgetsDescendantsMarkedOnItsAccountButNotOnesThatFailedThemselves() {
+    final Block block3 = chainUtil.getBlock(3);
+    final Block block4 = chainUtil.getBlock(4);
+    badBlockManager.addBadBlock(block, BadBlockCause.fromValidationFailure("transient"));
+    badBlockManager.addBadDescendant(block2, block.getHeader(), Optional.empty());
+    badBlockManager.checkAndMarkBadDescendant(block3.getHeader());
+    badBlockManager.addBadBlock(block4, BadBlockCause.fromValidationFailure("failed itself"));
+
+    badBlockManager.removeBadBlock(block.getHash());
+
+    assertThat(badBlockManager.isBadBlock(block.getHash())).isFalse();
+    assertThat(badBlockManager.isBadBlock(block2.getHash())).isFalse();
+    assertThat(badBlockManager.isBadBlock(block3.getHash())).isFalse();
+    assertThat(badBlockManager.getBadBlocks()).containsExactly(block4);
+  }
+
+  @Test
   public void removeBadBlock_leavesOtherBadBlocksAlone() {
     badBlockManager.addBadBlock(block, BadBlockCause.fromValidationFailure("failed"));
     badBlockManager.addBadBlock(block2, BadBlockCause.fromValidationFailure("failed"));
