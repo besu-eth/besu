@@ -15,10 +15,13 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.tracing.flat;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTrace;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.tracing.Trace;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
+import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
+import org.hyperledger.besu.evm.tracing.TraceFrame;
 
 import java.util.Collections;
 import java.util.List;
@@ -31,6 +34,8 @@ import org.apache.tuweni.bytes.Bytes;
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -39,6 +44,77 @@ import org.mockito.junit.jupiter.MockitoExtension;
 public class FlatTraceGeneratorTest {
   @Mock private Transaction transaction;
   @Mock private TransactionProcessingResult transactionProcessingResult;
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  public void keepsSiblingFailureLocal(final boolean firstReverts) {
+    Mockito.when(transaction.getSender()).thenReturn(Address.ZERO);
+    Mockito.when(transaction.getTo()).thenReturn(Optional.of(Address.fromHexString("0x1234")));
+    final TraceFrame firstTerminal =
+        frame(firstReverts ? "REVERT" : "RETURN", firstReverts ? 0xfd : 0xf3, 1);
+    final TraceFrame secondTerminal =
+        frame(firstReverts ? "RETURN" : "REVERT", firstReverts ? 0xf3 : 0xfd, 1);
+    final TransactionTrace transactionTrace =
+        new TransactionTrace(
+            transaction,
+            transactionProcessingResult,
+            List.of(
+                frame("CALL", 0xf1, 0),
+                firstTerminal,
+                frame("CALL", 0xf1, 0),
+                secondTerminal,
+                frame("RETURN", 0xf3, 0)));
+
+    final List<Trace> traces =
+        FlatTraceGenerator.generateFromTransactionTrace(
+                null, transactionTrace, null, new AtomicInteger())
+            .toList();
+
+    Assertions.assertThat(traces).hasSize(3);
+    Assertions.assertThat(((FlatTrace) traces.get(0)).getError()).isNull();
+    Assertions.assertThat(((FlatTrace) traces.get(firstReverts ? 1 : 2)).getError())
+        .isEqualTo("Reverted");
+    Assertions.assertThat(((FlatTrace) traces.get(firstReverts ? 2 : 1)).getError()).isNull();
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"CALL", "CALLCODE", "DELEGATECALL", "STATICCALL"})
+  public void keepsHandledPrecompileFailureOffCaller(final String opcode) {
+    Mockito.when(transaction.getSender()).thenReturn(Address.ZERO);
+    Mockito.when(transaction.getTo()).thenReturn(Optional.of(Address.fromHexString("0x1234")));
+    final TraceFrame failedPrecompile =
+        TraceFrame.from(frame(opcode, 0xf1, 0))
+            .setIsPrecompile(true)
+            .setExceptionalHaltReason(Optional.of(ExceptionalHaltReason.PRECOMPILE_ERROR))
+            .build();
+    final TransactionTrace transactionTrace =
+        new TransactionTrace(
+            transaction,
+            transactionProcessingResult,
+            List.of(failedPrecompile, frame("RETURN", 0xf3, 0)));
+
+    final List<Trace> traces =
+        FlatTraceGenerator.generateFromTransactionTrace(
+                null, transactionTrace, null, new AtomicInteger())
+            .toList();
+
+    Assertions.assertThat(traces).hasSize(1);
+    Assertions.assertThat(((FlatTrace) traces.get(0)).getError()).isNull();
+    Assertions.assertThat(((FlatTrace) traces.get(0)).getResult().get()).isNotNull();
+  }
+
+  private static TraceFrame frame(final String opcode, final int number, final int depth) {
+    return TraceFrame.builder()
+        .setOpcode(opcode)
+        .setOpcodeNumber(number)
+        .setDepth(depth)
+        .setGasRemaining(1000)
+        .setValue(Wei.ZERO)
+        .setInputData(Bytes.EMPTY)
+        .setOutputData(Bytes.EMPTY)
+        .setStack(Optional.of(new Bytes[] {Bytes.of(0x42), Bytes.of(0xff)}))
+        .build();
+  }
 
   @Test
   public void testGenerateFromTransactionTraceWithRevertReason() {
