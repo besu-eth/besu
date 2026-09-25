@@ -26,9 +26,11 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
+import org.hyperledger.besu.ethereum.BlockValidationResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.blockcreation.BlockCreationTiming;
 import org.hyperledger.besu.ethereum.blockcreation.BlockCreator.BlockCreationResult;
+import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
@@ -47,8 +49,6 @@ import org.hyperledger.besu.ethereum.mainnet.AbstractGasLimitSpecification;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
-import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
-import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.io.PrintWriter;
@@ -67,7 +67,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
-import java.util.stream.Stream;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes32;
@@ -570,12 +569,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   }
 
   private boolean canRetryBlockCreation(final Throwable throwable) {
-    if (throwable instanceof StorageException) {
-      return true;
-    } else if (throwable instanceof MerkleTrieException) {
-      return true;
-    }
-    return false;
+    return BlockValidationResult.isLocalFailure(throwable);
   }
 
   @Override
@@ -948,33 +942,22 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
 
   @Override
   public void onBadChain(
-      final Block badBlock,
+      final BlockHeader badBlock,
       final List<Block> badBlockDescendants,
       final List<BlockHeader> badBlockHeaderDescendants) {
     LOG.trace("Mark descendents of bad block {} as bad", badBlock.getHash());
     final BadBlockManager badBlockManager = protocolContext.getBadBlockManager();
 
     final Optional<BlockHeader> parentHeader =
-        protocolContext.getBlockchain().getBlockHeader(badBlock.getHeader().getParentHash());
+        protocolContext.getBlockchain().getBlockHeader(badBlock.getParentHash());
     final Optional<Hash> maybeLatestValidHash =
         parentHeader.isPresent() && isPoSHeader(parentHeader.get())
             ? Optional.of(parentHeader.get().getHash())
-            : Optional.empty();
+            // the bad block can itself be a marked descendant, whose parent is off the chain
+            : badBlockManager.getLatestValidHash(badBlock.getHash());
 
-    // Bad block has already been marked, record its latest valid hash so later children inherit it
-    if (badBlockManager.getLatestValidHash(badBlock.getHash()).isEmpty()) {
-      maybeLatestValidHash.ifPresent(
-          latestValidHash ->
-              badBlockManager.addLatestValidHash(badBlock.getHash(), latestValidHash));
-    }
-
-    Stream.concat(
-            badBlockDescendants.stream().map(Block::getHeader), badBlockHeaderDescendants.stream())
-        .forEach(
-            header -> {
-              LOG.trace("Add descendant {} to bad blocks", header.getHash());
-              badBlockManager.addBadDescendant(header, badBlock.getHeader(), maybeLatestValidHash);
-            });
+    badBlockManager.markBadChain(
+        badBlock, badBlockDescendants, badBlockHeaderDescendants, maybeLatestValidHash);
   }
 
   /**
@@ -1007,23 +990,30 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   }
 
   @Override
-  public boolean checkAndMarkBadDescendant(final Hash blockHash) {
+  public Optional<BadBlockCause> checkAndMarkBadDescendant(final BlockHeader header) {
     final BadBlockManager badBlockManager = protocolContext.getBadBlockManager();
-    // nothing to descend from, keep the forkchoice hot path free of storage reads
-    if (badBlockManager.isEmpty()) {
+    // nothing to descend from, keep the engine hot path free of storage reads
+    if (!badBlockManager.isBadBlock(header.getParentHash())) {
+      return Optional.empty();
+    }
+    // a parent that made it onto the chain cannot be bad, a stale entry, e.g. left by a transient
+    // local failure, must not condemn its descendants
+    if (protocolContext.getBlockchain().contains(header.getParentHash())) {
+      return Optional.empty();
+    }
+    return badBlockManager.checkAndMarkBadDescendant(header);
+  }
+
+  @Override
+  public boolean checkAndMarkBadDescendant(final Hash blockHash) {
+    if (protocolContext.getBadBlockManager().isEmpty()) {
       return false;
     }
     // only a header we already know can be linked to its parent, anything else must be synced
     return backwardSyncContext
         .getBackwardChain()
         .getHeader(blockHash)
-        .filter(header -> badBlockManager.isBadBlock(header.getParentHash()))
-        // a parent that made it onto the chain cannot be bad, a stale entry, e.g. left by a
-        // transient local failure, must not condemn its descendants
-        .filter(
-            header ->
-                protocolContext.getBlockchain().getBlockHeader(header.getParentHash()).isEmpty())
-        .flatMap(badBlockManager::checkAndMarkBadDescendant)
+        .flatMap(this::checkAndMarkBadDescendant)
         .isPresent();
   }
 

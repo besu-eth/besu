@@ -320,6 +320,7 @@ public class BackwardSyncContext {
   }
 
   protected Void saveBlock(final Block block) {
+    failIfBadBlock(block.getHeader());
     LOG.atTrace().setMessage("Going to validate block {}").addArgument(block::toLogString).log();
     var optResult =
         this.getBlockValidatorForBlock(block)
@@ -359,9 +360,9 @@ public class BackwardSyncContext {
                 + " backward sync halted. Run debug_resyncWorldState to recover.",
             false);
       }
-      // descendants are only bad if the block itself is, not after a local failure or missing data
+      // the validator records the block only when the failure condemns the block itself
       if (getProtocolContext().getBadBlockManager().isBadBlock(block.getHash())) {
-        emitBadChainEvent(block);
+        emitBadChainEvent(block.getHeader());
       }
       throw new BackwardSyncException(
           "Cannot save block "
@@ -371,6 +372,28 @@ public class BackwardSyncContext {
     }
 
     return null;
+  }
+
+  /**
+   * Fail the session on a block that is already known as bad, whichever way the session was
+   * started: executing it again can only repeat the failure that recorded it. The descendants the
+   * backward chain holds for it are marked, so the consensus client is told on its next call.
+   *
+   * @param header the header of the block about to be linked or executed
+   */
+  protected void failIfBadBlock(final BlockHeader header) {
+    final BadBlockManager badBlockManager = getProtocolContext().getBadBlockManager();
+    if (!badBlockManager.isBadBlock(header.getHash())) {
+      return;
+    }
+    // a block that made it onto the chain cannot be bad, the entry is stale
+    if (getProtocolContext().getBlockchain().contains(header.getHash())) {
+      badBlockManager.removeBadBlock(header.getHash());
+      return;
+    }
+    emitBadChainEvent(header);
+    throw new BackwardSyncException(
+        "Cannot save block " + header.toLogString() + " because it is a known bad block");
   }
 
   @VisibleForTesting
@@ -404,28 +427,34 @@ public class BackwardSyncContext {
     return currentBackwardSyncStatus.get();
   }
 
-  private void emitBadChainEvent(final Block badBlock) {
+  private void emitBadChainEvent(final BlockHeader badBlock) {
+    final BadBlockManager badBlockManager = getProtocolContext().getBadBlockManager();
     final List<Block> badBlockDescendants = new ArrayList<>();
     final List<BlockHeader> badBlockHeaderDescendants = new ArrayList<>();
 
     Optional<Hash> descendant = backwardChain.getDescendant(badBlock.getHash());
 
+    // descendants that are already marked do not count against the cap, so the marking of a chain
+    // longer than the cap makes progress on every session
     while (descendant.isPresent()
         && badBlockDescendants.size() + badBlockHeaderDescendants.size()
             < maxBadChainEventEntries) {
-      final Optional<Block> block = backwardChain.getBlock(descendant.get());
-      if (block.isPresent()) {
-        // cap the bodies kept alive at once, marking a descendant bad only needs its header
-        if (badBlockDescendants.size() < BadBlockManager.MAX_BAD_BLOCKS_SIZE) {
-          badBlockDescendants.add(block.get());
+      final Hash descendantHash = descendant.get();
+      if (!badBlockManager.isBadBlock(descendantHash)) {
+        final Optional<Block> block = backwardChain.getBlock(descendantHash);
+        if (block.isPresent()) {
+          // marking a descendant bad only needs its header
+          if (badBlockDescendants.size() < BadBlockManager.MAX_BAD_DESCENDANT_BODIES) {
+            badBlockDescendants.add(block.get());
+          } else {
+            badBlockHeaderDescendants.add(block.get().getHeader());
+          }
         } else {
-          badBlockHeaderDescendants.add(block.get().getHeader());
+          backwardChain.getHeader(descendantHash).ifPresent(badBlockHeaderDescendants::add);
         }
-      } else {
-        backwardChain.getHeader(descendant.get()).ifPresent(badBlockHeaderDescendants::add);
       }
 
-      descendant = backwardChain.getDescendant(descendant.get());
+      descendant = backwardChain.getDescendant(descendantHash);
     }
 
     badChainListeners.forEach(

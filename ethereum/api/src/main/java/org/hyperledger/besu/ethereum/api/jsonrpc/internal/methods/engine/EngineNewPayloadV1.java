@@ -39,7 +39,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcRespon
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadStatusV1;
-import org.hyperledger.besu.ethereum.chain.BadBlockManager;
+import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -52,8 +52,6 @@ import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
-import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
-import org.hyperledger.besu.plugin.services.exception.StorageException;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -177,15 +175,14 @@ public sealed class EngineNewPayloadV1<
     final Optional<BlockHeader> maybeParentHeader =
         protocolContext.getBlockchain().getBlockHeader(blockParam.getParentHash());
 
-    final BadBlockManager badBlockManager = protocolContext.getBadBlockManager();
     final Optional<String> maybeBadBlockError;
-    if (badBlockManager.isBadBlock(blockParam.getBlockHash())) {
+    if (mergeCoordinator.isBadBlock(blockParam.getBlockHash())) {
       maybeBadBlockError = Optional.of("Block is a known bad block.");
     } else if (maybeParentHeader.isEmpty()) {
       maybeBadBlockError =
-          badBlockManager
+          mergeCoordinator
               .checkAndMarkBadDescendant(newBlockHeader)
-              .map(badParent -> "Block descends from bad block " + badParent.toLogString());
+              .map(BadBlockCause::getDescription);
     } else {
       // a parent that made it onto the chain cannot be bad, a stale entry, e.g. left by a
       // transient local failure, must not condemn its descendants
@@ -286,11 +283,8 @@ public sealed class EngineNewPayloadV1<
         // finalized via forkchoiceUpdated.
         return respondWith(reqId, blockParam, null, SYNCING);
       }
-      if (executionResult.causedBy().isPresent()) {
-        Throwable causedBy = executionResult.causedBy().get();
-        if (causedBy instanceof StorageException || causedBy instanceof MerkleTrieException) {
-          return new JsonRpcErrorResponse(reqId, RpcErrorType.INTERNAL_ERROR);
-        }
+      if (executionResult.isLocalFailure()) {
+        return new JsonRpcErrorResponse(reqId, RpcErrorType.INTERNAL_ERROR);
       }
       protocolContext.getBadBlockManager().addLatestValidHash(block.getHash(), latestValidAncestor);
       return respondWithInvalid(

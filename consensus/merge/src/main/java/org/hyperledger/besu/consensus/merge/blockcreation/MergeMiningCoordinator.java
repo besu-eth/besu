@@ -21,6 +21,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
+import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
@@ -205,10 +206,22 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
 
   /**
    * Check whether a block that has not been imported yet descends from a bad block, recording it as
-   * bad if it does.
+   * bad if it does. Only the direct parent is checked, so a deeper bad ancestor is detected as long
+   * as every block in between was checked too. A parent that is on the chain is never bad.
+   *
+   * @param header the header of the block
+   * @return the cause the block is bad for, empty if the parent is not known as bad
+   */
+  Optional<BadBlockCause> checkAndMarkBadDescendant(BlockHeader header);
+
+  /**
+   * Best-effort variant of {@link #checkAndMarkBadDescendant(BlockHeader)} for a block only known
+   * by hash. The check needs the block's header to find its parent, so it only covers a block whose
+   * header a previous sync attempt already fetched. {@code false} means the block was not detected
+   * as a bad descendant, not that it is none.
    *
    * @param blockHash the block hash
-   * @return true if the block descends from a bad block
+   * @return true if the block was detected to descend from a bad block
    */
   boolean checkAndMarkBadDescendant(Hash blockHash);
 

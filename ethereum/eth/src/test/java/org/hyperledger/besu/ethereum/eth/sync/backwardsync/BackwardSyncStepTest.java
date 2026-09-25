@@ -18,6 +18,7 @@ import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createInMemoryBlockchain;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
@@ -61,6 +62,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Answers;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -295,6 +297,22 @@ public class BackwardSyncStepTest {
 
     step.saveHeader(header);
 
+    final InOrder inOrder = Mockito.inOrder(chain, context);
+    inOrder.verify(chain).prependAncestorsHeader(header);
+    inOrder.verify(context).failIfBadBlock(header);
+  }
+
+  @Test
+  public void shouldFailWhenAHeaderIsAKnownBadBlock() {
+    final BackwardChain chain = Mockito.mock(BackwardChain.class);
+    final BlockHeader header = Mockito.mock(BlockHeader.class);
+    doThrow(new BackwardSyncException("known bad block")).when(context).failIfBadBlock(header);
+
+    BackwardSyncStep step = new BackwardSyncStep(context, chain);
+
+    assertThatThrownBy(() -> step.saveHeaders(List.of(header)))
+        .isInstanceOf(BackwardSyncException.class)
+        .hasMessageContaining("known bad block");
     verify(chain).prependAncestorsHeader(header);
   }
 
