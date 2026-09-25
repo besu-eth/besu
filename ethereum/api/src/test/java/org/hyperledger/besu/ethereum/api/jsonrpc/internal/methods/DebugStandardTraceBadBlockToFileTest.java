@@ -33,6 +33,8 @@ import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.mainnet.blockhash.PreExecutionProcessor;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.nio.file.Path;
@@ -56,6 +58,8 @@ public class DebugStandardTraceBadBlockToFileTest {
 
   private final ProtocolContext protocolContext = mock(ProtocolContext.class);
   private final TransactionTracer transactionTracer = mock(TransactionTracer.class);
+  private final ProtocolSpec protocolSpec = mock(ProtocolSpec.class);
+  private final PreExecutionProcessor preExecutionProcessor = mock(PreExecutionProcessor.class);
 
   private final BadBlockManager badBlockManager = new BadBlockManager();
 
@@ -66,6 +70,8 @@ public class DebugStandardTraceBadBlockToFileTest {
   @BeforeEach
   public void setup() {
     when(protocolContext.getBadBlockManager()).thenReturn(badBlockManager);
+    when(blockchainQueries.getProtocolSpec(any())).thenReturn(protocolSpec);
+    when(protocolSpec.getPreExecutionProcessor()).thenReturn(preExecutionProcessor);
     doAnswer(
             invocation ->
                 invocation
