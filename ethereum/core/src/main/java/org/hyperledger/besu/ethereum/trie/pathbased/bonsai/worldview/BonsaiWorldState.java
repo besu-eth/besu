@@ -38,6 +38,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.frontier.Fr
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.frontier.FrontierStorageRootTracker;
 import org.hyperledger.besu.ethereum.trie.patricia.ParallelStoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
+import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.plugin.data.BlockHeader;
@@ -150,6 +151,11 @@ public class BonsaiWorldState extends PathBasedWorldState {
   @Override
   public Optional<Bytes> getCode(@NotNull final Address address, final Hash codeHash) {
     return getWorldStateStorage().getCode(codeHash, address.addressHash());
+  }
+
+  @Override
+  public Optional<Code> getStoredCode(final Address address, final Hash codeHash) {
+    return getWorldStateStorage().getStoredCode(codeHash, address.addressHash());
   }
 
   @Override

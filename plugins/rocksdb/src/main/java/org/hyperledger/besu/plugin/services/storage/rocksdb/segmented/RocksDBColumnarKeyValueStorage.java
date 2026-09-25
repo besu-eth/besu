@@ -44,6 +44,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiFunction;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -413,6 +414,18 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
                                               + segment.getName()));
                       return new RocksDbSegmentIdentifier(getDB(), columnHandle);
                     }));
+    RocksDBSegmentRewrite.completeInterrupted(this);
+  }
+
+  ColumnFamilyOptions columnFamilyOptions(final SegmentIdentifier segment) {
+    return columnDescriptors.stream()
+        .filter(descriptor -> Arrays.equals(descriptor.getName(), segment.getId()))
+        .findFirst()
+        .orElseThrow(
+            () ->
+                new RuntimeException(
+                    "Column descriptor not found for segment " + segment.getName()))
+        .getOptions();
   }
 
   /** Runs the configured startup warm-ups when enabled. */
@@ -649,6 +662,15 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   public void clear(final SegmentIdentifier segmentIdentifier) {
     Optional.ofNullable(columnHandlesBySegmentIdentifier.get(segmentIdentifier))
         .ifPresent(RocksDbSegmentIdentifier::reset);
+  }
+
+  @Override
+  public void rewrite(
+      final SegmentIdentifier segmentIdentifier,
+      final BiFunction<byte[], byte[], byte[]> transform,
+      final List<Pair<byte[], byte[]>> additions) {
+    throwIfClosed();
+    new RocksDBSegmentRewrite(this, segmentIdentifier).run(transform, additions);
   }
 
   @Override

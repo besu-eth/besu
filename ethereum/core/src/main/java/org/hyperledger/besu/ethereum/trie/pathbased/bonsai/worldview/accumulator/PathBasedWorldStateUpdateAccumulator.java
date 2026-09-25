@@ -29,6 +29,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWo
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.AccountConsumingMap;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.Consumer;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.StorageConsumingMap;
+import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
@@ -46,6 +47,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -606,17 +608,31 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
 
   @Override
   public Optional<Bytes> getCode(final Address address, final Hash codeHash) {
+    return getStoredCode(address, codeHash).map(Code::getBytes);
+  }
+
+  @Override
+  public Optional<Code> getStoredCode(final Address address, final Hash codeHash) {
     final BonsaiValue<Bytes> localCode = codeToUpdate.get(address);
-    if (localCode == null) {
-      final Supplier<Bytes> loader =
-          Suppliers.memoize(() -> wrappedWorldView().getCode(address, codeHash).orElse(null));
-      final BonsaiValue<Bytes> codeValue = BonsaiValue.withLazy(loader, loader);
-      onCodeValueLoaded(address, codeValue);
-      codeToUpdate.put(address, codeValue);
-      return Optional.ofNullable(codeValue.getUpdated());
-    } else {
-      return Optional.ofNullable(localCode.getUpdated());
+    if (localCode != null) {
+      return Optional.ofNullable(localCode.getUpdated()).map(code -> new Code(code, codeHash));
     }
+    final AtomicReference<Code> loaded = new AtomicReference<>();
+    final Supplier<Bytes> loader =
+        Suppliers.memoize(
+            () -> {
+              loaded.set(wrappedWorldView().getStoredCode(address, codeHash).orElse(null));
+              return loaded.get() == null ? null : loaded.get().getBytes();
+            });
+    final BonsaiValue<Bytes> codeValue = BonsaiValue.withLazy(loader, loader);
+    onCodeValueLoaded(address, codeValue);
+    codeToUpdate.put(address, codeValue);
+    final Bytes updated = codeValue.getUpdated();
+    final Code stored = loaded.get();
+    // the hook may have replaced the loaded code, and only the loaded one has its analysis
+    return stored != null && stored.getBytes() == updated
+        ? Optional.of(stored)
+        : Optional.ofNullable(updated).map(code -> new Code(code, codeHash));
   }
 
   @Override

@@ -14,9 +14,11 @@
  */
 package org.hyperledger.besu.plugin.services.storage.rocksdb;
 
-import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.BONSAI_ARCHIVE_WITH_RECEIPT_COMPACTION;
-import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.BONSAI_WITH_RECEIPT_COMPACTION;
+import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.BONSAI_ARCHIVE_WITH_CODE_FORMAT;
+import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.BONSAI_ORIGINAL;
+import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.BONSAI_WITH_CODE_FORMAT;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.BONSAI_WITH_VARIABLES;
+import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.FOREST_ORIGINAL;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.FOREST_WITH_RECEIPT_COMPACTION;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.FOREST_WITH_VARIABLES;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.BLOB_BLOCKCHAIN_GARBAGE_COLLECTION_ENABLED;
@@ -62,9 +64,7 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
   private static final Logger LOG = LoggerFactory.getLogger(RocksDBKeyValueStorageFactory.class);
   private static final EnumSet<BaseVersionedStorageFormat> SUPPORTED_VERSIONED_FORMATS =
       EnumSet.of(
-          FOREST_WITH_RECEIPT_COMPACTION,
-          BONSAI_WITH_RECEIPT_COMPACTION,
-          BONSAI_ARCHIVE_WITH_RECEIPT_COMPACTION);
+          FOREST_WITH_RECEIPT_COMPACTION, BONSAI_WITH_CODE_FORMAT, BONSAI_ARCHIVE_WITH_CODE_FORMAT);
   private static final String NAME = "rocksdb";
   private final RocksDBMetricsFactory rocksDBMetricsFactory;
   private DatabaseMetadata databaseMetadata;
@@ -353,19 +353,19 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
     // In case we do an automated upgrade, then we also need to update the metadata on disk to
     // reflect the change to the runtime version, and return it.
 
-    // Besu supports both formats of receipts so no upgrade is needed other than updating metadata
+    // Besu supports both formats of receipts, and the world state storage migrates the code column
+    // family itself when it is opened, so every version past the original one only needs its
+    // metadata updated
     final VersionedStorageFormat existingVersionedStorageFormat =
         existingMetadata.getVersionedStorageFormat();
-    if ((existingVersionedStorageFormat == BONSAI_WITH_VARIABLES
-            && runtimeVersion == BONSAI_WITH_RECEIPT_COMPACTION)
-        || (existingVersionedStorageFormat == FOREST_WITH_VARIABLES
-            && runtimeVersion == FOREST_WITH_RECEIPT_COMPACTION)) {
+    if (existingVersionedStorageFormat != FOREST_ORIGINAL
+        && existingVersionedStorageFormat != BONSAI_ORIGINAL) {
       final DatabaseMetadata metadata = new DatabaseMetadata(runtimeVersion);
       try {
         metadata.writeToDirectory(dataDir);
         return Optional.of(metadata);
       } catch (IOException e) {
-        throw new StorageException("Database upgrade to use receipt compaction failed", e);
+        throw new StorageException("Database upgrade failed", e);
       }
     }
 

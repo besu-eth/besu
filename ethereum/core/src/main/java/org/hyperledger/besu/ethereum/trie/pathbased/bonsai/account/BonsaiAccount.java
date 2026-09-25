@@ -240,8 +240,8 @@ public class BonsaiAccount implements MutableAccount, AccountValue {
     }
 
     // cache miss get the code from the disk, set it and put it in the cache
-    final Bytes byteCode = context.getCode(address, codeHash).orElse(Bytes.EMPTY);
-    code = new Code(byteCode, codeHash);
+    code =
+        context.getStoredCode(address, codeHash).orElseGet(() -> new Code(Bytes.EMPTY, codeHash));
     Optional.ofNullable(codeCache).ifPresent(c -> c.put(codeHash, code));
 
     return code;
