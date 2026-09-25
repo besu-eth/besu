@@ -26,6 +26,9 @@ import org.hyperledger.besu.evm.internal.AddressStorageSlotKey;
 import org.hyperledger.besu.evm.toy.ToyBlockValues;
 import org.hyperledger.besu.evm.toy.ToyWorld;
 
+import java.lang.reflect.Field;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -35,11 +38,11 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Regression test asserting that an attacker who grinds many {@link Address}/{@link Bytes32} keys
- * sharing the same (base-31, non-treeifying) {@code hashCode()} cannot force O(n) bucket walks per
- * {@code TSTORE}/warm-up insert. {@link MessageFrame}'s warm-address, warm-storage and
- * transient-storage collections are keyed on exactly such colliding values below, and the whole
- * batch of inserts is required to complete well inside a budget that a quadratic blow-up would blow
- * through by orders of magnitude.
+ * sharing the same non-treeified {@code hashCode()} cannot force O(n) bucket walks per {@code
+ * TSTORE}/warm-up insert. {@link MessageFrame}'s warm-address, warm-storage and transient-storage
+ * collections are keyed on exactly such colliding values below, and the whole batch of inserts is
+ * required to complete well inside a budget that a quadratic blow-up would blow through by orders
+ * of magnitude.
  */
 class WarmStorageHashDosTest {
 
@@ -69,27 +72,7 @@ class WarmStorageHashDosTest {
     }
   }
 
-  private static Bytes32 collidingSlot(final int index) {
-    final byte[] bytes = new byte[32];
-    long remaining = index;
-    for (int pair = 0; pair < 16; pair++) {
-      writeZeroSumPair(bytes, pair * 2, (int) (remaining % 3));
-      remaining /= 3;
-    }
-    return Bytes32.wrap(bytes);
-  }
-
-  private static Address collidingAddress(final long index) {
-    final byte[] bytes = new byte[Address.SIZE];
-    long remaining = index;
-    for (int pair = 0; pair < Address.SIZE / 2; pair++) {
-      writeZeroSumPair(bytes, pair * 2, (int) (remaining % 3));
-      remaining /= 3;
-    }
-    return Address.wrap(Bytes.wrap(bytes));
-  }
-
-  private static MessageFrame newFrame() {
+  private static MessageFrame newFrame(final Address address) {
     return MessageFrame.builder()
         .worldUpdater(new ToyWorld())
         .originator(Address.ZERO)
@@ -100,7 +83,7 @@ class WarmStorageHashDosTest {
         .blockHashLookup((__, ___) -> Hash.ZERO)
         .type(MessageFrame.Type.MESSAGE_CALL)
         .initialGas(1)
-        .address(Address.ZERO)
+        .address(address)
         .contract(Address.ZERO)
         .inputData(Bytes32.ZERO)
         .sender(Address.ZERO)
@@ -111,85 +94,174 @@ class WarmStorageHashDosTest {
         .build();
   }
 
-  @Test
-  void generatedTransientStorageKeysActuallyCollide() {
-    final int hash0 = new AddressStorageSlotKey(Address.ZERO, collidingSlot(0)).hashCode();
-    for (int i = 1; i < 1_000; i++) {
-      assertThat(new AddressStorageSlotKey(Address.ZERO, collidingSlot(i)).hashCode())
-          .isEqualTo(hash0);
-      assertThat(collidingSlot(i)).isNotEqualTo(collidingSlot(0));
+  static class TransientStorage {
+    private static long[] readSeeds() throws Exception {
+      final long[] seeds = new long[7];
+      for (int i = 0; i < 7; i++) {
+        final Field f = AddressStorageSlotKey.class.getDeclaredField("SEED_" + i);
+        f.setAccessible(true);
+        seeds[i] = f.getLong(null);
+      }
+      return seeds;
+    }
+
+    /**
+     * Inverse mod 2^64 by Newton iteration; exists because the seeded multipliers are forced odd.
+     */
+    private static long inv(final long x) {
+      long y = x;
+      for (int i = 0; i < 6; i++) {
+        y *= 2 - x * y;
+      }
+      return y;
+    }
+
+    // algo H = s0*A0 + s1*A1 + s2*A2 + s3*A3  +  a0*A4 + a1·A5 + a2*A6
+    //  hashCode = (int)(H >>> 32)
+    private static Bytes32 collidingSlot(final Address address, final int index) throws Exception {
+      final ByteBuffer addrBytes =
+          ByteBuffer.wrap(address.getBytes().toArrayUnsafe()).order(ByteOrder.LITTLE_ENDIAN);
+      final long[] seeds = readSeeds();
+      final long k =
+          addrBytes.getLong(0) * seeds[4]
+              + addrBytes.getLong(8) * seeds[5]
+              + addrBytes.getLong(12) * seeds[6];
+      final long invA1 = inv(seeds[1]);
+
+      final ByteBuffer slotBytes = ByteBuffer.wrap(new byte[32]).order(ByteOrder.LITTLE_ENDIAN);
+      // s0 is free choice
+      slotBytes.putLong(0, index);
+      // solves s1; s2 and s3 = 0
+      slotBytes.putLong(8, -invA1 * (k + index * seeds[0]));
+      return Bytes32.wrap(slotBytes.array());
+    }
+
+    @Test
+    void generatedTransientStorageKeysActuallyCollide() throws Exception {
+      for (int i = 0; i < 1_000; i++) {
+        for (int j = 0; j < 1_000; j++) {
+          if (i == j) continue;
+          assertThat(
+                  new AddressStorageSlotKey(Address.ZERO, collidingSlot(Address.ZERO, i))
+                      .hashCode())
+              .isEqualTo(
+                  new AddressStorageSlotKey(Address.ZERO, collidingSlot(Address.ZERO, j))
+                      .hashCode());
+          assertThat(collidingSlot(Address.ZERO, i)).isNotEqualTo(collidingSlot(Address.ZERO, j));
+        }
+      }
+    }
+
+    @Test
+    void transientStorageResistsHashCollisionFlood() throws Exception {
+      final Address address = Address.fromHexString("0x1234");
+      final MessageFrame frame = newFrame(address);
+      final List<Bytes32> slots = new ArrayList<>(SLOT_COUNT);
+      for (int i = 0; i < SLOT_COUNT; i++) {
+        slots.add(collidingSlot(address, i));
+      }
+
+      assertTimeoutPreemptively(
+          ofSeconds(10),
+          () -> {
+            for (final Bytes32 slot : slots) {
+              frame.setTransientStorageValue(address, slot, slot);
+            }
+          });
+
+      for (final Bytes32 slot : slots) {
+        assertThat(frame.getTransientStorageValue(address, slot)).isEqualTo(slot);
+      }
     }
   }
 
-  @Test
-  void generatedAddressesActuallyCollide() {
-    final int hash0 = collidingAddress(0).getBytes().hashCode();
-    for (int i = 1; i < 1_000; i++) {
-      assertThat(collidingAddress(i).getBytes().hashCode()).isEqualTo(hash0);
-      assertThat(collidingAddress(i)).isNotEqualTo(collidingAddress(0));
+  static class Eip2929Storage {
+
+    private static Bytes32 collidingSlot(final int index) {
+      final byte[] bytes = new byte[32];
+      long remaining = index;
+      for (int pair = 0; pair < 16; pair++) {
+        writeZeroSumPair(bytes, pair * 2, (int) (remaining % 3));
+        remaining /= 3;
+      }
+      return Bytes32.wrap(bytes);
+    }
+
+    @Test
+    void generatedStorageKeysActuallyCollide() {
+      for (int i = 0; i < 1_000; i++) {
+        for (int j = 0; j < 1_000; j++) {
+          if (i == j) continue;
+          assertThat(collidingSlot(i).hashCode()).isEqualTo(collidingSlot(j).hashCode());
+          assertThat(collidingSlot(i)).isNotEqualTo(collidingSlot(j));
+        }
+      }
+    }
+
+    @Test
+    void warmedUpStorageResistsHashCollisionFlood() {
+      final MessageFrame frame = newFrame(Address.ZERO);
+      final List<Bytes32> slots = new ArrayList<>(SLOT_COUNT);
+      for (int i = 0; i < SLOT_COUNT; i++) {
+        slots.add(collidingSlot(i));
+      }
+
+      assertTimeoutPreemptively(
+          ofSeconds(10),
+          () -> {
+            for (final Bytes32 slot : slots) {
+              frame.warmUpStorage(Address.ZERO, slot);
+            }
+          });
+
+      for (final Bytes32 slot : slots) {
+        assertThat(frame.getWarmedUpStorage().contains(Address.ZERO, slot)).isTrue();
+      }
     }
   }
 
-  @Test
-  void transientStorageResistsHashCollisionFlood() {
-    final MessageFrame frame = newFrame();
-    final List<Bytes32> slots = new ArrayList<>(SLOT_COUNT);
-    for (int i = 0; i < SLOT_COUNT; i++) {
-      slots.add(collidingSlot(i));
+  static class Addresses {
+    private static Address collidingAddress(final long index) {
+      final byte[] bytes = new byte[Address.SIZE];
+      long remaining = index;
+      for (int pair = 0; pair < Address.SIZE / 2; pair++) {
+        writeZeroSumPair(bytes, pair * 2, (int) (remaining % 3));
+        remaining /= 3;
+      }
+      return Address.wrap(Bytes.wrap(bytes));
     }
 
-    assertTimeoutPreemptively(
-        ofSeconds(10),
-        () -> {
-          for (final Bytes32 slot : slots) {
-            frame.setTransientStorageValue(Address.ZERO, slot, slot);
-          }
-        });
-
-    for (final Bytes32 slot : slots) {
-      assertThat(frame.getTransientStorageValue(Address.ZERO, slot)).isEqualTo(slot);
-    }
-  }
-
-  @Test
-  void warmedUpStorageResistsHashCollisionFlood() {
-    final MessageFrame frame = newFrame();
-    final List<Bytes32> slots = new ArrayList<>(SLOT_COUNT);
-    for (int i = 0; i < SLOT_COUNT; i++) {
-      slots.add(collidingSlot(i));
+    @Test
+    void generatedAddressesActuallyCollide() {
+      for (int i = 0; i < 1_000; i++) {
+        for (int j = 0; j < 1_000; j++) {
+          if (i == j) continue;
+          assertThat(collidingAddress(i).getBytes().hashCode())
+              .isEqualTo(collidingAddress(j).getBytes().hashCode());
+          assertThat(collidingAddress(i).getBytes()).isNotEqualTo(collidingAddress(j).getBytes());
+        }
+      }
     }
 
-    assertTimeoutPreemptively(
-        ofSeconds(10),
-        () -> {
-          for (final Bytes32 slot : slots) {
-            frame.warmUpStorage(Address.ZERO, slot);
-          }
-        });
+    @Test
+    void warmedUpAddressesResistHashCollisionFlood() {
+      final MessageFrame frame = newFrame(Address.ZERO);
+      final List<Address> addresses = new ArrayList<>(ADDRESS_COUNT);
+      for (long i = 0; i < ADDRESS_COUNT; i++) {
+        addresses.add(collidingAddress(i));
+      }
 
-    for (final Bytes32 slot : slots) {
-      assertThat(frame.getWarmedUpStorage().contains(Address.ZERO, slot)).isTrue();
-    }
-  }
+      assertTimeoutPreemptively(
+          ofSeconds(10),
+          () -> {
+            for (final Address address : addresses) {
+              frame.warmUpAddress(address);
+            }
+          });
 
-  @Test
-  void warmedUpAddressesResistHashCollisionFlood() {
-    final MessageFrame frame = newFrame();
-    final List<Address> addresses = new ArrayList<>(ADDRESS_COUNT);
-    for (long i = 0; i < ADDRESS_COUNT; i++) {
-      addresses.add(collidingAddress(i));
-    }
-
-    assertTimeoutPreemptively(
-        ofSeconds(10),
-        () -> {
-          for (final Address address : addresses) {
-            frame.warmUpAddress(address);
-          }
-        });
-
-    for (final Address address : addresses) {
-      assertThat(frame.isAddressWarm(address)).isTrue();
+      for (final Address address : addresses) {
+        assertThat(frame.isAddressWarm(address)).isTrue();
+      }
     }
   }
 }

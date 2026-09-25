@@ -23,8 +23,12 @@ import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.UInt256;
 import org.hyperledger.besu.evm.frame.BlockValues;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.internal.AddressStorageSlotKey;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
+import java.lang.reflect.Field;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.Random;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.BiPredicate;
@@ -274,64 +278,85 @@ public class BenchmarkHelper {
    * distinct hashcodes.
    *
    * @param pool destination array
-   * @param offset start index from which to generate hashes
+   * @param address Address to include in the collision computation
+   * @param offset free variable with which to generate hashes
    */
-  public static void fillPoolWithDistinctHashes(final Bytes[] pool, final int offset) {
+  public static void fillPoolWithDistinctHashes(
+      final Bytes[] pool, final Address address, final int offset) throws Exception {
     for (int i = 0; i < pool.length; i++) {
-      pool[i] = distinctHash(offset + i);
+      pool[i] = distinctHash(address, offset + i);
     }
   }
 
-  private static Bytes32 distinctHash(final int index) {
-    final byte[] bytes = new byte[32];
-    int remaining = index;
-    for (int i = 31; i >= 0; i--) {
-      bytes[i] = (byte) (remaining % 31);
-      remaining /= 31;
-    }
-    return Bytes32.wrap(bytes);
+  // algo H = s0*A0 + s1*A1 + s2*A2 + s3*A3  +  a0*A4 + a1·A5 + a2*A6
+  // hashCode = (int)(H >>> 32)
+  private static Bytes32 distinctHash(final Address address, final int index) throws Exception {
+    final ByteBuffer addrBytes =
+        ByteBuffer.wrap(address.getBytes().toArrayUnsafe()).order(ByteOrder.LITTLE_ENDIAN);
+    final long[] seeds = readSeeds();
+    final long k =
+        addrBytes.getLong(0) * seeds[4]
+            + addrBytes.getLong(8) * seeds[5]
+            + addrBytes.getLong(12) * seeds[6];
+    final long invA1 = inv(seeds[1]);
+
+    final ByteBuffer slotBytes = ByteBuffer.wrap(new byte[32]).order(ByteOrder.LITTLE_ENDIAN);
+    // s0 = s2 = s3 = 0
+    slotBytes.putLong(8, invA1 * ((((long) index) << 32) - k));
+    return Bytes32.wrap(slotBytes.array());
   }
 
   /**
-   * Fills a Bytes array with 32-byte hashes all of which have the same hashcode. In 32 bytes
-   * there's only 3^16 unique hashes that collide in their hashcode.
+   * Fills a Bytes array with 32-byte hashes all of which have different values but hash to the same
+   * hashcode.
    *
    * @param pool destination array
-   * @param offset start index from which to generate hashes
+   * @param address Address to include in the collision computation
+   * @param offset free variable with which to generate hashes
    */
-  public static void fillPoolWithCollidingHashes(final Bytes[] pool, final int offset) {
-    if (offset + pool.length > Math.pow(3, 16)) {
-      throw new IllegalArgumentException("exceeded maximum amount of colliding hashes");
-    }
+  public static void fillPoolWithCollidingHashes(
+      final Bytes[] pool, final Address address, final int offset) throws Exception {
     for (int i = 0; i < pool.length; i++) {
-      pool[i] = collidingHash(offset + i);
+      pool[i] = collidingHash(address, offset + i);
     }
   }
 
-  private static void writeZeroSumPair(final byte[] bytes, final int offset, final int digit) {
-    switch (digit) {
-      case 0 -> {
-        bytes[offset] = 0;
-        bytes[offset + 1] = 0;
-      }
-      case 1 -> {
-        bytes[offset] = 1;
-        bytes[offset + 1] = (byte) -31;
-      }
-      default -> {
-        bytes[offset] = (byte) -1;
-        bytes[offset + 1] = 31;
-      }
+  private static long[] readSeeds() throws Exception {
+    final long[] seeds = new long[7];
+    for (int i = 0; i < 7; i++) {
+      final Field f = AddressStorageSlotKey.class.getDeclaredField("SEED_" + i);
+      f.setAccessible(true);
+      seeds[i] = f.getLong(null);
     }
+    return seeds;
   }
 
-  private static Bytes32 collidingHash(final int index) {
-    final byte[] bytes = new byte[32];
-    long remaining = index;
-    for (int pair = 0; pair < 16; pair++) {
-      writeZeroSumPair(bytes, pair * 2, (int) (remaining % 3));
-      remaining /= 3;
+  /** Inverse mod 2^64 by Newton iteration; exists because the seeded multipliers are forced odd. */
+  private static long inv(final long x) {
+    long y = x;
+    for (int i = 0; i < 6; i++) {
+      y *= 2 - x * y;
     }
-    return Bytes32.wrap(bytes);
+    return y;
+  }
+
+  // algo H = s0*A0 + s1*A1 + s2*A2 + s3*A3  +  a0*A4 + a1·A5 + a2*A6
+  // hashCode = (int)(H >>> 32)
+  private static Bytes32 collidingHash(final Address address, final int index) throws Exception {
+    final ByteBuffer addrBytes =
+        ByteBuffer.wrap(address.getBytes().toArrayUnsafe()).order(ByteOrder.LITTLE_ENDIAN);
+    final long[] seeds = readSeeds();
+    final long k =
+        addrBytes.getLong(0) * seeds[4]
+            + addrBytes.getLong(8) * seeds[5]
+            + addrBytes.getLong(12) * seeds[6];
+    final long invA1 = inv(seeds[1]);
+
+    final ByteBuffer slotBytes = ByteBuffer.wrap(new byte[32]).order(ByteOrder.LITTLE_ENDIAN);
+    // s0 is free choice
+    slotBytes.putLong(0, index);
+    // solves s1; s2 and s3 = 0
+    slotBytes.putLong(8, -invA1 * (k + index * seeds[0]));
+    return Bytes32.wrap(slotBytes.array());
   }
 }
