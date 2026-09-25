@@ -22,6 +22,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -113,7 +114,7 @@ public class Pipe<T> implements ReadPipe<T>, WritePipe<T> {
   }
 
   @Override
-  public T get() {
+  public @Nullable T get() {
     try {
       while (hasMore()) {
         final T value = queue.poll(1, TimeUnit.SECONDS);
@@ -129,7 +130,7 @@ public class Pipe<T> implements ReadPipe<T>, WritePipe<T> {
   }
 
   @Override
-  public T poll() {
+  public @Nullable T poll() {
     final T item = queue.poll();
     if (item != null) {
       outputCounter.inc();

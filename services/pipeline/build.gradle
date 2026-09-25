@@ -15,6 +15,19 @@
 
 apply plugin: 'java-library'
 
+compileJava {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.ERROR)
+    option('NullAway:AnnotatedPackages', 'org.hyperledger.besu.services.pipeline')
+  }
+}
+
+tasks.named('compileTestJava', JavaCompile).configure {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.OFF)
+  }
+}
+
 jar {
   archiveBaseName = calculateArtifactId(project)
   manifest {
@@ -29,6 +42,8 @@ jar {
 }
 
 dependencies {
+  errorprone 'com.uber.nullaway:nullaway'
+
   api project(':util')
   api 'org.slf4j:slf4j-api'
 
@@ -37,6 +52,8 @@ dependencies {
 
   implementation 'io.opentelemetry:opentelemetry-api'
   implementation 'com.google.guava:guava'
+
+  compileOnlyApi 'org.jspecify:jspecify'
 
   testImplementation 'org.assertj:assertj-core'
   testImplementation 'org.awaitility:awaitility'
