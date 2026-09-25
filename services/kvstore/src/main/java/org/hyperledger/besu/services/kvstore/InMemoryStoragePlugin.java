@@ -29,6 +29,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,8 +37,8 @@ import org.slf4j.LoggerFactory;
 public class InMemoryStoragePlugin implements BesuPlugin {
 
   private static final Logger LOG = LoggerFactory.getLogger(InMemoryStoragePlugin.class);
-  private ServiceManager context;
-  private InMemoryKeyValueStorageFactory factory;
+  private @Nullable ServiceManager context;
+  private @Nullable InMemoryKeyValueStorageFactory factory;
 
   /** Default constructor */
   public InMemoryStoragePlugin() {}
@@ -78,7 +79,12 @@ public class InMemoryStoragePlugin implements BesuPlugin {
   }
 
   private void createFactoriesAndRegisterWithStorageService() {
-    context
+    final ServiceManager serviceManager = context;
+    if (serviceManager == null) {
+      throw new IllegalStateException(
+          "In-memory storage plugin must be registered before it can be started");
+    }
+    serviceManager
         .getService(StorageService.class)
         .ifPresentOrElse(
             this::createAndRegister,
