@@ -212,7 +212,7 @@ public class MessageFrame {
   private final OperandStack stack;
   // EVM v2 stack: 4 longs per 256-bit word (index 0 = most significant, index 3 = least
   // significant)
-  private final long[] stackDataV2;
+  private long[] stackDataV2;
   private int stackTopV2;
   private final int stackMaxSizeV2;
   private Bytes output = Bytes.EMPTY;
@@ -538,6 +538,16 @@ public class MessageFrame {
    */
   public boolean stackHasSpaceV2(final int n) {
     return stackTopV2 + n <= stackMaxSizeV2;
+  }
+
+  /**
+   * Ensures the V2 stack array is allocated. Called by the EVM when entering the V2 dispatch path
+   * for frames that were not built with {@code enableEvmV2(true)}.
+   */
+  public void ensureV2Stack() {
+    if (stackDataV2 == null) {
+      stackDataV2 = new long[txValues.maxStackSize() * 4];
+    }
   }
 
   // ---------------------------------------------------------------------------
