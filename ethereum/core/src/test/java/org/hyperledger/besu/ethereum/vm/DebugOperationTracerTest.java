@@ -36,6 +36,7 @@ import org.hyperledger.besu.evm.tracing.TraceFrame;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.OptionalLong;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -44,6 +45,8 @@ import org.apache.tuweni.units.bigints.UInt256;
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -109,6 +112,22 @@ class DebugOperationTracerTest {
     final TraceFrame traceFrame = traceFrame(frame);
 
     assertThat(traceFrame.getPc()).isEqualTo(10);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void shouldPreserveRootPrecompileHaltReason(final boolean failed) {
+    final MessageFrame frame = validMessageFrame();
+    final Optional<ExceptionalHaltReason> haltReason =
+        failed ? Optional.of(ExceptionalHaltReason.PRECOMPILE_ERROR) : Optional.empty();
+    frame.setExceptionalHaltReason(haltReason);
+    final DebugOperationTracer tracer = new DebugOperationTracer(OpCodeTracerConfig.DEFAULT, false);
+
+    tracer.tracePrecompileCall(frame, 150L, Bytes.EMPTY);
+
+    final TraceFrame traceFrame = getOnlyTraceFrame(tracer);
+    assertThat(traceFrame.isPrecompile()).isTrue();
+    assertThat(traceFrame.getExceptionalHaltReason()).isEqualTo(haltReason);
   }
 
   @Test

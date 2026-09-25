@@ -113,7 +113,7 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
           frame.getDepth(),
           null,
           frame,
-          null,
+          frame.getExceptionalHaltReason().orElse(null),
           frame.getRevertReason().orElse(null));
       hasEmittedFrame = true;
     }
