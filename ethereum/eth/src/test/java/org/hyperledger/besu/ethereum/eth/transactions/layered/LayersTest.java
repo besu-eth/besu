@@ -1573,9 +1573,10 @@ public class LayersTest extends BaseTransactionPoolTest {
       this.pending =
           new LayeredPendingTransactions(protocolContext, poolConfig, this.prio, ethScheduler);
 
-      this.pending.subscribePendingTransactions(notificationsChecker::collectAddNotification);
+      this.pending.subscribePendingTransactions(
+          ptx -> notificationsChecker.collectAddNotification(ptx.getTransaction()));
       this.pending.subscribeDroppedTransactions(
-          (tx, reason) -> notificationsChecker.collectDropNotification(tx));
+          (ptx, _) -> notificationsChecker.collectDropNotification(ptx.getTransaction()));
     }
 
     @Override

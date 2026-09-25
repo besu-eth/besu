@@ -14,10 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.eth.transactions;
 
-import org.hyperledger.besu.ethereum.core.Transaction;
-
 @FunctionalInterface
 public interface PendingTransactionAddedListener {
 
-  void onTransactionAdded(Transaction transaction);
+  void onPendingTransactionAdded(PendingTransaction pendingTransaction);
 }

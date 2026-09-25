@@ -29,7 +29,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.Subscrip
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.request.SubscriptionType;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
-import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.RemovalReason;
 
 import java.util.Arrays;
@@ -81,9 +81,9 @@ public class PendingTransactionDroppedSubscriptionServiceTest {
   public void onTransactionAddedMustSendMessage() {
     final long[] subscriptionIds = new long[] {5, 56, 989};
     setUpSubscriptions(subscriptionIds);
-    final Transaction pending = transaction(TX_ONE);
+    final PendingTransaction pending = pendingTransaction(TX_ONE);
 
-    service.onTransactionDropped(pending, DUMMY_REMOVAL_REASON);
+    service.onPendingTransactionDropped(pending, DUMMY_REMOVAL_REASON);
 
     verifyNoInteractions(block);
     verifyNoInteractions(blockchain);
@@ -113,8 +113,8 @@ public class PendingTransactionDroppedSubscriptionServiceTest {
     return messages;
   }
 
-  private Transaction transaction(final Hash hash) {
-    final Transaction tx = mock(Transaction.class);
+  private PendingTransaction pendingTransaction(final Hash hash) {
+    final PendingTransaction tx = mock(PendingTransaction.class);
     when(tx.getHash()).thenReturn(hash);
     return tx;
   }

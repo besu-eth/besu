@@ -415,18 +415,18 @@ public class PeerTransactionTracker
   }
 
   @Override
-  public synchronized void onTransactionDropped(
-      final Transaction transaction, final RemovalReason reason) {
+  public synchronized void onPendingTransactionDropped(
+      final PendingTransaction pendingTransaction, final RemovalReason reason) {
     if (reason.stopBroadcasting()) {
-      final List<Transaction> droppedTxs = List.of(transaction);
+      final List<Transaction> droppedTxs = List.of(pendingTransaction.getTransaction());
       removeFromSendQueues(transactionsToSend, droppedTxs);
       removeFromSendQueues(announcementsToSend, droppedTxs);
-      final List<Hash> droppedHashes = List.of(transaction.getHash());
+      final List<Hash> droppedHashes = List.of(pendingTransaction.getHash());
       removeAnnouncementsToRequest(droppedHashes);
     }
 
     if (reason.stopTracking() && forgetEvictedTxsEnabled) {
-      peersSeenStateByHash.remove(transaction.getHash());
+      peersSeenStateByHash.remove(pendingTransaction.getHash());
     }
   }
 

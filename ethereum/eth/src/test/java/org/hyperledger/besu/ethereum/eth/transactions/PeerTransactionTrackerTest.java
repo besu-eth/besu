@@ -71,6 +71,10 @@ public class PeerTransactionTrackerTest {
           ethPeers,
           ethScheduler);
 
+  private static PendingTransaction pendingTransaction(final Transaction transaction) {
+    return PendingTransaction.newPendingTransaction(transaction, false, false, (byte) 0);
+  }
+
   @BeforeEach
   void setUp() {
     when(ethPeers.getMaxPeers()).thenReturn(25);
@@ -111,7 +115,8 @@ public class PeerTransactionTrackerTest {
 
     assertThat(forgetfulTracker.alreadySeenTransaction(transaction2.getHash())).isTrue();
 
-    forgetfulTracker.onTransactionDropped(transaction2, createRemovalReason(true, false));
+    forgetfulTracker.onPendingTransactionDropped(
+        pendingTransaction(transaction2), createRemovalReason(true, false));
 
     assertThat(forgetfulTracker.alreadySeenTransaction(transaction2.getHash())).isFalse();
   }
@@ -122,7 +127,8 @@ public class PeerTransactionTrackerTest {
 
     assertThat(tracker.alreadySeenTransaction(transaction2.getHash())).isTrue();
 
-    tracker.onTransactionDropped(transaction2, createRemovalReason(true, false));
+    tracker.onPendingTransactionDropped(
+        pendingTransaction(transaction2), createRemovalReason(true, false));
 
     assertThat(tracker.alreadySeenTransaction(transaction2.getHash())).isTrue();
   }
@@ -150,7 +156,8 @@ public class PeerTransactionTrackerTest {
 
     assertThat(tracker.alreadySeenTransaction(transaction2.getHash())).isTrue();
 
-    tracker.onTransactionDropped(transaction2, createRemovalReason(false, false));
+    tracker.onPendingTransactionDropped(
+        pendingTransaction(transaction2), createRemovalReason(false, false));
 
     assertThat(tracker.alreadySeenTransaction(transaction2.getHash())).isTrue();
   }
@@ -267,7 +274,8 @@ public class PeerTransactionTrackerTest {
     tracker.addToPeerAnnouncementsSendQueue(ethPeer1, List.of(transaction1));
 
     // stopBroadcasting=false (e.g. RECONCILED): queues must not be cleared
-    tracker.onTransactionDropped(transaction1, createRemovalReason(false, false));
+    tracker.onPendingTransactionDropped(
+        pendingTransaction(transaction1), createRemovalReason(false, false));
 
     assertThat(claimAllTransactionsToSend(tracker, ethPeer1)).containsOnly(transaction1);
     assertThat(claimAllAnnouncementsToSend(tracker, ethPeer1)).containsOnly(transaction1);
@@ -278,7 +286,8 @@ public class PeerTransactionTrackerTest {
     tracker.addToPeerSendQueue(ethPeer1, List.of(transaction1));
     tracker.addToPeerAnnouncementsSendQueue(ethPeer1, List.of(transaction1));
 
-    tracker.onTransactionDropped(transaction1, createRemovalReason(false, true));
+    tracker.onPendingTransactionDropped(
+        pendingTransaction(transaction1), createRemovalReason(false, true));
 
     assertThat(claimAllTransactionsToSend(tracker, ethPeer1)).isEmpty();
     assertThat(claimAllAnnouncementsToSend(tracker, ethPeer1)).isEmpty();

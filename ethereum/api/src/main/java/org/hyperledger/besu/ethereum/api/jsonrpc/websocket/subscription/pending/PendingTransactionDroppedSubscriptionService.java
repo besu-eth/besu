@@ -18,7 +18,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.Subscription;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.SubscriptionManager;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.request.SubscriptionType;
-import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionDroppedListener;
 import org.hyperledger.besu.ethereum.eth.transactions.RemovalReason;
 
@@ -35,8 +35,9 @@ public class PendingTransactionDroppedSubscriptionService
   }
 
   @Override
-  public void onTransactionDropped(final Transaction transaction, final RemovalReason reason) {
-    notifySubscribers(transaction.getHash());
+  public void onPendingTransactionDropped(
+      final PendingTransaction pendingTransaction, final RemovalReason reason) {
+    notifySubscribers(pendingTransaction.getHash());
   }
 
   private void notifySubscribers(final Hash pendingTransaction) {
