@@ -141,6 +141,15 @@ public class BadBlockManagerTest {
   }
 
   @Test
+  public void markBadChain_marksNothingWhenTheRootIsNoLongerTracked() {
+    assertThat(
+            badBlockManager.markBadChain(
+                block.getHeader(), List.of(), List.of(block2.getHeader()), Optional.empty()))
+        .isFalse();
+    assertThat(badBlockManager.isEmpty()).isTrue();
+  }
+
+  @Test
   public void removeBadBlock_leavesOtherBadBlocksAlone() {
     badBlockManager.addBadBlock(block, BadBlockCause.fromValidationFailure("failed"));
     badBlockManager.addBadBlock(block2, BadBlockCause.fromValidationFailure("failed"));

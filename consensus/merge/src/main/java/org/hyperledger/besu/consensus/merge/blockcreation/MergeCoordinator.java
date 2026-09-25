@@ -963,19 +963,8 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
             // the bad block can itself be a marked descendant, whose parent is off the chain
             : badBlockManager.getLatestValidHash(badBlock.getHash());
 
-    maybeLatestValidHash.ifPresent(
-        latestValidHash -> badBlockManager.addLatestValidHash(badBlock.getHash(), latestValidHash));
-
-    badBlockDescendants.forEach(
-        block -> {
-          LOG.trace("Add descendant {} to bad blocks", block.getHash());
-          badBlockManager.addBadDescendant(block, badBlock, maybeLatestValidHash);
-        });
-    badBlockHeaderDescendants.forEach(
-        header -> {
-          LOG.trace("Add descendant {} to bad blocks", header.getHash());
-          badBlockManager.addBadDescendant(header, badBlock, maybeLatestValidHash);
-        });
+    badBlockManager.markBadChain(
+        badBlock, badBlockDescendants, badBlockHeaderDescendants, maybeLatestValidHash);
   }
 
   /**

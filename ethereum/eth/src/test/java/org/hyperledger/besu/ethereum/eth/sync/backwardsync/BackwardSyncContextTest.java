@@ -694,8 +694,6 @@ public class BackwardSyncContextTest {
         .hasMessageContaining("known bad block");
     verify(badChainListener)
         .onBadChain(badHeader, Collections.emptyList(), List.of(childBlockHeader));
-
-    context.failIfBadBlock(childBlockHeader);
   }
 
   @Test

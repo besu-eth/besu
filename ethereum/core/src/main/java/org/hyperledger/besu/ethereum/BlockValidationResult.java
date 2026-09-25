@@ -14,6 +14,9 @@
  */
 package org.hyperledger.besu.ethereum;
 
+import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
+import org.hyperledger.besu.plugin.services.exception.StorageException;
+
 import java.util.Optional;
 
 /**
@@ -90,5 +93,19 @@ public class BlockValidationResult {
    */
   public Optional<Throwable> causedBy() {
     return cause;
+  }
+
+  /**
+   * Whether the failure lies with this node rather than with the block: a storage or trie fault
+   * says nothing about the block's validity, any other failure does.
+   *
+   * @return true if the failure was caused by a local storage or trie fault
+   */
+  public boolean isLocalFailure() {
+    return cause
+        .map(
+            throwable ->
+                throwable instanceof StorageException || throwable instanceof MerkleTrieException)
+        .orElse(false);
   }
 }

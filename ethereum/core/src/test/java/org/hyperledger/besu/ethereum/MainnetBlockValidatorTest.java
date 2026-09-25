@@ -461,7 +461,12 @@ public class MainnetBlockValidatorTest {
             HeaderValidationMode.DETACHED_ONLY);
 
     assertValidationFailedExceptionally(result, cause);
-    assertNoBadBlocks();
+    // only a fault of this node leaves the block unrecorded
+    if (result.isLocalFailure()) {
+      assertNoBadBlocks();
+    } else {
+      assertBadBlockIsTracked(block);
+    }
   }
 
   @Test

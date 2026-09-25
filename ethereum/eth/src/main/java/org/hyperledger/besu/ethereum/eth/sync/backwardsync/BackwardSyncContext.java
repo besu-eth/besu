@@ -30,9 +30,7 @@ import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
-import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
-import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.util.Subscribers;
 
 import java.time.Duration;
@@ -406,12 +404,7 @@ public class BackwardSyncContext {
    * failure says nothing about the block, and a block whose parent is missing was never validated.
    */
   private boolean isInvalidBlock(final Block block, final BlockProcessingResult result) {
-    final boolean localFailure =
-        result
-            .causedBy()
-            .map(cause -> cause instanceof StorageException || cause instanceof MerkleTrieException)
-            .orElse(false);
-    return !localFailure
+    return !result.isLocalFailure()
         && getProtocolContext().getBlockchain().contains(block.getHeader().getParentHash());
   }
 

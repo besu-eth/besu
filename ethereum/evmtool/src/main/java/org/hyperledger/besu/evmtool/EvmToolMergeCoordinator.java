@@ -21,6 +21,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.BadBlockCause;
+import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -174,10 +175,12 @@ public class EvmToolMergeCoordinator implements MergeMiningCoordinator {
 
   @Override
   public Optional<BadBlockCause> checkAndMarkBadDescendant(final BlockHeader header) {
-    if (protocolContext.getBlockchain().contains(header.getParentHash())) {
+    final BadBlockManager badBlockManager = protocolContext.getBadBlockManager();
+    if (!badBlockManager.isBadBlock(header.getParentHash())
+        || protocolContext.getBlockchain().contains(header.getParentHash())) {
       return Optional.empty();
     }
-    return protocolContext.getBadBlockManager().checkAndMarkBadDescendant(header);
+    return badBlockManager.checkAndMarkBadDescendant(header);
   }
 
   @Override

@@ -1161,6 +1161,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     final Block descendant = new Block(descendantHeader, BlockBody.empty());
     final BlockHeader headerOnlyDescendant =
         headerGenerator.parentHash(descendantHeader.getHash()).buildHeader();
+    badBlockManager.addBadHeader(badHeader, BadBlockCause.fromValidationFailure("failed"));
 
     coordinator.onBadChain(badHeader, List.of(descendant), List.of(headerOnlyDescendant));
 
@@ -1183,6 +1184,18 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     coordinator.onBadChain(root, List.of(), List.of(descendant));
 
     assertThat(badBlockManager.getLatestValidHash(descendant.getHash())).contains(latestValidHash);
+  }
+
+  @Test
+  public void assertOnBadChainMarksNothingForARootThatWasResetInBetween() {
+    final BlockHeader root =
+        headerGenerator.parentHash(Hash.fromHexStringLenient("0xbeef")).buildHeader();
+    final BlockHeader descendant = headerGenerator.parentHash(root.getHash()).buildHeader();
+
+    coordinator.onBadChain(root, List.of(), List.of(descendant));
+
+    assertThat(badBlockManager.isBadBlock(descendant.getHash())).isFalse();
+    assertThat(badBlockManager.getLatestValidHash(root.getHash())).isEmpty();
   }
 
   @Test

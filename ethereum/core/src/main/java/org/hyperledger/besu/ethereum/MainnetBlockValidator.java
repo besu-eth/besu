@@ -300,20 +300,20 @@ public class MainnetBlockValidator implements BlockValidator {
       final boolean shouldRecordBadBlock,
       final ProtocolContext context) {
     if (result.causedBy().isPresent()) {
-      // Block processing failed exceptionally, we cannot assume the block was intrinsically invalid
       LOG.info(
           "Failed to process block {}: {}, caused by {}",
           failedBlock.toLogString(),
           result.errorMessage,
           result.causedBy().get());
       LOG.debug("with stack", result.causedBy().get());
+    } else if (result.errorMessage.isPresent()) {
+      LOG.info("Invalid block {}: {}", failedBlock.toLogString(), result.errorMessage);
     } else {
-      if (result.errorMessage.isPresent()) {
-        LOG.info("Invalid block {}: {}", failedBlock.toLogString(), result.errorMessage);
-      } else {
-        LOG.info("Invalid block {}", failedBlock.toLogString());
-      }
+      LOG.info("Invalid block {}", failedBlock.toLogString());
+    }
 
+    // a failure of this node says nothing about the block
+    if (!result.isLocalFailure()) {
       if (shouldRecordBadBlock) {
         // Result.errorMessage should not be empty on failure, but add a default to be safe
         String description = result.errorMessage.orElse("Unknown cause");
