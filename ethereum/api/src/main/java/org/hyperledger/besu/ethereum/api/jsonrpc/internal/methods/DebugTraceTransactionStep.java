@@ -56,11 +56,24 @@ public interface DebugTraceTransactionStep {
    */
   static DebugTraceTransactionStep of(
       final TraceOptions traceOptions, final ProtocolSpec protocolSpec) {
+    return of(traceOptions, protocolSpec, 0);
+  }
+
+  /**
+   * Creates a {@link DebugTraceTransactionStep} for the given trace options and protocol spec.
+   *
+   * @param traceOptions the trace options
+   * @param protocolSpec the protocol spec
+   * @param logIndexOffset the number of logs the preceding transactions of the block emitted
+   * @return the step
+   */
+  static DebugTraceTransactionStep of(
+      final TraceOptions traceOptions, final ProtocolSpec protocolSpec, final int logIndexOffset) {
     final boolean recordChildCallGas = true;
     return switch (traceOptions.tracerType()) {
       case CALL_TRACER ->
           new DebugTraceTransactionStep() {
-            private final CallTracer tracer = new CallTracer(traceOptions);
+            private final CallTracer tracer = new CallTracer(traceOptions, logIndexOffset);
 
             @Override
             public OperationTracer getOperationTracer() {

@@ -23,8 +23,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Log;
+import org.hyperledger.besu.datatypes.LogTopic;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.CallTracerResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.CallTracerResult.CallLog;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
 import org.hyperledger.besu.ethereum.debug.TracerType;
@@ -34,10 +37,13 @@ import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.operation.Operation.OperationResult;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -376,7 +382,134 @@ class CallTracerTest {
     return Bytes.concatenate(Bytes.repeat((byte) 0, 24), Bytes.ofUnsignedLong(value));
   }
 
+  @Test
+  @DisplayName("withLog reports each frame's own logs with the receipt logIndex and call position")
+  void withLogReportsBlockIndexAndPosition() {
+    final CallTracer tracer = new CallTracer(withLogOptions(false), 3);
+    final MessageFrame root = frame(Address.fromHexString("0x00"), Address.fromHexString("0x01"));
+    final MessageFrame child = frame(Address.fromHexString("0x01"), Address.fromHexString("0x02"));
+    when(child.getDepth()).thenReturn(1);
+    final Transaction tx = mockTransaction();
+    tracer.traceStartTransaction(null, tx);
+    tracer.traceContextEnter(root);
+    final Log first = emitLog(tracer, root, 0xa);
+    tracer.traceContextEnter(child);
+    // An EIP-7708 transfer log lands in the frame without any opcode; it is only seen at exit.
+    final Log nested = addLog(child, 0xb);
+    tracer.traceContextExit(child);
+    when(root.getLogs()).thenReturn(List.of(first, nested));
+    tracer.traceContextReEnter(root);
+    final Log last = emitLog(tracer, root, 0xc);
+    tracer.traceContextExit(root);
+
+    final TransactionProcessingResult result = mockResult(21_000L, true);
+    when(result.getLogs()).thenReturn(List.of(first, nested, last));
+    final CallTracerResult callResult = tracer.buildResult(tx, result);
+
+    assertThat(callResult.getLogs()).extracting(CallLog::getIndex).containsExactly("0x3", "0x5");
+    assertThat(callResult.getLogs()).extracting(CallLog::getPosition).containsExactly("0x0", "0x1");
+    final CallLog firstLog = callResult.getLogs().get(0);
+    assertThat(firstLog.getAddress()).isEqualTo(Address.fromHexString("0x01").toString());
+    assertThat(firstLog.getTopics()).containsExactly(Bytes32.leftPad(Bytes.of(0xa)).toString());
+    assertThat(firstLog.getData()).isEqualTo("0x0a");
+    final CallTracerResult childResult = callResult.getCalls().get(0);
+    assertThat(childResult.getLogs()).extracting(CallLog::getIndex).containsExactly("0x4");
+    assertThat(childResult.getLogs()).extracting(CallLog::getPosition).containsExactly("0x0");
+  }
+
+  @Test
+  @DisplayName("withLog drops the logs of a reverted frame and does not give them an index")
+  void withLogDropsRevertedFrameLogs() {
+    final CallTracer tracer = new CallTracer(withLogOptions(false), 0);
+    final MessageFrame root = frame(Address.fromHexString("0x00"), Address.fromHexString("0x01"));
+    final MessageFrame child = frame(Address.fromHexString("0x01"), Address.fromHexString("0x02"));
+    when(child.getDepth()).thenReturn(1);
+    when(child.getState()).thenReturn(MessageFrame.State.COMPLETED_FAILED);
+    final Transaction tx = mockTransaction();
+    tracer.traceStartTransaction(null, tx);
+    tracer.traceContextEnter(root);
+    tracer.traceContextEnter(child);
+    emitLog(tracer, child, 0xb);
+    tracer.traceContextExit(child);
+    final Log last = emitLog(tracer, root, 0xc);
+    tracer.traceContextExit(root);
+
+    final TransactionProcessingResult result = mockResult(21_000L, true);
+    when(result.getLogs()).thenReturn(List.of(last));
+    final CallTracerResult callResult = tracer.buildResult(tx, result);
+
+    assertThat(callResult.getLogs()).extracting(CallLog::getIndex).containsExactly("0x0");
+    assertThat(callResult.getLogs()).extracting(CallLog::getPosition).containsExactly("0x1");
+    assertThat(callResult.getCalls().get(0).getError()).isEqualTo("execution reverted");
+    assertThat(callResult.getCalls().get(0).getLogs()).isNullOrEmpty();
+  }
+
+  @Test
+  @DisplayName("onlyTopCall with withLog keeps the receipt logIndex and reports position 0")
+  void onlyTopCallWithLogKeepsReceiptIndex() {
+    final CallTracer tracer = new CallTracer(withLogOptions(true), 0);
+    final MessageFrame root = frame(Address.fromHexString("0x00"), Address.fromHexString("0x01"));
+    final MessageFrame child = frame(Address.fromHexString("0x01"), Address.fromHexString("0x02"));
+    when(child.getDepth()).thenReturn(1);
+    final Transaction tx = mockTransaction();
+    tracer.traceStartTransaction(null, tx);
+    tracer.traceContextEnter(root);
+    tracer.traceContextEnter(child);
+    final Log nested = emitLog(tracer, child, 0xb);
+    tracer.traceContextExit(child);
+    final Log last = emitLog(tracer, root, 0xc);
+    tracer.traceContextExit(root);
+
+    final TransactionProcessingResult result = mockResult(21_000L, true);
+    when(result.getLogs()).thenReturn(List.of(nested, last));
+    final CallTracerResult callResult = tracer.buildResult(tx, result);
+
+    assertThat(callResult.getCalls()).isNull();
+    assertThat(callResult.getLogs()).extracting(CallLog::getIndex).containsExactly("0x1");
+    assertThat(callResult.getLogs()).extracting(CallLog::getPosition).containsExactly("0x0");
+  }
+
+  @Test
+  @DisplayName("omits logs when withLog is not set")
+  void omitsLogsWithoutWithLog() {
+    final CallTracer tracer = new CallTracer(callTracerOptions(false));
+    final MessageFrame root = frame(Address.fromHexString("0x00"), Address.fromHexString("0x01"));
+    final Transaction tx = mockTransaction();
+    tracer.traceStartTransaction(null, tx);
+    tracer.traceContextEnter(root);
+    final Log log = emitLog(tracer, root, 0xa);
+    tracer.traceContextExit(root);
+
+    final TransactionProcessingResult result = mockResult(21_000L, true);
+    when(result.getLogs()).thenReturn(List.of(log));
+
+    assertThat(tracer.buildResult(tx, result).getLogs()).isNull();
+  }
+
+  private static Log addLog(final MessageFrame frame, final int tag) {
+    final Log log =
+        new Log(
+            frame.getRecipientAddress(),
+            Bytes.of(tag),
+            List.of(LogTopic.of(Bytes32.leftPad(Bytes.of(tag)))));
+    final List<Log> logs = new ArrayList<>(frame.getLogs());
+    logs.add(log);
+    when(frame.getLogs()).thenReturn(logs);
+    return log;
+  }
+
+  private static Log emitLog(final CallTracer tracer, final MessageFrame frame, final int tag) {
+    final Log log = addLog(frame, tag);
+    tracer.tracePostExecution(frame, new OperationResult(375L, null));
+    return log;
+  }
+
   private static TraceOptions callTracerOptions(final boolean onlyTopCall) {
     return new TraceOptions(TracerType.CALL_TRACER, null, Map.of("onlyTopCall", onlyTopCall));
+  }
+
+  private static TraceOptions withLogOptions(final boolean onlyTopCall) {
+    return new TraceOptions(
+        TracerType.CALL_TRACER, null, Map.of("onlyTopCall", onlyTopCall, "withLog", true));
   }
 }

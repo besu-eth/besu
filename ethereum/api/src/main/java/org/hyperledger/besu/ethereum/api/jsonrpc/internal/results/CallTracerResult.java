@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
+import org.hyperledger.besu.datatypes.Log;
+import org.hyperledger.besu.datatypes.LogTopic;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 
 import java.math.BigInteger;
@@ -68,6 +70,7 @@ import org.apache.tuweni.bytes.Bytes;
   "error",
   "revertReason",
   "calls",
+  "logs",
   "value",
   "type",
 })
@@ -107,6 +110,9 @@ public class CallTracerResult {
   /** List of nested calls made during this call's execution */
   private List<CallTracerResult> calls;
 
+  /** Logs emitted by this call itself, only collected when the withLog option is set */
+  private List<CallLog> logs;
+
   /**
    * Private constructor used by the Builder pattern.
    *
@@ -124,6 +130,7 @@ public class CallTracerResult {
     this.error = builder.error;
     this.revertReason = builder.revertReason;
     this.calls = builder.calls;
+    this.logs = builder.logs;
   }
 
   /** Default constructor required for Jackson JSON deserialization. */
@@ -242,6 +249,17 @@ public class CallTracerResult {
   }
 
   /**
+   * Gets the logs emitted by this call itself.
+   *
+   * @return the logs, or null if withLog was not set or no log was emitted
+   */
+  @JsonGetter("logs")
+  @JsonInclude(JsonInclude.Include.NON_EMPTY)
+  public List<CallLog> getLogs() {
+    return logs;
+  }
+
+  /**
    * Converts a BigInteger to a hex string with "0x" prefix.
    *
    * @param value the BigInteger value to convert
@@ -311,6 +329,7 @@ public class CallTracerResult {
     private String error;
     private String revertReason;
     private List<CallTracerResult> calls;
+    private List<CallLog> logs;
 
     /** Private constructor to enforce use of the static factory method. */
     private Builder() {}
@@ -468,6 +487,29 @@ public class CallTracerResult {
       return this;
     }
 
+    /**
+     * Adds a log emitted directly by this call.
+     *
+     * @param log the log to add
+     * @return this builder instance for method chaining
+     */
+    public Builder addLog(final CallLog log) {
+      if (this.logs == null) {
+        this.logs = new ArrayList<>();
+      }
+      this.logs.add(log);
+      return this;
+    }
+
+    /**
+     * Number of nested calls added so far
+     *
+     * @return the number of nested calls
+     */
+    public int callCount() {
+      return this.calls == null ? 0 : this.calls.size();
+    }
+
     @Override
     public String toString() {
       return MoreObjects.toStringHelper(this)
@@ -536,6 +578,88 @@ public class CallTracerResult {
 
     public String getValue() {
       return this.value;
+    }
+  }
+
+  /** One log of a call frame, as reported by the callTracer withLog option. */
+  @JsonPropertyOrder({"address", "topics", "data", "position", "index"})
+  public static class CallLog {
+    private final String address;
+    private final List<String> topics;
+    private final String data;
+    private final int position;
+    private Integer index;
+
+    /**
+     * Creates a call log from an EVM log.
+     *
+     * @param log the emitted log
+     * @param position the number of nested calls the frame had made when the log was emitted
+     */
+    public CallLog(final Log log, final int position) {
+      this.address = log.getLogger().toString();
+      this.topics = log.getTopics().stream().map(LogTopic::toString).toList();
+      this.data = log.getData().toString();
+      this.position = position;
+    }
+
+    /**
+     * Gets the address of the contract that emitted the log.
+     *
+     * @return the address as a hex string
+     */
+    @JsonGetter("address")
+    public String getAddress() {
+      return address;
+    }
+
+    /**
+     * Gets the log topics.
+     *
+     * @return the topics as hex strings
+     */
+    @JsonGetter("topics")
+    public List<String> getTopics() {
+      return topics;
+    }
+
+    /**
+     * Gets the log data.
+     *
+     * @return the data as a hex string
+     */
+    @JsonGetter("data")
+    public String getData() {
+      return data;
+    }
+
+    /**
+     * Gets the number of nested calls the frame had made when the log was emitted.
+     *
+     * @return the position as a hex quantity
+     */
+    @JsonGetter("position")
+    public String getPosition() {
+      return Quantity.create(position);
+    }
+
+    /**
+     * Gets the index of the log within the block, equal to the receipt logIndex.
+     *
+     * @return the index as a hex quantity, or null if the log did not take effect
+     */
+    @JsonGetter("index")
+    public String getIndex() {
+      return index == null ? null : Quantity.create(index);
+    }
+
+    /**
+     * Sets the index of the log within the block.
+     *
+     * @param index the block-wide log index
+     */
+    public void setIndex(final int index) {
+      this.index = index;
     }
   }
 }
