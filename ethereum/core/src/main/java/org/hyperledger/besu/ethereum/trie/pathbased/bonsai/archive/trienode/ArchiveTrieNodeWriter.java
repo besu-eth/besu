@@ -29,12 +29,16 @@ import java.util.concurrent.TimeUnit;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Persists the computed history entries to {@code TRIE_BRANCH_STORAGE_ARCHIVE} before each block
  * commit.
  */
 public class ArchiveTrieNodeWriter implements Closeable {
+
+  private static final Logger LOG = LoggerFactory.getLogger(ArchiveTrieNodeWriter.class);
 
   private record CaptureRequest(
       Bytes naturalKey, Bytes location, long block, Bytes newNode, Bytes priorNode) {}
@@ -65,6 +69,13 @@ public class ArchiveTrieNodeWriter implements Closeable {
   private final ConcurrentHashMap<SegmentedKeyValueStorageTransaction, CaptureBuffer> buffers =
       new ConcurrentHashMap<>();
   private volatile long lastArchivedBlock = -1L;
+
+  /**
+   * When non-null (roller mode), archive-history and coverage writes go here instead of the persist
+   * transaction, so a snapshot recompute's base writes can be discarded while archive writes reach
+   * canonical storage.
+   */
+  private volatile SegmentedKeyValueStorageTransaction archiveWriteTransactionOverride;
 
   public ArchiveTrieNodeWriter(
       final ArchiveNodeHistoryStore historyStore,
@@ -160,6 +171,14 @@ public class ArchiveTrieNodeWriter implements Closeable {
         ArchiveNodeHistoryStore.encodeStoredValue(counter, codecEntry));
   }
 
+  public void setArchiveWriteTransaction(final SegmentedKeyValueStorageTransaction tx) {
+    this.archiveWriteTransactionOverride = tx;
+  }
+
+  public long lastArchivedBlock() {
+    return lastArchivedBlock;
+  }
+
   public void onBeforeCommit(final SegmentedKeyValueStorageTransaction transaction) {
     final CaptureBuffer buf = buffers.remove(transaction);
     if (buf == null) {
@@ -169,11 +188,16 @@ public class ArchiveTrieNodeWriter implements Closeable {
       if (!buf.pendingRequests.isEmpty()) {
         dispatchBatch(buf);
       }
+      final SegmentedKeyValueStorageTransaction writeTx =
+          archiveWriteTransactionOverride != null ? archiveWriteTransactionOverride : transaction;
+      int nodeCount = 0;
       try {
         for (final Future<List<EncodedEntry>> future : buf.inFlight) {
-          for (final EncodedEntry entry : future.get()) {
-            historyStore.putEncoded(transaction, entry.historyKey(), entry.storedValue());
+          final List<EncodedEntry> entries = future.get();
+          for (final EncodedEntry entry : entries) {
+            historyStore.putEncoded(writeTx, entry.historyKey(), entry.storedValue());
           }
+          nodeCount += entries.size();
         }
       } catch (final InterruptedException e) {
         Thread.currentThread().interrupt();
@@ -181,7 +205,9 @@ public class ArchiveTrieNodeWriter implements Closeable {
       } catch (final ExecutionException e) {
         throw new RuntimeException("trie-node capture failed", e.getCause());
       }
-      coverageTracker.record(transaction, buf.block);
+      LOG.debug(
+          "Archive trie-node writer: block {} wrote {} node history entries", buf.block, nodeCount);
+      coverageTracker.record(writeTx, buf.block);
       lastArchivedBlock = buf.block;
     }
   }

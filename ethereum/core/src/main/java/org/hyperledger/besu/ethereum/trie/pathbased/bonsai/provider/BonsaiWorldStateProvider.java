@@ -20,6 +20,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldSt
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateConfig;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.cache.BonsaiWorldStateCacheManager;
 import org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration;
@@ -36,6 +37,7 @@ public class BonsaiWorldStateProvider extends PathBasedWorldStateProvider {
 
   private final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader;
   private final Optional<Long> amsterdamMilestone;
+  private final BonsaiCodeCache codeCache;
 
   public BonsaiWorldStateProvider(
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
@@ -69,6 +71,7 @@ public class BonsaiWorldStateProvider extends PathBasedWorldStateProvider {
     this.bonsaiCachedMerkleTrieLoader = bonsaiCachedMerkleTrieLoader;
     this.amsterdamMilestone = amsterdamMilestone;
     this.evmConfiguration = evmConfiguration;
+    this.codeCache = codeCache;
     provideWorldStateCacheManager(
         new BonsaiWorldStateCacheManager(
             this, worldStateKeyValueStorage, evmConfiguration, worldStateConfig, codeCache));
@@ -91,6 +94,7 @@ public class BonsaiWorldStateProvider extends PathBasedWorldStateProvider {
     this.bonsaiCachedMerkleTrieLoader = bonsaiCachedMerkleTrieLoader;
     this.amsterdamMilestone = Optional.empty();
     this.evmConfiguration = evmConfiguration;
+    this.codeCache = codeCache;
     provideWorldStateCacheManager(bonsaiWorldStateCacheManager);
     initializeHeadWorldState(
         new BonsaiWorldState(
@@ -99,6 +103,21 @@ public class BonsaiWorldStateProvider extends PathBasedWorldStateProvider {
 
   public BonsaiCachedMerkleTrieLoader getCachedMerkleTrieLoader() {
     return bonsaiCachedMerkleTrieLoader;
+  }
+
+  /**
+   * Builds a fresh, unfrozen, trie-enabled world state over the supplied storage. Used by the
+   * archive frontier roller to roll a snapshot forward and {@code persist()} per block so trie-node
+   * writes are emitted for capture. Mirrors head construction but takes an explicit (snapshot)
+   * storage and never freezes.
+   */
+  public BonsaiWorldState newTrieEnabledWorldState(final BonsaiWorldStateKeyValueStorage storage) {
+    return new BonsaiWorldState(
+        this,
+        storage,
+        evmConfiguration,
+        WorldStateConfig.newBuilder(worldStateConfig).trieDisabled(false).build(),
+        codeCache);
   }
 
   private void initializeHeadWorldState(final BonsaiWorldState headWorldState) {

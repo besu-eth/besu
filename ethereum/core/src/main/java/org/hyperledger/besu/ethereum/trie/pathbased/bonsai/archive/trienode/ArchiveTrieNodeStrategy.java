@@ -99,6 +99,36 @@ public class ArchiveTrieNodeStrategy
   }
 
   /**
+   * Like {@link #createArchiveStrategy} but for the frontier roller: capture is always on (the
+   * roller only ever processes final blocks) and the caller drives archive-write routing via {@link
+   * ArchiveTrieNodeWriter#setArchiveWriteTransaction}. Reads (diff base / coverage) still use the
+   * supplied canonical storage.
+   */
+  public static ArchiveTrieNodeStrategy createRollerStrategy(
+      final SegmentedKeyValueStorage canonicalLiveStorage,
+      final ExecutorService trieCapturePool,
+      final int shallowCheckpointInterval,
+      final int deepCheckpointInterval) {
+    final ArchiveTrieNodeStrategy strategy =
+        new ArchiveTrieNodeStrategy(
+            new BonsaiTrieNodeStrategy(),
+            new ArchiveTrieNodeWriter(
+                new ArchiveNodeHistoryStore(canonicalLiveStorage),
+                new ArchiveCoverageTracker(canonicalLiveStorage),
+                trieCapturePool,
+                shallowCheckpointInterval,
+                deepCheckpointInterval),
+            () -> true); // hasChainEstimate irrelevant; keep archiving always on
+    strategy.onInSyncStatusChange(false); // force archiving = true
+    return strategy;
+  }
+
+  /** Returns the underlying writer so the roller can call {@code setArchiveWriteTransaction}. */
+  public ArchiveTrieNodeWriter getTrieNodeWriter() {
+    return trieNodeWriter;
+  }
+
+  /**
    * Supplies whether an external chain estimate exists. Must be set before the in-sync subscription
    * is registered, since it is consulted from {@link #onInSyncStatusChange(boolean)}.
    */

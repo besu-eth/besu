@@ -90,6 +90,7 @@ import org.hyperledger.besu.ethereum.trie.forest.ForestWorldStateArchive;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.BonsaiArchiveFlatDbStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.BonsaiArchiveWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.BonsaiFlatDbToArchiveMigrator;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveTrieNodeFrontierRoller;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
@@ -909,9 +910,29 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
     if (archiveTrieNodeStrategy != null) {
       archiveTrieNodeStrategy.setHasChainEstimate(
           () -> syncState.getBestPeerChainHead().isPresent());
+      final long maxLayersToLoad =
+          dataStorageConfiguration.getExtraStorageConfiguration().getMaxLayersToLoad();
+      synchronizer.subscribeInSync(archiveTrieNodeStrategy, maxLayersToLoad);
+
+      final ArchiveTrieNodeFrontierRoller frontierRoller =
+          createArchiveTrieNodeFrontierRoller(
+              worldStateStorageCoordinator, worldStateArchive, blockchain);
+      // Close before storageProvider so the roller's threads finish before RocksDB is closed.
+      closeables.addFirst(frontierRoller);
+
+      final ArchiveTrieNodeStrategy capturedStrategy = archiveTrieNodeStrategy;
+      final AtomicBoolean rollerStarted = new AtomicBoolean(false);
       synchronizer.subscribeInSync(
-          archiveTrieNodeStrategy,
-          dataStorageConfiguration.getExtraStorageConfiguration().getMaxLayersToLoad());
+          inSync -> {
+            if (inSync
+                && syncState.getBestPeerChainHead().isPresent()
+                && rollerStarted.compareAndSet(false, true)) {
+              LOG.info("Node is in sync, starting archive trie-node frontier roller");
+              frontierRoller.startOngoing(
+                  Math.max(0L, capturedStrategy.getTrieNodeWriter().lastArchivedBlock()));
+            }
+          },
+          maxLayersToLoad);
     }
 
     if (syncConfig.getSyncMode() == SyncMode.SNAP) {
@@ -1116,6 +1137,33 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
         migrationExecutor,
         metricsSystem,
         archiveStrategy);
+  }
+
+  private ArchiveTrieNodeFrontierRoller createArchiveTrieNodeFrontierRoller(
+      final WorldStateStorageCoordinator worldStateStorageCoordinator,
+      final WorldStateArchive worldStateArchive,
+      final Blockchain blockchain) {
+    final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage =
+        worldStateStorageCoordinator.getStrategy(BonsaiWorldStateKeyValueStorage.class);
+    final BonsaiWorldStateProvider worldStateProvider =
+        (BonsaiWorldStateProvider) worldStateArchive;
+    final TrieLogManager trieLogManager = worldStateProvider.getTrieLogManager();
+    final ScheduledExecutorService rollerExecutor =
+        MonitoredExecutors.newScheduledThreadPool("archive-trienode-roller", 1, metricsSystem);
+    final ExecutorService trieCapturePool =
+        MonitoredExecutors.newFixedThreadPool(
+            "trie-capture-roller", syncConfig.getComputationParallelism(), metricsSystem);
+    final ExtraStorageConfiguration.Unstable archiveUnstable =
+        dataStorageConfiguration.getExtraStorageConfiguration().getUnstable();
+    return new ArchiveTrieNodeFrontierRoller(
+        worldStateKeyValueStorage,
+        worldStateProvider,
+        trieLogManager,
+        blockchain,
+        rollerExecutor,
+        trieCapturePool,
+        archiveUnstable.getBonsaiArchiveShallowCheckpointInterval(),
+        archiveUnstable.getBonsaiArchiveDeepCheckpointInterval());
   }
 
   /**

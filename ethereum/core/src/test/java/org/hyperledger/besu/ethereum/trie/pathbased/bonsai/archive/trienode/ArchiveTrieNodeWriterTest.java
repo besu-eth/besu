@@ -409,6 +409,26 @@ class ArchiveTrieNodeWriterTest {
   }
 
   @Test
+  void onBeforeCommitRoutesArchiveWritesToRedirectTransactionWhenSet() {
+    final Bytes nk = ArchiveNodeKey.account(LOCATION);
+    final SegmentedKeyValueStorageTransaction persistTx = storage.startTransaction();
+    final SegmentedKeyValueStorageTransaction canonicalTx = storage.startTransaction();
+
+    trieNodeWriter.capture(nk, LOCATION, 5L, branchNode(5), null, persistTx);
+
+    trieNodeWriter.setArchiveWriteTransaction(canonicalTx);
+    trieNodeWriter.onBeforeCommit(persistTx);
+
+    // committing persistTx must NOT write the coverage entry (archive writes went to canonicalTx)
+    persistTx.commit();
+    assertThat(coverageTracker.hasArchiveBlock(5L)).isFalse();
+
+    // committing canonicalTx must have the coverage entry
+    canonicalTx.commit();
+    assertThat(coverageTracker.hasArchiveBlock(5L)).isTrue();
+  }
+
+  @Test
   void chunkBoundaryFlushesAllNodes() {
     // 65 creations in one block: the first 64 are auto-submitted as a chunk during enqueue, the
     // 65th is submitted in onBeforeCommit. All 65 must appear in the archive.
