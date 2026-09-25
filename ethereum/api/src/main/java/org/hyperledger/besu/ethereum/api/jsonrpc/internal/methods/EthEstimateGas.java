@@ -22,6 +22,8 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.transaction.CallParameter;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulatorResult;
@@ -43,8 +45,9 @@ public class EthEstimateGas extends AbstractEstimateGas {
   public EthEstimateGas(
       final BlockchainQueries blockchainQueries,
       final TransactionSimulator transactionSimulator,
-      final ApiConfiguration apiConfiguration) {
-    super(blockchainQueries, transactionSimulator);
+      final ApiConfiguration apiConfiguration,
+      final ProtocolSchedule protocolSchedule) {
+    super(blockchainQueries, transactionSimulator, protocolSchedule);
     this.estimateGasToleranceRatio = apiConfiguration.getEstimateGasToleranceRatio();
   }
 
@@ -61,6 +64,13 @@ public class EthEstimateGas extends AbstractEstimateGas {
       final TransactionSimulationFunction simulationFunction,
       final long gasLimitUpperBound,
       final long minTxCost) {
+
+    final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(blockHeader);
+    final Optional<RpcErrorType> forkError =
+        CallParameterUtil.validateCallParamsForFork(callParams, protocolSpec);
+    if (forkError.isPresent()) {
+      return errorResponse(requestContext, forkError.get());
+    }
 
     LOG.debug(
         "Processing transaction with tolerance {}; callParams: {}",

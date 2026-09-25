@@ -21,6 +21,8 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.CreateAccessListResult;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.transaction.CallParameter;
 import org.hyperledger.besu.ethereum.transaction.ImmutableCallParameter;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
@@ -35,8 +37,10 @@ import java.util.function.Function;
 public class EthCreateAccessList extends AbstractEstimateGas {
 
   public EthCreateAccessList(
-      final BlockchainQueries blockchainQueries, final TransactionSimulator transactionSimulator) {
-    super(blockchainQueries, transactionSimulator);
+      final BlockchainQueries blockchainQueries,
+      final TransactionSimulator transactionSimulator,
+      final ProtocolSchedule protocolSchedule) {
+    super(blockchainQueries, transactionSimulator, protocolSchedule);
   }
 
   @Override
@@ -52,6 +56,11 @@ public class EthCreateAccessList extends AbstractEstimateGas {
       final TransactionSimulationFunction simulationFunction,
       final long gasLimitUpperBound,
       final long minTxCost) {
+
+    final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(blockHeader);
+    if (!CallParameterUtil.isBerlinActive(protocolSpec)) {
+      return errorResponse(requestContext, RpcErrorType.INVALID_CALL_PARAMS);
+    }
 
     final AccessListOperationTracer tracer = AccessListOperationTracer.create();
     if (attemptOptimisticSimulationWithMinimumBlockGasUsed(

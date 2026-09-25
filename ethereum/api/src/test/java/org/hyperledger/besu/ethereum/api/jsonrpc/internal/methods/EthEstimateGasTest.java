@@ -22,8 +22,10 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.datatypes.StateOverride;
 import org.hyperledger.besu.datatypes.StateOverrideMap;
 import org.hyperledger.besu.datatypes.Wei;
@@ -40,6 +42,8 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
@@ -51,6 +55,7 @@ import org.hyperledger.besu.ethereum.transaction.TransactionSimulatorResult;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 
@@ -81,6 +86,8 @@ public class EthEstimateGasTest {
   @Mock private BlockchainQueries blockchainQueries;
   @Mock private TransactionSimulator transactionSimulator;
   @Mock private WorldStateArchive worldStateArchive;
+  @Mock private ProtocolSchedule protocolSchedule;
+  @Mock private ProtocolSpec protocolSpec;
 
   @BeforeEach
   public void setUp() {
@@ -106,14 +113,41 @@ public class EthEstimateGasTest {
     when(transactionSimulator.simulatePendingBlockHeader()).thenReturn(pendingBlockHeader);
     when(worldStateArchive.isWorldStateAvailable(any(), any())).thenReturn(true);
 
+    when(protocolSchedule.getByBlockHeader(any())).thenReturn(protocolSpec);
+    when(protocolSpec.getHardforkId()).thenReturn(HardforkId.MainnetHardforkId.PRAGUE);
+
     method =
         new EthEstimateGas(
-            blockchainQueries, transactionSimulator, ImmutableApiConfiguration.builder().build());
+            blockchainQueries,
+            transactionSimulator,
+            ImmutableApiConfiguration.builder().build(),
+            protocolSchedule);
   }
 
   @Test
   public void shouldReturnCorrectMethodName() {
     assertThat(method.getName()).isEqualTo("eth_estimateGas");
+  }
+
+  @Test
+  public void shouldRejectAccessListFieldPreBerlin() {
+    when(protocolSpec.getHardforkId()).thenReturn(HardforkId.MainnetHardforkId.ISTANBUL);
+
+    final CallParameter params =
+        ImmutableCallParameter.builder()
+            .sender(Address.fromHexString("0x0"))
+            .to(Address.fromHexString("0x0"))
+            .accessList(Optional.of(List.of()))
+            .build();
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest("2.0", "eth_estimateGas", new Object[] {params}));
+
+    final JsonRpcResponse response = method.response(request);
+
+    assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
+    assertThat(((JsonRpcErrorResponse) response).getError().getCode())
+        .isEqualTo(RpcErrorType.INVALID_CALL_PARAMS.getCode());
   }
 
   @Test

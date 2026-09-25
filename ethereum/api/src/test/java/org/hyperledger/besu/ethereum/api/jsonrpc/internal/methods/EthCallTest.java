@@ -26,8 +26,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.datatypes.StateOverride;
 import org.hyperledger.besu.datatypes.StateOverrideMap;
 import org.hyperledger.besu.datatypes.Wei;
@@ -38,12 +40,15 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.ChainHead;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.ImmutableTransactionValidationParams;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
@@ -58,6 +63,7 @@ import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -86,6 +92,8 @@ public class EthCallTest {
   @Mock private TransactionSimulator transactionSimulator;
   @Mock private BlockHeader blockHeader;
   @Mock private MetricsSystem metricsSystem;
+  @Mock private ProtocolSchedule protocolSchedule;
+  @Mock private ProtocolSpec protocolSpec;
 
   @Captor ArgumentCaptor<PreCloseStateHandler<Optional<JsonRpcResponse>>> mapperCaptor;
   @Captor ArgumentCaptor<CallParameter> callParameterCaptor;
@@ -101,7 +109,10 @@ public class EthCallTest {
             any(BesuMetricCategory.class), any(String.class), any(String.class), any(String.class)))
         .thenReturn(mockGasUsedCounter);
 
-    method = new EthCall(blockchainQueries, transactionSimulator, metricsSystem);
+    when(protocolSchedule.getByBlockHeader(any())).thenReturn(protocolSpec);
+    when(protocolSpec.getHardforkId()).thenReturn(HardforkId.MainnetHardforkId.PRAGUE);
+
+    method = new EthCall(blockchainQueries, transactionSimulator, metricsSystem, protocolSchedule);
     blockHeader = mock(BlockHeader.class);
     when(blockHeader.getBlockHash()).thenReturn(Hash.ZERO);
   }
@@ -109,6 +120,29 @@ public class EthCallTest {
   @Test
   public void shouldReturnCorrectMethodName() {
     assertThat(method.getName()).isEqualTo("eth_call");
+  }
+
+  @Test
+  public void shouldRejectAccessListFieldPreBerlin() {
+    when(protocolSpec.getHardforkId()).thenReturn(HardforkId.MainnetHardforkId.ISTANBUL);
+    when(blockchainQueries.getBlockchain()).thenReturn(blockchain);
+    when(blockchain.getChainHead()).thenReturn(chainHead);
+    when(chainHead.getBlockHeader()).thenReturn(blockHeader);
+    when(blockHeader.getBaseFee()).thenReturn(Optional.empty());
+
+    final CallParameter params =
+        ImmutableCallParameter.builder()
+            .sender(Address.fromHexString("0x0"))
+            .to(Address.fromHexString("0x0"))
+            .accessList(Optional.of(List.of()))
+            .build();
+    final JsonRpcRequestContext request = ethCallRequest(params, "latest");
+
+    final JsonRpcResponse response = method.response(request);
+
+    assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
+    assertThat(((JsonRpcErrorResponse) response).getError().getCode())
+        .isEqualTo(RpcErrorType.INVALID_CALL_PARAMS.getCode());
   }
 
   @Test
