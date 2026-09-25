@@ -29,6 +29,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
+import org.jspecify.annotations.Nullable;
+
 /** The Mock executor service. */
 public class MockExecutorService implements ExecutorService {
 
@@ -124,7 +126,7 @@ public class MockExecutorService implements ExecutorService {
   }
 
   @Override
-  public <T> Future<T> submit(final Runnable task, final T result) {
+  public <T> Future<T> submit(final Runnable task, @Nullable final T result) {
     return submit(
         () -> {
           task.run();
