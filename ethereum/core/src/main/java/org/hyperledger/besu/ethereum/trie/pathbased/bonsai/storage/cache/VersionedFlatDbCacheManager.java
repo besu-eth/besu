@@ -24,6 +24,7 @@ import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 
 import java.io.Closeable;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.Queue;
@@ -55,6 +56,10 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
   private static final long MAX_INITIAL_CAPACITY = Integer.MAX_VALUE;
 
   private final AtomicLong globalVersion = new AtomicLong(0);
+
+  /** Nested commit-bypass count; when readers ignore the cache entirely. */
+  private final AtomicInteger commitCacheBypassCount = new AtomicInteger(0);
+
   private final Cache<CacheKey, VersionedValue> accountCache;
   private final Cache<CacheKey, VersionedValue> storageCache;
   private final ThresholdDrainExecutor drainExecutor;
@@ -242,6 +247,25 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
   }
 
   @Override
+  public void beginCommitCacheBypass() {
+    commitCacheBypassCount.incrementAndGet();
+  }
+
+  @Override
+  public void endCommitCacheBypass() {
+    final int remaining = commitCacheBypassCount.decrementAndGet();
+    if (remaining < 0) {
+      commitCacheBypassCount.set(0);
+      LOG.warn("endCommitCacheBypass() called without a matching begin");
+    }
+  }
+
+  @Override
+  public boolean isCommitCacheBypassActive() {
+    return commitCacheBypassCount.get() > 0;
+  }
+
+  @Override
   public void clear(final SegmentIdentifier segment) {
     final Cache<CacheKey, VersionedValue> cache = cacheForSegment(segment);
     if (cache != null) {
@@ -256,9 +280,15 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
       final long version,
       final Supplier<Optional<Bytes>> storageGetter) {
 
-    final Cache<CacheKey, VersionedValue> cache = cacheForSegment(segment);
-
     cacheRequestCounter.inc();
+
+    // During head commit publish, ignore the cache completely: no stale hits, no miss inserts.
+    if (isCommitCacheBypassActive()) {
+      cacheMissCounter.inc();
+      return storageGetter.get();
+    }
+
+    final Cache<CacheKey, VersionedValue> cache = cacheForSegment(segment);
 
     if (cache == null) {
       cacheMissCounter.inc();
@@ -302,6 +332,19 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
       final List<Bytes> keys,
       final long version,
       final Function<List<Bytes>, List<Optional<Bytes>>> batchFetcher) {
+
+    if (isCommitCacheBypassActive()) {
+      keys.forEach(
+          k -> {
+            cacheRequestCounter.inc();
+            cacheMissCounter.inc();
+          });
+      final List<Optional<Bytes>> fetched = batchFetcher.apply(keys);
+      if (fetched.size() != keys.size()) {
+        return Collections.nCopies(keys.size(), null);
+      }
+      return fetched;
+    }
 
     final Cache<CacheKey, VersionedValue> cache = cacheForSegment(segment);
 

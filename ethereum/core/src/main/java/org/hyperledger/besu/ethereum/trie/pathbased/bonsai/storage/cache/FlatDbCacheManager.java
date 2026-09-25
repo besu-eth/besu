@@ -41,6 +41,23 @@ public interface FlatDbCacheManager {
     return 0;
   }
 
+  /**
+   * While a head commit is publishing storage/cache, readers must ignore the cross-block cache
+   * entirely (no hits, no miss inserts) and read storage only. Nested calls are reference-counted.
+   */
+  default void beginCommitCacheBypass() {
+    // No-op
+  }
+
+  /** Ends a matching {@link #beginCommitCacheBypass()}. */
+  default void endCommitCacheBypass() {
+    // No-op
+  }
+
+  default boolean isCommitCacheBypassActive() {
+    return false;
+  }
+
   default void clear(final SegmentIdentifier segment) {
     // No-op
   }

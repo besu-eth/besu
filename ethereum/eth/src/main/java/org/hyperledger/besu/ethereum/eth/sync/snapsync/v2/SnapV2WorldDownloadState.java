@@ -220,6 +220,9 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
         return false;
       }
       persistWorldStateRoot(header);
+
+      worldStateStorageCoordinator.clearCrossBlockCache();
+
       notifyWorldStateFinished();
       syncDurationMetrics.stopTimer(
           SyncDurationMetrics.Labels.SNAP_INITIAL_WORLD_STATE_DOWNLOAD_DURATION);
