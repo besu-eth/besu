@@ -30,7 +30,7 @@ import java.util.Objects;
 
 import org.apache.tuweni.bytes.Bytes;
 
-/** EVM v2 PAY operation (EIP-7708) using long[] stack representation. */
+/** EVM v2 PAY operation (EIP-5920) using long[] stack representation. */
 public class PayOperationV2 extends AbstractOperationV2 {
 
   /**

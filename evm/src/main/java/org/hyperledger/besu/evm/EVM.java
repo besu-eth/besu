@@ -218,6 +218,7 @@ public class EVM {
   private final boolean enableCancun;
   private final boolean enableAmsterdam;
   private final boolean enableOsaka;
+  private final boolean enableFutureEips;
 
   // V2 operation instances that require constructor arguments
   private final ChainIdOperationV2 chainIdOperationV2;
@@ -254,6 +255,7 @@ public class EVM {
     enableCancun = EvmSpecVersion.CANCUN.ordinal() <= evmSpecVersion.ordinal();
     enableAmsterdam = EvmSpecVersion.AMSTERDAM.ordinal() <= evmSpecVersion.ordinal();
     enableOsaka = EvmSpecVersion.OSAKA.ordinal() <= evmSpecVersion.ordinal();
+    enableFutureEips = EvmSpecVersion.FUTURE_EIPS.ordinal() <= evmSpecVersion.ordinal();
 
     // Pre-compute V2 operation instances that require constructor arguments.
     // ChainIdOperation is only registered for Istanbul+, so the instanceof check is the gate.
@@ -867,8 +869,8 @@ public class EVM {
                       enableAmsterdam
                           ? EIP7708TransferLogEmitter.INSTANCE
                           : TransferLogEmitter.NOOP);
-              case 0xfc -> // PAY (EIP-7708, Amsterdam+)
-                  enableAmsterdam
+              case 0xfc -> // PAY (EIP-5920), registered by MainnetEVMs for FutureEips only
+                  enableFutureEips
                       ? PayOperationV2.staticOperation(frame, frame.stackDataV2(), gasCalculator)
                       : InvalidOperation.invalidOperationResult(opcode);
               default -> {
