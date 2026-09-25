@@ -30,6 +30,7 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -167,6 +168,24 @@ public class MainnetBlockValidatorTest {
 
     assertThat(result.isSuccessful()).isTrue();
     assertNoBadBlocks();
+  }
+
+  @Test
+  public void validateAndProcessBlock_onSuccessForgetsAStaleBadBlockEntry() {
+    badBlockManager.addBadHeader(
+        block.getHeader(), BadBlockCause.fromValidationFailure("transient failure"));
+    badBlockManager.addLatestValidHash(block.getHash(), blockParent.getHash());
+
+    BlockProcessingResult result =
+        mainnetFrontierBlockValidator.validateAndProcessBlock(
+            protocolContext,
+            block,
+            HeaderValidationMode.DETACHED_ONLY,
+            HeaderValidationMode.DETACHED_ONLY);
+
+    assertThat(result.isSuccessful()).isTrue();
+    assertThat(badBlockManager.isBadBlock(block.getHash())).isFalse();
+    assertThat(badBlockManager.getLatestValidHash(block.getHash())).isEmpty();
   }
 
   @Test

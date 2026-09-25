@@ -20,6 +20,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -172,8 +173,17 @@ public class EvmToolMergeCoordinator implements MergeMiningCoordinator {
   }
 
   @Override
+  public Optional<BadBlockCause> checkAndMarkBadDescendant(final BlockHeader header) {
+    if (protocolContext.getBlockchain().contains(header.getParentHash())) {
+      return Optional.empty();
+    }
+    return protocolContext.getBadBlockManager().checkAndMarkBadDescendant(header);
+  }
+
+  @Override
   public boolean checkAndMarkBadDescendant(final Hash blockHash) {
-    // evmtool has no backward sync, so there is no header of an unimported block to check
+    // evmtool has no backward sync, so there is no header of an unimported block to check; a
+    // forkchoice update on a bad descendant answers SYNCING here where production answers INVALID
     return false;
   }
 

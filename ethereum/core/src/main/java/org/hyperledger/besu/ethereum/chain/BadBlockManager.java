@@ -18,6 +18,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.plugin.data.BadBlockCause.BadBlockReason;
 import org.hyperledger.besu.plugin.services.BesuEvents.BadBlockListener;
 import org.hyperledger.besu.util.Subscribers;
 
@@ -61,6 +62,8 @@ public class BadBlockManager {
           .build();
   private final Cache<Hash, Hash> latestValidHashes =
       CacheBuilder.newBuilder().maximumSize(MAX_BAD_CHAIN_SIZE).concurrencyLevel(1).build();
+  private final Cache<Hash, BadBlockCause> badBlockCauses =
+      CacheBuilder.newBuilder().maximumSize(MAX_BAD_CHAIN_SIZE).concurrencyLevel(1).build();
   private final Cache<Hash, BlockAccessList> blockAccessLists =
       CacheBuilder.newBuilder().maximumSize(MAX_BAD_BLOCKS_SIZE).concurrencyLevel(1).build();
   private final Cache<Hash, BlockAccessList> generatedBlockAccessLists =
@@ -84,18 +87,43 @@ public class BadBlockManager {
       final Optional<BlockAccessList> generatedBlockAccessList) {
     LOG.debug("Register bad block {} with cause: {}", badBlock.toLogString(), cause);
     this.badBlocks.put(badBlock.getHash(), badBlock);
+    this.badBlockCauses.put(badBlock.getHash(), cause);
     blockAccessList.ifPresent(bal -> this.blockAccessLists.put(badBlock.getHash(), bal));
     generatedBlockAccessList.ifPresent(
         bal -> this.generatedBlockAccessLists.put(badBlock.getHash(), bal));
     badBlockSubscribers.forEach(s -> s.onBadBlockAdded(badBlock.getHeader(), cause));
   }
 
-  public void reset() {
+  /**
+   * Forget every bad block. Synchronized with the descendant marking so a mark that read its parent
+   * before the reset cannot re-insert a stale entry after it.
+   */
+  public synchronized void reset() {
     this.badBlocks.invalidateAll();
     this.badHeaders.invalidateAll();
     this.latestValidHashes.invalidateAll();
+    this.badBlockCauses.invalidateAll();
     this.blockAccessLists.invalidateAll();
     this.generatedBlockAccessLists.invalidateAll();
+  }
+
+  /**
+   * Forget a single block, because it turned out to be valid after all. A block that is imported
+   * successfully cannot be bad, whatever an earlier attempt recorded.
+   *
+   * @param blockHash the hash of the block to forget
+   */
+  public void removeBadBlock(final Hash blockHash) {
+    if (!isBadBlock(blockHash) && latestValidHashes.getIfPresent(blockHash) == null) {
+      return;
+    }
+    LOG.debug("Forget bad block {} after it was imported successfully", blockHash);
+    this.badBlocks.invalidate(blockHash);
+    this.badHeaders.invalidate(blockHash);
+    this.latestValidHashes.invalidate(blockHash);
+    this.badBlockCauses.invalidate(blockHash);
+    this.blockAccessLists.invalidate(blockHash);
+    this.generatedBlockAccessLists.invalidate(blockHash);
   }
 
   /**
@@ -137,7 +165,18 @@ public class BadBlockManager {
   public void addBadHeader(final BlockHeader header, final BadBlockCause cause) {
     LOG.debug("Register bad block header {} with cause: {}", header.toLogString(), cause);
     badHeaders.put(header.getHash(), header);
+    badBlockCauses.put(header.getHash(), cause);
     badBlockSubscribers.forEach(s -> s.onBadBlockAdded(header, cause));
+  }
+
+  /**
+   * Return why a block was recorded as bad.
+   *
+   * @param blockHash the hash of the bad block
+   * @return the cause, empty if the block is not known as bad or its cause was evicted
+   */
+  public Optional<BadBlockCause> getBadBlockCause(final Hash blockHash) {
+    return Optional.ofNullable(badBlockCauses.getIfPresent(blockHash));
   }
 
   public boolean isBadBlock(final Hash blockHash) {
@@ -161,31 +200,72 @@ public class BadBlockManager {
    * @param descendant the header of the descendant
    * @param badAncestor the header of the bad ancestor
    * @param maybeLatestValidHash the latest valid hash of the chain, if known
+   * @return the cause recorded for the descendant
    */
-  public void addBadDescendant(
+  public BadBlockCause addBadDescendant(
       final BlockHeader descendant,
       final BlockHeader badAncestor,
       final Optional<Hash> maybeLatestValidHash) {
-    addBadHeader(descendant, BadBlockCause.fromBadAncestorHeader(badAncestor));
+    final BadBlockCause cause = causeForDescendantOf(badAncestor);
+    addBadHeader(descendant, cause);
     maybeLatestValidHash.ifPresent(
         latestValidHash -> addLatestValidHash(descendant.getHash(), latestValidHash));
+    return cause;
+  }
+
+  /**
+   * Record a block whose body is known as bad because it descends from a bad block. The body is
+   * kept so the debug RPCs can still inspect it, it is evicted to a header like any other bad block
+   * body.
+   *
+   * @param descendant the descendant
+   * @param badAncestor the header of the bad ancestor
+   * @param maybeLatestValidHash the latest valid hash of the chain, if known
+   * @return the cause recorded for the descendant
+   */
+  public BadBlockCause addBadDescendant(
+      final Block descendant,
+      final BlockHeader badAncestor,
+      final Optional<Hash> maybeLatestValidHash) {
+    final BadBlockCause cause = causeForDescendantOf(badAncestor);
+    addBadBlock(descendant, cause);
+    maybeLatestValidHash.ifPresent(
+        latestValidHash -> addLatestValidHash(descendant.getHash(), latestValidHash));
+    return cause;
+  }
+
+  /**
+   * A descendant of a descendant is still invalid because of the root that failed validation, so
+   * the cause keeps naming that root rather than the intermediate block it was checked against.
+   */
+  private BadBlockCause causeForDescendantOf(final BlockHeader badAncestor) {
+    return getBadBlockCause(badAncestor.getHash())
+        .filter(cause -> cause.getReason() == BadBlockReason.DESCENDS_FROM_BAD_BLOCK)
+        .orElseGet(() -> BadBlockCause.fromBadAncestorHeader(badAncestor));
   }
 
   /**
    * Check whether a block descends from a bad block, recording it as a bad descendant that inherits
    * the parent's latest valid hash if so. Only the direct parent is checked, deeper ancestors are
-   * covered as long as every block in between has been checked.
+   * covered as long as every block in between has been checked. Synchronized with {@link #reset()}
+   * so the parent read and the descendant write cannot straddle a reset.
    *
    * @param header the header of the block to check
-   * @return the header of the bad parent, empty if the parent is not known as bad
+   * @return the cause the block is bad for, empty if the parent is not known as bad
    */
-  public Optional<BlockHeader> checkAndMarkBadDescendant(final BlockHeader header) {
+  public synchronized Optional<BadBlockCause> checkAndMarkBadDescendant(final BlockHeader header) {
     final Hash parentHash = header.getParentHash();
     final Optional<BlockHeader> maybeBadParentHeader = getBadHeader(parentHash);
-    if (maybeBadParentHeader.isPresent() && !isBadBlock(header.getHash())) {
-      addBadDescendant(header, maybeBadParentHeader.get(), getLatestValidHash(parentHash));
+    if (maybeBadParentHeader.isEmpty()) {
+      return Optional.empty();
     }
-    return maybeBadParentHeader;
+    final BlockHeader badParentHeader = maybeBadParentHeader.get();
+    if (isBadBlock(header.getHash())) {
+      return Optional.of(
+          getBadBlockCause(header.getHash())
+              .orElseGet(() -> causeForDescendantOf(badParentHeader)));
+    }
+    return Optional.of(addBadDescendant(header, badParentHeader, getLatestValidHash(parentHash)));
   }
 
   public void addLatestValidHash(final Hash blockHash, final Hash latestValidHash) {

@@ -23,7 +23,9 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.config.StubGenesisConfigOptions;
@@ -32,6 +34,7 @@ import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.BlockValidator;
+import org.hyperledger.besu.ethereum.MainnetBlockValidatorBuilder;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
@@ -54,11 +57,16 @@ import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetHeadersFromPee
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.BlockAccessListValidator;
+import org.hyperledger.besu.ethereum.mainnet.BlockBodyValidator;
+import org.hyperledger.besu.ethereum.mainnet.BlockHeaderValidator;
+import org.hyperledger.besu.ethereum.mainnet.BlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.MainnetProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.referencetests.ForestReferenceTestWorldState;
+import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
@@ -507,10 +515,8 @@ public class BackwardSyncContextTest {
 
   @Test
   public void shouldEmitBadChainEvent() {
-    Block block = Mockito.mock(Block.class);
-    BlockHeader blockHeader = Mockito.mock(BlockHeader.class);
-    when(block.getHash()).thenReturn(Hash.fromHexStringLenient("0x42"));
-    when(blockHeader.getHash()).thenReturn(Hash.fromHexStringLenient("0x42"));
+    Block block = mockBlockWithParentOnChain();
+    BlockHeader blockHeader = block.getHeader();
     BadChainListener badChainListener = Mockito.mock(BadChainListener.class);
     context.subscribeBadChainListener(badChainListener);
 
@@ -526,8 +532,6 @@ public class BackwardSyncContextTest {
 
     doReturn(blockValidator).when(context).getBlockValidatorForBlock(any());
     BlockProcessingResult result = new BlockProcessingResult("custom error");
-    // the validator records an invalid block as bad
-    badBlockManager.addBadBlock(block, BadBlockCause.fromValidationFailure("custom error"));
     doReturn(result)
         .when(blockValidator)
         .validateAndProcessBlock(any(), any(), any(), any(), any(), anyBoolean());
@@ -538,15 +542,13 @@ public class BackwardSyncContextTest {
 
     verify(badChainListener)
         .onBadChain(
-            block, Collections.emptyList(), List.of(childBlockHeader, grandChildBlockHeader));
+            blockHeader, Collections.emptyList(), List.of(childBlockHeader, grandChildBlockHeader));
   }
 
   @Test
-  public void shouldNotEmitBadChainEventWhenFailedBlockIsNotRecordedAsBad() {
-    Block block = Mockito.mock(Block.class);
-    BlockHeader blockHeader = Mockito.mock(BlockHeader.class);
-    when(block.getHash()).thenReturn(Hash.fromHexStringLenient("0x42"));
-    when(blockHeader.getHash()).thenReturn(Hash.fromHexStringLenient("0x42"));
+  public void shouldNotEmitBadChainEventWhenTheFailureIsLocal() {
+    Block block = mockBlockWithParentOnChain();
+    BlockHeader blockHeader = block.getHeader();
     BadChainListener badChainListener = Mockito.mock(BadChainListener.class);
     context.subscribeBadChainListener(badChainListener);
 
@@ -569,12 +571,222 @@ public class BackwardSyncContextTest {
   }
 
   @Test
-  @SuppressWarnings("unchecked")
-  public void shouldEmitBadChainEventWithIncludedBlockHeadersLimitedToMaxBadChainEventsSize() {
+  public void shouldNotEmitBadChainEventOnMerkleTrieException() {
+    Block block = mockBlockWithParentOnChain();
+    BadChainListener badChainListener = Mockito.mock(BadChainListener.class);
+    context.subscribeBadChainListener(badChainListener);
+
+    backwardChain.clear();
+    backwardChain.prependAncestorsHeader(
+        remoteBlockchain.getBlockByNumber(LOCAL_HEIGHT + 1).get().getHeader());
+    backwardChain.prependAncestorsHeader(block.getHeader());
+
+    doReturn(blockValidator).when(context).getBlockValidatorForBlock(any());
+    BlockProcessingResult result =
+        new BlockProcessingResult(Optional.empty(), new MerkleTrieException("missing node"));
+    doReturn(result)
+        .when(blockValidator)
+        .validateAndProcessBlock(any(), any(), any(), any(), any(), anyBoolean());
+
+    assertThatThrownBy(() -> context.saveBlock(block, Optional.empty()))
+        .isInstanceOf(BackwardSyncException.class);
+
+    verify(badChainListener, never()).onBadChain(any(), any(), any());
+  }
+
+  @Test
+  public void shouldEmitBadChainEventWhenAnInvalidBlockIsCarriedByAnException() {
+    Block block = mockBlockWithParentOnChain();
+    BadChainListener badChainListener = Mockito.mock(BadChainListener.class);
+    context.subscribeBadChainListener(badChainListener);
+
+    BlockHeader childBlockHeader =
+        remoteBlockchain.getBlockByNumber(LOCAL_HEIGHT + 1).get().getHeader();
+    backwardChain.clear();
+    backwardChain.prependAncestorsHeader(childBlockHeader);
+    backwardChain.prependAncestorsHeader(block.getHeader());
+
+    doReturn(blockValidator).when(context).getBlockValidatorForBlock(any());
+    // the block processor wraps e.g. a failed withdrawals processing this way, nothing records it
+    BlockProcessingResult result =
+        new BlockProcessingResult(
+            Optional.empty(), new IllegalStateException("failed processing withdrawals"));
+    doReturn(result)
+        .when(blockValidator)
+        .validateAndProcessBlock(any(), any(), any(), any(), any(), anyBoolean());
+
+    assertThatThrownBy(() -> context.saveBlock(block, Optional.empty()))
+        .isInstanceOf(BackwardSyncException.class)
+        .hasMessageContaining("failed processing withdrawals");
+
+    verify(badChainListener)
+        .onBadChain(block.getHeader(), Collections.emptyList(), List.of(childBlockHeader));
+  }
+
+  @Test
+  public void shouldNotEmitBadChainEventWhenTheParentIsMissing() {
     Block block = Mockito.mock(Block.class);
     BlockHeader blockHeader = Mockito.mock(BlockHeader.class);
     when(block.getHash()).thenReturn(Hash.fromHexStringLenient("0x42"));
+    when(block.getHeader()).thenReturn(blockHeader);
     when(blockHeader.getHash()).thenReturn(Hash.fromHexStringLenient("0x42"));
+    when(blockHeader.getParentHash()).thenReturn(Hash.fromHexStringLenient("0xdead"));
+    BadChainListener badChainListener = Mockito.mock(BadChainListener.class);
+    context.subscribeBadChainListener(badChainListener);
+
+    backwardChain.clear();
+    backwardChain.prependAncestorsHeader(
+        remoteBlockchain.getBlockByNumber(LOCAL_HEIGHT + 1).get().getHeader());
+    backwardChain.prependAncestorsHeader(blockHeader);
+
+    doReturn(blockValidator).when(context).getBlockValidatorForBlock(any());
+    BlockProcessingResult result = new BlockProcessingResult("Parent block not present");
+    doReturn(result)
+        .when(blockValidator)
+        .validateAndProcessBlock(any(), any(), any(), any(), any(), anyBoolean());
+
+    assertThatThrownBy(() -> context.saveBlock(block, Optional.empty()))
+        .isInstanceOf(BackwardSyncException.class);
+
+    verify(badChainListener, never()).onBadChain(any(), any(), any());
+  }
+
+  @Test
+  public void shouldFailWithoutValidatingAKnownBadBlock() {
+    Block block = mockBlockWithParentOnChain();
+    BadChainListener badChainListener = Mockito.mock(BadChainListener.class);
+    context.subscribeBadChainListener(badChainListener);
+
+    BlockHeader childBlockHeader =
+        remoteBlockchain.getBlockByNumber(LOCAL_HEIGHT + 1).get().getHeader();
+    backwardChain.clear();
+    backwardChain.prependAncestorsHeader(childBlockHeader);
+    backwardChain.prependAncestorsHeader(block.getHeader());
+
+    badBlockManager.addBadHeader(
+        block.getHeader(), BadBlockCause.fromValidationFailure("failed last session"));
+
+    assertThatThrownBy(() -> context.saveBlock(block, Optional.empty()))
+        .isInstanceOf(BackwardSyncException.class)
+        .hasMessageContaining("known bad block");
+
+    verify(blockValidator, never())
+        .validateAndProcessBlock(any(), any(), any(), any(), any(), anyBoolean());
+    verify(badChainListener)
+        .onBadChain(block.getHeader(), Collections.emptyList(), List.of(childBlockHeader));
+  }
+
+  @Test
+  public void shouldFailWhenLinkingAHeaderKnownAsBad() {
+    BlockHeader badHeader = remoteBlockchain.getBlockByNumber(LOCAL_HEIGHT + 1).get().getHeader();
+    BlockHeader childBlockHeader =
+        remoteBlockchain.getBlockByNumber(LOCAL_HEIGHT + 2).get().getHeader();
+    BadChainListener badChainListener = Mockito.mock(BadChainListener.class);
+    context.subscribeBadChainListener(badChainListener);
+
+    backwardChain.clear();
+    backwardChain.prependAncestorsHeader(childBlockHeader);
+    backwardChain.prependAncestorsHeader(badHeader);
+    badBlockManager.addBadHeader(badHeader, BadBlockCause.fromValidationFailure("failed"));
+
+    assertThatThrownBy(() -> context.failIfBadBlock(badHeader))
+        .isInstanceOf(BackwardSyncException.class)
+        .hasMessageContaining("known bad block");
+    verify(badChainListener)
+        .onBadChain(badHeader, Collections.emptyList(), List.of(childBlockHeader));
+
+    context.failIfBadBlock(childBlockHeader);
+  }
+
+  @Test
+  public void shouldRecordTheBadBlockBeforeTheNextSessionReChecksIt() {
+    // the real validator records the block, the pre-execution check of the next session relies on
+    // it
+    final BlockHeaderValidator rejectingHeaderValidator = Mockito.mock(BlockHeaderValidator.class);
+    final BlockProcessor blockProcessor = Mockito.mock(BlockProcessor.class);
+    when(rejectingHeaderValidator.validateHeader(any(), any(), any(), any())).thenReturn(false);
+    final BlockValidator realValidator =
+        MainnetBlockValidatorBuilder.frontier(
+            rejectingHeaderValidator,
+            Mockito.mock(BlockBodyValidator.class),
+            blockProcessor,
+            Mockito.mock(BlockAccessListValidator.class));
+    doReturn(realValidator).when(context).getBlockValidatorForBlock(any());
+    final Block block = remoteBlockchain.getBlockByNumber(LOCAL_HEIGHT + 1).orElseThrow();
+    BadChainListener badChainListener = Mockito.mock(BadChainListener.class);
+    context.subscribeBadChainListener(badChainListener);
+
+    assertThatThrownBy(() -> context.saveBlock(block, Optional.empty()))
+        .isInstanceOf(BackwardSyncException.class)
+        .hasMessageContaining("Header validation failed");
+    assertThat(badBlockManager.getBadBlock(block.getHash())).contains(block);
+
+    assertThatThrownBy(() -> context.saveBlock(block, Optional.empty()))
+        .isInstanceOf(BackwardSyncException.class)
+        .hasMessageContaining("known bad block");
+
+    verify(rejectingHeaderValidator, times(1)).validateHeader(any(), any(), any(), any());
+    verifyNoInteractions(blockProcessor);
+    verify(badChainListener, times(2)).onBadChain(eq(block.getHeader()), any(), any());
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void shouldSkipDescendantsAlreadyMarkedWhenEmittingBadChainEvent() {
+    Block block = mockBlockWithParentOnChain();
+    BadChainListener badChainListener = Mockito.mock(BadChainListener.class);
+    context.subscribeBadChainListener(badChainListener);
+
+    backwardChain.clear();
+    for (int i = REMOTE_HEIGHT; i >= 0; i--) {
+      backwardChain.prependAncestorsHeader(remoteBlockchain.getBlockByNumber(i).get().getHeader());
+    }
+    backwardChain.prependAncestorsHeader(block.getHeader());
+
+    // an earlier session got as far as marking the first descendants
+    final int alreadyMarked = 10;
+    for (int i = 0; i < alreadyMarked; i++) {
+      badBlockManager.addBadHeader(
+          remoteBlockchain.getBlockByNumber(i).get().getHeader(),
+          BadBlockCause.fromValidationFailure("marked"));
+    }
+
+    doReturn(blockValidator).when(context).getBlockValidatorForBlock(any());
+    doReturn(new BlockProcessingResult("custom error"))
+        .when(blockValidator)
+        .validateAndProcessBlock(any(), any(), any(), any(), any(), anyBoolean());
+
+    assertThatThrownBy(() -> context.saveBlock(block, Optional.empty()))
+        .isInstanceOf(BackwardSyncException.class);
+
+    final ArgumentCaptor<List<BlockHeader>> badBlockHeaderDescendants =
+        ArgumentCaptor.forClass(List.class);
+    verify(badChainListener)
+        .onBadChain(
+            eq(block.getHeader()),
+            eq(Collections.emptyList()),
+            badBlockHeaderDescendants.capture());
+    assertThat(badBlockHeaderDescendants.getValue())
+        .hasSize(TEST_MAX_BAD_CHAIN_EVENT_ENTRIES)
+        .first()
+        .isEqualTo(remoteBlockchain.getBlockByNumber(alreadyMarked).get().getHeader());
+  }
+
+  private Block mockBlockWithParentOnChain() {
+    Block block = Mockito.mock(Block.class);
+    BlockHeader blockHeader = Mockito.mock(BlockHeader.class);
+    when(block.getHash()).thenReturn(Hash.fromHexStringLenient("0x42"));
+    when(block.getHeader()).thenReturn(blockHeader);
+    when(blockHeader.getHash()).thenReturn(Hash.fromHexStringLenient("0x42"));
+    when(blockHeader.getParentHash()).thenReturn(localBlockchain.getChainHeadHash());
+    return block;
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void shouldEmitBadChainEventWithIncludedBlockHeadersLimitedToMaxBadChainEventsSize() {
+    Block block = mockBlockWithParentOnChain();
+    BlockHeader blockHeader = block.getHeader();
     BadChainListener badChainListener = Mockito.mock(BadChainListener.class);
     context.subscribeBadChainListener(badChainListener);
 
@@ -587,8 +799,6 @@ public class BackwardSyncContextTest {
 
     doReturn(blockValidator).when(context).getBlockValidatorForBlock(any());
     BlockProcessingResult result = new BlockProcessingResult("custom error");
-    // the validator records an invalid block as bad
-    badBlockManager.addBadBlock(block, BadBlockCause.fromValidationFailure("custom error"));
     doReturn(result)
         .when(blockValidator)
         .validateAndProcessBlock(any(), any(), any(), any(), any(), anyBoolean());
@@ -600,17 +810,16 @@ public class BackwardSyncContextTest {
     final ArgumentCaptor<List<BlockHeader>> badBlockHeaderDescendants =
         ArgumentCaptor.forClass(List.class);
     verify(badChainListener)
-        .onBadChain(eq(block), eq(Collections.emptyList()), badBlockHeaderDescendants.capture());
+        .onBadChain(
+            eq(blockHeader), eq(Collections.emptyList()), badBlockHeaderDescendants.capture());
     assertThat(badBlockHeaderDescendants.getValue()).hasSize(TEST_MAX_BAD_CHAIN_EVENT_ENTRIES);
   }
 
   @SuppressWarnings("unchecked")
   @Test
   public void shouldEmitBadChainEventWithIncludedBlocksLimitedToMaxBadChainEventsSize() {
-    Block block = Mockito.mock(Block.class);
-    BlockHeader blockHeader = Mockito.mock(BlockHeader.class);
-    when(block.getHash()).thenReturn(Hash.fromHexStringLenient("0x42"));
-    when(blockHeader.getHash()).thenReturn(Hash.fromHexStringLenient("0x42"));
+    Block block = mockBlockWithParentOnChain();
+    BlockHeader blockHeader = block.getHeader();
     BadChainListener badChainListener = Mockito.mock(BadChainListener.class);
     context.subscribeBadChainListener(badChainListener);
 
@@ -626,8 +835,6 @@ public class BackwardSyncContextTest {
 
     doReturn(blockValidator).when(context).getBlockValidatorForBlock(any());
     BlockProcessingResult result = new BlockProcessingResult("custom error");
-    // the validator records an invalid block as bad
-    badBlockManager.addBadBlock(block, BadBlockCause.fromValidationFailure("custom error"));
     doReturn(result)
         .when(blockValidator)
         .validateAndProcessBlock(any(), any(), any(), any(), any(), anyBoolean());
@@ -638,7 +845,7 @@ public class BackwardSyncContextTest {
 
     final ArgumentCaptor<List<Block>> badBlockDescendants = ArgumentCaptor.forClass(List.class);
     verify(badChainListener)
-        .onBadChain(eq(block), badBlockDescendants.capture(), eq(Collections.emptyList()));
+        .onBadChain(eq(blockHeader), badBlockDescendants.capture(), eq(Collections.emptyList()));
     assertThat(badBlockDescendants.getValue()).hasSize(TEST_MAX_BAD_CHAIN_EVENT_ENTRIES);
   }
 

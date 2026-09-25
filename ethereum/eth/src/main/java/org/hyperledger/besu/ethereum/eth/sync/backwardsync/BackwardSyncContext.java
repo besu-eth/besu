@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.eth.sync.backwardsync;
 import static org.hyperledger.besu.util.FutureUtils.exceptionallyCompose;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.BlockValidator;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
@@ -29,7 +30,9 @@ import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
+import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.util.Subscribers;
 
 import java.time.Duration;
@@ -258,7 +261,8 @@ public class BackwardSyncContext {
             });
   }
 
-  private Optional<BackwardSyncException> extractBackwardSyncException(final Throwable throwable) {
+  public static Optional<BackwardSyncException> extractBackwardSyncException(
+      final Throwable throwable) {
     Throwable currentCause = throwable;
 
     while (currentCause != null) {
@@ -326,6 +330,7 @@ public class BackwardSyncContext {
   }
 
   protected Void saveBlock(final Block block, final Optional<BlockAccessList> blockAccessList) {
+    failIfBadBlock(block.getHeader());
     LOG.atTrace().setMessage("Going to validate block {}").addArgument(block::toLogString).log();
     var optResult =
         this.getBlockValidatorForBlock(block)
@@ -369,9 +374,8 @@ public class BackwardSyncContext {
                 + " backward sync halted. Run debug_resyncWorldState to recover.",
             false);
       }
-      // descendants are only bad if the block itself is, not after a local failure or missing data
-      if (getProtocolContext().getBadBlockManager().isBadBlock(block.getHash())) {
-        emitBadChainEvent(block);
+      if (isInvalidBlock(block, optResult)) {
+        emitBadChainEvent(block.getHeader());
       }
       throw new BackwardSyncException(
           "Cannot save block "
@@ -381,6 +385,36 @@ public class BackwardSyncContext {
     }
 
     return null;
+  }
+
+  /**
+   * Fail the session on a block that is already known as bad, whichever way the session was
+   * started: executing it again can only repeat the failure that recorded it. The descendants the
+   * backward chain holds for it are marked, so the consensus client is told on its next call.
+   *
+   * @param header the header of the block about to be linked or executed
+   */
+  protected void failIfBadBlock(final BlockHeader header) {
+    if (getProtocolContext().getBadBlockManager().isBadBlock(header.getHash())) {
+      emitBadChainEvent(header);
+      throw new BackwardSyncException(
+          "Cannot save block " + header.toLogString() + " because it is a known bad block");
+    }
+  }
+
+  /**
+   * Whether a failed validation condemns the block itself and, with it, its descendants. Local
+   * failures are exempted the same way engine_newPayload exempts them, so both paths classify a
+   * failure alike, and a block whose parent is missing was never validated.
+   */
+  private boolean isInvalidBlock(final Block block, final BlockProcessingResult result) {
+    final boolean localFailure =
+        result
+            .causedBy()
+            .map(cause -> cause instanceof StorageException || cause instanceof MerkleTrieException)
+            .orElse(false);
+    return !localFailure
+        && getProtocolContext().getBlockchain().contains(block.getHeader().getParentHash());
   }
 
   @VisibleForTesting
@@ -414,28 +448,34 @@ public class BackwardSyncContext {
     return currentBackwardSyncStatus.get();
   }
 
-  private void emitBadChainEvent(final Block badBlock) {
+  private void emitBadChainEvent(final BlockHeader badBlock) {
+    final BadBlockManager badBlockManager = getProtocolContext().getBadBlockManager();
     final List<Block> badBlockDescendants = new ArrayList<>();
     final List<BlockHeader> badBlockHeaderDescendants = new ArrayList<>();
 
     Optional<Hash> descendant = backwardChain.getDescendant(badBlock.getHash());
 
+    // descendants marked by an earlier session do not count against the cap, so a chain longer
+    // than the cap is marked one window further per session instead of the same prefix again
     while (descendant.isPresent()
         && badBlockDescendants.size() + badBlockHeaderDescendants.size()
             < maxBadChainEventEntries) {
-      final Optional<Block> block = backwardChain.getBlock(descendant.get());
-      if (block.isPresent()) {
-        // cap the bodies kept alive at once, marking a descendant bad only needs its header
-        if (badBlockDescendants.size() < BadBlockManager.MAX_BAD_BLOCKS_SIZE) {
-          badBlockDescendants.add(block.get());
+      final Hash descendantHash = descendant.get();
+      if (!badBlockManager.isBadBlock(descendantHash)) {
+        final Optional<Block> block = backwardChain.getBlock(descendantHash);
+        if (block.isPresent()) {
+          // cap the bodies kept alive at once, marking a descendant bad only needs its header
+          if (badBlockDescendants.size() < BadBlockManager.MAX_BAD_BLOCKS_SIZE) {
+            badBlockDescendants.add(block.get());
+          } else {
+            badBlockHeaderDescendants.add(block.get().getHeader());
+          }
         } else {
-          badBlockHeaderDescendants.add(block.get().getHeader());
+          backwardChain.getHeader(descendantHash).ifPresent(badBlockHeaderDescendants::add);
         }
-      } else {
-        backwardChain.getHeader(descendant.get()).ifPresent(badBlockHeaderDescendants::add);
       }
 
-      descendant = backwardChain.getDescendant(descendant.get());
+      descendant = backwardChain.getDescendant(descendantHash);
     }
 
     badChainListeners.forEach(

@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockchainSetupUtil;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.plugin.data.BadBlockCause.BadBlockReason;
 
 import java.util.List;
 import java.util.Optional;
@@ -46,7 +47,8 @@ public class BadBlockManagerTest {
     badBlockManager.addLatestValidHash(block.getHash(), latestValidHash);
 
     assertThat(badBlockManager.checkAndMarkBadDescendant(block2.getHeader()))
-        .contains(block.getHeader());
+        .map(BadBlockCause::getDescription)
+        .contains("Descends from bad block " + block.getHeader().toLogString());
     assertThat(badBlockManager.getBadBlock(block2.getHash())).isEmpty();
     assertThat(badBlockManager.getBadHeader(block2.getHash())).contains(block2.getHeader());
     assertThat(badBlockManager.getLatestValidHash(block2.getHash())).contains(latestValidHash);
@@ -57,7 +59,8 @@ public class BadBlockManagerTest {
     badBlockManager.addBadHeader(block.getHeader(), BadBlockCause.fromValidationFailure("failed"));
 
     assertThat(badBlockManager.checkAndMarkBadDescendant(block2.getHeader()))
-        .contains(block.getHeader());
+        .map(BadBlockCause::getReason)
+        .contains(BadBlockReason.DESCENDS_FROM_BAD_BLOCK);
     assertThat(badBlockManager.getBadHeader(block2.getHash())).contains(block2.getHeader());
     assertThat(badBlockManager.getLatestValidHash(block2.getHash())).isEmpty();
   }
@@ -65,11 +68,69 @@ public class BadBlockManagerTest {
   @Test
   public void checkAndMarkBadDescendant_doesNotReRecordKnownBadBlock() {
     badBlockManager.addBadBlock(block, BadBlockCause.fromValidationFailure("failed"));
+    final BadBlockCause ownCause = BadBlockCause.fromValidationFailure("failed on its own");
+    badBlockManager.addBadBlock(block2, ownCause);
+
+    assertThat(badBlockManager.checkAndMarkBadDescendant(block2.getHeader())).contains(ownCause);
+    assertThat(badBlockManager.getBadHeaders()).isEmpty();
+  }
+
+  @Test
+  public void checkAndMarkBadDescendant_causeKeepsNamingTheRootAcrossDescendants() {
+    final Block block3 = chainUtil.getBlock(3);
+    final Block block4 = chainUtil.getBlock(4);
+    badBlockManager.addBadBlock(block, BadBlockCause.fromValidationFailure("failed"));
+
+    final BadBlockCause childCause =
+        badBlockManager.checkAndMarkBadDescendant(block2.getHeader()).orElseThrow();
+    final BadBlockCause grandChildCause =
+        badBlockManager.checkAndMarkBadDescendant(block3.getHeader()).orElseThrow();
+    final BadBlockCause greatGrandChildCause =
+        badBlockManager.checkAndMarkBadDescendant(block4.getHeader()).orElseThrow();
+
+    assertThat(childCause.getDescription())
+        .isEqualTo("Descends from bad block " + block.getHeader().toLogString());
+    assertThat(grandChildCause).isSameAs(childCause);
+    assertThat(greatGrandChildCause).isSameAs(childCause);
+    assertThat(badBlockManager.getBadBlockCause(block4.getHash())).contains(childCause);
+  }
+
+  @Test
+  public void addBadDescendant_keepsTheBodyOfADescendantKnownAsBlock() {
+    badBlockManager.addBadBlock(block, BadBlockCause.fromValidationFailure("failed"));
+
+    badBlockManager.addBadDescendant(block2, block.getHeader(), Optional.empty());
+
+    assertThat(badBlockManager.getBadBlock(block2.getHash())).contains(block2);
+    assertThat(badBlockManager.getBadBlockCause(block2.getHash()))
+        .map(BadBlockCause::getReason)
+        .contains(BadBlockReason.DESCENDS_FROM_BAD_BLOCK);
+  }
+
+  @Test
+  public void removeBadBlock_forgetsTheBlockItsCauseAndItsLatestValidHash() {
+    badBlockManager.addBadBlock(block, BadBlockCause.fromValidationFailure("failed"));
+    badBlockManager.addLatestValidHash(block.getHash(), Hash.fromHexStringLenient("0x1337"));
+    badBlockManager.addBadHeader(block2.getHeader(), BadBlockCause.fromValidationFailure("failed"));
+
+    badBlockManager.removeBadBlock(block.getHash());
+    badBlockManager.removeBadBlock(block2.getHash());
+
+    assertThat(badBlockManager.isBadBlock(block.getHash())).isFalse();
+    assertThat(badBlockManager.isBadBlock(block2.getHash())).isFalse();
+    assertThat(badBlockManager.getBadBlockCause(block.getHash())).isEmpty();
+    assertThat(badBlockManager.getLatestValidHash(block.getHash())).isEmpty();
+    assertThat(badBlockManager.isEmpty()).isTrue();
+  }
+
+  @Test
+  public void removeBadBlock_leavesOtherBadBlocksAlone() {
+    badBlockManager.addBadBlock(block, BadBlockCause.fromValidationFailure("failed"));
     badBlockManager.addBadBlock(block2, BadBlockCause.fromValidationFailure("failed"));
 
-    assertThat(badBlockManager.checkAndMarkBadDescendant(block2.getHeader()))
-        .contains(block.getHeader());
-    assertThat(badBlockManager.getBadHeaders()).isEmpty();
+    badBlockManager.removeBadBlock(block.getHash());
+
+    assertThat(badBlockManager.getBadBlocks()).containsExactly(block2);
   }
 
   @Test
@@ -132,6 +193,7 @@ public class BadBlockManagerTest {
     badBlockManager.reset();
 
     assertThat(badBlockManager.getBadBlocks()).isEmpty();
+    assertThat(badBlockManager.getBadBlockCause(block.getHash())).isEmpty();
   }
 
   @Test

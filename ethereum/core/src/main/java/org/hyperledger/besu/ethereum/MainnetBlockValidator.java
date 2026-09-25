@@ -248,6 +248,10 @@ public class MainnetBlockValidator implements BlockValidator {
           return result;
         }
 
+        // a block that validates cannot be bad, whatever an earlier attempt recorded, and its
+        // descendants must not be rejected on its account
+        context.getBadBlockManager().removeBadBlock(block.getHash());
+
         return new BlockProcessingResult(
             Optional.of(
                 new BlockProcessingOutputs(
