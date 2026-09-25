@@ -96,8 +96,13 @@ public class VmTraceGenerator {
       generateTracingStorage(report);
       handleDepthIncreased(op, report, nextTraceFrame);
       completeStep(frame, op, report);
+    }
+    // Virtual frames do not open a VM subtrace; omitted real opcodes still change depth.
+    if (!frame.isVirtualOperation()) {
       lastDepth = frame.getDepth();
     }
+    // Call resumption lookup indexes raw frames, including omitted operations.
+    currentIndex++;
   }
 
   private boolean mustIgnore(final TraceFrame frame) {
@@ -127,7 +132,6 @@ public class VmTraceGenerator {
     if (currentTrace != null) {
       currentTrace.add(op);
     }
-    currentIndex++;
   }
 
   private void handleDepthIncreased(
@@ -170,6 +174,11 @@ public class VmTraceGenerator {
           if (nextTraceFrame.map(TraceFrame::getDepth).orElse(0) > currentTraceFrame.getDepth()) {
             op.setCost(currentTraceFrame.getGasRemainingPostExecution() + op.getCost());
             final VmTrace newSubTrace = new VmTrace();
+            // The child's first opcode may be omitted from the operation list.
+            nextTraceFrame
+                .flatMap(TraceFrame::getMaybeCode)
+                .map(code -> code.getBytes().toHexString())
+                .ifPresent(newSubTrace::setCode);
             parentTraces.addLast(newSubTrace);
             op.setSub(newSubTrace);
           } else if (currentTraceFrame.getDepth() == 0) {
