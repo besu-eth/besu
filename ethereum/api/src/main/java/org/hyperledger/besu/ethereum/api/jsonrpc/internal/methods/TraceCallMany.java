@@ -125,7 +125,10 @@ public class TraceCallMany extends TraceCall implements JsonRpcMethod {
         .getAndMapWorldState(
             blockHeader.getBlockHash(),
             ws -> {
-              final WorldUpdater updater = transactionSimulator.getEffectiveWorldStateUpdater(ws);
+              // stacked like the block tracers, so marking a transaction boundary keeps the
+              // state committed by earlier calls
+              final WorldUpdater updater =
+                  transactionSimulator.getEffectiveWorldStateUpdater(ws).updater();
               try {
                 Arrays.stream(transactionsAndTraceTypeParameters)
                     .forEachOrdered(
@@ -138,6 +141,9 @@ public class TraceCallMany extends TraceCall implements JsonRpcMethod {
                                   blockHeader,
                                   localUpdater));
                           localUpdater.commit();
+                          // each call is a separate transaction, so later calls must take
+                          // this state as the original storage for SSTORE gas and refunds
+                          updater.markTransactionBoundary();
                         });
               } catch (final TransactionInvalidException e) {
                 LOG.error("Invalid transaction simulator result");
