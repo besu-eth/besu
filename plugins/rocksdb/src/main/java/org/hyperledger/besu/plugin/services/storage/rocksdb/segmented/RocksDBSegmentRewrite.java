@@ -54,24 +54,38 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Rewrites a column family without writing through it. Writing the new entries into the live column
- * family would push every byte through the write-ahead log, a memtable flush and a compaction of
- * every level, several times the size of the data. Instead the new entries are written to sorted
- * SST files beside the database, then swapped in by dropping the column family and ingesting the
- * files, which places them in the bottom level as they are.
+ * Rewrites a column family without writing through it.
  *
- * <p>The swap is recorded under a marker in the default column family before it starts, together
- * with the entries to add, so that it can be finished from the marker when the database is opened
- * again after an interruption. Until the swap the column family is untouched, so a rewrite that is
- * interrupted before it can simply be run again.
+ * <p>Writing the new entries into the live column family would push every byte through the
+ * write-ahead log, a memtable flush and a compaction of every level, several times the size of the
+ * data. Instead the rewrite runs in three steps, each a method below:
+ *
+ * <ol>
+ *   <li>{@link #writeFiles stage}: the transformed entries are written to sorted SST files in a
+ *       directory beside the database. The column family is only read, so an interruption here
+ *       leaves nothing to repair and the rewrite is simply run again from the start.
+ *   <li>{@link #markPending mark}: a marker holding the entries to add is written durably to the
+ *       default column family. From here on the rewrite has to finish, and the marker is how the
+ *       next open of the database knows to finish it.
+ *   <li>{@link #complete swap}: the column family is dropped, the staged files are ingested into
+ *       the empty one, which places them in the bottom level as they are, and the additions are
+ *       written in the same batch that removes the marker.
+ * </ol>
  */
 final class RocksDBSegmentRewrite {
   private static final Logger LOG = LoggerFactory.getLogger(RocksDBSegmentRewrite.class);
 
+  /** Marker keys are the prefix followed by the segment name, one per segment being swapped. */
   private static final byte[] MARKER_PREFIX = "rewrite:".getBytes(StandardCharsets.UTF_8);
 
+  /**
+   * Input bytes per staged file. A batch is held in memory until its file is written, so this
+   * bounds memory per writer, while still giving files large enough that the ingestion of a few
+   * hundred of them is quick.
+   */
   private static final long FILE_BYTES = 64L << 20;
 
+  /** The transform is the expensive part of writing a file; a few threads saturate the disk. */
   private static final int WRITER_THREADS = 4;
 
   private static final long REPORT_INTERVAL_MILLIS = 30_000;
@@ -88,7 +102,8 @@ final class RocksDBSegmentRewrite {
   }
 
   /**
-   * The SST files are staged beside the database, on the same file system, so they can be moved.
+   * The staging directory sits beside the database, on the same file system, so the ingestion can
+   * move the files in with a rename instead of copying them.
    */
   static Path stagingDirectory(final Path databaseDir, final String segmentName) {
     return databaseDir.resolveSibling(databaseDir.getFileName() + "-rewrite").resolve(segmentName);
@@ -102,9 +117,20 @@ final class RocksDBSegmentRewrite {
     complete(additions);
   }
 
-  /** Finishes every swap that was interrupted, before the storage is handed out. */
+  /**
+   * Finishes every swap that was interrupted. Runs before the storage is handed out, so nothing can
+   * read a segment that is half swapped.
+   */
   static void completeInterrupted(final RocksDBColumnarKeyValueStorage storage) {
-    final RocksDB db = storage.getDB();
+    for (final Pair<byte[], byte[]> marker : pendingMarkers(storage.getDB())) {
+      final String name = segmentName(marker.getKey());
+      LOG.info("Finishing the interrupted rewrite of the {} segment", name);
+      new RocksDBSegmentRewrite(storage, openSegment(storage, name))
+          .complete(decodeAdditions(marker.getValue()));
+    }
+  }
+
+  private static List<Pair<byte[], byte[]>> pendingMarkers(final RocksDB db) {
     final List<Pair<byte[], byte[]>> markers = new ArrayList<>();
     try (final RocksIterator iterator = db.newIterator(db.getDefaultColumnFamily())) {
       for (iterator.seek(MARKER_PREFIX);
@@ -113,75 +139,51 @@ final class RocksDBSegmentRewrite {
         markers.add(Pair.of(iterator.key(), iterator.value()));
       }
     }
-    for (final Pair<byte[], byte[]> marker : markers) {
-      final String name =
-          new String(
-              Arrays.copyOfRange(marker.getKey(), MARKER_PREFIX.length, marker.getKey().length),
-              StandardCharsets.UTF_8);
-      final SegmentIdentifier segment =
-          storage.columnHandlesBySegmentIdentifier.keySet().stream()
-              .filter(candidate -> candidate.getName().equals(name))
-              .findFirst()
-              .orElseThrow(
-                  () ->
-                      new StorageException(
-                          "An interrupted rewrite of the "
-                              + name
-                              + " segment cannot be finished, the segment is not open"));
-      LOG.info("Finishing the interrupted rewrite of the {} segment", name);
-      new RocksDBSegmentRewrite(storage, segment).complete(decodeAdditions(marker.getValue()));
-    }
+    return markers;
+  }
+
+  private static SegmentIdentifier openSegment(
+      final RocksDBColumnarKeyValueStorage storage, final String name) {
+    return storage.columnHandlesBySegmentIdentifier.keySet().stream()
+        .filter(candidate -> candidate.getName().equals(name))
+        .findFirst()
+        .orElseThrow(
+            () ->
+                new StorageException(
+                    "An interrupted rewrite of the "
+                        + name
+                        + " segment cannot be finished, the segment is not open"));
   }
 
   /**
-   * Writes the transformed entries to files of about {@link #FILE_BYTES} of input each, on a few
-   * threads. Consecutive batches of the key ordered stream never overlap, which is all the
+   * Stages the transformed entries as SST files. The segment is read in key order and cut into
+   * batches of about {@link #FILE_BYTES} of input, each written to its own file by a writer thread.
+   * Consecutive batches of a key ordered stream cover disjoint key ranges, which is all the
    * ingestion asks of the files.
    */
   void writeFiles(final BiFunction<byte[], byte[], byte[]> transform) {
-    final ExecutorService writers = Executors.newFixedThreadPool(WRITER_THREADS);
-    final Semaphore inFlight = new Semaphore(WRITER_THREADS + 2);
-    final List<Future<?>> files = new ArrayList<>();
     final Progress progress = new Progress(segment.getName());
-    try (final Options sstOptions =
-            new Options(storage.options, storage.columnFamilyOptions(segment));
-        final EnvOptions envOptions = new EnvOptions();
+    try (final FileWriters writers = new FileWriters(transform);
         final Stream<Pair<byte[], byte[]>> entries = storage.stream(segment)) {
+      // files left by an earlier attempt would be ingested alongside the new ones
       deleteDirectory(directory);
       Files.createDirectories(directory);
-      final Iterator<Pair<byte[], byte[]>> iterator = entries.iterator();
+
       List<Pair<byte[], byte[]>> batch = new ArrayList<>();
       long batchBytes = 0;
-      while (iterator.hasNext()) {
+      for (final Iterator<Pair<byte[], byte[]>> iterator = entries.iterator();
+          iterator.hasNext(); ) {
         final Pair<byte[], byte[]> entry = iterator.next();
         batch.add(entry);
         batchBytes += entry.getValue().length;
         progress.advance(entry.getValue().length);
         if (batchBytes >= FILE_BYTES || !iterator.hasNext()) {
-          final int index = files.size();
-          final List<Pair<byte[], byte[]>> ready = batch;
-          inFlight.acquire();
-          files.add(
-              writers.submit(
-                  () -> {
-                    try {
-                      writeFile(index, ready, transform, envOptions, sstOptions);
-                    } finally {
-                      inFlight.release();
-                    }
-                  }));
+          writers.submit(batch);
           batch = new ArrayList<>();
           batchBytes = 0;
-          for (final Future<?> file : files) {
-            if (file.isDone()) {
-              file.get();
-            }
-          }
         }
       }
-      for (final Future<?> file : files) {
-        file.get();
-      }
+      writers.awaitAll();
     } catch (final InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new StorageException(
@@ -190,12 +192,74 @@ final class RocksDBSegmentRewrite {
       throw new StorageException(e.getCause());
     } catch (final IOException e) {
       throw new StorageException(e);
-    } finally {
-      writers.shutdownNow();
     }
     progress.finish();
   }
 
+  /**
+   * The threads writing the staged files, and the bound on how far the reader may run ahead of
+   * them. The reader is much faster than the writers, so without the bound every batch of the
+   * segment would end up in memory waiting for a thread.
+   */
+  private final class FileWriters implements AutoCloseable {
+    private final BiFunction<byte[], byte[], byte[]> transform;
+    private final ExecutorService executor = Executors.newFixedThreadPool(WRITER_THREADS);
+    private final Semaphore inFlight = new Semaphore(WRITER_THREADS + 2);
+    private final List<Future<?>> files = new ArrayList<>();
+    // the ingestion only accepts files written with the column family's own comparator and
+    // compression, which the column family options carry
+    private final Options sstOptions;
+    private final EnvOptions envOptions = new EnvOptions();
+
+    FileWriters(final BiFunction<byte[], byte[], byte[]> transform) {
+      this.transform = transform;
+      this.sstOptions = new Options(storage.options, storage.columnFamilyOptions(segment));
+    }
+
+    /**
+     * Blocks while too many batches are in flight, and rethrows the failure of any earlier file.
+     */
+    void submit(final List<Pair<byte[], byte[]>> batch)
+        throws InterruptedException, ExecutionException {
+      inFlight.acquire();
+      final int index = files.size();
+      files.add(
+          executor.submit(
+              () -> {
+                try {
+                  writeFile(index, batch, transform, envOptions, sstOptions);
+                } finally {
+                  inFlight.release();
+                }
+              }));
+      // a failed file surfaces here rather than after the rest of the segment has been read for
+      // nothing
+      for (final Future<?> file : files) {
+        if (file.isDone()) {
+          file.get();
+        }
+      }
+    }
+
+    void awaitAll() throws InterruptedException, ExecutionException {
+      for (final Future<?> file : files) {
+        file.get();
+      }
+    }
+
+    @Override
+    public void close() {
+      executor.shutdownNow();
+      envOptions.close();
+      sstOptions.close();
+    }
+  }
+
+  /**
+   * Writes one staged file. The file is built under a temporary name and renamed once it is
+   * finished, because {@link #complete} ingests every {@code .sst} file it finds and must not pick
+   * up one that was cut short.
+   */
   private void writeFile(
       final int index,
       final List<Pair<byte[], byte[]>> batch,
@@ -208,13 +272,14 @@ final class RocksDBSegmentRewrite {
     try (final SstFileWriter writer = new SstFileWriter(envOptions, sstOptions)) {
       writer.open(partial.toString());
       for (final Pair<byte[], byte[]> entry : batch) {
+        // a null value drops the entry from the segment
         final byte[] value = transform.apply(entry.getKey(), entry.getValue());
         if (value != null) {
           writer.put(entry.getKey(), value);
           written++;
         }
       }
-      // a file without entries cannot be finished, nor is it needed
+      // RocksDB refuses to finish a file without entries, and there is nothing to ingest anyway
       if (written > 0) {
         writer.finish();
       }
@@ -232,7 +297,10 @@ final class RocksDBSegmentRewrite {
     }
   }
 
-  /** Records the swap durably, with the entries it has to add, before anything is dropped. */
+  /**
+   * Records the swap durably before anything is dropped. The additions travel with the marker
+   * because the caller that knows them is gone when the swap is finished after a restart.
+   */
   void markPending(final List<Pair<byte[], byte[]>> additions) {
     final RocksDB db = storage.getDB();
     try (final WriteOptions durable = new WriteOptions().setSync(true)) {
@@ -243,16 +311,26 @@ final class RocksDBSegmentRewrite {
   }
 
   /**
-   * Drops the column family and ingests the staged files into the empty one, then adds the extra
-   * entries and removes the marker together. Every step can be repeated: files that are gone were
-   * ingested already, and a column family that was dropped without its files being ingested is
-   * dropped again before they are.
+   * Drops the column family, ingests the staged files into the empty one, then writes the additions
+   * and removes the marker together. Every step is safe to repeat after an interruption:
+   *
+   * <ul>
+   *   <li>The ingestion moves the files, so staged files that are gone were ingested already. In
+   *       that case the column family is not dropped again, which would throw the ingested data
+   *       away.
+   *   <li>A column family that was dropped before its files were ingested is empty, and dropping it
+   *       again costs nothing.
+   *   <li>The additions and the marker's removal are one atomic batch, so either the marker is
+   *       still there and the additions are written on the next attempt, or both are done.
+   * </ul>
    */
   void complete(final List<Pair<byte[], byte[]>> additions) {
     final RocksDB db = storage.getDB();
     try {
       final List<String> files = stagedFiles();
       if (!files.isEmpty()) {
+        // dropping and recreating the column family is what lets the files land in the bottom
+        // level: an ingestion into a column family with overlapping keys would have to go higher
         storage.clear(segment);
         try (final IngestExternalFileOptions options =
             new IngestExternalFileOptions().setMoveFiles(true)) {
@@ -260,7 +338,9 @@ final class RocksDBSegmentRewrite {
         }
         LOG.info("Ingested {} files into the {} segment", files.size(), segment.getName());
       }
+      // only files cut short by an interruption can still be here
       deleteDirectory(directory);
+
       final ColumnFamilyHandle handle = storage.safeColumnHandle(segment);
       try (final WriteBatch batch = new WriteBatch();
           final WriteOptions durable = new WriteOptions().setSync(true)) {
@@ -288,6 +368,10 @@ final class RocksDBSegmentRewrite {
     }
   }
 
+  /**
+   * The marker lives in the default column family because the segment's own column family is
+   * dropped during the swap, and the default one never is.
+   */
   private byte[] markerKey() {
     final byte[] name = segment.getName().getBytes(StandardCharsets.UTF_8);
     final byte[] key = Arrays.copyOf(MARKER_PREFIX, MARKER_PREFIX.length + name.length);
@@ -295,11 +379,18 @@ final class RocksDBSegmentRewrite {
     return key;
   }
 
+  private static String segmentName(final byte[] markerKey) {
+    return new String(
+        Arrays.copyOfRange(markerKey, MARKER_PREFIX.length, markerKey.length),
+        StandardCharsets.UTF_8);
+  }
+
   private static boolean startsWith(final byte[] key, final byte[] prefix) {
     return key.length >= prefix.length
         && Arrays.equals(key, 0, prefix.length, prefix, 0, prefix.length);
   }
 
+  /** Length prefixed key value pairs; the additions are few and small, so nothing fancier. */
   private static byte[] encodeAdditions(final List<Pair<byte[], byte[]>> additions) {
     final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
     try (final DataOutputStream out = new DataOutputStream(bytes)) {
