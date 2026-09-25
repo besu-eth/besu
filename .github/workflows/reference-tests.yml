@@ -59,7 +59,7 @@ jobs:
       - name: refTestArgs.txt
         run: cat refTestArgs.txt
       - name: run reference tests
-        run: ./gradlew ethereum:referenceTests:referenceTests `cat refTestArgs.txt`
+        run: ./gradlew ethereum:referenceTests:referenceTests `cat refTestArgs.txt` -PdisableTestReports
       - name: verify test file count matches
         run: |
           listed=$(wc -l < filenames.txt | tr -d ' ')

@@ -94,7 +94,7 @@ jobs:
         with:
           cache-disabled: true
       - name: List all acceptance tests
-        run: ./gradlew acceptanceTest --test-dry-run -Dorg.gradle.parallel=true -Dorg.gradle.caching=true
+        run: ./gradlew acceptanceTest --test-dry-run -PdisableTestReports -Dorg.gradle.parallel=true -Dorg.gradle.caching=true
       # Scoped to the acceptance suite's own output
       - name: Extract current test list
         shell: bash
@@ -189,7 +189,7 @@ jobs:
           name: test-args-${{ matrix.runner_index }}.txt
           path: '*.txt'
       - name: run acceptance tests
-        run: ./gradlew acceptanceTest `cat gradleArgs.txt` -Dorg.gradle.caching=true
+        run: ./gradlew acceptanceTest `cat gradleArgs.txt` -PdisableTestReports -Dorg.gradle.caching=true
       - name: Remove downloaded test results
         run: rm -rf tmp/junit-xml-reports-downloaded
       - name: Upload Acceptance Test Results
@@ -198,12 +198,6 @@ jobs:
         with:
           name: acceptance-node-${{matrix.runner_index}}-test-results
           path: 'acceptance-tests/tests/build/test-results/**/TEST-*.xml'
-      - name: Upload Acceptance Test HTML Reports
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
-        if: success() || failure()
-        with:
-          name: acceptance-node-${{matrix.runner_index}}-test-html-reports
-          path: 'acceptance-tests/tests/build/reports/tests/**'
 
   acceptanceTestsPassed:
     name: acceptanceTestsPassed
