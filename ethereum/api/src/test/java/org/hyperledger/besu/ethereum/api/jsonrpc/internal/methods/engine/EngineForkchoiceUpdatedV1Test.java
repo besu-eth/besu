@@ -52,6 +52,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
+import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
@@ -103,6 +104,8 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
   @Mock protected EngineCallListener engineCallListener;
   @Mock protected TransactionPool transactionPool;
   @Mock protected WorldStateArchive worldStateArchive;
+  @Mock protected Synchronizer synchronizer;
+  protected WorldStateRecoveryCoordinator recoveryCoordinator;
 
   @Override
   @BeforeEach
@@ -112,6 +115,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
     when(protocolContext.safeConsensusContext(any())).thenReturn(Optional.of(mergeContext));
     when(protocolContext.getBlockchain()).thenReturn(blockchain);
     when(protocolContext.getWorldStateArchive()).thenReturn(worldStateArchive);
+    recoveryCoordinator = new WorldStateRecoveryCoordinator(synchronizer);
     when(protocolSchedule.getForNextBlockHeader(any(), anyLong())).thenReturn(protocolSpec);
     when(mergeCoordinator.preparePayload(any())).thenReturn(new PayloadIdentifier(1337L));
     createMethod();
@@ -132,7 +136,8 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
             .maxRequestBlocks(0)
             .build(),
         null,
-        SHANGHAI);
+        SHANGHAI,
+        recoveryCoordinator);
   }
 
   private void createMethod() {
@@ -250,6 +255,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
         Optional.empty(),
         mock(ForkchoiceResult.class),
         SYNCING);
+    verify(synchronizer).resyncWorldState();
   }
 
   @Test

@@ -59,7 +59,8 @@ class ExecutionEngineJsonRpcMethodsTest {
             "testClient",
             "testCommit",
             mock(TransactionPool.class),
-            mock(MetricsSystem.class));
+            mock(MetricsSystem.class),
+            mock(org.hyperledger.besu.ethereum.core.Synchronizer.class));
 
     Map<String, JsonRpcMethod> engineMethods = methods.create();
     List<String> expectedMethodNames =
