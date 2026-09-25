@@ -98,7 +98,7 @@ public class T8nServerSubCommand implements Runnable {
    * Default constructor for the T8nServerSubCommand class. This constructor is required by PicoCLI
    * and assigns null to parentCommand.
    */
-  @SuppressWarnings("unused")
+  @SuppressWarnings({"unused", "NullAway"}) // Picocli injects the parent after construction.
   public T8nServerSubCommand() {
     // PicoCLI requires this
     this(null);

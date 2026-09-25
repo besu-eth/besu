@@ -14,9 +14,13 @@
  */
 package org.hyperledger.besu.evmtool;
 
+import static java.util.Objects.requireNonNull;
+
 import java.util.Locale;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
+
+import org.jspecify.annotations.Nullable;
 
 /**
  * The test-id filter used by {@code block-test}, {@code state-test} and {@code engine-test}, in two
@@ -39,11 +43,12 @@ import java.util.regex.PatternSyntaxException;
  */
 final class TestNameFilter {
 
-  private final Pattern regex;
-  private final String substring;
+  private final @Nullable Pattern regex;
+  private final @Nullable String substring;
   private final boolean wholeIdMatch;
 
-  private TestNameFilter(final Pattern regex, final String substring, final boolean wholeIdMatch) {
+  private TestNameFilter(
+      final @Nullable Pattern regex, final @Nullable String substring, final boolean wholeIdMatch) {
     this.regex = regex;
     this.substring = substring;
     this.wholeIdMatch = wholeIdMatch;
@@ -57,7 +62,8 @@ final class TestNameFilter {
    * @return the compiled filter, or null when neither option was given
    * @throws IllegalArgumentException if both are given, or the expression is not a valid pattern
    */
-  static TestNameFilter fromOptions(final String testName, final String testNameRegex) {
+  static @Nullable TestNameFilter fromOptions(
+      final @Nullable String testName, final @Nullable String testNameRegex) {
     if (testName != null && testNameRegex != null) {
       throw new IllegalArgumentException(
           "--test-name and --test-name-regex are mutually exclusive: --test-name rewrites '*' and"
@@ -77,7 +83,7 @@ final class TestNameFilter {
    * @param testNameRegex the {@code --test-name-regex} expression, or null
    * @return a phrase to append to the message, empty when no filter was given
    */
-  static String describe(final String testName, final String testNameRegex) {
+  static String describe(final @Nullable String testName, final @Nullable String testNameRegex) {
     if (testNameRegex != null) {
       return " matching --test-name-regex '" + testNameRegex + "'";
     }
@@ -136,7 +142,7 @@ final class TestNameFilter {
    */
   boolean matches(final String test) {
     if (regex == null) {
-      return test.toLowerCase(Locale.ROOT).contains(substring);
+      return test.toLowerCase(Locale.ROOT).contains(requireNonNull(substring));
     }
     // lookingAt(), not matches(), for the regex form: Python's re.match anchors at the start only.
     return wholeIdMatch ? regex.matcher(test).matches() : regex.matcher(test).lookingAt();
