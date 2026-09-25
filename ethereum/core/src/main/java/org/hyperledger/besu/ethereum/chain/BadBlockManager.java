@@ -23,9 +23,12 @@ import org.hyperledger.besu.plugin.services.BesuEvents.BadBlockListener;
 import org.hyperledger.besu.util.Subscribers;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 
@@ -52,6 +55,9 @@ public class BadBlockManager {
   private record BadBlock(Block block, BadBlockCause cause) {}
 
   private record BadHeader(BlockHeader header, BadBlockCause cause) {}
+
+  /** A subscriber notification, delivered once the recording monitor is released. */
+  private record Notification(BlockHeader header, BadBlockCause cause) {}
 
   private final Cache<Hash, BadHeader> badHeaders =
       CacheBuilder.newBuilder().maximumSize(MAX_BAD_CHAIN_SIZE).concurrencyLevel(1).build();
@@ -95,12 +101,26 @@ public class BadBlockManager {
       final BadBlockCause cause,
       final Optional<BlockAccessList> blockAccessList,
       final Optional<BlockAccessList> generatedBlockAccessList) {
+    recordBadBlock(badBlock, cause, blockAccessList, generatedBlockAccessList);
+    notify(new Notification(badBlock.getHeader(), cause));
+  }
+
+  private void recordBadBlock(
+      final Block badBlock,
+      final BadBlockCause cause,
+      final Optional<BlockAccessList> blockAccessList,
+      final Optional<BlockAccessList> generatedBlockAccessList) {
     LOG.debug("Register bad block {} with cause: {}", badBlock.toLogString(), cause);
     this.badBlocks.put(badBlock.getHash(), new BadBlock(badBlock, cause));
     blockAccessList.ifPresent(bal -> this.blockAccessLists.put(badBlock.getHash(), bal));
     generatedBlockAccessList.ifPresent(
         bal -> this.generatedBlockAccessLists.put(badBlock.getHash(), bal));
-    badBlockSubscribers.forEach(s -> s.onBadBlockAdded(badBlock.getHeader(), cause));
+  }
+
+  // subscribers are plugins, they must not run while the monitor blocks import and engine threads
+  private void notify(final Notification notification) {
+    badBlockSubscribers.forEach(
+        s -> s.onBadBlockAdded(notification.header(), notification.cause()));
   }
 
   /**
@@ -123,28 +143,35 @@ public class BadBlockManager {
    *
    * @param blockHash the hash of the block to forget
    */
-  public synchronized void removeBadBlock(final Hash blockHash) {
-    final Deque<Hash> toForget = new ArrayDeque<>();
-    toForget.add(blockHash);
-    while (!toForget.isEmpty()) {
-      final Hash hash = toForget.poll();
-      if (!isBadBlock(hash) && latestValidHashes.getIfPresent(hash) == null) {
-        continue;
-      }
-      LOG.debug("Forget bad block {} after it was imported successfully", hash);
+  public void removeBadBlock(final Hash blockHash) {
+    if (!isBadBlock(blockHash) && latestValidHashes.getIfPresent(blockHash) == null) {
+      return;
+    }
+    synchronized (this) {
+      LOG.debug("Forget bad block {} after it was imported successfully", blockHash);
+      final Map<Hash, List<Hash>> markedChildren = new HashMap<>();
       Stream.concat(
               badBlocks.asMap().values().stream()
                   .map(bad -> new BadHeader(bad.block().getHeader(), bad.cause())),
               badHeaders.asMap().values().stream())
-          .filter(bad -> bad.header().getParentHash().equals(hash))
           .filter(bad -> bad.cause().getReason() == BadBlockReason.DESCENDS_FROM_BAD_BLOCK)
-          .map(bad -> bad.header().getHash())
-          .forEach(toForget::add);
-      this.badBlocks.invalidate(hash);
-      this.badHeaders.invalidate(hash);
-      this.latestValidHashes.invalidate(hash);
-      this.blockAccessLists.invalidate(hash);
-      this.generatedBlockAccessLists.invalidate(hash);
+          .forEach(
+              bad ->
+                  markedChildren
+                      .computeIfAbsent(bad.header().getParentHash(), unused -> new ArrayList<>())
+                      .add(bad.header().getHash()));
+
+      final Deque<Hash> toForget = new ArrayDeque<>();
+      toForget.add(blockHash);
+      while (!toForget.isEmpty()) {
+        final Hash hash = toForget.poll();
+        toForget.addAll(markedChildren.getOrDefault(hash, List.of()));
+        this.badBlocks.invalidate(hash);
+        this.badHeaders.invalidate(hash);
+        this.latestValidHashes.invalidate(hash);
+        this.blockAccessLists.invalidate(hash);
+        this.generatedBlockAccessLists.invalidate(hash);
+      }
     }
   }
 
@@ -185,9 +212,13 @@ public class BadBlockManager {
   }
 
   public void addBadHeader(final BlockHeader header, final BadBlockCause cause) {
+    recordBadHeader(header, cause);
+    notify(new Notification(header, cause));
+  }
+
+  private void recordBadHeader(final BlockHeader header, final BadBlockCause cause) {
     LOG.debug("Register bad block header {} with cause: {}", header.toLogString(), cause);
     badHeaders.put(header.getHash(), new BadHeader(header, cause));
-    badBlockSubscribers.forEach(s -> s.onBadBlockAdded(header, cause));
   }
 
   /**
@@ -229,11 +260,21 @@ public class BadBlockManager {
       final BlockHeader descendant,
       final BlockHeader badAncestor,
       final Optional<Hash> maybeLatestValidHash) {
+    final Notification notification =
+        recordBadDescendant(descendant, badAncestor, maybeLatestValidHash);
+    notify(notification);
+    return notification.cause();
+  }
+
+  private Notification recordBadDescendant(
+      final BlockHeader descendant,
+      final BlockHeader badAncestor,
+      final Optional<Hash> maybeLatestValidHash) {
     final BadBlockCause cause = causeForDescendantOf(badAncestor);
-    addBadHeader(descendant, cause);
+    recordBadHeader(descendant, cause);
     maybeLatestValidHash.ifPresent(
         latestValidHash -> addLatestValidHash(descendant.getHash(), latestValidHash));
-    return cause;
+    return new Notification(descendant, cause);
   }
 
   /**
@@ -250,11 +291,21 @@ public class BadBlockManager {
       final Block descendant,
       final BlockHeader badAncestor,
       final Optional<Hash> maybeLatestValidHash) {
+    final Notification notification =
+        recordBadDescendant(descendant, badAncestor, maybeLatestValidHash);
+    notify(notification);
+    return notification.cause();
+  }
+
+  private Notification recordBadDescendant(
+      final Block descendant,
+      final BlockHeader badAncestor,
+      final Optional<Hash> maybeLatestValidHash) {
     final BadBlockCause cause = causeForDescendantOf(badAncestor);
-    addBadBlock(descendant, cause);
+    recordBadBlock(descendant, cause, Optional.empty(), Optional.empty());
     maybeLatestValidHash.ifPresent(
         latestValidHash -> addLatestValidHash(descendant.getHash(), latestValidHash));
-    return cause;
+    return new Notification(descendant.getHeader(), cause);
   }
 
   /**
@@ -268,21 +319,26 @@ public class BadBlockManager {
    * @param maybeLatestValidHash the latest valid hash of the chain, if known
    * @return true if the root was still tracked and the descendants were marked
    */
-  public synchronized boolean markBadChain(
+  public boolean markBadChain(
       final BlockHeader badBlock,
       final List<Block> badBlockDescendants,
       final List<BlockHeader> badBlockHeaderDescendants,
       final Optional<Hash> maybeLatestValidHash) {
-    if (!isBadBlock(badBlock.getHash())) {
-      LOG.debug(
-          "Bad block {} is no longer tracked, not marking its descendants", badBlock.getHash());
-      return false;
+    final List<Notification> notifications = new ArrayList<>();
+    synchronized (this) {
+      if (!isBadBlock(badBlock.getHash())) {
+        LOG.debug(
+            "Bad block {} is no longer tracked, not marking its descendants", badBlock.getHash());
+        return false;
+      }
+      maybeLatestValidHash.ifPresent(
+          latestValidHash -> addLatestValidHash(badBlock.getHash(), latestValidHash));
+      badBlockDescendants.forEach(
+          block -> notifications.add(recordBadDescendant(block, badBlock, maybeLatestValidHash)));
+      badBlockHeaderDescendants.forEach(
+          header -> notifications.add(recordBadDescendant(header, badBlock, maybeLatestValidHash)));
     }
-    maybeLatestValidHash.ifPresent(
-        latestValidHash -> addLatestValidHash(badBlock.getHash(), latestValidHash));
-    badBlockDescendants.forEach(block -> addBadDescendant(block, badBlock, maybeLatestValidHash));
-    badBlockHeaderDescendants.forEach(
-        header -> addBadDescendant(header, badBlock, maybeLatestValidHash));
+    notifications.forEach(this::notify);
     return true;
   }
 
@@ -305,18 +361,23 @@ public class BadBlockManager {
    * @param header the header of the block to check
    * @return the cause the block is bad for, empty if the parent is not known as bad
    */
-  public synchronized Optional<BadBlockCause> checkAndMarkBadDescendant(final BlockHeader header) {
-    final Hash parentHash = header.getParentHash();
-    final Optional<BlockHeader> maybeBadParentHeader = getBadHeader(parentHash);
-    if (maybeBadParentHeader.isEmpty()) {
-      return Optional.empty();
+  public Optional<BadBlockCause> checkAndMarkBadDescendant(final BlockHeader header) {
+    final Notification notification;
+    synchronized (this) {
+      final Hash parentHash = header.getParentHash();
+      final Optional<BlockHeader> maybeBadParentHeader = getBadHeader(parentHash);
+      if (maybeBadParentHeader.isEmpty()) {
+        return Optional.empty();
+      }
+      final Optional<BadBlockCause> alreadyRecorded = getBadBlockCause(header.getHash());
+      if (alreadyRecorded.isPresent()) {
+        return alreadyRecorded;
+      }
+      notification =
+          recordBadDescendant(header, maybeBadParentHeader.get(), getLatestValidHash(parentHash));
     }
-    final BlockHeader badParentHeader = maybeBadParentHeader.get();
-    final Optional<BadBlockCause> alreadyRecorded = getBadBlockCause(header.getHash());
-    if (alreadyRecorded.isPresent()) {
-      return alreadyRecorded;
-    }
-    return Optional.of(addBadDescendant(header, badParentHeader, getLatestValidHash(parentHash)));
+    notify(notification);
+    return Optional.of(notification.cause());
   }
 
   public void addLatestValidHash(final Hash blockHash, final Hash latestValidHash) {

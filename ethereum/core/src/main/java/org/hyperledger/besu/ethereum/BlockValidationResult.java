@@ -102,10 +102,16 @@ public class BlockValidationResult {
    * @return true if the failure was caused by a local storage or trie fault
    */
   public boolean isLocalFailure() {
-    return cause
-        .map(
-            throwable ->
-                throwable instanceof StorageException || throwable instanceof MerkleTrieException)
-        .orElse(false);
+    return cause.map(BlockValidationResult::isLocalFailure).orElse(false);
+  }
+
+  /**
+   * Whether a throwable denotes a fault of this node rather than of the block being processed.
+   *
+   * @param throwable the throwable
+   * @return true for a storage or trie fault
+   */
+  public static boolean isLocalFailure(final Throwable throwable) {
+    return throwable instanceof StorageException || throwable instanceof MerkleTrieException;
   }
 }

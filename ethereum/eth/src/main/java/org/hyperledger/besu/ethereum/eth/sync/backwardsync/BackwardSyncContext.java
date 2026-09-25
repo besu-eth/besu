@@ -17,7 +17,6 @@ package org.hyperledger.besu.ethereum.eth.sync.backwardsync;
 import static org.hyperledger.besu.util.FutureUtils.exceptionallyCompose;
 
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.BlockValidator;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
@@ -371,7 +370,8 @@ public class BackwardSyncContext {
                 + " backward sync halted. Run debug_resyncWorldState to recover.",
             false);
       }
-      if (isInvalidBlock(block, optResult)) {
+      // the validator records the block only when the failure condemns the block itself
+      if (getProtocolContext().getBadBlockManager().isBadBlock(block.getHash())) {
         emitBadChainEvent(block.getHeader());
       }
       throw new BackwardSyncException(
@@ -392,20 +392,18 @@ public class BackwardSyncContext {
    * @param header the header of the block about to be linked or executed
    */
   protected void failIfBadBlock(final BlockHeader header) {
-    if (getProtocolContext().getBadBlockManager().isBadBlock(header.getHash())) {
-      emitBadChainEvent(header);
-      throw new BackwardSyncException(
-          "Cannot save block " + header.toLogString() + " because it is a known bad block");
+    final BadBlockManager badBlockManager = getProtocolContext().getBadBlockManager();
+    if (!badBlockManager.isBadBlock(header.getHash())) {
+      return;
     }
-  }
-
-  /**
-   * Whether a failed validation condemns the block itself and, with it, its descendants. A local
-   * failure says nothing about the block, and a block whose parent is missing was never validated.
-   */
-  private boolean isInvalidBlock(final Block block, final BlockProcessingResult result) {
-    return !result.isLocalFailure()
-        && getProtocolContext().getBlockchain().contains(block.getHeader().getParentHash());
+    // a block that made it onto the chain cannot be bad, the entry is stale
+    if (getProtocolContext().getBlockchain().contains(header.getHash())) {
+      badBlockManager.removeBadBlock(header.getHash());
+      return;
+    }
+    emitBadChainEvent(header);
+    throw new BackwardSyncException(
+        "Cannot save block " + header.toLogString() + " because it is a known bad block");
   }
 
   @VisibleForTesting

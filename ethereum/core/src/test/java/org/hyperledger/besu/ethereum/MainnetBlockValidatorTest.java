@@ -98,9 +98,9 @@ public class MainnetBlockValidatorTest {
 
   public static Stream<Arguments> getBlockProcessingErrors() {
     return Stream.of(
-        Arguments.of("StorageException", new StorageException("Database closed")),
-        Arguments.of("MerkleTrieException", new MerkleTrieException("Missing trie node")),
-        Arguments.of("RuntimeException", new RuntimeException("Oops")));
+        Arguments.of("StorageException", new StorageException("Database closed"), false),
+        Arguments.of("MerkleTrieException", new MerkleTrieException("Missing trie node"), false),
+        Arguments.of("RuntimeException", new RuntimeException("Oops"), true));
   }
 
   @BeforeEach
@@ -442,7 +442,7 @@ public class MainnetBlockValidatorTest {
   @ParameterizedTest(name = "[{index}] {0}")
   @MethodSource("getBlockProcessingErrors")
   public void validateAndProcessBlock_whenProcessBlockYieldsExceptionalResult(
-      final String caseName, final Exception cause) {
+      final String caseName, final Exception cause, final boolean recordedAsBad) {
     final BlockProcessingResult exceptionalResult =
         new BlockProcessingResult(Optional.empty(), cause);
     when(blockProcessor.processBlock(
@@ -462,10 +462,10 @@ public class MainnetBlockValidatorTest {
 
     assertValidationFailedExceptionally(result, cause);
     // only a fault of this node leaves the block unrecorded
-    if (result.isLocalFailure()) {
-      assertNoBadBlocks();
-    } else {
+    if (recordedAsBad) {
       assertBadBlockIsTracked(block);
+    } else {
+      assertNoBadBlocks();
     }
   }
 
