@@ -19,9 +19,11 @@ import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateLayerStorage;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
+import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SnappedKeyValueStorage;
 import org.hyperledger.besu.services.kvstore.LayeredKeyValueStorage;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.function.Supplier;
 
@@ -86,6 +88,12 @@ public class BonsaiArchiveWorldStateLayerStorage extends BonsaiWorldStateLayerSt
             accountHash,
             storageSlotKey,
             getComposedWorldStateStorage());
+  }
+
+  @Override
+  public List<Optional<Bytes>> getMultipleFlat(
+      final SegmentIdentifier segmentIdentifier, final List<byte[]> keys) {
+    return List.of();
   }
 
   @Override

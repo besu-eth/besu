@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.plugin.services.storage.rocksdb.segmented;
 
+import java.util.List;
+
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.OptimisticTransactionDB;
 import org.rocksdb.ReadOptions;
@@ -48,5 +50,13 @@ class RocksDBSnapshot {
       final ColumnFamilyHandle columnFamilyHandle, final ReadOptions readOptions, final byte[] key)
       throws RocksDBException {
     return db.get(columnFamilyHandle, readOptions, key);
+  }
+
+  public List<byte[]> multiGet(
+      final List<ColumnFamilyHandle> columnFamiliesHandle,
+      final ReadOptions readOptions,
+      final List<byte[]> keys)
+      throws RocksDBException {
+    return db.multiGetAsList(readOptions, columnFamiliesHandle, keys);
   }
 }

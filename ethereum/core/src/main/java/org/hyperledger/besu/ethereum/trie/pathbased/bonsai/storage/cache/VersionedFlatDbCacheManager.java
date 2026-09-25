@@ -335,6 +335,10 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
 
     if (!keysToFetch.isEmpty()) {
       final List<Optional<Bytes>> fetchedValues = batchFetcher.apply(keysToFetch);
+      if (fetchedValues.size() != keysToFetch.size()) {
+        return results;
+      }
+
       final boolean shouldUpdateCache = version == globalVersion.get();
 
       for (int i = 0; i < fetchedValues.size(); i++) {
@@ -344,7 +348,7 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
 
         results.set(resultIndex, fetchedValue);
 
-        if (shouldUpdateCache) {
+        if (shouldUpdateCache && fetchedValue != null) {
           cacheInsertCounter.inc();
           final CacheKey cacheKey = CacheKey.of(key);
           final Bytes valueToCache = fetchedValue.orElse(null);

@@ -60,11 +60,12 @@ public interface BalConfiguration {
   }
 
   /**
-   * Returns the batch size for prefetch operations. A value of 0 or negative means no batching
-   * (fetch all at once).
+   * Returns the batch size for prefetch MultiGets. A value of 0 or negative means no batching (one
+   * MultiGet for accounts, one for storage). Default 256 keeps RocksDB locality without flooding
+   * tiny MultiGets on large BALs.
    */
   @Value.Default
   default int getBalPreFetchBatchSize() {
-    return 8;
+    return 256;
   }
 }

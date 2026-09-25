@@ -24,8 +24,10 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.plugin.services.storage.SnappedKeyValueStorage;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Optional;
@@ -102,6 +104,77 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
     } finally {
       lock.unlock();
     }
+  }
+
+  /**
+   * Layer-local lookup that does not consult the parent.
+   *
+   * @param segmentId the segment identifier
+   * @param key the key
+   * @return empty if the key is absent on this layer; otherwise present with the layer value (an
+   *     empty inner Optional means a deletion tombstone)
+   */
+  public Optional<Optional<byte[]>> peekThisLayer(
+      final SegmentIdentifier segmentId, final byte[] key) {
+    throwIfClosed();
+
+    final Lock lock = rwLock.readLock();
+    lock.lock();
+    try {
+      final NavigableMap<Bytes, Optional<byte[]>> segmentMap = hashValueStore.get(segmentId);
+      if (segmentMap == null) {
+        return Optional.empty();
+      }
+      final Bytes wrapKey = Bytes.wrap(key);
+      if (!segmentMap.containsKey(wrapKey)) {
+        return Optional.empty();
+      }
+      return Optional.of(segmentMap.get(wrapKey));
+    } finally {
+      lock.unlock();
+    }
+  }
+
+  @Override
+  public List<Optional<byte[]>> multiget(final SegmentIdentifier segment, final List<byte[]> keys)
+      throws StorageException {
+    throwIfClosed();
+    if (keys.isEmpty()) {
+      return List.of();
+    }
+
+    final List<Optional<byte[]>> results = new ArrayList<>(keys.size());
+    final List<Integer> missingIndices = new ArrayList<>();
+    final List<byte[]> missingKeys = new ArrayList<>();
+
+    final Lock lock = rwLock.readLock();
+    lock.lock();
+    try {
+      final NavigableMap<Bytes, Optional<byte[]>> segmentMap =
+          hashValueStore.computeIfAbsent(segment, s -> newSegmentMap());
+      for (int i = 0; i < keys.size(); i++) {
+        final byte[] key = keys.get(i);
+        final Optional<byte[]> localValue = segmentMap.get(Bytes.wrap(key));
+        if (localValue != null) {
+          results.add(localValue);
+        } else {
+          results.add(null);
+          missingIndices.add(i);
+          missingKeys.add(key);
+        }
+      }
+    } finally {
+      lock.unlock();
+    }
+
+    if (!missingKeys.isEmpty()) {
+      final List<Optional<byte[]>> parentResults = parent.multiget(segment, missingKeys);
+      for (int j = 0; j < missingIndices.size(); j++) {
+        results.set(missingIndices.get(j), parentResults.get(j));
+      }
+    }
+
+    return results;
   }
 
   /**

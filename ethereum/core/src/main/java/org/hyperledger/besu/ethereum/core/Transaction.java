@@ -83,7 +83,10 @@ public class Transaction
   public static final BigInteger TWO = BigInteger.valueOf(2);
 
   private static final Cache<Hash, Address> senderCache =
-      CacheBuilder.newBuilder().recordStats().maximumSize(100_000L).build();
+      CacheBuilder.newBuilder()
+          .concurrencyLevel(Runtime.getRuntime().availableProcessors())
+          .maximumSize(100_000L)
+          .build();
 
   private final long nonce;
 
@@ -466,8 +469,14 @@ public class Transaction
   @Override
   public Address getSender() {
     if (sender == null) {
-      Optional<Address> cachedSender = Optional.ofNullable(senderCache.getIfPresent(getHash()));
-      sender = cachedSender.orElseGet(this::computeSender);
+      // Per-instance lock: stops duplicate signature recovery on this transaction.
+      // Two different transactions can still recover their senders in parallel.
+      synchronized (this) {
+        if (sender == null) {
+          final Address cachedSender = senderCache.getIfPresent(getHash());
+          sender = cachedSender != null ? cachedSender : computeSender();
+        }
+      }
     }
     return sender;
   }

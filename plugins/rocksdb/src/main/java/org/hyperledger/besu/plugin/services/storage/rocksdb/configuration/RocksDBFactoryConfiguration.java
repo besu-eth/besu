@@ -23,7 +23,6 @@ public class RocksDBFactoryConfiguration {
   private final int backgroundThreadCount;
   private final long cacheCapacity;
   private final boolean isHighSpec;
-  private final boolean enableReadCacheForSnapshots;
   private final boolean isTableCacheWarmupEnabled;
   private final boolean isBlockchainGarbageCollectionEnabled;
   private final Optional<Double> blobGarbageCollectionAgeCutoff;
@@ -36,7 +35,6 @@ public class RocksDBFactoryConfiguration {
    * @param backgroundThreadCount the background thread count
    * @param cacheCapacity the cache capacity
    * @param isHighSpec the is high spec
-   * @param enableReadCacheForSnapshots whether read caching is enabled for snapshots
    * @param isTableCacheWarmupEnabled whether the startup table cache warm-up is enabled
    * @param isBlockchainGarbageCollectionEnabled is garbage collection enabled for the BLOCKCHAIN
    *     column family
@@ -48,7 +46,6 @@ public class RocksDBFactoryConfiguration {
       final int backgroundThreadCount,
       final long cacheCapacity,
       final boolean isHighSpec,
-      final boolean enableReadCacheForSnapshots,
       final boolean isTableCacheWarmupEnabled,
       final boolean isBlockchainGarbageCollectionEnabled,
       final Optional<Double> blobGarbageCollectionAgeCutoff,
@@ -57,7 +54,6 @@ public class RocksDBFactoryConfiguration {
     this.maxOpenFiles = maxOpenFiles;
     this.cacheCapacity = cacheCapacity;
     this.isHighSpec = isHighSpec;
-    this.enableReadCacheForSnapshots = enableReadCacheForSnapshots;
     this.isTableCacheWarmupEnabled = isTableCacheWarmupEnabled;
     this.isBlockchainGarbageCollectionEnabled = isBlockchainGarbageCollectionEnabled;
     this.blobGarbageCollectionAgeCutoff = blobGarbageCollectionAgeCutoff;
@@ -98,15 +94,6 @@ public class RocksDBFactoryConfiguration {
    */
   public boolean isHighSpec() {
     return isHighSpec;
-  }
-
-  /**
-   * Indicates whether read caching is enabled for snapshot access.
-   *
-   * @return {@code true} if read cache is enabled for snapshots; {@code false} otherwise.
-   */
-  public boolean isReadCacheEnabledForSnapshots() {
-    return enableReadCacheForSnapshots;
   }
 
   /**
