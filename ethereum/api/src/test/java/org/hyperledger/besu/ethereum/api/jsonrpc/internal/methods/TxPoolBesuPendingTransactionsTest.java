@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
@@ -25,6 +26,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PendingTran
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionPendingResult;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
+import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 
@@ -286,6 +288,86 @@ public class TxPoolBesuPendingTransactionsTest {
     assertThatThrownBy(() -> method.response(request))
         .isInstanceOf(InvalidJsonRpcParameters.class)
         .hasMessageContaining("The `to` filter only supports the `eq` or `action` operator");
+  }
+
+  /**
+   * EIP-1559 transactions have no gasPrice field at all -- only maxFeePerGas -- so
+   * Transaction#getGasPrice is empty for them. The pool here is
+   * BlockDataGenerator#transactionsWithAllTypes, which guarantees one, and the filter used to
+   * unwrap that empty Optional and fail the whole request.
+   *
+   * <p>The bound is exact rather than arbitrary: the generator sets both gasPrice and maxFeePerGas
+   * from a 4-byte value, so every transaction in this pool is below 2^32 whichever field carries
+   * its price. That makes the expected count deterministic.
+   */
+  @Test
+  public void shouldFilterByGasPriceWhenPoolContainsEip1559Transactions() {
+    assertThat(
+            listTrx.stream().map(pt -> pt.getTransaction().getType()).collect(Collectors.toSet()))
+        .as("fixture must actually cover the EIP-1559 case")
+        .contains(TransactionType.EIP1559);
+
+    final Map<String, String> gasPriceFilter = new HashMap<>();
+    gasPriceFilter.put("lt", "0x100000000");
+
+    final Set<TransactionPendingResult> result = requestWithGasPriceFilter(gasPriceFilter);
+
+    assertThat(result).hasSize(listTrx.size());
+  }
+
+  /**
+   * Pins what an EIP-1559 transaction's gasPrice resolves to: its maxFeePerGas, not zero and not an
+   * error. Filtering for that exact value must match the transaction it was read from.
+   */
+  @Test
+  public void gasPriceOfAnEip1559TransactionResolvesToItsMaxFeePerGas() {
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final Transaction eip1559Transaction = gen.transaction(TransactionType.EIP1559);
+    when(transactionPool.getPendingTransactions())
+        .thenReturn(Set.of(new PendingTransaction.Local(eip1559Transaction)));
+
+    final Map<String, String> gasPriceFilter = new HashMap<>();
+    gasPriceFilter.put("eq", eip1559Transaction.getMaxFeePerGas().orElseThrow().toHexString());
+
+    assertThat(requestWithGasPriceFilter(gasPriceFilter)).hasSize(1);
+  }
+
+  /**
+   * The limit reaches Stream#limit unchecked, so a negative value used to surface as an
+   * IllegalArgumentException and an internal error rather than an invalid-parameter response.
+   */
+  @Test
+  public void shouldRejectNegativeLimit() {
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest(
+                JSON_RPC_VERSION, TXPOOL_PENDING_TRANSACTIONS_METHOD, new Object[] {-1}));
+
+    assertThatThrownBy(() -> method.response(request))
+        .isInstanceOf(InvalidJsonRpcParameters.class)
+        .hasMessageContaining("Invalid transaction limit parameter (index 0)");
+  }
+
+  private Set<TransactionPendingResult> requestWithGasPriceFilter(
+      final Map<String, String> gasPriceFilter) {
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest(
+                JSON_RPC_VERSION,
+                TXPOOL_PENDING_TRANSACTIONS_METHOD,
+                new Object[] {
+                  null,
+                  new PendingTransactionsParams(
+                      new HashMap<>(),
+                      new HashMap<>(),
+                      new HashMap<>(),
+                      gasPriceFilter,
+                      new HashMap<>(),
+                      new HashMap<>())
+                }));
+
+    final JsonRpcSuccessResponse actualResponse = (JsonRpcSuccessResponse) method.response(request);
+    return (Set<TransactionPendingResult>) actualResponse.getResult();
   }
 
   private Set<PendingTransaction> getTransactionPool() {

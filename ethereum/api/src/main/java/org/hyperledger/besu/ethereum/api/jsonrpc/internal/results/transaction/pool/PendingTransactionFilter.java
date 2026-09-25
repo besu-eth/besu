@@ -69,9 +69,7 @@ public class PendingTransactionFilter {
           isValid = validateTo(pendingTransaction, predicate, value);
           break;
         case GAS_PRICE_FIELD:
-          isValid =
-              validateWei(
-                  pendingTransaction.getTransaction().getGasPrice().get(), predicate, value);
+          isValid = validateWei(gasPriceOf(pendingTransaction.getTransaction()), predicate, value);
           break;
         case GAS_FIELD:
           isValid =
@@ -122,6 +120,22 @@ public class PendingTransactionFilter {
     return predicate
         .getOperator()
         .apply(pendingTransaction.getTransaction().getNonce(), Long.decode(value));
+  }
+
+  /**
+   * The gas price to filter a pending transaction on.
+   *
+   * <p>EIP-1559 and later transaction types carry no {@code gasPrice} field at all, so {@link
+   * Transaction#getGasPrice()} is empty for them and must not be unwrapped. Falling back to {@code
+   * maxFeePerGas} matches the value this same endpoint reports as {@code gasPrice} in its response:
+   * {@code TransactionBaseResult} resolves it the same way, and for a pending transaction there is
+   * no base fee to derive an effective price from.
+   *
+   * @param transaction the pending transaction
+   * @return the transaction's gas price, or its max fee per gas when it has no gas price
+   */
+  private Wei gasPriceOf(final Transaction transaction) {
+    return transaction.getGasPrice().or(transaction::getMaxFeePerGas).orElse(Wei.ZERO);
   }
 
   private boolean validateWei(
