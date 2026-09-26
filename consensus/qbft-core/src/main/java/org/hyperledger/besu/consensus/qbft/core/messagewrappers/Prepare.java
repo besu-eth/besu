@@ -54,4 +54,17 @@ public class Prepare extends BftMessage<PreparePayload> {
     final RLPInput rlpIn = RLP.input(data);
     return new Prepare(readPayload(rlpIn, PreparePayload::readFrom));
   }
+
+  /**
+   * Reads only the sequence number (block height) from the encoded message without full decode.
+   *
+   * @param data the raw encoded message bytes
+   * @return the sequence number
+   */
+  public static long decodeSequence(final Bytes data) {
+    final RLPInput rlp = RLP.input(data);
+    rlp.enterList(); // signed-data wrapper
+    rlp.enterList(); // PreparePayload
+    return rlp.readLongScalar();
+  }
 }

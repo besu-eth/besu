@@ -18,6 +18,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.common.bft.ConsensusRoundIdentifier;
@@ -58,6 +60,29 @@ public class ProposalTest {
   @Mock private QbftBlockCodec blockEncoder;
 
   private static final QbftBlock BLOCK = new QbftBlockTestFixture().build();
+
+  @Test
+  public void decodeSequenceReadsSequenceWithoutDecodingBlock() {
+    doAnswer(
+            inv -> {
+              inv.getArgument(1, RLPOutput.class).writeNull();
+              return null;
+            })
+        .when(blockEncoder)
+        .writeTo(any(QbftBlock.class), any(RLPOutput.class));
+
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final ProposalPayload payload = createProposalPayload(Optional.empty());
+    final SignedData<ProposalPayload> signedPayload =
+        SignedData.create(
+            payload, nodeKey.sign(Bytes32.wrap(payload.hashForSignature().getBytes())));
+    final Bytes encoded = new Proposal(signedPayload, List.of(), List.of()).encode();
+
+    final long sequence = Proposal.decodeSequence(encoded);
+
+    assertThat(sequence).isEqualTo(1L);
+    verify(blockEncoder, never()).readFrom(any());
+  }
 
   @Test
   public void canRoundTripProposalMessage() {
@@ -345,6 +370,99 @@ public class ProposalTest {
             .encode();
 
     assertThatThrownBy(() -> Proposal.decode(oversized, blockEncoder))
+        .isInstanceOf(RLPException.class)
+        .hasMessageContaining("exceeds the maximum permitted size");
+  }
+
+  @Test
+  public void decodeWithCapAcceptsListsAtCap() {
+    doAnswer(
+            inv -> {
+              inv.getArgument(1, RLPOutput.class).writeNull();
+              return null;
+            })
+        .when(blockEncoder)
+        .writeTo(any(QbftBlock.class), any(RLPOutput.class));
+    when(blockEncoder.readFrom(any()))
+        .thenAnswer(
+            inv -> {
+              inv.<RLPInput>getArgument(0).skipNext();
+              return BLOCK;
+            });
+
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final ProposalPayload payload = createProposalPayload(Optional.empty());
+    final SignedData<ProposalPayload> signedPayload =
+        SignedData.create(
+            payload, nodeKey.sign(Bytes32.wrap(payload.hashForSignature().getBytes())));
+    final Bytes encoded =
+        new Proposal(
+                signedPayload,
+                Collections.nCopies(3, createRoundChange(nodeKey)),
+                Collections.nCopies(3, createPrepare(nodeKey)))
+            .encode();
+
+    final Proposal decoded = Proposal.decode(encoded, blockEncoder, 3);
+    assertThat(decoded.getRoundChanges()).hasSize(3);
+    assertThat(decoded.getPrepares()).hasSize(3);
+  }
+
+  @Test
+  public void decodeWithCapRejectsRoundChangesExceedingCap() {
+    doAnswer(
+            inv -> {
+              inv.getArgument(1, RLPOutput.class).writeNull();
+              return null;
+            })
+        .when(blockEncoder)
+        .writeTo(any(QbftBlock.class), any(RLPOutput.class));
+    when(blockEncoder.readFrom(any()))
+        .thenAnswer(
+            inv -> {
+              inv.<RLPInput>getArgument(0).skipNext();
+              return BLOCK;
+            });
+
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final ProposalPayload payload = createProposalPayload(Optional.empty());
+    final SignedData<ProposalPayload> signedPayload =
+        SignedData.create(
+            payload, nodeKey.sign(Bytes32.wrap(payload.hashForSignature().getBytes())));
+    final Bytes encoded =
+        new Proposal(signedPayload, Collections.nCopies(4, createRoundChange(nodeKey)), List.of())
+            .encode();
+
+    assertThatThrownBy(() -> Proposal.decode(encoded, blockEncoder, 3))
+        .isInstanceOf(RLPException.class)
+        .hasMessageContaining("exceeds the maximum permitted size");
+  }
+
+  @Test
+  public void decodeWithCapRejectsPreparesExceedingCap() {
+    doAnswer(
+            inv -> {
+              inv.getArgument(1, RLPOutput.class).writeNull();
+              return null;
+            })
+        .when(blockEncoder)
+        .writeTo(any(QbftBlock.class), any(RLPOutput.class));
+    when(blockEncoder.readFrom(any()))
+        .thenAnswer(
+            inv -> {
+              inv.<RLPInput>getArgument(0).skipNext();
+              return BLOCK;
+            });
+
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final ProposalPayload payload = createProposalPayload(Optional.empty());
+    final SignedData<ProposalPayload> signedPayload =
+        SignedData.create(
+            payload, nodeKey.sign(Bytes32.wrap(payload.hashForSignature().getBytes())));
+    final Bytes encoded =
+        new Proposal(signedPayload, List.of(), Collections.nCopies(4, createPrepare(nodeKey)))
+            .encode();
+
+    assertThatThrownBy(() -> Proposal.decode(encoded, blockEncoder, 3))
         .isInstanceOf(RLPException.class)
         .hasMessageContaining("exceeds the maximum permitted size");
   }

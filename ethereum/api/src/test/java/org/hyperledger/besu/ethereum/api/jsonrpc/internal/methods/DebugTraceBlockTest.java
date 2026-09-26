@@ -23,8 +23,10 @@ import org.hyperledger.besu.crypto.SECPPrivateKey;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.api.ImmutableApiConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
@@ -32,13 +34,11 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSucces
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
-import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.ExecutionContextTestFixture;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
 import java.io.ByteArrayOutputStream;
@@ -203,12 +203,17 @@ public class DebugTraceBlockTest {
 
   @Test
   public void shouldReturnErrorResponseWhenParentBlockMissing() throws IOException {
-    // Create a block whose parent doesn't exist in the blockchain
+    // Build a well-formed block with a gas limit within the trace cap but an unknown parent,
+    // so the parent-not-found check (not the gas cap) is the rejection reason.
+    final BlockHeader orphanHeader =
+        new BlockHeaderTestFixture()
+            .number(1)
+            .parentHash(Hash.ZERO)
+            .gasLimit(30_000_000L)
+            .baseFeePerGas(Wei.of(7))
+            .buildHeader();
     final Block orphanBlock =
-        new BlockDataGenerator()
-            .block(
-                BlockDataGenerator.BlockOptions.create()
-                    .setBlockHeaderFunctions(new MainnetBlockHeaderFunctions()));
+        new Block(orphanHeader, new BlockBody(List.of(), List.of(), Optional.empty()));
 
     final Object[] params = new Object[] {orphanBlock.toRlp().toString()};
     final JsonRpcRequestContext request =
@@ -219,6 +224,36 @@ public class DebugTraceBlockTest {
     final JsonNode response = mapper.readTree(out.toByteArray());
     assertThat(response.has("error")).isTrue();
     assertThat(response.get("error").get("message").asText()).contains("Parent block not found");
+  }
+
+  @Test
+  public void serverStepLimitShouldTruncateStructLogs() throws IOException {
+    final BlockchainQueries blockchainQueries =
+        new BlockchainQueries(
+            fixture.getProtocolSchedule(),
+            fixture.getBlockchain(),
+            fixture.getStateArchive(),
+            MiningConfiguration.MINING_DISABLED);
+
+    final DebugTraceBlock limitedMethod =
+        new DebugTraceBlock(
+            fixture.getProtocolSchedule(),
+            blockchainQueries,
+            ImmutableApiConfiguration.builder().debugTraceStepLimit(3L).build());
+
+    final Object[] params = new Object[] {testBlock.toRlp().toString()};
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(new JsonRpcRequest("2.0", "debug_traceBlock", params));
+
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    limitedMethod.streamResponse(request, out, mapper);
+    final JsonNode response = mapper.readTree(out.toByteArray());
+    assertThat(response.has("result")).isTrue();
+    final JsonNode structLogs = response.get("result").get(0).get("result").get("structLogs");
+    assertThat(structLogs.isArray()).isTrue();
+    assertThat(structLogs.size())
+        .as("server step limit of 3 should cap structLogs at 3 entries (contract has 9 opcodes)")
+        .isEqualTo(3);
   }
 
   @Test
@@ -233,5 +268,56 @@ public class DebugTraceBlockTest {
     assertThat(response.has("error")).isTrue();
     assertThat(response.get("error").get("message").asText())
         .contains("Invalid block param (block not found)");
+  }
+
+  @Test
+  public void shouldRejectBlockExceedingGasLimit() throws IOException {
+    final BlockHeader oversizedHeader =
+        new BlockHeaderTestFixture()
+            .number(1)
+            .parentHash(fixture.getBlockchain().getChainHeadHash())
+            .gasLimit(DebugTraceBlock.MAX_TRACE_BLOCK_GAS_LIMIT + 1)
+            .baseFeePerGas(Wei.of(7))
+            .buildHeader();
+    final Block oversizedBlock =
+        new Block(oversizedHeader, new BlockBody(List.of(), List.of(), Optional.empty()));
+
+    final Object[] params = new Object[] {oversizedBlock.toRlp().toString()};
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(new JsonRpcRequest("2.0", "debug_traceBlock", params));
+
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    debugTraceBlock.streamResponse(request, out, mapper);
+    final JsonNode response = mapper.readTree(out.toByteArray());
+    assertThat(response.has("error")).isTrue();
+    assertThat(response.get("error").get("message").asText())
+        .contains("Block gas limit exceeds trace limit");
+  }
+
+  @Test
+  public void shouldRejectBlockExceedingTransactionCount() throws IOException {
+    final List<Transaction> manyTxs =
+        Collections.nCopies(DebugTraceBlock.MAX_TRACE_BLOCK_TX_COUNT + 1, testTransaction);
+
+    final BlockHeader header =
+        new BlockHeaderTestFixture()
+            .number(1)
+            .parentHash(fixture.getBlockchain().getChainHeadHash())
+            .gasLimit(30_000_000L)
+            .baseFeePerGas(Wei.of(7))
+            .buildHeader();
+    final Block oversizedBlock =
+        new Block(header, new BlockBody(manyTxs, List.of(), Optional.empty()));
+
+    final Object[] params = new Object[] {oversizedBlock.toRlp().toString()};
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(new JsonRpcRequest("2.0", "debug_traceBlock", params));
+
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    debugTraceBlock.streamResponse(request, out, mapper);
+    final JsonNode response = mapper.readTree(out.toByteArray());
+    assertThat(response.has("error")).isTrue();
+    assertThat(response.get("error").get("message").asText())
+        .contains("Block transaction count exceeds trace limit");
   }
 }

@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
@@ -31,6 +32,8 @@ import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.api.query.TransactionWithMetadata;
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
+import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder;
 
 import java.util.Optional;
 
@@ -39,14 +42,25 @@ public class DebugTraceTransaction implements JsonRpcMethod {
   private final TransactionTracer transactionTracer;
   private final BlockchainQueries blockchain;
   private final ProtocolSchedule protocolSchedule;
+  private final long serverStepLimit;
 
   public DebugTraceTransaction(
       final BlockchainQueries blockchain,
       final TransactionTracer transactionTracer,
       final ProtocolSchedule protocolSchedule) {
+    this(blockchain, transactionTracer, protocolSchedule, null);
+  }
+
+  public DebugTraceTransaction(
+      final BlockchainQueries blockchain,
+      final TransactionTracer transactionTracer,
+      final ProtocolSchedule protocolSchedule,
+      final ApiConfiguration apiConfiguration) {
     this.blockchain = blockchain;
     this.transactionTracer = transactionTracer;
     this.protocolSchedule = protocolSchedule;
+    this.serverStepLimit =
+        apiConfiguration != null ? apiConfiguration.getDebugTraceStepLimit() : 0L;
   }
 
   @Override
@@ -101,6 +115,10 @@ public class DebugTraceTransaction implements JsonRpcMethod {
       final TransactionWithMetadata transactionWithMetadata,
       final TraceOptions traceOptions) {
     final Hash blockHash = transactionWithMetadata.getBlockHash().get();
+
+    final DebugOperationTracer execTracer =
+        new DebugOperationTracer(applyServerStepLimit(traceOptions).opCodeTracerConfig(), true);
+
     return blockchain
         .getBlockchain()
         .getBlockHeader(blockHash)
@@ -114,10 +132,32 @@ public class DebugTraceTransaction implements JsonRpcMethod {
                   blockHash,
                   mutableWorldState ->
                       transactionTracer
-                          .traceTransaction(
-                              mutableWorldState, blockHash, txHash, step.getOperationTracer())
+                          .traceTransaction(mutableWorldState, blockHash, txHash, execTracer)
                           .map(step::buildResult));
             })
         .orElse(null);
+  }
+
+  private TraceOptions applyServerStepLimit(final TraceOptions traceOptions) {
+    if (serverStepLimit <= 0) {
+      return traceOptions;
+    }
+    final int callerLimit = traceOptions.opCodeTracerConfig().limit();
+    final int effectiveLimit =
+        callerLimit > 0
+            ? (int) Math.min(callerLimit, Math.min(serverStepLimit, Integer.MAX_VALUE))
+            : (int) Math.min(serverStepLimit, Integer.MAX_VALUE);
+    if (effectiveLimit == callerLimit) {
+      return traceOptions;
+    }
+    final var newConfig =
+        OpCodeTracerConfigBuilder.createFrom(traceOptions.opCodeTracerConfig())
+            .limit(effectiveLimit)
+            .build();
+    return new TraceOptions(
+        traceOptions.tracerType(),
+        newConfig,
+        traceOptions.tracerConfig(),
+        traceOptions.stateOverrides());
   }
 }

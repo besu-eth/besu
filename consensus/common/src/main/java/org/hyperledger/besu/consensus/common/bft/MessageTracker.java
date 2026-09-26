@@ -16,14 +16,16 @@ package org.hyperledger.besu.consensus.common.bft;
 
 import static java.util.Collections.newSetFromMap;
 
-import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.crypto.Hash;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 
 import java.util.Set;
 
+import org.apache.tuweni.bytes.Bytes32;
+
 /** The Message tracker. */
 public class MessageTracker {
-  private final Set<Hash> seenMessages;
+  private final Set<Bytes32> seenMessages;
 
   /**
    * Instantiates a new Message tracker.
@@ -37,11 +39,29 @@ public class MessageTracker {
   /**
    * Add seen message.
    *
+   * @param hash the pre-computed message hash
+   */
+  public void addSeenMessage(final Bytes32 hash) {
+    seenMessages.add(hash);
+  }
+
+  /**
+   * Add seen message.
+   *
    * @param message the message
    */
   public void addSeenMessage(final MessageData message) {
-    final Hash uniqueID = Hash.hash(message.getData());
-    seenMessages.add(uniqueID);
+    addSeenMessage(Hash.sha256(message.getData()));
+  }
+
+  /**
+   * Has seen message.
+   *
+   * @param hash the pre-computed message hash
+   * @return the boolean
+   */
+  public boolean hasSeenMessage(final Bytes32 hash) {
+    return seenMessages.contains(hash);
   }
 
   /**
@@ -51,7 +71,6 @@ public class MessageTracker {
    * @return the boolean
    */
   public boolean hasSeenMessage(final MessageData message) {
-    final Hash uniqueID = Hash.hash(message.getData());
-    return seenMessages.contains(uniqueID);
+    return hasSeenMessage(Hash.sha256(message.getData()));
   }
 }

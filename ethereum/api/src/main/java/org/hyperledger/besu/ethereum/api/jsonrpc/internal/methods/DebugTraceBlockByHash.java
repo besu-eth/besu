@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
@@ -38,7 +39,14 @@ public class DebugTraceBlockByHash extends AbstractDebugTraceBlock {
 
   public DebugTraceBlockByHash(
       final ProtocolSchedule protocolSchedule, final BlockchainQueries blockchainQueries) {
-    super(protocolSchedule, blockchainQueries);
+    this(protocolSchedule, blockchainQueries, null);
+  }
+
+  public DebugTraceBlockByHash(
+      final ProtocolSchedule protocolSchedule,
+      final BlockchainQueries blockchainQueries,
+      final ApiConfiguration apiConfiguration) {
+    super(protocolSchedule, blockchainQueries, apiConfiguration);
   }
 
   @Override
@@ -70,7 +78,8 @@ public class DebugTraceBlockByHash extends AbstractDebugTraceBlock {
 
     final TraceOptions traceOptions = getTraceOptions(request);
     final DebugTraceBlockStreamer streamer = createStreamer(traceOptions, Optional.of(block));
-    return new JsonRpcSuccessResponse(request.getRequest().getId(), streamer.accumulateAll());
+    return new JsonRpcSuccessResponse(
+        request.getRequest().getId(), streamer.accumulateAll(request::isAlive));
   }
 
   @Override
@@ -93,7 +102,8 @@ public class DebugTraceBlockByHash extends AbstractDebugTraceBlock {
     final TraceOptions traceOptions = getTraceOptions(requestContext);
 
     final DebugTraceBlockStreamer streamer = createStreamer(traceOptions, Optional.of(block));
-    writeStreamingResponse(requestContext.getRequest().getId(), streamer, out, mapper);
+    writeStreamingResponse(
+        requestContext.getRequest().getId(), streamer, out, mapper, requestContext::isAlive);
   }
 
   private Optional<Block> getBlockByHash(final JsonRpcRequestContext requestContext) {

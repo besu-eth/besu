@@ -101,16 +101,19 @@ public class DebugJsonRpcMethods extends ApiGroupJsonRpcMethods {
 
     return mapOf(
         new DebugTraceTransaction(
-            blockchainQueries, new TransactionTracer(blockReplay), protocolSchedule),
+            blockchainQueries,
+            new TransactionTracer(blockReplay),
+            protocolSchedule,
+            apiConfiguration),
         new DebugAccountRange(blockchainQueries),
         new DebugStorageRangeAt(blockchainQueries, blockReplay),
         new DebugMetrics(metricsSystem),
         new DebugResyncWorldstate(protocolContext, synchronizer),
-        new DebugTraceBlock(protocolSchedule, blockchainQueries),
+        new DebugTraceBlock(protocolSchedule, blockchainQueries, apiConfiguration),
         new DebugSetHead(blockchainQueries, protocolContext),
         new DebugReplayBlock(blockchainQueries, protocolContext, protocolSchedule),
-        new DebugTraceBlockByNumber(protocolSchedule, blockchainQueries),
-        new DebugTraceBlockByHash(protocolSchedule, blockchainQueries),
+        new DebugTraceBlockByNumber(protocolSchedule, blockchainQueries, apiConfiguration),
+        new DebugTraceBlockByHash(protocolSchedule, blockchainQueries, apiConfiguration),
         new DebugBatchSendRawTransaction(transactionPool),
         new DebugGetBadBlocks(protocolContext, blockResult),
         new DebugStandardTraceBlockToFile(

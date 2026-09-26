@@ -35,6 +35,21 @@ import org.junit.jupiter.api.Test;
 public class CommitTest {
 
   @Test
+  public void decodeSequenceReadsSequenceNumber() {
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final CommitPayload payload =
+        new CommitPayload(
+            new ConsensusRoundIdentifier(77L, 0),
+            Hash.ZERO,
+            SignatureAlgorithmFactory.getInstance()
+                .createSignature(BigInteger.ONE, BigInteger.ONE, (byte) 0));
+    final SignedData<CommitPayload> signed =
+        SignedData.create(
+            payload, nodeKey.sign(Bytes32.wrap(payload.hashForSignature().getBytes())));
+    assertThat(Commit.decodeSequence(new Commit(signed).encode())).isEqualTo(77L);
+  }
+
+  @Test
   public void canRoundTripACommitMessage() {
     final NodeKey nodeKey = NodeKeyUtils.generate();
     final Address addr = Util.publicKeyToAddress(nodeKey.getPublicKey());

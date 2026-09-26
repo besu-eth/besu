@@ -31,7 +31,31 @@ public class QbftMessageDecoder {
   public QbftMessageDecoder() {}
 
   /**
-   * Decode a QbftMessage into a BftMessage.
+   * Reads only the sequence number (block height) from a message without full decode. Safe to call
+   * on future-height messages before validator set membership is known.
+   *
+   * @param message the raw message data
+   * @return the sequence number
+   * @throws IllegalArgumentException if the message code is not recognised
+   * @throws org.hyperledger.besu.ethereum.rlp.RLPException if the bytes are malformed
+   */
+  public long decodeSequence(final MessageData message) {
+    return switch (message.getCode()) {
+      case QbftV1.PROPOSAL -> Proposal.decodeSequence(message.getData());
+      case QbftV1.PREPARE -> Prepare.decodeSequence(message.getData());
+      case QbftV1.COMMIT -> Commit.decodeSequence(message.getData());
+      case QbftV1.ROUND_CHANGE -> RoundChange.decodeSequence(message.getData());
+      default ->
+          throw new IllegalArgumentException(
+              String.format(
+                  "Received message with messageCode=%d does not conform to any recognised QBFT message structure",
+                  message.getCode()));
+    };
+  }
+
+  /**
+   * Decode a QbftMessage into a BftMessage using the default certificate list cap of {@code
+   * MAX_LIST_ENTRIES}.
    *
    * @param message the QbftMessage to decode
    * @param blockCodec the block codec for decoding block data in Proposal and RoundChange messages
@@ -51,7 +75,36 @@ public class QbftMessageDecoder {
           throw new IllegalArgumentException(
               String.format(
                   "Received message with messageCode=%d does not conform to any recognised QBFT message structure",
-                  message.getData().getCode()));
+                  messageData.getCode()));
+    };
+  }
+
+  /**
+   * Decode a QbftMessage into a BftMessage with an explicit cap on certificate list entries. Pass
+   * {@code validators.size()} when decoding current-height messages to bound secp256k1 work.
+   *
+   * @param message the QbftMessage to decode
+   * @param blockCodec the block codec for decoding block data in Proposal and RoundChange messages
+   * @param maxCertEntries maximum permitted entries in certificate lists (round-changes / prepares)
+   * @return the decoded BftMessage
+   * @throws IllegalArgumentException if the message code is not recognized
+   */
+  public BftMessage<?> decode(
+      final QbftMessage message, final QbftBlockCodec blockCodec, final int maxCertEntries) {
+    final MessageData messageData = message.getData();
+
+    return switch (messageData.getCode()) {
+      case QbftV1.PROPOSAL ->
+          ProposalMessageData.fromMessageData(messageData).decode(blockCodec, maxCertEntries);
+      case QbftV1.PREPARE -> PrepareMessageData.fromMessageData(messageData).decode();
+      case QbftV1.COMMIT -> CommitMessageData.fromMessageData(messageData).decode();
+      case QbftV1.ROUND_CHANGE ->
+          RoundChangeMessageData.fromMessageData(messageData).decode(blockCodec, maxCertEntries);
+      default ->
+          throw new IllegalArgumentException(
+              String.format(
+                  "Received message with messageCode=%d does not conform to any recognised QBFT message structure",
+                  messageData.getCode()));
     };
   }
 }

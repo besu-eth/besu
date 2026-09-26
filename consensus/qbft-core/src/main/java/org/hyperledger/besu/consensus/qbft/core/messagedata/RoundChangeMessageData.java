@@ -52,6 +52,17 @@ public class RoundChangeMessageData extends AbstractBftMessageData {
   }
 
   /**
+   * Decode with an explicit cap on the prepares list.
+   *
+   * @param blockEncoder the qbft block encoder
+   * @param maxCertEntries maximum permitted entries in the prepares list
+   * @return the round change
+   */
+  public RoundChange decode(final QbftBlockCodec blockEncoder, final int maxCertEntries) {
+    return RoundChange.decode(data, blockEncoder, maxCertEntries);
+  }
+
+  /**
    * Create round change message data.
    *
    * @param signedPayload the signed payload

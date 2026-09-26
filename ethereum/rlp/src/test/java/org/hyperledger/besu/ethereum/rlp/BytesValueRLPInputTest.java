@@ -691,6 +691,31 @@ public class BytesValueRLPInputTest {
   }
 
   @Test
+  public void enterListWithMaxElementsExitsEarlyReportingMaxPlusOne() {
+    // Build a list with many elements to verify early-exit stops at maxElements+1, not N.
+    final int actual = 100;
+    final int max = 4;
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    out.startList();
+    for (int i = 0; i < actual; i++) out.writeIntScalar(i);
+    out.endList();
+    final BytesValueRLPInput in = new BytesValueRLPInput(out.encoded(), false);
+    assertThatThrownBy(() -> in.enterList(max))
+        .isInstanceOf(RLPException.class)
+        // Early-exit reports max+1, not the full 100
+        .hasMessageContaining(
+            "List of " + (max + 1) + " elements exceeds the maximum permitted size of " + max);
+  }
+
+  @Test
+  public void enterListWithMaxElementsAcceptsListAtLimit() {
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    out.writeList(List.of(1, 2, 3), (v, o) -> o.writeIntScalar(v));
+    final BytesValueRLPInput in = new BytesValueRLPInput(out.encoded(), false);
+    assertThat(in.enterList(3)).isEqualTo(3);
+  }
+
+  @Test
   public void decodeValueWithLeadingZerosAsSignedLong() {
     RLPInput in = RLP.input(h("0x8800000000000000D0"));
     assertThat(in.readLong()).isEqualTo(208);

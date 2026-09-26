@@ -49,6 +49,7 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
 
   private final FrameWriter frameWriter;
   private boolean hasEmittedFrame = false;
+  private int stepCount = 0;
 
   /**
    * Creates a streaming operation tracer.
@@ -64,6 +65,15 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
       final FrameWriter frameWriter) {
     super(options, recordChildCallGas);
     this.frameWriter = frameWriter;
+  }
+
+  @Override
+  protected void capturePreExecutionState(final MessageFrame frame) {
+    if (options.limit() > 0 && stepCount >= options.limit()) {
+      traceOpcode = false;
+      return;
+    }
+    stepCount++;
   }
 
   @Override

@@ -38,6 +38,7 @@ import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -49,6 +50,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
+import java.util.function.BooleanSupplier;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.tuweni.bytes.Bytes;
@@ -93,6 +95,7 @@ public class DebugTraceBlockStreamer {
   private final TraceOptions traceOptions;
   private final ProtocolSchedule protocolSchedule;
   private final BlockchainQueries blockchainQueries;
+  private final long serverStepLimit;
 
   private final byte[] numBuf = new byte[20];
   private final byte[] writeBuf = new byte[BUF_SIZE];
@@ -109,10 +112,20 @@ public class DebugTraceBlockStreamer {
       final TraceOptions traceOptions,
       final ProtocolSchedule protocolSchedule,
       final BlockchainQueries blockchainQueries) {
+    this(block, traceOptions, protocolSchedule, blockchainQueries, 0L);
+  }
+
+  public DebugTraceBlockStreamer(
+      final Block block,
+      final TraceOptions traceOptions,
+      final ProtocolSchedule protocolSchedule,
+      final BlockchainQueries blockchainQueries,
+      final long serverStepLimit) {
     this.block = block;
     this.traceOptions = traceOptions;
     this.protocolSchedule = protocolSchedule;
     this.blockchainQueries = blockchainQueries;
+    this.serverStepLimit = serverStepLimit;
   }
 
   // ── unsynchronized buffer management ──────────────────────────────
@@ -146,7 +159,9 @@ public class DebugTraceBlockStreamer {
 
   // ── public API ────────────────────────────────────────────────────
 
-  public void streamTo(final OutputStream out, final ObjectMapper mapper) throws IOException {
+  public void streamTo(
+      final OutputStream out, final ObjectMapper mapper, final BooleanSupplier isAlive)
+      throws IOException {
     this.rawOut = out;
     this.writePos = 0;
     this.firstTx = true;
@@ -183,6 +198,7 @@ public class DebugTraceBlockStreamer {
 
             final List<Transaction> transactions = block.getBody().getTransactions();
             for (int i = 0; i < transactions.size(); i++) {
+              if (!isAlive.getAsBoolean()) break;
               final Transaction transaction = transactions.get(i);
               if (isOpcodeTracer) {
                 streamOpcodeTransaction(
@@ -224,7 +240,7 @@ public class DebugTraceBlockStreamer {
     }
   }
 
-  public List<Object> accumulateAll() {
+  public List<Object> accumulateAll(final BooleanSupplier isAlive) {
     final List<Object> results = new ArrayList<>();
     Tracer.processTracing(
         blockchainQueries,
@@ -252,6 +268,7 @@ public class DebugTraceBlockStreamer {
 
           final List<Transaction> transactions = block.getBody().getTransactions();
           for (int i = 0; i < transactions.size(); i++) {
+            if (!isAlive.getAsBoolean()) break;
             final Transaction transaction = transactions.get(i);
             results.add(
                 buildTransactionResult(
@@ -282,7 +299,7 @@ public class DebugTraceBlockStreamer {
 
     final StreamingDebugOperationTracer tracer =
         new StreamingDebugOperationTracer(
-            traceOptions.opCodeTracerConfig(),
+            clampedTracerConfig(),
             true,
             (pc, opcode, gasRemaining, gasCost, depth, stack, frame, halt, revert) ->
                 writeStructLog(
@@ -522,5 +539,22 @@ public class DebugTraceBlockStreamer {
 
   private void writeAscii(final String s) throws IOException {
     writeBytes(s.getBytes(StandardCharsets.US_ASCII));
+  }
+
+  private OpCodeTracerConfigBuilder.OpCodeTracerConfig clampedTracerConfig() {
+    if (serverStepLimit <= 0) {
+      return traceOptions.opCodeTracerConfig();
+    }
+    final int callerLimit = traceOptions.opCodeTracerConfig().limit();
+    final int effectiveLimit =
+        callerLimit > 0
+            ? (int) Math.min(callerLimit, Math.min(serverStepLimit, Integer.MAX_VALUE))
+            : (int) Math.min(serverStepLimit, Integer.MAX_VALUE);
+    if (effectiveLimit == callerLimit) {
+      return traceOptions.opCodeTracerConfig();
+    }
+    return OpCodeTracerConfigBuilder.createFrom(traceOptions.opCodeTracerConfig())
+        .limit(effectiveLimit)
+        .build();
   }
 }

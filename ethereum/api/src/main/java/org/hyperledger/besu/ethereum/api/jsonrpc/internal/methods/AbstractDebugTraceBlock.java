@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
+import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter;
@@ -30,6 +31,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
+import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -39,11 +41,21 @@ public abstract class AbstractDebugTraceBlock implements StreamingJsonRpcMethod 
 
   private final ProtocolSchedule protocolSchedule;
   private final Supplier<BlockchainQueries> blockchainQueriesSupplier;
+  private final long serverStepLimit;
 
   public AbstractDebugTraceBlock(
       final ProtocolSchedule protocolSchedule, final BlockchainQueries blockchainQueries) {
+    this(protocolSchedule, blockchainQueries, null);
+  }
+
+  public AbstractDebugTraceBlock(
+      final ProtocolSchedule protocolSchedule,
+      final BlockchainQueries blockchainQueries,
+      final ApiConfiguration apiConfiguration) {
     this.blockchainQueriesSupplier = Suppliers.ofInstance(blockchainQueries);
     this.protocolSchedule = protocolSchedule;
+    this.serverStepLimit =
+        apiConfiguration != null ? apiConfiguration.getDebugTraceStepLimit() : 0L;
   }
 
   protected BlockchainQueries getBlockchainQueries() {
@@ -91,7 +103,8 @@ public abstract class AbstractDebugTraceBlock implements StreamingJsonRpcMethod 
     }
     final TraceOptions traceOptions = getTraceOptions(request);
     final DebugTraceBlockStreamer streamer = createStreamer(traceOptions, maybeBlock);
-    return new JsonRpcSuccessResponse(request.getRequest().getId(), streamer.accumulateAll());
+    return new JsonRpcSuccessResponse(
+        request.getRequest().getId(), streamer.accumulateAll(request::isAlive));
   }
 
   protected DebugTraceBlockStreamer createStreamer(
@@ -100,7 +113,7 @@ public abstract class AbstractDebugTraceBlock implements StreamingJsonRpcMethod 
         .map(
             block ->
                 new DebugTraceBlockStreamer(
-                    block, traceOptions, protocolSchedule, getBlockchainQueries()))
+                    block, traceOptions, protocolSchedule, getBlockchainQueries(), serverStepLimit))
         .orElse(null);
   }
 
@@ -108,7 +121,8 @@ public abstract class AbstractDebugTraceBlock implements StreamingJsonRpcMethod 
       final Object id,
       final DebugTraceBlockStreamer streamer,
       final OutputStream out,
-      final ObjectMapper mapper)
+      final ObjectMapper mapper,
+      final BooleanSupplier isAlive)
       throws IOException {
     if (streamer == null) {
       out.write(
@@ -120,7 +134,7 @@ public abstract class AbstractDebugTraceBlock implements StreamingJsonRpcMethod 
         ("{\"jsonrpc\":\"2.0\",\"id\":" + mapper.writeValueAsString(id) + ",\"result\":")
             .getBytes(StandardCharsets.UTF_8);
     out.write(prefix);
-    streamer.streamTo(out, mapper);
+    streamer.streamTo(out, mapper, isAlive);
     out.write("}".getBytes(StandardCharsets.UTF_8));
   }
 }

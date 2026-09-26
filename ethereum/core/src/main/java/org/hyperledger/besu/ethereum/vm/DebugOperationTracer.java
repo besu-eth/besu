@@ -56,6 +56,10 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
     super(options, recordChildCallGas);
   }
 
+  public OpCodeTracerConfig getConfig() {
+    return options;
+  }
+
   @Override
   public void tracePreExecution(final MessageFrame frame) {
     super.tracePreExecution(frame);
