@@ -30,6 +30,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 public class RpcConfigurationPluginTest extends AcceptanceTestBase {
+  private static final long HTTP_TIMEOUT_SEC = 42;
+
   private BesuNode node;
   private JsonRpcConfiguration jsonRpcConfiguration;
 
@@ -45,6 +47,7 @@ public class RpcConfigurationPluginTest extends AcceptanceTestBase {
                 .name("node1")
                 .jsonRpcConfiguration(jsonRpcConfiguration)
                 .plugins(List.of("testPlugins"))
+                .extraCLIOptions(List.of("--Xhttp-timeout-seconds=" + HTTP_TIMEOUT_SEC))
                 .build());
     cluster.start(node);
   }
@@ -55,8 +58,8 @@ public class RpcConfigurationPluginTest extends AcceptanceTestBase {
         node.homeDirectory().resolve("plugins/rpcConfiguration.rpcHttpConfig");
     waitForFile(rpcHttpConfigFile);
     final String reportedRpcHttpConfig = Files.readString(rpcHttpConfigFile).trim();
+    // the timeout is a non-default value, so the plugin is proven to see the configured one
     assertThat(reportedRpcHttpConfig)
-        .isEqualTo(
-            jsonRpcConfiguration.getHost() + ":0:" + jsonRpcConfiguration.getHttpTimeoutSec());
+        .isEqualTo(jsonRpcConfiguration.getHost() + ":0:" + HTTP_TIMEOUT_SEC);
   }
 }

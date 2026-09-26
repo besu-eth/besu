@@ -208,7 +208,6 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
         .inProcessRpcConfiguration(inProcessRpcConfiguration)
         .transactionValidatorService(component.getTransactionValidatorService());
     node.engineRpcConfiguration().ifPresent(runnerBuilder::engineJsonRpcConfiguration);
-    besuPluginContext.beforeExternalServices();
     final Runner runner = runnerBuilder.build();
 
     runner.startExternalServices();
@@ -611,7 +610,8 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
         final @Named("RequestedPlugins") List<String> requestedPlugins,
         final BesuPluginContextImpl besuPluginContext) {
       final CommandLine commandLine = new CommandLine(CommandSpec.create());
-      besuPluginContext.addService(PicoCLIOptions.class, new PicoCLIOptionsImpl(commandLine));
+      final PicoCLIOptionsImpl picoCLIOptions = new PicoCLIOptionsImpl(commandLine);
+      besuPluginContext.addService(PicoCLIOptions.class, picoCLIOptions);
       besuPluginContext.addService(BesuConfiguration.class, commonPluginConfiguration);
       besuPluginContext.addService(CoreConfiguration.class, commonPluginConfiguration);
       besuPluginContext.addService(StorageConfiguration.class, commonPluginConfiguration);
@@ -648,11 +648,15 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
               .pluginsDir(pluginsPath)
               .requestedPluginsInfo(requestedPlugins.stream().map(PluginInfo::new).toList())
               .build());
-      besuPluginContext.registerPlugins();
+      // same phases and order as BesuCommand: the built-in storage plugin defines and registers
+      // before external plugins, so they can build on its factory in register()
+      final RocksDBPlugin rocksDBPlugin = new RocksDBPlugin();
+      rocksDBPlugin.defineOptions(picoCLIOptions);
+      besuPluginContext.defineOptions(picoCLIOptions);
+      picoCLIOptions.optionsDefinitionCompleted();
       commandLine.parseArgs(extraCLIOptions.toArray(new String[0]));
-
-      // register built-in plugins
-      new RocksDBPlugin().register(besuPluginContext);
+      rocksDBPlugin.register(besuPluginContext);
+      besuPluginContext.registerPlugins();
     }
 
     @Provides
