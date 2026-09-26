@@ -913,10 +913,11 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
   private IExecutionStrategy createPluginRegistrationTask(final IExecutionStrategy nextStep) {
     return parseResult -> {
-      // help and version only need the option list, so no plugin registers
-      final Integer helpExitCode = CommandLine.executeHelpRequest(parseResult);
-      if (helpExitCode != null) {
-        return helpExitCode;
+      rejectDuplicateScalarOptions(parseResult);
+      // help and version only need the option list, so no plugin registers; the same predicate
+      // decided the log suppression in the define step, picocli only does the printing here
+      if (isHelpOrVersionRequested(parseResult)) {
+        return Optional.ofNullable(CommandLine.executeHelpRequest(parseResult)).orElse(0);
       }
       registerPlugins();
       return nextStep.execute(parseResult);
@@ -1056,16 +1057,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       final BesuExecutionExceptionHandler executionExceptionHandler,
       final String... args) {
 
-    try {
-      // Parse and run duplicate-check
-      // As this happens before the plugins registration and plugins can add options, we must
-      // allow unmatched options
-      final ParseResult pr = commandLine.setUnmatchedArgumentsAllowed(true).parseArgs(args);
-      rejectDuplicateScalarOptions(pr); // your generic validator
-    } catch (ParameterException e) {
-      // ← Send it to the standard handler: prints one line & exits status 1
-      return parameterExceptionHandler.handleParseException(e, args);
-    }
     return commandLine
         .setExecutionStrategy(executionStrategy)
         .setParameterExceptionHandler(parameterExceptionHandler)
@@ -2217,10 +2208,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
    * @return instance of BesuControllerBuilder
    */
   public BesuControllerBuilder setupControllerBuilder() {
-    pluginCommonConfiguration
-        .init(dataDir(), dataDir().resolve(DATABASE_PATH), getDataStorageConfiguration())
-        .withMiningParameters(miningParametersSupplier.get())
-        .withJsonRpcHttpOptions(jsonRpcHttpOptions, unstableRPCOptions.getHttpTimeoutSec());
+    initPluginCommonConfiguration();
+    pluginCommonConfiguration.withMiningParameters(miningParametersSupplier.get());
     final KeyValueStorageProvider storageProvider = keyValueStorageProvider(keyValueStorageName);
     final ApiConfiguration apiConfiguration = apiConfigurationSupplier.get();
     final BalConfiguration balConfiguration = balConfigurationOptions.toDomainObject();

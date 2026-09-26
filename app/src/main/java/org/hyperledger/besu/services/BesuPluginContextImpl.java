@@ -248,21 +248,22 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
       plugin.register(this);
       LOG.info("Registered plugin of type {}.", plugin.getClass().getName());
     } catch (final Exception e) {
-      if (Throwables.getCausalChain(e).stream()
-          .anyMatch(PicoCLIOptionsImpl.OptionsAlreadyParsedException.class::isInstance)) {
-        // Always fatal, even with --plugin-continue-on-error and even when the plugin wrapped the
-        // exception: an unmigrated plugin must not run with its options unparsed
+      final Optional<Throwable> unrecoverable =
+          Throwables.getCausalChain(e).stream()
+              .filter(UnrecoverablePluginException.class::isInstance)
+              .findFirst();
+      if (unrecoverable.isPresent()) {
+        // always fatal, even with --plugin-continue-on-error and even when the plugin wrapped it
         throw new RuntimeException(
-            "Plugin "
-                + plugin.getClass().getName()
-                + " added CLI options during register(); options must be declared in defineOptions()",
-            e);
+            "Plugin " + plugin.getClass().getName() + ": " + unrecoverable.get().getMessage(), e);
       }
       if (config.isContinueOnPluginError()) {
         LOG.error(
             "Error registering plugin of type {}, start and stop will not be called.",
             plugin.getClass().getName(),
             e);
+        // recorded when its options were defined; a plugin that is not registered is not listed
+        pluginVersions.remove(plugin.getName());
       } else {
         throw new RuntimeException(
             "Error registering plugin of type " + plugin.getClass().getName(), e);

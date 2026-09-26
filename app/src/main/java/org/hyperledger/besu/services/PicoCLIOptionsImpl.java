@@ -77,7 +77,7 @@ public class PicoCLIOptionsImpl implements PicoCLIOptions {
    * Thrown when a plugin adds CLI options after the command line has been parsed, typically from
    * {@code register()} instead of {@code defineOptions()}.
    */
-  static class OptionsAlreadyParsedException extends IllegalStateException {
+  static class OptionsAlreadyParsedException extends UnrecoverablePluginException {
     /**
      * Creates the exception for the given option namespace.
      *

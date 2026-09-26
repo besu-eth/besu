@@ -3360,6 +3360,16 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
+  public void shouldLogErrorIfDuplicatePluginOptionUsed() {
+    // plugin options are only defined on the final parse, which is where duplicates are rejected
+    parseCommand(
+        "--Xplugin-rocksdb-high-spec-enabled=true", "--Xplugin-rocksdb-high-spec-enabled=false");
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .containsIgnoringCase(
+            "option '--Xplugin-rocksdb-high-spec-enabled' should be specified only once");
+  }
+
+  @Test
   public void shouldLogErrorIfDuplicateBooleanOptionUsed() {
     parseCommand("--p2p-enabled=true", "--p2p-enabled=false");
     assertThat(commandErrorOutput.toString(UTF_8))

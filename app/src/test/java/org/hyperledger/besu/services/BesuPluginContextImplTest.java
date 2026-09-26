@@ -180,6 +180,19 @@ public class BesuPluginContextImplTest {
     public void stop() {}
   }
 
+  static class FailingRegisterPlugin implements BesuPlugin {
+    @Override
+    public void register(final ServiceManager context) {
+      throw new RuntimeException("cannot register");
+    }
+
+    @Override
+    public void start() {}
+
+    @Override
+    public void stop() {}
+  }
+
   static class FailingDefineOptionsPlugin implements BesuPlugin {
     boolean registerCalled;
 
@@ -275,6 +288,26 @@ public class BesuPluginContextImplTest {
     assertThat(failing.registerCalled).isFalse();
     assertThat(good.registerCalled).isTrue();
     assertThat(context.getRegisteredPlugins()).containsExactly(good);
+  }
+
+  @Test
+  void pluginFailingInRegisterIsNotListedWhenContinueOnErrorIsSet() {
+    final CommandLine commandLine = new CommandLine(CommandSpec.create());
+    final PicoCLIOptionsImpl picoCLIOptions = new PicoCLIOptionsImpl(commandLine);
+    final FailingRegisterPlugin failing = new FailingRegisterPlugin();
+    final OptionPlugin good = new OptionPlugin();
+    final BesuPluginContextImpl context =
+        contextWithLoadedPlugins(picoCLIOptions, true, failing, good);
+    assertThat(context.getPluginVersions()).containsKey(failing.getName());
+
+    picoCLIOptions.optionsDefinitionCompleted();
+    commandLine.parseArgs();
+    context.registerPlugins();
+
+    assertThat(context.getRegisteredPlugins()).containsExactly(good);
+    assertThat(context.getPluginVersions())
+        .containsKey(good.getName())
+        .doesNotContainKey(failing.getName());
   }
 
   @Test
