@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.chain;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
@@ -23,14 +24,13 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStoragePrefixedKeyBlockchainStorage;
 import org.hyperledger.besu.ethereum.storage.keyvalue.VariablesKeyValueStorage;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+import org.hyperledger.besu.plugin.services.storage.KeyValueStorageTransaction;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Predicate;
 
 import jakarta.validation.constraints.NotNull;
 import org.apache.logging.log4j.Level;
@@ -39,9 +39,7 @@ import org.apache.logging.log4j.core.LogEvent;
 import org.apache.logging.log4j.core.Logger;
 import org.apache.logging.log4j.core.appender.AbstractAppender;
 import org.apache.logging.log4j.core.config.Property;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 
 public class ChainDataPrunerTest {
 
@@ -57,12 +55,8 @@ public class ChainDataPrunerTest {
     final ChainDataPruner chainDataPruner =
         new ChainDataPruner(
             blockchainStorage,
-            () -> {},
             new ChainDataPrunerStorage(new InMemoryKeyValueStorage()),
-            0,
-            ChainDataPruner.PruningMode.CHAIN_PRUNING,
-            new ChainPrunerConfiguration(
-                ChainDataPruner.ChainPruningStrategy.ALL, 512, 512, 512, 0, 0),
+            new ChainPrunerConfiguration(ChainDataPruner.ChainPruningStrategy.ALL, 512, 512, 0, 0),
             new BlockingExecutor());
     Block genesisBlock = gen.genesisBlock();
     final MutableBlockchain blockchain =
@@ -108,8 +102,9 @@ public class ChainDataPrunerTest {
                 assertThat(blockchain.getBlockHeader(1)).isPresent();
               } else {
                 // Prune block number - retention only
-                assertThat(blockchain.getBlockHeader(number - retention)).isEmpty();
-                assertThat(blockchain.getBlockHeader(number - retention + 1)).isPresent();
+                assertThat(blockchain.getBlockHeader(number - retention)).isPresent();
+                assertThat(blockchain.getBlockByNumber(number - retention)).isEmpty();
+                assertThat(blockchain.getBlockByNumber(number - retention + 1)).isPresent();
               }
             });
   }
@@ -126,12 +121,8 @@ public class ChainDataPrunerTest {
     final ChainDataPruner chainDataPruner =
         new ChainDataPruner(
             blockchainStorage,
-            () -> {},
             new ChainDataPrunerStorage(new InMemoryKeyValueStorage()),
-            0,
-            ChainDataPruner.PruningMode.CHAIN_PRUNING,
-            new ChainPrunerConfiguration(
-                ChainDataPruner.ChainPruningStrategy.ALL, 512, 512, 512, 0, 0),
+            new ChainPrunerConfiguration(ChainDataPruner.ChainPruningStrategy.ALL, 512, 512, 0, 0),
             new BlockingExecutor());
     Block genesisBlock = gen.genesisBlock();
     final MutableBlockchain blockchain =
@@ -205,9 +196,11 @@ public class ChainDataPrunerTest {
       assertThat(blockchain.getBlockHeader(0)).isPresent();
 
       if (i > retention) {
-        // Prune block on canonical chain and fork for i - retention only
+        // The canonical header survives; the fork header at the same height does not.
         assertThat(
                 blockchain.getBlockHeader(canonicalChain.get(i - retention).getBlock().getHash()))
+            .isPresent();
+        assertThat(blockchain.getBlockBody(canonicalChain.get(i - retention).getBlock().getHash()))
             .isEmpty();
         assertThat(blockchain.getBlockHeader(forkChain.get(i - retention).getBlock().getHash()))
             .isEmpty();
@@ -233,17 +226,9 @@ public class ChainDataPrunerTest {
     final ChainDataPruner chainDataPruner =
         new ChainDataPruner(
             blockchainStorage,
-            () -> {},
             new ChainDataPrunerStorage(new InMemoryKeyValueStorage()),
-            0,
-            ChainDataPruner.PruningMode.CHAIN_PRUNING,
             new ChainPrunerConfiguration(
-                ChainDataPruner.ChainPruningStrategy.BAL,
-                Long.MAX_VALUE, // never prune blocks
-                512,
-                Long.MAX_VALUE,
-                0,
-                0),
+                ChainDataPruner.ChainPruningStrategy.BAL, 512, Long.MAX_VALUE, 0, 0),
             new BlockingExecutor());
     Block genesisBlock = gen.genesisBlock();
     final MutableBlockchain blockchain =
@@ -335,12 +320,9 @@ public class ChainDataPrunerTest {
     final ChainDataPruner chainDataPruner =
         new ChainDataPruner(
             blockchainStorage,
-            () -> {},
             new ChainDataPrunerStorage(new InMemoryKeyValueStorage()),
-            0,
-            ChainDataPruner.PruningMode.CHAIN_PRUNING,
             new ChainPrunerConfiguration(
-                ChainDataPruner.ChainPruningStrategy.ALL, 256, 256, 256, 100, 0),
+                ChainDataPruner.ChainPruningStrategy.ALL, 256, 256, 100, 0),
             new BlockingExecutor());
     Block genesisBlock = gen.genesisBlock();
     final MutableBlockchain blockchain =
@@ -383,15 +365,18 @@ public class ChainDataPrunerTest {
 
     // Blocks pruned in first batch
     for (int i = 1; i <= firstBatchPrunedUpTo; i++) {
-      assertThat(blockchain.getBlockHeader(i))
-          .as("Block %d should be pruned (first batch at block %d)", i, firstBatchAt)
+      assertThat(blockchain.getBlockByNumber(i))
+          .as("Block %d body should be pruned (first batch at block %d)", i, firstBatchAt)
           .isEmpty();
+      assertThat(blockchain.getBlockHeader(i))
+          .as("Block %d header should be retained after pruning", i)
+          .isPresent();
     }
 
     // Blocks past first batch mark but below pruning mark: pending second batch
     final int pruningMark = chainLength - retention;
     for (int i = firstBatchPrunedUpTo + 1; i <= pruningMark; i++) {
-      assertThat(blockchain.getBlockHeader(i))
+      assertThat(blockchain.getBlockByNumber(i))
           .as(
               "Block %d should exist (second batch needs block %d)",
               i, retention + 2 * frequency + 1)
@@ -400,7 +385,7 @@ public class ChainDataPrunerTest {
 
     // Blocks within retention window
     for (int i = pruningMark + 1; i <= chainLength; i++) {
-      assertThat(blockchain.getBlockHeader(i))
+      assertThat(blockchain.getBlockByNumber(i))
           .as("Block %d should exist (within retention)", i)
           .isPresent();
     }
@@ -418,13 +403,9 @@ public class ChainDataPrunerTest {
     final ChainDataPruner chainDataPruner =
         new ChainDataPruner(
             blockchainStorage,
-            () -> {},
             new ChainDataPrunerStorage(new InMemoryKeyValueStorage()),
-            0,
-            ChainDataPruner.PruningMode.CHAIN_PRUNING,
             new ChainPrunerConfiguration(
                 ChainDataPruner.ChainPruningStrategy.BAL,
-                Long.MAX_VALUE, // NEVER prune blocks
                 256, // prune BALs after 256
                 Long.MAX_VALUE,
                 0,
@@ -518,12 +499,8 @@ public class ChainDataPrunerTest {
     final ChainDataPruner chainDataPruner =
         new ChainDataPruner(
             blockchainStorage,
-            () -> {},
             new ChainDataPrunerStorage(new InMemoryKeyValueStorage()),
-            0,
-            ChainDataPruner.PruningMode.CHAIN_PRUNING,
-            new ChainPrunerConfiguration(
-                ChainDataPruner.ChainPruningStrategy.ALL, 512, 512, 512, 0, 0),
+            new ChainPrunerConfiguration(ChainDataPruner.ChainPruningStrategy.ALL, 512, 512, 0, 0),
             new BlockingExecutor());
     Block genesisBlock = gen.genesisBlock();
     final MutableBlockchain blockchain =
@@ -548,8 +525,9 @@ public class ChainDataPrunerTest {
                   .as("Genesis block should always be kept")
                   .isPresent();
               if (number > retention) {
-                assertThat(blockchain.getBlockHeader(number - retention)).isEmpty();
-                assertThat(blockchain.getBlockHeader(number - retention + 1)).isPresent();
+                assertThat(blockchain.getBlockHeader(number - retention)).isPresent();
+                assertThat(blockchain.getBlockByNumber(number - retention)).isEmpty();
+                assertThat(blockchain.getBlockByNumber(number - retention + 1)).isPresent();
               }
             });
   }
@@ -566,12 +544,9 @@ public class ChainDataPrunerTest {
     final ChainDataPruner chainDataPruner =
         new ChainDataPruner(
             blockchainStorage,
-            () -> {},
             new ChainDataPrunerStorage(new InMemoryKeyValueStorage()),
-            0,
-            ChainDataPruner.PruningMode.CHAIN_PRUNING,
             new ChainPrunerConfiguration(
-                ChainDataPruner.ChainPruningStrategy.ALL, 1000, 1000, 1000, 0, 0),
+                ChainDataPruner.ChainPruningStrategy.ALL, 1000, 1000, 0, 0),
             new BlockingExecutor());
     Block genesisBlock = gen.genesisBlock();
     final MutableBlockchain blockchain =
@@ -600,17 +575,9 @@ public class ChainDataPrunerTest {
     final ChainDataPruner chainDataPruner =
         new ChainDataPruner(
             blockchainStorage,
-            () -> {},
             new ChainDataPrunerStorage(new InMemoryKeyValueStorage()),
-            0,
-            ChainDataPruner.PruningMode.CHAIN_PRUNING,
             new ChainPrunerConfiguration(
-                ChainDataPruner.ChainPruningStrategy.BAL,
-                Long.MAX_VALUE,
-                256,
-                Long.MAX_VALUE,
-                100, // prune every 100 blocks
-                0),
+                ChainDataPruner.ChainPruningStrategy.BAL, 256, Long.MAX_VALUE, 100, 0),
             new BlockingExecutor());
     Block genesisBlock = gen.genesisBlock();
     final MutableBlockchain blockchain =
@@ -696,16 +663,12 @@ public class ChainDataPrunerTest {
     final ChainDataPruner chainDataPruner =
         new ChainDataPruner(
             blockchainStorage,
-            () -> {},
             new ChainDataPrunerStorage(new InMemoryKeyValueStorage()),
-            0,
-            ChainDataPruner.PruningMode.CHAIN_PRUNING,
             new ChainPrunerConfiguration(
                 ChainDataPruner.ChainPruningStrategy.BAL,
-                Long.MAX_VALUE, // never prune blocks
                 256, // keep 256 BALs
                 Long.MAX_VALUE,
-                100, // prune every 100 blocks
+                100,
                 0),
             new BlockingExecutor());
     Block genesisBlock = gen.genesisBlock();
@@ -756,19 +719,19 @@ public class ChainDataPrunerTest {
     final int thirdBatchAt = secondBatchAt + frequency; // 557
 
     // At block chainLength (= secondBatchAt + 13 = 470):
-    // - balPruningMark = chainLength - retention (= 214)
+    // - pruningMark = chainLength - retention (= 214)
     // - Genesis (block 0) BAL is ALWAYS kept, pruning starts from block 1
     //
     // Pruning timeline:
-    // block firstBatchAt (= 357):  balPruningMark = firstBatchPrunedUpTo (= 101)
+    // block firstBatchAt (= 357):  pruningMark = firstBatchPrunedUpTo (= 101)
     //                              blocksToBePruned = firstBatchPrunedUpTo - 1 = frequency
     //                              → first batch fires, prunes BALs 1..firstBatchPrunedUpTo
-    // block secondBatchAt (= 457): balPruningMark = secondBatchPrunedUpTo (= 201)
+    // block secondBatchAt (= 457): pruningMark = secondBatchPrunedUpTo (= 201)
     //                              blocksToBePruned = secondBatchPrunedUpTo - firstBatchPrunedUpTo
     // = frequency
     //                              → second batch fires, prunes BALs
     // firstBatchPrunedUpTo+1..secondBatchPrunedUpTo
-    // block chainLength (= 470):   balPruningMark = pruningMark (= 214)
+    // block chainLength (= 470):   pruningMark = 214
     //                              blocksToBePruned = pruningMark - secondBatchPrunedUpTo = 13 <
     // frequency
     //                              → third batch not fired; needs block thirdBatchAt (= 557)
@@ -823,252 +786,6 @@ public class ChainDataPrunerTest {
   }
 
   @Test
-  public void forkBlocksRemovedInBalOnlyMode() {
-    final BlockDataGenerator gen = new BlockDataGenerator();
-    final InMemoryKeyValueStorage storage = new InMemoryKeyValueStorage();
-    final BlockchainStorage blockchainStorage =
-        new KeyValueStoragePrefixedKeyBlockchainStorage(
-            storage,
-            new VariablesKeyValueStorage(new InMemoryKeyValueStorage()),
-            new MainnetBlockHeaderFunctions(),
-            false);
-    final InMemoryKeyValueStorage prunerKvStorage = new InMemoryKeyValueStorage();
-    final ChainDataPrunerStorage prunerStorage = new ChainDataPrunerStorage(prunerKvStorage);
-    final ChainDataPruner chainDataPruner =
-        new ChainDataPruner(
-            blockchainStorage,
-            () -> {},
-            prunerStorage,
-            0,
-            ChainDataPruner.PruningMode.CHAIN_PRUNING,
-            new ChainPrunerConfiguration(
-                ChainDataPruner.ChainPruningStrategy.BAL,
-                Long.MAX_VALUE, // never prune blocks
-                256, // prune BALs after 256
-                Long.MAX_VALUE,
-                0,
-                0),
-            new BlockingExecutor());
-    Block genesisBlock = gen.genesisBlock();
-    final MutableBlockchain blockchain =
-        DefaultBlockchain.createMutable(
-            genesisBlock, blockchainStorage, new NoOpMetricsSystem(), 0);
-    blockchain.observeBlockAdded(chainDataPruner);
-
-    // Configure generator with BAL generation
-    gen.setBlockOptionsSupplier(
-        () -> BlockDataGenerator.BlockOptions.create().withGeneratedBlockAccessList());
-
-    // Create canonical chain and fork - need 272+ blocks so pruningMark(=chain-256) covers all 16
-    // fork blocks
-    List<BlockDataGenerator.BlockWithAccessList> canonicalChain =
-        gen.blockSequenceWithAccessList(genesisBlock, 280);
-    List<BlockDataGenerator.BlockWithAccessList> forkChain =
-        gen.blockSequenceWithAccessList(genesisBlock, 16);
-
-    // Store fork blocks
-    for (BlockDataGenerator.BlockWithAccessList blockWithBal : forkChain) {
-      final Block blk = blockWithBal.getBlock();
-      blockWithBal
-          .getBlockAccessList()
-          .ifPresent(
-              bal -> {
-                final BlockchainStorage.Updater updater = blockchainStorage.updater();
-                updater.putBlockAccessList(blk.getHash(), bal);
-                updater.commit();
-              });
-      blockchain.storeBlock(blk, gen.receipts(blk));
-    }
-
-    // Import canonical chain
-    for (BlockDataGenerator.BlockWithAccessList blockWithBal : canonicalChain) {
-      final Block blk = blockWithBal.getBlock();
-      blockWithBal
-          .getBlockAccessList()
-          .ifPresent(
-              bal -> {
-                final BlockchainStorage.Updater updater = blockchainStorage.updater();
-                updater.putBlockAccessList(blk.getHash(), bal);
-                updater.commit();
-              });
-      blockchain.appendBlock(blk, gen.receipts(blk));
-    }
-
-    // At block 280, balPruningMark = 280 - 256 = 24
-    // Both canonical and fork blocks should have:
-    // - Blocks still present (BAL mode never prunes blocks)
-    // - BALs pruned for blocks <= 24
-    // - Fork blocks metadata removed for blocks <= 24
-
-    // Verify fork blocks 1-16 (all should be pruned since 16 < 24)
-    for (int i = 1; i <= 16; i++) {
-      final Block forkBlock = forkChain.get(i - 1).getBlock();
-      final Block canonicalBlock = canonicalChain.get(i - 1).getBlock();
-
-      // Blocks should still exist (BAL mode doesn't prune blocks)
-      assertThat(blockchain.getBlockByHash(forkBlock.getHash()))
-          .as("Fork block %d should still exist in BAL mode", i)
-          .isPresent();
-      assertThat(blockchain.getBlockByHash(canonicalBlock.getHash()))
-          .as("Canonical block %d should still exist", i)
-          .isPresent();
-
-      // BALs should be pruned (since i <= 24, the pruning mark)
-      assertThat(blockchainStorage.getBlockAccessList(forkBlock.getHash()))
-          .as("Fork block %d BAL should be pruned", i)
-          .isEmpty();
-      assertThat(blockchainStorage.getBlockAccessList(canonicalBlock.getHash()))
-          .as("Canonical block %d BAL should be pruned", i)
-          .isEmpty();
-
-      // Fork blocks metadata should be removed
-      assertThat(prunerStorage.getForkBlocks(i))
-          .as("Fork blocks metadata for block %d should be removed in BAL mode", i)
-          .isEmpty();
-    }
-
-    // Verify blocks 25-280 still have BALs and fork blocks metadata
-    for (int i = 25; i <= 280; i++) {
-      final Block canonicalBlock = canonicalChain.get(i - 1).getBlock();
-      assertThat(blockchainStorage.getBlockAccessList(canonicalBlock.getHash()))
-          .as("Canonical block %d BAL should exist (within retention)", i)
-          .isPresent();
-      assertThat(prunerStorage.getForkBlocks(i))
-          .as("Fork blocks metadata for block %d should be present in BAL mode", i)
-          .isNotEmpty();
-    }
-  }
-
-  @Test
-  public void forkBlocksRemovedOnlyWithChainDataInAllMode() {
-    final BlockDataGenerator gen = new BlockDataGenerator();
-    final InMemoryKeyValueStorage storage = new InMemoryKeyValueStorage();
-    final BlockchainStorage blockchainStorage =
-        new KeyValueStoragePrefixedKeyBlockchainStorage(
-            storage,
-            new VariablesKeyValueStorage(new InMemoryKeyValueStorage()),
-            new MainnetBlockHeaderFunctions(),
-            false);
-    final InMemoryKeyValueStorage prunerKvStorage = new InMemoryKeyValueStorage();
-    final ChainDataPrunerStorage prunerStorage = new ChainDataPrunerStorage(prunerKvStorage);
-    final ChainDataPruner chainDataPruner =
-        new ChainDataPruner(
-            blockchainStorage,
-            () -> {},
-            prunerStorage,
-            0,
-            ChainDataPruner.PruningMode.CHAIN_PRUNING,
-            new ChainPrunerConfiguration(
-                ChainDataPruner.ChainPruningStrategy.ALL,
-                400, // prune blocks after 400
-                200, // prune BALs after 200
-                200,
-                0,
-                0),
-            new BlockingExecutor());
-    Block genesisBlock = gen.genesisBlock();
-    final MutableBlockchain blockchain =
-        DefaultBlockchain.createMutable(
-            genesisBlock, blockchainStorage, new NoOpMetricsSystem(), 0);
-    blockchain.observeBlockAdded(chainDataPruner);
-
-    // Configure generator with BAL generation
-    gen.setBlockOptionsSupplier(
-        () -> BlockDataGenerator.BlockOptions.create().withGeneratedBlockAccessList());
-
-    // Create canonical chain and fork
-    List<BlockDataGenerator.BlockWithAccessList> canonicalChain =
-        gen.blockSequenceWithAccessList(genesisBlock, 500);
-    List<BlockDataGenerator.BlockWithAccessList> forkChain =
-        gen.blockSequenceWithAccessList(genesisBlock, 150);
-
-    // Store fork blocks
-    for (BlockDataGenerator.BlockWithAccessList blockWithBal : forkChain) {
-      final Block blk = blockWithBal.getBlock();
-      blockWithBal
-          .getBlockAccessList()
-          .ifPresent(
-              bal -> {
-                final BlockchainStorage.Updater updater = blockchainStorage.updater();
-                updater.putBlockAccessList(blk.getHash(), bal);
-                updater.commit();
-              });
-      blockchain.storeBlock(blk, gen.receipts(blk));
-    }
-
-    // Import canonical chain
-    for (BlockDataGenerator.BlockWithAccessList blockWithBal : canonicalChain) {
-      final Block blk = blockWithBal.getBlock();
-      blockWithBal
-          .getBlockAccessList()
-          .ifPresent(
-              bal -> {
-                final BlockchainStorage.Updater updater = blockchainStorage.updater();
-                updater.putBlockAccessList(blk.getHash(), bal);
-                updater.commit();
-              });
-      blockchain.appendBlock(blk, gen.receipts(blk));
-    }
-
-    // At block 500:
-    // blockPruningMark = 500 - 400 = 100
-    // balPruningMark = 500 - 200 = 300
-
-    // Verify blocks 1-100: Everything pruned including fork blocks
-    for (int i = 1; i <= 100; i++) {
-      final Block canonicalBlock = canonicalChain.get(i - 1).getBlock();
-
-      // Chain data should be pruned
-      assertThat(blockchain.getBlockByHash(canonicalBlock.getHash()))
-          .as("Canonical block %d should be pruned", i)
-          .isEmpty();
-
-      // Fork blocks metadata should be removed (blocks are pruned)
-      assertThat(prunerStorage.getForkBlocks(i))
-          .as("Fork blocks metadata for block %d should be removed (blocks pruned)", i)
-          .isEmpty();
-    }
-
-    // Verify blocks 101-150: Blocks exist, BALs pruned, but fork blocks metadata still present
-    for (int i = 101; i <= 150; i++) {
-      final Block forkBlock = forkChain.get(i - 1).getBlock();
-      final Block canonicalBlock = canonicalChain.get(i - 1).getBlock();
-
-      // Blocks should still exist (101-150 < blockPruningMark + retention)
-      assertThat(blockchain.getBlockByHash(canonicalBlock.getHash()))
-          .as("Canonical block %d should exist (within block retention)", i)
-          .isPresent();
-      assertThat(blockchain.getBlockByHash(forkBlock.getHash()))
-          .as("Fork block %d should exist (within block retention)", i)
-          .isPresent();
-
-      // BALs should be pruned (101-150 <= balPruningMark = 300)
-      assertThat(blockchainStorage.getBlockAccessList(canonicalBlock.getHash()))
-          .as("Canonical block %d BAL should be pruned", i)
-          .isEmpty();
-      assertThat(blockchainStorage.getBlockAccessList(forkBlock.getHash()))
-          .as("Fork block %d BAL should be pruned", i)
-          .isEmpty();
-
-      // Fork blocks metadata should STILL exist (blocks not pruned yet)
-      assertThat(prunerStorage.getForkBlocks(i))
-          .as("Fork blocks metadata for block %d should exist (blocks not pruned yet)", i)
-          .isNotEmpty();
-    }
-
-    // Verify blocks 301-500: Everything should exist
-    for (int i = 301; i <= 500; i++) {
-      final Block canonicalBlock = canonicalChain.get(i - 1).getBlock();
-      assertThat(blockchain.getBlockByHash(canonicalBlock.getHash()))
-          .as("Canonical block %d should exist", i)
-          .isPresent();
-      assertThat(blockchainStorage.getBlockAccessList(canonicalBlock.getHash()))
-          .as("Canonical block %d BAL should exist", i)
-          .isPresent();
-    }
-  }
-
-  @Test
   public void pruningBeforeBalActivation() {
     final BlockDataGenerator gen = new BlockDataGenerator();
     final BlockchainStorage blockchainStorage =
@@ -1080,17 +797,9 @@ public class ChainDataPrunerTest {
     final ChainDataPruner chainDataPruner =
         new ChainDataPruner(
             blockchainStorage,
-            () -> {},
             new ChainDataPrunerStorage(new InMemoryKeyValueStorage()),
-            0,
-            ChainDataPruner.PruningMode.CHAIN_PRUNING,
             new ChainPrunerConfiguration(
-                ChainDataPruner.ChainPruningStrategy.BAL,
-                Long.MAX_VALUE,
-                256,
-                Long.MAX_VALUE,
-                0,
-                0),
+                ChainDataPruner.ChainPruningStrategy.BAL, 256, Long.MAX_VALUE, 0, 0),
             new BlockingExecutor());
     Block genesisBlock = gen.genesisBlock();
     final MutableBlockchain blockchain =
@@ -1121,6 +830,132 @@ public class ChainDataPrunerTest {
   }
 
   @Test
+  public void balOnlyModeWritesNoMarkBeforeBalActivation() {
+    // The early return must not advance the mark: with one mark, doing so would make a later
+    // switch to ALL skip every block below it.
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final BlockchainStorage blockchainStorage =
+        new KeyValueStoragePrefixedKeyBlockchainStorage(
+            new InMemoryKeyValueStorage(),
+            new VariablesKeyValueStorage(new InMemoryKeyValueStorage()),
+            new MainnetBlockHeaderFunctions(),
+            false);
+    final ChainDataPrunerStorage prunerStorage =
+        new ChainDataPrunerStorage(new InMemoryKeyValueStorage());
+    final ChainDataPruner chainDataPruner =
+        new ChainDataPruner(
+            blockchainStorage,
+            prunerStorage,
+            new ChainPrunerConfiguration(
+                ChainDataPruner.ChainPruningStrategy.BAL, 10, Long.MAX_VALUE, 0, 0),
+            new BlockingExecutor());
+    final Block genesisBlock = gen.genesisBlock();
+    final MutableBlockchain blockchain =
+        DefaultBlockchain.createMutable(
+            genesisBlock, blockchainStorage, new NoOpMetricsSystem(), 0);
+    blockchain.observeBlockAdded(chainDataPruner);
+
+    // Disable BAL generation for pre-activation
+    gen.setBlockOptionsSupplier(
+        () -> BlockDataGenerator.BlockOptions.create().withoutGeneratedBlockAccessList());
+
+    // Generate 50 blocks WITHOUT BAL (pre-activation), well past the 10-block retention
+    List<Block> blocks = gen.blockSequence(genesisBlock, 50);
+    for (Block blk : blocks) {
+      blockchain.appendBlock(blk, gen.receipts(blk));
+      assertThat(blk.getHeader().getBalHash()).isEmpty();
+    }
+
+    assertThat(prunerStorage.getChainPruningMark()).isEmpty();
+
+    // All blocks should exist (BAL mode never prunes blocks, and no mark was ever written)
+    for (int i = 0; i <= 50; i++) {
+      assertThat(blockchain.getBlockHeader(i))
+          .as("Block %d should exist (BAL mode never prunes blocks)", i)
+          .isPresent();
+    }
+  }
+
+  @Test
+  public void recordsForkBlocksInBothModes() {
+    // With a single mark, the sweep clears fork-index entries in both modes, so both modes can
+    // safely record them: there is no longer a mode that needs the entries to leak.
+    final BlockDataGenerator allModeGen = new BlockDataGenerator();
+    final BlockchainStorage allModeBlockchainStorage = inMemoryBlockchainStorage();
+    final ChainDataPrunerStorage allModePrunerStorage =
+        new ChainDataPrunerStorage(new InMemoryKeyValueStorage());
+    final ChainDataPruner allModePruner =
+        new ChainDataPruner(
+            allModeBlockchainStorage,
+            allModePrunerStorage,
+            new ChainPrunerConfiguration(
+                ChainDataPruner.ChainPruningStrategy.ALL, Long.MAX_VALUE, Long.MAX_VALUE, 0, 0),
+            new BlockingExecutor());
+    final Block allModeGenesisBlock = allModeGen.genesisBlock();
+    final MutableBlockchain allModeBlockchain =
+        DefaultBlockchain.createMutable(
+            allModeGenesisBlock, allModeBlockchainStorage, new NoOpMetricsSystem(), 0);
+    allModeBlockchain.observeBlockAdded(allModePruner);
+
+    allModeGen.setBlockOptionsSupplier(
+        () -> BlockDataGenerator.BlockOptions.create().withoutGeneratedBlockAccessList());
+
+    allModeGen
+        .blockSequence(allModeGenesisBlock, 20)
+        .forEach(blk -> allModeBlockchain.appendBlock(blk, allModeGen.receipts(blk)));
+
+    for (int i = 1; i <= 20; i++) {
+      assertThat(allModePrunerStorage.getForkBlocks(i))
+          .as("ALL mode should record a fork-index entry for block %d", i)
+          .isNotEmpty();
+    }
+
+    final BlockDataGenerator balModeGen = new BlockDataGenerator();
+    final BlockchainStorage balModeBlockchainStorage = inMemoryBlockchainStorage();
+    final ChainDataPrunerStorage balModePrunerStorage =
+        new ChainDataPrunerStorage(new InMemoryKeyValueStorage());
+    final ChainDataPruner balModePruner =
+        new ChainDataPruner(
+            balModeBlockchainStorage,
+            balModePrunerStorage,
+            new ChainPrunerConfiguration(
+                ChainDataPruner.ChainPruningStrategy.BAL, Long.MAX_VALUE, Long.MAX_VALUE, 0, 0),
+            new BlockingExecutor());
+    final Block balModeGenesisBlock = balModeGen.genesisBlock();
+    final MutableBlockchain balModeBlockchain =
+        DefaultBlockchain.createMutable(
+            balModeGenesisBlock, balModeBlockchainStorage, new NoOpMetricsSystem(), 0);
+    balModeBlockchain.observeBlockAdded(balModePruner);
+
+    balModeGen.setBlockOptionsSupplier(
+        () -> BlockDataGenerator.BlockOptions.create().withGeneratedBlockAccessList());
+
+    balModeGen
+        .blockSequenceWithAccessList(balModeGenesisBlock, 50)
+        .forEach(
+            blockWithBal -> {
+              final Block blk = blockWithBal.getBlock();
+              assertThat(blk.getHeader().getBalHash()).isPresent();
+              blockWithBal
+                  .getBlockAccessList()
+                  .ifPresent(
+                      bal -> {
+                        final BlockchainStorage.Updater updater =
+                            balModeBlockchainStorage.updater();
+                        updater.putBlockAccessList(blk.getHash(), bal);
+                        updater.commit();
+                      });
+              balModeBlockchain.appendBlock(blk, balModeGen.receipts(blk));
+            });
+
+    for (int i = 1; i <= 50; i++) {
+      assertThat(balModePrunerStorage.getForkBlocks(i))
+          .as("BAL mode should record a fork-index entry for block %d", i)
+          .isNotEmpty();
+    }
+  }
+
+  @Test
   public void balPruningTransitionFromNoBalToBalActivated() {
     final BlockDataGenerator gen = new BlockDataGenerator();
     final BlockchainStorage blockchainStorage =
@@ -1132,13 +967,9 @@ public class ChainDataPrunerTest {
     final ChainDataPruner chainDataPruner =
         new ChainDataPruner(
             blockchainStorage,
-            () -> {},
             new ChainDataPrunerStorage(new InMemoryKeyValueStorage()),
-            0,
-            ChainDataPruner.PruningMode.CHAIN_PRUNING,
             new ChainPrunerConfiguration(
                 ChainDataPruner.ChainPruningStrategy.BAL,
-                Long.MAX_VALUE,
                 100, // Keep 100 BALs
                 Long.MAX_VALUE,
                 0,
@@ -1188,7 +1019,7 @@ public class ChainDataPrunerTest {
     // At block 150 (20 pre-BAL + 130 post-BAL):
     // - We want to keep 100 BALs (blocks 51-150)
     // - Blocks 1-20 never had BAL (should be skipped)
-    // - Blocks 21-50 had BAL but should be pruned (balPruningMark = 150 - 100 = 50)
+    // - Blocks 21-50 had BAL but should be pruned (pruningMark = 150 - 100 = 50)
 
     // All blocks should still exist (BAL mode never prunes blocks)
     for (int i = 0; i <= 150; i++) {
@@ -1234,14 +1065,10 @@ public class ChainDataPrunerTest {
     final ChainDataPruner chainDataPruner =
         new ChainDataPruner(
             blockchainStorage,
-            () -> {},
             new ChainDataPrunerStorage(new InMemoryKeyValueStorage()),
-            0,
-            ChainDataPruner.PruningMode.CHAIN_PRUNING,
             new ChainPrunerConfiguration(
                 ChainDataPruner.ChainPruningStrategy.ALL,
-                100, // Keep 100 blocks
-                100, // Keep 100 BALs
+                100, // Keep 100 blocks and BALs
                 100,
                 0,
                 0),
@@ -1263,21 +1090,25 @@ public class ChainDataPrunerTest {
 
     // Blocks 1-100: Should be pruned (outside retention)
     for (int i = 1; i <= 100; i++) {
-      assertThat(blockchain.getBlockHeader(i))
-          .as("Block %d should be pruned (outside retention)", i)
+      assertThat(blockchain.getBlockByNumber(i))
+          .as("Block %d body should be pruned (outside retention)", i)
           .isEmpty();
+      assertThat(blockchain.getBlockHeader(i))
+          .as("Block %d header should be retained after pruning", i)
+          .isPresent();
     }
 
     // Blocks 101-200: Should exist (within retention)
     for (int i = 101; i <= 200; i++) {
-      assertThat(blockchain.getBlockHeader(i))
+      assertThat(blockchain.getBlockByNumber(i))
           .as("Block %d should exist (within retention)", i)
           .isPresent();
     }
   }
 
   @Test
-  public void allModePruningTransitionFromNoBalToBalActivated() {
+  public void pruningSlackRetainsMoreBlocksThanAreAdvertised() {
+    // retained 100, slack 50: at head 200 deletes to 200-100-50=50, advertises 200-100+1=101.
     final BlockDataGenerator gen = new BlockDataGenerator();
     final BlockchainStorage blockchainStorage =
         new KeyValueStoragePrefixedKeyBlockchainStorage(
@@ -1288,17 +1119,13 @@ public class ChainDataPrunerTest {
     final ChainDataPruner chainDataPruner =
         new ChainDataPruner(
             blockchainStorage,
-            () -> {},
             new ChainDataPrunerStorage(new InMemoryKeyValueStorage()),
-            0,
-            ChainDataPruner.PruningMode.CHAIN_PRUNING,
             new ChainPrunerConfiguration(
                 ChainDataPruner.ChainPruningStrategy.ALL,
-                50, // Keep 50 blocks
-                100, // Keep 100 BALs (more than blocks)
-                50,
+                100, // Keep 100 blocks and BALs (before slack)
+                100,
                 0,
-                0),
+                50 /* pruneSlackBlocks */),
             new BlockingExecutor());
     Block genesisBlock = gen.genesisBlock();
     final MutableBlockchain blockchain =
@@ -1306,121 +1133,68 @@ public class ChainDataPrunerTest {
             genesisBlock, blockchainStorage, new NoOpMetricsSystem(), 0);
     blockchain.observeBlockAdded(chainDataPruner);
 
-    // Phase 1: Generate 100 blocks WITHOUT BAL
-    List<Block> preBalBlocks = gen.blockSequence(genesisBlock, 100);
-    for (Block blk : preBalBlocks) {
+    List<Block> blocks = gen.blockSequence(genesisBlock, 200);
+    for (Block blk : blocks) {
       blockchain.appendBlock(blk, gen.receipts(blk));
     }
 
-    // Phase 2: BAL activation - generate 100 more blocks WITH BAL
-    gen.setBlockOptionsSupplier(
-        () -> BlockDataGenerator.BlockOptions.create().withGeneratedBlockAccessList());
-    List<BlockDataGenerator.BlockWithAccessList> postBalBlocks =
-        gen.blockSequenceWithAccessList(preBalBlocks.get(99), 100);
+    final long head = blockchain.getChainHeadBlockNumber();
+    assertThat(head).isEqualTo(200L);
 
-    for (BlockDataGenerator.BlockWithAccessList blockWithBal : postBalBlocks) {
-      final Block blk = blockWithBal.getBlock();
-
-      blockWithBal
-          .getBlockAccessList()
-          .ifPresent(
-              bal -> {
-                assertThat(blk.getHeader().getBalHash()).isPresent();
-
-                final BlockchainStorage.Updater updater = blockchainStorage.updater();
-                updater.putBlockAccessList(blk.getHash(), bal);
-                updater.commit();
-              });
-
-      blockchain.appendBlock(blk, gen.receipts(blk));
-    }
-
-    // At block 200:
-    // - Keep blocks 151-200 (50 blocks retained)
-    // - Keep BALs from blocks 101-200 (100 BALs retained)
-    // - Blocks 1-150 should be pruned
-    // - Blocks 101-150 pruned as blocks but BAL never existed
-
-    // Genesis always kept
-    assertThat(blockchain.getBlockHeader(0)).isPresent();
-
-    // Blocks 1-150: Should be pruned
-    for (int i = 1; i <= 150; i++) {
-      assertThat(blockchain.getBlockHeader(i))
-          .as("Block %d should be pruned (outside retention)", i)
-          .isEmpty();
-    }
-
-    // Blocks 151-200: Should exist
-    for (int i = 151; i <= 200; i++) {
-      assertThat(blockchain.getBlockHeader(i))
-          .as("Block %d should exist (within retention)", i)
-          .isPresent();
-    }
-
-    // Blocks 101-150: Were pruned as blocks, so no BAL check possible
-
-    // Blocks 151-200: BAL should exist (within retention)
-    for (int i = 151; i <= 200; i++) {
-      final Block block = postBalBlocks.get(i - 101).getBlock();
-      assertThat(blockchainStorage.getBlockAccessList(block.getHash()))
-          .as("BAL for block %d should exist (within retention)", i)
-          .isPresent();
-    }
+    assertThat(blockchain.getBlockByNumber(50)).isEmpty();
+    assertThat(blockchain.getBlockByNumber(51)).isPresent();
+    // Advertised above the lowest block still held, which is the point of the slack.
+    assertThat(chainDataPruner.getEarliestRetainedBlock(head)).contains(101L);
   }
 
   @Test
-  public void balPruningMarkAdvancesAutomaticallyWhenNoBalPresent() {
+  public void pruningSlackAppliesInBalOnlyMode() {
+    // BAL-only mode applies the slack to the single pruning mark just like ALL mode does; this
+    // confirms the slack shows up here too. BALs retained 100, slack 50: at head 200 deleted to
+    // 50.
     final BlockDataGenerator gen = new BlockDataGenerator();
-    final BlockchainStorage blockchainStorage =
-        new KeyValueStoragePrefixedKeyBlockchainStorage(
-            new InMemoryKeyValueStorage(),
-            new VariablesKeyValueStorage(new InMemoryKeyValueStorage()),
-            new MainnetBlockHeaderFunctions(),
-            false);
-
-    final ChainDataPrunerStorage prunerStorage =
-        new ChainDataPrunerStorage(new InMemoryKeyValueStorage());
-
+    final BlockchainStorage blockchainStorage = inMemoryBlockchainStorage();
     final ChainDataPruner chainDataPruner =
         new ChainDataPruner(
             blockchainStorage,
-            () -> {},
-            prunerStorage,
-            0,
-            ChainDataPruner.PruningMode.CHAIN_PRUNING,
+            new ChainDataPrunerStorage(new InMemoryKeyValueStorage()),
             new ChainPrunerConfiguration(
-                ChainDataPruner.ChainPruningStrategy.BAL,
-                Long.MAX_VALUE,
-                256,
-                Long.MAX_VALUE,
-                100,
-                0),
+                ChainDataPruner.ChainPruningStrategy.BAL, 100, Long.MAX_VALUE, 0, 50),
             new BlockingExecutor());
-
-    Block genesisBlock = gen.genesisBlock();
+    final Block genesisBlock = gen.genesisBlock();
     final MutableBlockchain blockchain =
         DefaultBlockchain.createMutable(
             genesisBlock, blockchainStorage, new NoOpMetricsSystem(), 0);
     blockchain.observeBlockAdded(chainDataPruner);
 
-    // Add blocks without BAL - marker should advance automatically
-    List<Block> blocks = gen.blockSequence(genesisBlock, 50);
-    for (int i = 0; i < 50; i++) {
-      Block blk = blocks.get(i);
-      blockchain.appendBlock(blk, gen.receipts(blk));
+    gen.setBlockOptionsSupplier(
+        () -> BlockDataGenerator.BlockOptions.create().withGeneratedBlockAccessList());
 
-      // Verify BAL pruning mark advances with each block added
-      assertThat(prunerStorage.getBalPruningMark())
-          .as("BAL pruning mark should advance to block %d", i + 1)
-          .isPresent()
-          .hasValue((long) i + 1);
-    }
+    gen.blockSequenceWithAccessList(genesisBlock, 200)
+        .forEach(
+            blockWithBal -> {
+              final Block blk = blockWithBal.getBlock();
+              blockWithBal
+                  .getBlockAccessList()
+                  .ifPresent(
+                      bal -> {
+                        final BlockchainStorage.Updater updater = blockchainStorage.updater();
+                        updater.putBlockAccessList(blk.getHash(), bal);
+                        updater.commit();
+                      });
+              blockchain.appendBlock(blk, gen.receipts(blk));
+            });
 
-    // All blocks should still exist
-    for (int i = 0; i <= 50; i++) {
-      assertThat(blockchain.getBlockHeader(i)).isPresent();
-    }
+    assertThat(blockchain.getChainHeadBlockNumber()).isEqualTo(200L);
+
+    final Hash prunedBal = blockchain.getBlockHashByNumber(50).orElseThrow();
+    final Hash retainedBal = blockchain.getBlockHashByNumber(51).orElseThrow();
+
+    assertThat(blockchainStorage.getBlockAccessList(prunedBal)).isEmpty();
+    // Without the slack on the pruning mark it would be 100 and this BAL would be gone too.
+    assertThat(blockchainStorage.getBlockAccessList(retainedBal)).isPresent();
+    // BAL-only mode never touches block data.
+    assertThat(blockchain.getBlockByNumber(50)).isPresent();
   }
 
   @Test
@@ -1435,17 +1209,9 @@ public class ChainDataPrunerTest {
     final ChainDataPruner chainDataPruner =
         new ChainDataPruner(
             blockchainStorage,
-            () -> {},
             new ChainDataPrunerStorage(new InMemoryKeyValueStorage()),
-            0,
-            ChainDataPruner.PruningMode.CHAIN_PRUNING,
             new ChainPrunerConfiguration(
-                ChainDataPruner.ChainPruningStrategy.BAL,
-                Long.MAX_VALUE,
-                256,
-                Long.MAX_VALUE,
-                0,
-                0),
+                ChainDataPruner.ChainPruningStrategy.BAL, 256, Long.MAX_VALUE, 0, 0),
             new BlockingExecutor());
     Block genesisBlock = gen.genesisBlock();
     final MutableBlockchain blockchain =
@@ -1467,8 +1233,8 @@ public class ChainDataPrunerTest {
                 blockchain.appendBlock(blk, gen.receipts(blk));
               }
 
-              // Fork blocks at lower heights: blockNumber < storedBalPruningMark,
-              // but no warning expected because BAL is not activated yet.
+              // Fork blocks at lower heights: pre-activation BAL mode writes no mark, so the
+              // stored mark stays at its default and no block number can be below it.
               for (Block blk : forkChain) {
                 blockchain.storeBlock(blk, gen.receipts(blk));
               }
@@ -1478,8 +1244,8 @@ public class ChainDataPrunerTest {
             capturedEvents.stream()
                 .filter(e -> e.getLevel().equals(Level.WARN))
                 .map(e -> e.getMessage().getFormattedMessage())
-                .anyMatch(msg -> msg.contains("is less than BAL pruning mark")))
-        .as("No BAL pruning warning should be emitted for pre-Glamsterdam blocks")
+                .anyMatch(msg -> msg.contains("is less than the pruning mark")))
+        .as("No pruning-mark warning should be emitted for pre-Glamsterdam blocks")
         .isFalse();
   }
 
@@ -1495,17 +1261,9 @@ public class ChainDataPrunerTest {
     final ChainDataPruner chainDataPruner =
         new ChainDataPruner(
             blockchainStorage,
-            () -> {},
             new ChainDataPrunerStorage(new InMemoryKeyValueStorage()),
-            0,
-            ChainDataPruner.PruningMode.CHAIN_PRUNING,
             new ChainPrunerConfiguration(
-                ChainDataPruner.ChainPruningStrategy.BAL,
-                Long.MAX_VALUE,
-                256,
-                Long.MAX_VALUE,
-                0,
-                0),
+                ChainDataPruner.ChainPruningStrategy.BAL, 256, Long.MAX_VALUE, 0, 0),
             new BlockingExecutor());
     Block genesisBlock = gen.genesisBlock();
     final MutableBlockchain blockchain =
@@ -1539,7 +1297,7 @@ public class ChainDataPrunerTest {
               }
 
               // Fork blocks with BAL at lower heights (1-16).
-              // blockNumber < storedBalPruningMark → warning expected.
+              // blockNumber < storedPruningMark → warning expected.
               for (BlockDataGenerator.BlockWithAccessList blockWithBal : forkChain) {
                 final Block blk = blockWithBal.getBlock();
                 blockWithBal
@@ -1558,58 +1316,9 @@ public class ChainDataPrunerTest {
             capturedEvents.stream()
                 .filter(e -> e.getLevel().equals(Level.WARN))
                 .map(e -> e.getMessage().getFormattedMessage())
-                .anyMatch(msg -> msg.contains("is less than BAL pruning mark")))
-        .as("BAL pruning warning should be emitted for post-Glamsterdam fork blocks")
+                .anyMatch(msg -> msg.contains("is less than the pruning mark")))
+        .as("Pruning-mark warning should be emitted for post-Glamsterdam fork blocks")
         .isTrue();
-  }
-
-  @Test
-  public void testPreMergePruningAction() {
-    final BlockDataGenerator gen = new BlockDataGenerator();
-    final BlockchainStorage blockchainStorage =
-        new KeyValueStoragePrefixedKeyBlockchainStorage(
-            new InMemoryKeyValueStorage(),
-            new VariablesKeyValueStorage(new InMemoryKeyValueStorage()),
-            new MainnetBlockHeaderFunctions(),
-            false);
-    Block genesisBlock = gen.genesisBlock();
-    final MutableBlockchain blockchain =
-        DefaultBlockchain.createMutable(
-            genesisBlock, blockchainStorage, new NoOpMetricsSystem(), 0);
-    gen.blockSequence(genesisBlock, 20)
-        .forEach((block) -> blockchain.appendBlock(block, gen.receipts(block)));
-    final int mergeBlock = 11;
-    final int pruningQuantity = 6;
-    // Chain now has 20 blocks, including the genesis block
-    Assertions.assertEquals(20, blockchain.getChainHeadBlockNumber());
-
-    // Set up the pruner to prune blocks 1 to 10 in batches of 6
-    ChainDataPruner pruner =
-        new ChainDataPruner(
-            blockchainStorage,
-            () -> {},
-            new ChainDataPrunerStorage(new InMemoryKeyValueStorage()),
-            mergeBlock,
-            ChainDataPruner.PruningMode.PRE_MERGE_PRUNING,
-            new ChainPrunerConfiguration(
-                ChainDataPruner.ChainPruningStrategy.ALL, 0, 0, 0, 0, pruningQuantity),
-            new BlockingExecutor());
-
-    BlockAddedEvent blockAddedEvent = Mockito.mock(BlockAddedEvent.class);
-    Mockito.when(blockAddedEvent.isNewCanonicalHead()).thenReturn(true);
-
-    // On the first prune, we're expecting blocks 1 to 6 to be removed (full pruning batch size)
-    pruner.onBlockAdded(blockAddedEvent);
-
-    checkBlocks(blockchain, 1, pruningQuantity, Optional::isEmpty);
-    checkBlocks(
-        blockchain, pruningQuantity + 1, blockchain.getChainHeadBlockNumber(), Optional::isPresent);
-
-    // On the second prune, we're expecting blocks 7 to 10 to be removed (limited by merge block)
-    pruner.onBlockAdded(blockAddedEvent);
-
-    checkBlocks(blockchain, 1, mergeBlock - 1, Optional::isEmpty);
-    checkBlocks(blockchain, mergeBlock, blockchain.getChainHeadBlockNumber(), Optional::isPresent);
   }
 
   @Test
@@ -1622,10 +1331,7 @@ public class ChainDataPrunerTest {
             new MainnetBlockHeaderFunctions(),
             false);
     final ChainDataPruner chainDataPruner =
-        backfillPruner(
-            blockchainStorage,
-            ChainDataPruner.PruningMode.CHAIN_PRUNING,
-            ChainDataPruner.ChainPruningStrategy.ALL);
+        backfillPruner(blockchainStorage, ChainDataPruner.ChainPruningStrategy.ALL);
     final Block genesisBlock = gen.genesisBlock();
     final MutableBlockchain blockchain =
         DefaultBlockchain.createMutable(
@@ -1638,44 +1344,35 @@ public class ChainDataPrunerTest {
               blockchain.appendBlock(blk, gen.receipts(blk));
               // a back-fill that read its floor a run ago, 4 blocks, stores that block now
               final long floor = chainDataPruner.lowestToBackfill(blk.getHeader().getNumber() - 4);
-              assertThat(blockchain.getBlockHeader(floor)).isPresent();
+              assertThat(blockchain.getBlockByNumber(floor)).isPresent();
             });
     // a run later, the pruner keeps the blocks from 44 - 10 + 1
     assertThat(chainDataPruner.lowestToBackfill(40)).isEqualTo(35);
   }
 
   @Test
-  public void leavesNoMarginWhenTheLowestRetainedBlockDoesNotMove() {
-    final BlockchainStorage blockchainStorage = Mockito.mock(BlockchainStorage.class);
-    final ChainDataPruner preMergePruner =
-        backfillPruner(
-            blockchainStorage,
-            ChainDataPruner.PruningMode.PRE_MERGE_PRUNING,
-            ChainDataPruner.ChainPruningStrategy.ALL);
+  public void leavesNoMarginWhenOnlyBlockAccessListsArePruned() {
+    final BlockchainStorage blockchainStorage =
+        new KeyValueStoragePrefixedKeyBlockchainStorage(
+            new InMemoryKeyValueStorage(),
+            new VariablesKeyValueStorage(new InMemoryKeyValueStorage()),
+            new MainnetBlockHeaderFunctions(),
+            false);
     final ChainDataPruner balPruner =
-        backfillPruner(
-            blockchainStorage,
-            ChainDataPruner.PruningMode.CHAIN_PRUNING,
-            ChainDataPruner.ChainPruningStrategy.BAL);
+        backfillPruner(blockchainStorage, ChainDataPruner.ChainPruningStrategy.BAL);
 
-    // pre-merge pruning keeps every block from the merge block
-    assertThat(preMergePruner.lowestToBackfill(1_000)).isEqualTo(11);
     // pruning the block access lists only keeps every body
     assertThat(balPruner.lowestToBackfill(1_000)).isZero();
   }
 
-  // keeps 10 blocks, runs every 4 blocks, the merge at block 11
+  // keeps 10 blocks, runs every 4 blocks
   private static ChainDataPruner backfillPruner(
       final BlockchainStorage blockchainStorage,
-      final ChainDataPruner.PruningMode mode,
       final ChainDataPruner.ChainPruningStrategy strategy) {
     return new ChainDataPruner(
         blockchainStorage,
-        () -> {},
         new ChainDataPrunerStorage(new InMemoryKeyValueStorage()),
-        11,
-        mode,
-        new ChainPrunerConfiguration(strategy, 10, 10, 10, 4, 0),
+        new ChainPrunerConfiguration(strategy, 10, 10, 4, 0),
         new BlockingExecutor());
   }
 
@@ -1701,12 +1398,9 @@ public class ChainDataPrunerTest {
     final ChainDataPruner chainDataPruner =
         new ChainDataPruner(
             blockchainStorage,
-            () -> {},
             new ChainDataPrunerStorage(new InMemoryKeyValueStorage()),
-            0,
-            ChainDataPruner.PruningMode.CHAIN_PRUNING,
             new ChainPrunerConfiguration(
-                ChainDataPruner.ChainPruningStrategy.ALL, retention, retention, retention, 0, 0),
+                ChainDataPruner.ChainPruningStrategy.ALL, retention, retention, 0, 0),
             new BlockingExecutor());
     blockchain.observeBlockAdded(chainDataPruner);
 
@@ -1715,8 +1409,9 @@ public class ChainDataPrunerTest {
 
     final long head = blockchain.getChainHeadBlockNumber();
     assertThat(blockchain.getBlockHeader(0)).isPresent();
-    assertThat(blockchain.getBlockHeader(head - retention)).isEmpty();
-    assertThat(blockchain.getBlockHeader(head - retention + 1)).isPresent();
+    assertThat(blockchain.getBlockHeader(head - retention)).isPresent();
+    assertThat(blockchain.getBlockByNumber(head - retention)).isEmpty();
+    assertThat(blockchain.getBlockByNumber(head - retention + 1)).isPresent();
   }
 
   @Test
@@ -1741,12 +1436,9 @@ public class ChainDataPrunerTest {
     final ChainDataPruner chainDataPruner =
         new ChainDataPruner(
             blockchainStorage,
-            () -> {},
             new ChainDataPrunerStorage(new InMemoryKeyValueStorage()),
-            0,
-            ChainDataPruner.PruningMode.CHAIN_PRUNING,
             new ChainPrunerConfiguration(
-                ChainDataPruner.ChainPruningStrategy.ALL, retention, retention, retention, 0, 0),
+                ChainDataPruner.ChainPruningStrategy.ALL, retention, retention, 0, 0),
             new BlockingExecutor());
 
     // The snap-sync unsafe import path never fires BlockAddedEvents, so the pruner is not
@@ -1756,8 +1448,9 @@ public class ChainDataPrunerTest {
 
     final long head = blockchain.getChainHeadBlockNumber();
     assertThat(blockchain.getBlockHeader(0)).isPresent();
-    assertThat(blockchain.getBlockHeader(head - retention)).isEmpty();
-    assertThat(blockchain.getBlockHeader(head - retention + 1)).isPresent();
+    assertThat(blockchain.getBlockHeader(head - retention)).isPresent();
+    assertThat(blockchain.getBlockByNumber(head - retention)).isEmpty();
+    assertThat(blockchain.getBlockByNumber(head - retention + 1)).isPresent();
   }
 
   @Test
@@ -1783,12 +1476,9 @@ public class ChainDataPrunerTest {
     final ChainDataPruner chainDataPruner =
         new ChainDataPruner(
             blockchainStorage,
-            () -> {},
             prunerStorage,
-            0,
-            ChainDataPruner.PruningMode.CHAIN_PRUNING,
             new ChainPrunerConfiguration(
-                ChainDataPruner.ChainPruningStrategy.ALL, retention, retention, retention, 0, 0),
+                ChainDataPruner.ChainPruningStrategy.ALL, retention, retention, 0, 0),
             new BlockingExecutor());
     blockchain.observeBlockAdded(chainDataPruner);
 
@@ -1798,7 +1488,41 @@ public class ChainDataPrunerTest {
     final long head = blockchain.getChainHeadBlockNumber();
     assertThat(prunerStorage.getChainPruningMark()).hasValue(head - retention);
     assertThat(blockchain.getBlockHeader(head)).isPresent();
-    assertThat(blockchain.getBlockHeader(head - retention)).isEmpty();
+    assertThat(blockchain.getBlockHeader(head - retention)).isPresent();
+    assertThat(blockchain.getBlockByNumber(head - retention)).isEmpty();
+  }
+
+  @Test
+  public void allModeStartsFromTheFirstBlockWithABodyNotAStaleMark() {
+    // A mark left by BAL-only pruning says "swept to here" for access lists, not for block data.
+    // ALL mode must derive its start point from the data instead of trusting it.
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final BlockchainStorage blockchainStorage = inMemoryBlockchainStorage();
+    final ChainDataPrunerStorage prunerStorage =
+        new ChainDataPrunerStorage(new InMemoryKeyValueStorage());
+    final KeyValueStorageTransaction tx = prunerStorage.startTransaction();
+    prunerStorage.setChainPruningMark(tx, 400);
+    tx.commit();
+
+    final ChainDataPruner chainDataPruner =
+        new ChainDataPruner(
+            blockchainStorage,
+            prunerStorage,
+            new ChainPrunerConfiguration(ChainDataPruner.ChainPruningStrategy.ALL, 100, 100, 0, 0),
+            new BlockingExecutor());
+    final Block genesisBlock = gen.genesisBlock();
+    final MutableBlockchain blockchain =
+        DefaultBlockchain.createMutable(
+            genesisBlock, blockchainStorage, new NoOpMetricsSystem(), 0);
+    blockchain.observeBlockAdded(chainDataPruner);
+
+    gen.blockSequence(genesisBlock, 500)
+        .forEach(blk -> blockchain.appendBlock(blk, gen.receipts(blk)));
+
+    // Bodies were never pruned, so the derived start is genesis and everything below
+    // head - retained is swept despite the stale mark.
+    assertThat(blockchain.getBlockByNumber(1)).isEmpty();
+    assertThat(blockchain.getBlockHeader(1)).isPresent();
   }
 
   /**
@@ -1827,28 +1551,73 @@ public class ChainDataPrunerTest {
     return events;
   }
 
-  /**
-   * Helper method to check if blocks in a range satisfy a given predicate.
-   *
-   * @param blockchain the blockchain to query
-   * @param start the starting block number (inclusive)
-   * @param end the ending block number (inclusive)
-   * @param test the predicate to test each block against
-   */
-  private void checkBlocks(
-      final Blockchain blockchain,
-      final long start,
-      final long end,
-      final Predicate<Optional<Block>> test) {
-    for (long prunedBlockNumber = start; prunedBlockNumber <= end; prunedBlockNumber++) {
-      blockchain
-          .getBlockHeader(prunedBlockNumber)
-          .ifPresentOrElse(
-              (blockHeader) ->
-                  Assertions.assertTrue(
-                      test.test(blockchain.getBlockByHash(blockHeader.getBlockHash()))),
-              () -> Assertions.fail("Failed to find header expected to exist"));
-    }
+  private static BlockchainStorage inMemoryBlockchainStorage() {
+    return new KeyValueStoragePrefixedKeyBlockchainStorage(
+        new InMemoryKeyValueStorage(),
+        new VariablesKeyValueStorage(new InMemoryKeyValueStorage()),
+        new MainnetBlockHeaderFunctions(),
+        false);
+  }
+
+  private static ChainDataPruner pruner(
+      final ChainDataPrunerStorage prunerStorage, final ChainPrunerConfiguration config) {
+    return new ChainDataPruner(
+        inMemoryBlockchainStorage(), prunerStorage, config, new BlockingExecutor());
+  }
+
+  @Test
+  public void earliestRetainedBlockInAllModeIsHeadMinusRetained() {
+    // retained 512, slack 0, nothing pruned yet: bound = head - retained + 1
+    // = 2000 - 512 + 1 = 1489
+    final ChainDataPruner chainDataPruner =
+        pruner(
+            new ChainDataPrunerStorage(new InMemoryKeyValueStorage()),
+            new ChainPrunerConfiguration(
+                ChainDataPruner.ChainPruningStrategy.ALL, 512, 512, 10, 0));
+
+    assertThat(chainDataPruner.getEarliestRetainedBlock(2000)).contains(1489L);
+  }
+
+  @Test
+  public void earliestRetainedBlockInAllModeIsAtLeastStoredMarkPlusOne() {
+    // Operator raised retention after blocks <= 1800 were already deleted; the stored mark
+    // must win over the bound (2000 - 512 + 1 = 1489 < 1801).
+    final ChainDataPrunerStorage prunerStorage =
+        new ChainDataPrunerStorage(new InMemoryKeyValueStorage());
+    final KeyValueStorageTransaction tx = prunerStorage.startTransaction();
+    prunerStorage.setChainPruningMark(tx, 1800);
+    tx.commit();
+    final ChainDataPruner chainDataPruner =
+        pruner(
+            prunerStorage,
+            new ChainPrunerConfiguration(
+                ChainDataPruner.ChainPruningStrategy.ALL, 512, 512, 10, 0));
+
+    assertThat(chainDataPruner.getEarliestRetainedBlock(2000)).contains(1801L);
+  }
+
+  @Test
+  public void earliestRetainedBlockNeverReportsBelowGenesisOnUnprunedChain() {
+    // Large retention (10_000) with head 100 makes the bound negative:
+    // 100 - 10_000 + 1 = -9899. Nothing pruned yet, so the floor is genesis (0).
+    final ChainDataPruner chainDataPruner =
+        pruner(
+            new ChainDataPrunerStorage(new InMemoryKeyValueStorage()),
+            new ChainPrunerConfiguration(
+                ChainDataPruner.ChainPruningStrategy.ALL, 10_000, 10_000, 10, 0));
+
+    assertThat(chainDataPruner.getEarliestRetainedBlock(100)).contains(0L);
+  }
+
+  @Test
+  public void earliestRetainedBlockIsEmptyInBalOnlyMode() {
+    final ChainDataPruner chainDataPruner =
+        pruner(
+            new ChainDataPrunerStorage(new InMemoryKeyValueStorage()),
+            new ChainPrunerConfiguration(
+                ChainDataPruner.ChainPruningStrategy.BAL, 512, 512, 10, 0));
+
+    assertThat(chainDataPruner.getEarliestRetainedBlock(2000)).isEmpty();
   }
 
   /** Blocking executor for testing purposes. Executes tasks synchronously in the calling thread. */

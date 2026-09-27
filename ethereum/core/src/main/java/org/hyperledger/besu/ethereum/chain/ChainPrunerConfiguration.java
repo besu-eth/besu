@@ -16,13 +16,18 @@ package org.hyperledger.besu.ethereum.chain;
 
 import org.hyperledger.besu.ethereum.chain.ChainDataPruner.ChainPruningStrategy;
 
+/**
+ * Configuration for the chain data pruner.
+ *
+ * @param pruneSlackBlocks blocks kept beyond the retention window, so the advertised eth/69 range
+ *     stays backed by data as the head advances between broadcasts.
+ */
 public record ChainPrunerConfiguration(
     ChainPruningStrategy pruningMode,
     long chainPruningBlocksRetained,
-    long chainPruningBalsRetained,
     long chainPruningRetainedMinimum,
     long chainPruningFrequency,
-    int preMergePruningBlocksQuantity) {
+    long pruneSlackBlocks) {
 
   /**
    * The history expiry window of EIP-4444, matching the consensus layer block retention window.
@@ -39,11 +44,10 @@ public record ChainPrunerConfiguration(
   public static final ChainPrunerConfiguration DEFAULT =
       new ChainPrunerConfiguration(
           ChainPruningStrategy.NONE,
-          HISTORY_PRUNE_BLOCKS,
-          HISTORY_PRUNE_BLOCKS,
-          HISTORY_PRUNE_BLOCKS,
+          1_056_768 /* HISTORY_PRUNE_EPOCHS (33024) * SLOTS_PER_EPOCH (32) */,
+          1_056_768,
           256,
-          1000);
+          4096);
 
   /**
    * Check if block chain pruning is enabled.

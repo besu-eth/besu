@@ -38,18 +38,6 @@ public interface DataStorageConfiguration {
   boolean getReceiptCompactionEnabled();
 
   /**
-   * Whether block history expiry prune is enabled. When enabled this: - Enables online pruner if
-   * data is not already pruned - Enables RocksDB blob garbage collection settings to reclaim the
-   * space from the pruned blocks
-   *
-   * @return Whether history expiry is enabled
-   */
-  @Unstable
-  default boolean isHistoryExpiryPruneEnabled() {
-    return false;
-  }
-
-  /**
    * Whether revert reasons are persisted in transaction receipts.
    *
    * @return Whether revert reason persistence is enabled

@@ -3129,8 +3129,7 @@ public class BesuCommandTest extends CommandTestAbstract {
   public void chainPruningNoneModeSkipsValidation() {
     parseCommand(
         "--Xchain-pruning-enabled=NONE",
-        "--Xchain-pruning-blocks-retained=-1", // Invalid but should be ignored
-        "--Xchain-pruning-bals-retained=-1"); // Invalid but should be ignored
+        "--Xchain-pruning-blocks-retained=-1"); // Invalid but should be ignored
 
     // Should not throw exception since mode is NONE
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
@@ -3148,73 +3147,10 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
-  public void chainPruningBalsRetainedMustBeGreaterThanOrEqualToRetainedLimit() {
-    parseCommand(
-        "--Xchain-pruning-enabled=BAL",
-        "--Xchain-pruning-bals-retained=1000",
-        "--Xchain-pruning-retained-minimum=2000");
-
-    assertThat(commandErrorOutput.toString(UTF_8))
-        .contains("--Xchain-pruning-bals-retained must be >= 2000");
-  }
-
-  @Test
-  public void chainPruningBlocksRetainedCannotBeLessThanBalsRetainedInAllMode() {
-    // BALs retained < blocks retained is INVALID
-    parseCommand(
-        "--Xchain-pruning-enabled=ALL",
-        "--Xchain-pruning-blocks-retained=1000",
-        "--Xchain-pruning-bals-retained=2000",
-        "--Xchain-pruning-retained-minimum=500");
-
-    assertThat(commandErrorOutput.toString(UTF_8))
-        .contains(
-            "--Xchain-pruning-bals-retained must be <= --Xchain-pruning-blocks-retained when pruning mode is ALL");
-  }
-
-  @Test
-  public void chainPruningBlocksRetainedCanBeGreaterThanBalsRetainedInAllMode() {
-    // BALs retained > blocks retained is VALID
-    parseCommand(
-        "--Xchain-pruning-enabled=ALL",
-        "--Xchain-pruning-blocks-retained=2000",
-        "--Xchain-pruning-bals-retained=1000",
-        "--Xchain-pruning-retained-minimum=500");
-
-    // Should succeed - we keep more BALs than blocks
-    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
-  }
-
-  @Test
-  public void chainPruningBlocksRetainedCanBeGreaterThanBalsRetainedInBalMode() {
-    // In BAL mode, blocks are never pruned (Long.MAX_VALUE)
-    // BALs retained can be any value >= retained limit
-    parseCommand(
-        "--Xchain-pruning-enabled=BAL",
-        "--Xchain-pruning-blocks-retained=" + Long.MAX_VALUE,
-        "--Xchain-pruning-bals-retained=1000",
-        "--Xchain-pruning-retained-minimum=500");
-
-    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
-  }
-
-  @Test
-  public void chainPruningBalsRetainedEqualToBlocksRetainedInAllModeSucceeds() {
-    // Equal is valid (minimum case)
-    parseCommand(
-        "--Xchain-pruning-enabled=ALL",
-        "--Xchain-pruning-blocks-retained=" + CHAIN_DATA_PRUNING_RETAINED_MINIMUM,
-        "--Xchain-pruning-bals-retained=" + CHAIN_DATA_PRUNING_RETAINED_MINIMUM);
-
-    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
-  }
-
-  @Test
   public void chainPruningAllModeWithValidValuesSucceeds() {
     parseCommand(
         "--Xchain-pruning-enabled=ALL",
         "--Xchain-pruning-blocks-retained=" + (CHAIN_DATA_PRUNING_RETAINED_MINIMUM + 100),
-        "--Xchain-pruning-bals-retained=" + CHAIN_DATA_PRUNING_RETAINED_MINIMUM,
         "--Xchain-pruning-retained-minimum=" + CHAIN_DATA_PRUNING_RETAINED_MINIMUM);
 
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
@@ -3224,10 +3160,38 @@ public class BesuCommandTest extends CommandTestAbstract {
   public void chainPruningBalModeWithValidValuesSucceeds() {
     parseCommand(
         "--Xchain-pruning-enabled=BAL",
-        "--Xchain-pruning-bals-retained=" + CHAIN_DATA_PRUNING_RETAINED_MINIMUM,
+        "--Xchain-pruning-blocks-retained=" + CHAIN_DATA_PRUNING_RETAINED_MINIMUM,
         "--Xchain-pruning-retained-minimum=" + CHAIN_DATA_PRUNING_RETAINED_MINIMUM);
 
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void chainPruningEnablesBlockchainBlobGarbageCollection() {
+    final TestBesuCommand besuCommand =
+        parseCommand(
+            "--Xchain-pruning-enabled=ALL",
+            "--Xchain-pruning-blocks-retained=" + CHAIN_DATA_PRUNING_RETAINED_MINIMUM,
+            "--Xchain-pruning-retained-minimum=" + CHAIN_DATA_PRUNING_RETAINED_MINIMUM);
+
+    assertThat(
+            besuCommand
+                .getRocksDBPlugin()
+                .getBlobDBSettings()
+                .isBlockchainGarbageCollectionEnabled())
+        .isTrue();
+  }
+
+  @Test
+  public void chainPruningDisabledLeavesBlockchainBlobGarbageCollectionOff() {
+    final TestBesuCommand besuCommand = parseCommand("--Xchain-pruning-enabled=NONE");
+
+    assertThat(
+            besuCommand
+                .getRocksDBPlugin()
+                .getBlobDBSettings()
+                .isBlockchainGarbageCollectionEnabled())
+        .isFalse();
   }
 
   @Test

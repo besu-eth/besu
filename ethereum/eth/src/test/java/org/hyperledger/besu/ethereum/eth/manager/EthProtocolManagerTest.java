@@ -31,6 +31,7 @@ import org.hyperledger.besu.consensus.merge.ForkchoiceEvent;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.chain.ChainDataPruner;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
@@ -1511,5 +1512,38 @@ public final class EthProtocolManagerTest {
           EthProtocolVersion.V69.getCapability());
     }
     return sent.get();
+  }
+
+  @Test
+  public void shouldSendPrunerEarliestBlockToPeerWhenCapabilityEth69() {
+    final long chainEarliestBlock = 10L;
+    final long prunerEarliestBlock = 15L; // test chain has >= 20 blocks
+    final Blockchain blockChainMock = spy(blockchain);
+    when(blockChainMock.getEarliestBlockNumber()).thenReturn(Optional.of(chainEarliestBlock));
+    final ChainDataPruner chainDataPruner = mock(ChainDataPruner.class);
+    when(chainDataPruner.getEarliestRetainedBlock(blockchain.getChainHeadBlockNumber()))
+        .thenReturn(Optional.of(prunerEarliestBlock));
+
+    try (final EthProtocolManager ethManager =
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockChainMock)
+            .setChainDataPruner(Optional.of(chainDataPruner))
+            .setEthScheduler(new DeterministicEthScheduler(() -> false))
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.DEFAULT)
+            .build()) {
+
+      setupPeerWithoutStatusExchange(
+          ethManager,
+          (cap, msg, conn) -> {
+            assertThat(msg.getCode() == EthProtocolMessages.STATUS).isTrue();
+            long earliestBlock =
+                StatusMessage.create(msg.getData()).blockRange().orElseThrow().earliestBlock();
+            assertThat(earliestBlock).isEqualTo(prunerEarliestBlock);
+          },
+          EthProtocol.ETH69);
+    }
   }
 }

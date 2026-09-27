@@ -1748,7 +1748,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     final ChainPruningStrategy chainPruningStrategy =
         unstableChainPruningOptions.getChainPruningStrategy();
     final long blocksRetained = unstableChainPruningOptions.getChainDataPruningBlocksRetained();
-    final long balsRetained = unstableChainPruningOptions.getChainDataPruningBalsRetained();
     final long retainedMinimum = unstableChainPruningOptions.getChainDataPruningRetainedMinimum();
 
     // Skip validation if pruning is disabled
@@ -1760,9 +1759,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     if (blocksRetained < 0) {
       throw new ParameterException(
           this.commandLine, "--Xchain-pruning-blocks-retained must be >= 0");
-    }
-    if (balsRetained < 0) {
-      throw new ParameterException(this.commandLine, "--Xchain-pruning-bals-retained must be >= 0");
     }
     if (retainedMinimum < 0) {
       throw new ParameterException(
@@ -1789,22 +1785,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
                     blocksRetained, epochLength, getConsensusMechanism(genesisConfigOptions)));
           }
         }
-      }
-    }
-
-    // Validate BAL pruning (when mode is BAL or ALL)
-    if (chainPruningStrategy == ChainPruningStrategy.BAL
-        || chainPruningStrategy == ChainPruningStrategy.ALL) {
-      if (balsRetained < retainedMinimum) {
-        throw new ParameterException(
-            this.commandLine, "--Xchain-pruning-bals-retained must be >= " + retainedMinimum);
-      }
-
-      // When both are enabled (ALL mode), BAL retention can't exceed block retention
-      if (chainPruningStrategy == ChainPruningStrategy.ALL && balsRetained > blocksRetained) {
-        throw new ParameterException(
-            this.commandLine,
-            "--Xchain-pruning-bals-retained must be <= --Xchain-pruning-blocks-retained when pruning mode is ALL");
       }
     }
   }
@@ -2368,6 +2348,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     if (this.keyValueStorageProvider == null) {
       // before the database opens, for the node and the subcommands alike
       setIgnorableStorageSegments();
+      configureBlockchainGarbageCollection();
       this.keyValueStorageProvider =
           new KeyValueStorageProviderBuilder()
               .withStorageFactory(
@@ -3079,8 +3060,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
   /** Set ignorable segments in RocksDB Storage Provider plugin. */
   private void setIgnorableStorageSegments() {
-    if (unstableChainPruningOptions.getChainPruningStrategy().equals(ChainPruningStrategy.NONE)
-        && !getDataStorageConfiguration().getHistoryExpiryPruneEnabled()) {
+    if (unstableChainPruningOptions.getChainPruningStrategy().equals(ChainPruningStrategy.NONE)) {
       rocksDBPlugin.addIgnorableSegmentIdentifier(KeyValueSegmentIdentifier.CHAIN_PRUNER_STATE);
     }
     // the flat state the SNAP2 sync stages on Forest, created only for that sync
@@ -3088,6 +3068,16 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         || getDataStorageConfiguration().getDataStorageFormat() != DataStorageFormat.FOREST) {
       rocksDBPlugin.addIgnorableSegmentIdentifier(KeyValueSegmentIdentifier.SNAPSYNC_FLAT_ACCOUNTS);
       rocksDBPlugin.addIgnorableSegmentIdentifier(KeyValueSegmentIdentifier.SNAPSYNC_FLAT_STORAGE);
+    }
+  }
+
+  /**
+   * Enables RocksDB blob garbage collection for the BLOCKCHAIN column family when chain data will
+   * be pruned, without which deleted bodies, receipts and BALs never release disk space.
+   */
+  public void configureBlockchainGarbageCollection() {
+    if (!unstableChainPruningOptions.getChainPruningStrategy().equals(ChainPruningStrategy.NONE)) {
+      rocksDBPlugin.enableBlockchainGarbageCollection();
     }
   }
 
@@ -3224,9 +3214,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         unstableChainPruningOptions.getChainPruningStrategy();
     if (!pruningStrategy.equals(ChainPruningStrategy.NONE)) {
       builder.setChainPruningEnabled(
-          pruningStrategy,
-          unstableChainPruningOptions.getChainDataPruningBlocksRetained(),
-          unstableChainPruningOptions.getChainDataPruningBalsRetained());
+          pruningStrategy, unstableChainPruningOptions.getChainDataPruningBlocksRetained());
     }
 
     if (miningParametersSupplier.get().getTargetGasLimit().isPresent()) {
@@ -3254,7 +3242,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         .setEnabledOpcodeOptimizations(unstableEvmOptions.toDomainObject().enableOptimizedOpcodes())
         .setEvmV2(unstableEvmOptions.toDomainObject().enableEvmV2())
         .setPluginContext(this.besuPluginContext)
-        .setHistoryExpiryPruneEnabled(getDataStorageConfiguration().getHistoryExpiryPruneEnabled())
         .setBlobDBSettings(rocksDBPlugin.getBlobDBSettings())
         .setRocksDbMaxOpenFiles(
             rocksDBPlugin.getResolvedMaxOpenFiles(), rocksDBPlugin.isMaxOpenFilesExplicitlySet());

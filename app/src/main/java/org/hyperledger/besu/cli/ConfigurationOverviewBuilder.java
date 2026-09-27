@@ -69,11 +69,9 @@ public class ConfigurationOverviewBuilder {
   private boolean evmV2 = false;
   private Map<String, String> environment;
   private BesuPluginContextImpl besuPluginContext;
-  private boolean isHistoryExpiryPruneEnabled = false;
   private boolean isParallelTxProcessingEnabled = false;
   private ChainPruningStrategy chainPruningStrategy = ChainPruningStrategy.NONE;
   private Long chainPruningBlocksRetained;
-  private Long chainPruningBalsRetained;
 
   private RocksDBCLIOptions.BlobDBSettings blobDBSettings;
   private Long targetGasLimit;
@@ -370,18 +368,6 @@ public class ConfigurationOverviewBuilder {
   }
 
   /**
-   * Sets the history expiry prune enabled.
-   *
-   * @param isHistoryExpiryPruneEnabled the history expiry prune enabled
-   * @return the builder
-   */
-  public ConfigurationOverviewBuilder setHistoryExpiryPruneEnabled(
-      final boolean isHistoryExpiryPruneEnabled) {
-    this.isHistoryExpiryPruneEnabled = isHistoryExpiryPruneEnabled;
-    return this;
-  }
-
-  /**
    * Sets the blob db settings.
    *
    * @param blobDBSettings the blob db settings
@@ -458,16 +444,12 @@ public class ConfigurationOverviewBuilder {
    *
    * @param pruningStrategy the chain pruning strategy
    * @param blocksRetained the number of blocks to retain
-   * @param balsRetained the number of BALs to retain
    * @return the builder
    */
   public ConfigurationOverviewBuilder setChainPruningEnabled(
-      final ChainPruningStrategy pruningStrategy,
-      final Long blocksRetained,
-      final Long balsRetained) {
+      final ChainPruningStrategy pruningStrategy, final Long blocksRetained) {
     this.chainPruningStrategy = pruningStrategy;
     this.chainPruningBlocksRetained = blocksRetained;
-    this.chainPruningBalsRetained = balsRetained;
     return this;
   }
 
@@ -596,17 +578,13 @@ public class ConfigurationOverviewBuilder {
 
       if (chainPruningStrategy.equals(ChainPruningStrategy.ALL)) {
         chainPruningString
-            .append("Chain and BAL pruning enabled (retained ")
-            .append("BALs: ")
-            .append(chainPruningBalsRetained)
-            .append("; Blocks: ")
+            .append("Chain and BAL pruning enabled (retained Blocks and BALs: ")
             .append(chainPruningBlocksRetained);
-        ;
 
       } else if (chainPruningStrategy.equals(ChainPruningStrategy.BAL)) {
         chainPruningString
             .append("BAL pruning enabled (retained BALs: ")
-            .append(chainPruningBalsRetained);
+            .append(chainPruningBlocksRetained);
       }
       chainPruningString.append(")");
       lines.add(chainPruningString.toString());
@@ -614,10 +592,6 @@ public class ConfigurationOverviewBuilder {
 
     if (isHighSpec) {
       lines.add("Experimental high spec configuration enabled");
-    }
-
-    if (isHistoryExpiryPruneEnabled) {
-      lines.add("History expiry prune enabled");
     }
 
     if (blobDBSettings != null && blobDBSettings.isBlockchainGarbageCollectionEnabled()) {

@@ -15,6 +15,7 @@
 package org.hyperledger.besu.plugin.services.storage.rocksdb;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.BLOB_BLOCKCHAIN_GARBAGE_COLLECTION_ENABLED;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.CACHE_CAPACITY_FLAG;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_BACKGROUND_THREAD_COUNT;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_CACHE_CAPACITY;
@@ -152,6 +153,27 @@ public class RocksDBCLIOptionsTest {
 
     assertMaxOpenFilesDerivedFromAvailableMemory(fifteenPointNineGib, 8140);
     assertMaxOpenFilesDerivedFromAvailableMemory(sixteenPointOneGib, 8243);
+  }
+
+  @Test
+  public void enableBlockchainGarbageCollectionEnablesItEvenWhenFlagNotSet() {
+    final RocksDBCLIOptions options = RocksDBCLIOptions.create();
+    assertThat(options.toDomainObject().isBlockchainGarbageCollectionEnabled()).isFalse();
+
+    options.enableBlockchainGarbageCollection();
+
+    assertThat(options.toDomainObject().isBlockchainGarbageCollectionEnabled()).isTrue();
+  }
+
+  @Test
+  public void enableBlockchainGarbageCollectionIsOneWayAndDoesNotDisableTheCliFlag() {
+    final RocksDBCLIOptions options = RocksDBCLIOptions.create();
+    new CommandLine(options).parseArgs(BLOB_BLOCKCHAIN_GARBAGE_COLLECTION_ENABLED);
+    assertThat(options.toDomainObject().isBlockchainGarbageCollectionEnabled()).isTrue();
+
+    options.enableBlockchainGarbageCollection();
+
+    assertThat(options.toDomainObject().isBlockchainGarbageCollectionEnabled()).isTrue();
   }
 
   private static RocksDBFactoryConfiguration toDomainObjectWithAvailableMemory(

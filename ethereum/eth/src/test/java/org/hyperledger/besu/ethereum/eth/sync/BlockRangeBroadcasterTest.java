@@ -24,8 +24,10 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.chain.ChainDataPruner;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Difficulty;
+import org.hyperledger.besu.ethereum.eth.manager.BlockRangeProvider;
 import org.hyperledger.besu.ethereum.eth.manager.ChainState;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthMessage;
@@ -59,6 +61,7 @@ public class BlockRangeBroadcasterTest {
   @Mock private EthPeers ethPeers;
   @Mock private EthPeer ethPeerWithSupport;
   @Mock private EthPeer ethPeerWithoutSupport;
+  @Mock private ChainDataPruner chainDataPruner;
 
   private BlockRangeBroadcaster blockRangeBroadcaster;
 
@@ -66,7 +69,12 @@ public class BlockRangeBroadcasterTest {
   public void setup() {
     when(ethContext.getEthMessages()).thenReturn(mock(EthMessages.class));
     when(ethContext.getScheduler()).thenReturn(mock(EthScheduler.class));
-    blockRangeBroadcaster = spy(new BlockRangeBroadcaster(ethContext, blockchain));
+    blockRangeBroadcaster =
+        spy(
+            new BlockRangeBroadcaster(
+                ethContext,
+                blockchain,
+                new BlockRangeProvider(blockchain, Optional.of(chainDataPruner))));
   }
 
   @Test
@@ -121,6 +129,8 @@ public class BlockRangeBroadcasterTest {
 
     setupPeers(ethPeerWithoutSupport, ethPeerWithSupport);
     setupBlockchain(expectedEarliestBlock, expectedLatestBlockNumber, expectedBlockHash);
+    when(chainDataPruner.getEarliestRetainedBlock(expectedLatestBlockNumber))
+        .thenReturn(Optional.empty());
 
     blockRangeBroadcaster.broadcastBlockRange();
     verify(blockRangeBroadcaster, times(1))
@@ -153,6 +163,23 @@ public class BlockRangeBroadcasterTest {
     when(blockchain.getEarliestBlockNumber(latestBlockNumber))
         .thenReturn(Optional.of(earliestBlockNumber));
     when(blockchain.getChainHeadHeader()).thenReturn(latestBlockHeader);
+  }
+
+  @Test
+  public void shouldSendPrunerBoundWhenItIsAboveChainEarliest() {
+    final long chainEarliestBlock = 10L;
+    final long prunerEarliestBlock = 15L;
+    final long expectedLatestBlockNumber = 20L;
+    final Hash expectedBlockHash = Hash.wrap(Bytes32.fromHexString("0x0B"));
+
+    setupPeers(ethPeerWithoutSupport, ethPeerWithSupport);
+    setupBlockchain(chainEarliestBlock, expectedLatestBlockNumber, expectedBlockHash);
+    when(chainDataPruner.getEarliestRetainedBlock(expectedLatestBlockNumber))
+        .thenReturn(Optional.of(prunerEarliestBlock));
+
+    blockRangeBroadcaster.broadcastBlockRange();
+    verify(blockRangeBroadcaster, times(1))
+        .broadcastBlockRange(prunerEarliestBlock, expectedLatestBlockNumber, expectedBlockHash);
   }
 
   @Test

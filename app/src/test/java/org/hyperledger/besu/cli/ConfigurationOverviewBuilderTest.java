@@ -315,30 +315,22 @@ class ConfigurationOverviewBuilderTest {
 
   @Test
   void setChainPruningEnabledNoneMode() {
-    builder.setChainPruningEnabled(ChainPruningStrategy.NONE, 113_152L, 113_152L);
+    builder.setChainPruningEnabled(ChainPruningStrategy.NONE, 113_152L);
     final String chainPruningSet = builder.build();
     assertThat(chainPruningSet).doesNotContain("Chain pruning enabled");
   }
 
   @Test
   void setChainPruningEnabledAllMode() {
-    builder.setChainPruningEnabled(ChainPruningStrategy.ALL, 113_152L, 113_152L);
+    builder.setChainPruningEnabled(ChainPruningStrategy.ALL, 113_152L);
     final String chainPruningSet = builder.build();
     assertThat(chainPruningSet)
-        .contains("Chain and BAL pruning enabled (retained BALs: 113152; Blocks: 113152)");
-  }
-
-  @Test
-  void setChainPruningEnabledAllModeWithDifferentRetentionValues() {
-    builder.setChainPruningEnabled(ChainPruningStrategy.ALL, 150_000L, 113_152L);
-    final String chainPruningSet = builder.build();
-    assertThat(chainPruningSet)
-        .contains("Chain and BAL pruning enabled (retained BALs: 113152; Blocks: 150000)");
+        .contains("Chain and BAL pruning enabled (retained Blocks and BALs: 113152)");
   }
 
   @Test
   void setChainPruningEnabledBalModeOnly() {
-    builder.setChainPruningEnabled(ChainPruningStrategy.BAL, null, 50_000L);
+    builder.setChainPruningEnabled(ChainPruningStrategy.BAL, 50_000L);
     final String chainPruningSet = builder.build();
     assertThat(chainPruningSet)
         .contains("BAL pruning enabled (retained BALs: 50000)")

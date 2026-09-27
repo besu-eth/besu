@@ -19,6 +19,7 @@ import static org.mockito.Mockito.mock;
 
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.chain.ChainDataPruner;
 import org.hyperledger.besu.ethereum.chain.GenesisState;
 import org.hyperledger.besu.ethereum.core.BlockchainSetupUtil;
 import org.hyperledger.besu.ethereum.core.ProtocolScheduleFixture;
@@ -67,6 +68,7 @@ public class EthProtocolManagerTestBuilder {
   private PeerTaskExecutor peerTaskExecutor;
   private SyncMode syncMode = SyncMode.SNAP;
   private int maxRemotelyInitiatedPeers = 25;
+  private Optional<ChainDataPruner> chainDataPruner = Optional.empty();
 
   public static EthProtocolManagerTestBuilder builder() {
     return new EthProtocolManagerTestBuilder();
@@ -179,6 +181,12 @@ public class EthProtocolManagerTestBuilder {
     return this;
   }
 
+  public EthProtocolManagerTestBuilder setChainDataPruner(
+      final Optional<ChainDataPruner> chainDataPruner) {
+    this.chainDataPruner = chainDataPruner;
+    return this;
+  }
+
   public EthProtocolManager build() {
     if (protocolSchedule == null) {
       protocolSchedule = ProtocolScheduleFixture.TESTING_NETWORK;
@@ -265,6 +273,7 @@ public class EthProtocolManagerTestBuilder {
         mergePeerFilter,
         synchronizerConfiguration,
         ethScheduler,
-        forkIdManager);
+        forkIdManager,
+        chainDataPruner);
   }
 }

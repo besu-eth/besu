@@ -18,6 +18,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.chain.ChainDataPruner;
 import org.hyperledger.besu.ethereum.chain.MinedBlockObserver;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.Difficulty;
@@ -79,6 +80,7 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
   private final BlockBroadcaster blockBroadcaster;
   private final List<PeerValidator> peerValidators;
   private final Optional<MergePeerFilter> mergePeerFilter;
+  private final BlockRangeProvider blockRangeProvider;
 
   public EthProtocolManager(
       final Blockchain blockchain,
@@ -93,7 +95,8 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
       final Optional<MergePeerFilter> mergePeerFilter,
       final SynchronizerConfiguration synchronizerConfiguration,
       final EthScheduler scheduler,
-      final ForkIdManager forkIdManager) {
+      final ForkIdManager forkIdManager,
+      final Optional<ChainDataPruner> chainDataPruner) {
     this.networkId = networkId;
     this.peerValidators = peerValidators;
     this.scheduler = scheduler;
@@ -107,6 +110,7 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
     this.ethPeers = ethPeers;
     this.ethMessages = ethMessages;
     this.ethContext = ethContext;
+    this.blockRangeProvider = new BlockRangeProvider(blockchain, chainDataPruner);
 
     this.blockBroadcaster =
         new BlockBroadcaster(ethContext, ethereumWireProtocolConfiguration.getMaxMessageSize());
@@ -122,6 +126,37 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
 
     // Set up request handlers
     new EthServer(blockchain, transactionPool, ethMessages, ethereumWireProtocolConfiguration);
+  }
+
+  public EthProtocolManager(
+      final Blockchain blockchain,
+      final BigInteger networkId,
+      final WorldStateArchive worldStateArchive,
+      final TransactionPool transactionPool,
+      final EthProtocolConfiguration ethereumWireProtocolConfiguration,
+      final EthPeers ethPeers,
+      final EthMessages ethMessages,
+      final EthContext ethContext,
+      final List<PeerValidator> peerValidators,
+      final Optional<MergePeerFilter> mergePeerFilter,
+      final SynchronizerConfiguration synchronizerConfiguration,
+      final EthScheduler scheduler,
+      final ForkIdManager forkIdManager) {
+    this(
+        blockchain,
+        networkId,
+        worldStateArchive,
+        transactionPool,
+        ethereumWireProtocolConfiguration,
+        ethPeers,
+        ethMessages,
+        ethContext,
+        peerValidators,
+        mergePeerFilter,
+        synchronizerConfiguration,
+        scheduler,
+        forkIdManager,
+        Optional.empty());
   }
 
   @VisibleForTesting
@@ -197,7 +232,7 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
                         .isValidMessageCode(
                             cap.getVersion(), EthProtocolMessages.BLOCK_RANGE_UPDATE));
     return hasSupportForBlockRangeMessage
-        ? new BlockRangeBroadcaster(ethContext, blockchain)
+        ? new BlockRangeBroadcaster(ethContext, blockchain, blockRangeProvider)
         : null;
   }
 
@@ -495,7 +530,7 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
 
   private StatusMessage.BlockRange createBlockRange() {
     final long chainHead = blockchain.getChainHeadBlockNumber();
-    return blockchain
+    return blockRangeProvider
         .getEarliestBlockNumber(chainHead)
         .map(earliestBlockNumber -> new StatusMessage.BlockRange(earliestBlockNumber, chainHead))
         .orElseGet(() -> new StatusMessage.BlockRange(0, 0));

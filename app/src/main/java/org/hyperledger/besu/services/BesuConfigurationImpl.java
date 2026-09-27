@@ -154,11 +154,6 @@ public class BesuConfigurationImpl
     }
 
     @Override
-    public boolean isHistoryExpiryPruneEnabled() {
-      return dataStorageConfiguration.getHistoryExpiryPruneEnabled();
-    }
-
-    @Override
     public boolean getRevertReasonEnabled() {
       return dataStorageConfiguration.getRevertReasonEnabled();
     }

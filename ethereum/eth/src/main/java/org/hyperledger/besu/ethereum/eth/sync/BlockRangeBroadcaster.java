@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.eth.sync;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.eth.manager.BlockRangeProvider;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthMessage;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
@@ -42,10 +43,15 @@ public class BlockRangeBroadcaster {
 
   private final EthContext ethContext;
   private final Blockchain blockchain;
+  private final BlockRangeProvider blockRangeProvider;
 
-  public BlockRangeBroadcaster(final EthContext ethContext, final Blockchain blockchain) {
+  public BlockRangeBroadcaster(
+      final EthContext ethContext,
+      final Blockchain blockchain,
+      final BlockRangeProvider blockRangeProvider) {
     this.ethContext = ethContext;
     this.blockchain = blockchain;
+    this.blockRangeProvider = blockRangeProvider;
     ethContext
         .getEthMessages()
         .subscribe(EthProtocolMessages.BLOCK_RANGE_UPDATE, this::handleBlockRangeUpdateMessage);
@@ -111,13 +117,13 @@ public class BlockRangeBroadcaster {
   /**
    * Broadcasts a block range update message to all connected peers that support the
    * BLOCK_RANGE_UPDATE protocol. This method is used to inform peers about the range of blocks
-   * available, from the earliest to the latest. If the earliest block number is not available, or
-   * above the chain head, the genesis block number is used as a fallback.
+   * available, from the earliest to the latest. The earliest block accounts for chain pruning; if it
+   * is not available or is above the chain head, the genesis block number is used as a fallback.
    */
   @VisibleForTesting
   protected void broadcastBlockRange() {
     final BlockHeader chainHeader = blockchain.getChainHeadHeader();
-    blockchain
+    blockRangeProvider
         .getEarliestBlockNumber(chainHeader.getNumber())
         .ifPresentOrElse(
             earliestBlockNumber ->

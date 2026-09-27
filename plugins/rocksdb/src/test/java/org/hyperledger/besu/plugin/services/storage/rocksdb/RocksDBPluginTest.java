@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.plugin.services.storage.rocksdb;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.jupiter.api.Test;
@@ -27,5 +28,15 @@ class RocksDBPluginTest {
     assertThatThrownBy(plugin::start)
         .isInstanceOf(IllegalStateException.class)
         .hasMessage("RocksDB plugin must be registered before it can be started");
+  }
+
+  @Test
+  void enableBlockchainGarbageCollectionDelegatesToOptions() {
+    final RocksDBPlugin plugin = new RocksDBPlugin();
+    assertThat(plugin.getBlobDBSettings().isBlockchainGarbageCollectionEnabled()).isFalse();
+
+    plugin.enableBlockchainGarbageCollection();
+
+    assertThat(plugin.getBlobDBSettings().isBlockchainGarbageCollectionEnabled()).isTrue();
   }
 }

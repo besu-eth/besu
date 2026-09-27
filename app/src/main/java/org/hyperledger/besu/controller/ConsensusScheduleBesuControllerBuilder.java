@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.methods.JsonRpcMethods;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.chain.ChainDataPruner;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
@@ -291,7 +292,8 @@ public class ConsensusScheduleBesuControllerBuilder extends BesuControllerBuilde
       final EthScheduler scheduler,
       final List<PeerValidator> peerValidators,
       final Optional<MergePeerFilter> mergePeerFilter,
-      final ForkIdManager forkIdManager) {
+      final ForkIdManager forkIdManager,
+      final Optional<ChainDataPruner> chainDataPruner) {
     besuControllerBuilderSchedule
         .values()
         .forEach(
@@ -307,7 +309,8 @@ public class ConsensusScheduleBesuControllerBuilder extends BesuControllerBuilde
                     scheduler,
                     peerValidators,
                     mergePeerFilter,
-                    forkIdManager));
+                    forkIdManager,
+                    chainDataPruner));
     return super.createEthProtocolManager(
         protocolContext,
         synchronizerConfiguration,
@@ -319,7 +322,8 @@ public class ConsensusScheduleBesuControllerBuilder extends BesuControllerBuilde
         scheduler,
         peerValidators,
         mergePeerFilter,
-        forkIdManager);
+        forkIdManager,
+        chainDataPruner);
   }
 
   @Override
