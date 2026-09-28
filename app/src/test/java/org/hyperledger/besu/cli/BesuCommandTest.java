@@ -44,6 +44,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNotNull;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -120,6 +121,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 import picocli.CommandLine;
@@ -298,6 +300,59 @@ public class BesuCommandTest extends CommandTestAbstract {
     assertThat(commandOutput.toString(UTF_8))
         .isEqualToIgnoringWhitespace(BesuVersionUtils.version());
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void callingHelpDefinesPluginOptionsButDoesNotRegisterPlugins() {
+    parseCommand("--help");
+    verify(getBesuPluginContext()).defineOptions(any());
+    verify(getBesuPluginContext(), never()).registerPlugins();
+  }
+
+  @Test
+  public void callingHelpDefinesBuiltInPluginOptionsOnTheCommandLine() {
+    final TestBesuCommand command = parseCommand("--help");
+    assertThat(command.getCommandLine().getCommandSpec().mixins()).containsKey("Plugin rocksdb");
+  }
+
+  @Test
+  public void callingVersionDoesNotRegisterPlugins() {
+    parseCommand("--version");
+    verify(getBesuPluginContext(), never()).registerPlugins();
+  }
+
+  @Test
+  public void callingSubcommandHelpDoesNotRegisterPlugins() {
+    parseCommand("blocks", "--help");
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandOutput.toString(UTF_8)).contains("blocks");
+    verify(getBesuPluginContext(), never()).registerPlugins();
+  }
+
+  @Test
+  public void reRegisterPluginsRefreshesTheConfigurationViewsFirst(final @TempDir Path path) {
+    final Path cycleDir = path.resolve("Ephemery-data-chain-1");
+    final TestBesuCommand command = parseCommand("--data-path", cycleDir.toString());
+    assertThat(commonPluginConfiguration.getDataPath()).isEqualTo(cycleDir.toAbsolutePath());
+
+    // what stopEphemery() does before the restart re-registers the plugins
+    command.setDataPathToParent();
+    command.reRegisterPlugins();
+
+    assertThat(commonPluginConfiguration.getDataPath()).isEqualTo(path.toAbsolutePath());
+    verify(getBesuPluginContext(), times(2)).registerPlugins();
+    final InOrder inOrder = inOrder(getBesuPluginContext());
+    inOrder.verify(getBesuPluginContext()).resetState();
+    inOrder.verify(getBesuPluginContext()).registerPlugins();
+  }
+
+  @Test
+  public void pluginsRegisterAfterTheirOptionsAreDefined() {
+    parseCommand();
+    final InOrder inOrder = inOrder(getBesuPluginContext());
+    inOrder.verify(getBesuPluginContext()).defineOptions(any());
+    inOrder.verify(getBesuPluginContext()).registerPlugins();
+    inOrder.verify(getBesuPluginContext()).startPlugins();
   }
 
   @Test
@@ -3302,6 +3357,16 @@ public class BesuCommandTest extends CommandTestAbstract {
     final Stream<String> stringStream =
         stringArgumentCaptor.getAllValues().stream().filter(p -> p.contains("####"));
     return stringStream.findFirst().orElseThrow();
+  }
+
+  @Test
+  public void shouldLogErrorIfDuplicatePluginOptionUsed() {
+    // plugin options are only defined on the final parse, which is where duplicates are rejected
+    parseCommand(
+        "--Xplugin-rocksdb-high-spec-enabled=true", "--Xplugin-rocksdb-high-spec-enabled=false");
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .containsIgnoringCase(
+            "option '--Xplugin-rocksdb-high-spec-enabled' should be specified only once");
   }
 
   @Test

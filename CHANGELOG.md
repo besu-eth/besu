@@ -10,6 +10,7 @@
 - Removed the EIP-7610 storage collision check: contract creation no longer aborts when the destination address has non-empty storage but a zero nonce and no code, restoring the EIP-684 conditions for every fork. EIP-7610 was declined for inclusion in Glamsterdam (EIP-7773) and removed from the execution specs retroactively; no mainnet account is affected. `Account.isStorageEmpty()`, which existed only for this check, is removed from the `besu-evm` API. [#11175](https://github.com/besu-eth/besu/pull/11175)
 - Besu now exits on `OutOfMemoryError` (`-XX:+ExitOnOutOfMemoryError`). Use a restart policy, or set `JAVA_OPTS=-XX:-ExitOnOutOfMemoryError` to opt out. [#11300](https://github.com/besu-eth/besu/pull/11300)
 - The default discovery mode is now `BOTH`: nodes run DiscV4 and DiscV5 concurrently unless `--discovery-mode=V4` or `--discovery-mode=V5` selects a single protocol. [#11344](https://github.com/besu-eth/besu/pull/11344)
+- Plugin API: plugins declare their CLI options in the new `BesuPlugin.defineOptions(PicoCLIOptions)` phase, which runs before the command line is parsed; `register()` now runs with bound option values and before the node is built, and `beforeExternalServices()` is removed. Adding options from `register()` fails startup naming the plugin. Migration: move the `addPicoCLIOptions` call into `defineOptions()` and the body of `beforeExternalServices()` into `register()`. [#11282](https://github.com/besu-eth/besu/pull/11282)
 
 ### Upcoming Breaking Changes
 - Plugin API

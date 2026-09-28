@@ -369,6 +369,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       Suppliers.memoize(this::getApiConfiguration);
 
   private RocksDBPlugin rocksDBPlugin;
+  private InMemoryStoragePlugin inMemoryStoragePlugin;
+  private PicoCLIOptionsImpl picoCLIOptions;
   private LivenessCheckPlugin livenessCheckPlugin;
   private ReadinessCheckPlugin readinessCheckPlugin;
 
@@ -866,14 +868,16 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     initializeCommandLineSettings(in);
 
     // Create the execution strategy chain.
-    final IExecutionStrategy executeTask = createExecuteTask(resultHandler);
-    final IExecutionStrategy pluginRegistrationTask = createPluginRegistrationTask(executeTask);
+    final IExecutionStrategy pluginRegistrationTask = createPluginRegistrationTask(resultHandler);
+    final IExecutionStrategy optionsDefinitionTask =
+        createOptionsDefinitionTask(pluginRegistrationTask);
     final IExecutionStrategy setDefaultValueProviderTask =
-        createDefaultValueProviderTask(pluginRegistrationTask);
+        createDefaultValueProviderTask(optionsDefinitionTask);
 
     // 1- Config default value provider
-    // 2- Register plugins
-    // 3- Execute command
+    // 2- Load plugins, let them declare their CLI options, then parse the command line once
+    // 3- Register plugins with their options bound (skipped for --help and --version)
+    // 4- Execute command
     return executeCommandLine(
         setDefaultValueProviderTask, parameterExceptionHandler, executionExceptionHandler, args);
   }
@@ -890,10 +894,18 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     preparePlugins();
   }
 
-  private IExecutionStrategy createExecuteTask(final IExecutionStrategy nextStep) {
+  private IExecutionStrategy createOptionsDefinitionTask(final IExecutionStrategy nextStep) {
     return parseResult -> {
+      if (isHelpOrVersionRequested(parseResult)) {
+        // suppressing the info log to avoid that plugin loading logs are printed
+        // before the help or the version information
+        suppressInfoLog();
+      }
+      besuPluginContext.initialize(PluginsConfigurationOptions.fromCommandLine(commandLine));
+      definePluginOptions();
+
+      // every option is declared: parse for real, rejecting unmatched arguments
       commandLine.setExecutionStrategy(nextStep);
-      // At this point we don't allow unmatched options since plugins were already registered
       commandLine.setUnmatchedArgumentsAllowed(false);
       return commandLine.execute(parseResult.originalArgs().toArray(new String[0]));
     };
@@ -901,35 +913,85 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
   private IExecutionStrategy createPluginRegistrationTask(final IExecutionStrategy nextStep) {
     return parseResult -> {
-      if (parseResult.isUsageHelpRequested() || parseResult.isVersionHelpRequested()) {
-        // suppressing the info log to avoid that plugin registrations logs are printed
-        // before the help or the version information
-        suppressInfoLog();
+      rejectDuplicateScalarOptions(parseResult);
+      // help and version only need the option list, so no plugin registers; the same predicate
+      // decided the log suppression in the define step, picocli only does the printing here
+      if (isHelpOrVersionRequested(parseResult)) {
+        return Optional.ofNullable(CommandLine.executeHelpRequest(parseResult)).orElse(0);
       }
-      besuPluginContext.initialize(PluginsConfigurationOptions.fromCommandLine(commandLine));
-      besuPluginContext.registerPlugins();
-
-      // Register built-in health-check plugins only if no external plugin already claimed the
-      // endpoint. This runs after registerPlugins() so external plugins have had their chance;
-      // the built-in field stays null when an external plugin owns the endpoint, so the
-      // start()/stop() calls skip it (no orphaned SyncStatusListener).
-      besuPluginContext
-          .getService(HealthCheckService.class)
-          .ifPresent(
-              healthCheckService -> {
-                if (!healthCheckService.getHealthCheck("/liveness").isPresent()) {
-                  livenessCheckPlugin = new LivenessCheckPlugin();
-                  livenessCheckPlugin.register(besuPluginContext);
-                }
-                if (!healthCheckService.getHealthCheck("/readiness").isPresent()) {
-                  readinessCheckPlugin = new ReadinessCheckPlugin();
-                  readinessCheckPlugin.register(besuPluginContext);
-                }
-              });
-
-      commandLine.setExecutionStrategy(nextStep);
-      return commandLine.execute(parseResult.originalArgs().toArray(new String[0]));
+      registerPlugins();
+      return nextStep.execute(parseResult);
     };
+  }
+
+  private static boolean isHelpOrVersionRequested(final ParseResult parseResult) {
+    return parseResult.asCommandLineList().stream()
+        .anyMatch(cl -> cl.isUsageHelpRequested() || cl.isVersionHelpRequested());
+  }
+
+  /** Option-definition phase: every plugin declares its CLI options, then the registry closes. */
+  private void definePluginOptions() {
+    rocksDBPlugin.defineOptions(picoCLIOptions);
+    inMemoryStoragePlugin.defineOptions(picoCLIOptions);
+    besuPluginContext.defineOptions(picoCLIOptions);
+    picoCLIOptions.optionsDefinitionCompleted();
+  }
+
+  /**
+   * Registration phase: every plugin registers with its parsed options bound. Runs before dispatch,
+   * so subcommands see plugin registrations too.
+   */
+  private void registerPlugins() {
+    // --logging is bound now: apply it before anything registers, so plugin registration logs and
+    // option warnings honour the configured level (run() announces it later)
+    configureLogging(false);
+    initPluginCommonConfiguration();
+
+    // Built-in storage plugins register before external plugins, so external plugins can build on
+    // or override their factories in register(); the health-check built-ins below register after,
+    // so external plugins can claim the endpoints first
+    rocksDBPlugin.register(besuPluginContext);
+    inMemoryStoragePlugin.register(besuPluginContext);
+    besuPluginContext.registerPlugins();
+
+    // Register built-in health-check plugins only if no external plugin already claimed the
+    // endpoint. This runs after registerPlugins() so external plugins have had their chance;
+    // the built-in field stays null when an external plugin owns the endpoint, so the
+    // start()/stop() calls skip it (no orphaned SyncStatusListener).
+    besuPluginContext
+        .getService(HealthCheckService.class)
+        .ifPresent(
+            healthCheckService -> {
+              if (!healthCheckService.getHealthCheck("/liveness").isPresent()) {
+                livenessCheckPlugin = new LivenessCheckPlugin();
+                livenessCheckPlugin.register(besuPluginContext);
+              }
+              if (!healthCheckService.getHealthCheck("/readiness").isPresent()) {
+                readinessCheckPlugin = new ReadinessCheckPlugin();
+                readinessCheckPlugin.register(besuPluginContext);
+              }
+            });
+  }
+
+  /**
+   * Registers the loaded plugins again for an Ephemery restart, after refreshing the configuration
+   * views for the current data path.
+   */
+  public void reRegisterPlugins() {
+    besuPluginContext.resetState();
+    initPluginCommonConfiguration();
+    besuPluginContext.registerPlugins();
+  }
+
+  /**
+   * Fills the plugin configuration views from the parsed options. Mining parameters are set later,
+   * in {@link #setupControllerBuilder()}: building them creates the metrics system, which must
+   * already know the metric categories plugins register.
+   */
+  private void initPluginCommonConfiguration() {
+    pluginCommonConfiguration
+        .init(dataDir(), dataDir().resolve(DATABASE_PATH), getDataStorageConfiguration())
+        .withJsonRpcHttpOptions(jsonRpcHttpOptions, unstableRPCOptions.getHttpTimeoutSec());
   }
 
   @SuppressWarnings("BannedMethod")
@@ -995,16 +1057,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       final BesuExecutionExceptionHandler executionExceptionHandler,
       final String... args) {
 
-    try {
-      // Parse and run duplicate-check
-      // As this happens before the plugins registration and plugins can add options, we must
-      // allow unmatched options
-      final ParseResult pr = commandLine.setUnmatchedArgumentsAllowed(true).parseArgs(args);
-      rejectDuplicateScalarOptions(pr); // your generic validator
-    } catch (ParameterException e) {
-      // ← Send it to the standard handler: prints one line & exits status 1
-      return parameterExceptionHandler.handleParseException(e, args);
-    }
     return commandLine
         .setExecutionStrategy(executionStrategy)
         .setParameterExceptionHandler(parameterExceptionHandler)
@@ -1098,8 +1150,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     }
 
     besuController = buildController();
-
-    besuPluginContext.beforeExternalServices();
 
     runner = buildRunner();
     runner.startExternalServices();
@@ -1344,7 +1394,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   }
 
   private void preparePlugins() {
-    besuPluginContext.addService(PicoCLIOptions.class, new PicoCLIOptionsImpl(commandLine));
+    picoCLIOptions = new PicoCLIOptionsImpl(commandLine);
+    besuPluginContext.addService(PicoCLIOptions.class, picoCLIOptions);
 
     metricCategoryRegistry.addCategories(BesuMetricCategory.class);
     metricCategoryRegistry.addCategories(StandardMetricCategory.class);
@@ -1362,10 +1413,9 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         blockchainServiceImpl,
         transactionValidatorServiceImpl);
 
-    // register built-in plugins
+    // created here; defineOptions() and register() run later, from the execution strategy chain
     rocksDBPlugin = new RocksDBPlugin();
-    rocksDBPlugin.register(besuPluginContext);
-    new InMemoryStoragePlugin().register(besuPluginContext);
+    inMemoryStoragePlugin = new InMemoryStoragePlugin();
 
     // register default security module
     securityModuleService.register(
@@ -2158,10 +2208,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
    * @return instance of BesuControllerBuilder
    */
   public BesuControllerBuilder setupControllerBuilder() {
-    pluginCommonConfiguration
-        .init(dataDir(), dataDir().resolve(DATABASE_PATH), getDataStorageConfiguration())
-        .withMiningParameters(miningParametersSupplier.get())
-        .withJsonRpcHttpOptions(jsonRpcHttpOptions);
+    initPluginCommonConfiguration();
+    pluginCommonConfiguration.withMiningParameters(miningParametersSupplier.get());
     final KeyValueStorageProvider storageProvider = keyValueStorageProvider(keyValueStorageName);
     final ApiConfiguration apiConfiguration = apiConfigurationSupplier.get();
     final BalConfiguration balConfiguration = balConfigurationOptions.toDomainObject();
