@@ -81,7 +81,6 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
-import org.hyperledger.besu.plugin.services.PicoCLIOptions;
 import org.hyperledger.besu.plugin.services.StorageService;
 import org.hyperledger.besu.plugin.services.TransactionSelectionService;
 import org.hyperledger.besu.plugin.services.securitymodule.SecurityModule;
@@ -236,7 +235,6 @@ public abstract class CommandTestAbstract {
   @Mock protected SecurityModule securityModule;
   @Spy protected BesuConfigurationImpl commonPluginConfiguration = new BesuConfigurationImpl();
   @Mock protected KeyValueStorageFactory rocksDBStorageFactory;
-  @Mock protected PicoCLIOptions cliOptions;
   @Mock protected NodeKey nodeKey;
   @Mock private BesuPluginContextImpl mockBesuPluginContext;
   @Mock protected MutableBlockchain mockMutableBlockchain;
@@ -310,9 +308,6 @@ public abstract class CommandTestAbstract {
         .when(securityModuleService.getByName(eq("localfile")))
         .thenReturn(Optional.of(() -> securityModule));
 
-    lenient()
-        .when(getBesuPluginContext().getService(PicoCLIOptions.class))
-        .thenReturn(Optional.of(cliOptions));
     lenient()
         .when(getBesuPluginContext().getService(StorageService.class))
         .thenReturn(Optional.of(storageService));
