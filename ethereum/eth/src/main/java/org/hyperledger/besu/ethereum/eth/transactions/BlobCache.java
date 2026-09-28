@@ -20,6 +20,7 @@ import org.hyperledger.besu.ethereum.core.kzg.BlobProofBundle;
 import org.hyperledger.besu.ethereum.core.kzg.BlobsWithCommitments;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
@@ -61,21 +62,22 @@ public class BlobCache {
       Optional<List<VersionedHash>> maybeHashes = transaction.getVersionedHashes();
       if (maybeHashes.isPresent()) {
         if (!maybeHashes.get().isEmpty()) {
-          Transaction.Builder txBuilder = Transaction.builder();
-          txBuilder.copiedFrom(transaction);
-          List<BlobProofBundle> blobProofBundles =
+          final List<BlobProofBundle> blobProofBundles =
               maybeHashes.get().stream().map(cache::getIfPresent).toList();
-          final BlobsWithCommitments bwc = new BlobsWithCommitments(blobProofBundles);
-          if (blobProofBundles.stream()
-              .map(BlobProofBundle::getVersionedHash)
-              .toList()
-              .containsAll(maybeHashes.get())) {
-            txBuilder.blobsWithCommitments(bwc);
-            return Optional.of(txBuilder.build());
-          } else {
+
+          // A miss leaves a null in the list, so it has to be found before the bundles are used
+          // for anything: the entries are keyed by the hash they were looked up with, so a
+          // non-null one always matches, and a null one is the only way a restore can fail.
+          if (blobProofBundles.stream().anyMatch(Objects::isNull)) {
             LOG.debug("did not find all versioned hashes to restore from cache");
             return Optional.empty();
           }
+
+          return Optional.of(
+              Transaction.builder()
+                  .copiedFrom(transaction)
+                  .blobsWithCommitments(new BlobsWithCommitments(blobProofBundles))
+                  .build());
         } else {
           LOG.warn("can't restore blobs for transaction with empty list of versioned hashes");
           return Optional.empty();
