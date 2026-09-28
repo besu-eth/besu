@@ -876,7 +876,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
     // 1- Config default value provider
     // 2- Load plugins, let them declare their CLI options, then parse the command line once
-    // 3- Register plugins with their options bound (skipped for --help and --version)
+    // 3- Register plugins with their options bound (skipped for --help, --version and
+    //    --print-paths-and-exit)
     // 4- Execute command
     return executeCommandLine(
         setDefaultValueProviderTask, parameterExceptionHandler, executionExceptionHandler, args);
@@ -918,6 +919,12 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       // decided the log suppression in the define step, picocli only does the printing here
       if (isHelpOrVersionRequested(parseResult)) {
         return Optional.ofNullable(CommandLine.executeHelpRequest(parseResult)).orElse(0);
+      }
+      // --print-paths-and-exit only reads the data path and the genesis file, and the Docker
+      // entrypoint runs it as root: no plugin registers, so no plugin code runs as root and
+      // nothing is logged ahead of the printed paths
+      if (printPathsAndExit && !parseResult.hasSubcommand()) {
+        return nextStep.execute(parseResult);
       }
       registerPlugins();
       return nextStep.execute(parseResult);
