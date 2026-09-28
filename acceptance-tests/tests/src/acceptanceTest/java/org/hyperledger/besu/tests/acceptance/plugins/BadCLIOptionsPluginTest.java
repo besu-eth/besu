@@ -50,7 +50,9 @@ public class BadCLIOptionsPluginTest extends AcceptanceTestBase {
   @Test
   @DisabledOnOs(OS.MAC)
   public void shouldNotRegister() {
-    final Path registrationFile = node.homeDirectory().resolve("plugins/badCLIOptions.init");
+    // depend on the good PicoCLIOptions plugin to tell us when registration is over
+    final Path registrationFile =
+        node.homeDirectory().resolve("plugins/pluginLifecycle.registered");
     waitForFile(registrationFile);
     assertThat(node.homeDirectory().resolve("plugins/badCliOptions.register")).doesNotExist();
   }
