@@ -36,17 +36,12 @@ public class TestInProcessRpcServicePlugin implements BesuPlugin {
   long minGasPrice = -1;
 
   @Override
+  public void defineOptions(final PicoCLIOptions options) {
+    options.addPicoCLIOptions("test", this);
+  }
+
+  @Override
   public void register(final ServiceManager context) {
-    final PicoCLIOptions cmdlineOptions =
-        context
-            .getService(PicoCLIOptions.class)
-            .orElseThrow(
-                () ->
-                    new IllegalStateException(
-                        "Failed to obtain PicoCLI options from the BesuContext"));
-
-    cmdlineOptions.addPicoCLIOptions("test", this);
-
     rpcEndpointService =
         context
             .getService(RpcEndpointService.class)

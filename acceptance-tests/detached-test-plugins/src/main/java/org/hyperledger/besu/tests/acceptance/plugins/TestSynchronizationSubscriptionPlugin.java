@@ -52,7 +52,7 @@ public class TestSynchronizationSubscriptionPlugin implements BesuPlugin {
   @Override
   public void register(final ServiceManager context) {
     this.context = context;
-    callbackDir = new File(System.getProperty("besu.plugins.dir", "plugins"));
+    callbackDir = PluginCallbackDir.resolve(context);
   }
 
   @Override

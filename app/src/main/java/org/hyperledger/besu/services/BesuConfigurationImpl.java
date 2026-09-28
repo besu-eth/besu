@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.services;
 
+import static com.google.common.base.Preconditions.checkState;
+
 import org.hyperledger.besu.cli.options.JsonRpcHttpOptions;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
@@ -76,12 +78,16 @@ public class BesuConfigurationImpl
    * Set the RPC http options
    *
    * @param rpcHttpOptions configured rpc http options
+   * @param httpTimeoutSec the configured JSON-RPC HTTP request timeout, in seconds
    * @return BesuConfigurationImpl instance
    */
-  public BesuConfigurationImpl withJsonRpcHttpOptions(final JsonRpcHttpOptions rpcHttpOptions) {
+  public BesuConfigurationImpl withJsonRpcHttpOptions(
+      final JsonRpcHttpOptions rpcHttpOptions, final long httpTimeoutSec) {
+    // Runs before option validation: building the full JsonRpcConfiguration here would fail on an
+    // invalid TLS setup before validation reports it. The timeout is not part of this option group.
     this.rpcHttpHost = rpcHttpOptions.getRpcHttpHost();
     this.rpcHttpPort = rpcHttpOptions.getRpcHttpPort();
-    this.rpcHttpTimeoutSec = rpcHttpOptions.jsonRpcConfiguration().getHttpTimeoutSec();
+    this.rpcHttpTimeoutSec = httpTimeoutSec;
     return this;
   }
 
@@ -117,6 +123,7 @@ public class BesuConfigurationImpl
 
   @Override
   public Wei getMinGasPrice() {
+    checkState(miningConfiguration != null, "The min gas price is available from start()");
     return miningConfiguration.getMinTransactionGasPrice();
   }
 

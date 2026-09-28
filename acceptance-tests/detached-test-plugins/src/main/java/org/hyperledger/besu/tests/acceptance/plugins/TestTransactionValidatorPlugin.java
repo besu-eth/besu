@@ -34,16 +34,14 @@ public class TestTransactionValidatorPlugin implements BesuPlugin {
   private ServiceManager serviceManager;
 
   @Override
-  public void register(final ServiceManager serviceManager) {
-    this.serviceManager = serviceManager;
-    serviceManager
-        .getService(PicoCLIOptions.class)
-        .orElseThrow()
-        .addPicoCLIOptions("tx-validator", this);
+  public void defineOptions(final PicoCLIOptions options) {
+    options.addPicoCLIOptions("tx-validator", this);
   }
 
   @Override
-  public void beforeExternalServices() {
+  public void register(final ServiceManager serviceManager) {
+    this.serviceManager = serviceManager;
+
     serviceManager
         .getService(TransactionValidatorService.class)
         .orElseThrow()
