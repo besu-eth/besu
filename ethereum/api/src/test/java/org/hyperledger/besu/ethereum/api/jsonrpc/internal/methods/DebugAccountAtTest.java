@@ -37,6 +37,8 @@ import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.api.query.TransactionWithMetadata;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.mainnet.blockhash.PreExecutionProcessor;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.tracing.TraceFrame;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
@@ -72,6 +74,8 @@ class DebugAccountAtTest {
   @Mock private Transaction transaction;
   @Mock private WorldUpdater worldUpdater;
   @Mock private MutableWorldState worldState;
+  @Mock private ProtocolSpec protocolSpec;
+  @Mock private PreExecutionProcessor preExecutionProcessor;
 
   @Mock private Account account;
 
@@ -173,14 +177,7 @@ class DebugAccountAtTest {
 
   @Test
   void testTransactionNotFoundResponse() {
-    doAnswer(
-            invocation ->
-                invocation
-                    .<Function<MutableWorldState, Optional<? extends JsonRpcResponse>>>getArgument(
-                        1)
-                    .apply(worldState))
-        .when(blockchainQueries)
-        .getAndMapWorldState(any(), any());
+    setupTracing();
 
     setupMockBlock();
     Mockito.when(blockWithMetadata.getTransactions())
@@ -199,14 +196,7 @@ class DebugAccountAtTest {
 
   @Test
   void testNoAccountFoundResponse() {
-    doAnswer(
-            invocation ->
-                invocation
-                    .<Function<MutableWorldState, Optional<? extends JsonRpcResponse>>>getArgument(
-                        1)
-                    .apply(worldState))
-        .when(blockchainQueries)
-        .getAndMapWorldState(any(), any());
+    setupTracing();
 
     setupMockTransaction();
     setupMockBlock();
@@ -225,14 +215,7 @@ class DebugAccountAtTest {
 
   @Test
   void shouldBeSuccessfulWhenTransactionsAndAccountArePresent() {
-    doAnswer(
-            invocation ->
-                invocation
-                    .<Function<MutableWorldState, Optional<? extends JsonRpcResponse>>>getArgument(
-                        1)
-                    .apply(worldState))
-        .when(blockchainQueries)
-        .getAndMapWorldState(any(), any());
+    setupTracing();
 
     final String codeString =
         "0x608060405234801561001057600080fd5b506004361061002b5760003560e01c8063b27b880414610030575b";
@@ -271,6 +254,20 @@ class DebugAccountAtTest {
     Mockito.when(traceFrame.getWorldUpdater()).thenReturn(worldUpdater);
     Mockito.when(worldUpdater.get(any())).thenReturn(account);
     Mockito.when(account.getAddress()).thenReturn(Address.ZERO);
+  }
+
+  private void setupTracing() {
+    doAnswer(
+            invocation ->
+                invocation
+                    .<Function<MutableWorldState, Optional<? extends JsonRpcResponse>>>getArgument(
+                        1)
+                    .apply(worldState))
+        .when(blockchainQueries)
+        .getAndMapWorldState(any(), any());
+    Mockito.when(blockWithMetadata.getHeader()).thenReturn(blockHeader);
+    Mockito.when(blockchainQueries.getProtocolSpec(blockHeader)).thenReturn(protocolSpec);
+    Mockito.when(protocolSpec.getPreExecutionProcessor()).thenReturn(preExecutionProcessor);
   }
 
   private void setupMockTransaction() {
