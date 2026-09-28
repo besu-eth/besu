@@ -76,7 +76,7 @@ public class BlobCache {
           return Optional.of(
               Transaction.builder()
                   .copiedFrom(transaction)
-                  .blobsWithCommitments(new BlobsWithCommitments(blobProofBundles))
+                  .blobsWithCommitments(BlobsWithCommitments.createFromBundles(blobProofBundles))
                   .build());
         } else {
           LOG.warn("can't restore blobs for transaction with empty list of versioned hashes");

@@ -60,7 +60,7 @@ public class CKZG4844Helper {
             .map(CKZG4844Helper::unsafeConvertToVersion1)
             .collect(Collectors.toList());
 
-    return new BlobsWithCommitments(version1Bundles);
+    return BlobsWithCommitments.createFromBundles(version1Bundles);
   }
 
   /**
