@@ -132,13 +132,16 @@ public class BlobsWithCommitments implements org.hyperledger.besu.datatypes.Blob
         kzgProofs.size());
     // A group per blob is not enough: each has to hold that blob's full set of cell proofs
     kzgProofs.forEach(
-        proofsForBlob ->
-            checkArgument(
-                proofsForBlob.size() == CELL_PROOFS_PER_BLOB,
-                "Invalid number of proofs (%s), expected %s, got %s",
-                KZG_CELL_PROOFS,
-                CELL_PROOFS_PER_BLOB,
-                proofsForBlob.size()));
+        proofsForBlob -> {
+          checkArgument(
+              proofsForBlob != null, "Proof groups (%s) must all be non null", KZG_CELL_PROOFS);
+          checkArgument(
+              proofsForBlob.size() == CELL_PROOFS_PER_BLOB,
+              "Invalid number of proofs (%s), expected %s, got %s",
+              KZG_CELL_PROOFS,
+              CELL_PROOFS_PER_BLOB,
+              proofsForBlob.size());
+        });
 
     return new BlobsWithCommitments(
         KZG_CELL_PROOFS,

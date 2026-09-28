@@ -150,6 +150,21 @@ public class BlobsWithCommitmentsTest {
   }
 
   @Test
+  public void shouldThrowExceptionWhenAProofGroupIsNull_V1() {
+    // The grouped shape is this factory's own, so a null group is its own to reject: without this
+    // the size check below dereferences it.
+    List<List<KZGProof>> withANull = Arrays.asList(cellProofGroups(1).getFirst(), null);
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                BlobsWithCommitments.createFromBlobsType1(
+                    kzgCommitments, blobs, withANull, versionedHashes));
+    String error = String.format("Proof groups (%s) must all be non null", KZG_CELL_PROOFS);
+    assertEquals(error, exception.getMessage());
+  }
+
+  @Test
   public void shouldThrowExceptionWhenABlobIsNull() {
     List<Blob> withANull = Arrays.asList(mock(Blob.class), null);
     IllegalArgumentException exception =
