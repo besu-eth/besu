@@ -120,8 +120,6 @@ public class GenesisFileModule {
     final JsonObject genesis = new JsonObject();
     final JsonObject config = new JsonObject();
     config.put("depositContractAddress", "0x00000000219ab540356cbb839cbe05303d7705fa");
-    config.put("withdrawalRequestContractAddress", "0x00000961ef480eb55e80d19ad83579a64c007002");
-    config.put("consolidationRequestContractAddress", "0x0000bbddc7ce488642fb579f8b00f3a590007251");
     genesis.put("config", config);
     config.put("chainId", 1337);
     config.put(MainnetHardforkId.mostRecent().toString().toLowerCase(Locale.ROOT) + "Time", 0);
