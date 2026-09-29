@@ -37,8 +37,8 @@ class CellMaskTest {
     // BitSet#toByteArray trims trailing zero bytes, so a mask with only low indexes set would
     // otherwise serialize to fewer than CellMask.BYTE_LENGTH bytes and violate the B_16 wire type.
     assertThat(CellMask.fromBytes(ONLY_INDEX_0).toBytes().size()).isEqualTo(CellMask.BYTE_LENGTH);
-    assertThat(CellMask.empty().toBytes().size()).isEqualTo(CellMask.BYTE_LENGTH);
-    assertThat(CellMask.full().toBytes().size()).isEqualTo(CellMask.BYTE_LENGTH);
+    assertThat(CellMask.EMPTY.toBytes().size()).isEqualTo(CellMask.BYTE_LENGTH);
+    assertThat(CellMask.FULL.toBytes().size()).isEqualTo(CellMask.BYTE_LENGTH);
   }
 
   @Test
@@ -48,8 +48,8 @@ class CellMaskTest {
       assertThat(mask.toBytes()).isEqualTo(encoded);
       assertThat(CellMask.fromBytes(mask.toBytes())).isEqualTo(mask);
     }
-    assertThat(CellMask.fromBytes(CellMask.full().toBytes())).isEqualTo(CellMask.full());
-    assertThat(CellMask.fromBytes(CellMask.empty().toBytes())).isEqualTo(CellMask.empty());
+    assertThat(CellMask.fromBytes(CellMask.FULL.toBytes())).isEqualTo(CellMask.FULL);
+    assertThat(CellMask.fromBytes(CellMask.EMPTY.toBytes())).isEqualTo(CellMask.EMPTY);
   }
 
   @Test
@@ -70,9 +70,9 @@ class CellMaskTest {
     // Overlapping but not covering: this is the case an intersection test gets wrong.
     assertThat(smaller.containsAll(larger)).isFalse();
 
-    assertThat(CellMask.full().containsAll(smaller)).isTrue();
-    assertThat(smaller.containsAll(CellMask.empty())).isTrue();
-    assertThat(CellMask.empty().containsAll(smaller)).isFalse();
+    assertThat(CellMask.FULL.containsAll(smaller)).isTrue();
+    assertThat(smaller.containsAll(CellMask.EMPTY)).isTrue();
+    assertThat(CellMask.EMPTY.containsAll(smaller)).isFalse();
   }
 
   @Test
@@ -90,16 +90,16 @@ class CellMaskTest {
     assertThat(mask.indexes()).containsExactly(0, 2);
     assertThat(mask.cardinality()).isEqualTo(2);
 
-    assertThat(CellMask.empty().indexes()).isEmpty();
-    assertThat(CellMask.full().indexes()).hasSize(CellMask.full().cardinality());
+    assertThat(CellMask.EMPTY.indexes()).isEmpty();
+    assertThat(CellMask.FULL.indexes()).hasSize(CellMask.FULL.cardinality());
   }
 
   @Test
   void fullAndEmptyAgreeWithCardinality() {
-    assertThat(CellMask.full().isFull()).isTrue();
-    assertThat(CellMask.full().isEmpty()).isFalse();
-    assertThat(CellMask.empty().isEmpty()).isTrue();
-    assertThat(CellMask.empty().isFull()).isFalse();
+    assertThat(CellMask.FULL.isFull()).isTrue();
+    assertThat(CellMask.FULL.isEmpty()).isFalse();
+    assertThat(CellMask.EMPTY.isEmpty()).isTrue();
+    assertThat(CellMask.EMPTY.isFull()).isFalse();
   }
 
   @Test
@@ -107,8 +107,8 @@ class CellMaskTest {
     // A mask is mentioned in almost every line the blobpool logs, and the indexes that matter are
     // usually contiguous, so listing them one by one costs hundreds of characters a line.
     assertThat(maskOf(1, 2, 3, 5)).hasToString("{1-3,5}");
-    assertThat(CellMask.full()).hasToString("{0-127}");
-    assertThat(CellMask.empty()).hasToString("{}");
+    assertThat(CellMask.FULL).hasToString("{0-127}");
+    assertThat(CellMask.EMPTY).hasToString("{}");
   }
 
   @Test
@@ -140,10 +140,10 @@ class CellMaskTest {
 
   @Test
   void randomSubsetKeepsOnlyAsManyIndexesAsAsked() {
-    final CellMask half = CellMask.full().randomSubset(64, new java.util.Random(1));
+    final CellMask half = CellMask.FULL.randomSubset(64, new java.util.Random(1));
 
     assertThat(half.cardinality()).isEqualTo(64);
-    assertThat(CellMask.full().containsAll(half)).isTrue();
+    assertThat(CellMask.FULL.containsAll(half)).isTrue();
   }
 
   @Test
@@ -151,8 +151,7 @@ class CellMaskTest {
     final CellMask custody = maskOf(3, 17, 40);
 
     assertThat(custody.randomSubset(64, new java.util.Random(1))).isEqualTo(custody);
-    assertThat(CellMask.empty().randomSubset(64, new java.util.Random(1)))
-        .isEqualTo(CellMask.empty());
+    assertThat(CellMask.EMPTY.randomSubset(64, new java.util.Random(1))).isEqualTo(CellMask.EMPTY);
     // exactly the size asked for is not more than it
     assertThat(maskOf(1, 2).randomSubset(2, new java.util.Random(1))).isEqualTo(maskOf(1, 2));
   }
@@ -164,44 +163,50 @@ class CellMaskTest {
     final java.util.Random random = new java.util.Random(1);
     final java.util.BitSet everChosen = new java.util.BitSet(CKZG4844Helper.CELLS_PER_EXT_BLOB);
     for (int attempt = 0; attempt < 20; attempt++) {
-      CellMask.full().randomSubset(64, random).streamIndexes().forEach(everChosen::set);
+      CellMask.FULL.randomSubset(64, random).streamIndexes().forEach(everChosen::set);
     }
 
     assertThat(everChosen.cardinality()).isEqualTo(CKZG4844Helper.CELLS_PER_EXT_BLOB);
   }
 
   @Test
-  void randomSubsetDoesNotShareStateWithTheMaskItCameFrom() {
+  void randomSubsetOfASmallMaskIsTheMaskItself() {
     final CellMask custody = maskOf(3, 17, 40);
-    final CellMask subset = custody.randomSubset(64, new java.util.Random(1));
-
-    subset.merge(maskOf(99));
-
+    assertThat(custody.randomSubset(64, new java.util.Random(1))).isEqualTo(custody);
+    assertThat(custody.randomSubset(64, new java.util.Random(1)).union(maskOf(99)))
+        .isEqualTo(maskOf(3, 17, 40, 99));
     assertThat(custody).isEqualTo(maskOf(3, 17, 40));
   }
 
   @Test
-  void everyFullOrEmptyMaskIsTheCallersOwn() {
-    // This type is mutated in place, so full() and empty() have to hand back fresh instances:
-    // shared constants would be corrupted process wide by the first caller that forgot to copy.
-    final CellMask mutated = CellMask.full();
-    mutated.subtract(maskOf(0));
+  void theOperationsLeaveBothMasksAlone() {
+    // The reason this type is a value: masks are stored in maps, shared between announcements of
+    // one
+    // message, and read from other threads, and an in-place operation on any of those corrupts
+    // every
+    // other holder.
+    final CellMask lower = maskOf(0, 1);
+    final CellMask upper = maskOf(2, 3);
 
-    assertThat(CellMask.full().isFull()).isTrue();
-    assertThat(CellMask.full()).isNotSameAs(CellMask.full());
+    assertThat(lower.union(upper)).isEqualTo(maskOf(0, 1, 2, 3));
+    assertThat(lower.intersection(maskOf(1, 2))).isEqualTo(maskOf(1));
+    assertThat(lower.without(maskOf(1))).isEqualTo(maskOf(0));
 
-    final CellMask filled = CellMask.empty();
-    filled.merge(CellMask.full());
-
-    assertThat(CellMask.empty().isEmpty()).isTrue();
-    assertThat(CellMask.empty()).isNotSameAs(CellMask.empty());
+    assertThat(lower).isEqualTo(maskOf(0, 1));
+    assertThat(upper).isEqualTo(maskOf(2, 3));
   }
 
   @Test
-  void subtractRemovesTheIndexesOfTheOtherMask() {
-    final CellMask remaining = maskOf(1, 2, 3, 5);
-    remaining.subtract(maskOf(2, 5, 9));
+  void theSharedConstantsCannotBeChanged() {
+    CellMask.FULL.without(maskOf(0));
+    CellMask.EMPTY.union(CellMask.FULL);
 
-    assertThat(remaining).isEqualTo(maskOf(1, 3));
+    assertThat(CellMask.FULL.isFull()).isTrue();
+    assertThat(CellMask.EMPTY.isEmpty()).isTrue();
+  }
+
+  @Test
+  void withoutRemovesTheIndexesOfTheOtherMask() {
+    assertThat(maskOf(1, 2, 3, 5).without(maskOf(2, 5, 9))).isEqualTo(maskOf(1, 3));
   }
 }

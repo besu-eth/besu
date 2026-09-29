@@ -29,35 +29,26 @@ import java.util.stream.IntStream;
 
 import org.apache.tuweni.bytes.Bytes;
 
-/** Fixed-width eth/72 cell availability mask. */
+/**
+ * Fixed-width eth/72 cell availability mask.
+ *
+ * <p>Immutable: {@link #union}, {@link #intersection} and {@link #without} return a new mask rather
+ * than changing the receiver, so a mask can be shared, stored and handed to another thread without
+ * a defensive copy. A mask is 16 bytes of payload, and the operations on it happen per announcement
+ * and per sampling round rather than per cell, so the allocation is not worth trading for the
+ * aliasing bugs an in-place version invites.
+ */
 public final class CellMask {
   private final BitSet mask;
 
   /** Width of the wire representation, which is fixed however few indexes are set. */
   public static final int BYTE_LENGTH = 16;
 
-  /**
-   * A mask with no index set.
-   *
-   * <p>A method rather than a constant: this type is mutated in place by {@link #merge}, {@link
-   * #intersect} and {@link #subtract}, so a shared instance would be corrupted process wide by the
-   * first caller that forgot to copy it, and every later holder would silently see someone else's
-   * cells.
-   *
-   * @return a new empty mask, owned by the caller
-   */
-  public static CellMask empty() {
-    return new CellMask(new BitSet(CELLS_PER_EXT_BLOB));
-  }
+  /** A mask with no index set. */
+  public static final CellMask EMPTY = new CellMask(new BitSet(CELLS_PER_EXT_BLOB));
 
-  /**
-   * A mask with every index set, as a node holding all of a blob's cells announces.
-   *
-   * @return a new full mask, owned by the caller
-   */
-  public static CellMask full() {
-    return new CellMask(BitSet.valueOf(fullMaskBytes()));
-  }
+  /** A mask with every index set, as a node holding all of a blob's cells announces. */
+  public static final CellMask FULL = new CellMask(BitSet.valueOf(fullMaskBytes()));
 
   public CellMask(final Bytes bytes) {
     checkNotNull(bytes, "cell mask bytes must not be null");
@@ -75,14 +66,11 @@ public final class CellMask {
   }
 
   /**
-   * An independent copy, which callers need because this type is mutated in place.
+   * Reads a mask from its fixed width wire representation.
    *
-   * @return the copy
+   * @param bytes exactly {@link #BYTE_LENGTH} bytes
+   * @return the mask they encode
    */
-  public CellMask copy() {
-    return new CellMask((BitSet) mask.clone());
-  }
-
   public static CellMask fromBytes(final Bytes bytes) {
     return new CellMask(bytes);
   }
@@ -101,7 +89,7 @@ public final class CellMask {
    */
   public CellMask randomSubset(final int size, final Random random) {
     if (cardinality() <= size) {
-      return copy();
+      return this;
     }
 
     final List<Integer> heldIndexes = new ArrayList<>(mask.stream().boxed().toList());
@@ -185,23 +173,43 @@ public final class CellMask {
   }
 
   /**
-   * Changes this CellMask, merging the other CellMask into it by performing a logical OR operation
-   * on their respective BitSet representations.
+   * The indexes held by either mask.
    *
-   * @param other the CellMask to merge into this CellMask.
+   * @param other the mask to combine with this one
+   * @return a new mask holding the union
    */
-  public void merge(final CellMask other) {
-    mask.or(other.mask);
+  public CellMask union(final CellMask other) {
+    final BitSet combined = copyOfMask();
+    combined.or(other.mask);
+    return new CellMask(combined);
   }
 
   /**
-   * Changes this CellMask, intersecting the other CellMask into it by performing a logical AND
-   * operation on their respective BitSet representations.
+   * The indexes held by both masks.
    *
-   * @param other the CellMask to intersect into this CellMask.
+   * @param other the mask to intersect with this one
+   * @return a new mask holding the intersection
    */
-  public void intersect(final CellMask other) {
-    mask.and(other.mask);
+  public CellMask intersection(final CellMask other) {
+    final BitSet common = copyOfMask();
+    common.and(other.mask);
+    return new CellMask(common);
+  }
+
+  /**
+   * The indexes held by this mask and not by the other.
+   *
+   * @param other the mask whose indexes are removed
+   * @return a new mask holding the difference
+   */
+  public CellMask without(final CellMask other) {
+    final BitSet remaining = copyOfMask();
+    remaining.andNot(other.mask);
+    return new CellMask(remaining);
+  }
+
+  private BitSet copyOfMask() {
+    return (BitSet) mask.clone();
   }
 
   /**
@@ -248,14 +256,5 @@ public final class CellMask {
     final byte[] bytes = new byte[BYTE_LENGTH];
     Arrays.fill(bytes, (byte) 0xFF);
     return bytes;
-  }
-
-  /**
-   * Changes this CellMask, removing from it every index set in the other CellMask.
-   *
-   * @param other the CellMask whose indexes are removed from this one
-   */
-  public void subtract(final CellMask other) {
-    mask.andNot(other.mask);
   }
 }

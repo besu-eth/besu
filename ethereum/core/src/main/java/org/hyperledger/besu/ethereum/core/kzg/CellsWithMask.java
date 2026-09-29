@@ -22,21 +22,17 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.PrimitiveIterator;
 
+/**
+ * The cells of one blob that this node holds, and the mask saying which they are.
+ *
+ * <p>Immutable: {@link #merge} returns a new instance. The index of where each cell index sits in
+ * the list has to stay in step with the list itself, and building a fresh pair is how that
+ * invariant is kept rather than asserted.
+ */
 public class CellsWithMask {
 
-  /**
-   * A new, empty instance.
-   *
-   * <p>Deliberately a factory rather than a constant: {@link CellsWithMask} is mutable through
-   * {@link #merge(CellsWithMask)}, so a single shared empty instance would be corrupted process
-   * wide by the first merge into it, and every holder of it would silently see another
-   * transaction's cells.
-   *
-   * @return a new empty instance, owned by the caller
-   */
-  public static CellsWithMask empty() {
-    return new CellsWithMask(List.of(), CellMask.empty());
-  }
+  /** Holding no cells at all, as a transaction just received over eth/72 does. */
+  public static final CellsWithMask EMPTY = new CellsWithMask(List.of(), CellMask.EMPTY);
 
   private final List<Cell> cells;
   private final CellMask cellMask;
@@ -60,7 +56,7 @@ public class CellsWithMask {
       indexMap[itMask.next()] = listIdx++;
     }
 
-    this(new ArrayList<>(cells), cellMask.copy(), indexMap);
+    this(List.copyOf(cells), cellMask, indexMap);
   }
 
   public CellMask getCellMask() {
@@ -82,41 +78,39 @@ public class CellsWithMask {
   }
 
   /**
-   * Adds the cells of {@code other} to the ones already held, in place.
+   * The cells of both sets.
    *
-   * <p>The two sets may overlap, and routinely do: cell availability is sampled independently per
-   * peer, so nothing makes two responses disjoint, and the same response may be merged more than
-   * once. Where both sets hold an index, the cell already held is kept — a cell index identifies
-   * the cell, so the two are the same.
+   * <p>The two may overlap, and routinely do: cell availability is sampled independently per peer,
+   * so nothing makes two responses disjoint, and the same response may be merged more than once.
+   * Where both sets hold an index, the cell of this set is kept — a cell index identifies the cell,
+   * so the two are the same.
    *
-   * @param other the cells to add; neither modified nor retained
+   * @param other the cells to add
+   * @return a new instance holding both sets of cells
    */
-  public void merge(final CellsWithMask other) {
-    final CellMask mergedMask = cellMask.copy();
-    mergedMask.merge(other.cellMask);
+  public CellsWithMask merge(final CellsWithMask other) {
+    final CellMask mergedMask = cellMask.union(other.cellMask);
 
     final List<Cell> mergedCells = new ArrayList<>(mergedMask.cardinality());
     final int[] mergedIndexMap = new int[CELLS_PER_EXT_BLOB];
     Arrays.fill(mergedIndexMap, -1);
 
-    // Walking the union, rather than the two masks one after the other, is what keeps positions
-    // and cell count in step: an index held by both would otherwise be counted twice, pushing the
-    // later entries of indexMap past the end of the cell list. It also leaves the cells in
-    // ascending index order, which is the order getBlobCellsBytes() reads them in.
+    // Walking the union, rather than the two masks one after the other, is what keeps positions and
+    // cell count in step: an index held by both would otherwise be counted twice, pushing the later
+    // entries of indexMap past the end of the cell list. It also leaves the cells in ascending
+    // index
+    // order, which is the order getCell reads them back in.
     final PrimitiveIterator.OfInt itMergedMask = mergedMask.streamIndexes().iterator();
     int listIdx = 0;
     while (itMergedMask.hasNext()) {
       final int index = itMergedMask.next();
-      // Cells of other are addressed by cell index, not by their position in its cell list: the
-      // two only coincide when its mask starts at zero and has no gaps.
+      // Cells of other are addressed by cell index, not by their position in its cell list: the two
+      // only coincide when its mask starts at zero and has no gaps.
       mergedCells.add(indexMap[index] == -1 ? other.getCell(index) : cells.get(indexMap[index]));
       mergedIndexMap[index] = listIdx++;
     }
 
-    cells.clear();
-    cells.addAll(mergedCells);
-    System.arraycopy(mergedIndexMap, 0, indexMap, 0, CELLS_PER_EXT_BLOB);
-    cellMask.merge(other.cellMask);
+    return new CellsWithMask(mergedCells, mergedMask, mergedIndexMap);
   }
 
   @Override

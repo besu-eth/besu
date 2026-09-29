@@ -14,6 +14,9 @@
  */
 package org.hyperledger.besu.ethereum.core.kzg;
 
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPOutput;
@@ -22,7 +25,6 @@ import java.util.Objects;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
-import com.google.common.base.Preconditions;
 import org.apache.tuweni.bytes.Bytes;
 
 public class Cell {
@@ -37,7 +39,8 @@ public class Cell {
    */
   @JsonCreator
   public Cell(final Bytes data) {
-    Preconditions.checkArgument(
+    checkNotNull(data, "data cannot be null");
+    checkArgument(
         data.size() == SIZE, "Invalid cell size %d, expected %d".formatted(data.size(), SIZE));
     this.data = data;
   }

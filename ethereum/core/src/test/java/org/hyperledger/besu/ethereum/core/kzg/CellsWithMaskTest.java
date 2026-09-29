@@ -64,73 +64,79 @@ class CellsWithMaskTest {
 
   @Test
   void mergesDisjointCellSets() {
-    final CellsWithMask merged = cellsFor(rangeMask(0, 64));
-    merged.merge(cellsFor(rangeMask(64, 128)));
+    CellsWithMask merged = cellsFor(rangeMask(0, 64));
+    merged = merged.merge(cellsFor(rangeMask(64, 128)));
 
-    assertHoldsExactly(merged, CellMask.full());
+    assertHoldsExactly(merged, CellMask.FULL);
   }
 
   @Test
   void mergesACellSetThatOverlapsWhatIsAlreadyHeld() {
     // Two peers serving overlapping ranges is the normal case: availability is sampled
     // independently per peer, so nothing makes their masks disjoint.
-    final CellsWithMask merged = cellsFor(rangeMask(0, 64));
-    merged.merge(cellsFor(rangeMask(32, 128)));
+    CellsWithMask merged = cellsFor(rangeMask(0, 64));
+    merged = merged.merge(cellsFor(rangeMask(32, 128)));
 
-    assertHoldsExactly(merged, CellMask.full());
+    assertHoldsExactly(merged, CellMask.FULL);
   }
 
   @Test
   void mergingTheSameCellsTwiceIsIdempotent() {
-    final CellsWithMask merged = cellsFor(rangeMask(0, 64));
-    merged.merge(cellsFor(rangeMask(0, 64)));
+    CellsWithMask merged = cellsFor(rangeMask(0, 64));
+    merged = merged.merge(cellsFor(rangeMask(0, 64)));
 
     assertHoldsExactly(merged, rangeMask(0, 64));
   }
 
   @Test
   void mergesIntoAnEmptyCellSet() {
-    final CellsWithMask merged = CellsWithMask.empty();
-    merged.merge(cellsFor(CellMask.full()));
+    CellsWithMask merged = CellsWithMask.EMPTY;
+    merged = merged.merge(cellsFor(CellMask.FULL));
 
-    assertHoldsExactly(merged, CellMask.full());
+    assertHoldsExactly(merged, CellMask.FULL);
   }
 
   @Test
   void mergesACellSetWhoseIndexesStartAboveZero() {
     // The merged-in cells are addressed by cell index, not by their position in the cell list,
     // which only coincide when the mask starts at zero and has no gaps.
-    final CellsWithMask merged = cellsFor(maskOf(1));
-    merged.merge(cellsFor(maskOf(70, 100)));
+    CellsWithMask merged = cellsFor(maskOf(1));
+    merged = merged.merge(cellsFor(maskOf(70, 100)));
 
     assertHoldsExactly(merged, maskOf(1, 70, 100));
   }
 
   @Test
   void mergingAnEmptyCellSetChangesNothing() {
-    final CellsWithMask merged = cellsFor(maskOf(3, 9));
-    merged.merge(CellsWithMask.empty());
+    CellsWithMask merged = cellsFor(maskOf(3, 9));
+    merged = merged.merge(CellsWithMask.EMPTY);
 
     assertHoldsExactly(merged, maskOf(3, 9));
   }
 
   @Test
-  void mergeDoesNotShareCellsWithTheMergedInSet() {
-    // The accumulator outlives the response it was fed from, and CellsWithMask is mutable.
-    final CellsWithMask other = cellsFor(maskOf(5));
-    final CellsWithMask merged = CellsWithMask.empty();
-    merged.merge(other);
+  void mergeLeavesBothSetsAlone() {
+    final CellsWithMask held = cellsFor(maskOf(5));
+    final CellsWithMask arriving = cellsFor(maskOf(6));
 
-    other.merge(cellsFor(maskOf(6)));
+    assertHoldsExactly(held.merge(arriving), maskOf(5, 6));
 
-    assertThat(merged.getCellMask()).isEqualTo(maskOf(5));
-    assertThat(merged.getCells()).containsExactly(cellFor(5));
+    assertHoldsExactly(held, maskOf(5));
+    assertHoldsExactly(arriving, maskOf(6));
+  }
+
+  @Test
+  void theSharedEmptyInstanceCannotBeChanged() {
+    CellsWithMask.EMPTY.merge(cellsFor(CellMask.FULL));
+
+    assertThat(CellsWithMask.EMPTY.getCells()).isEmpty();
+    assertThat(CellsWithMask.EMPTY.getCellMask()).isEqualTo(CellMask.EMPTY);
   }
 
   @Test
   void getBlobCellsBytesConcatenatesHeldCellsInIndexOrder() {
-    final CellsWithMask merged = cellsFor(maskOf(70));
-    merged.merge(cellsFor(maskOf(3)));
+    CellsWithMask merged = cellsFor(maskOf(70));
+    merged = merged.merge(cellsFor(maskOf(3)));
 
     assertThat(
             Bytes.wrap(
@@ -145,8 +151,8 @@ class CellsWithMaskTest {
 
   @Test
   void mergeIsEquivalentToBuildingFromTheUnion() {
-    final CellsWithMask merged = cellsFor(maskOf(0, 5, 6, 127));
-    merged.merge(cellsFor(maskOf(5, 6, 7, 64)));
+    CellsWithMask merged = cellsFor(maskOf(0, 5, 6, 127));
+    merged = merged.merge(cellsFor(maskOf(5, 6, 7, 64)));
 
     final CellMask union = maskOf(0, 5, 6, 7, 64, 127);
     assertHoldsExactly(merged, union);
@@ -155,8 +161,8 @@ class CellsWithMaskTest {
 
   @Test
   void listedCellsFollowIndexOrderAfterAnOutOfOrderMerge() {
-    final CellsWithMask merged = cellsFor(maskOf(100));
-    merged.merge(cellsFor(maskOf(2, 50)));
+    CellsWithMask merged = cellsFor(maskOf(100));
+    merged = merged.merge(cellsFor(maskOf(2, 50)));
 
     assertThat(merged.getCells()).isEqualTo(List.of(cellFor(2), cellFor(50), cellFor(100)));
   }
