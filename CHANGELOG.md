@@ -270,7 +270,6 @@ opportunity to upgrade.
 - Snap sync now restarts instead of staying idle when one of its world state download pipelines fails. [#11515](https://github.com/besu-eth/besu/pull/11515)
 - Snap sync no longer downloads the storage and code of an account twice when an account range response goes past the end of the range. [#11516](https://github.com/besu-eth/besu/pull/11516)
 - Snap sync no longer stalls when a download completes while the pipeline stage is handing on another result. [#11514](https://github.com/besu-eth/besu/pull/11514)
-- Backward sync progress is now measured against the chain height estimated from peers instead of the head last supplied by the consensus client, so the percentage no longer goes backwards and the remaining distance to the chain tip is reported.
 - Backward sync progress is now measured against the chain height estimated from peers instead of the head last supplied by the consensus client, so a node far behind no longer reports itself as nearly synced. [#11337](https://github.com/besu-eth/besu/pull/11337)
 
 ### Additions and Improvements
