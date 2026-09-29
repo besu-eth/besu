@@ -137,7 +137,15 @@ public class BackwardSyncStep {
 
   private void logProgress(final long currLowestDownloadedHeight) {
     final BackwardSyncContext.Status status = context.getStatus();
-    if (status == null || !status.progressLogDue()) {
+    if (status == null) {
+      return;
+    }
+    // once blocks are being imported a batch only fills the gap behind a newer head, and measured
+    // against the whole session its percentage is meaningless, so phase 2 reports progress instead
+    final boolean importing =
+        context.getProtocolContext().getBlockchain().getChainHeadBlockNumber()
+            > status.getInitialChainHeight();
+    if (importing ? !LOG.isDebugEnabled() : !status.progressLogDue()) {
       return;
     }
     final long targetHeight = status.getTargetChainHeight();
@@ -150,12 +158,17 @@ public class BackwardSyncStep {
     final float completedPercentage =
         estimatedTotal <= 0 ? 100.0f : 100.0f * downloaded / estimatedTotal;
 
-    LOG.info(
+    final String message =
         String.format(
             "Backward sync phase 1 of 2, %.2f%% completed, downloaded %d headers of at least %d. Peers: %d",
             completedPercentage,
             downloaded,
             estimatedTotal,
-            context.getEthContext().getEthPeers().peerCount()));
+            context.getEthContext().getEthPeers().peerCount());
+    if (importing) {
+      LOG.debug(message);
+    } else {
+      LOG.info(message);
+    }
   }
 }
