@@ -40,4 +40,12 @@ public interface CodeStorageStrategy {
       final SegmentedKeyValueStorageTransaction transaction,
       final Hash accountHash,
       final Hash codeHash);
+
+  /**
+   * Records in an emptied code column family which strategy it belongs to, for the strategies whose
+   * values cannot be recognised by inspection.
+   *
+   * @param storage the storage holding the emptied code column family
+   */
+  default void markEmpty(final SegmentedKeyValueStorage storage) {}
 }

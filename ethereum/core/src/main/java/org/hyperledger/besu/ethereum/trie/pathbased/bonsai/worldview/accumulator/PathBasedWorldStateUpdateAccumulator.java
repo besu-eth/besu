@@ -471,6 +471,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
                     .map(BonsaiValue::getPrior)
                     .map(BonsaiAccount::getCodeHash)
                     .orElse(Hash.EMPTY))
+            .map(Code::getBytes)
             .ifPresent(
                 deletedCode ->
                     codeToUpdate.put(deletedAddress, new BonsaiValue<>(deletedCode, null, true)));
@@ -570,6 +571,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
                                             .map(BonsaiValue::getPrior)
                                             .map(BonsaiAccount::getCodeHash)
                                             .orElse(Hash.EMPTY))
+                                    .map(Code::getBytes)
                                     .orElse(null),
                                 null));
                 pendingCode.setUpdated(updatedAccount.getCode());
@@ -616,12 +618,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
   }
 
   @Override
-  public Optional<Bytes> getCode(final Address address, final Hash codeHash) {
-    return getStoredCode(address, codeHash).map(Code::getBytes);
-  }
-
-  @Override
-  public Optional<Code> getStoredCode(final Address address, final Hash codeHash) {
+  public Optional<Code> getCode(final Address address, final Hash codeHash) {
     final BonsaiValue<Bytes> localCode = codeToUpdate.get(address);
     if (localCode != null) {
       return Optional.ofNullable(localCode.getUpdated()).map(code -> new Code(code, codeHash));
@@ -630,7 +627,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
     final Supplier<Bytes> loader =
         Suppliers.memoize(
             () -> {
-              loaded.set(wrappedWorldView().getStoredCode(address, codeHash).orElse(null));
+              loaded.set(wrappedWorldView().getCode(address, codeHash).orElse(null));
               return loaded.get() == null ? null : loaded.get().getBytes();
             });
     final BonsaiValue<Bytes> codeValue = BonsaiValue.withLazy(loader, loader);
@@ -878,6 +875,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
           wrappedWorldView()
               .getCode(
                   address, Optional.ofNullable(expectedCode).map(Hash::hash).orElse(Hash.EMPTY))
+              .map(Code::getBytes)
               .orElse(Bytes.EMPTY);
       if (!storedCode.isEmpty()) {
         codeValue = new BonsaiValue<>(storedCode, storedCode);

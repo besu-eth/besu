@@ -17,10 +17,7 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.CODE_STORAGE;
 
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
-import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 
-import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
 import java.util.List;
 
 import org.apache.commons.lang3.tuple.Pair;
@@ -29,51 +26,37 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Moves the code column family between the bare code older Besu versions wrote and the {@link
- * CodeStorageFormat}, in either direction, by rewriting it as a whole. The column family records
- * the format all its entries have reached under a reserved key, written in the same step as the
- * rewritten entries, so that the migration runs exactly once and an interrupted one starts over
- * from the untouched entries.
+ * Moves a code column family keyed by code hash between the bare code {@link
+ * CodeHashCodeStorageStrategy} writes and the analysed code {@link JumpDestCodeStorageStrategy}
+ * writes, in either direction, by rewriting it as a whole. The marker of the target strategy is
+ * written in the same step as the rewritten entries, so that the migration runs exactly once and an
+ * interrupted one starts over from the untouched entries.
  */
 public final class CodeStorageMigration {
   private static final Logger LOG = LoggerFactory.getLogger(CodeStorageMigration.class);
 
-  /** Reserved key holding the format every other entry in the column family has reached. */
-  public static final byte[] FORMAT_KEY = "codeStorageFormat".getBytes(StandardCharsets.UTF_8);
-
-  private static final List<Pair<byte[], byte[]>> CURRENT_FORMAT =
-      List.of(Pair.of(FORMAT_KEY, new byte[] {CodeStorageFormat.CURRENT.version}));
-
   private CodeStorageMigration() {}
 
-  public static boolean isReservedKey(final byte[] key) {
-    return Arrays.equals(key, FORMAT_KEY);
-  }
-
-  /** Marks an empty or freshly cleared column family as being in the current format. */
-  public static void markCurrent(final SegmentedKeyValueStorage storage) {
-    final SegmentedKeyValueStorageTransaction transaction = storage.startTransaction();
-    transaction.put(CODE_STORAGE, FORMAT_KEY, new byte[] {CodeStorageFormat.CURRENT.version});
-    transaction.commit();
-  }
-
   /**
-   * Rewrites every bare entry of the column family into the current format, unless that has been
-   * done already. Runs before the storage is handed out, so nothing writes code concurrently.
+   * Rewrites every bare entry of the column family into analysed code, unless that has been done
+   * already. Runs before the storage is handed out, so nothing writes code concurrently.
    *
-   * @param storage the storage holding the code column family
+   * @param storage the storage holding the code column family, keyed by code hash
    */
   public static void migrate(final SegmentedKeyValueStorage storage) {
-    if (storage.get(CODE_STORAGE, FORMAT_KEY).isPresent()) {
+    if (JumpDestCodeStorageStrategy.isMarked(storage)) {
       return;
     }
-    LOG.info("Migrating the code storage to format {}", CodeStorageFormat.CURRENT);
+    LOG.info("Migrating the code storage to code with its jump destination analysis");
     storage.rewrite(
         CODE_STORAGE,
         (key, value) ->
-            isReservedKey(key) ? null : CodeStorageFormat.CURRENT.encode(Bytes.wrap(value)),
-        CURRENT_FORMAT);
-    LOG.info("Migrated the code storage to format {}", CodeStorageFormat.CURRENT);
+            JumpDestCodeStorageStrategy.isMarkerKey(key)
+                ? null
+                : JumpDestCodeStorageStrategy.encode(Bytes.wrap(value)),
+        List.of(
+            Pair.of(JumpDestCodeStorageStrategy.MARKER_KEY, JumpDestCodeStorageStrategy.MARKER)));
+    LOG.info("Migrated the code storage to code with its jump destination analysis");
   }
 
   /**
@@ -83,16 +66,16 @@ public final class CodeStorageMigration {
    * @param storage the storage holding the code column family
    */
   public static void revert(final SegmentedKeyValueStorage storage) {
-    if (storage.get(CODE_STORAGE, FORMAT_KEY).isEmpty()) {
+    if (!JumpDestCodeStorageStrategy.isMarked(storage)) {
       return;
     }
     LOG.info("Reverting the code storage to bare code");
     storage.rewrite(
         CODE_STORAGE,
         (key, value) ->
-            isReservedKey(key)
+            JumpDestCodeStorageStrategy.isMarkerKey(key)
                 ? null
-                : CodeStorageFormat.of(value).decode(value, null).getBytes().toArrayUnsafe(),
+                : JumpDestCodeStorageStrategy.decode(value, null).getBytes().toArrayUnsafe(),
         List.of());
     LOG.info("Reverted the code storage to bare code");
   }

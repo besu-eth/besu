@@ -50,6 +50,7 @@ import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.ethereum.worldstate.ImmutableDataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.ImmutableExtraStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
+import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
@@ -113,7 +114,7 @@ public class BonsaiWorldStateKeyValueStorageTest {
   @MethodSource("flatDbMode")
   void getCode_returnsEmpty(final FlatDbMode flatDbMode) {
     setUp(flatDbMode);
-    assertThat(storage.getCode(Hash.EMPTY, Hash.EMPTY)).contains(Bytes.EMPTY);
+    assertThat(storage.getCode(Hash.EMPTY, Hash.EMPTY).map(Code::getBytes)).contains(Bytes.EMPTY);
   }
 
   @ParameterizedTest
@@ -145,7 +146,8 @@ public class BonsaiWorldStateKeyValueStorageTest {
         .putCode(Hash.EMPTY, Bytes.EMPTY)
         .commit();
 
-    assertThat(storage.getCode(Hash.hash(MerkleTrie.EMPTY_TRIE_NODE), Hash.EMPTY))
+    assertThat(
+            storage.getCode(Hash.hash(MerkleTrie.EMPTY_TRIE_NODE), Hash.EMPTY).map(Code::getBytes))
         .contains(MerkleTrie.EMPTY_TRIE_NODE);
   }
 
@@ -157,7 +159,7 @@ public class BonsaiWorldStateKeyValueStorageTest {
     final Bytes bytes = Bytes.fromHexString("0x123456");
     storage.updater().putCode(Hash.EMPTY, bytes).commit();
 
-    assertThat(storage.getCode(Hash.hash(bytes), Hash.EMPTY)).contains(bytes);
+    assertThat(storage.getCode(Hash.hash(bytes), Hash.EMPTY).map(Code::getBytes)).contains(bytes);
   }
 
   @ParameterizedTest
@@ -853,8 +855,10 @@ public class BonsaiWorldStateKeyValueStorageTest {
     updaterA.commit();
     updaterB.commit();
 
-    assertThat(storage.getCode(Hash.hash(bytesB), accountHashB)).contains(bytesB);
-    assertThat(storage.getCode(Hash.hash(bytesC), accountHashD)).contains(bytesC);
+    assertThat(storage.getCode(Hash.hash(bytesB), accountHashB).map(Code::getBytes))
+        .contains(bytesB);
+    assertThat(storage.getCode(Hash.hash(bytesC), accountHashD).map(Code::getBytes))
+        .contains(bytesC);
   }
 
   @ParameterizedTest

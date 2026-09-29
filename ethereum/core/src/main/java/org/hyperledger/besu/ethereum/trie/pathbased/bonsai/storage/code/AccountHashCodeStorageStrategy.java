@@ -31,8 +31,9 @@ public class AccountHashCodeStorageStrategy implements CodeStorageStrategy {
       final Hash codeHash, final Hash accountHash, final SegmentedKeyValueStorage storage) {
     return storage
         .get(CODE_STORAGE, accountHash.getBytes().toArrayUnsafe())
-        .map(value -> CodeStorageFormat.of(value).decode(value, codeHash))
-        .filter(code -> Hash.hash(code.getBytes()).equals(codeHash));
+        .map(Bytes::wrap)
+        .filter(b -> Hash.hash(b).equals(codeHash))
+        .map(b -> new Code(b, codeHash));
   }
 
   @Override
@@ -42,10 +43,7 @@ public class AccountHashCodeStorageStrategy implements CodeStorageStrategy {
       final Hash accountHash,
       final Hash codeHash,
       final Bytes code) {
-    transaction.put(
-        CODE_STORAGE,
-        accountHash.getBytes().toArrayUnsafe(),
-        CodeStorageFormat.CURRENT.encode(code));
+    transaction.put(CODE_STORAGE, accountHash.getBytes().toArrayUnsafe(), code.toArrayUnsafe());
   }
 
   @Override

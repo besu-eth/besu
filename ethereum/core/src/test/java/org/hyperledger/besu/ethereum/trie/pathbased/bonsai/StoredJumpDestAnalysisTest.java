@@ -74,7 +74,7 @@ class StoredJumpDestAnalysisTest {
 
   @Test
   void persistedCodeIsStoredWithItsAnalysis() {
-    final Code stored = storage.getStoredCode(Hash.hash(CODE), CONTRACT.addressHash()).get();
+    final Code stored = storage.getCode(Hash.hash(CODE), CONTRACT.addressHash()).get();
 
     assertThat(stored.getBytes()).isEqualTo(CODE);
     assertThat(stored.getJumpDestBitMask()).isEqualTo(Code.jumpDestBitMaskOf(CODE));
@@ -106,7 +106,7 @@ class StoredJumpDestAnalysisTest {
     final Bytes code = Bytes.fromHexString("0x5b5b60ff5b");
     storage.updater().putCode(Hash.EMPTY, Hash.hash(code), code).commit();
 
-    final Code stored = storage.getStoredCode(Hash.hash(code), Hash.EMPTY).get();
+    final Code stored = storage.getCode(Hash.hash(code), Hash.EMPTY).get();
 
     assertThat(stored.getBytes()).isEqualTo(code);
     assertThat(stored.getJumpDestBitMask()).containsExactly(0b10011L);

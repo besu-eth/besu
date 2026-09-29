@@ -40,7 +40,7 @@ class CodeStorageMigrationTest {
 
     CodeStorageMigration.migrate(storage);
 
-    assertThat(storage.get(CODE_STORAGE, CodeStorageMigration.FORMAT_KEY)).isPresent();
+    assertThat(JumpDestCodeStorageStrategy.isMarked(storage)).isTrue();
     assertThat(storage.stream(CODE_STORAGE).count()).isEqualTo(1);
   }
 
@@ -83,34 +83,17 @@ class CodeStorageMigrationTest {
     assertMigrated(storage, CODES);
   }
 
-  @Test
-  void marksAClearedColumnFamilyAsCurrent() {
-    final SegmentedKeyValueStorage storage = storage();
-
-    CodeStorageMigration.markCurrent(storage);
-
-    assertThat(storage.get(CODE_STORAGE, CodeStorageMigration.FORMAT_KEY))
-        .contains(new byte[] {CodeStorageFormat.CURRENT.version});
-  }
-
-  @Test
-  void reservedKeysAreNotCode() {
-    assertThat(CodeStorageMigration.isReservedKey(CodeStorageMigration.FORMAT_KEY)).isTrue();
-    assertThat(CodeStorageMigration.isReservedKey(Hash.hash(CODE).getBytes().toArrayUnsafe()))
-        .isFalse();
-  }
-
   private static void assertMigrated(
       final SegmentedKeyValueStorage storage, final List<Bytes> codes) {
     for (final Bytes code : codes) {
       final byte[] value =
           storage.get(CODE_STORAGE, Hash.hash(code).getBytes().toArrayUnsafe()).orElseThrow();
-      final Code stored = CodeStorageFormat.of(value).decode(value, Hash.hash(code));
+      final Code stored = JumpDestCodeStorageStrategy.decode(value, Hash.hash(code));
       assertThat(stored.getBytes()).isEqualTo(code);
       assertThat(stored.getJumpDestBitMask()).isEqualTo(Code.jumpDestBitMaskOf(code));
     }
-    assertThat(storage.get(CODE_STORAGE, CodeStorageMigration.FORMAT_KEY))
-        .contains(new byte[] {CodeStorageFormat.CURRENT.version});
+    assertThat(storage.get(CODE_STORAGE, JumpDestCodeStorageStrategy.MARKER_KEY))
+        .contains(JumpDestCodeStorageStrategy.MARKER);
     assertThat(storage.stream(CODE_STORAGE).count()).isEqualTo(codes.size() + 1);
   }
 
@@ -127,7 +110,7 @@ class CodeStorageMigrationTest {
       assertThat(storage.get(CODE_STORAGE, Hash.hash(code).getBytes().toArrayUnsafe()))
           .contains(code.toArrayUnsafe());
     }
-    assertThat(storage.get(CODE_STORAGE, CodeStorageMigration.FORMAT_KEY)).isEmpty();
+    assertThat(JumpDestCodeStorageStrategy.isMarked(storage)).isFalse();
     assertThat(storage.stream(CODE_STORAGE).count()).isEqualTo(codes.size());
   }
 

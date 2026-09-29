@@ -149,13 +149,8 @@ public class BonsaiWorldState extends PathBasedWorldState {
   }
 
   @Override
-  public Optional<Bytes> getCode(@NotNull final Address address, final Hash codeHash) {
+  public Optional<Code> getCode(@NotNull final Address address, final Hash codeHash) {
     return getWorldStateStorage().getCode(codeHash, address.addressHash());
-  }
-
-  @Override
-  public Optional<Code> getStoredCode(final Address address, final Hash codeHash) {
-    return getWorldStateStorage().getStoredCode(codeHash, address.addressHash());
   }
 
   @Override

@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.AccountH
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.CodeHashCodeStorageStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.CodeStorageMigration;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.CodeStorageStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.JumpDestCodeStorageStrategy;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
@@ -63,12 +64,27 @@ public abstract class FlatDbStrategyProvider {
                 + " Please switch to full flat database mode.");
       }
       this.flatDbMode = newFlatDbMode;
-      final CodeStorageStrategy codeStorageStrategy =
-          deriveUseCodeStorageByHash(composedWorldStateStorage)
-              ? new CodeHashCodeStorageStrategy()
-              : new AccountHashCodeStorageStrategy();
-      this.flatDbStrategy = createFlatDbStrategy(flatDbMode, metricsSystem, codeStorageStrategy);
+      this.flatDbStrategy =
+          createFlatDbStrategy(
+              flatDbMode, metricsSystem, deriveCodeStorageStrategy(composedWorldStateStorage));
     }
+  }
+
+  /**
+   * Code keyed by code hash is always stored with its jump destination analysis, so a column family
+   * of bare code keyed that way is migrated here, before anything reads it. Code keyed by account
+   * hash stays as it is; a resync moves such a database to code hash keying.
+   */
+  private CodeStorageStrategy deriveCodeStorageStrategy(
+      final SegmentedKeyValueStorage composedWorldStateStorage) {
+    if (JumpDestCodeStorageStrategy.isMarked(composedWorldStateStorage)) {
+      return new JumpDestCodeStorageStrategy();
+    }
+    if (deriveUseCodeStorageByHash(composedWorldStateStorage)) {
+      CodeStorageMigration.migrate(composedWorldStateStorage);
+      return new JumpDestCodeStorageStrategy();
+    }
+    return new AccountHashCodeStorageStrategy();
   }
 
   protected boolean deriveUseCodeStorageByHash(
@@ -98,7 +114,7 @@ public abstract class FlatDbStrategyProvider {
   private Optional<Boolean> detectCodeStorageByHash(
       final SegmentedKeyValueStorage composedWorldStateStorage) {
     return composedWorldStateStorage.stream(CODE_STORAGE)
-        .filter(keypair -> !CodeStorageMigration.isReservedKey(keypair.getKey()))
+        .limit(1)
         .findFirst()
         .map(
             keypair ->

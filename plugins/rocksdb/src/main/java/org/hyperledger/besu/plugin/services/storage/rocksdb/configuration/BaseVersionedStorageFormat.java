@@ -42,7 +42,7 @@ public enum BaseVersionedStorageFormat implements VersionedStorageFormat {
    * Bonsai version with receipts using compaction, in order to make Receipts use less disk space
    */
   BONSAI_WITH_RECEIPT_COMPACTION(DataStorageFormat.BONSAI, 3),
-  /** Current Bonsai version, with a format byte in front of every stored contract code */
+  /** Current Bonsai version, with contract code stored with its jump destination analysis */
   BONSAI_WITH_CODE_FORMAT(DataStorageFormat.BONSAI, 4),
   /**
    * Current Bonsai archive version, with blockchain variables in a dedicated column family, in
@@ -54,7 +54,9 @@ public enum BaseVersionedStorageFormat implements VersionedStorageFormat {
    * space
    */
   BONSAI_ARCHIVE_WITH_RECEIPT_COMPACTION(DataStorageFormat.X_BONSAI_ARCHIVE, 2),
-  /** Current Bonsai archive version, with a format byte in front of every stored contract code */
+  /**
+   * Current Bonsai archive version, with contract code stored with its jump destination analysis
+   */
   BONSAI_ARCHIVE_WITH_CODE_FORMAT(DataStorageFormat.X_BONSAI_ARCHIVE, 3);
 
   private final DataStorageFormat format;

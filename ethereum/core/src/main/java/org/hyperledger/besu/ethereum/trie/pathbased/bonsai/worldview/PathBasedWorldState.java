@@ -33,6 +33,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.StorageSubscr
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.cache.PathBasedWorldStateCacheManager;
+import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
@@ -428,7 +429,7 @@ public abstract class PathBasedWorldState
       final Address address, final StorageSlotKey storageSlotKey);
 
   @Override
-  public abstract Optional<Bytes> getCode(@NotNull final Address address, final Hash codeHash);
+  public abstract Optional<Code> getCode(@NotNull final Address address, final Hash codeHash);
 
   /**
    * Attaches a Block Access List overlay to this world state, replacing its accumulator with a
