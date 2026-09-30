@@ -189,17 +189,17 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
     private final Set<Long> appliedIndices = new HashSet<>();
 
     public static AccessLocationTracker createPreExecutionAccessLocationTracker() {
-      return new AccessLocationTracker(0);
+      return new AccessLocationTracker(0, true);
     }
 
     public static AccessLocationTracker createPostExecutionAccessLocationTracker(
         final int numberOfTransactions) {
-      return new AccessLocationTracker((long) numberOfTransactions + 1L);
+      return new AccessLocationTracker((long) numberOfTransactions + 1L, true);
     }
 
     public static AccessLocationTracker createTransactionAccessLocationTracker(
         final int transactionLocation) {
-      return new AccessLocationTracker((long) transactionLocation + 1L);
+      return new AccessLocationTracker((long) transactionLocation + 1L, false);
     }
 
     public AccountBuilder getOrCreateAccountBuilder(final Address address) {
