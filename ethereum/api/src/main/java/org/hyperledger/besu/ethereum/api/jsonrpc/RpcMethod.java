@@ -174,7 +174,8 @@ public enum RpcMethod {
   WEB3_CLIENT_VERSION("web3_clientVersion"),
   WEB3_SHA3("web3_sha3"),
   PLUGINS_RELOAD_CONFIG("plugins_reloadPluginConfig"),
-  TESTING_BUILD_BLOCK_V1("testing_buildBlockV1");
+  TESTING_BUILD_BLOCK_V1("testing_buildBlockV1"),
+  TESTING_COMMIT_BLOCK_V1("testing_commitBlockV1");
 
   private final String methodName;
 

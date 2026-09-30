@@ -179,6 +179,11 @@ public class WorldStateStorageCoordinator {
     worldStateKeyValueStorage.clear();
   }
 
+  /** Clears the Bonsai cross-block flat-db cache when present; no-op for Forest. */
+  public void clearCrossBlockCache() {
+    consumeForStrategy(BonsaiWorldStateKeyValueStorage::clearCrossBlockCache, forest -> {});
+  }
+
   public WorldStateKeyValueStorage worldStateKeyValueStorage() {
     return worldStateKeyValueStorage;
   }

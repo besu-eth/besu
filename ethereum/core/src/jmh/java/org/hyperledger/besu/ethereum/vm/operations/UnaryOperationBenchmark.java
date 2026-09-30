@@ -42,7 +42,7 @@ public abstract class UnaryOperationBenchmark {
   protected MessageFrame frame;
 
   @Setup()
-  public void setUp() {
+  public void setUp() throws Exception {
     frame = BenchmarkHelper.createMessageCallFrame();
     aPool = new Bytes[getSampleSize()];
     BenchmarkHelper.fillPool(aPool);

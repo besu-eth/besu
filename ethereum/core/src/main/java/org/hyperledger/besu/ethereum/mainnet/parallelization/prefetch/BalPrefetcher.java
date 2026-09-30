@@ -22,7 +22,6 @@ import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
-import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -82,16 +81,8 @@ public class BalPrefetcher {
             () -> {
               worldState.disableCacheMerkleTrieLoader();
 
-              // Collect and optionally sort account changes
-              final List<BlockAccessList.AccountChanges> accounts =
-                  isSortingEnabled
-                      ? blockAccessList.accountChanges().stream()
-                          .sorted(Comparator.comparing(ac -> ac.address().addressHash().getBytes()))
-                          .toList()
-                      : new ArrayList<>(blockAccessList.accountChanges());
-
               // Collect all keys to prefetch
-              final PrefetchKeys keys = collectKeys(accounts);
+              final PrefetchKeys keys = collectKeys(blockAccessList.accountChanges());
 
               LOG.debug(
                   "Prefetch: collected {} account keys and {} storage keys",
@@ -243,9 +234,7 @@ public class BalPrefetcher {
 
   private void prefetchKeys(
       final BonsaiWorldState worldState, final SegmentIdentifier segment, final List<byte[]> keys) {
-    final SegmentedKeyValueStorage storage =
-        worldState.getWorldStateStorage().getComposedWorldStateStorage();
-    keys.forEach(key -> storage.get(segment, key));
+    worldState.getWorldStateStorage().getMultipleFlat(segment, keys);
   }
 
   private boolean shouldBatch() {

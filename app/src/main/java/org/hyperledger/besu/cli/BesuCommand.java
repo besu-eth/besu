@@ -134,6 +134,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfigurati
 import org.hyperledger.besu.ethereum.eth.transactions.pluginadapter.TransactionPoolValidatorServiceImpl;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.pluginadapter.TransactionValidatorServiceImpl;
+import org.hyperledger.besu.ethereum.mainnet.requests.RequestContractAddresses;
 import org.hyperledger.besu.ethereum.p2p.config.DiscoveryConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.DiscoveryMode;
 import org.hyperledger.besu.ethereum.p2p.config.DiscoveryModeResolver;
@@ -1898,13 +1899,16 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
     // Add withdrawalRequestContractAddress if missing (EIP-7002)
     if (!config.has("withdrawalRequestContractAddress")) {
-      config.put("withdrawalRequestContractAddress", "0x00000961ef480eb55e80d19ad83579a64c007002");
+      config.put(
+          "withdrawalRequestContractAddress",
+          RequestContractAddresses.DEFAULT_WITHDRAWAL_REQUEST_CONTRACT_ADDRESS.toHexString());
     }
 
     // Add consolidationRequestContractAddress if missing (EIP-7251)
     if (!config.has("consolidationRequestContractAddress")) {
       config.put(
-          "consolidationRequestContractAddress", "0x0000bbddc7ce488642fb579f8b00f3a590007251");
+          "consolidationRequestContractAddress",
+          RequestContractAddresses.DEFAULT_CONSOLIDATION_REQUEST_CONTRACT_ADDRESS.toHexString());
     }
   }
 
@@ -2390,6 +2394,30 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   public DataStorageConfiguration getDataStorageConfiguration() {
     if (dataStorageConfiguration == null) {
       dataStorageConfiguration = dataStorageOptions.toDomainObject();
+    }
+
+    // BAL prefetch warms VersionedFlatDbCacheManager; enable the cross-block cache when prefetch is
+    // on so those reads are not discarded by the no-op cache. Only Bonsai (non-archive) benefits:
+    // Forest ignores the flag, and archive getMultipleFlat is a no-op, so auto-enabling there would
+    // only change default memory behaviour.
+    if (DataStorageFormat.BONSAI.equals(dataStorageConfiguration.getDataStorageFormat())
+        && balConfigurationOptions.toDomainObject().isBalPreFetchReadingEnabled()
+        && !dataStorageConfiguration
+            .getExtraStorageConfiguration()
+            .getUnstable()
+            .getBonsaiCrossBlockCacheEnabled()) {
+      dataStorageConfiguration =
+          ImmutableDataStorageConfiguration.copyOf(dataStorageConfiguration)
+              .withExtraStorageConfiguration(
+                  ImmutableExtraStorageConfiguration.copyOf(
+                          dataStorageConfiguration.getExtraStorageConfiguration())
+                      .withUnstable(
+                          ImmutableExtraStorageConfiguration.Unstable.copyOf(
+                                  dataStorageConfiguration
+                                      .getExtraStorageConfiguration()
+                                      .getUnstable())
+                              .withBonsaiCrossBlockCacheEnabled(true)));
+      logger.info("Bonsai cross-block cache enabled for BAL prefetch reading");
     }
 
     if (SyncMode.FULL.equals(getDefaultSyncModeIfNotSet())

@@ -207,72 +207,74 @@ public abstract class PathBasedWorldState
         .addArgument(() -> Optional.ofNullable(blockHeader))
         .log();
 
-    boolean success = false;
-
     final BonsaiWorldStateKeyValueStorage.Updater stateUpdater =
         worldStateKeyValueStorage.updater();
-    Runnable saveTrieLog = () -> {};
-    Runnable cacheWorldState = () -> {};
-
     try {
       final StateRootComputation computation = committer.compute(this, blockHeader, accumulator);
       if (!isStorageFrozen()) {
         computation.applyTo(stateUpdater);
       }
       final Hash calculatedRootHash = computation.root();
+      stageWorldStateKeys(stateUpdater, blockHeader, calculatedRootHash);
 
       if (blockHeader != null) {
         verifyWorldStateRoot(calculatedRootHash, blockHeader);
-        saveTrieLog =
-            () -> {
-              trieLogManager.saveTrieLog(accumulator, calculatedRootHash, blockHeader, this);
-            };
-        cacheWorldState =
-            () -> worldStateCacheManager.addCachedLayer(blockHeader, calculatedRootHash, this);
-        stateUpdater
-            .getWorldStateTransaction()
-            .put(
-                TRIE_BRANCH_STORAGE,
-                WORLD_BLOCK_HASH_KEY,
-                blockHeader.getBlockHash().getBytes().toArrayUnsafe());
-        worldStateBlockHash = blockHeader.getBlockHash();
-      } else {
-        stateUpdater.getWorldStateTransaction().remove(TRIE_BRANCH_STORAGE, WORLD_BLOCK_HASH_KEY);
-        worldStateBlockHash = null;
+        // Trie log first, ahead of composed state, in case of an abnormal shutdown.
+        trieLogManager.saveTrieLog(accumulator, calculatedRootHash, blockHeader, this);
       }
 
-      stateUpdater
-          .getWorldStateTransaction()
-          .put(
-              TRIE_BRANCH_STORAGE,
-              WORLD_ROOT_HASH_KEY,
-              calculatedRootHash.getBytes().toArrayUnsafe());
-
-      stateUpdater
-          .getWorldStateTransaction()
-          .put(
-              TRIE_BRANCH_STORAGE,
-              WORLD_BLOCK_NUMBER_KEY,
-              Bytes.ofUnsignedLong(blockHeader == null ? 0L : blockHeader.getNumber())
-                  .toArrayUnsafe());
-      worldStateRootHash = calculatedRootHash;
-      success = true;
-    } finally {
-      if (success) {
-        // commit the trielog transaction ahead of the state, in case of an abnormal shutdown:
-        saveTrieLog.run();
-        // commit only the composed worldstate, as trielog transaction is already complete:
-        stateUpdater.commitComposedOnly();
-        if (!isStorageFrozen) {
-          // optionally save the committed worldstate state in the cache
-          cacheWorldState.run();
-        }
-        accumulator.reset();
-      } else {
+      stateUpdater.commitComposedOnly();
+      // Advance in-memory head only after trielog + composed commit succeeded, so a failing
+      // observer (e.g. TrieLogPruner during EthScheduler shutdown) cannot leave a half-updated
+      // worldstate that later cascades into MerkleTrieException / heal.
+      setWorldStateHead(blockHeader, calculatedRootHash);
+      if (blockHeader != null && !isStorageFrozen) {
+        worldStateCacheManager.addCachedLayer(blockHeader, calculatedRootHash, this);
+      }
+    } catch (final RuntimeException | Error e) {
+      try {
         stateUpdater.rollback();
-        accumulator.reset();
+      } catch (final IllegalStateException e1) {
+        // no op
       }
+      throw e;
+    } finally {
+      accumulator.reset();
     }
+  }
+
+  private void stageWorldStateKeys(
+      final BonsaiWorldStateKeyValueStorage.Updater stateUpdater,
+      final BlockHeader blockHeader,
+      final Hash calculatedRootHash) {
+    if (blockHeader != null) {
+      stateUpdater
+          .getWorldStateTransaction()
+          .put(
+              TRIE_BRANCH_STORAGE,
+              WORLD_BLOCK_HASH_KEY,
+              blockHeader.getBlockHash().getBytes().toArrayUnsafe());
+    } else {
+      stateUpdater.getWorldStateTransaction().remove(TRIE_BRANCH_STORAGE, WORLD_BLOCK_HASH_KEY);
+    }
+    stateUpdater
+        .getWorldStateTransaction()
+        .put(
+            TRIE_BRANCH_STORAGE,
+            WORLD_ROOT_HASH_KEY,
+            calculatedRootHash.getBytes().toArrayUnsafe());
+    stateUpdater
+        .getWorldStateTransaction()
+        .put(
+            TRIE_BRANCH_STORAGE,
+            WORLD_BLOCK_NUMBER_KEY,
+            Bytes.ofUnsignedLong(blockHeader == null ? 0L : blockHeader.getNumber())
+                .toArrayUnsafe());
+  }
+
+  private void setWorldStateHead(final BlockHeader blockHeader, final Hash calculatedRootHash) {
+    worldStateBlockHash = blockHeader == null ? null : blockHeader.getBlockHash();
+    worldStateRootHash = calculatedRootHash;
   }
 
   protected void verifyWorldStateRoot(final Hash calculatedStateRoot, final BlockHeader header) {

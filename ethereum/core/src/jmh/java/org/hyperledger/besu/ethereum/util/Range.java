@@ -12,7 +12,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.utils;
+package org.hyperledger.besu.ethereum.util;
 
 import java.util.Comparator;
 import java.util.Objects;

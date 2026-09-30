@@ -32,6 +32,7 @@ import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksD
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -524,6 +525,30 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
 
     try (final OperationTimer.TimingContext ignored = metrics.getReadLatency().startTimer()) {
       return Optional.ofNullable(getDB().get(safeColumnHandle(segment), readOptions, key));
+    } catch (final RocksDBException e) {
+      throw new StorageException(e);
+    }
+  }
+
+  @Override
+  public List<Optional<byte[]>> multiget(final SegmentIdentifier segment, final List<byte[]> keys)
+      throws StorageException {
+    throwIfClosed();
+    if (keys.isEmpty()) {
+      return List.of();
+    }
+    final ColumnFamilyHandle columnHandle = safeColumnHandle(segment);
+    try (final OperationTimer.TimingContext ignored = metrics.getMultiReadLatency().startTimer()) {
+      final List<byte[]> rawResult =
+          getDB().multiGetAsList(readOptions, Collections.nCopies(keys.size(), columnHandle), keys);
+      if (rawResult == null) {
+        return Collections.nCopies(keys.size(), Optional.empty());
+      }
+      final List<Optional<byte[]>> result = new ArrayList<>(rawResult.size());
+      for (final byte[] value : rawResult) {
+        result.add(Optional.ofNullable(value));
+      }
+      return result;
     } catch (final RocksDBException e) {
       throw new StorageException(e);
     }
