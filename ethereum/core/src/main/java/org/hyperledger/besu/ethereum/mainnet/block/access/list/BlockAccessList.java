@@ -186,6 +186,7 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
 
   public static class BlockAccessListBuilder {
     final Map<Address, AccountBuilder> accountChangesBuilders = new HashMap<>();
+    private final Set<Long> appliedIndices = new HashSet<>();
 
     public static AccessLocationTracker createPreExecutionAccessLocationTracker() {
       return new AccessLocationTracker(0);
@@ -211,6 +212,12 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
     }
 
     public void apply(final PartialBlockAccessView partialBlockAccessView) {
+      final long blockAccessIndex = partialBlockAccessView.getTxIndex();
+      if (!appliedIndices.add(blockAccessIndex)) {
+        // Views at a shared index (withdrawals, system calls) each carry the net change over the
+        // index so far, so a later one replaces the changes of the earlier ones.
+        accountChangesBuilders.values().forEach(b -> b.removeChangesAt(blockAccessIndex));
+      }
       partialBlockAccessView
           .accountChanges()
           .forEach(
@@ -371,6 +378,14 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
         if (!slotWrites.containsKey(slot)) {
           slotReads.add(slot);
         }
+      }
+
+      void removeChangesAt(final long txIndex) {
+        slotWrites.values().forEach(changes -> changes.removeIf(c -> c.txIndex() == txIndex));
+        slotWrites.values().removeIf(List::isEmpty);
+        balances.removeIf(c -> c.txIndex() == txIndex);
+        nonces.removeIf(c -> c.txIndex() == txIndex);
+        codes.removeIf(c -> c.txIndex() == txIndex);
       }
 
       void addBalanceChange(final long txIndex, final Wei postBalance) {

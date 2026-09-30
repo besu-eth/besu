@@ -94,10 +94,12 @@ public class SystemCallProcessor {
               : "Invalid system call, no code at address " + callAddress);
     }
 
+    // The frame commits into its own updater when it succeeds, so it runs one level below
+    // systemCallUpdater, which must still hold the pre-call state when the access list is built.
     final MessageFrame frame =
         createMessageFrame(
             callAddress,
-            systemCallUpdater,
+            systemCallUpdater.updater(),
             context.getBlockHeader(),
             context.getBlockHashLookup(),
             inputData,
