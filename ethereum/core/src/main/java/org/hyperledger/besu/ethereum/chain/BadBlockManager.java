@@ -54,7 +54,8 @@ public class BadBlockManager {
   /**
    * Descendants that were never executed share the body cache with the blocks that failed
    * validation; keeping them well below the cache size leaves the failed blocks in place for the
-   * debug RPCs.
+   * debug RPCs. The budget covers every tracked descendant, a descendant beyond it keeps its header
+   * only.
    */
   public static final int MAX_BAD_DESCENDANT_BODIES = 20;
 
@@ -119,6 +120,8 @@ public class BadBlockManager {
       final Optional<BlockAccessList> generatedBlockAccessList) {
     LOG.debug("Register bad block {} with cause: {}", badBlock.toLogString(), cause);
     this.badBlocks.put(badBlock.getHash(), new BadBlock(badBlock, cause));
+    // one entry per block, a stale header entry would keep an outdated cause behind this one
+    this.badHeaders.invalidate(badBlock.getHash());
     blockAccessList.ifPresent(bal -> this.blockAccessLists.put(badBlock.getHash(), bal));
     generatedBlockAccessList.ifPresent(
         bal -> this.generatedBlockAccessLists.put(badBlock.getHash(), bal));
@@ -151,17 +154,16 @@ public class BadBlockManager {
    * @param blockHash the hash of the block to forget
    */
   public void removeBadBlock(final Hash blockHash) {
-    if (!isBadBlock(blockHash) && latestValidHashes.getIfPresent(blockHash) == null) {
+    // the block itself can already be evicted while the descendants marked on its account are not
+    if (!isBadBlock(blockHash)
+        && latestValidHashes.getIfPresent(blockHash) == null
+        && markedDescendants().noneMatch(bad -> bad.header().getParentHash().equals(blockHash))) {
       return;
     }
     synchronized (this) {
       LOG.debug("Forget bad block {} after it was imported successfully", blockHash);
       final Map<Hash, List<Hash>> markedChildren = new HashMap<>();
-      Stream.concat(
-              badBlocks.asMap().values().stream()
-                  .map(bad -> new BadHeader(bad.block().getHeader(), bad.cause())),
-              badHeaders.asMap().values().stream())
-          .filter(bad -> bad.cause().getReason() == BadBlockReason.DESCENDS_FROM_BAD_BLOCK)
+      markedDescendants()
           .forEach(
               bad ->
                   markedChildren
@@ -180,6 +182,14 @@ public class BadBlockManager {
         this.generatedBlockAccessLists.invalidate(hash);
       }
     }
+  }
+
+  private Stream<BadHeader> markedDescendants() {
+    return Stream.concat(
+            badBlocks.asMap().values().stream()
+                .map(bad -> new BadHeader(bad.block().getHeader(), bad.cause())),
+            badHeaders.asMap().values().stream())
+        .filter(bad -> bad.cause().getReason() == BadBlockReason.DESCENDS_FROM_BAD_BLOCK);
   }
 
   /**
@@ -287,7 +297,8 @@ public class BadBlockManager {
   /**
    * Record a block whose body is known as bad because it descends from a bad block. The body is
    * kept so the debug RPCs can still inspect it, it is evicted to a header like any other bad block
-   * body.
+   * body. Once {@link #MAX_BAD_DESCENDANT_BODIES} descendant bodies are tracked, only the header is
+   * kept.
    *
    * @param descendant the descendant
    * @param badAncestor the header of the bad ancestor
@@ -308,11 +319,20 @@ public class BadBlockManager {
       final Block descendant,
       final BlockHeader badAncestor,
       final Optional<Hash> maybeLatestValidHash) {
+    if (descendantBodies() >= MAX_BAD_DESCENDANT_BODIES) {
+      return recordBadDescendant(descendant.getHeader(), badAncestor, maybeLatestValidHash);
+    }
     final BadBlockCause cause = causeForDescendantOf(badAncestor);
     recordBadBlock(descendant, cause, Optional.empty(), Optional.empty());
     maybeLatestValidHash.ifPresent(
         latestValidHash -> addLatestValidHash(descendant.getHash(), latestValidHash));
     return new Notification(descendant.getHeader(), cause);
+  }
+
+  private long descendantBodies() {
+    return badBlocks.asMap().values().stream()
+        .filter(bad -> bad.cause().getReason() == BadBlockReason.DESCENDS_FROM_BAD_BLOCK)
+        .count();
   }
 
   /**
@@ -340,10 +360,17 @@ public class BadBlockManager {
       }
       maybeLatestValidHash.ifPresent(
           latestValidHash -> addLatestValidHash(badBlock.getHash(), latestValidHash));
-      badBlockDescendants.forEach(
-          block -> notifications.add(recordBadDescendant(block, badBlock, maybeLatestValidHash)));
-      badBlockHeaderDescendants.forEach(
-          header -> notifications.add(recordBadDescendant(header, badBlock, maybeLatestValidHash)));
+      // a descendant that is already tracked keeps its entry, which may be its own failure
+      badBlockDescendants.stream()
+          .filter(block -> !isBadBlock(block.getHash()))
+          .forEach(
+              block ->
+                  notifications.add(recordBadDescendant(block, badBlock, maybeLatestValidHash)));
+      badBlockHeaderDescendants.stream()
+          .filter(header -> !isBadBlock(header.getHash()))
+          .forEach(
+              header ->
+                  notifications.add(recordBadDescendant(header, badBlock, maybeLatestValidHash)));
     }
     notifications.forEach(this::notify);
     return true;

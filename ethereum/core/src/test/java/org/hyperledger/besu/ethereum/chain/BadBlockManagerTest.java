@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
@@ -138,6 +139,79 @@ public class BadBlockManagerTest {
     assertThat(badBlockManager.isBadBlock(block2.getHash())).isFalse();
     assertThat(badBlockManager.isBadBlock(block3.getHash())).isFalse();
     assertThat(badBlockManager.getBadBlocks()).containsExactly(block4);
+  }
+
+  @Test
+  public void removeBadBlock_keepsADescendantThatLaterFailedOnItsOwn() {
+    badBlockManager.addBadBlock(block, BadBlockCause.fromValidationFailure("transient"));
+    badBlockManager.checkAndMarkBadDescendant(block2.getHeader());
+    final BadBlockCause ownCause = BadBlockCause.fromValidationFailure("failed itself");
+    badBlockManager.addBadBlock(block2, ownCause);
+
+    badBlockManager.removeBadBlock(block.getHash());
+
+    assertThat(badBlockManager.getBadBlocks()).containsExactly(block2);
+    assertThat(badBlockManager.getBadHeaders()).isEmpty();
+    assertThat(badBlockManager.getBadBlockCause(block2.getHash())).contains(ownCause);
+  }
+
+  @Test
+  public void removeBadBlock_forgetsTheDescendantsOfABlockThatIsNoLongerTracked() {
+    final Block block3 = chainUtil.getBlock(3);
+    badBlockManager.addBadBlock(block, BadBlockCause.fromValidationFailure("transient"));
+    badBlockManager.markBadChain(
+        block.getHeader(), List.of(), List.of(block2.getHeader()), Optional.empty());
+    badBlockManager.checkAndMarkBadDescendant(block3.getHeader());
+    // the root is evicted while its descendants are still tracked
+    final BlockDataGenerator generator = new BlockDataGenerator();
+    for (int i = 0; i < 2 * BadBlockManager.MAX_BAD_CHAIN_SIZE; i++) {
+      badBlockManager.getBadHeader(block2.getHash());
+      badBlockManager.getBadHeader(block3.getHash());
+      badBlockManager.addBadBlock(generator.block(), BadBlockCause.fromValidationFailure("failed"));
+    }
+    assertThat(badBlockManager.isBadBlock(block.getHash())).isFalse();
+    assertThat(badBlockManager.isBadBlock(block2.getHash())).isTrue();
+
+    badBlockManager.removeBadBlock(block.getHash());
+
+    assertThat(badBlockManager.isBadBlock(block2.getHash())).isFalse();
+    assertThat(badBlockManager.isBadBlock(block3.getHash())).isFalse();
+  }
+
+  @Test
+  public void markBadChain_keepsTheEntryOfADescendantThatFailedOnItsOwn() {
+    badBlockManager.addBadBlock(block, BadBlockCause.fromValidationFailure("failed"));
+    final BadBlockCause ownCause = BadBlockCause.fromValidationFailure("failed itself");
+    badBlockManager.addBadBlock(block2, ownCause);
+
+    badBlockManager.markBadChain(
+        block.getHeader(), List.of(), List.of(block2.getHeader()), Optional.empty());
+
+    assertThat(badBlockManager.getBadHeaders()).isEmpty();
+    assertThat(badBlockManager.getBadBlockCause(block2.getHash())).contains(ownCause);
+  }
+
+  @Test
+  public void markBadChain_keepsDescendantBodiesWithinTheBudgetAcrossCalls() {
+    final BlockDataGenerator generator = new BlockDataGenerator();
+    final Block failed = generator.block();
+    badBlockManager.addBadBlock(failed, BadBlockCause.fromValidationFailure("failed"));
+
+    for (int session = 0; session < 3; session++) {
+      final List<Block> descendants =
+          Stream.generate(generator::block)
+              .limit(BadBlockManager.MAX_BAD_DESCENDANT_BODIES)
+              .toList();
+      badBlockManager.markBadChain(failed.getHeader(), descendants, List.of(), Optional.empty());
+      descendants.forEach(
+          descendant -> assertThat(badBlockManager.isBadBlock(descendant.getHash())).isTrue());
+    }
+
+    assertThat(badBlockManager.getBadBlocks())
+        .hasSize(BadBlockManager.MAX_BAD_DESCENDANT_BODIES + 1)
+        .contains(failed);
+    assertThat(badBlockManager.getBadHeaders())
+        .hasSize(2 * BadBlockManager.MAX_BAD_DESCENDANT_BODIES);
   }
 
   @Test
