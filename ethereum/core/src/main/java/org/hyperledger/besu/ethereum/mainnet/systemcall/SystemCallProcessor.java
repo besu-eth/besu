@@ -94,8 +94,6 @@ public class SystemCallProcessor {
               : "Invalid system call, no code at address " + callAddress);
     }
 
-    final AbstractMessageProcessor processor =
-        mainnetTransactionProcessor.getMessageProcessor(MessageFrame.Type.MESSAGE_CALL);
     final MessageFrame frame =
         createMessageFrame(
             callAddress,
@@ -115,7 +113,8 @@ public class SystemCallProcessor {
             : OperationTracer.NO_TRACING;
     Deque<MessageFrame> stack = frame.getMessageFrameStack();
     while (!stack.isEmpty()) {
-      processor.process(stack.peekFirst(), tracer);
+      // Child frames include CREATEs, which need the contract creation processor.
+      mainnetTransactionProcessor.process(stack.peekFirst(), tracer);
     }
 
     applyAccessLocationTracker(accessLocationTracker, context, systemCallUpdater);
