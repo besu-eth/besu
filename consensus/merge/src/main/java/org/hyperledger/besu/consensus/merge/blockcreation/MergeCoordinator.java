@@ -569,7 +569,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   }
 
   private boolean canRetryBlockCreation(final Throwable throwable) {
-    return BlockValidationResult.isLocalFailure(throwable);
+    return BlockValidationResult.isStorageFailure(throwable);
   }
 
   @Override

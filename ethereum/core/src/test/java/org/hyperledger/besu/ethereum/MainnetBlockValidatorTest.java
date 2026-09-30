@@ -58,6 +58,8 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -103,6 +105,15 @@ public class MainnetBlockValidatorTest {
         Arguments.of(
             "wrapped StorageException",
             new RuntimeException(new StorageException("Database closed")),
+            false),
+        Arguments.of(
+            "interrupted",
+            new IllegalStateException("Interrupted", new InterruptedException()),
+            false),
+        Arguments.of("cancelled", new CancellationException("Cancelled"), false),
+        Arguments.of(
+            "rejected by a shut down executor",
+            new RuntimeException(new RejectedExecutionException("Shutting down")),
             false),
         Arguments.of("RuntimeException", new RuntimeException("Oops"), true));
   }
