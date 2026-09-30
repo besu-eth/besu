@@ -186,7 +186,7 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
 
   public static class BlockAccessListBuilder {
     final Map<Address, AccountBuilder> accountChangesBuilders = new HashMap<>();
-    private final Set<Long> appliedIndices = new HashSet<>();
+    private long lastAppliedIndex = -1;
 
     public static AccessLocationTracker createPreExecutionAccessLocationTracker() {
       return new AccessLocationTracker(0, true);
@@ -212,17 +212,19 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
     }
 
     public void apply(final PartialBlockAccessView partialBlockAccessView) {
-      final long blockAccessIndex = partialBlockAccessView.getTxIndex();
-      if (!appliedIndices.add(blockAccessIndex)) {
-        // Views at a shared index (withdrawals, system calls) each carry the net change over the
-        // index so far, so a later one replaces the changes of the earlier ones.
-        accountChangesBuilders.values().forEach(b -> b.removeChangesAt(blockAccessIndex));
-      }
+      // Views at a shared index (withdrawals, system calls) arrive back to back, each carrying
+      // the net change of every account touched at the index so far, so a later one replaces the
+      // changes of the earlier ones.
+      final boolean replacesEarlierView = partialBlockAccessView.getTxIndex() == lastAppliedIndex;
+      lastAppliedIndex = partialBlockAccessView.getTxIndex();
       partialBlockAccessView
           .accountChanges()
           .forEach(
               account -> {
                 final AccountBuilder builder = getOrCreateAccountBuilder(account.getAddress());
+                if (replacesEarlierView) {
+                  builder.removeChangesAt(lastAppliedIndex);
+                }
                 account
                     .getStorageChanges()
                     .forEach(
