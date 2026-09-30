@@ -95,8 +95,8 @@ public class BonsaiSnapshotWorldStateKeyValueStorage extends BonsaiWorldStateKey
   }
 
   @Override
-  public Optional<Bytes> getAccountStateTrieNode(final Bytes location, final Bytes32 nodeHash) {
-    return isClosedGet() ? Optional.empty() : super.getAccountStateTrieNode(location, nodeHash);
+  public Optional<Bytes> getTrieNode(final Bytes key, final Bytes32 nodeHash) {
+    return isClosedGet() ? Optional.empty() : super.getTrieNode(key, nodeHash);
   }
 
   @Override
@@ -105,21 +105,8 @@ public class BonsaiSnapshotWorldStateKeyValueStorage extends BonsaiWorldStateKey
   }
 
   @Override
-  public Optional<Bytes> getAccountStorageTrieNode(
-      final Hash accountHash, final Bytes location, final Bytes32 nodeHash) {
-    return isClosedGet()
-        ? Optional.empty()
-        : super.getAccountStorageTrieNode(accountHash, location, nodeHash);
-  }
-
-  @Override
   public Optional<byte[]> getTrieLog(final Hash blockHash) {
     return isClosedGet() ? Optional.empty() : super.getTrieLog(blockHash);
-  }
-
-  @Override
-  public Optional<Bytes> getStateTrieNode(final Bytes location) {
-    return isClosedGet() ? Optional.empty() : super.getStateTrieNode(location);
   }
 
   @Override

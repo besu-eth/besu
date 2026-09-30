@@ -32,6 +32,7 @@ import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.NodeLoader;
 import org.hyperledger.besu.ethereum.trie.NodeUpdater;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
@@ -364,7 +365,8 @@ public class SnapV2BlockAccessListApplier {
         (location, hash, value) ->
             applyForStrategy(
                 updater,
-                onBonsai -> onBonsai.putAccountStorageTrieNode(accountHash, location, hash, value),
+                onBonsai ->
+                    onBonsai.putTrieNode(TrieNodeKey.of(accountHash, location), hash, value),
                 onForest -> {});
 
     for (final Hash slotHash : divergedSlots) {
@@ -548,9 +550,7 @@ public class SnapV2BlockAccessListApplier {
     final NodeUpdater nodeUpdater =
         (location, hash, value) ->
             applyForStrategy(
-                updater,
-                onBonsai -> onBonsai.putAccountStateTrieNode(location, hash, value),
-                onForest -> {});
+                updater, onBonsai -> onBonsai.putTrieNode(location, hash, value), onForest -> {});
 
     accountTrie.commit(nodeUpdater);
   }
@@ -634,7 +634,8 @@ public class SnapV2BlockAccessListApplier {
         (location, hash, value) ->
             applyForStrategy(
                 updater,
-                onBonsai -> onBonsai.putAccountStorageTrieNode(accountHash, location, hash, value),
+                onBonsai ->
+                    onBonsai.putTrieNode(TrieNodeKey.of(accountHash, location), hash, value),
                 onForest -> {});
 
     int downloadedSlots = 0;
