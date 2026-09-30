@@ -161,6 +161,20 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
   }
 
   /**
+   * Reads only the sequence number (block height) from the encoded message without full decode.
+   *
+   * @param data the raw encoded message bytes
+   * @return the sequence number
+   */
+  public static long decodeSequence(final Bytes data) {
+    final RLPInput rlp = RLP.input(data);
+    rlp.enterList(); // outer RoundChange list
+    rlp.enterList(); // signed-data wrapper
+    rlp.enterList(); // RoundChangePayload
+    return rlp.readLongScalar();
+  }
+
+  /**
    * Decode.
    *
    * @param data the data
@@ -168,6 +182,20 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
    * @return the round change
    */
   public static RoundChange decode(final Bytes data, final QbftBlockCodec blockEncoder) {
+    return decode(data, blockEncoder, MAX_LIST_ENTRIES);
+  }
+
+  /**
+   * Decode with an explicit cap on the prepares list. Use {@code validators.size()} as the cap when
+   * decoding current-height messages to bound secp256k1 work.
+   *
+   * @param data the data
+   * @param blockEncoder the qbft block encoder
+   * @param maxCertEntries maximum permitted entries in the prepares list
+   * @return the round change
+   */
+  public static RoundChange decode(
+      final Bytes data, final QbftBlockCodec blockEncoder, final int maxCertEntries) {
     final RLPInput rlpIn = RLP.input(data);
     final int items = rlpIn.enterList();
     final SignedData<RoundChangePayload> payload = readPayload(rlpIn, RoundChangePayload::readFrom);
@@ -189,7 +217,7 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
         (items == LEGACY_ROUND_CHANGE_ITEM_COUNT) ? Optional.empty() : readBlockAccessList(rlpIn);
 
     final List<SignedData<PreparePayload>> prepares =
-        rlpIn.readList(r -> readPayload(r, PreparePayload::readFrom), MAX_LIST_ENTRIES);
+        rlpIn.readList(r -> readPayload(r, PreparePayload::readFrom), maxCertEntries);
     rlpIn.leaveList();
 
     return new RoundChange(payload, block, blockAccessList, blockEncoder, prepares);

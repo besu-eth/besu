@@ -177,6 +177,16 @@ public class BonsaiWorldStateWitnessStorage extends BonsaiWorldStateLayerStorage
   }
 
   /**
+   * Closes immediately instead of waiting for subscribers to leave. The only subscriber is the
+   * throw-away world state's no-op NoOpBonsaiWorldStateCacheManager, which caches nothing and never
+   * unsubscribes, and nothing reads this storage once the witness world state is closed.
+   */
+  @Override
+  public synchronized void close() throws Exception {
+    doClose();
+  }
+
+  /**
    * Returns the set of raw trie node bytes intercepted during this storage session.
    *
    * @return all trie nodes read through this storage, as raw {@link Bytes}

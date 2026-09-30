@@ -127,7 +127,7 @@ public class DebugTraceBlockStreamerHexEncodingTest {
             block, TraceOptions.DEFAULT, fixture.getProtocolSchedule(), blockchainQueries);
 
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    assertThatCode(() -> streamer.streamTo(out, mapper)).doesNotThrowAnyException();
+    assertThatCode(() -> streamer.streamTo(out, mapper, () -> true)).doesNotThrowAnyException();
   }
 
   /**
@@ -142,7 +142,7 @@ public class DebugTraceBlockStreamerHexEncodingTest {
             block, TraceOptions.DEFAULT, fixture.getProtocolSchedule(), blockchainQueries);
 
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    streamer.streamTo(out, mapper);
+    streamer.streamTo(out, mapper, () -> true);
 
     final JsonNode structLogs = getStructLogs(out);
     final String reason = findRevertReason(structLogs);
@@ -160,7 +160,7 @@ public class DebugTraceBlockStreamerHexEncodingTest {
             block, TraceOptions.DEFAULT, fixture.getProtocolSchedule(), blockchainQueries);
 
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    streamer.streamTo(out, mapper);
+    streamer.streamTo(out, mapper, () -> true);
 
     final JsonNode structLogs = getStructLogs(out);
     final String reason = findRevertReason(structLogs);
@@ -183,11 +183,11 @@ public class DebugTraceBlockStreamerHexEncodingTest {
 
     // streaming path
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    streamer.streamTo(out, mapper);
+    streamer.streamTo(out, mapper, () -> true);
     final JsonNode streamedRoot = mapper.readTree(out.toByteArray());
 
     // accumulating path
-    final List<Object> accumulated = streamer.accumulateAll();
+    final List<Object> accumulated = streamer.accumulateAll(() -> true);
     final JsonNode accRoot = mapper.readTree(mapper.writeValueAsBytes(accumulated));
 
     assertThat(streamedRoot)
@@ -249,7 +249,7 @@ public class DebugTraceBlockStreamerHexEncodingTest {
             block, TraceOptions.DEFAULT, fixture.getProtocolSchedule(), blockchainQueries);
 
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    assertThatCode(() -> streamer.streamTo(out, mapper)).doesNotThrowAnyException();
+    assertThatCode(() -> streamer.streamTo(out, mapper, () -> true)).doesNotThrowAnyException();
 
     // Must be valid JSON
     assertThatCode(() -> mapper.readTree(out.toByteArray())).doesNotThrowAnyException();
@@ -268,11 +268,11 @@ public class DebugTraceBlockStreamerHexEncodingTest {
 
     // streaming path
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    streamer.streamTo(out, mapper);
+    streamer.streamTo(out, mapper, () -> true);
     final JsonNode streamedRoot = mapper.readTree(out.toByteArray());
 
     // accumulating path
-    final List<Object> accumulated = streamer.accumulateAll();
+    final List<Object> accumulated = streamer.accumulateAll(() -> true);
     final JsonNode accRoot = mapper.readTree(mapper.writeValueAsBytes(accumulated));
 
     assertThat(streamedRoot)
@@ -289,7 +289,7 @@ public class DebugTraceBlockStreamerHexEncodingTest {
             block, TraceOptions.DEFAULT, fixture.getProtocolSchedule(), blockchainQueries);
 
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    streamer.streamTo(out, mapper);
+    streamer.streamTo(out, mapper, () -> true);
     final JsonNode root = mapper.readTree(out.toByteArray());
     final JsonNode structLogs = root.get(0).get("result").get("structLogs");
 
@@ -344,11 +344,11 @@ public class DebugTraceBlockStreamerHexEncodingTest {
 
     // streaming path
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    streamer.streamTo(out, mapper);
+    streamer.streamTo(out, mapper, () -> true);
     final JsonNode streamedRoot = mapper.readTree(out.toByteArray());
 
     // accumulating path
-    final List<Object> accumulated = streamer.accumulateAll();
+    final List<Object> accumulated = streamer.accumulateAll(() -> true);
     final JsonNode accRoot = mapper.readTree(mapper.writeValueAsBytes(accumulated));
 
     // Verify memory entries are actually present (MSTORE creates memory)

@@ -817,8 +817,7 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
             .maxPriorityFeePerGas(Optional.of(Wei.of(1)))
             .blobsWithCommitments(
                 Optional.of(
-                    new BlobsWithCommitments(
-                        BlobType.KZG_PROOF,
+                    BlobsWithCommitments.createFromBlobsType0(
                         List.of(new KZGCommitment(Bytes48.ZERO)),
                         List.of(new Blob(Bytes.EMPTY)),
                         List.of(new KZGProof(Bytes48.ZERO)),

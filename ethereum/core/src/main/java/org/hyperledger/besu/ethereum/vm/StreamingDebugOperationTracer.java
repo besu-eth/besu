@@ -51,6 +51,7 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
   private final FrameWriter frameWriter;
   private boolean hasEmittedFrame = false;
   private Bytes[] preExecutionMemory;
+  private int stepCount = 0;
 
   /**
    * Creates a streaming operation tracer.
@@ -90,6 +91,11 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
       words[i] = frame.readMemory(i * 32L, 32);
     }
     return words;
+    if (options.limit() > 0 && stepCount >= options.limit()) {
+      traceOpcode = false;
+      return;
+    }
+    stepCount++;
   }
 
   @Override
