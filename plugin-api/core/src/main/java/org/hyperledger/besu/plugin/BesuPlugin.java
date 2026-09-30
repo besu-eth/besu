@@ -44,8 +44,8 @@ public interface BesuPlugin {
    *
    * <p>The command line is parsed once, after every plugin has returned from this method; options
    * added later fail Besu startup. No Besu service is available here and the plugin must not do any
-   * other work. Unlike {@link #register(ServiceManager)}, this method also runs for {@code --help}
-   * and {@code --version}.
+   * other work. Unlike {@link #register(ServiceManager)}, this method also runs for {@code --help},
+   * {@code --version} and {@code --print-paths-and-exit}.
    *
    * @param options the registry to declare the plugin's CLI options with
    */
