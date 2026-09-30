@@ -63,6 +63,7 @@
 - Tune layered txpool for upcoming Amsterdam 200M gas limit [#11335](https://github.com/besu-eth/besu/pull/11335)
 - Schedule the Amsterdam fork on Sepolia at timestamp `1791294816` (Tue, 06 Oct 2026, 13:53:36 UTC). [#11333](https://github.com/besu-eth/besu/pull/11333)
 - Update `Bouncycastle` to 1.85 to address CVEs `CVE-2026-8763` and `CVE-2026-13506`. [#11336](https://github.com/besu-eth/besu/pull/11336)
+- Bound the cost of jump destination analysis: it no longer branches on each opcode, lowering its worst case per byte 3.6x and analysing the glamsterdam devnet-8 `JUMPDEST` spam contract 3x faster. [#11400](https://github.com/besu-eth/besu/pull/11400)
 
 ## 26.8.1
 
