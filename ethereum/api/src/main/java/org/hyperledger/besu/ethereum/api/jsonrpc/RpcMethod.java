@@ -28,6 +28,8 @@ public enum RpcMethod {
   ADMIN_LOGS_REMOVE_CACHE("admin_logsRemoveCache"),
   DEBUG_ACCOUNT_AT("debug_accountAt"),
   DEBUG_ACCOUNT_RANGE("debug_accountRange"),
+  DEBUG_GET_MODIFIED_ACCOUNTS_BY_NUMBER("debug_getModifiedAccountsByNumber"),
+  DEBUG_GET_MODIFIED_ACCOUNTS_BY_HASH("debug_getModifiedAccountsByHash"),
   DEBUG_METRICS("debug_metrics"),
   DEBUG_RESYNC_WORLDSTATE("debug_resyncWorldState"),
   DEBUG_SET_HEAD("debug_setHead"),

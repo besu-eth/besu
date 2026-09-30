@@ -1,0 +1,17 @@
+{
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "debug_getModifiedAccountsByNumber",
+    "params": ["0x1", "0x9"],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "error": {
+      "code": -32000,
+      "message": "end block 9 not found"
+    }
+  },
+  "statusCode": 200
+}
