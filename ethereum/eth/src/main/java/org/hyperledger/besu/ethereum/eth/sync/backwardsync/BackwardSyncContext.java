@@ -451,7 +451,12 @@ public class BackwardSyncContext {
             < maxBadChainEventEntries) {
       final Hash descendantHash = descendant.get();
       if (!badBlockManager.isBadBlock(descendantHash)) {
-        final Optional<Block> block = backwardChain.getBlock(descendantHash);
+        // the bad block manager keeps no more descendant bodies than this, the rest of a long chain
+        // is collected as headers so its bodies are never loaded
+        final Optional<Block> block =
+            badBlockDescendants.size() < BadBlockManager.MAX_BAD_DESCENDANT_BODIES
+                ? backwardChain.getBlock(descendantHash)
+                : Optional.empty();
         if (block.isPresent()) {
           badBlockDescendants.add(block.get());
         } else {

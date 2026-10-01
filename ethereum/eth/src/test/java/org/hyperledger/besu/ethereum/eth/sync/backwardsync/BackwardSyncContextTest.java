@@ -860,8 +860,10 @@ public class BackwardSyncContextTest {
     verify(badChainListener)
         .onBadChain(
             eq(blockHeader), badBlockDescendants.capture(), badBlockHeaderDescendants.capture());
-    assertThat(badBlockDescendants.getValue()).hasSize(TEST_MAX_BAD_CHAIN_EVENT_ENTRIES);
-    assertThat(badBlockHeaderDescendants.getValue()).isEmpty();
+    // bodies are only loaded up to what the bad block manager keeps, the rest are headers
+    assertThat(badBlockDescendants.getValue()).hasSize(BadBlockManager.MAX_BAD_DESCENDANT_BODIES);
+    assertThat(badBlockHeaderDescendants.getValue())
+        .hasSize(TEST_MAX_BAD_CHAIN_EVENT_ENTRIES - BadBlockManager.MAX_BAD_DESCENDANT_BODIES);
   }
 
   @Test

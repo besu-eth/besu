@@ -109,7 +109,9 @@ public class BadBlockManager {
       final BadBlockCause cause,
       final Optional<BlockAccessList> blockAccessList,
       final Optional<BlockAccessList> generatedBlockAccessList) {
-    recordBadBlock(badBlock, cause, blockAccessList, generatedBlockAccessList);
+    synchronized (this) {
+      recordBadBlock(badBlock, cause, blockAccessList, generatedBlockAccessList);
+    }
     notify(new Notification(badBlock.getHeader(), cause));
   }
 
@@ -151,16 +153,23 @@ public class BadBlockManager {
    * earlier attempt recorded, and neither can a block be bad for descending from it. Synchronized
    * with the descendant marking for the same reason as {@link #reset()}.
    *
+   * <p>This runs for every block that is imported successfully. Nothing is tracked in normal
+   * operation, which returns without taking the monitor; otherwise the lookup is bounded by the
+   * size of the caches.
+   *
    * @param blockHash the hash of the block to forget
    */
   public void removeBadBlock(final Hash blockHash) {
-    // the block itself can already be evicted while the descendants marked on its account are not
-    if (!isBadBlock(blockHash)
-        && latestValidHashes.getIfPresent(blockHash) == null
-        && markedDescendants().noneMatch(bad -> bad.header().getParentHash().equals(blockHash))) {
+    if (isEmpty() && latestValidHashes.size() == 0) {
       return;
     }
     synchronized (this) {
+      // the block itself can already be evicted while the descendants marked on its account are not
+      if (!isBadBlock(blockHash)
+          && latestValidHashes.getIfPresent(blockHash) == null
+          && markedDescendants().noneMatch(bad -> bad.header().getParentHash().equals(blockHash))) {
+        return;
+      }
       LOG.debug("Forget bad block {} after it was imported successfully", blockHash);
       final Map<Hash, List<Hash>> markedChildren = new HashMap<>();
       markedDescendants()
@@ -229,7 +238,12 @@ public class BadBlockManager {
   }
 
   public void addBadHeader(final BlockHeader header, final BadBlockCause cause) {
-    recordBadHeader(header, cause);
+    synchronized (this) {
+      // one entry per block, a block whose body is tracked keeps that entry
+      if (!badBlocks.asMap().containsKey(header.getHash())) {
+        recordBadHeader(header, cause);
+      }
+    }
     notify(new Notification(header, cause));
   }
 
@@ -267,22 +281,7 @@ public class BadBlockManager {
   /**
    * Record a block as bad because it descends from a bad block. Only the header is kept, the body
    * of a block that was never executed is not needed to reject its own descendants.
-   *
-   * @param descendant the header of the descendant
-   * @param badAncestor the header of the bad ancestor
-   * @param maybeLatestValidHash the latest valid hash of the chain, if known
-   * @return the cause recorded for the descendant
    */
-  public BadBlockCause addBadDescendant(
-      final BlockHeader descendant,
-      final BlockHeader badAncestor,
-      final Optional<Hash> maybeLatestValidHash) {
-    final Notification notification =
-        recordBadDescendant(descendant, badAncestor, maybeLatestValidHash);
-    notify(notification);
-    return notification.cause();
-  }
-
   private Notification recordBadDescendant(
       final BlockHeader descendant,
       final BlockHeader badAncestor,
@@ -299,22 +298,7 @@ public class BadBlockManager {
    * kept so the debug RPCs can still inspect it, it is evicted to a header like any other bad block
    * body. Once {@link #MAX_BAD_DESCENDANT_BODIES} descendant bodies are tracked, only the header is
    * kept.
-   *
-   * @param descendant the descendant
-   * @param badAncestor the header of the bad ancestor
-   * @param maybeLatestValidHash the latest valid hash of the chain, if known
-   * @return the cause recorded for the descendant
    */
-  public BadBlockCause addBadDescendant(
-      final Block descendant,
-      final BlockHeader badAncestor,
-      final Optional<Hash> maybeLatestValidHash) {
-    final Notification notification =
-        recordBadDescendant(descendant, badAncestor, maybeLatestValidHash);
-    notify(notification);
-    return notification.cause();
-  }
-
   private Notification recordBadDescendant(
       final Block descendant,
       final BlockHeader badAncestor,

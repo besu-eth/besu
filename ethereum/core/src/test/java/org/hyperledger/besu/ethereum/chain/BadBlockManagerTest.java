@@ -97,10 +97,10 @@ public class BadBlockManagerTest {
   }
 
   @Test
-  public void addBadDescendant_keepsTheBodyOfADescendantKnownAsBlock() {
+  public void markBadChain_keepsTheBodyOfADescendantKnownAsBlock() {
     badBlockManager.addBadBlock(block, BadBlockCause.fromValidationFailure("failed"));
 
-    badBlockManager.addBadDescendant(block2, block.getHeader(), Optional.empty());
+    badBlockManager.markBadChain(block.getHeader(), List.of(block2), List.of(), Optional.empty());
 
     assertThat(badBlockManager.getBadBlock(block2.getHash())).contains(block2);
     assertThat(badBlockManager.getBadBlockCause(block2.getHash()))
@@ -129,7 +129,7 @@ public class BadBlockManagerTest {
     final Block block3 = chainUtil.getBlock(3);
     final Block block4 = chainUtil.getBlock(4);
     badBlockManager.addBadBlock(block, BadBlockCause.fromValidationFailure("transient"));
-    badBlockManager.addBadDescendant(block2, block.getHeader(), Optional.empty());
+    badBlockManager.markBadChain(block.getHeader(), List.of(block2), List.of(), Optional.empty());
     badBlockManager.checkAndMarkBadDescendant(block3.getHeader());
     badBlockManager.addBadBlock(block4, BadBlockCause.fromValidationFailure("failed itself"));
 
@@ -212,6 +212,18 @@ public class BadBlockManagerTest {
         .contains(failed);
     assertThat(badBlockManager.getBadHeaders())
         .hasSize(2 * BadBlockManager.MAX_BAD_DESCENDANT_BODIES);
+  }
+
+  @Test
+  public void addBadHeader_keepsTheEntryOfABlockWhoseBodyIsTracked() {
+    final BadBlockCause ownCause = BadBlockCause.fromValidationFailure("failed");
+    badBlockManager.addBadBlock(block, ownCause);
+
+    badBlockManager.addBadHeader(block.getHeader(), BadBlockCause.fromValidationFailure("header"));
+
+    assertThat(badBlockManager.getBadBlocks()).containsExactly(block);
+    assertThat(badBlockManager.getBadHeaders()).isEmpty();
+    assertThat(badBlockManager.getBadBlockCause(block.getHash())).contains(ownCause);
   }
 
   @Test
