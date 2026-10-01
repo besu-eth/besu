@@ -509,6 +509,22 @@ public class BytesValueRLPInput implements RLPInput {
    * @return -1 if skipCount==true, otherwise, the number of item of the entered list.
    */
   public int enterList(final boolean skipCount) {
+    return enterList(skipCount, Integer.MAX_VALUE);
+  }
+
+  @Override
+  public int enterList(final int maxElements) {
+    return enterList(false, maxElements);
+  }
+
+  /**
+   * Core implementation of enterList with optional element count limit for early-exit.
+   *
+   * @param skipCount true if the element count is not required.
+   * @param maxElements maximum permitted element count; throws after reading maxElements+1 headers.
+   * @return -1 if skipCount==true, otherwise, the number of items (guaranteed ≤ maxElements).
+   */
+  public int enterList(final boolean skipCount, final int maxElements) {
     if (currentItem >= size) {
       throw error("Cannot enter a lists, input is fully consumed");
     }
@@ -540,11 +556,15 @@ public class BytesValueRLPInput implements RLPInput {
     int count = -1;
 
     if (!skipCount) {
-      // Count list elements from first one.
       count = 0;
       setTo(listStart);
       while (currentItem < listEnd) {
-        ++count;
+        if (++count > maxElements) {
+          throw new RLPException(
+              String.format(
+                  "List of %d elements exceeds the maximum permitted size of %d",
+                  count, maxElements));
+        }
         setTo(nextItem());
       }
     }

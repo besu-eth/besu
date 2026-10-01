@@ -52,8 +52,8 @@ public class RocksDBCLIOptions {
   /** The constant DEFAULT_IS_HIGH_SPEC. */
   public static final boolean DEFAULT_IS_HIGH_SPEC = false;
 
-  /** The default value indicating whether read caching is enabled for snapshot access. */
-  public static final boolean DEFAULT_ENABLE_READ_CACHE_FOR_SNAPSHOTS = false;
+  /** The default value indicating whether the startup table cache warm-up is enabled. */
+  public static final boolean DEFAULT_IS_TABLE_CACHE_WARMUP_ENABLED = true;
 
   /** The constant MAX_OPEN_FILES_FLAG. */
   public static final String MAX_OPEN_FILES_FLAG = "--Xplugin-rocksdb-max-open-files";
@@ -68,9 +68,9 @@ public class RocksDBCLIOptions {
   /** The constant IS_HIGH_SPEC. */
   public static final String IS_HIGH_SPEC = "--Xplugin-rocksdb-high-spec-enabled";
 
-  /** The constant ENABLE_READ_CACHE_FOR_SNAPSHOTS. */
-  public static final String ENABLE_READ_CACHE_FOR_SNAPSHOTS =
-      "--Xplugin-rocksdb-read-cache-snapshots-enabled";
+  /** The constant TABLE_CACHE_WARMUP_ENABLED_FLAG. */
+  public static final String TABLE_CACHE_WARMUP_ENABLED_FLAG =
+      "--Xplugin-rocksdb-table-cache-warmup-enabled";
 
   /** Key name for configuring blockchain_blob_garbage_collection_enabled */
   public static final String BLOB_BLOCKCHAIN_GARBAGE_COLLECTION_ENABLED =
@@ -120,14 +120,14 @@ public class RocksDBCLIOptions {
           "Use this flag to boost Besu performance if you have a 16 GiB RAM hardware or more (default: ${DEFAULT-VALUE})")
   boolean isHighSpec;
 
-  /** Enables read caching during snapshot access. */
+  /** Enables the startup table cache warm-up. */
   @CommandLine.Option(
-      names = {ENABLE_READ_CACHE_FOR_SNAPSHOTS},
+      names = {TABLE_CACHE_WARMUP_ENABLED_FLAG},
       hidden = true,
       paramLabel = "<BOOLEAN>",
       description =
-          "Enable read caching during snapshot access for better RPC performance (default: ${DEFAULT-VALUE}). May slow block processing.")
-  boolean enableReadCacheForSnapshots;
+          "At startup, open the table readers of all live SST files to populate the RocksDB table cache with their footers, indexes and filters (default: ${DEFAULT-VALUE})")
+  boolean isTableCacheWarmupEnabled = DEFAULT_IS_TABLE_CACHE_WARMUP_ENABLED;
 
   /** The Blob blockchain garbage collection enabled. */
   @CommandLine.Option(
@@ -189,7 +189,7 @@ public class RocksDBCLIOptions {
     options.cacheCapacity = config.getCacheCapacity();
     options.backgroundThreadCount = config.getBackgroundThreadCount();
     options.isHighSpec = config.isHighSpec();
-    options.enableReadCacheForSnapshots = config.isReadCacheEnabledForSnapshots();
+    options.isTableCacheWarmupEnabled = config.isTableCacheWarmupEnabled();
     options.isBlockchainGarbageCollectionEnabled = config.isBlockchainGarbageCollectionEnabled();
     options.blobGarbageCollectionAgeCutoff = config.getBlobGarbageCollectionAgeCutoff();
     options.blobGarbageCollectionForceThreshold = config.getBlobGarbageCollectionForceThreshold();
@@ -207,7 +207,7 @@ public class RocksDBCLIOptions {
         backgroundThreadCount,
         cacheCapacity,
         isHighSpec,
-        enableReadCacheForSnapshots,
+        isTableCacheWarmupEnabled,
         isBlockchainGarbageCollectionEnabled,
         blobGarbageCollectionAgeCutoff,
         blobGarbageCollectionForceThreshold);
@@ -291,7 +291,7 @@ public class RocksDBCLIOptions {
         .add("cacheCapacity", cacheCapacity)
         .add("backgroundThreadCount", backgroundThreadCount)
         .add("isHighSpec", isHighSpec)
-        .add("enableReadCacheForSnapshots", enableReadCacheForSnapshots)
+        .add("isTableCacheWarmupEnabled", isTableCacheWarmupEnabled)
         .add("isBlockchainGarbageCollectionEnabled", isBlockchainGarbageCollectionEnabled)
         .add("blobGarbageCollectionAgeCutoff", blobGarbageCollectionAgeCutoff)
         .add("blobGarbageCollectionForceThreshold", blobGarbageCollectionForceThreshold)

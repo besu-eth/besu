@@ -16,7 +16,7 @@ package org.hyperledger.besu.ethereum.vm.operations.v2;
 
 import static org.hyperledger.besu.ethereum.vm.operations.v2.BenchmarkHelperV2.pow2;
 
-import org.hyperledger.besu.ethereum.utils.Range;
+import org.hyperledger.besu.ethereum.util.Range;
 import org.hyperledger.besu.evm.UInt256;
 
 import java.util.Random;

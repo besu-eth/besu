@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
@@ -38,6 +39,23 @@ public interface FlatDbCacheManager {
 
   default long incrementAndGetVersion() {
     return 0;
+  }
+
+  /**
+   * While a head commit is publishing storage/cache, readers must ignore the cross-block cache
+   * entirely (no hits, no miss inserts) and read storage only. Nested calls are reference-counted.
+   */
+  default void beginCommitCacheBypass() {
+    // No-op
+  }
+
+  /** Ends a matching {@link #beginCommitCacheBypass()}. */
+  default void endCommitCacheBypass() {
+    // No-op
+  }
+
+  default boolean isCommitCacheBypassActive() {
+    return false;
   }
 
   default void clear(final SegmentIdentifier segment) {
@@ -62,8 +80,11 @@ public interface FlatDbCacheManager {
       final List<Bytes> keys,
       final long version,
       final Function<List<Bytes>, List<Optional<Bytes>>> batchFetcher) {
-    // Always bypass cache and go directly to storage
-    return batchFetcher.apply(keys);
+    final List<Optional<Bytes>> fetched = batchFetcher.apply(keys);
+    if (fetched.size() != keys.size()) {
+      return Collections.nCopies(keys.size(), null);
+    }
+    return fetched;
   }
 
   default void putInCache(

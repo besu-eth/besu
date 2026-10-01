@@ -985,7 +985,7 @@ public abstract class MainnetProtocolSpecs {
         pragueSpecBuilder.requestProcessorCoordinator(
             pragueRequestsProcessors(requestContractAddresses));
       } catch (NoSuchElementException nsee) {
-        LOG.warn("Prague definitions require system contract addresses in genesis");
+        LOG.warn("Prague definitions require depositContractAddress in genesis");
         throw nsee;
       }
     }
@@ -999,6 +999,10 @@ public abstract class MainnetProtocolSpecs {
         || genesisConfigOptions.isQbft();
   }
 
+  // Deliberately stricter than RequestContractAddresses.fromGenesis, which defaults the
+  // withdrawal and consolidation addresses: PoA chains opt in to system calls by configuring all
+  // three, and treating a deposit-only PoA genesis as opted in would change how existing chains
+  // execute their blocks.
   private static boolean hasSystemContractAddresses(
       final GenesisConfigOptions genesisConfigOptions) {
     return genesisConfigOptions.getDepositContractAddress().isPresent()
@@ -1311,8 +1315,8 @@ public abstract class MainnetProtocolSpecs {
                 RequestContractAddresses.fromGenesis(genesisConfigOptions)));
       } catch (NoSuchElementException nsee) {
         // Surface the missing-address cause explicitly: without it the bare NoSuchElementException
-        // gives no hint that the genesis file is what needs the system contract addresses.
-        LOG.warn("Amsterdam definitions require system contract addresses in genesis");
+        // gives no hint that the genesis file is what needs the deposit contract address.
+        LOG.warn("Amsterdam definitions require depositContractAddress in genesis");
         throw nsee;
       }
     }

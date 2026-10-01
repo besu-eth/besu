@@ -88,6 +88,8 @@ public interface ExtraStorageConfiguration {
     long DEFAULT_BONSAI_CROSS_BLOCK_CACHE_ACCOUNT_SIZE = 100_000L;
     long DEFAULT_BONSAI_CROSS_BLOCK_CACHE_STORAGE_SIZE = 500_000L;
     boolean DEFAULT_BONSAI_ARCHIVE_STATE_PROOFS_ENABLED = false;
+    int DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL = 32;
+    int DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL = 16;
 
     @Value.Default
     default boolean getFullFlatDbEnabled() {
@@ -117,6 +119,16 @@ public interface ExtraStorageConfiguration {
     @Value.Default
     default boolean getBonsaiArchiveStateProofsEnabled() {
       return DEFAULT_BONSAI_ARCHIVE_STATE_PROOFS_ENABLED;
+    }
+
+    @Value.Default
+    default int getBonsaiArchiveShallowCheckpointInterval() {
+      return DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL;
+    }
+
+    @Value.Default
+    default int getBonsaiArchiveDeepCheckpointInterval() {
+      return DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL;
     }
   }
 }

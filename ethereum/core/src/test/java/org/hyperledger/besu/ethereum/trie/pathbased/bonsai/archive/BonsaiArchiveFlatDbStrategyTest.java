@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE_ARCHIVE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage.WORLD_BLOCK_NUMBER_KEY;
@@ -27,6 +28,7 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
 
+import java.util.List;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -180,6 +182,30 @@ public class BonsaiArchiveFlatDbStrategyTest {
       assertThat(value).as("Block " + blockNum + " should have stored value").isPresent();
       assertThat(Bytes.wrap(value.get())).isEqualTo(expectedValues[(int) blockNum]);
     }
+  }
+
+  @Test
+  public void getMultipleFlatIsNoOp() {
+    final Hash accountHash =
+        Address.fromHexString("0x0000000000000000000000000000000000000006").addressHash();
+    final Bytes historicalValue = Bytes.fromHexString("0xAABB01");
+    final Bytes liveHeadValue = Bytes.fromHexString("0xCCDD99");
+
+    SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
+    archiveFlatDbStrategy.putFlatAccount(storage, tx, accountHash, historicalValue);
+    tx.commit();
+
+    tx = storage.startTransaction();
+    tx.put(
+        ACCOUNT_INFO_STATE, accountHash.getBytes().toArrayUnsafe(), liveHeadValue.toArrayUnsafe());
+    tx.commit();
+
+    setWorldBlockNumber(0);
+
+    assertThat(
+            archiveFlatDbStrategy.getMultipleFlat(
+                ACCOUNT_INFO_STATE, List.of(accountHash.getBytes()), storage))
+        .isEmpty();
   }
 
   private void setWorldBlockNumber(final long blockNumber) {

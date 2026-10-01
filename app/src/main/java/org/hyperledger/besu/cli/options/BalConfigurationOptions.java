@@ -45,6 +45,30 @@ public class BalConfigurationOptions {
       description = "Log the constructed and block's BAL when they differ.")
   boolean balLogBalsOnMismatch = false;
 
+  @CommandLine.Option(
+      names = {"--Xbal-prefetch-reading-enabled"},
+      hidden = true,
+      arity = "1",
+      description =
+          "Enable prefetching of state data based on BAL read operations (default: ${DEFAULT-VALUE}).")
+  boolean balPreFetchReadingEnabled = BalConfiguration.DEFAULT.isBalPreFetchReadingEnabled();
+
+  @CommandLine.Option(
+      names = {"--Xbal-prefetch-batch-size"},
+      hidden = true,
+      paramLabel = "<INT>",
+      description =
+          "Keys per BAL prefetch MultiGet (0 = one MultiGet per segment; default: ${DEFAULT-VALUE}).")
+  int balPreFetchBatchSize = BalConfiguration.DEFAULT.getBalPreFetchBatchSize();
+
+  @CommandLine.Option(
+      names = {"--Xbal-prefetch-sorting-enabled"},
+      hidden = true,
+      arity = "1",
+      description =
+          "Enable sorting of storage state data based on BAL (default: ${DEFAULT-VALUE}).")
+  boolean balPreFetchSortingEnabled = BalConfiguration.DEFAULT.isBalPreFetchSortingEnabled();
+
   /**
    * Builds the immutable {@link BalConfiguration} corresponding to the parsed CLI options.
    *
@@ -55,6 +79,9 @@ public class BalConfigurationOptions {
         .isPerfectParallelizationEnabled(balPerfectParallelizationEnabled)
         .shouldLogBalsOnMismatch(balLogBalsOnMismatch)
         .isBalStateRootEnabled(balStateRootEnabled)
+        .isBalPreFetchReadingEnabled(balPreFetchReadingEnabled)
+        .isBalPreFetchSortingEnabled(balPreFetchSortingEnabled)
+        .balPreFetchBatchSize(balPreFetchBatchSize)
         .build();
   }
 }

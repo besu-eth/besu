@@ -30,6 +30,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
@@ -254,12 +255,19 @@ public class TrieLogPruner implements TrieLogEvent.TrieLogObserver {
       final Hash blockHash = event.layer().getBlockHash();
       final Optional<Long> blockNumber = event.layer().getBlockNumber();
       blockNumber.ifPresent(
-          blockNum ->
+          blockNum -> {
+            try {
               executeAsync.accept(
                   () -> {
                     addToPruneQueue(blockNum, blockHash);
                     pruneFromQueue();
-                  }));
+                  });
+            } catch (final RejectedExecutionException e) {
+              LOG.debug(
+                  "Trie log pruning task rejected for block {}; executor is likely shutting down",
+                  blockNum);
+            }
+          });
     }
   }
 }
