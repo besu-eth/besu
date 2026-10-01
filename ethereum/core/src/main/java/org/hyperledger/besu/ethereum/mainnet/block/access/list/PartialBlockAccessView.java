@@ -49,11 +49,21 @@ import org.apache.tuweni.units.bigints.UInt256;
 public final class PartialBlockAccessView {
 
   private final long txIndex;
+
+  /**
+   * Whether several views are applied at this index (the system calls, and the withdrawals after
+   * the last transaction). Each such view carries the net change of every account touched at the
+   * index so far, so it replaces what earlier views recorded.
+   */
+  private final boolean sharedIndex;
+
   private final List<AccountChanges> accountChanges;
 
-  public PartialBlockAccessView(final List<AccountChanges> accountChanges, final long txIndex) {
+  public PartialBlockAccessView(
+      final List<AccountChanges> accountChanges, final long txIndex, final boolean sharedIndex) {
     this.accountChanges = accountChanges;
     this.txIndex = txIndex;
+    this.sharedIndex = sharedIndex;
   }
 
   @Override
@@ -68,6 +78,10 @@ public final class PartialBlockAccessView {
 
   public long getTxIndex() {
     return txIndex;
+  }
+
+  public boolean isSharedIndex() {
+    return sharedIndex;
   }
 
   public List<AccountChanges> accountChanges() {
@@ -167,10 +181,16 @@ public final class PartialBlockAccessView {
   /** Builder for PartialBlockAccessView. */
   public static class PartialBlockAccessViewBuilder {
     private long txIndex;
+    private boolean sharedIndex;
     private final Map<Address, AccountChangesBuilder> accountBuilders = new HashMap<>();
 
     public PartialBlockAccessViewBuilder withTxIndex(final long txIndex) {
       this.txIndex = txIndex;
+      return this;
+    }
+
+    public PartialBlockAccessViewBuilder withSharedIndex(final boolean sharedIndex) {
+      this.sharedIndex = sharedIndex;
       return this;
     }
 
@@ -188,7 +208,7 @@ public final class PartialBlockAccessView {
               Arrays.compareUnsigned(
                   left.getAddress().getBytes().toArrayUnsafe(),
                   right.getAddress().getBytes().toArrayUnsafe()));
-      return new PartialBlockAccessView(accountChanges, txIndex);
+      return new PartialBlockAccessView(accountChanges, txIndex, sharedIndex);
     }
   }
 

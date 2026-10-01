@@ -79,7 +79,9 @@ class BlockAccessListBuilderEip7928Test {
   @Test
   void laterViewAtSameIndexReplacesEarlierOne() {
     final PartialBlockAccessView.PartialBlockAccessViewBuilder first =
-        new PartialBlockAccessView.PartialBlockAccessViewBuilder().withTxIndex(1);
+        new PartialBlockAccessView.PartialBlockAccessViewBuilder()
+            .withTxIndex(1)
+            .withSharedIndex(true);
     first
         .getOrCreateAccountBuilder(ADDR_1)
         .withPostBalance(Wei.of(5))
@@ -87,7 +89,9 @@ class BlockAccessListBuilderEip7928Test {
         .addStorageChange(SLOT_1, UInt256.ZERO, UInt256.ONE);
 
     final PartialBlockAccessView.PartialBlockAccessViewBuilder second =
-        new PartialBlockAccessView.PartialBlockAccessViewBuilder().withTxIndex(1);
+        new PartialBlockAccessView.PartialBlockAccessViewBuilder()
+            .withTxIndex(1)
+            .withSharedIndex(true);
     second.getOrCreateAccountBuilder(ADDR_1).withNonceChange(3L).addStorageRead(SLOT_1);
 
     final BlockAccessList.BlockAccessListBuilder builder = BlockAccessList.builder();
