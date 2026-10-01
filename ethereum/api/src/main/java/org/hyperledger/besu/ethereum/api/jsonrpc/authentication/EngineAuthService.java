@@ -186,7 +186,9 @@ public class EngineAuthService implements AuthenticationService {
                     handler.handle(Optional.empty());
                   }
                 } else {
-                  LOG.debug("Authentication failed: {}", r.cause().toString());
+                  if (LOG.isDebugEnabled()) {
+                    LOG.debug("Authentication failed: {}", r.cause().toString());
+                  }
                   handler.handle(Optional.empty());
                 }
               });

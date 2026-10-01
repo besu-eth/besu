@@ -31,13 +31,17 @@ import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SPURIO
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.TANGERINE_WHISTLE;
 
 import org.hyperledger.besu.config.GenesisConfig;
+import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.ProtocolScheduleFixture;
+import org.hyperledger.besu.ethereum.mainnet.requests.RequestContractAddresses;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+
+import java.util.List;
 
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -153,6 +157,98 @@ public class MainnetProtocolScheduleTest {
                     false,
                     BalConfiguration.DEFAULT,
                     new NoOpMetricsSystem()));
+  }
+
+  @Test
+  public void shouldDefaultRequestContractAddressesForEthClientsMainnetGenesis() {
+    // Config section of https://github.com/eth-clients/mainnet/blob/main/metadata/genesis.json,
+    // which sets pragueTime but neither request contract address.
+    final String json =
+        """
+        {
+          "config": {
+            "chainId": 1,
+            "homesteadBlock": 1150000,
+            "daoForkBlock": 1920000,
+            "daoForkSupport": true,
+            "eip150Block": 2463000,
+            "eip150Hash": "0x2086799aeebeae135c246c65021c82b4e15a2c451340993aacfd2751886514f0",
+            "eip155Block": 2675000,
+            "eip158Block": 2675000,
+            "byzantiumBlock": 4370000,
+            "constantinopleBlock": 7280000,
+            "petersburgBlock": 7280000,
+            "istanbulBlock": 9069000,
+            "muirGlacierBlock": 9200000,
+            "berlinBlock": 12244000,
+            "londonBlock": 12965000,
+            "arrowGlacierBlock": 13773000,
+            "grayGlacierBlock": 15050000,
+            "terminalTotalDifficulty": 58750000000000000000000,
+            "terminalTotalDifficultyPassed": true,
+            "shanghaiTime": 1681338455,
+            "cancunTime": 1710338135,
+            "pragueTime": 1746612311,
+            "osakaTime": 1764798551,
+            "bpo1Time": 1765290071,
+            "bpo2Time": 1767747671,
+            "ethash": {},
+            "depositContractAddress": "0x00000000219ab540356cBB839Cbe05303d7705Fa",
+            "blobSchedule": {
+              "cancun": {
+                "target": 3,
+                "max": 6,
+                "baseFeeUpdateFraction": 3338477
+              },
+              "prague": {
+                "target": 6,
+                "max": 9,
+                "baseFeeUpdateFraction": 5007716
+              },
+              "bpo1": {
+                "target": 10,
+                "max": 15,
+                "baseFeeUpdateFraction": 8346193
+              },
+              "bpo2": {
+                "target": 14,
+                "max": 21,
+                "baseFeeUpdateFraction": 11684671
+              }
+            }
+          }
+        }
+        """;
+    final GenesisConfigOptions options = GenesisConfig.fromConfig(json).getConfigOptions();
+    final ProtocolSchedule schedule =
+        MainnetProtocolSchedule.fromConfig(
+            options,
+            EvmConfiguration.DEFAULT,
+            MiningConfiguration.MINING_DISABLED,
+            new BadBlockManager(),
+            false,
+            BalConfiguration.DEFAULT,
+            new NoOpMetricsSystem());
+
+    for (final long forkTime :
+        List.of(options.getPragueTime().orElseThrow(), options.getOsakaTime().orElseThrow())) {
+      final BlockHeader header =
+          new BlockHeaderTestFixture().number(22_000_000L).timestamp(forkTime).buildHeader();
+
+      Assertions.assertThat(
+              schedule
+                  .getByBlockHeader(header)
+                  .getRequestProcessorCoordinator()
+                  .orElseThrow()
+                  .getContractConfigs())
+          .containsEntry(
+              "WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS",
+              RequestContractAddresses.DEFAULT_WITHDRAWAL_REQUEST_CONTRACT_ADDRESS.toHexString())
+          .containsEntry(
+              "CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS",
+              RequestContractAddresses.DEFAULT_CONSOLIDATION_REQUEST_CONTRACT_ADDRESS
+                  .toHexString());
+    }
   }
 
   private BlockHeader blockHeader(final long number) {

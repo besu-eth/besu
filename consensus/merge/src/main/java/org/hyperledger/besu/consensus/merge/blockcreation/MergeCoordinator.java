@@ -15,6 +15,7 @@
 package org.hyperledger.besu.consensus.merge.blockcreation;
 
 import static java.util.stream.Collectors.joining;
+import static org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.ForkchoiceResult.Status.INTERNAL_ERROR;
 import static org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.ForkchoiceResult.Status.INVALID;
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withBlockHeaderAndUpdateNodeHead;
 
@@ -28,7 +29,6 @@ import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.blockcreation.BlockCreationTiming;
 import org.hyperledger.besu.ethereum.blockcreation.BlockCreator.BlockCreationResult;
-import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
@@ -67,6 +67,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes32;
@@ -707,20 +708,23 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     final MutableBlockchain blockchain = protocolContext.getBlockchain();
     final Optional<BlockHeader> newFinalized = blockchain.getBlockHeader(finalizedBlockHash);
 
-    final Optional<Hash> latestValid = getLatestValidAncestor(newHead);
-
     // TODO this check should be implicit and already done when newPayload was processed
     Optional<BlockHeader> parentOfNewHead = blockchain.getBlockHeader(newHead.getParentHash());
     if (parentOfNewHead.isPresent()
         && Long.compareUnsigned(newHead.getTimestamp(), parentOfNewHead.get().getTimestamp())
             <= 0) {
       return ForkchoiceResult.withFailure(
-          INVALID, "new head timestamp not greater than parent", latestValid);
+          INVALID,
+          "new head timestamp not greater than parent",
+          getLatestValidAncestor(newHead.getParentHash()));
     }
 
     if (!setNewHead(blockchain, newHead)) {
       LOG.warn("Failed to move world state to new head {}", newHead.toLogString());
-      return ForkchoiceResult.withFailure(INVALID, "Failed to set new head", latestValid);
+      // the head was already validated by newPayload, failing to move to it says nothing about its
+      // validity
+      return ForkchoiceResult.withFailure(
+          INTERNAL_ERROR, "Failed to set new head", Optional.empty());
     }
 
     // set and persist the new finalized block if it is present
@@ -847,10 +851,8 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
             () ->
                 protocolContext
                     .getBadBlockManager()
-                    .getBadBlock(parentHash)
-                    .flatMap(
-                        badParent ->
-                            findValidAncestor(chain, badParent.getHeader().getParentHash())));
+                    .getBadHeader(parentHash)
+                    .flatMap(badParent -> findValidAncestor(chain, badParent.getParentHash())));
   }
 
   @Override
@@ -959,24 +961,20 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
             ? Optional.of(parentHeader.get().getHash())
             : Optional.empty();
 
-    // Bad block has already been marked, but we need to mark the bad block's descendants
-    badBlockDescendants.forEach(
-        block -> {
-          LOG.trace("Add descendant block {} to bad blocks", block.getHash());
-          badBlockManager.addBadBlock(block, BadBlockCause.fromBadAncestorBlock(badBlock));
-          maybeLatestValidHash.ifPresent(
-              latestValidHash ->
-                  badBlockManager.addLatestValidHash(block.getHash(), latestValidHash));
-        });
+    // Bad block has already been marked, record its latest valid hash so later children inherit it
+    if (badBlockManager.getLatestValidHash(badBlock.getHash()).isEmpty()) {
+      maybeLatestValidHash.ifPresent(
+          latestValidHash ->
+              badBlockManager.addLatestValidHash(badBlock.getHash(), latestValidHash));
+    }
 
-    badBlockHeaderDescendants.forEach(
-        header -> {
-          LOG.trace("Add descendant header {} to bad blocks", header.getHash());
-          badBlockManager.addBadHeader(header, BadBlockCause.fromBadAncestorBlock(badBlock));
-          maybeLatestValidHash.ifPresent(
-              latestValidHash ->
-                  badBlockManager.addLatestValidHash(header.getHash(), latestValidHash));
-        });
+    Stream.concat(
+            badBlockDescendants.stream().map(Block::getHeader), badBlockHeaderDescendants.stream())
+        .forEach(
+            header -> {
+              LOG.trace("Add descendant {} to bad blocks", header.getHash());
+              badBlockManager.addBadDescendant(header, badBlock.getHeader(), maybeLatestValidHash);
+            });
   }
 
   /**
@@ -1009,8 +1007,44 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   }
 
   @Override
+  public boolean checkAndMarkBadDescendant(final Hash blockHash) {
+    final BadBlockManager badBlockManager = protocolContext.getBadBlockManager();
+    // nothing to descend from, keep the forkchoice hot path free of storage reads
+    if (badBlockManager.isEmpty()) {
+      return false;
+    }
+    // only a header we already know can be linked to its parent, anything else must be synced
+    return backwardSyncContext
+        .getBackwardChain()
+        .getHeader(blockHash)
+        .filter(header -> badBlockManager.isBadBlock(header.getParentHash()))
+        // a parent that made it onto the chain cannot be bad, a stale entry, e.g. left by a
+        // transient local failure, must not condemn its descendants
+        .filter(
+            header ->
+                protocolContext.getBlockchain().getBlockHeader(header.getParentHash()).isEmpty())
+        .flatMap(badBlockManager::checkAndMarkBadDescendant)
+        .isPresent();
+  }
+
+  @Override
   public Optional<Hash> getLatestValidHashOfBadBlock(final Hash blockHash) {
-    return protocolContext.getBadBlockManager().getLatestValidHash(blockHash);
+    final BadBlockManager badBlockManager = protocolContext.getBadBlockManager();
+    final Optional<Hash> maybeStored = badBlockManager.getLatestValidHash(blockHash);
+    if (maybeStored.isPresent()) {
+      return maybeStored;
+    }
+    // nothing stored, but the recorded bad ancestry can still lead back to the chain; remember
+    // the result so engine_newPayload and engine_forkchoiceUpdated answer alike and later
+    // descendants inherit it
+    final Optional<Hash> maybeAncestor =
+        badBlockManager
+            .getBadHeader(blockHash)
+            .flatMap(
+                header ->
+                    findValidAncestor(protocolContext.getBlockchain(), header.getParentHash()));
+    maybeAncestor.ifPresent(ancestor -> badBlockManager.addLatestValidHash(blockHash, ancestor));
+    return maybeAncestor;
   }
 
   private boolean isPoSHeader(final BlockHeader header) {

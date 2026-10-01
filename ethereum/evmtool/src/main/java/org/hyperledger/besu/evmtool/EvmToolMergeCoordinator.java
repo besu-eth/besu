@@ -172,6 +172,12 @@ public class EvmToolMergeCoordinator implements MergeMiningCoordinator {
   }
 
   @Override
+  public boolean checkAndMarkBadDescendant(final Hash blockHash) {
+    // evmtool has no backward sync, so there is no header of an unimported block to check
+    return false;
+  }
+
+  @Override
   public Optional<Hash> getLatestValidHashOfBadBlock(final Hash blockHash) {
     return protocolContext.getBadBlockManager().getLatestValidHash(blockHash);
   }

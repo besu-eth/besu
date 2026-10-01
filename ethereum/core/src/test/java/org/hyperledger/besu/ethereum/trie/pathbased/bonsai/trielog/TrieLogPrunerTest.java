@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -29,6 +30,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldSt
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.util.Optional;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
@@ -336,6 +338,28 @@ public class TrieLogPrunerTest {
     trieLogPruner.onTrieLogAdded(new TrieLogAddedEvent(layer));
 
     // Then
+    verify(worldState, never()).pruneTrieLog(key(1));
+  }
+
+  @Test
+  public void onTrieLogAdded_should_not_throw_when_executor_rejects_task() {
+    // Reproduces shutdown race: EthScheduler is already terminated when a newPayload saves a
+    // trielog. Without catching RejectedExecutionException, persist fails mid-flight and can
+    // cascade into an unnecessary worldstate heal.
+    final Consumer<Runnable> rejectingExecutor =
+        command -> {
+          throw new RejectedExecutionException("executor terminated");
+        };
+    final TrieLogPruner trieLogPruner =
+        new TrieLogPruner(
+            worldState, blockchain, rejectingExecutor, 0, 1, false, new NoOpMetricsSystem());
+
+    final TrieLogLayer layer = new TrieLogLayer();
+    layer.setBlockNumber(1L);
+    layer.setBlockHash(key(1));
+
+    assertThatCode(() -> trieLogPruner.onTrieLogAdded(new TrieLogAddedEvent(layer)))
+        .doesNotThrowAnyException();
     verify(worldState, never()).pruneTrieLog(key(1));
   }
 

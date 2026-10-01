@@ -55,4 +55,10 @@ public interface TrieNodeStrategy {
       SegmentedKeyValueStorage storage,
       SegmentedKeyValueStorageTransaction transaction,
       Bytes location);
+
+  default void onBeforeCommit(
+      final SegmentedKeyValueStorage storage,
+      final SegmentedKeyValueStorageTransaction transaction) {}
+
+  default void onRollback(final SegmentedKeyValueStorageTransaction transaction) {}
 }

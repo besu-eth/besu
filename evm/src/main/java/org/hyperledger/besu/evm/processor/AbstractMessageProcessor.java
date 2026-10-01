@@ -185,15 +185,17 @@ public abstract class AbstractMessageProcessor {
   }
 
   private static void traceFrameExit(final MessageFrame frame, final String status) {
-    final var contractAddress = frame.getContractAddress();
-    LOG.trace(
-        "EIP-8037 FRAME_EXIT depth={} contractAddress={} status={} gasLeft={} reservoir={} stateGasUsed={}",
-        frame.getDepth(),
-        contractAddress == null ? "" : contractAddress.toHexString(),
-        status,
-        frame.getRemainingGas(),
-        frame.getStateGasReservoir(),
-        frame.getStateGasUsed());
+    if (LOG.isTraceEnabled()) {
+      final var contractAddress = frame.getContractAddress();
+      LOG.trace(
+          "EIP-8037 FRAME_EXIT depth={} contractAddress={} status={} gasLeft={} reservoir={} stateGasUsed={}",
+          frame.getDepth(),
+          contractAddress == null ? "" : contractAddress.toHexString(),
+          status,
+          frame.getRemainingGas(),
+          frame.getStateGasReservoir(),
+          frame.getStateGasUsed());
+    }
   }
 
   /**
@@ -227,7 +229,7 @@ public abstract class AbstractMessageProcessor {
    * @param operationTracer the operation tracer
    */
   public void process(final MessageFrame frame, final OperationTracer operationTracer) {
-    if (frame.getState() == MessageFrame.State.NOT_STARTED) {
+    if (LOG.isTraceEnabled() && frame.getState() == MessageFrame.State.NOT_STARTED) {
       final var contractAddress = frame.getContractAddress();
       LOG.trace(
           "EIP-8037 FRAME_ENTER depth={} contractAddress={} gasLimit={} reservoir={} stateGasUsed={}",

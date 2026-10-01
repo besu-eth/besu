@@ -14,23 +14,33 @@
  */
 package org.hyperledger.besu.plugin.services;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Transaction;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.plugin.Unstable;
+import org.hyperledger.besu.plugin.data.AddedBlockContext;
 import org.hyperledger.besu.plugin.data.BlockBody;
 import org.hyperledger.besu.plugin.data.BlockContext;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.data.TransactionReceipt;
+import org.hyperledger.besu.plugin.services.chain.spi.BadBlockListener;
+import org.hyperledger.besu.plugin.services.chain.spi.BlockAddedListener;
+import org.hyperledger.besu.plugin.services.chain.spi.BlockPropagatedListener;
+import org.hyperledger.besu.plugin.services.chain.spi.BlockReorgListener;
+import org.hyperledger.besu.plugin.services.chain.spi.LogListener;
 
 import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
 
+import org.apache.tuweni.bytes.Bytes32;
+
 /**
  * A service for reading the blockchain: blocks, headers, receipts, transactions, the chain id and
- * fork identity. It also stores blocks and sets the safe and finalized block.
+ * fork identity. It also stores blocks, sets the safe and finalized block, and delivers chain
+ * events through its {@code subscribe*} methods.
  */
 @Unstable
 public interface BlockchainService extends BesuService {
@@ -181,4 +191,56 @@ public interface BlockchainService extends BesuService {
    */
   @Unstable
   HardforkId getNextBlockHardforkId(BlockHeader parentBlockHeader, long timestampForNextBlock);
+
+  /**
+   * Subscribes to blocks being propagated: a block whose header has been received and validated and
+   * is about to be sent to other peers, before its body has been evaluated. The block may not have
+   * been imported yet and may fail later validation.
+   *
+   * @param listener the listener that receives each propagated block
+   * @return the subscription; close it to stop receiving events
+   */
+  Subscription subscribeBlockPropagated(BlockPropagatedListener listener);
+
+  /**
+   * Subscribes to blocks added, after they have been evaluated and validated. Fires for blocks on
+   * forks and for reorgs as well as for head advancement; {@link AddedBlockContext#getEventType()}
+   * says which.
+   *
+   * @param listener the listener that receives each added block
+   * @return the subscription; close it to stop receiving events
+   */
+  Subscription subscribeBlockAdded(BlockAddedListener listener);
+
+  /**
+   * Subscribes to reorgs: blocks added while the chain moves to a different head.
+   *
+   * @param listener the listener that receives each reorg block
+   * @return the subscription; close it to stop receiving events
+   */
+  Subscription subscribeBlockReorg(BlockReorgListener listener);
+
+  /**
+   * Subscribes to logs, both added and removed, emitted by each new block and matching the given
+   * filter. An empty address list matches any address. Topics are matched by position: the outer
+   * list is the topic position, each inner list the accepted values at that position, and an empty
+   * inner list accepts any value there, as does a {@code null} inner list or a {@code null} entry
+   * in an inner list.
+   *
+   * @param addresses the contract addresses to match, empty for any
+   * @param topics the topics to match by position, empty for any
+   * @param listener the listener that receives each matching log
+   * @return the subscription; close it to stop receiving events
+   * @throws NullPointerException if {@code addresses} or {@code topics} is null
+   */
+  Subscription subscribeLogs(
+      List<Address> addresses, List<List<Bytes32>> topics, LogListener listener);
+
+  /**
+   * Subscribes to bad blocks: blocks that failed validation, or that descend from one that did.
+   *
+   * @param listener the listener that receives each bad block
+   * @return the subscription; close it to stop receiving events
+   */
+  Subscription subscribeBadBlock(BadBlockListener listener);
 }

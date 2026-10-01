@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.pending;
 
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionBaseResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.Subscription;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.SubscriptionManager;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.request.SubscriptionType;
@@ -40,11 +41,10 @@ public class PendingTransactionSubscriptionService implements PendingTransaction
 
     final PendingTransactionResult hashResult =
         new PendingTransactionResult(pendingTransaction.getHash());
-    final PendingTransactionDetailResult detailResult =
-        new PendingTransactionDetailResult(pendingTransaction);
+    final TransactionBaseResult txResult = new TransactionBaseResult(pendingTransaction);
     for (final Subscription subscription : subscriptions) {
       if (Boolean.TRUE.equals(subscription.getIncludeTransaction())) {
-        subscriptionManager.sendMessage(subscription.getSubscriptionId(), detailResult);
+        subscriptionManager.sendMessage(subscription.getSubscriptionId(), txResult);
       } else {
         subscriptionManager.sendMessage(subscription.getSubscriptionId(), hashResult);
       }
