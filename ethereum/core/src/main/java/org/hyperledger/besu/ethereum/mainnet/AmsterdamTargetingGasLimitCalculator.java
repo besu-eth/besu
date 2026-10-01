@@ -20,10 +20,14 @@ import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import java.util.OptionalInt;
 
 /**
- * EIP-8037: Amsterdam relaxes the EIP-7825 cap on {@code tx.gas} itself and instead caps {@code
- * max(intrinsic_execution, calldata_floor)} at the former cap value.
+ * EIP-8037: Amsterdam relaxes the EIP-7825 cap on {@code tx.gas} to {@link
+ * #TRANSACTION_TOTAL_GAS_LIMIT_CAP} and instead caps {@code max(intrinsic_execution,
+ * calldata_floor)} at the former cap value.
  */
 public class AmsterdamTargetingGasLimitCalculator extends OsakaTargetingGasLimitCalculator {
+
+  /** The EIP-8037 cap on {@code tx.gas} as a whole ({@code TX_MAX_TOTAL_GAS_LIMIT}, 2^32 - 1). */
+  public static final long TRANSACTION_TOTAL_GAS_LIMIT_CAP = 4_294_967_295L;
 
   public AmsterdamTargetingGasLimitCalculator(
       final long londonForkBlock,
@@ -41,7 +45,7 @@ public class AmsterdamTargetingGasLimitCalculator extends OsakaTargetingGasLimit
         targetBlobsPerBlock,
         maxBlobsPerTransaction,
         userMaxBlobsPerBlock,
-        Long.MAX_VALUE);
+        TRANSACTION_TOTAL_GAS_LIMIT_CAP);
   }
 
   @Override

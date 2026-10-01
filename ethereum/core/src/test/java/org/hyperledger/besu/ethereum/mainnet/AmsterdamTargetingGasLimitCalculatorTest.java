@@ -142,5 +142,9 @@ class AmsterdamTargetingGasLimitCalculatorTest {
     assertThat(calculator.currentBlobGasLimit()).isEqualTo(0x2A0000);
     // per-tx cap: DEFAULT_MAX_BLOBS_PER_TRANSACTION (6) * 131072 = 0xC0000
     assertThat(calculator.transactionBlobGasLimitCap()).isEqualTo(0xC0000);
+    // EIP-8037: tx.gas is capped at TX_MAX_TOTAL_GAS_LIMIT (2^32 - 1), the EIP-7825 value now caps
+    // max(intrinsic_execution, calldata_floor)
+    assertThat(calculator.transactionGasLimitCap()).isEqualTo(4_294_967_295L);
+    assertThat(calculator.transactionIntrinsicGasLimitCap()).isEqualTo(16_777_216L);
   }
 }

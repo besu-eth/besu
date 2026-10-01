@@ -1272,8 +1272,8 @@ public abstract class MainnetProtocolSpecs {
             .blockAccessListFactory(new BlockAccessListFactory())
             .blockAccessListValidatorBuilder(MainnetBlockAccessListValidator::create)
             .stateRootCommitterFactory(new StateRootCommitterFactory(balConfiguration))
-            // EIP-8037: Disable validation-time TX_MAX_GAS_LIMIT cap (enforced at runtime on
-            // execution gas)
+            // EIP-8037: tx.gas is capped at TX_MAX_TOTAL_GAS_LIMIT; TX_MAX_GAS_LIMIT now bounds
+            // execution gas at runtime
             .gasLimitCalculatorBuilder(
                 (feeMarket, gasCalculator, blobSchedule) -> {
                   final long londonForkBlock =
