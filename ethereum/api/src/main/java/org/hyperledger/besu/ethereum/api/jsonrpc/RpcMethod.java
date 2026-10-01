@@ -63,6 +63,7 @@ public enum RpcMethod {
   ENGINE_NEW_PAYLOAD_V3("engine_newPayloadV3"),
   ENGINE_NEW_PAYLOAD_V4("engine_newPayloadV4"),
   ENGINE_NEW_PAYLOAD_V5("engine_newPayloadV5"),
+  ENGINE_NEW_PAYLOAD_WITH_WITNESS_V5("engine_newPayloadWithWitnessV5"),
   ENGINE_FORKCHOICE_UPDATED_V1("engine_forkchoiceUpdatedV1"),
   ENGINE_FORKCHOICE_UPDATED_V2("engine_forkchoiceUpdatedV2"),
   ENGINE_FORKCHOICE_UPDATED_V3("engine_forkchoiceUpdatedV3"),
@@ -174,7 +175,8 @@ public enum RpcMethod {
   WEB3_CLIENT_VERSION("web3_clientVersion"),
   WEB3_SHA3("web3_sha3"),
   PLUGINS_RELOAD_CONFIG("plugins_reloadPluginConfig"),
-  TESTING_BUILD_BLOCK_V1("testing_buildBlockV1");
+  TESTING_BUILD_BLOCK_V1("testing_buildBlockV1"),
+  TESTING_COMMIT_BLOCK_V1("testing_commitBlockV1");
 
   private final String methodName;
 

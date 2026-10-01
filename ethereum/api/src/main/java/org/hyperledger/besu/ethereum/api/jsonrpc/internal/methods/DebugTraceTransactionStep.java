@@ -19,15 +19,12 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.DebugTraceTran
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.FourByteTracer;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.OpCodeLoggerTracerResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.calltrace.CallTracer;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.tracing.diff.StateDiffTrace;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.tracing.diff.StateTraceGenerator;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.tracing.diff.StateTraceResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.calltrace.FlatCallTracer;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.prestate.PrestateTracer;
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
-
-import com.fasterxml.jackson.annotation.JsonGetter;
 
 /**
  * Encapsulates both the {@link OperationTracer} and the logic to build a {@link
@@ -94,11 +91,7 @@ public interface DebugTraceTransactionStep {
           };
       case PRESTATE_TRACER ->
           new DebugTraceTransactionStep() {
-            private final DebugOperationTracer tracer =
-                new DebugOperationTracer(traceOptions.opCodeTracerConfig(), recordChildCallGas);
-            private final StateTraceGenerator generator = new StateTraceGenerator();
-            private final boolean diffMode =
-                Boolean.TRUE.equals(traceOptions.tracerConfig().getOrDefault("diffMode", false));
+            private final PrestateTracer tracer = new PrestateTracer(traceOptions, protocolSpec);
 
             @Override
             public OperationTracer getOperationTracer() {
@@ -107,14 +100,7 @@ public interface DebugTraceTransactionStep {
 
             @Override
             public DebugTraceTransactionResult buildResult(final TransactionTrace trace) {
-              final StateDiffTrace diffTrace =
-                  (diffMode
-                          ? generator.generateStateDiff(trace)
-                          : generator.generatePreState(trace))
-                      .findFirst()
-                      .orElseGet(StateDiffTrace::new);
-              return new DebugTraceTransactionResult(
-                  trace, new StateTraceResult(diffTrace, diffMode));
+              return new DebugTraceTransactionResult(trace, tracer.buildResult());
             }
           };
       case FOUR_BYTE_TRACER ->
@@ -134,8 +120,7 @@ public interface DebugTraceTransactionStep {
           };
       case FLAT_CALL_TRACER ->
           new DebugTraceTransactionStep() {
-            private final DebugOperationTracer tracer =
-                new DebugOperationTracer(traceOptions.opCodeTracerConfig(), recordChildCallGas);
+            private final FlatCallTracer tracer = new FlatCallTracer(traceOptions, protocolSpec);
 
             @Override
             public OperationTracer getOperationTracer() {
@@ -144,16 +129,9 @@ public interface DebugTraceTransactionStep {
 
             @Override
             public DebugTraceTransactionResult buildResult(final TransactionTrace trace) {
-              return new DebugTraceTransactionResult(trace, new UnimplementedTracerResult());
+              return new DebugTraceTransactionResult(trace, tracer.buildResult(trace));
             }
           };
     };
-  }
-
-  class UnimplementedTracerResult {
-    @JsonGetter("error")
-    public String getError() {
-      return "Not Yet Implemented";
-    }
   }
 }

@@ -54,7 +54,7 @@ class AmsterdamGasCalculatorTest {
 
   @Test
   void transactionFloorCostShouldBeAtLeastTransactionBaseCost() {
-    // EIP-3120: the floor is anchored on the decomposed EIP-2780 regular base, which for a
+    // EIP-3120: the floor is anchored on the decomposed EIP-2780 execution base, which for a
     // zero-value simple call is TX_BASE (12000) + COLD_ACCOUNT_ACCESS (3000) = 15000.
     assertThat(amsterdamGasCalculator.transactionFloorCost(callWith(Bytes.EMPTY, List.of())))
         .isEqualTo(15000L);
@@ -94,7 +94,7 @@ class AmsterdamGasCalculatorTest {
 
   @Test
   void eip8038CreateAccessGasCost() {
-    // EIP-8038: CREATE/CREATE2 regular-gas cost = CREATE_ACCESS = ACCOUNT_WRITE (9,000)
+    // EIP-8038: CREATE/CREATE2 execution-gas cost = CREATE_ACCESS = ACCOUNT_WRITE (9,000)
     // + COLD_ACCOUNT_ACCESS (3,000) = 12,000.
     assertThat(amsterdamGasCalculator.txCreateCost()).isEqualTo(12_000L);
   }
@@ -127,13 +127,13 @@ class AmsterdamGasCalculatorTest {
   }
 
   /**
-   * The "Transaction reference cases" table of EIP-2780, intrinsic (regular) column. Rows that
+   * The "Transaction reference cases" table of EIP-2780, intrinsic (execution) column. Rows that
    * differ only in their runtime charges collapse to the same intrinsic cost — they are listed
    * separately anyway so the table can be read against the EIP row by row.
    */
   static Stream<Arguments> eip2780ReferenceCases() {
     return Stream.of(
-        // description, to, value, expected intrinsic regular gas
+        // description, to, value, expected intrinsic execution gas
         Arguments.of("self-transfer", SENDER, Wei.ONE, 12_000L),
         Arguments.of("no-transfer to EOA", RECIPIENT, Wei.ZERO, 15_000L),
         Arguments.of("no-transfer to contract", RECIPIENT, Wei.ZERO, 15_000L),
@@ -155,7 +155,7 @@ class AmsterdamGasCalculatorTest {
   void eip2780IntrinsicGasMatchesReferenceCases(
       final String description, final Address to, final Wei value, final long expected) {
     final Transaction tx = transactionWith(to, value, Bytes.EMPTY, 0);
-    assertThat(amsterdamGasCalculator.transactionIntrinsicRegularGas(tx)).isEqualTo(expected);
+    assertThat(amsterdamGasCalculator.transactionIntrinsicExecutionGas(tx)).isEqualTo(expected);
   }
 
   @Test
@@ -164,7 +164,7 @@ class AmsterdamGasCalculatorTest {
     // (3 + 8) * 4 = 44, on top of the 15,000 for a zero-value call to another account.
     final Transaction tx =
         transactionWith(RECIPIENT, Wei.ZERO, Bytes.fromHexString("0x0000000102"), 0);
-    assertThat(amsterdamGasCalculator.transactionIntrinsicRegularGas(tx)).isEqualTo(15_044L);
+    assertThat(amsterdamGasCalculator.transactionIntrinsicExecutionGas(tx)).isEqualTo(15_044L);
   }
 
   @Test
@@ -172,19 +172,19 @@ class AmsterdamGasCalculatorTest {
     // Creation of a 33-byte init code: 24,000 + CODE_INIT_PER_WORD (2) * ceil(33/32) = 24,004.
     // All non-zero bytes, so data_cost = 33 * 4 * 4 = 528.
     final Transaction tx = transactionWith(null, Wei.ZERO, Bytes.repeat((byte) 0x1, 33), 0);
-    assertThat(amsterdamGasCalculator.transactionIntrinsicRegularGas(tx)).isEqualTo(24_532L);
+    assertThat(amsterdamGasCalculator.transactionIntrinsicExecutionGas(tx)).isEqualTo(24_532L);
   }
 
   @Test
   void eip2780AuthorizationIntrinsicChargesOnlyTheStateIndependentBase() {
-    // EIP-2780: the intrinsic charges only REGULAR_PER_AUTH_BASE_COST (7,816) per authorization;
+    // EIP-2780: the intrinsic charges only EXECUTION_PER_AUTH_BASE_COST (7,816) per authorization;
     // ACCOUNT_WRITE is charged at the top frame on the authority's pre-state.
     assertThat(amsterdamGasCalculator.delegateCodeGasCost(1)).isEqualTo(7_816L);
     assertThat(amsterdamGasCalculator.delegateCodeGasCost(3)).isEqualTo(23_448L);
 
     // A zero-value 7702 transaction with one authorization: 15,000 + 7,816 = 22,816.
     final Transaction tx = transactionWith(RECIPIENT, Wei.ZERO, Bytes.EMPTY, 1);
-    assertThat(amsterdamGasCalculator.transactionIntrinsicRegularGas(tx)).isEqualTo(22_816L);
+    assertThat(amsterdamGasCalculator.transactionIntrinsicExecutionGas(tx)).isEqualTo(22_816L);
   }
 
   @Test

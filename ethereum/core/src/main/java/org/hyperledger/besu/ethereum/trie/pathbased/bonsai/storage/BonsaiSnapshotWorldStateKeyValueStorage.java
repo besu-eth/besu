@@ -16,13 +16,13 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedSnapshotWorldStateKeyValueStorage;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.StorageSubscriber;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
+import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SnappableKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SnappedKeyValueStorage;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.function.Supplier;
 
@@ -32,7 +32,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class BonsaiSnapshotWorldStateKeyValueStorage extends BonsaiWorldStateKeyValueStorage
-    implements PathBasedSnapshotWorldStateKeyValueStorage, StorageSubscriber {
+    implements StorageSubscriber {
 
   protected final BonsaiWorldStateKeyValueStorage parentWorldStateStorage;
   private static final Logger LOG =
@@ -156,6 +156,15 @@ public class BonsaiSnapshotWorldStateKeyValueStorage extends BonsaiWorldStateKey
   }
 
   @Override
+  public List<Optional<Bytes>> getMultipleFlat(
+      final SegmentIdentifier segmentIdentifier, final List<byte[]> keys) {
+    if (isClosedGet()) {
+      return List.of();
+    }
+    return super.getMultipleFlat(segmentIdentifier, keys);
+  }
+
+  @Override
   public boolean isWorldStateAvailable(final Bytes32 rootHash, final Hash blockHash) {
     return !isClosedGet() && super.isWorldStateAvailable(rootHash, blockHash);
   }
@@ -237,7 +246,6 @@ public class BonsaiSnapshotWorldStateKeyValueStorage extends BonsaiWorldStateKey
     }
   }
 
-  @Override
   public BonsaiWorldStateKeyValueStorage getParentWorldStateStorage() {
     return parentWorldStateStorage;
   }

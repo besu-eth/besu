@@ -24,30 +24,32 @@ import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
  * <p>Prior to Amsterdam: Block gas is calculated POST-refund (gasLimit - gasRemaining), which
  * includes the benefit of gas refunds from SSTORE operations.
  *
- * <p>Amsterdam (EIP-7778 + EIP-8037): Block gas is calculated PRE-refund and split into regular and
- * state dimensions, preventing block gas limit circumvention through refund credits.
+ * <p>Amsterdam (EIP-7778 + EIP-8037): Block gas is calculated PRE-refund and split into execution
+ * and state dimensions, preventing block gas limit circumvention through refund credits.
  */
 public interface BlockGasAccountingStrategy {
 
   /**
-   * Calculate a transaction's regular gas contribution to the block's cumulative gas used.
+   * Calculate a transaction's execution gas contribution to the block's cumulative gas used.
    *
    * @param transaction the transaction being processed
    * @param result the transaction processing result
-   * @return the regular gas used by the transaction for block accounting
+   * @return the execution gas used by the transaction for block accounting
    */
-  long calculateTransactionRegularGas(Transaction transaction, TransactionProcessingResult result);
+  long calculateTransactionExecutionGas(
+      Transaction transaction, TransactionProcessingResult result);
 
   /**
    * Check whether the block has capacity for a transaction. The default (1D, pre-EIP-8037)
-   * implementation checks the regular gas dimension only: the tx gas limit must fit within the
-   * block's remaining regular-gas budget (capped at zero defensively). EIP-8037 strategies override
-   * this to bound both dimensions by the transaction's gas limit, since either one could consume
-   * the whole limit (regular gas additionally runtime-capped at {@code TX_MAX_GAS_LIMIT}).
+   * implementation checks the execution gas dimension only: the tx gas limit must fit within the
+   * block's remaining execution-gas budget (capped at zero defensively). EIP-8037 strategies
+   * override this to bound both dimensions by the transaction's gas limit, since either one could
+   * consume the whole limit (execution gas additionally runtime-capped at {@code
+   * TX_MAX_GAS_LIMIT}).
    *
    * @param txGasLimit the gas limit of the candidate transaction
-   * @param txMaxGasLimit runtime cap on regular gas per tx (EIP-7825 TX_MAX_GAS_LIMIT)
-   * @param cumulativeRegularGas cumulative regular gas used in the block so far
+   * @param txMaxGasLimit runtime cap on execution gas per tx (EIP-7825 TX_MAX_GAS_LIMIT)
+   * @param cumulativeExecutionGas cumulative execution gas used in the block so far
    * @param cumulativeStateGas cumulative state gas used in the block so far
    * @param blockGasLimit the block gas limit
    * @return true if the block has capacity for this transaction
@@ -55,23 +57,23 @@ public interface BlockGasAccountingStrategy {
   default boolean hasBlockCapacity(
       final long txGasLimit,
       final long txMaxGasLimit,
-      final long cumulativeRegularGas,
+      final long cumulativeExecutionGas,
       final long cumulativeStateGas,
       final long blockGasLimit) {
-    final long remainingRegular = Math.max(0, blockGasLimit - cumulativeRegularGas);
-    return txGasLimit <= remainingRegular;
+    final long remainingExecution = Math.max(0, blockGasLimit - cumulativeExecutionGas);
+    return txGasLimit <= remainingExecution;
   }
 
   /**
    * Calculate the effective gas used for occupancy and fullness checks. For 1D gas, this is just
-   * the regular gas. For 2D gas (EIP-8037), this is max(regular, state).
+   * the execution gas. For 2D gas (EIP-8037), this is max(execution, state).
    *
-   * @param cumulativeRegularGas cumulative regular gas used
+   * @param cumulativeExecutionGas cumulative execution gas used
    * @param cumulativeStateGas cumulative state gas used
    * @return the effective gas used
    */
-  default long effectiveGasUsed(final long cumulativeRegularGas, final long cumulativeStateGas) {
-    return cumulativeRegularGas;
+  default long effectiveGasUsed(final long cumulativeExecutionGas, final long cumulativeStateGas) {
+    return cumulativeExecutionGas;
   }
 
   /**
@@ -81,45 +83,45 @@ public interface BlockGasAccountingStrategy {
   BlockGasAccountingStrategy FRONTIER = (tx, result) -> tx.getGasLimit() - result.getGasRemaining();
 
   /**
-   * Amsterdam (EIP-7778 + EIP-8037): Uses pre-refund gas split into regular and state dimensions.
+   * Amsterdam (EIP-7778 + EIP-8037): Uses pre-refund gas split into execution and state dimensions.
    *
    * <p>EIP-7778: Block gas is calculated pre-refund (estimateGasUsedByTransaction), preventing
    * block gas limit circumvention through refund credits.
    *
-   * <p>EIP-8037: Gas is split into regular and state portions. Regular gas =
-   * estimateGasUsedByTransaction - stateGasUsed. Block gas_metered = max(cumulative_regular,
+   * <p>EIP-8037: Gas is split into execution and state portions. Execution gas =
+   * estimateGasUsedByTransaction - stateGasUsed. Block gas_metered = max(cumulative_execution,
    * cumulative_state).
    */
   BlockGasAccountingStrategy AMSTERDAM =
       new BlockGasAccountingStrategy() {
         @Override
-        public long calculateTransactionRegularGas(
+        public long calculateTransactionExecutionGas(
             final Transaction transaction, final TransactionProcessingResult result) {
           // EIP-8037: the calldata floor binds this dimension, so the sender cannot buy block
-          // regular-gas space below the floor by spending on state.
-          return result.getRegularGasUsedForBlock();
+          // execution-gas space below the floor by spending on state.
+          return result.getExecutionGasUsedForBlock();
         }
 
         @Override
         public boolean hasBlockCapacity(
             final long txGasLimit,
             final long txMaxGasLimit,
-            final long cumulativeRegularGas,
+            final long cumulativeExecutionGas,
             final long cumulativeStateGas,
             final long blockGasLimit) {
           // The full tx gas limit bounds both dimensions, since either one could consume the
-          // whole limit. Regular gas is additionally capped at TX_MAX_GAS_LIMIT (EIP-7825).
-          final long regularAvailable = Math.max(0L, blockGasLimit - cumulativeRegularGas);
+          // whole limit. Execution gas is additionally capped at TX_MAX_GAS_LIMIT (EIP-7825).
+          final long executionAvailable = Math.max(0L, blockGasLimit - cumulativeExecutionGas);
           final long stateAvailable = Math.max(0L, blockGasLimit - cumulativeStateGas);
-          final long worstCaseRegular = Math.min(txMaxGasLimit, txGasLimit);
+          final long worstCaseExecution = Math.min(txMaxGasLimit, txGasLimit);
           final long worstCaseState = txGasLimit;
-          return worstCaseRegular <= regularAvailable && worstCaseState <= stateAvailable;
+          return worstCaseExecution <= executionAvailable && worstCaseState <= stateAvailable;
         }
 
         @Override
         public long effectiveGasUsed(
-            final long cumulativeRegularGas, final long cumulativeStateGas) {
-          return Math.max(cumulativeRegularGas, cumulativeStateGas);
+            final long cumulativeExecutionGas, final long cumulativeStateGas) {
+          return Math.max(cumulativeExecutionGas, cumulativeStateGas);
         }
       };
 

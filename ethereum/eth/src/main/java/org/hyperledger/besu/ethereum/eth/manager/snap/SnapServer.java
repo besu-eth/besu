@@ -365,7 +365,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
 
                 if (accounts.isEmpty() && shouldContinuePredicate.shouldContinue.get()) {
                   var fromNextHash =
-                      range.endKeyHash().compareTo(range.startKeyHash()) >= 0
+                      range.endKeyHash().getBytes().compareTo(range.startKeyHash().getBytes()) >= 0
                           ? range.endKeyHash()
                           : range.startKeyHash();
                   // fetch next account after range, if it exists

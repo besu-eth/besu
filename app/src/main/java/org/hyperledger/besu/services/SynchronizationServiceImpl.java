@@ -14,7 +14,8 @@
  */
 package org.hyperledger.besu.services;
 
-import static org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams.withBlockHeaderAndUpdateNodeHead;
+import static org.hyperledger.besu.ethereum.core.plugins.Subscriptions.unsubscribeOnClose;
+import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withBlockHeaderAndUpdateNodeHead;
 
 import org.hyperledger.besu.consensus.merge.MergeContext;
 import org.hyperledger.besu.datatypes.Hash;
@@ -26,14 +27,17 @@ import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.PathBasedWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.PathBasedWorldStateProvider;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.plugin.data.BlockBody;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.data.SyncStatus;
+import org.hyperledger.besu.plugin.services.BesuEvents;
+import org.hyperledger.besu.plugin.services.Subscription;
 import org.hyperledger.besu.plugin.services.sync.SynchronizationService;
+import org.hyperledger.besu.plugin.services.sync.spi.InitialSyncCompletionListener;
+import org.hyperledger.besu.plugin.services.sync.spi.SyncStatusListener;
 
 import java.util.Optional;
 
@@ -148,14 +152,14 @@ public class SynchronizationServiceImpl implements SynchronizationService {
     worldStateArchive.ifPresent(
         archive -> {
           archive.getWorldStateSharedSpec().setTrieDisabled(true);
-          final PathBasedWorldStateKeyValueStorage worldStateStorage =
+          final BonsaiWorldStateKeyValueStorage worldStateStorage =
               archive.getWorldStateKeyValueStorage();
           final Optional<Hash> worldStateBlockHash = worldStateStorage.getWorldStateBlockHash();
           final Optional<Bytes> worldStateRootHash = worldStateStorage.getWorldStateRootHash();
           if (worldStateRootHash.isPresent() && worldStateBlockHash.isPresent()) {
             worldStateStorage.clearTrie();
             // keep root and block hash in the trie branch
-            final PathBasedWorldStateKeyValueStorage.Updater updater = worldStateStorage.updater();
+            final BonsaiWorldStateKeyValueStorage.Updater updater = worldStateStorage.updater();
             updater.saveWorldState(
                 worldStateBlockHash.get().getBytes(),
                 Bytes32.wrap(worldStateRootHash.get()),
@@ -163,9 +167,7 @@ public class SynchronizationServiceImpl implements SynchronizationService {
             updater.commit();
 
             // currently only bonsai needs an explicit upgrade to full flat db
-            if (worldStateStorage instanceof BonsaiWorldStateKeyValueStorage bonsaiStorage) {
-              bonsaiStorage.upgradeToFullFlatDbMode();
-            }
+            worldStateStorage.upgradeToFullFlatDbMode();
           }
         });
   }
@@ -210,5 +212,29 @@ public class SynchronizationServiceImpl implements SynchronizationService {
   @Override
   public Optional<Long> getBestPeerChainHead() {
     return synchronizer.getBestPeerChainHead();
+  }
+
+  @Override
+  public Subscription subscribeSyncStatus(final SyncStatusListener listener) {
+    final long id = syncState.subscribeSyncStatus(listener::onSyncStatusChanged);
+    return unsubscribeOnClose(() -> syncState.unsubscribeSyncStatus(id));
+  }
+
+  @Override
+  public Subscription subscribeInitialSyncCompletion(final InitialSyncCompletionListener listener) {
+    final long id =
+        syncState.subscribeCompletionReached(
+            new BesuEvents.InitialSyncCompletionListener() {
+              @Override
+              public void onInitialSyncCompleted() {
+                listener.onInitialSyncCompleted();
+              }
+
+              @Override
+              public void onInitialSyncRestart() {
+                listener.onInitialSyncRestart();
+              }
+            });
+    return unsubscribeOnClose(() -> syncState.unsubscribeInitialConditionReached(id));
   }
 }

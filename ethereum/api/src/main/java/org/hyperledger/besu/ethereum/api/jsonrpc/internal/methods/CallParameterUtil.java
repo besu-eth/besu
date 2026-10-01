@@ -41,7 +41,8 @@ public class CallParameterUtil {
           "Invalid call parameters (index 0)", RpcErrorType.INVALID_CALL_PARAMS);
     }
 
-    if (callParams.getGasPrice().isPresent()
+    if (LOG.isDebugEnabled()
+        && callParams.getGasPrice().isPresent()
         && (callParams.getMaxFeePerGas().isPresent()
             || callParams.getMaxPriorityFeePerGas().isPresent())) {
       try {

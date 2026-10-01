@@ -1,0 +1,129 @@
+{
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "debug_traceBlockByNumber",
+    "params": [
+      "0x13",
+      {
+        "tracer": "prestateTracer",
+        "tracerConfig": {
+          "diffMode": false,
+          "disableStorage": true
+        }
+      }
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": [
+      {
+        "txHash": "0x19c45aa6439f878b264ab055e055eb2a776ae954a05c87aba9960eaf99a84908",
+        "result": {
+          "0x627306090abab3a6e1400e9345bc60c78a8bef57": {
+            "balance": "0xefffffffffffffffffe298e67",
+            "nonce": 4
+          },
+          "0x71562b71999873db5b286df957af199ec94617f7": {
+            "balance": "0x2d60905c9"
+          }
+        }
+      },
+      {
+        "txHash": "0x98495096b07bb76ad0449e8a9b684f4791ab2b07ee6d57165a5dc410a410abca",
+        "result": {
+          "0x00a0000000000000000000000000000000000000": {
+            "balance": "0x0",
+            "code": "0x608b60045360ff60016004a1",
+            "codeHash": "0x1f753d487172d62c63f7b7579dbe2aac061f14bf11aab7fef1fe4a3c5dfe9ded"
+          },
+          "0x627306090abab3a6e1400e9345bc60c78a8bef57": {
+            "balance": "0xefffffffffffffffffd647565",
+            "nonce": 5
+          },
+          "0x71562b71999873db5b286df957af199ec94617f7": {
+            "balance": "0x2d6cd4bad"
+          },
+          "0x8f0483125fcb9aaaefa9209d8e9d7b9c8b9fb90f": {
+            "balance": "0x0",
+            "code": "0x600035ff",
+            "codeHash": "0x6683da45ab3091784059d05578df094f721c512a6f4cc870bc73beaf9ef51ed4",
+            "nonce": 1
+          }
+        }
+      },
+      {
+        "txHash": "0x352bd56f213c80ebe0b9b17a228534c23794d57b3a50a302a361bdf439a9df55",
+        "result": {
+          "0x627306090abab3a6e1400e9345bc60c78a8bef57": {
+            "balance": "0xefffffffffffffffffc6ee220",
+            "nonce": 6
+          },
+          "0x71562b71999873db5b286df957af199ec94617f7": {
+            "balance": "0x2d7c1d7e7"
+          }
+        }
+      },
+      {
+        "txHash": "0x13d41c773c2edc78e6e8400767f70a18d0779329b0adbef5b15bc931eb30598a",
+        "result": {
+          "0x00a0000000000000000000000000000000000000": {
+            "balance": "0x0",
+            "code": "0x608b60045360ff60016004a1",
+            "codeHash": "0x1f753d487172d62c63f7b7579dbe2aac061f14bf11aab7fef1fe4a3c5dfe9ded"
+          },
+          "0x2c2b9c9a4a25e24b174f26114e8926a9f2128fe4": {
+            "balance": "0x0",
+            "code": "0x600035ff",
+            "codeHash": "0x6683da45ab3091784059d05578df094f721c512a6f4cc870bc73beaf9ef51ed4",
+            "nonce": 1
+          },
+          "0x627306090abab3a6e1400e9345bc60c78a8bef57": {
+            "balance": "0xefffffffffffffffffba9c91e",
+            "nonce": 7
+          },
+          "0x71562b71999873db5b286df957af199ec94617f7": {
+            "balance": "0x2d8861dcb"
+          }
+        }
+      },
+      {
+        "txHash": "0x88bf37661d67e7d2e25a436ce6461044d13afe4e19a45c8099ff7cd2dce4c1bd",
+        "result": {
+          "0x627306090abab3a6e1400e9345bc60c78a8bef57": {
+            "balance": "0xefffffffffffffffffab435d9",
+            "nonce": 8
+          },
+          "0x71562b71999873db5b286df957af199ec94617f7": {
+            "balance": "0x2d97aaa05"
+          }
+        }
+      },
+      {
+        "txHash": "0x48a26d1ec46089754838aa7380823a507b76752e955a4b5ec2d54328d5d72879",
+        "result": {
+          "0x00a0000000000000000000000000000000000000": {
+            "balance": "0x0",
+            "code": "0x608b60045360ff60016004a1",
+            "codeHash": "0x1f753d487172d62c63f7b7579dbe2aac061f14bf11aab7fef1fe4a3c5dfe9ded"
+          },
+          "0x627306090abab3a6e1400e9345bc60c78a8bef57": {
+            "balance": "0xefffffffffffffffff9ef1cd7",
+            "nonce": 9
+          },
+          "0x71562b71999873db5b286df957af199ec94617f7": {
+            "balance": "0x2da3eefe9"
+          },
+          "0xfb88de099e13c3ed21f80a7a1e49f8caecf10df6": {
+            "balance": "0x0",
+            "code": "0x600035ff",
+            "codeHash": "0x6683da45ab3091784059d05578df094f721c512a6f4cc870bc73beaf9ef51ed4",
+            "nonce": 1
+          }
+        }
+      }
+    ]
+  },
+  "statusCode": 200
+}

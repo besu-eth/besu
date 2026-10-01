@@ -19,6 +19,7 @@ import org.hyperledger.besu.datatypes.Transaction;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.CallTracerResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
@@ -54,17 +55,17 @@ import org.apache.tuweni.bytes.Bytes;
  */
 public class CallTracer implements OperationTracer {
 
-  private static final String CALL = "CALL";
-  private static final String CALLCODE = "CALLCODE";
-  private static final String DELEGATECALL = "DELEGATECALL";
-  private static final String STATICCALL = "STATICCALL";
-  private static final String CREATE = "CREATE";
-  private static final String CREATE2 = "CREATE2";
-  private static final String SELFDESTRUCT = "SELFDESTRUCT";
+  // Frame type literals emitted in CallTracerResult.type; shared with FlatCallTracer.
+  static final String CALL = "CALL";
+  static final String CALLCODE = "CALLCODE";
+  static final String DELEGATECALL = "DELEGATECALL";
+  static final String STATICCALL = "STATICCALL";
+  static final String CREATE = "CREATE";
+  static final String CREATE2 = "CREATE2";
+  static final String SELFDESTRUCT = "SELFDESTRUCT";
 
   private static final String EXECUTION_REVERTED = "execution reverted";
   private static final String PRECOMPILE_FAILED = "precompile failed";
-  private static final String ZERO_VALUE = "0x0";
 
   private static final long GAS_CALL_STIPEND_DIVISOR = 64L;
 
@@ -85,11 +86,19 @@ public class CallTracer implements OperationTracer {
   /**
    * Instantiates a new Call tracer.
    *
+   * @param onlyTopCall whether to trace only the top-level call
+   */
+  public CallTracer(final boolean onlyTopCall) {
+    this.onlyTopCall = onlyTopCall;
+  }
+
+  /**
+   * Instantiates a new Call tracer.
+   *
    * @param traceOptions the trace options containing the tracer configuration
    */
   public CallTracer(final TraceOptions traceOptions) {
-    this.onlyTopCall =
-        Boolean.TRUE.equals(traceOptions.tracerConfig().getOrDefault("onlyTopCall", false));
+    this(traceOptions.tracerConfigFlag("onlyTopCall"));
   }
 
   @Override
@@ -356,7 +365,7 @@ public class CallTracer implements OperationTracer {
       } else if (DELEGATECALL.equals(opcode)) {
         cb.value(frame.getApparentValue().toShortHexString());
       } else {
-        cb.value(ZERO_VALUE);
+        cb.value(Quantity.HEX_ZERO);
       }
       cb.input(frame.getInputData().toHexString());
     } else {

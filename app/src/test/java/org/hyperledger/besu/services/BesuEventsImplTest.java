@@ -58,8 +58,8 @@ import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStoragePrefixedKeyBlockchainStorage;
 import org.hyperledger.besu.ethereum.storage.keyvalue.VariablesKeyValueStorage;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
@@ -429,26 +429,50 @@ public class BesuEventsImplTest {
   public void reorgedBlockEventDoesNotFireAfterUnsubscribe() {
     final AtomicReference<AddedBlockContext> result = new AtomicReference<>();
     final long id = serviceImpl.addBlockReorgListener(result::set);
-    assertThat(result.get()).isNull();
-
     serviceImpl.removeBlockReorgListener(id);
-    result.set(null);
 
+    appendReorg();
+    assertThat(result.get()).isNull();
+  }
+
+  @Test
+  public void removingReorgListenerDoesNotRemoveBlockAddedListener() {
+    // block-added and reorg observers are numbered independently, so a reorg id can collide with
+    // a block-added id; removing the reorg listener must not touch the block-added one
+    final AtomicReference<AddedBlockContext> added = new AtomicReference<>();
+    final AtomicReference<AddedBlockContext> reorged = new AtomicReference<>();
+    serviceImpl.addBlockAddedListener(added::set);
+    final long reorgId = serviceImpl.addBlockReorgListener(reorged::set);
+    serviceImpl.removeBlockReorgListener(reorgId);
+
+    appendReorg();
+    assertThat(added.get()).isNotNull();
+    assertThat(reorged.get()).isNull();
+  }
+
+  private void appendReorg() {
     final var block =
         gen.block(
             new BlockDataGenerator.BlockOptions()
                 .setParentHash(blockchain.getGenesisBlock().getHash())
                 .setBlockNumber(blockchain.getGenesisBlock().getHeader().getNumber() + 1));
     blockchain.appendBlock(block, gen.receipts(block));
-    assertThat(result.get()).isNull();
+
+    final var forkBlock =
+        gen.block(
+            new BlockDataGenerator.BlockOptions()
+                .setParentHash(blockchain.getGenesisBlock().getHash())
+                .setDifficulty(block.getHeader().getDifficulty().subtract(1))
+                .setBlockNumber(blockchain.getGenesisBlock().getHeader().getNumber() + 1));
+    blockchain.appendBlock(forkBlock, gen.receipts(forkBlock));
 
     final var reorgBlock =
         gen.block(
             new BlockDataGenerator.BlockOptions()
-                .setParentHash(blockchain.getGenesisBlock().getHash())
-                .setBlockNumber(blockchain.getGenesisBlock().getHeader().getNumber() + 1));
+                .setParentHash(forkBlock.getHash())
+                .setDifficulty(Difficulty.of(10000000))
+                .setBlockNumber(forkBlock.getHeader().getNumber() + 1));
     blockchain.appendBlock(reorgBlock, gen.receipts(reorgBlock));
-    assertThat(result.get()).isNull();
   }
 
   @Test

@@ -204,6 +204,15 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
   boolean isBadBlock(Hash blockHash);
 
   /**
+   * Check whether a block that has not been imported yet descends from a bad block, recording it as
+   * bad if it does.
+   *
+   * @param blockHash the block hash
+   * @return true if the block descends from a bad block
+   */
+  boolean checkAndMarkBadDescendant(Hash blockHash);
+
+  /**
    * Gets latest valid hash of bad block.
    *
    * @param blockHash the block hash
@@ -247,7 +256,9 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
       /** Invalid payload attributes status. */
       INVALID_PAYLOAD_ATTRIBUTES,
       /** Ignore update to old head status. */
-      IGNORE_UPDATE_TO_OLD_HEAD
+      IGNORE_UPDATE_TO_OLD_HEAD,
+      /** The head could not be set because of a local failure, the head itself may be valid. */
+      INTERNAL_ERROR
     }
 
     private final Status status;

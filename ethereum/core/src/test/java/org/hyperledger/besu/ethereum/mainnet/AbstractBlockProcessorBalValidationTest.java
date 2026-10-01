@@ -101,7 +101,7 @@ class AbstractBlockProcessorBalValidationTest {
     lenient().when(gasCalculator.getBlobGasPerBlob()).thenReturn(1L);
     final StateGasCostCalculator stateGasCalc = mock(StateGasCostCalculator.class);
     lenient().when(gasCalculator.stateGasCostCalculator()).thenReturn(stateGasCalc);
-    lenient().when(stateGasCalc.transactionRegularGasLimit()).thenReturn(Long.MAX_VALUE);
+    lenient().when(stateGasCalc.transactionExecutionGasLimit()).thenReturn(Long.MAX_VALUE);
     lenient().when(protocolSpec.getWithdrawalsProcessor()).thenReturn(Optional.empty());
     lenient().when(protocolSpec.getRequestProcessorCoordinator()).thenReturn(Optional.empty());
     lenient()

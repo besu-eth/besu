@@ -1083,6 +1083,24 @@ public class BesuCommandTest extends CommandTestAbstract {
                 + " format 'enode://<node_id>@<ip>:<listening_port>[?discport=<discovery_port>]'.");
   }
 
+  @Test
+  public void callingWithDiscoveryOnlyBootnodeMustSucceed() {
+    final String discoveryOnlyBootnode =
+        "enode://d2567893371ea5a6fa6371d483891ed0d129e79a8fc74d6df95a00a6545444cd4a6960bbffe0b4e2edcf35135271de57ee559c0909236bbc2074346ef2b5b47c@127.0.0.1:0?discport=30304";
+
+    parseCommand("--bootnodes", discoveryOnlyBootnode);
+
+    verify(mockRunnerBuilder).ethNetworkConfig(ethNetworkConfigArgumentCaptor.capture());
+    verify(mockRunnerBuilder).build();
+
+    final EthNetworkConfig config = ethNetworkConfigArgumentCaptor.getValue();
+    assertThat(config.enodeBootNodes())
+        .extracting(bootnode -> bootnode.toURI().toString())
+        .containsExactly(discoveryOnlyBootnode);
+    assertThat(config.enodeBootNodes().getFirst().isListening()).isFalse();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
   private static final String VALID_ENR_1 =
       "enr:-Iu4QLm7bZGdAt9NSeJG0cEnJohWcQTQaI9wFLu3Q7eHIDfrI4cwtzvEW3F3VbG9XdFXlrHyFGeXPn9snTCQJ9bnMRABgmlkgnY0gmlwhAOTJQCJc2VjcDI1NmsxoQIZdZD6tDYpkpEfVo5bgiU8MGRjhcOmHGD2nErK0UKRrIN0Y3CCIyiDdWRwgiMo";
   private static final String VALID_ENR_2 =
@@ -1468,11 +1486,83 @@ public class BesuCommandTest extends CommandTestAbstract {
     final DataStorageConfiguration dataStorageConfiguration =
         dataStorageConfigurationArgumentCaptor.getValue();
     assertThat(dataStorageConfiguration.getDataStorageFormat()).isEqualTo(BONSAI);
+    assertThat(dataStorageConfiguration.getExtraStorageConfiguration().getLimitTrieLogsEnabled())
+        .isTrue();
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void balPrefetchReadingEnabledAutoEnablesBonsaiCrossBlockCache() {
+    parseCommand();
+    verify(mockControllerBuilder)
+        .dataStorageConfiguration(dataStorageConfigurationArgumentCaptor.capture());
+
+    final DataStorageConfiguration dataStorageConfiguration =
+        dataStorageConfigurationArgumentCaptor.getValue();
     assertThat(
             dataStorageConfiguration
-                .getPathBasedExtraStorageConfiguration()
-                .getLimitTrieLogsEnabled())
+                .getExtraStorageConfiguration()
+                .getUnstable()
+                .getBonsaiCrossBlockCacheEnabled())
         .isTrue();
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void balPrefetchReadingDisabledDoesNotForceBonsaiCrossBlockCache() {
+    parseCommand("--Xbal-prefetch-reading-enabled=false");
+    verify(mockControllerBuilder)
+        .dataStorageConfiguration(dataStorageConfigurationArgumentCaptor.capture());
+
+    final DataStorageConfiguration dataStorageConfiguration =
+        dataStorageConfigurationArgumentCaptor.getValue();
+    assertThat(
+            dataStorageConfiguration
+                .getExtraStorageConfiguration()
+                .getUnstable()
+                .getBonsaiCrossBlockCacheEnabled())
+        .isFalse();
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void balPrefetchReadingDoesNotAutoEnableCrossBlockCacheForForest() {
+    parseCommand("--data-storage-format=FOREST");
+    verify(mockControllerBuilder)
+        .dataStorageConfiguration(dataStorageConfigurationArgumentCaptor.capture());
+
+    final DataStorageConfiguration dataStorageConfiguration =
+        dataStorageConfigurationArgumentCaptor.getValue();
+    assertThat(dataStorageConfiguration.getDataStorageFormat()).isEqualTo(DataStorageFormat.FOREST);
+    assertThat(
+            dataStorageConfiguration
+                .getExtraStorageConfiguration()
+                .getUnstable()
+                .getBonsaiCrossBlockCacheEnabled())
+        .isFalse();
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void balPrefetchReadingDoesNotAutoEnableCrossBlockCacheForArchive() {
+    parseCommand("--data-storage-format=X_BONSAI_ARCHIVE");
+    verify(mockControllerBuilder)
+        .dataStorageConfiguration(dataStorageConfigurationArgumentCaptor.capture());
+
+    final DataStorageConfiguration dataStorageConfiguration =
+        dataStorageConfigurationArgumentCaptor.getValue();
+    assertThat(dataStorageConfiguration.getDataStorageFormat())
+        .isEqualTo(DataStorageFormat.X_BONSAI_ARCHIVE);
+    assertThat(
+            dataStorageConfiguration
+                .getExtraStorageConfiguration()
+                .getUnstable()
+                .getBonsaiCrossBlockCacheEnabled())
+        .isFalse();
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
   }
@@ -1487,10 +1577,7 @@ public class BesuCommandTest extends CommandTestAbstract {
     final DataStorageConfiguration dataStorageConfiguration =
         dataStorageConfigurationArgumentCaptor.getValue();
     assertThat(dataStorageConfiguration.getDataStorageFormat()).isEqualTo(BONSAI);
-    assertThat(
-            dataStorageConfiguration
-                .getPathBasedExtraStorageConfiguration()
-                .getLimitTrieLogsEnabled())
+    assertThat(dataStorageConfiguration.getExtraStorageConfiguration().getLimitTrieLogsEnabled())
         .isFalse();
     verify(mockLogger)
         .warn(
@@ -1526,8 +1613,7 @@ public class BesuCommandTest extends CommandTestAbstract {
     final DataStorageConfiguration dataStorageConfiguration =
         dataStorageConfigurationArgumentCaptor.getValue();
     assertThat(dataStorageConfiguration.getDataStorageFormat()).isEqualTo(BONSAI);
-    assertThat(
-            dataStorageConfiguration.getPathBasedExtraStorageConfiguration().getMaxLayersToLoad())
+    assertThat(dataStorageConfiguration.getExtraStorageConfiguration().getMaxLayersToLoad())
         .isEqualTo(11);
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
@@ -2728,7 +2814,7 @@ public class BesuCommandTest extends CommandTestAbstract {
             besuCommand
                 .getDataStorageOptions()
                 .toDomainObject()
-                .getPathBasedExtraStorageConfiguration()
+                .getExtraStorageConfiguration()
                 .getUnstable()
                 .getFullFlatDbEnabled())
         .isTrue();
@@ -2741,7 +2827,7 @@ public class BesuCommandTest extends CommandTestAbstract {
             besuCommand
                 .dataStorageOptions
                 .toDomainObject()
-                .getPathBasedExtraStorageConfiguration()
+                .getExtraStorageConfiguration()
                 .getUnstable()
                 .getFullFlatDbEnabled())
         .isFalse();
@@ -2775,7 +2861,7 @@ public class BesuCommandTest extends CommandTestAbstract {
             besuCommand
                 .dataStorageOptions
                 .toDomainObject()
-                .getPathBasedExtraStorageConfiguration()
+                .getExtraStorageConfiguration()
                 .getUnstable()
                 .getBonsaiArchiveStateProofsEnabled())
         .isFalse();
@@ -2788,7 +2874,7 @@ public class BesuCommandTest extends CommandTestAbstract {
             besuCommand
                 .dataStorageOptions
                 .toDomainObject()
-                .getPathBasedExtraStorageConfiguration()
+                .getExtraStorageConfiguration()
                 .getUnstable()
                 .getBonsaiArchiveStateProofsEnabled())
         .isTrue();
@@ -2802,7 +2888,7 @@ public class BesuCommandTest extends CommandTestAbstract {
             besuCommand
                 .dataStorageOptions
                 .toDomainObject()
-                .getPathBasedExtraStorageConfiguration()
+                .getExtraStorageConfiguration()
                 .getUnstable()
                 .getBonsaiArchiveStateProofsEnabled())
         .isTrue();

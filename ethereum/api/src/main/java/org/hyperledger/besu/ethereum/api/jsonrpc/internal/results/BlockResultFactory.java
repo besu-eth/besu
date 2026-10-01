@@ -52,7 +52,6 @@ public class BlockResultFactory {
         blockWithMetadata.getHeader(),
         txs,
         ommers,
-        blockWithMetadata.getTotalDifficulty(),
         blockWithMetadata.getSize(),
         includeCoinbase,
         blockWithMetadata.getWithdrawals());
@@ -83,13 +82,7 @@ public class BlockResultFactory {
             .map(TextNode::new)
             .collect(Collectors.toList());
     return new BlockResult(
-        block.getHeader(),
-        txs,
-        ommers,
-        block.getHeader().getDifficulty(),
-        block.getSize(),
-        false,
-        block.getBody().getWithdrawals());
+        block.getHeader(), txs, ommers, block.getSize(), false, block.getBody().getWithdrawals());
   }
 
   public BlockResult transactionHash(final BlockWithMetadata<Hash, Hash> blockWithMetadata) {
@@ -112,7 +105,6 @@ public class BlockResultFactory {
         blockWithMetadata.getHeader(),
         txs,
         ommers,
-        blockWithMetadata.getTotalDifficulty(),
         blockWithMetadata.getSize(),
         includeCoinbase,
         blockWithMetadata.getWithdrawals());

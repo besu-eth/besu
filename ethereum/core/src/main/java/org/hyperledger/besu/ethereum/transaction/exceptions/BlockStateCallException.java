@@ -71,7 +71,7 @@ public class BlockStateCallException extends RuntimeException {
   private static BlockStateCallError fromTransactionInvalidReason(
       final TransactionInvalidReason transactionInvalidReason) {
     return switch (transactionInvalidReason) {
-      case UPFRONT_COST_EXCEEDS_BALANCE -> UPFRONT_COST_EXCEEDS_BALANCE;
+      case UPFRONT_GAS_COST_EXCEEDS_BALANCE -> UPFRONT_COST_EXCEEDS_BALANCE;
       case GAS_PRICE_TOO_LOW -> GAS_PRICE_TOO_LOW;
       case GAS_PRICE_BELOW_CURRENT_BASE_FEE -> GAS_PRICE_BELOW_BASE_FEE;
       case INTRINSIC_GAS_EXCEEDS_GAS_LIMIT -> INTRINSIC_GAS_EXCEEDS_GAS_LIMIT;

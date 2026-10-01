@@ -1,0 +1,46 @@
+{
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "debug_traceBlockByNumber",
+    "params": [
+      "0x2",
+      {
+        "tracer": "flatCallTracer"
+      }
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": [
+      {
+        "txHash": "0x056ce0782be2baafa26d2d844ee8f7158c4151b1d1382f82a0902fe8c762e9b0",
+        "result": [
+          {
+            "action": {
+              "callType": "call",
+              "from": "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+              "gas": "0xfffff2",
+              "input": "0x",
+              "to": "0x0000000000000000000000000000000000000999",
+              "value": "0x1"
+            },
+            "blockHash": "0xf63b6c5103156e6e6349f8fb8677a3f941e5a93fdd55d769a7980167f6da7200",
+            "blockNumber": 2,
+            "result": {
+              "gasUsed": "0x5208",
+              "output": "0x"
+            },
+            "subtraces": 0,
+            "traceAddress": [],
+            "transactionHash": "0x056ce0782be2baafa26d2d844ee8f7158c4151b1d1382f82a0902fe8c762e9b0",
+            "transactionPosition": 0,
+            "type": "call"
+          }
+        ]
+      }
+    ]
+  },
+  "statusCode": 200
+}
