@@ -922,6 +922,54 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
     }
   }
 
+  @ParameterizedTest
+  @MethodSource("shouldSupportTransactionTotalGasLimitCap_EIP_8037")
+  public void shouldSupportTransactionTotalGasLimitCap_EIP_8037(
+      final ValidationParamsVariant validationParamsVariant,
+      final long txGasLimit,
+      final boolean valid) {
+    final var feeMarket = FeeMarket.london(0L);
+    final TransactionValidator validator =
+        createTransactionValidator(
+            gasCalculator,
+            new AmsterdamTargetingGasLimitCalculator(
+                0L, feeMarket, gasCalculator, 6, 3, OptionalInt.of(6), OptionalInt.empty()),
+            feeMarket,
+            false,
+            Optional.of(BigInteger.ONE),
+            Set.of(TransactionType.FRONTIER, TransactionType.EIP1559),
+            Integer.MAX_VALUE);
+    final Transaction transaction =
+        new TransactionTestFixture()
+            .maxPriorityFeePerGas(Optional.of(Wei.of(1)))
+            .maxFeePerGas(Optional.of(Wei.of(150000L)))
+            .type(TransactionType.EIP1559)
+            .chainId(Optional.of(BigInteger.ONE))
+            .gasLimit(txGasLimit)
+            .createTransaction(senderKeys);
+    final Optional<Wei> basefee = Optional.of(Wei.of(150000L));
+    when(gasCalculator.transactionIntrinsicGasCost(any(), anyLong())).thenReturn(50L);
+
+    final var validationParams =
+        switch (validationParamsVariant) {
+          case PROCESSING -> processingBlockParams;
+          case SIMULATING -> transactionSimulationParams;
+        };
+
+    final var validationResult =
+        validator.validate(transaction, basefee, Optional.empty(), validationParams);
+
+    if (valid) {
+      assertThat(validationResult.isValid()).isTrue();
+    } else {
+      assertThat(validationResult.isValid()).isFalse();
+      assertThat(validationResult.getInvalidReason())
+          .isEqualTo(TransactionInvalidReason.EXCEEDS_TRANSACTION_GAS_LIMIT);
+      assertThat(validationResult.getErrorMessage())
+          .isEqualTo("Transaction gas limit must be at most 4294967295");
+    }
+  }
+
   private enum ValidationParamsVariant {
     PROCESSING,
     SIMULATING
@@ -936,6 +984,16 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
         Arguments.of(ValidationParamsVariant.PROCESSING, Long.MIN_VALUE, false),
         Arguments.of(ValidationParamsVariant.SIMULATING, 16_777_216L, true),
         Arguments.of(ValidationParamsVariant.SIMULATING, 16_777_217L, true));
+  }
+
+  private static Stream<Arguments> shouldSupportTransactionTotalGasLimitCap_EIP_8037() {
+    return Stream.of(
+        // above the EIP-7825 cap, which bounds only execution gas in Amsterdam
+        Arguments.of(ValidationParamsVariant.PROCESSING, 16_777_217L, true),
+        Arguments.of(ValidationParamsVariant.PROCESSING, 4_294_967_295L, true),
+        Arguments.of(ValidationParamsVariant.PROCESSING, 4_294_967_296L, false),
+        Arguments.of(ValidationParamsVariant.PROCESSING, Long.MIN_VALUE, false),
+        Arguments.of(ValidationParamsVariant.SIMULATING, 4_294_967_296L, true));
   }
 
   private Account accountWithNonce(final long nonce) {
