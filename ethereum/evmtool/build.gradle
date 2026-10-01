@@ -86,24 +86,27 @@ application {
 // Both take hours. These tasks replay the same fixture trees through the same Besu code, in
 // process, in minutes.
 //
-//   ./hive --sim ethereum/eels/consume-engine  ->  ./gradlew consumeEngineTests
-//   ./hive --sim ethereum/eels/consume-rlp     ->  ./gradlew consumeRlpTests
+//   ./hive --sim ethereum/eels/consume-engine  ->  ./gradlew consumeEngineTestsStable
+//   ./hive --sim ethereum/eels/consume-rlp     ->  ./gradlew consumeRlpTestsStable
 //
-// Both reuse the devnet fixture download/extract from the :ethereum:referencetests project
-// (extractDevnetFixtures — no separate download) and fail the build on any fixture failure.
+// Both run over the stable fixtures, reusing the download/extract from the :ethereum:referencetests
+// project (extractStableFixtures — no separate download), and fail the build on any fixture
+// failure. The stable fixtures follow the current specs, which can be ahead of the last devnet
+// release.
 //
 // Shared gradle properties, named after the hive flags they stand in for:
 //   -PsimLimit=<regex>      hive --sim.limit. Passed to evmtool's --test-name-regex verbatim: not
 //                           rewritten, not escaped, so a published hive filter can be copied over
 //                           character for character. Matching agrees with hive's too — anchored at
 //                           the start of the pytest node id, open at the end, case-sensitive.
+//                           Replaces a task's default filter.
 //   -PsimParallelism=N      hive --sim.parallelism. Left to the subcommand when unset, which
 //                           defaults to the available processors.
 //   -PsimPath=<subdir>      no hive equivalent: scope to one fixture subdirectory, e.g.
 //                           for_amsterdam. Much cheaper than filtering the whole tree.
 //
 // Because the properties are shared, one command covers both simulators:
-//   ./gradlew consumeEngineTests consumeRlpTests -PsimLimit='.*(7928|8282).*'
+//   ./gradlew consumeEngineTestsStable consumeRlpTestsStable -PsimLimit='.*(7928|8282).*'
 
 // stateTestsDevnet used to take -PstateTestFilter / -PstateTestPath / -PstateTestWorkers. Gradle
 // ignores unknown -P properties, so without this an old invocation would run the whole state_tests
@@ -124,12 +127,15 @@ static void failOnRenamedProperties(project) {
   }
 }
 
-def registerHiveEquivalentTask(project, String taskName, String subcommand, String fixtureDir, String desc, List<String> extraArgs, String presetSimLimit = null) {
+def registerHiveEquivalentTask(project, String taskName, String subcommand, String fixtureDir, String desc, List<String> extraArgs, String defaultSimLimit = null, boolean stableFixtures = false) {
+  def extractTask = stableFixtures ? 'extractStableFixtures' : 'extractDevnetFixtures'
+  def extractDir = stableFixtures ? 'execution-spec-tests' : 'execution-spec-devnet-tests'
+  def versionDecl = stableFixtures ? 'referenceTestImplementation execution-specs' : 'devnetTarConfig'
   return project.tasks.register(taskName, JavaExec) {
     description = desc
     group = 'verification'
 
-    dependsOn ':ethereum:referencetests:extractDevnetFixtures'
+    dependsOn ":ethereum:referencetests:${extractTask}"
 
     // The fixture path and filter are applied in doFirst, after Gradle has snapshotted the task
     // inputs, so no -P combination is visible to the up-to-date check and every invocation looks
@@ -140,15 +146,12 @@ def registerHiveEquivalentTask(project, String taskName, String subcommand, Stri
     mainClass = 'org.hyperledger.besu.evmtool.EvmTool'
 
     def fixtures = project.project(':ethereum:referencetests').layout.buildDirectory
-      .dir("execution-spec-devnet-tests/fixtures/${fixtureDir}")
+      .dir("${extractDir}/fixtures/${fixtureDir}")
     // Left unset when the property is absent, so the subcommand's own default applies rather than
     // this file keeping a second copy of it. All three runners default to the available cores.
     def parallelism = project.findProperty('simParallelism')?.toString()
     def subPath = project.findProperty('simPath')?.toString()
-    // A preset task carries the filter of the hive run it mirrors, and that is the whole point of
-    // it: -PsimLimit is not consulted, so there is no way to half-override the preset and end up
-    // reporting a number against a scope nobody can reconstruct. Use the plain task to filter.
-    def simLimit = presetSimLimit ?: project.findProperty('simLimit')?.toString()
+    def simLimit = project.findProperty('simLimit')?.toString() ?: defaultSimLimit
 
     doFirst {
       failOnRenamedProperties(project)
@@ -156,8 +159,8 @@ def registerHiveEquivalentTask(project, String taskName, String subcommand, Stri
       if (!fixturesDir.exists()) {
         throw new GradleException(
         "Fixtures not found at ${fixturesDir}.\n" +
-        "Run ./gradlew :ethereum:referencetests:extractDevnetFixtures, or check the " +
-        "devnetTarConfig version in ethereum/referencetests/build.gradle.")
+        "Run ./gradlew :ethereum:referencetests:${extractTask}, or check the " +
+        "${versionDecl} version in ethereum/referencetests/build.gradle.")
       }
       def runDir = subPath ? new File(fixturesDir, subPath) : fixturesDir
       if (!runDir.exists()) {
@@ -173,51 +176,26 @@ def registerHiveEquivalentTask(project, String taskName, String subcommand, Stri
       cmd += runDir.absolutePath
       args = cmd
       logger.lifecycle("${taskName}: ${subcommand} over ${runDir}" +
-        (simLimit != null ? " matching --sim.limit '${simLimit}'" : " (all tests)") +
-        (presetSimLimit != null ? " [preset — -PsimLimit ignored]" : ""))
+        (simLimit != null ? " matching --sim.limit '${simLimit}'" : " (all tests)"))
     }
   }
 }
 
+// Without -PsimLimit, both are scoped by the fork filter of the `glamsterdam` hive run at
+// hive.ethpandaops.io, which is what CI runs.
+def GLAMSTERDAM_SIM_LIMIT = '.*fork_(Amsterdam|BPO2ToAmsterdamAtTime15k|Osaka).*'
+
 // hive ethereum/eels/consume-engine
-registerHiveEquivalentTask(project, 'consumeEngineTests', 'engine-test', 'blockchain_tests_engine',
-  'Hive consume-engine equivalent: replays blockchain_tests_engine fixtures through the real Engine API.',
-  [])
+registerHiveEquivalentTask(project, 'consumeEngineTestsStable', 'engine-test', 'blockchain_tests_engine',
+  'Hive consume-engine equivalent: replays the stable blockchain_tests_engine fixtures through the real Engine API.',
+  [], GLAMSTERDAM_SIM_LIMIT, true)
 
 // hive ethereum/eels/consume-rlp. Not redundant with consume-engine: blockchain_tests_engine has no
 // pre-merge fork groups, so for_frontier, for_homestead, for_tangerinewhistle, for_spuriousdragon,
 // for_byzantium, for_constantinoplefix, for_istanbul, for_berlin and for_london exist only here.
-registerHiveEquivalentTask(project, 'consumeRlpTests', 'block-test', 'blockchain_tests',
-  'Hive consume-rlp equivalent: replays blockchain_tests fixtures through the RLP block-import path.',
-  [])
-
-// The --sim.limit of the hive runs published under the `glamsterdam` and `glamsterdam-quick`
-// groups at hive.ethpandaops.io, so that reproducing one is a task name rather than a regex copied
-// out of a web UI. Transcribed from each run's runMetadata.hiveCommand.
-//
-// Fork names change with every devnet and the quick run's EIP list is edited as EIPs are scheduled
-// in or out. A filter left behind does not fail — it selects the old set and goes green — so both
-// live here rather than inline, and REFERENCE_TESTS.md carries the recipe for re-reading the
-// current one from the newest published run.
-def GLAMSTERDAM_SIM_LIMIT = '.*fork_(Amsterdam|BPO2ToAmsterdamAtTime15k|Osaka).*'
-def GLAMSTERDAM_QUICK_SIM_LIMIT =
-  '.*(2780|7708|7732|7778|7843|7928|7954|7975|7976|7981|7997|8024|8037|8038|8045|8061|8070|8159|8246|8282).*'
-
-registerHiveEquivalentTask(project, 'consumeEngineTestsGlamsterdam', 'engine-test', 'blockchain_tests_engine',
-  'consumeEngineTests with the glamsterdam hive run fork filter baked in.',
-  [], GLAMSTERDAM_SIM_LIMIT)
-
-registerHiveEquivalentTask(project, 'consumeRlpTestsGlamsterdam', 'block-test', 'blockchain_tests',
-  'consumeRlpTests with the glamsterdam hive run fork filter baked in.',
-  [], GLAMSTERDAM_SIM_LIMIT)
-
-registerHiveEquivalentTask(project, 'consumeEngineTestsGlamsterdamQuick', 'engine-test', 'blockchain_tests_engine',
-  'consumeEngineTests with the glamsterdam-quick hive run EIP filter baked in.',
-  [], GLAMSTERDAM_QUICK_SIM_LIMIT)
-
-registerHiveEquivalentTask(project, 'consumeRlpTestsGlamsterdamQuick', 'block-test', 'blockchain_tests',
-  'consumeRlpTests with the glamsterdam-quick hive run EIP filter baked in.',
-  [], GLAMSTERDAM_QUICK_SIM_LIMIT)
+registerHiveEquivalentTask(project, 'consumeRlpTestsStable', 'block-test', 'blockchain_tests',
+  'Hive consume-rlp equivalent: replays the stable blockchain_tests fixtures through the RLP block-import path.',
+  [], GLAMSTERDAM_SIM_LIMIT, true)
 
 // No hive simulator consumes state_tests — they are the EVM/state-transition-only slice, covered by
 // neither consume-engine nor consume-rlp. Kept because that coverage is real, and it reuses the same

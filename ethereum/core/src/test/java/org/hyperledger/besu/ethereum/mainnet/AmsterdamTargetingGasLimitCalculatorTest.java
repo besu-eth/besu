@@ -143,4 +143,11 @@ class AmsterdamTargetingGasLimitCalculatorTest {
     // per-tx cap: DEFAULT_MAX_BLOBS_PER_TRANSACTION (6) * 131072 = 0xC0000
     assertThat(calculator.transactionBlobGasLimitCap()).isEqualTo(0xC0000);
   }
+
+  @Test
+  void transactionGasLimitCaps() {
+    // EIP-8037: tx.gas is capped at 2^32-1, the intrinsic gas at the EIP-7825 value 2^24
+    assertThat(gasLimitCalculator.transactionGasLimitCap()).isEqualTo(4_294_967_295L);
+    assertThat(gasLimitCalculator.transactionIntrinsicGasLimitCap()).isEqualTo(16_777_216L);
+  }
 }
