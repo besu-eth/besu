@@ -45,6 +45,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldS
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.NoOpBonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
+import org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.ImmutableExtraStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
@@ -84,6 +85,10 @@ public class BlockchainReferenceTestCaseSpec {
 
   private final String sealEngine;
 
+  // -Dtest.ethereum.bonsai.immutableTreeCache=true computes state roots on the immutable tree cache
+  private static final boolean IMMUTABLE_TREE_CACHE =
+      Boolean.getBoolean("test.ethereum.bonsai.immutableTreeCache");
+
   private WorldStateArchive buildWorldStateArchive(
       final DataStorageConfiguration storageConfiguration,
       final long cacheSize,
@@ -91,6 +96,8 @@ public class BlockchainReferenceTestCaseSpec {
 
     final InMemoryKeyValueStorageProvider inMemoryKeyValueStorageProvider =
         new InMemoryKeyValueStorageProvider();
+    final ExtraStorageConfiguration.Unstable unstable =
+        storageConfiguration.getExtraStorageConfiguration().getUnstable();
     final WorldStateArchive worldStateArchive =
         new BonsaiWorldStateProvider(
             (BonsaiWorldStateKeyValueStorage)
@@ -98,7 +105,11 @@ public class BlockchainReferenceTestCaseSpec {
             blockchain,
             ImmutableExtraStorageConfiguration.copyOf(
                     storageConfiguration.getExtraStorageConfiguration())
-                .withMaxLayersToLoad(cacheSize),
+                .withMaxLayersToLoad(cacheSize)
+                .withUnstable(
+                    ImmutableExtraStorageConfiguration.Unstable.copyOf(unstable)
+                        .withBonsaiImmutableTreeCacheEnabled(
+                            IMMUTABLE_TREE_CACHE || unstable.getBonsaiImmutableTreeCacheEnabled())),
             new NoOpBonsaiCachedMerkleTrieLoader(),
             new ServiceManager() {
               @Override

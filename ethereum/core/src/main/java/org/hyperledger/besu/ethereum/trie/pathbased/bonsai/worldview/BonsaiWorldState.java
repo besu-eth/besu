@@ -22,6 +22,9 @@ import org.hyperledger.besu.ethereum.mainnet.parallelization.BlockProcessingExec
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.NoOpMerkleTrie;
 import org.hyperledger.besu.ethereum.trie.NodeLoader;
+import org.hyperledger.besu.ethereum.trie.immutabletree.ImmutableTreeCache;
+import org.hyperledger.besu.ethereum.trie.immutabletree.TreeKind;
+import org.hyperledger.besu.ethereum.trie.immutabletree.TreeRole;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
@@ -62,6 +65,8 @@ public class BonsaiWorldState extends PathBasedWorldState {
   private final BonsaiCodeCache codeCache;
   private final EvmConfiguration evmConfiguration;
   private final FrontierRootHashTracker frontierRootHashTracker;
+  // null when state roots are computed on classic tries
+  private final BonsaiImmutableTrees immutableTrees;
 
   public BonsaiWorldState(
       final BonsaiWorldStateProvider archive,
@@ -76,7 +81,8 @@ public class BonsaiWorldState extends PathBasedWorldState {
         archive.getTrieLogManager(),
         evmConfiguration,
         worldStateConfig,
-        codeCache);
+        codeCache,
+        archive.getImmutableTreeCache().orElse(null));
   }
 
   public BonsaiWorldState(
@@ -87,7 +93,41 @@ public class BonsaiWorldState extends PathBasedWorldState {
       final EvmConfiguration evmConfiguration,
       final WorldStateConfig worldStateConfig,
       final BonsaiCodeCache codeCache) {
+    this(
+        worldStateKeyValueStorage,
+        bonsaiCachedMerkleTrieLoader,
+        worldStateCacheManager,
+        trieLogManager,
+        evmConfiguration,
+        worldStateConfig,
+        codeCache,
+        null);
+  }
+
+  /**
+   * Creates a world state.
+   *
+   * @param worldStateKeyValueStorage the storage it reads and persists to
+   * @param bonsaiCachedMerkleTrieLoader the trie node cache and preloader
+   * @param worldStateCacheManager the cache of layered world states
+   * @param trieLogManager the trie log manager
+   * @param evmConfiguration the EVM configuration
+   * @param worldStateConfig the world state configuration
+   * @param codeCache the code cache
+   * @param immutableTreeCache the cache to compute state roots on, or null for classic tries
+   */
+  public BonsaiWorldState(
+      final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
+      final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader,
+      final PathBasedWorldStateCacheManager worldStateCacheManager,
+      final TrieLogManager trieLogManager,
+      final EvmConfiguration evmConfiguration,
+      final WorldStateConfig worldStateConfig,
+      final BonsaiCodeCache codeCache,
+      final ImmutableTreeCache immutableTreeCache) {
     super(worldStateKeyValueStorage, worldStateCacheManager, trieLogManager, worldStateConfig);
+    this.immutableTrees =
+        immutableTreeCache == null ? null : new BonsaiImmutableTrees(immutableTreeCache);
     this.bonsaiCachedMerkleTrieLoader = bonsaiCachedMerkleTrieLoader;
     this.worldStateKeyValueStorage = worldStateKeyValueStorage;
     this.evmConfiguration = evmConfiguration;
@@ -110,6 +150,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
                 acc,
                 (addressHash, baseRoot) ->
                     createFrontierTrie(
+                        TreeKind.STORAGE,
                         (location, key) ->
                             bonsaiCachedMerkleTrieLoader.getAccountStorageTrieNode(
                                 getWorldStateStorage(), addressHash, location, key),
@@ -119,6 +160,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
             acc,
             rootHash ->
                 createFrontierTrie(
+                    TreeKind.STATE,
                     (location, hash) ->
                         bonsaiCachedMerkleTrieLoader.getAccountStateTrieNode(
                             getWorldStateStorage(), location, hash),
@@ -132,7 +174,86 @@ public class BonsaiWorldState extends PathBasedWorldState {
   @Override
   public void persist(final BlockHeader blockHeader, final StateRootCommitter committer) {
     frontierRootHashTracker.reset();
-    super.persist(blockHeader, committer);
+    if (immutableTrees == null) {
+      super.persist(blockHeader, committer);
+      return;
+    }
+    final TreeRole role = immutableTreeRole();
+    immutableTrees.begin(blockHeader);
+    boolean persisted = false;
+    try {
+      super.persist(blockHeader, committer);
+      persisted = true;
+    } finally {
+      if (persisted) {
+        immutableTrees.finish(role, blockHeader, worldStateRootHash);
+      } else {
+        immutableTrees.discard();
+      }
+    }
+  }
+
+  @Override
+  public Hash rootHash() {
+    if (immutableTrees == null || !(isStorageFrozen && accumulator.isAccumulatorStateChanged())) {
+      return super.rootHash();
+    }
+    immutableTrees.begin(null);
+    boolean computed = false;
+    try {
+      final Hash root = super.rootHash();
+      computed = true;
+      return root;
+    } finally {
+      if (computed) {
+        // block building candidates and simulations: registered as forks, never bound
+        immutableTrees.finish(null, null, worldStateRootHash);
+      } else {
+        immutableTrees.discard();
+      }
+    }
+  }
+
+  /**
+   * The role the roots this world state persists are bound to: the head world state persists the
+   * head, a frozen one validates a payload, and a rolled layer is a short-lived fork.
+   */
+  private TreeRole immutableTreeRole() {
+    if (isStorageFrozen()) {
+      return TreeRole.NEW_PAYLOAD;
+    }
+    return isModifyingHeadWorldState() ? TreeRole.HEAD : null;
+  }
+
+  /**
+   * Starts collecting the roots this world state's tries compute, for a computation whose result
+   * another world state persists. No-op without an immutable tree cache.
+   */
+  public void beginImmutableTreeResults() {
+    if (immutableTrees != null) {
+      immutableTrees.begin(null);
+    }
+  }
+
+  /**
+   * Returns the roots collected since {@link #beginImmutableTreeResults()}.
+   *
+   * @return the roots, or null without an immutable tree cache
+   */
+  public BonsaiImmutableTrees.Results drainImmutableTreeResults() {
+    return immutableTrees == null ? null : immutableTrees.drain();
+  }
+
+  /**
+   * Adds roots another world state computed for the state this one is persisting, so they are
+   * registered with its own if the persist succeeds.
+   *
+   * @param results the roots, or null
+   */
+  public void adoptImmutableTreeResults(final BonsaiImmutableTrees.Results results) {
+    if (immutableTrees != null) {
+      immutableTrees.adopt(results);
+    }
   }
 
   @Override
@@ -228,33 +349,57 @@ public class BonsaiWorldState extends PathBasedWorldState {
    * scheduling overhead.
    */
   private MerkleTrie<Bytes, Bytes> createFrontierTrie(
-      final NodeLoader nodeLoader, final Bytes32 rootHash) {
+      final TreeKind kind, final NodeLoader nodeLoader, final Bytes32 rootHash) {
     if (worldStateConfig.isTrieDisabled()) {
       return new NoOpMerkleTrie<>();
+    }
+    if (immutableTrees != null) {
+      return immutableTrees.frontierTrie(kind, rootHash, nodeLoader);
     }
     return new StoredMerklePatriciaTrie<>(
         nodeLoader, rootHash, Function.identity(), Function.identity());
   }
 
-  /** Account state trie rooted at the current world state root. */
+  /**
+   * Account state trie rooted at the current world state root. With an immutable tree cache its
+   * root is computed on the cached tree of the current root.
+   */
   public MerkleTrie<Bytes, Bytes> createAccountStateTrie() {
-    return createTrie(
+    final NodeLoader loader =
         (location, hash) ->
             bonsaiCachedMerkleTrieLoader.getAccountStateTrieNode(
-                getWorldStateStorage(), location, hash),
-        Bytes32.wrap(worldStateRootHash.getBytes()),
-        BlockProcessingExecutors.accountTrieForkJoinPool());
+                getWorldStateStorage(), location, hash);
+    final Bytes32 rootHash = Bytes32.wrap(worldStateRootHash.getBytes());
+    if (immutableTrees != null && !worldStateConfig.isTrieDisabled()) {
+      return immutableTrees.accountTrie(
+          rootHash, loader, parallelPool(BlockProcessingExecutors.accountTrieForkJoinPool()));
+    }
+    return createTrie(loader, rootHash, BlockProcessingExecutors.accountTrieForkJoinPool());
   }
 
-  /** Storage trie for the given account rooted at the provided storage root. */
+  /**
+   * Storage trie for the given account rooted at the provided storage root. With an immutable tree
+   * cache its root is computed on the cached tree of that storage root.
+   */
   public MerkleTrie<Bytes, Bytes> createStorageTrie(
       final Hash accountHash, final Hash storageRoot) {
-    return createTrie(
+    final NodeLoader loader =
         (location, key) ->
             bonsaiCachedMerkleTrieLoader.getAccountStorageTrieNode(
-                getWorldStateStorage(), accountHash, location, key),
-        Bytes32.wrap(storageRoot.getBytes()),
-        BlockProcessingExecutors.storageTrieForkJoinPool());
+                getWorldStateStorage(), accountHash, location, key);
+    final Bytes32 rootHash = Bytes32.wrap(storageRoot.getBytes());
+    if (immutableTrees != null && !worldStateConfig.isTrieDisabled()) {
+      return immutableTrees.storageTrie(
+          accountHash,
+          rootHash,
+          loader,
+          parallelPool(BlockProcessingExecutors.storageTrieForkJoinPool()));
+    }
+    return createTrie(loader, rootHash, BlockProcessingExecutors.storageTrieForkJoinPool());
+  }
+
+  private ForkJoinPool parallelPool(final ForkJoinPool pool) {
+    return worldStateConfig.isParallelStateRootComputationEnabled() ? pool : null;
   }
 
   private MerkleTrie<Bytes, Bytes> createTrie(final NodeLoader nodeLoader, final Bytes32 rootHash) {

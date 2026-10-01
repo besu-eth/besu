@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.worldstate;
 
+import org.hyperledger.besu.ethereum.trie.immutabletree.ImmutableTreeCacheConfig;
+
 import org.immutables.value.Value;
 
 @Value.Immutable
@@ -90,6 +92,11 @@ public interface ExtraStorageConfiguration {
     boolean DEFAULT_BONSAI_ARCHIVE_STATE_PROOFS_ENABLED = false;
     int DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL = 32;
     int DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL = 16;
+    boolean DEFAULT_BONSAI_IMMUTABLE_TREE_CACHE_ENABLED = false;
+    int DEFAULT_BONSAI_IMMUTABLE_TREE_CACHE_PRUNE_AFTER_BLOCKS =
+        ImmutableTreeCacheConfig.DEFAULT_PRUNE_AFTER_BLOCKS;
+    long DEFAULT_BONSAI_IMMUTABLE_TREE_CACHE_MAX_CAPACITY =
+        ImmutableTreeCacheConfig.DEFAULT_MAX_CACHED_BYTES;
 
     @Value.Default
     default boolean getFullFlatDbEnabled() {
@@ -129,6 +136,24 @@ public interface ExtraStorageConfiguration {
     @Value.Default
     default int getBonsaiArchiveDeepCheckpointInterval() {
       return DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL;
+    }
+
+    // Whether Bonsai computes state roots on trie nodes cached across blocks
+    @Value.Default
+    default boolean getBonsaiImmutableTreeCacheEnabled() {
+      return DEFAULT_BONSAI_IMMUTABLE_TREE_CACHE_ENABLED;
+    }
+
+    // Cached trie nodes no state root computation touched for this many blocks are unloaded
+    @Value.Default
+    default int getBonsaiImmutableTreeCachePruneAfterBlocks() {
+      return DEFAULT_BONSAI_IMMUTABLE_TREE_CACHE_PRUNE_AFTER_BLOCKS;
+    }
+
+    // Estimated heap, in bytes, the cache is pruned down to
+    @Value.Default
+    default long getBonsaiImmutableTreeCacheMaxCapacity() {
+      return DEFAULT_BONSAI_IMMUTABLE_TREE_CACHE_MAX_CAPACITY;
     }
   }
 }

@@ -30,7 +30,9 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWo
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateConfig;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
+import org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
+import org.hyperledger.besu.ethereum.worldstate.ImmutableExtraStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
@@ -95,7 +97,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
     super(
         worldStateKeyValueStorage,
         blockchain,
-        dataStorageConfiguration.getExtraStorageConfiguration(),
+        withoutImmutableTreeCache(dataStorageConfiguration.getExtraStorageConfiguration()),
         bonsaiCachedMerkleTrieLoader,
         pluginContext,
         evmConfiguration,
@@ -220,5 +222,14 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
           .log();
       return Optional.empty();
     }
+  }
+
+  /** Archive world states keep computing state roots on classic tries. */
+  private static ExtraStorageConfiguration withoutImmutableTreeCache(
+      final ExtraStorageConfiguration configuration) {
+    return ImmutableExtraStorageConfiguration.copyOf(configuration)
+        .withUnstable(
+            ImmutableExtraStorageConfiguration.Unstable.copyOf(configuration.getUnstable())
+                .withBonsaiImmutableTreeCacheEnabled(false));
   }
 }

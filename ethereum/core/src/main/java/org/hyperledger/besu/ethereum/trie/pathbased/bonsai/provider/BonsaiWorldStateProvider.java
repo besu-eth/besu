@@ -15,8 +15,11 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider;
 
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.trie.immutabletree.ImmutableTreeCache;
+import org.hyperledger.besu.ethereum.trie.immutabletree.ImmutableTreeCacheConfig;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.StorageSubscriber;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
@@ -36,6 +39,8 @@ public class BonsaiWorldStateProvider extends PathBasedWorldStateProvider {
 
   private final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader;
   private final Optional<Long> amsterdamMilestone;
+  // null when state roots are computed on classic tries
+  private final ImmutableTreeCache immutableTreeCache;
 
   public BonsaiWorldStateProvider(
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
@@ -68,6 +73,8 @@ public class BonsaiWorldStateProvider extends PathBasedWorldStateProvider {
     super(worldStateKeyValueStorage, blockchain, extraStorageConfiguration, pluginContext);
     this.bonsaiCachedMerkleTrieLoader = bonsaiCachedMerkleTrieLoader;
     this.amsterdamMilestone = amsterdamMilestone;
+    this.immutableTreeCache =
+        createImmutableTreeCache(extraStorageConfiguration, worldStateKeyValueStorage, blockchain);
     this.evmConfiguration = evmConfiguration;
     provideWorldStateCacheManager(
         new BonsaiWorldStateCacheManager(
@@ -90,6 +97,8 @@ public class BonsaiWorldStateProvider extends PathBasedWorldStateProvider {
     super(worldStateKeyValueStorage, blockchain, extraStorageConfiguration, trieLogManager);
     this.bonsaiCachedMerkleTrieLoader = bonsaiCachedMerkleTrieLoader;
     this.amsterdamMilestone = Optional.empty();
+    this.immutableTreeCache =
+        createImmutableTreeCache(extraStorageConfiguration, worldStateKeyValueStorage, blockchain);
     this.evmConfiguration = evmConfiguration;
     provideWorldStateCacheManager(bonsaiWorldStateCacheManager);
     initializeHeadWorldState(
@@ -99,6 +108,49 @@ public class BonsaiWorldStateProvider extends PathBasedWorldStateProvider {
 
   public BonsaiCachedMerkleTrieLoader getCachedMerkleTrieLoader() {
     return bonsaiCachedMerkleTrieLoader;
+  }
+
+  /**
+   * Returns the cache the world states of this provider compute state roots on.
+   *
+   * @return the cache, empty if disabled
+   */
+  public Optional<ImmutableTreeCache> getImmutableTreeCache() {
+    return Optional.ofNullable(immutableTreeCache);
+  }
+
+  private static ImmutableTreeCache createImmutableTreeCache(
+      final ExtraStorageConfiguration extraStorageConfiguration,
+      final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
+      final Blockchain blockchain) {
+    final ExtraStorageConfiguration.Unstable unstable = extraStorageConfiguration.getUnstable();
+    if (!unstable.getBonsaiImmutableTreeCacheEnabled()) {
+      return null;
+    }
+    final ImmutableTreeCache cache =
+        new ImmutableTreeCache(
+            ImmutableTreeCacheConfig.DEFAULT.withLimits(
+                unstable.getBonsaiImmutableTreeCachePruneAfterBlocks(),
+                unstable.getBonsaiImmutableTreeCacheMaxCapacity()));
+    // Stamp from the head's block on, or the first prune would take everything for stale
+    cache.startAt(
+        worldStateKeyValueStorage
+            .getWorldStateBlockNumber()
+            .orElseGet(blockchain::getChainHeadBlockNumber));
+    // Cached trees stand for nodes on disk; drop them when the trie is wiped
+    worldStateKeyValueStorage.subscribe(
+        new StorageSubscriber() {
+          @Override
+          public void onClearStorage() {
+            cache.clear();
+          }
+
+          @Override
+          public void onClearTrie() {
+            cache.clear();
+          }
+        });
+    return cache;
   }
 
   private void initializeHeadWorldState(final BonsaiWorldState headWorldState) {

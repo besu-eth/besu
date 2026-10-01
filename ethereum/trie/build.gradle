@@ -38,6 +38,7 @@ dependencies {
   implementation 'com.google.guava:guava'
   implementation 'io.opentelemetry:opentelemetry-api'
   implementation 'io.consensys.tuweni:tuweni-bytes'
+  implementation 'org.slf4j:slf4j-api'
   implementation 'org.bouncycastle:bcprov-jdk18on'
 
   annotationProcessor 'org.immutables:value'

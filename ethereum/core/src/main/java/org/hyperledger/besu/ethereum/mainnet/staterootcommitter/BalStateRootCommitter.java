@@ -27,6 +27,7 @@ import org.hyperledger.besu.ethereum.mainnet.parallelization.BlockProcessingExec
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiImmutableTrees;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
@@ -135,6 +136,10 @@ public final class BalStateRootCommitter implements StateRootCommitter {
               + " but BAL computed "
               + result.root());
     }
+    // The tries ran on the parent world state; register their roots with this one's persist
+    if (worldState instanceof BonsaiWorldState bonsaiWorldState) {
+      bonsaiWorldState.adoptImmutableTreeResults(result.treeResults());
+    }
     return StateRootComputations.pathBased(result.root(), result.writes());
   }
 
@@ -143,9 +148,16 @@ public final class BalStateRootCommitter implements StateRootCommitter {
       final BlockAccessListAccountLookup accountLookup,
       final boolean storageFrozen) {
     if (accountLookup.isEmpty()) {
-      return new BackgroundResult(worldState.getWorldStateRootHash(), List.of(), Map.of());
+      return new BackgroundResult(worldState.getWorldStateRootHash(), List.of(), Map.of(), null);
     }
-    return new BalComputation(worldState, accountLookup, storageFrozen).execute();
+    worldState.beginImmutableTreeResults();
+    final BackgroundResult result =
+        new BalComputation(worldState, accountLookup, storageFrozen).execute();
+    return new BackgroundResult(
+        result.root(),
+        result.writes(),
+        result.storageRoots(),
+        worldState.drainImmutableTreeResults());
   }
 
   private BackgroundResult awaitBackgroundComputation(
@@ -207,11 +219,13 @@ public final class BalStateRootCommitter implements StateRootCommitter {
    * @param writes deferred KV writes to apply at persist time (empty when storage is frozen)
    * @param storageRoots new per-account storage roots, patched into the EVM accumulator by {@link
    *     #compute}
+   * @param treeResults the roots the computation's immutable trees produced, or null
    */
   private record BackgroundResult(
       Hash root,
       List<StateRootComputations.UpdaterWrite> writes,
-      Map<Address, Hash> storageRoots) {}
+      Map<Address, Hash> storageRoots,
+      BonsaiImmutableTrees.Results treeResults) {}
 
   private static final class BalComputation {
 
@@ -286,7 +300,7 @@ public final class BalStateRootCommitter implements StateRootCommitter {
           accountTrie,
           (location, hash, value) -> u -> u.putAccountStateTrieNode(location, hash, value));
       return new BackgroundResult(
-          Hash.wrap(accountTrie.getRootHash()), new ArrayList<>(writes), storageRoots);
+          Hash.wrap(accountTrie.getRootHash()), new ArrayList<>(writes), storageRoots, null);
     }
 
     private Optional<Bytes> resolveAccount(

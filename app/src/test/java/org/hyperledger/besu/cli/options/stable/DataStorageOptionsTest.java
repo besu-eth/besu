@@ -20,6 +20,7 @@ import static org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration
 import org.hyperledger.besu.cli.options.AbstractCLIOptionsTest;
 import org.hyperledger.besu.cli.options.storage.DataStorageOptions;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
+import org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.ImmutableDataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.ImmutableExtraStorageConfiguration;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
@@ -349,6 +350,51 @@ public class DataStorageOptionsTest
         "--revert-reason-enabled=false");
   }
 
+  @Test
+  public void immutableTreeCacheDisabledByDefault() {
+    internalTestSuccess(
+        dataStorageConfiguration ->
+            assertThat(
+                    dataStorageConfiguration
+                        .getExtraStorageConfiguration()
+                        .getUnstable()
+                        .getBonsaiImmutableTreeCacheEnabled())
+                .isFalse());
+  }
+
+  @Test
+  public void immutableTreeCacheCanBeConfigured() {
+    internalTestSuccess(
+        dataStorageConfiguration -> {
+          final ExtraStorageConfiguration.Unstable unstable =
+              dataStorageConfiguration.getExtraStorageConfiguration().getUnstable();
+          assertThat(unstable.getBonsaiImmutableTreeCacheEnabled()).isTrue();
+          assertThat(unstable.getBonsaiImmutableTreeCachePruneAfterBlocks()).isEqualTo(64);
+          assertThat(unstable.getBonsaiImmutableTreeCacheMaxCapacity()).isEqualTo(1_048_576L);
+        },
+        "--Xbonsai-immutable-tree-cache-enabled=true",
+        "--Xbonsai-immutable-tree-cache-prune-after-blocks",
+        "64",
+        "--Xbonsai-immutable-tree-cache-max-capacity",
+        "1048576");
+  }
+
+  @Test
+  public void immutableTreeCachePruneWindowMustBePositive() {
+    internalTestFailure(
+        "--Xbonsai-immutable-tree-cache-prune-after-blocks must be at least 1",
+        "--Xbonsai-immutable-tree-cache-prune-after-blocks",
+        "0");
+  }
+
+  @Test
+  public void immutableTreeCacheMaxCapacityMustBePositive() {
+    internalTestFailure(
+        "--Xbonsai-immutable-tree-cache-max-capacity must be at least 1",
+        "--Xbonsai-immutable-tree-cache-max-capacity",
+        "0");
+  }
+
   @Override
   protected DataStorageConfiguration createDefaultDomainObject() {
     return DataStorageConfiguration.DEFAULT_CONFIG;
@@ -369,6 +415,9 @@ public class DataStorageOptionsTest
                     ImmutableExtraStorageConfiguration.Unstable.builder()
                         .bonsaiArchiveShallowCheckpointInterval(24)
                         .bonsaiArchiveDeepCheckpointInterval(8)
+                        .bonsaiImmutableTreeCacheEnabled(true)
+                        .bonsaiImmutableTreeCachePruneAfterBlocks(64)
+                        .bonsaiImmutableTreeCacheMaxCapacity(1_048_576L)
                         .build())
                 .build())
         .revertReasonEnabled(true)

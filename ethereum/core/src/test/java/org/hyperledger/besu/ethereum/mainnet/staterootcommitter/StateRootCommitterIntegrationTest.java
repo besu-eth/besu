@@ -57,6 +57,8 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorld
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
+import org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration;
+import org.hyperledger.besu.ethereum.worldstate.ImmutableExtraStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
@@ -127,13 +129,17 @@ class StateRootCommitterIntegrationTest {
   @Nested
   class CrossModeRootEquivalence {
 
+    EmptyCrossModeHarness harness() {
+      return EmptyCrossModeHarness.create(false);
+    }
+
     @Test
     void defaultBalAndForestProduceSameRoot_complexBlock() {
       final BlockChange blockChange = BlockChange.complex();
 
-      final Hash defaultRoot = EmptyCrossModeHarness.create().persistBonsaiWithDefault(blockChange);
-      final Hash balRoot = EmptyCrossModeHarness.create().persistBonsaiWithBal(blockChange);
-      final Hash forestRoot = EmptyCrossModeHarness.create().persistForest(blockChange);
+      final Hash defaultRoot = harness().persistBonsaiWithDefault(blockChange);
+      final Hash balRoot = harness().persistBonsaiWithBal(blockChange);
+      final Hash forestRoot = harness().persistForest(blockChange);
 
       assertThat(balRoot).isEqualTo(defaultRoot);
       assertThat(forestRoot).isEqualTo(defaultRoot);
@@ -143,9 +149,9 @@ class StateRootCommitterIntegrationTest {
     void defaultBalAndForestProduceSameRoot_balanceAndNonce() {
       final BlockChange blockChange = BlockChange.balanceAndNonce(EOA, Wei.of(10_000), 5L);
 
-      final Hash defaultRoot = EmptyCrossModeHarness.create().persistBonsaiWithDefault(blockChange);
-      final Hash balRoot = EmptyCrossModeHarness.create().persistBonsaiWithBal(blockChange);
-      final Hash forestRoot = EmptyCrossModeHarness.create().persistForest(blockChange);
+      final Hash defaultRoot = harness().persistBonsaiWithDefault(blockChange);
+      final Hash balRoot = harness().persistBonsaiWithBal(blockChange);
+      final Hash forestRoot = harness().persistForest(blockChange);
 
       assertThat(balRoot).isEqualTo(defaultRoot);
       assertThat(forestRoot).isEqualTo(defaultRoot);
@@ -155,8 +161,8 @@ class StateRootCommitterIntegrationTest {
     void defaultAndBalProduceSameRoot_balanceAndNonceOnly() {
       final BlockChange blockChange = BlockChange.balanceAndNonce(EOA, Wei.of(42_000), 3L);
 
-      final Hash defaultRoot = EmptyCrossModeHarness.create().persistBonsaiWithDefault(blockChange);
-      final Hash balRoot = EmptyCrossModeHarness.create().persistBonsaiWithBal(blockChange);
+      final Hash defaultRoot = harness().persistBonsaiWithDefault(blockChange);
+      final Hash balRoot = harness().persistBonsaiWithBal(blockChange);
 
       assertThat(balRoot).isEqualTo(defaultRoot);
     }
@@ -166,9 +172,9 @@ class StateRootCommitterIntegrationTest {
       final BlockChange blockChange =
           BlockChange.codeAndStorage(CONTRACT, CONTRACT_CODE, SLOT, SLOT_VALUE);
 
-      final Hash defaultRoot = EmptyCrossModeHarness.create().persistBonsaiWithDefault(blockChange);
-      final Hash balRoot = EmptyCrossModeHarness.create().persistBonsaiWithBal(blockChange);
-      final Hash forestRoot = EmptyCrossModeHarness.create().persistForest(blockChange);
+      final Hash defaultRoot = harness().persistBonsaiWithDefault(blockChange);
+      final Hash balRoot = harness().persistBonsaiWithBal(blockChange);
+      final Hash forestRoot = harness().persistForest(blockChange);
 
       assertThat(balRoot).isEqualTo(defaultRoot);
       assertThat(forestRoot).isEqualTo(defaultRoot);
@@ -179,15 +185,15 @@ class StateRootCommitterIntegrationTest {
       final BlockChange create = BlockChange.balanceAndNonce(CONTRACT, Wei.of(1), 1L);
       final BlockChange delete = BlockChange.deleteAccount(CONTRACT);
 
-      final EmptyCrossModeHarness defaultHarness = EmptyCrossModeHarness.create();
+      final EmptyCrossModeHarness defaultHarness = harness();
       defaultHarness.persistBonsaiWithDefault(create);
       final Hash defaultRoot = defaultHarness.persistBonsaiWithDefault(delete);
 
-      final EmptyCrossModeHarness balHarness = EmptyCrossModeHarness.create();
+      final EmptyCrossModeHarness balHarness = harness();
       balHarness.persistBonsaiWithBal(create);
       final Hash balRoot = balHarness.persistBonsaiWithBal(delete);
 
-      final EmptyCrossModeHarness forestHarness = EmptyCrossModeHarness.create();
+      final EmptyCrossModeHarness forestHarness = harness();
       forestHarness.persistForest(create);
       final Hash forestRoot = forestHarness.persistForest(delete);
 
@@ -202,15 +208,15 @@ class StateRootCommitterIntegrationTest {
       final BlockChange clearSlot =
           BlockChange.codeAndStorage(CONTRACT, CONTRACT_CODE, SLOT, UInt256.ZERO);
 
-      final EmptyCrossModeHarness defaultHarness = EmptyCrossModeHarness.create();
+      final EmptyCrossModeHarness defaultHarness = harness();
       defaultHarness.persistBonsaiWithDefault(create);
       final Hash defaultRoot = defaultHarness.persistBonsaiWithDefault(clearSlot);
 
-      final EmptyCrossModeHarness balHarness = EmptyCrossModeHarness.create();
+      final EmptyCrossModeHarness balHarness = harness();
       balHarness.persistBonsaiWithBal(create);
       final Hash balRoot = balHarness.persistBonsaiWithBal(clearSlot);
 
-      final EmptyCrossModeHarness forestHarness = EmptyCrossModeHarness.create();
+      final EmptyCrossModeHarness forestHarness = harness();
       forestHarness.persistForest(create);
       final Hash forestRoot = forestHarness.persistForest(clearSlot);
 
@@ -220,7 +226,7 @@ class StateRootCommitterIntegrationTest {
 
     @Test
     void dryRunComputeMatchesPersistedRoot() {
-      final EmptyCrossModeHarness harness = EmptyCrossModeHarness.create();
+      final EmptyCrossModeHarness harness = harness();
       final BlockChange blockChange = BlockChange.complex();
       final Hash expectedRoot = harness.computeRootWithoutPersist(blockChange);
       final Hash persistedRoot = harness.persistBonsaiWithPrecomputedRoot(expectedRoot);
@@ -231,9 +237,9 @@ class StateRootCommitterIntegrationTest {
     void accountDeletion_restoresGenesisRoot_afterCreateAndDelete() {
       final BlockChange create = BlockChange.balanceAndNonce(CONTRACT, Wei.of(1), 1L);
       final BlockChange delete = BlockChange.deleteAccount(CONTRACT);
-      final Hash genesisRoot = EmptyCrossModeHarness.create().forestGenesisRoot();
+      final Hash genesisRoot = harness().forestGenesisRoot();
 
-      final EmptyCrossModeHarness forestHarness = EmptyCrossModeHarness.create();
+      final EmptyCrossModeHarness forestHarness = harness();
       final Hash afterCreate = forestHarness.persistForest(create);
       assertThat(afterCreate).isNotEqualTo(genesisRoot);
 
@@ -248,17 +254,17 @@ class StateRootCommitterIntegrationTest {
           BlockChange.codeAndStorage(CONTRACT, CONTRACT_CODE, SLOT, SLOT_VALUE);
       final BlockChange block3 = BlockChange.deleteAccount(EOA);
 
-      final EmptyCrossModeHarness defaultHarness = EmptyCrossModeHarness.create();
+      final EmptyCrossModeHarness defaultHarness = harness();
       defaultHarness.persistBonsaiWithDefault(block1);
       defaultHarness.persistBonsaiWithDefault(block2);
       final Hash defaultRoot = defaultHarness.persistBonsaiWithDefault(block3);
 
-      final EmptyCrossModeHarness balHarness = EmptyCrossModeHarness.create();
+      final EmptyCrossModeHarness balHarness = harness();
       balHarness.persistBonsaiWithBal(block1);
       balHarness.persistBonsaiWithBal(block2);
       final Hash balRoot = balHarness.persistBonsaiWithBal(block3);
 
-      final EmptyCrossModeHarness forestHarness = EmptyCrossModeHarness.create();
+      final EmptyCrossModeHarness forestHarness = harness();
       forestHarness.persistForest(block1);
       forestHarness.persistForest(block2);
       final Hash forestRoot = forestHarness.persistForest(block3);
@@ -313,6 +319,16 @@ class StateRootCommitterIntegrationTest {
               factory.forBlock(
                   harness.protocolContext(), blockHeader, Optional.of(blockChange.toBal()), false))
           .isInstanceOf(BalStateRootCommitter.class);
+    }
+  }
+
+  /** The same scenarios with Bonsai computing state roots on the immutable tree cache. */
+  @Nested
+  class CrossModeRootEquivalenceOnImmutableTrees extends CrossModeRootEquivalence {
+
+    @Override
+    EmptyCrossModeHarness harness() {
+      return EmptyCrossModeHarness.create(true);
     }
   }
 
@@ -617,7 +633,7 @@ class StateRootCommitterIntegrationTest {
       this.chainHead = chainHead;
     }
 
-    static EmptyCrossModeHarness create() {
+    static EmptyCrossModeHarness create(final boolean immutableTreeCache) {
       final GenesisState genesisState =
           GenesisState.fromConfig(
               GenesisConfig.mainnet(),
@@ -643,15 +659,23 @@ class StateRootCommitterIntegrationTest {
               bonsaiProvider,
               new NoOpMetricsSystem(),
               DataStorageConfiguration.DEFAULT_BONSAI_CONFIG);
+      final ExtraStorageConfiguration defaults =
+          DataStorageConfiguration.DEFAULT_BONSAI_CONFIG.getExtraStorageConfiguration();
+      final ExtraStorageConfiguration extraStorageConfiguration =
+          ImmutableExtraStorageConfiguration.copyOf(defaults)
+              .withUnstable(
+                  ImmutableExtraStorageConfiguration.Unstable.copyOf(defaults.getUnstable())
+                      .withBonsaiImmutableTreeCacheEnabled(immutableTreeCache));
       final BonsaiWorldStateProvider bonsaiArchive =
           new BonsaiWorldStateProvider(
               bonsaiKv,
               blockchain,
-              DataStorageConfiguration.DEFAULT_BONSAI_CONFIG.getExtraStorageConfiguration(),
+              extraStorageConfiguration,
               new BonsaiCachedMerkleTrieLoader(new NoOpMetricsSystem()),
               null,
               EvmConfiguration.DEFAULT,
               new BonsaiCodeCache());
+      assertThat(bonsaiArchive.getImmutableTreeCache().isPresent()).isEqualTo(immutableTreeCache);
       genesisState.writeStateTo(bonsaiArchive.getWorldState());
 
       final BonsaiWorldState bonsaiWorldState =

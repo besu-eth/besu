@@ -441,6 +441,11 @@ dependencies {
 // "Could not complete execution for Gradle Test Executor N" rather than as a test failure.
 tasks.withType(Test).configureEach {
   maxHeapSize = '2g'
+  // -Dtest.ethereum.bonsai.immutableTreeCache=true runs the blockchain tests on the immutable tree cache
+  final String immutableTreeCache = System.getProperty('test.ethereum.bonsai.immutableTreeCache')
+  if (immutableTreeCache != null) {
+    systemProperty 'test.ethereum.bonsai.immutableTreeCache', immutableTreeCache
+  }
 }
 
 tasks.register('referenceTests', Test) {
