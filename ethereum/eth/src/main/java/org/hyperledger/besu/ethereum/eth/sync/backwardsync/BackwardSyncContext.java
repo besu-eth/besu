@@ -37,6 +37,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
@@ -320,6 +321,18 @@ public class BackwardSyncContext {
   }
 
   protected Void saveBlock(final Block block) {
+    // importing moves the head world state, which the Engine API moves concurrently
+    final ReentrantLock headLock = getProtocolContext().getHeadLock();
+    headLock.lock();
+    try {
+      importBlock(block);
+    } finally {
+      headLock.unlock();
+    }
+    return null;
+  }
+
+  private void importBlock(final Block block) {
     LOG.atTrace().setMessage("Going to validate block {}").addArgument(block::toLogString).log();
     var optResult =
         this.getBlockValidatorForBlock(block)
@@ -369,8 +382,6 @@ public class BackwardSyncContext {
               + " because of "
               + optResult.errorMessage.orElseThrow());
     }
-
-    return null;
   }
 
   @VisibleForTesting

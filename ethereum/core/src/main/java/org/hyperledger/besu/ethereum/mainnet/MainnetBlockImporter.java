@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class MainnetBlockImporter implements BlockImporter {
 
@@ -45,6 +46,22 @@ public class MainnetBlockImporter implements BlockImporter {
 
   @Override
   public synchronized BlockImportResult importBlock(
+      final ProtocolContext context,
+      final Block block,
+      final HeaderValidationMode headerValidationMode,
+      final HeaderValidationMode ommerValidationMode,
+      final Optional<BlockAccessList> blockAccessList) {
+    final ReentrantLock headLock = context.getHeadLock();
+    headLock.lock();
+    try {
+      return importBlockHoldingHeadLock(
+          context, block, headerValidationMode, ommerValidationMode, blockAccessList);
+    } finally {
+      headLock.unlock();
+    }
+  }
+
+  private BlockImportResult importBlockHoldingHeadLock(
       final ProtocolContext context,
       final Block block,
       final HeaderValidationMode headerValidationMode,
@@ -96,10 +113,16 @@ public class MainnetBlockImporter implements BlockImporter {
 
     if (blockValidator.validateBlockForSyncing(
         context, block, receipts, headerValidationMode, ommerValidationMode, bodyValidationMode)) {
-      if (importWithTxIndexing) {
-        context.getBlockchain().appendBlock(block, receipts);
-      } else {
-        context.getBlockchain().appendBlockWithoutIndexingTransactions(block, receipts);
+      final ReentrantLock headLock = context.getHeadLock();
+      headLock.lock();
+      try {
+        if (importWithTxIndexing) {
+          context.getBlockchain().appendBlock(block, receipts);
+        } else {
+          context.getBlockchain().appendBlockWithoutIndexingTransactions(block, receipts);
+        }
+      } finally {
+        headLock.unlock();
       }
       return new BlockImportResult(true);
     }

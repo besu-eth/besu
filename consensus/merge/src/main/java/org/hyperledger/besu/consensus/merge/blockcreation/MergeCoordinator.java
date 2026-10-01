@@ -66,6 +66,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
@@ -636,7 +637,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
 
   @Override
   public BlockProcessingResult validateBlock(final Block block) {
-    return validateBlock(block, Optional.empty());
+    return withHeadLock(() -> validateBlock(block, Optional.empty()));
   }
 
   private BlockProcessingResult validateBlock(
@@ -683,24 +684,39 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   public BlockProcessingResult rememberBlock(
       final Block block, final Optional<BlockAccessList> blockAccessList) {
     LOG.atDebug().setMessage("Remember block {}").addArgument(block::toLogString).log();
-    final var chain = protocolContext.getBlockchain();
-    final var validationResult = validateBlock(block, blockAccessList);
-    validationResult
-        .getYield()
-        .ifPresentOrElse(
-            result ->
-                chain.storeBlock(
-                    block,
-                    result.getReceipts(),
-                    validationResult.getYield().flatMap(y -> y.getBlockAccessList())),
-            () -> LOG.debug("empty yield in blockProcessingResult"));
-    return validationResult;
+    return withHeadLock(
+        () -> {
+          final var chain = protocolContext.getBlockchain();
+          final var validationResult = validateBlock(block, blockAccessList);
+          validationResult
+              .getYield()
+              .ifPresentOrElse(
+                  result ->
+                      chain.storeBlock(
+                          block,
+                          result.getReceipts(),
+                          validationResult.getYield().flatMap(y -> y.getBlockAccessList())),
+                  () -> LOG.debug("empty yield in blockProcessingResult"));
+          return validationResult;
+        });
   }
 
   @Override
   public ForkchoiceResult updateForkChoice(
       final BlockHeader newHead, final Hash finalizedBlockHash, final Hash safeBlockHash) {
-    return applyForkChoice(newHead, finalizedBlockHash, safeBlockHash);
+    return withHeadLock(() -> applyForkChoice(newHead, finalizedBlockHash, safeBlockHash));
+  }
+
+  // validation reads the head world state and a fork choice moves it, and backward sync does both
+  // from its own threads
+  private <T> T withHeadLock(final Supplier<T> action) {
+    final ReentrantLock headLock = protocolContext.getHeadLock();
+    headLock.lock();
+    try {
+      return action.get();
+    } finally {
+      headLock.unlock();
+    }
   }
 
   private ForkchoiceResult applyForkChoice(

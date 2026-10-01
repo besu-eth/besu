@@ -22,10 +22,14 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.BlockValidator;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
+
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantLock;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,12 +44,14 @@ public class MainnetBlockImporterTest {
   @Mock private MutableBlockchain blockchain;
   @Mock private Block block;
   @Mock private Hash hash;
+  private final ReentrantLock headLock = new ReentrantLock();
   private MainnetBlockImporter blockImporter;
 
   @BeforeEach
   public void setup() {
     blockImporter = new MainnetBlockImporter(blockValidator);
     when(context.getBlockchain()).thenReturn(blockchain);
+    when(context.getHeadLock()).thenReturn(headLock);
     when(block.getHash()).thenReturn(hash);
   }
 
@@ -63,5 +69,30 @@ public class MainnetBlockImporterTest {
         .validateAndProcessBlock(
             context, block, HeaderValidationMode.FULL, HeaderValidationMode.FULL);
     verify(blockchain, never()).appendBlock(eq(block), any(), any());
+  }
+
+  @Test
+  public void importsBlockHoldingTheHeadLock() {
+    final AtomicBoolean heldWhileValidating = new AtomicBoolean();
+    when(blockValidator.validateAndProcessBlock(
+            eq(context),
+            eq(block),
+            eq(HeaderValidationMode.FULL),
+            eq(HeaderValidationMode.FULL),
+            any(),
+            eq(false)))
+        .thenAnswer(
+            invocation -> {
+              heldWhileValidating.set(headLock.isHeldByCurrentThread());
+              return new BlockProcessingResult("invalid");
+            });
+
+    final BlockImportResult result =
+        blockImporter.importBlock(
+            context, block, HeaderValidationMode.FULL, HeaderValidationMode.FULL);
+
+    assertThat(result.isImported()).isFalse();
+    assertThat(heldWhileValidating.get()).isTrue();
+    assertThat(headLock.isLocked()).isFalse();
   }
 }

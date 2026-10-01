@@ -20,6 +20,7 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.plugin.ServiceManager;
 
 import java.util.Optional;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Holds the mutable state used to track the current context of the protocol. This is primarily the
@@ -32,6 +33,7 @@ public class ProtocolContext {
   private final ConsensusContext consensusContext;
   private final BadBlockManager badBlockManager;
   private final ServiceManager serviceManager;
+  private final ReentrantLock headLock = new ReentrantLock();
 
   /**
    * Constructs a new ProtocolContext with the given blockchain, world state archive, consensus
@@ -81,6 +83,17 @@ public class ProtocolContext {
    */
   public BadBlockManager getBadBlockManager() {
     return badBlockManager;
+  }
+
+  /**
+   * Gets the lock that anything moving the chain head or the head world state must hold, since the
+   * head world state is persisted in place and concurrent moves corrupt it. The lock is reentrant,
+   * so a holder can call other code that takes it.
+   *
+   * @return the head lock
+   */
+  public ReentrantLock getHeadLock() {
+    return headLock;
   }
 
   /**

@@ -19,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createInMemoryBlockchain;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -70,6 +71,8 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantLock;
 
 import jakarta.validation.constraints.NotNull;
 import org.apache.logging.log4j.Level;
@@ -536,6 +539,27 @@ public class BackwardSyncContextTest {
     verify(badChainListener)
         .onBadChain(
             block, Collections.emptyList(), List.of(childBlockHeader, grandChildBlockHeader));
+  }
+
+  @Test
+  public void shouldHoldHeadLockWhileImportingBlock() {
+    final ReentrantLock headLock = new ReentrantLock();
+    when(protocolContext.getHeadLock()).thenReturn(headLock);
+    final Block block = remoteBlockchain.getBlockByNumber(LOCAL_HEIGHT + 1).orElseThrow();
+    final AtomicBoolean heldWhileValidating = new AtomicBoolean();
+    doReturn(blockValidator).when(context).getBlockValidatorForBlock(any());
+    doAnswer(
+            invocation -> {
+              heldWhileValidating.set(headLock.isHeldByCurrentThread());
+              return new BlockProcessingResult("custom error");
+            })
+        .when(blockValidator)
+        .validateAndProcessBlock(any(), any(), any(), any());
+
+    assertThatThrownBy(() -> context.saveBlock(block)).isInstanceOf(BackwardSyncException.class);
+
+    assertThat(heldWhileValidating).isTrue();
+    assertThat(headLock.isLocked()).isFalse();
   }
 
   @Test
