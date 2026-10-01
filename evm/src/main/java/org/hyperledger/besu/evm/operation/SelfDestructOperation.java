@@ -103,7 +103,7 @@ public class SelfDestructOperation extends AbstractOperation {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 
-    // EIP-8037: Deduct regular gas before charging state gas (ordering requirement).
+    // EIP-8037: Deduct execution gas before charging state gas (ordering requirement).
     frame.decrementRemainingGas(cost);
 
     // EIP-8037: Charge state gas when SELFDESTRUCT forces creation of an empty beneficiary.
@@ -113,7 +113,7 @@ public class SelfDestructOperation extends AbstractOperation {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 
-    // Add regular gas back — the EVM loop will deduct it via the OperationResult.
+    // Add execution gas back — the EVM loop will deduct it via the OperationResult.
     frame.incrementRemainingGas(cost);
 
     // We passed preliminary checks, get mutable accounts.

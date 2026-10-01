@@ -72,19 +72,41 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          found=0
           dropped=0
           while IFS= read -r -d '' report
           do
-            if printf '%s' "$report" | LC_ALL=C grep -q '[^A-Za-z0-9._/$-]'
+            found=$(( found + 1 ))
+            base=$( basename -- "$report" )
+            # The second test must stay identical to the upload glob below. If it is looser, a file
+            # can pass here, miss the glob, and disappear from the baseline with no warning at all.
+            if printf '%s' "$report" | LC_ALL=C grep -q '[^A-Za-z0-9._/$-]' || [[ $base != TEST-*.xml ]]
             then
-              echo "::warning::dropping acceptance test report with an unexpected name: $report"
+              echo "::warning::unexpected acceptance test report name: $report"
               rm -f -- "$report"
-              dropped=$((dropped + 1))
+              dropped=$(( dropped + 1 ))
             fi
           done < <(find acceptance-tests-timing-reports -type f -print0)
-          echo "dropped $dropped report(s) with unexpected names"
+
+          publishable=$( find acceptance-tests-timing-reports -type f -name 'TEST-*.xml' | wc -l )
+          echo "found $found report(s), dropped $dropped, publishing $publishable"
+          if [ "$(( found - dropped ))" -ne "$publishable" ]
+          then
+            echo "::error::$(( found - dropped - publishable )) report(s) passed the name filter but do not match the upload glob"
+            exit 1
+          fi
+          # Failing is safe here: acceptance-tests.yml only selects successful runs of this
+          # workflow, so a red run keeps the previous baseline rather than publishing a partial one.
+          if [ "$dropped" -gt 0 ]
+          then
+            echo "::error::$dropped report(s) had unexpected names and were excluded from the timing baseline"
+            exit 1
+          fi
       - name: Upload acceptance test results
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: acceptance-tests-timing-reports
           path: 'acceptance-tests-timing-reports/**/TEST-*.xml'
+          # if every report were filtered out above, publishing nothing would quietly leave the
+          # previous baseline in place until it expires
+          if-no-files-found: error

@@ -47,6 +47,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.BlockAddedEvent;
 import org.hyperledger.besu.ethereum.chain.BlockAddedObserver;
@@ -64,6 +65,7 @@ import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
+import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardChain;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncContext;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.ImmutableTransactionPoolConfiguration;
@@ -77,7 +79,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.BaseFeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
 import org.hyperledger.besu.plugin.data.AddedBlockContext.EventType;
@@ -162,7 +164,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
 
   private final ProtocolSchedule protocolSchedule = spy(getMergeProtocolSchedule());
   private final GenesisState genesisState =
-      GenesisState.fromConfig(getPosGenesisConfig(), protocolSchedule, new PathBasedCodeCache());
+      GenesisState.fromConfig(getPosGenesisConfig(), protocolSchedule, new BonsaiCodeCache());
 
   private final WorldStateArchive worldStateArchive = createInMemoryWorldStateArchive();
 
@@ -903,6 +905,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     assertThat(result.getErrorMessage()).isPresent();
     assertThat(result.getErrorMessage().get())
         .isEqualTo("new head timestamp not greater than parent");
+    assertThat(result.getLatestValid()).contains(parentHeader.getHash());
 
     verify(blockchain, never()).setFinalized(childHeader.getHash());
     verify(mergeContext, never()).setFinalized(childHeader);
@@ -1070,6 +1073,77 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     verify(backwardSyncContext, never()).syncBackwardsUntil(any(Hash.class));
   }
 
+  @Test
+  public void assertCheckAndMarkBadDescendantMarksTheChildOfABadBlock() {
+    final BlockHeader badParent =
+        headerGenerator.parentHash(Hash.fromHexStringLenient("0xbeef")).buildHeader();
+    final BlockHeader child = headerGenerator.parentHash(badParent.getHash()).buildHeader();
+    badBlockManager.addBadHeader(badParent, BadBlockCause.fromValidationFailure("failed"));
+
+    final BackwardChain backwardChain = mock(BackwardChain.class);
+    when(backwardSyncContext.getBackwardChain()).thenReturn(backwardChain);
+    when(backwardChain.getHeader(child.getHash())).thenReturn(Optional.of(child));
+
+    assertThat(coordinator.checkAndMarkBadDescendant(child.getHash())).isTrue();
+    assertThat(badBlockManager.isBadBlock(child.getHash())).isTrue();
+  }
+
+  @Test
+  public void assertCheckAndMarkBadDescendantIgnoresAHeaderTheBackwardChainDoesNotKnow() {
+    final BlockHeader unknown =
+        headerGenerator.parentHash(Hash.fromHexStringLenient("0xbeef")).buildHeader();
+    // a bad block must be known, an empty manager short-circuits before the backward chain
+    badBlockManager.addBadHeader(
+        headerGenerator.parentHash(Hash.fromHexStringLenient("0xdead")).buildHeader(),
+        BadBlockCause.fromValidationFailure("failed"));
+
+    final BackwardChain backwardChain = mock(BackwardChain.class);
+    when(backwardSyncContext.getBackwardChain()).thenReturn(backwardChain);
+    when(backwardChain.getHeader(unknown.getHash())).thenReturn(Optional.empty());
+
+    assertThat(coordinator.checkAndMarkBadDescendant(unknown.getHash())).isFalse();
+    assertThat(badBlockManager.isBadBlock(unknown.getHash())).isFalse();
+  }
+
+  @Test
+  public void assertCheckAndMarkBadDescendantIsFreeWhenNoBadBlockIsKnown() {
+    assertThat(coordinator.checkAndMarkBadDescendant(Hash.fromHexStringLenient("0xbeef")))
+        .isFalse();
+
+    verify(backwardSyncContext, never()).getBackwardChain();
+  }
+
+  @Test
+  public void assertCheckAndMarkBadDescendantIgnoresAHeadWhoseParentIsOnTheChain() {
+    final BlockHeader chainParent = blockchain.getChainHeadHeader();
+    // a stale entry for a block that made it onto the chain must not condemn its descendants
+    badBlockManager.addBadHeader(chainParent, BadBlockCause.fromValidationFailure("stale"));
+    final BlockHeader child = headerGenerator.parentHash(chainParent.getHash()).buildHeader();
+
+    final BackwardChain backwardChain = mock(BackwardChain.class);
+    when(backwardSyncContext.getBackwardChain()).thenReturn(backwardChain);
+    when(backwardChain.getHeader(child.getHash())).thenReturn(Optional.of(child));
+
+    assertThat(coordinator.checkAndMarkBadDescendant(child.getHash())).isFalse();
+    assertThat(badBlockManager.isBadBlock(child.getHash())).isFalse();
+  }
+
+  @Test
+  public void assertGetLatestValidHashOfBadBlockWalksTheBadAncestryAndRemembersTheResult() {
+    final BlockHeader badParent =
+        headerGenerator.parentHash(genesisState.getBlock().getHash()).buildHeader();
+    final BlockHeader badChild = headerGenerator.parentHash(badParent.getHash()).buildHeader();
+    badBlockManager.addBadHeader(badParent, BadBlockCause.fromValidationFailure("failed"));
+    badBlockManager.addBadHeader(badChild, BadBlockCause.fromValidationFailure("failed"));
+
+    final Hash expected =
+        coordinator.getLatestValidAncestor(genesisState.getBlock().getHash()).orElseThrow();
+
+    assertThat(coordinator.getLatestValidHashOfBadBlock(badChild.getHash())).contains(expected);
+    // the walked result is remembered so the next call does not walk again
+    assertThat(badBlockManager.getLatestValidHash(badChild.getHash())).contains(expected);
+  }
+
   @ParameterizedTest(name = "{index}: {0}")
   @MethodSource("getGasLimits")
   public void shouldSetCorrectTargetGasLimit(final ArgumentsAccessor argumentsAccessor) {
@@ -1213,9 +1287,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     // Simulate world state roll failure (storage error, pruned trie logs, etc.)
     WorldStateArchive failingArchive = mock(WorldStateArchive.class);
     when(failingArchive.getWorldState(
-            any(
-                org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams
-                    .class)))
+            any(org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.class)))
         .thenReturn(Optional.empty());
 
     ProtocolContext failingProtocolContext =
@@ -1243,8 +1315,9 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
             block3Header, block1Header.getHash(), block1Header.getHash());
 
     assertThat(result.shouldNotProceedToPayloadBuildProcess()).isTrue();
-    assertThat(result.getStatus()).isEqualTo(ForkchoiceResult.Status.INVALID);
+    assertThat(result.getStatus()).isEqualTo(ForkchoiceResult.Status.INTERNAL_ERROR);
     assertThat(result.getErrorMessage()).isPresent();
+    assertThat(result.getLatestValid()).isEmpty();
 
     assertThat(blockchain.getChainHeadHash()).isEqualTo(block2Header.getHash());
 

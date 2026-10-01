@@ -16,7 +16,7 @@ package org.hyperledger.besu.ethereum.transaction;
 
 import static org.hyperledger.besu.ethereum.mainnet.feemarket.ExcessBlobGasCalculator.calculateExcessBlobGasForParent;
 import static org.hyperledger.besu.ethereum.transaction.BlockStateCalls.fillBlockStateCalls;
-import static org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
+import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
 
 import org.hyperledger.besu.crypto.SECPSignature;
 import org.hyperledger.besu.datatypes.Address;
@@ -56,11 +56,12 @@ import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinato
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallException;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.PathBasedWorldStateProvider;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.PathBasedWorldStateProvider;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.log.TransferLogEmitter;
 import org.hyperledger.besu.evm.tracing.EthTransferLogOperationTracer;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
@@ -120,8 +121,8 @@ public class BlockSimulator {
       final long rpcGasCap) {
     this.worldStateArchive = worldStateArchive;
     this.protocolSchedule = protocolSchedule;
-    this.miningConfiguration = miningConfiguration;
     this.transactionSimulator = transactionSimulator;
+    this.miningConfiguration = miningConfiguration;
     this.blockchain = blockchain;
     this.rpcGasCap = rpcGasCap;
   }
@@ -207,6 +208,7 @@ public class BlockSimulator {
               resolveValidationParams(simulationParameter),
               simulationParameter.isTraceTransfers(),
               simulationParameter.isReturnTrieLog(),
+              simulationParameter.isEnforceConsensusGasLimit(),
               simulationParameter::getFakeSignature,
               blockHashCache,
               simulationCumulativeGasUsed,
@@ -225,7 +227,7 @@ public class BlockSimulator {
     if (!simulationParameter.isValidation()) {
       return NON_STRICT_PARAMS;
     }
-    return simulationParameter.isEnforceConsensusGasLimitCaps()
+    return simulationParameter.isEnforceConsensusGasLimit()
         ? CONSENSUS_STRICT_VALIDATION_PARAMS
         : STRICT_VALIDATION_PARAMS;
   }
@@ -246,6 +248,7 @@ public class BlockSimulator {
       final TransactionValidationParams validationParams,
       final boolean isTraceTransfers,
       final boolean returnTrieLog,
+      final boolean enforceConsensusGasLimit,
       final Supplier<SECPSignature> signatureSupplier,
       final Map<Long, Hash> blockHashCache,
       final long simulationCumulativeGasUsed,
@@ -267,7 +270,12 @@ public class BlockSimulator {
     ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(syntheticNextBlockHeader);
 
     BlockHeader overridenBaseBlockHeader =
-        overrideBlockHeader(baseBlockHeader, protocolSpec, blockOverrides, shouldValidate);
+        overrideBlockHeader(
+            baseBlockHeader,
+            protocolSpec,
+            blockOverrides,
+            shouldValidate,
+            enforceConsensusGasLimit);
 
     blockStateCall
         .getStateOverrideMap()
@@ -417,13 +425,17 @@ public class BlockSimulator {
       final WorldUpdater transactionUpdater = blockUpdater.updater();
       final CallParameter callParameter = blockStateCall.getCalls().get(transactionLocation);
 
-      // Custom tracer and EthTraceTransfers are mutually exclusive
+      // For Amsterdam+, EIP-7708 transfer logs are emitted into transaction receipts by the
+      // protocol-level TransferLogEmitter wired into the transaction processor. The legacy
+      // traceTransfers/EthTransferLogOperationTracer mechanism is only meaningful for
+      // pre-Amsterdam forks where no protocol-level transfer log exists.
+      final boolean protocolEmitsTransferLogs =
+          transactionProcessor.getTransferLogEmitter() != TransferLogEmitter.NOOP;
       OperationTracer finalOperationTracer = operationTracer;
-      if (isTraceTransfers) {
+      if (isTraceTransfers && !protocolEmitsTransferLogs) {
         if (finalOperationTracer == OperationTracer.NO_TRACING) {
           finalOperationTracer = new EthTransferLogOperationTracer();
         } else {
-          // this shouldn't happen, and isTraceTransfers will go away with Glamsterdam
           throw new IllegalArgumentException(
               "A custom tracer and traceTransfers cannot be used together."
                   + " Disable traceTransfers or omit the custom tracer.");
@@ -659,7 +671,8 @@ public class BlockSimulator {
       final BlockHeader header,
       final ProtocolSpec newProtocolSpec,
       final BlockOverrides blockOverrides,
-      final boolean shouldValidate) {
+      final boolean shouldValidate,
+      final boolean enforceConsensusGasLimit) {
     long timestamp = blockOverrides.getTimestamp().orElseThrow();
     long blockNumber = blockOverrides.getBlockNumber().orElseThrow();
 
@@ -678,7 +691,11 @@ public class BlockSimulator {
             .gasLimit(
                 blockOverrides
                     .getGasLimit()
-                    .orElseGet(() -> getNextGasLimit(newProtocolSpec, header, blockNumber)))
+                    .orElseGet(
+                        () ->
+                            enforceConsensusGasLimit
+                                ? getNextGasLimit(newProtocolSpec, header, blockNumber)
+                                : header.getGasLimit()))
             .extraData(blockOverrides.getExtraData().orElse(Bytes.EMPTY))
             .prevRandao(blockOverrides.getMixHashOrPrevRandao().orElse(Bytes32.ZERO));
 

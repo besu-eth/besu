@@ -84,9 +84,9 @@
     "_comment_tx_funds": "Transaction funds/gas errors — multiple error formats depending on the cause",
     "TransactionException.GAS_LIMIT_EXCEEDS_MAXIMUM":            "transaction invalid Transaction gas limit must be at most \\d+",
     "TransactionException.INITCODE_SIZE_EXCEEDED":               "transaction invalid Initcode size of \\d+ exceeds maximum size of \\d+",
-    "TransactionException.INSUFFICIENT_ACCOUNT_FUNDS":           "transaction invalid transaction up-front cost 0x[0-9a-f]+ exceeds transaction sender account balance 0x[0-9a-f]+|Header validation failed \\(LIGHT\\)",
-    "TransactionException.INTRINSIC_GAS_BELOW_FLOOR_GAS_COST":  "transaction invalid intrinsic gas cost \\d+( \\(regular \\d+ \\+ state \\d+\\))? exceeds gas limit \\d+",
-    "TransactionException.INTRINSIC_GAS_TOO_LOW":                "transaction invalid intrinsic gas cost \\d+( \\(regular \\d+ \\+ state \\d+\\))? exceeds gas limit \\d+",
+    "TransactionException.INSUFFICIENT_ACCOUNT_FUNDS":           "transaction invalid (transaction up-front gas cost|transfer value) 0x[0-9a-f]+ exceeds transaction sender account balance 0x[0-9a-f]+|Header validation failed \\(LIGHT\\)",
+    "TransactionException.INTRINSIC_GAS_BELOW_FLOOR_GAS_COST":   "transaction invalid intrinsic gas cost \\d+( \\(execution \\d+ \\+ state \\d+\\))? exceeds gas limit \\d+",
+    "TransactionException.INTRINSIC_GAS_TOO_LOW":                "transaction invalid intrinsic gas cost \\d+( \\(execution \\d+ \\+ state \\d+\\))? exceeds gas limit \\d+",
 
     "_comment_tx_nonce": "Transaction nonce errors",
     "TransactionException.NONCE_MISMATCH_TOO_HIGH":              "transaction invalid transaction nonce \\d+ does not match sender account nonce \\d+",
@@ -130,7 +130,10 @@
       "TransactionException.TYPE_3_TX_ZERO_BLOBS":               "Failed to decode transactions from block parameter",
 
       "_comment_versioned_hash": "VersionedHash rejects a version byte other than 0x01 while the payload's transaction list is being decoded, and EngineNewPayloadV1 appends that cause to the decode failure above — so the message identifies the versioned hash rather than only the element that failed to decode.",
-      "TransactionException.TYPE_3_TX_INVALID_BLOB_VERSIONED_HASH": "Invalid versionedHash"
+      "TransactionException.TYPE_3_TX_INVALID_BLOB_VERSIONED_HASH": "Invalid versionedHash",
+
+      "_comment_bal": "EngineNewPayloadV5 decodes the payload's blockAccessList field; an undecodable list is an invalid payload, so it never reaches the BAL validation the block-import messages above come from",
+      "BlockException.INVALID_BLOCK_ACCESS_LIST":                "Failed to decode block access list payload parameter"
     },
 
     "regex": {

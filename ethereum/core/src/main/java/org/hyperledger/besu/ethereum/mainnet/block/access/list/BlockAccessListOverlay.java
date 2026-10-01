@@ -18,7 +18,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.account.PathBasedAccount;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.evm.account.MutableAccount;
 
 import java.util.List;
@@ -135,7 +135,7 @@ public final class BlockAccessListOverlay {
   private static void applyCodeChange(
       final MutableAccount account, final BlockAccessList.CodeChange change) {
     final Bytes code = change.newCode() != null ? change.newCode() : Bytes.EMPTY;
-    if (account instanceof PathBasedAccount pathBasedAccount) {
+    if (account instanceof BonsaiAccount pathBasedAccount) {
       pathBasedAccount.setCodeHash(code.isEmpty() ? Hash.EMPTY : Hash.hash(code));
       return;
     }

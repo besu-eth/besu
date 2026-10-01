@@ -8,10 +8,55 @@ env:
   total-runners: 14
 
 jobs:
+  # Pick the baseline once for the whole run. Every leg computes its own slice of the same
+  # partition, so the 14 slices only add up to the full test list if all 14 legs saw the same
+  # baseline. Letting each leg search for it independently means a transient API failure, or a
+  # newer baseline landing on main mid-run, silently drops the tests the legs disagree about
+  # while every leg still reports success.
+  resolveTimingBaseline:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      run_id: ${{ steps.resolve.outputs.run_id }}
+    steps:
+      - name: Find the newest published timing baseline
+        id: resolve
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          run_id=
+          # Look past the newest run: its artifact may already have aged out of the retention
+          # window. Restricting to push events on main keeps pull request runs, and therefore
+          # forks, out of the candidate set.
+          for candidate in $(gh api \
+                "repos/$GH_REPO/actions/workflows/acceptance-tests-timing-reports-update.yml/runs?branch=main&event=push&status=success&per_page=10" \
+                --jq ".workflow_runs[] | select(.head_repository.full_name == \"$GH_REPO\") | .id")
+          do
+            if gh api "repos/$GH_REPO/actions/runs/$candidate/artifacts" \
+                 --jq '.artifacts[] | select(.name == "acceptance-tests-timing-reports" and .expired == false) | .id' \
+                 | grep -q .
+            then
+              run_id=$candidate
+              break
+            fi
+          done
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          if [ -z "$run_id" ]; then
+            echo "::warning::no timing baseline is available, so tests will be split round-robin. Check the acceptance-tests-timing-reports-update workflow on main."
+          else
+            echo "using the timing baseline published by run $run_id"
+          fi
+
   acceptanceTests:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     name: "Acceptance Runner"
+    needs: resolveTimingBaseline
     permissions:
       contents: read
       actions: read # the timing baseline is fetched through the Actions artifact API
@@ -63,37 +108,57 @@ jobs:
           find "$reports_dir" -type f -name 'TEST-*.xml' -print0 \
             | while IFS= read -r -d '' report
               do
-                xmlstarlet sel -t -v '/testsuite/testcase[1]/@classname' "$report"
-                echo ' acceptanceTest'
+                # a report carrying no testcase exits non-zero, which would abort the whole loop
+                classname=$(xmlstarlet sel -t -v '/testsuite/testcase[1]/@classname' "$report" || true)
+                if [ -z "$classname" ]; then
+                  printf '%s\n' "$report" >> tmp/unreadableReports.list
+                  continue
+                fi
+                printf '%s acceptanceTest\n' "$classname"
               done > tmp/currentTests.list
+          if [ -s tmp/unreadableReports.list ]; then
+            echo "::warning::$(wc -l < tmp/unreadableReports.list) test report(s) yielded no classname; see the acceptance-tests-lists artifact"
+          fi
           if [ ! -s tmp/currentTests.list ]; then
             echo "::error::no acceptance tests were listed, refusing to split an empty suite"
             exit 1
           fi
           cat tmp/currentTests.list
-      # Downloads the timing baseline produced by update-acceptance-tests-timing-reports.yml on the last merge to main.
-      # `splitTestsByTime.sh` uses the per-test durations in  these XMLs to distribute tests across parallel runners by historical wall-clock time rather than a naive split.
-      # If the artifact is missing # (e.g. first run), splitting falls back to round-robin for all tests.
+      # Downloads the timing baseline produced by acceptance-tests-timing-reports-update.yml on a
+      # merge to main. `splitTestsByTime.sh` uses the per-test durations in these XMLs to distribute
+      # tests across parallel runners by historical wall-clock time rather than a naive split.
+      # The run is pinned by resolveTimingBaseline so every leg reads the same one; that job also
+      # decides whether a baseline exists at all, so a failure here is a real error rather than the
+      # first run of a new repository.
       - name: Get acceptance test reports
+        if: needs.resolveTimingBaseline.outputs.run_id != ''
         uses: dawidd6/action-download-artifact@7f871e041ed7fe12467d2d4196da8a466c5311ff # v22
-        continue-on-error: true
         with:
-          branch: main
-          # The producing workflow only ever runs on push to main.
-          event: push
-          workflow: acceptance-tests-timing-reports-update.yml
-          workflow_conclusion: success
+          run_id: ${{ needs.resolveTimingBaseline.outputs.run_id }}
           name: acceptance-tests-timing-reports
           path: tmp/junit-xml-reports-downloaded
-          if_no_artifact_found: warn
-          # allow_forks is deliberately left at its default of false.
+          if_no_artifact_found: fail
       - name: Split tests
-        run: .github/scripts/splitTestsByTime.sh tmp/junit-xml-reports-downloaded "tmp/junit-xml-reports-downloaded/acceptance-node-.*-test-results" "TEST-" ${{env.total-runners}} ${{ matrix.runner_index }} > testList.txt
-      - name: Report a missing timing baseline
+        run: |
+          mkdir -p tmp/junit-xml-reports-downloaded # absent when there is no baseline to download
+          .github/scripts/splitTestsByTime.sh tmp/junit-xml-reports-downloaded "tmp/junit-xml-reports-downloaded/acceptance-node-.*-test-results" "TEST-" ${{env.total-runners}} ${{ matrix.runner_index }} > testList.txt
+      # Splitting round-robin is fine as long as every leg does it. Diverging from the run-wide
+      # decision is not: the 14 slices would stop adding up to the full test list.
+      - name: Check this leg used the run-wide baseline
+        run: |
+          if [ -n "${{ needs.resolveTimingBaseline.outputs.run_id }}" ] && [ ! -s tmp/timing.tsv ]; then
+            echo "::error::baseline ${{ needs.resolveTimingBaseline.outputs.run_id }} was resolved for this run but produced no timings on runner ${{ matrix.runner_index }}"
+            exit 1
+          fi
+      # A report that yields no row costs that test its history and nothing more, so warn rather
+      # than fail; silently losing it is the part worth catching.
+      - name: Check every timing report produced a row
         if: matrix.runner_index == 0
         run: |
-          if [ ! -s tmp/timing.tsv ]; then
-            echo "::warning::No timing baseline was available, so tests were split round-robin. Check the acceptance-tests-timing-reports-update workflow on main."
+          reports=$(find tmp/junit-xml-reports-downloaded -type f -name 'TEST-*.xml' | wc -l)
+          rows=$(wc -l < tmp/timing.tsv)
+          if [ "$reports" -ne "$rows" ]; then
+            echo "::warning::$((reports - rows)) of $reports timing report(s) produced no usable row; those tests are placed round-robin"
           fi
       - name: format gradle args
         # we do not need the module task here
@@ -143,7 +208,7 @@ jobs:
   acceptanceTestsPassed:
     name: acceptanceTestsPassed
     runs-on: ubuntu-latest
-    needs: [ acceptanceTests ]
+    needs: [ resolveTimingBaseline, acceptanceTests ]
     permissions:
       contents: read
     if: always()

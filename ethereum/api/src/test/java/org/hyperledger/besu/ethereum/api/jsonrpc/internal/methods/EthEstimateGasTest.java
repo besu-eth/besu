@@ -285,14 +285,14 @@ public class EthEstimateGasTest {
     final JsonRpcRequestContext request =
         ethEstimateGasRequest(defaultLegacyTransactionCallParameter(Wei.ZERO));
     mockTransientProcessorResultTxInvalidReason(
-        TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE,
-        "transaction up-front cost 10 exceeds transaction sender account balance 5",
+        TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE,
+        "transaction up-front gas cost 10 exceeds transaction sender account balance 5",
         pendingBlockHeader);
 
     final ValidationResult<TransactionInvalidReason> validationResult =
         ValidationResult.invalid(
-            TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE,
-            "transaction up-front cost 10 exceeds transaction sender account balance 5");
+            TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE,
+            "transaction up-front gas cost 10 exceeds transaction sender account balance 5");
     final JsonRpcError rpcError = JsonRpcError.from(validationResult);
     final JsonRpcResponse expectedResponse = new JsonRpcErrorResponse(null, rpcError);
 
@@ -303,13 +303,13 @@ public class EthEstimateGasTest {
   public void shouldReturnErrorWhenEip1559TransactionProcessorReturnsTxInvalidReason() {
     final JsonRpcRequestContext request = ethEstimateGasRequest(eip1559TransactionCallParameter());
     mockTransientProcessorResultTxInvalidReason(
-        TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE,
-        "transaction up-front cost 10 exceeds transaction sender account balance 5",
+        TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE,
+        "transaction up-front gas cost 10 exceeds transaction sender account balance 5",
         pendingBlockHeader);
     final ValidationResult<TransactionInvalidReason> validationResult =
         ValidationResult.invalid(
-            TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE,
-            "transaction up-front cost 10 exceeds transaction sender account balance 5");
+            TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE,
+            "transaction up-front gas cost 10 exceeds transaction sender account balance 5");
     final JsonRpcError rpcError = JsonRpcError.from(validationResult);
     final JsonRpcResponse expectedResponse = new JsonRpcErrorResponse(null, rpcError);
 

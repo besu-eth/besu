@@ -19,9 +19,9 @@ import static org.apache.tuweni.rlp.RLP.decodeValue;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.trie.NodeLoader;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.AccountHashCodeStorageStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.CodeHashCodeStorageStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFlatDbStrategy;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.AccountHashCodeStorageStrategy;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.CodeHashCodeStorageStrategy;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredNodeFactory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
@@ -174,6 +174,16 @@ public class BonsaiWorldStateWitnessStorage extends BonsaiWorldStateLayerStorage
   @Override
   public BonsaiFlatDbStrategy getFlatDbStrategy() {
     return witnessFlatDbStrategy;
+  }
+
+  /**
+   * Closes immediately instead of waiting for subscribers to leave. The only subscriber is the
+   * throw-away world state's no-op NoOpBonsaiWorldStateCacheManager, which caches nothing and never
+   * unsubscribes, and nothing reads this storage once the witness world state is closed.
+   */
+  @Override
+  public synchronized void close() throws Exception {
+    doClose();
   }
 
   /**

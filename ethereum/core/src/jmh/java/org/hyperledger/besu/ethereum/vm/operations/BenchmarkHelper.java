@@ -19,7 +19,9 @@ import static org.mockito.Mockito.mock;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.util.AddressStorageSlotKeyHashing;
 import org.hyperledger.besu.evm.Code;
+import org.hyperledger.besu.evm.UInt256;
 import org.hyperledger.besu.evm.frame.BlockValues;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
@@ -32,7 +34,6 @@ import java.util.function.Supplier;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
-import org.apache.tuweni.units.bigints.UInt256;
 
 public class BenchmarkHelper {
   /**
@@ -211,14 +212,14 @@ public class BenchmarkHelper {
       final int dataSize,
       final boolean fixedSrcDst) {
     for (int i = 0; i < sizePool.length; i++) {
-      sizePool[i] = Bytes.wrap(UInt256.valueOf(dataSize));
+      sizePool[i] = Bytes.wrap(UInt256.fromInt(dataSize).toBytesBE());
 
       if (fixedSrcDst) {
-        destOffsetPool[i] = Bytes.wrap(UInt256.valueOf(0));
-        srcOffsetPool[i] = Bytes.wrap(UInt256.valueOf(0));
+        destOffsetPool[i] = Bytes.wrap(UInt256.fromInt(0).toBytesBE());
+        srcOffsetPool[i] = Bytes.wrap(UInt256.fromInt(0).toBytesBE());
       } else {
-        destOffsetPool[i] = Bytes.wrap(UInt256.valueOf((i * 32) % 1024));
-        srcOffsetPool[i] = Bytes.wrap(UInt256.valueOf(i % Math.max(1, dataSize)));
+        destOffsetPool[i] = Bytes.wrap(UInt256.fromInt((i * 32) % 1024).toBytesBE());
+        srcOffsetPool[i] = Bytes.wrap(UInt256.fromInt(i % Math.max(1, dataSize)).toBytesBE());
       }
     }
   }
@@ -267,5 +268,35 @@ public class BenchmarkHelper {
     int nBits = Integer.remainderUnsigned(n, 8);
     bytes[31 - nBytes] = (byte) (1 << nBits);
     return Bytes.wrap(bytes);
+  }
+
+  /**
+   * Fills a Bytes array with 32-byte hashes all of which are different between them and have
+   * distinct hashcodes.
+   *
+   * @param pool destination array
+   * @param address Address to include in the collision computation
+   * @param offset free variable with which to generate hashes
+   */
+  public static void fillPoolWithDistinctHashes(
+      final Bytes[] pool, final Address address, final int offset) throws Exception {
+    for (int i = 0; i < pool.length; i++) {
+      pool[i] = AddressStorageSlotKeyHashing.distinctHash(address, offset + i);
+    }
+  }
+
+  /**
+   * Fills a Bytes array with 32-byte hashes all of which have different values but hash to the same
+   * hashcode.
+   *
+   * @param pool destination array
+   * @param address Address to include in the collision computation
+   * @param offset free variable with which to generate hashes
+   */
+  public static void fillPoolWithCollidingHashes(
+      final Bytes[] pool, final Address address, final int offset) throws Exception {
+    for (int i = 0; i < pool.length; i++) {
+      pool[i] = AddressStorageSlotKeyHashing.collidingHash(address, offset + i);
+    }
   }
 }

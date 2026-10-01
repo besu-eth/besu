@@ -102,8 +102,7 @@ public class EvmToolMergeCoordinator implements MergeMiningCoordinator {
               protocolContext
                   .getWorldStateArchive()
                   .getWorldState(
-                      org.hyperledger.besu.ethereum.trie.pathbased.common.provider
-                          .WorldStateQueryParams.newBuilder()
+                      org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.newBuilder()
                           .withBlockHeader(block.getHeader())
                           .withShouldWorldStateUpdateHead(true)
                           .build());
@@ -170,6 +169,12 @@ public class EvmToolMergeCoordinator implements MergeMiningCoordinator {
   @Override
   public boolean isBadBlock(final Hash blockHash) {
     return protocolContext.getBadBlockManager().isBadBlock(blockHash);
+  }
+
+  @Override
+  public boolean checkAndMarkBadDescendant(final Hash blockHash) {
+    // evmtool has no backward sync, so there is no header of an unimported block to check
+    return false;
   }
 
   @Override

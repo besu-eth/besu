@@ -112,6 +112,20 @@ public class Proposal extends BftMessage<ProposalPayload> {
    * @return the proposal
    */
   public static Proposal decode(final Bytes data, final QbftBlockCodec blockEncoder) {
+    return decode(data, blockEncoder, MAX_LIST_ENTRIES);
+  }
+
+  /**
+   * Decode with an explicit cap on the certificate lists (round-changes and prepares). Use {@code
+   * validators.size()} as the cap when decoding current-height messages to bound secp256k1 work.
+   *
+   * @param data the data
+   * @param blockEncoder the qbft block encoder
+   * @param maxCertEntries maximum permitted entries in each certificate list
+   * @return the proposal
+   */
+  public static Proposal decode(
+      final Bytes data, final QbftBlockCodec blockEncoder, final int maxCertEntries) {
     final RLPInput rlpIn = RLP.input(data);
     rlpIn.enterList();
     final SignedData<ProposalPayload> payload =
@@ -119,12 +133,26 @@ public class Proposal extends BftMessage<ProposalPayload> {
 
     rlpIn.enterList();
     final List<SignedData<RoundChangePayload>> roundChanges =
-        rlpIn.readList(r -> readPayload(r, RoundChangePayload::readFrom), MAX_LIST_ENTRIES);
+        rlpIn.readList(r -> readPayload(r, RoundChangePayload::readFrom), maxCertEntries);
     final List<SignedData<PreparePayload>> prepares =
-        rlpIn.readList(r -> readPayload(r, PreparePayload::readFrom), MAX_LIST_ENTRIES);
+        rlpIn.readList(r -> readPayload(r, PreparePayload::readFrom), maxCertEntries);
     rlpIn.leaveList();
 
     rlpIn.leaveList();
     return new Proposal(payload, roundChanges, prepares);
+  }
+
+  /**
+   * Reads only the sequence number (block height) from the encoded message without full decode.
+   *
+   * @param data the raw encoded message bytes
+   * @return the sequence number
+   */
+  public static long decodeSequence(final Bytes data) {
+    final RLPInput rlp = RLP.input(data);
+    rlp.enterList(); // outer Proposal list
+    rlp.enterList(); // signed-data wrapper
+    rlp.enterList(); // ProposalPayload
+    return rlp.readLongScalar();
   }
 }

@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.chain.ChainDataPruner;
 import org.hyperledger.besu.ethereum.chain.DefaultBlockchain;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -38,6 +39,7 @@ import org.hyperledger.besu.services.pipeline.PipelineBuilder;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -55,6 +57,7 @@ public class SnapSyncChainDownloadPipelineFactory {
   protected final EthContext ethContext;
   protected final SnapSyncProcessState fastSyncState;
   protected final MetricsSystem metricsSystem;
+  protected final Optional<ChainDataPruner> chainDataPruner;
 
   public SnapSyncChainDownloadPipelineFactory(
       final SynchronizerConfiguration syncConfig,
@@ -62,13 +65,15 @@ public class SnapSyncChainDownloadPipelineFactory {
       final ProtocolContext protocolContext,
       final EthContext ethContext,
       final SnapSyncProcessState fastSyncState,
-      final MetricsSystem metricsSystem) {
+      final MetricsSystem metricsSystem,
+      final Optional<ChainDataPruner> chainDataPruner) {
     this.syncConfig = syncConfig;
     this.protocolSchedule = protocolSchedule;
     this.protocolContext = protocolContext;
     this.ethContext = ethContext;
     this.fastSyncState = fastSyncState;
     this.metricsSystem = metricsSystem;
+    this.chainDataPruner = chainDataPruner;
   }
 
   /**
@@ -186,7 +191,8 @@ public class SnapSyncChainDownloadPipelineFactory {
             syncState,
             anchorBlock,
             pivotHeader.getNumber(),
-            syncConfig.getSnapSyncConfiguration().isSnapSyncTransactionIndexingEnabled());
+            syncConfig.getSnapSyncConfiguration().isSnapSyncTransactionIndexingEnabled(),
+            chainDataPruner);
 
     return PipelineBuilder.createPipelineFrom(
             "forwardHeaderSource",

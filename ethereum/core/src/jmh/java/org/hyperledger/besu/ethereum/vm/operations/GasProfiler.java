@@ -130,7 +130,9 @@ public class GasProfiler implements InternalProfiler, ExternalProfiler {
       final BenchmarkParams benchmarkParams,
       final IterationParams iterationParams,
       final IterationResult result) {
-    if (iterationParams.getType() != IterationType.MEASUREMENT || trialGasCost.isEmpty()) {
+    if (iterationParams.getType() != IterationType.MEASUREMENT
+        || trialGasCost.isEmpty()
+        || result.getRawPrimaryResults().isEmpty()) {
       return Collections.emptyList();
     }
     final double nsPerOp =

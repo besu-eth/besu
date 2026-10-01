@@ -19,8 +19,6 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedLayeredWorldStateKeyValueStorage;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.StorageSubscriber;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
@@ -29,6 +27,8 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTran
 import org.hyperledger.besu.plugin.services.storage.SnappedKeyValueStorage;
 import org.hyperledger.besu.services.kvstore.LayeredKeyValueStorage;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -37,7 +37,7 @@ import org.apache.tuweni.bytes.Bytes;
 
 @SuppressWarnings("DoNotReturnNullOptionals")
 public class BonsaiWorldStateLayerStorage extends BonsaiSnapshotWorldStateKeyValueStorage
-    implements PathBasedLayeredWorldStateKeyValueStorage, StorageSubscriber {
+    implements StorageSubscriber {
 
   public BonsaiWorldStateLayerStorage(final BonsaiWorldStateKeyValueStorage parent) {
     this(
@@ -124,6 +124,53 @@ public class BonsaiWorldStateLayerStorage extends BonsaiSnapshotWorldStateKeyVal
                             persistentStorage)));
   }
 
+  /**
+   * Overlay-safe multi-get: layer-local values (including tombstones) are returned without writing
+   * them into the shared head cache. Misses are delegated to the parent storage so only
+   * persistent/parent results can warm {@link
+   * org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.FlatDbCacheManager}.
+   */
+  @Override
+  public List<Optional<Bytes>> getMultipleFlat(
+      final SegmentIdentifier segmentIdentifier, final List<byte[]> keys) {
+    if (isClosedGet()) {
+      // Empty list = no-op / closed; alignment handled by callers / cache manager
+      return List.of();
+    }
+    if (keys.isEmpty()) {
+      return List.of();
+    }
+
+    final List<Optional<Bytes>> results = new ArrayList<>(keys.size());
+    final List<byte[]> missKeys = new ArrayList<>();
+    final List<Integer> missIndices = new ArrayList<>();
+
+    for (int i = 0; i < keys.size(); i++) {
+      final byte[] rawKey = keys.get(i);
+      final Optional<Optional<byte[]>> layerValue =
+          getComposedWorldStateStorage().peekThisLayer(segmentIdentifier, rawKey);
+      if (layerValue.isPresent()) {
+        results.add(layerValue.get().map(Bytes::wrap));
+      } else {
+        results.add(null);
+        missKeys.add(rawKey);
+        missIndices.add(i);
+      }
+    }
+
+    if (!missKeys.isEmpty()) {
+      final List<Optional<Bytes>> parentValues =
+          parentWorldStateStorage.getMultipleFlat(segmentIdentifier, missKeys);
+      if (parentValues.size() == missKeys.size()) {
+        for (int j = 0; j < missIndices.size(); j++) {
+          results.set(missIndices.get(j), parentValues.get(j));
+        }
+      }
+    }
+
+    return results;
+  }
+
   @Override
   public FlatDbMode getFlatDbMode() {
     return parentWorldStateStorage.getFlatDbMode();
@@ -138,7 +185,6 @@ public class BonsaiWorldStateLayerStorage extends BonsaiSnapshotWorldStateKeyVal
   }
 
   /** Merge this layer to a storage transaction. */
-  @Override
   public void mergeTo(final SegmentedKeyValueStorageTransaction transaction) {
     getComposedWorldStateStorage().mergeTo(transaction);
   }

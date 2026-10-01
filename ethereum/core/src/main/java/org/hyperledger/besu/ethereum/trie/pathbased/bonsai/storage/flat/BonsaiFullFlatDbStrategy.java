@@ -20,12 +20,15 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.trie.NodeLoader;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.CodeStorageStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.CodeStorageStrategy;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
+import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.function.Supplier;
 
@@ -94,6 +97,30 @@ public class BonsaiFullFlatDbStrategy extends BonsaiFlatDbStrategy {
     }
 
     return storageFound;
+  }
+
+  /**
+   * Full flat-db mode: batch-read the live segment via {@link SegmentedKeyValueStorage#multiget}.
+   * Raw misses stay empty (no trie / archive fallback).
+   */
+  @Override
+  public List<Optional<Bytes>> getMultipleFlat(
+      final SegmentIdentifier segmentIdentifier,
+      final List<Bytes> keys,
+      final SegmentedKeyValueStorage storage) {
+    if (keys.isEmpty()) {
+      return List.of();
+    }
+    final List<byte[]> rawKeys = new ArrayList<>(keys.size());
+    for (final Bytes key : keys) {
+      rawKeys.add(key.toArrayUnsafe());
+    }
+    final List<Optional<byte[]>> fetched = storage.multiget(segmentIdentifier, rawKeys);
+    final List<Optional<Bytes>> values = new ArrayList<>(fetched.size());
+    for (final Optional<byte[]> value : fetched) {
+      values.add(value.map(Bytes::wrap));
+    }
+    return values;
   }
 
   @Override
