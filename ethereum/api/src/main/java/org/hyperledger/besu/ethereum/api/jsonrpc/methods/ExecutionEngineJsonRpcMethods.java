@@ -55,6 +55,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineN
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineNewPayloadV3;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineNewPayloadV4;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineNewPayloadV5;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineNewPayloadWithWitnessV5;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineQosTimer;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
@@ -136,6 +137,8 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
       executionEngineApisSupported.addAll(
           createEngineForkchoiceUpdatedMethods(constructorArguments));
       executionEngineApisSupported.addAll(createEngineNewPayloadMethods(constructorArguments));
+      executionEngineApisSupported.addAll(
+          createEngineNewPayloadWithWitnessMethods(constructorArguments));
       executionEngineApisSupported.addAll(createEngineGetPayloadMethods(constructorArguments));
       executionEngineApisSupported.addAll(
           createGetPayloadBodiesByHashMethods(constructorArguments));
@@ -191,6 +194,16 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
         .thenFrom(CANCUN, EngineNewPayloadV3::new)
         .thenFrom(PRAGUE, EngineNewPayloadV4::new)
         .thenFrom(AMSTERDAM, EngineNewPayloadV5::new)
+        .build(constructorArguments);
+  }
+
+  /**
+   * {@code engine_newPayloadWithWitnessV5} is a distinct method rather than another version in the
+   * newPayload series, so it is registered on its own from Amsterdam onwards.
+   */
+  private Collection<? extends JsonRpcMethod> createEngineNewPayloadWithWitnessMethods(
+      final ConstructorArguments constructorArguments) {
+    return VersionScheduler.startsFrom(AMSTERDAM, EngineNewPayloadWithWitnessV5::new)
         .build(constructorArguments);
   }
 

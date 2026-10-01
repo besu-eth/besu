@@ -164,6 +164,8 @@ public enum RpcErrorType implements RpcMethodError {
   EXCEEDS_RPC_MAX_BLOCK_RANGE(-32005, "Requested range exceeds maximum RPC range limit"),
   EXCEEDS_RPC_MAX_BATCH_SIZE(-32005, "Number of requests exceeds max batch size"),
   EXCEEDS_RPC_MAX_ACTIVE_FILTERS(-32005, "Maximum number of active filters exceeded"),
+  EXCEEDS_RPC_TRACE_BLOCK_TX_COUNT(-32005, "Block transaction count exceeds trace limit"),
+  EXCEEDS_RPC_TRACE_BLOCK_GAS_LIMIT(-32005, "Block gas limit exceeds trace limit"),
   EXCEEDS_RPC_MAX_FILTER_ADDRESSES(-32005, "Filter address count exceeds limit"),
   NONCE_TOO_HIGH(-32006, "Nonce too high"),
   TX_SENDER_NOT_AUTHORIZED(-32007, "Sender account not authorized to send transactions"),

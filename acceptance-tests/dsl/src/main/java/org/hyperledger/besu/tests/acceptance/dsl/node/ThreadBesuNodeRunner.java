@@ -562,7 +562,9 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
       final BesuController besuController = builder.build();
       blockchainServiceImpl.init(
           besuController.getProtocolContext().getBlockchain(),
-          besuController.getProtocolSchedule());
+          besuController.getProtocolSchedule(),
+          besuController.getProtocolManager().getBlockBroadcaster(),
+          besuController.getProtocolContext().getBadBlockManager());
       transactionSimulationServiceImpl.init(
           besuController.getProtocolContext().getBlockchain(),
           besuController.getTransactionSimulator());

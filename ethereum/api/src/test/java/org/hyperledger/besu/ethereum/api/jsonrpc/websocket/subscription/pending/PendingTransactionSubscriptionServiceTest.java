@@ -24,6 +24,7 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.SimpleTestTransactionBuilder;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionBaseResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.Subscription;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.SubscriptionManager;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.request.SubscriptionType;
@@ -103,7 +104,7 @@ public class PendingTransactionSubscriptionServiceTest {
         .subscriptionsOfType(SubscriptionType.NEW_PENDING_TRANSACTIONS, Subscription.class);
 
     for (final Map.Entry<Long, Transaction> message : expected.entrySet()) {
-      PendingTransactionDetailResult value = new PendingTransactionDetailResult(message.getValue());
+      TransactionBaseResult value = new TransactionBaseResult(message.getValue());
       verify(subscriptionManager).sendMessage(eq(message.getKey()), refEq(value));
     }
 

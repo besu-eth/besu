@@ -17,10 +17,12 @@ package org.hyperledger.besu.ethereum.p2p.discovery.discv5;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -44,6 +46,7 @@ import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -416,7 +419,8 @@ class PeerDiscoveryAgentV5Test {
   @Test
   void discoveryRunsWhenPeerCountBelowConfiguredMinimumRatio() throws Exception {
     // With 20 connections out of 25 max peers:
-    //   default ratio 0.8 → 20 >= 20 → hasSufficientPeers() is true → discovery stops
+    //   default ratio 0.8 → 20 >= 20 → hasSufficientPeers() is true → discovery throttles to the
+    // steady cadence
     //   custom  ratio 0.9 → 20 >= 22.5 → hasSufficientPeers() is false → discovery runs
     // This verifies that the config value is actually read rather than the old hard-coded 0.8.
     when(rlpxAgent.getConnectionCount()).thenReturn(20);
@@ -453,6 +457,116 @@ class PeerDiscoveryAgentV5Test {
           .pollInterval(50, TimeUnit.MILLISECONDS)
           .atMost(3, TimeUnit.SECONDS)
           .untilAsserted(() -> verify(mockSystem, atLeastOnce()).searchForNewPeers());
+    } finally {
+      customAgent.stop();
+    }
+  }
+
+  private PeerDiscoveryAgentV5 agentWithIntervals(
+      final int fastIntervalSeconds, final int steadyIntervalSeconds) {
+    final NetworkingConfiguration customConfig =
+        ImmutableNetworkingConfiguration.builder()
+            .discoveryConfiguration(
+                DiscoveryConfiguration.create()
+                    .setEnabled(true)
+                    .setAdvertisedHost("127.0.0.1")
+                    .setBindHost("0.0.0.0")
+                    .setBindPort(0)
+                    .setDiscV5FastDiscoveryIntervalSeconds(fastIntervalSeconds)
+                    .setDiscV5DiscoveryIntervalSeconds(steadyIntervalSeconds))
+            .build();
+    return new PeerDiscoveryAgentV5(
+        customConfig,
+        PeerPermissions.NOOP,
+        forkIdManager,
+        nodeRecordManager,
+        rlpxAgent,
+        new NoOpMetricsSystem(),
+        false,
+        (nodeRecord, listener) -> mockSystem);
+  }
+
+  @Test
+  void saturatedNodeSkipsRoundsWithinSteadyInterval() throws Exception {
+    when(rlpxAgent.getConnectionCount()).thenReturn(20);
+    when(rlpxAgent.getMaxPeers()).thenReturn(25);
+    when(mockSystem.start()).thenReturn(CompletableFuture.completedFuture(null));
+
+    final PeerDiscoveryAgentV5 customAgent = agentWithIntervals(3600, 3600);
+    try {
+      customAgent.start(1234).get();
+      Awaitility.await()
+          .pollInterval(50, TimeUnit.MILLISECONDS)
+          .atMost(5, TimeUnit.SECONDS)
+          .untilAsserted(() -> verify(mockSystem, times(1)).searchForNewPeers());
+
+      customAgent.runDiscoveryTick().get();
+
+      // Bootstrap round happened well inside the 3600 s steady interval, so this tick is throttled.
+      verify(mockSystem, times(1)).searchForNewPeers();
+    } finally {
+      customAgent.stop();
+    }
+  }
+
+  @Test
+  void saturatedNodeRunsRoundAfterSteadyInterval() throws Exception {
+    when(rlpxAgent.getConnectionCount()).thenReturn(20);
+    when(rlpxAgent.getMaxPeers()).thenReturn(25);
+    when(mockSystem.start()).thenReturn(CompletableFuture.completedFuture(null));
+
+    final PeerDiscoveryAgentV5 customAgent = agentWithIntervals(3600, 1);
+    try {
+      customAgent.start(1234).get();
+
+      // Each poll drives one tick; once the 1 s steady interval elapses a second round runs, so a
+      // saturated agent throttles rather than going dormant.
+      Awaitility.await()
+          .pollInterval(100, TimeUnit.MILLISECONDS)
+          .atMost(15, TimeUnit.SECONDS)
+          .untilAsserted(
+              () -> {
+                customAgent.runDiscoveryTick().get();
+                verify(mockSystem, atLeast(2)).searchForNewPeers();
+              });
+    } finally {
+      customAgent.stop();
+    }
+  }
+
+  @Test
+  void roundSkippedWhileInProgressDoesNotConsumeSteadyInterval() throws Exception {
+    when(rlpxAgent.getConnectionCount()).thenReturn(20);
+    when(rlpxAgent.getMaxPeers()).thenReturn(25);
+    when(mockSystem.start()).thenReturn(CompletableFuture.completedFuture(null));
+    final CompletableFuture<Collection<NodeRecord>> inFlight = new CompletableFuture<>();
+    when(mockSystem.searchForNewPeers())
+        .thenReturn(inFlight)
+        .thenReturn(CompletableFuture.completedFuture(List.of()));
+
+    final PeerDiscoveryAgentV5 customAgent = agentWithIntervals(3600, 1);
+    try {
+      customAgent.start(1234).get();
+      Awaitility.await()
+          .pollInterval(50, TimeUnit.MILLISECONDS)
+          .atMost(5, TimeUnit.SECONDS)
+          .untilAsserted(() -> verify(mockSystem, times(1)).searchForNewPeers());
+
+      // Lower-bound wait so the 1 s steady interval has expired. Oversleeping is harmless: the
+      // agent
+      // only ticks when driven below, so this is not a "nothing happened" window.
+      Thread.sleep(1_200);
+
+      // Steady interval is open, but the first round is still in flight, so no round starts.
+      customAgent.runDiscoveryTick().get();
+      verify(mockSystem, times(1)).searchForNewPeers();
+
+      inFlight.complete(List.of());
+
+      // The skipped attempt must not have reset the steady-interval timer: the next tick runs a
+      // round immediately instead of waiting another full interval.
+      customAgent.runDiscoveryTick().get();
+      verify(mockSystem, times(2)).searchForNewPeers();
     } finally {
       customAgent.stop();
     }
