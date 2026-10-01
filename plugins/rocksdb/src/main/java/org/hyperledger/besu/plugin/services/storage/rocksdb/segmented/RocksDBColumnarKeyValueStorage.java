@@ -414,7 +414,13 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
                                               + segment.getName()));
                       return new RocksDbSegmentIdentifier(getDB(), columnHandle);
                     }));
-    RocksDBSegmentRewrite.completeInterrupted(this);
+    try {
+      RocksDBSegmentRewrite.completeInterrupted(this);
+    } catch (final RuntimeException e) {
+      // the constructor fails with this, which leaves nobody to release the database
+      close();
+      throw e;
+    }
   }
 
   ColumnFamilyOptions columnFamilyOptions(final SegmentIdentifier segment) {
