@@ -89,8 +89,9 @@ application {
 //   ./hive --sim ethereum/eels/consume-engine  ->  ./gradlew consumeEngineTests
 //   ./hive --sim ethereum/eels/consume-rlp     ->  ./gradlew consumeRlpTests
 //
-// Both reuse the devnet fixture download/extract from the :ethereum:referencetests project
-// (extractDevnetFixtures — no separate download) and fail the build on any fixture failure.
+// Both reuse a fixture download/extract from the :ethereum:referencetests project (the devnet
+// fixtures by default, the stable ones for the *Stable tasks — no separate download) and fail the
+// build on any fixture failure.
 //
 // Shared gradle properties, named after the hive flags they stand in for:
 //   -PsimLimit=<regex>      hive --sim.limit. Passed to evmtool's --test-name-regex verbatim: not
@@ -124,12 +125,15 @@ static void failOnRenamedProperties(project) {
   }
 }
 
-def registerHiveEquivalentTask(project, String taskName, String subcommand, String fixtureDir, String desc, List<String> extraArgs, String presetSimLimit = null) {
+def registerHiveEquivalentTask(project, String taskName, String subcommand, String fixtureDir, String desc, List<String> extraArgs, String presetSimLimit = null, boolean stableFixtures = false) {
+  def extractTask = stableFixtures ? 'extractStableFixtures' : 'extractDevnetFixtures'
+  def extractDir = stableFixtures ? 'execution-spec-tests' : 'execution-spec-devnet-tests'
+  def versionDecl = stableFixtures ? 'referenceTestImplementation execution-specs' : 'devnetTarConfig'
   return project.tasks.register(taskName, JavaExec) {
     description = desc
     group = 'verification'
 
-    dependsOn ':ethereum:referencetests:extractDevnetFixtures'
+    dependsOn ":ethereum:referencetests:${extractTask}"
 
     // The fixture path and filter are applied in doFirst, after Gradle has snapshotted the task
     // inputs, so no -P combination is visible to the up-to-date check and every invocation looks
@@ -140,7 +144,7 @@ def registerHiveEquivalentTask(project, String taskName, String subcommand, Stri
     mainClass = 'org.hyperledger.besu.evmtool.EvmTool'
 
     def fixtures = project.project(':ethereum:referencetests').layout.buildDirectory
-      .dir("execution-spec-devnet-tests/fixtures/${fixtureDir}")
+      .dir("${extractDir}/fixtures/${fixtureDir}")
     // Left unset when the property is absent, so the subcommand's own default applies rather than
     // this file keeping a second copy of it. All three runners default to the available cores.
     def parallelism = project.findProperty('simParallelism')?.toString()
@@ -156,8 +160,8 @@ def registerHiveEquivalentTask(project, String taskName, String subcommand, Stri
       if (!fixturesDir.exists()) {
         throw new GradleException(
         "Fixtures not found at ${fixturesDir}.\n" +
-        "Run ./gradlew :ethereum:referencetests:extractDevnetFixtures, or check the " +
-        "devnetTarConfig version in ethereum/referencetests/build.gradle.")
+        "Run ./gradlew :ethereum:referencetests:${extractTask}, or check the " +
+        "${versionDecl} version in ethereum/referencetests/build.gradle.")
       }
       def runDir = subPath ? new File(fixturesDir, subPath) : fixturesDir
       if (!runDir.exists()) {
@@ -191,33 +195,18 @@ registerHiveEquivalentTask(project, 'consumeRlpTests', 'block-test', 'blockchain
   'Hive consume-rlp equivalent: replays blockchain_tests fixtures through the RLP block-import path.',
   [])
 
-// The --sim.limit of the hive runs published under the `glamsterdam` and `glamsterdam-quick`
-// groups at hive.ethpandaops.io, so that reproducing one is a task name rather than a regex copied
-// out of a web UI. Transcribed from each run's runMetadata.hiveCommand.
-//
-// Fork names change with every devnet and the quick run's EIP list is edited as EIPs are scheduled
-// in or out. A filter left behind does not fail — it selects the old set and goes green — so both
-// live here rather than inline, and REFERENCE_TESTS.md carries the recipe for re-reading the
-// current one from the newest published run.
+// The stable fixtures through the same runners, scoped by the fork filter of the `glamsterdam` hive
+// run at hive.ethpandaops.io. They run in CI because the stable fixtures follow the current specs,
+// which can be ahead of the last devnet release.
 def GLAMSTERDAM_SIM_LIMIT = '.*fork_(Amsterdam|BPO2ToAmsterdamAtTime15k|Osaka).*'
-def GLAMSTERDAM_QUICK_SIM_LIMIT =
-  '.*(2780|7708|7732|7778|7843|7928|7954|7975|7976|7981|7997|8024|8037|8038|8045|8061|8070|8159|8246|8282).*'
 
-registerHiveEquivalentTask(project, 'consumeEngineTestsGlamsterdam', 'engine-test', 'blockchain_tests_engine',
-  'consumeEngineTests with the glamsterdam hive run fork filter baked in.',
-  [], GLAMSTERDAM_SIM_LIMIT)
+registerHiveEquivalentTask(project, 'consumeEngineTestsStable', 'engine-test', 'blockchain_tests_engine',
+  'consumeEngineTests over the stable fixtures with the glamsterdam fork filter baked in.',
+  [], GLAMSTERDAM_SIM_LIMIT, true)
 
-registerHiveEquivalentTask(project, 'consumeRlpTestsGlamsterdam', 'block-test', 'blockchain_tests',
-  'consumeRlpTests with the glamsterdam hive run fork filter baked in.',
-  [], GLAMSTERDAM_SIM_LIMIT)
-
-registerHiveEquivalentTask(project, 'consumeEngineTestsGlamsterdamQuick', 'engine-test', 'blockchain_tests_engine',
-  'consumeEngineTests with the glamsterdam-quick hive run EIP filter baked in.',
-  [], GLAMSTERDAM_QUICK_SIM_LIMIT)
-
-registerHiveEquivalentTask(project, 'consumeRlpTestsGlamsterdamQuick', 'block-test', 'blockchain_tests',
-  'consumeRlpTests with the glamsterdam-quick hive run EIP filter baked in.',
-  [], GLAMSTERDAM_QUICK_SIM_LIMIT)
+registerHiveEquivalentTask(project, 'consumeRlpTestsStable', 'block-test', 'blockchain_tests',
+  'consumeRlpTests over the stable fixtures with the glamsterdam fork filter baked in.',
+  [], GLAMSTERDAM_SIM_LIMIT, true)
 
 // No hive simulator consumes state_tests — they are the EVM/state-transition-only slice, covered by
 // neither consume-engine nor consume-rlp. Kept because that coverage is real, and it reuses the same

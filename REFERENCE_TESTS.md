@@ -114,7 +114,8 @@ which spins up a Besu container per fixture group and takes hours.
 | `--sim ethereum/eels/consume-rlp` | `consumeRlpTests` | RLP block import over `blockchain_tests` |
 
 Both reuse the same devnet fixture download/extract as the reference tests (`extractDevnetFixtures`
-— no separate download) and **fail the build on any fixture failure**.
+— no separate download) and **fail the build on any fixture failure**. For the same runners over the
+stable fixtures, see [Stable fixture tasks](#stable-fixture-tasks).
 
 ```bash
 # Full consume-engine equivalent
@@ -202,48 +203,41 @@ it — `-PsimLimit` is always a regex.
 > other runners. Passing an old one fails the build rather than running the whole tree unfiltered.
 > Note that `-PsimLimit` is a regex where `-PstateTestFilter` was a substring or a `*?`-glob.
 
-### Reproducing a published hive run
+### Stable fixture tasks
 
-The devnet hive runs published at [hive.ethpandaops.io](https://hive.ethpandaops.io) each pin a
-`--sim.limit`. Four tasks carry those filters so that reproducing a run is a task name rather than a
-regex copied out of a web UI:
+Two tasks run the same runners over the stable fixtures, the `tests@vX.Y.Z` release pinned for
+`referenceTests`, instead of the devnet ones. CI runs both:
 
-| Task | Mirrors |
-|------|---------|
-| `consumeEngineTestsGlamsterdam` | the `glamsterdam` group's `consume-engine` run |
-| `consumeRlpTestsGlamsterdam` | the same filter, `consume-rlp` |
-| `consumeEngineTestsGlamsterdamQuick` | the `glamsterdam-quick` group's `consume-engine` run |
-| `consumeRlpTestsGlamsterdamQuick` | the same filter, `consume-rlp` |
+| Task | Runs |
+|------|------|
+| `consumeEngineTestsStable` | `consume-engine` over the stable fixtures |
+| `consumeRlpTestsStable` | `consume-rlp` over the stable fixtures |
 
 ```bash
-./gradlew consumeEngineTestsGlamsterdam        # the full published sweep
-./gradlew consumeEngineTestsGlamsterdamQuick   # the EIP-scoped sweep
+./gradlew consumeEngineTestsStable consumeRlpTestsStable
 ```
 
-The `Glamsterdam` filter selects by fork and currently spans more than one, so the task is not an
-Amsterdam-only run. The `GlamsterdamQuick` filter selects by EIP number instead, which cuts across
-forks. Read the constants for what each covers today.
+The stable fixtures follow the current specs, which can be ahead of the last devnet release, so a
+change made for the specs can fail the devnet fixtures and still be correct.
 
-A preset ignores `-PsimLimit`: overriding half of it would report a number against a scope nobody
-can reconstruct. `-PsimParallelism` still applies. Use the plain `consumeEngineTests` /
+Both are scoped by `GLAMSTERDAM_SIM_LIMIT` at the top of `ethereum/evmtool/build.gradle`, the fork
+filter of the `glamsterdam` hive run at [hive.ethpandaops.io](https://hive.ethpandaops.io). It
+selects by fork and spans more than one, so these are not Amsterdam-only runs. The filter is a
+preset: `-PsimLimit` is ignored, because overriding half of it would report a number against a scope
+nobody can reconstruct. `-PsimParallelism` still applies. Use the plain `consumeEngineTests` /
 `consumeRlpTests` tasks when you want your own filter.
 
-> When comparing against the hive UI, note that the figure it shows most prominently is the *pass*
-> count, not the number of tests run.
+#### Keeping the filter current
 
-#### Keeping the presets current
-
-Fork names change with every devnet (a transition fork is renamed, added or dropped) and the quick
-run's EIP list is edited as EIPs are scheduled in or out. A filter left behind does not fail — it
-selects the old set and goes green — so re-read it from the newest published run rather than
-assuming. Both live in one place, as `GLAMSTERDAM_SIM_LIMIT` and `GLAMSTERDAM_QUICK_SIM_LIMIT` at
-the top of `ethereum/evmtool/build.gradle`.
+Fork names change with every devnet (a transition fork is renamed, added or dropped). A filter left
+behind does not fail — it selects the old set and goes green — so re-read it from the newest
+published run rather than assuming.
 
 The suite JSON records the exact invocation under `runMetadata.hiveCommand`. `listing.jsonl` is not
 in chronological order, so sort by `start` rather than taking the last line:
 
 ```bash
-GROUP=glamsterdam          # or glamsterdam-quick
+GROUP=glamsterdam
 SIM=eels/consume-engine    # or eels/consume-rlp
 
 FILE=$(curl -sS "https://hive.ethpandaops.io/$GROUP/listing.jsonl" \
@@ -252,20 +246,15 @@ FILE=$(curl -sS "https://hive.ethpandaops.io/$GROUP/listing.jsonl" \
 # The suite JSON is far too large to fetch whole; runMetadata precedes testCases, so a range
 # request over the head of it is enough
 curl -sS --range 0-65535 "https://hive.ethpandaops.io/$GROUP/results/$FILE" \
-  | grep -oE '"(--sim\.limit=[^"]*|fixtures=[^"]*)"'
+  | grep -oE '"--sim\.limit=[^"]*"'
 ```
 
-That prints both things worth checking:
+Copy the `--sim.limit=…` value verbatim into `GLAMSTERDAM_SIM_LIMIT`. It needs no editing: the tasks
+take a hive regex exactly as written (see [How `-PsimLimit` matches](#how--psimlimit-matches)).
 
-- **`--sim.limit=…`** — copy it verbatim into the matching constant. It needs no editing: the tasks
-  take a hive regex exactly as written (see [How `-PsimLimit` matches](#how--psimlimit-matches)).
-- **`fixtures=…`** — the tarball the run used. If its version differs from `devnetTarConfig` the two
-  are not selecting from the same test set and counts will not line up; see
-  [Fixture version](#fixture-version).
-
-After changing a constant, run the task and sanity-check the test count against the run you copied
-from. A filter that matches nothing fails the build rather than reporting success, but a filter that
-matches the *wrong* set will happily go green.
+After changing it, run the tasks and check that the selected forks are the ones you expect. A filter
+that matches nothing fails the build rather than reporting success, but a filter that matches the
+*wrong* set will happily go green.
 
 ### Worked example
 
@@ -285,7 +274,7 @@ the engine runner exists.
 
 ### Fixture version
 
-Both tasks run against the tarball pinned by `devnetTarConfig` in
+`consumeEngineTests` and `consumeRlpTests` run against the tarball pinned by `devnetTarConfig` in
 `ethereum/referencetests/build.gradle`. A hive run pins its own via `--sim.buildarg fixtures=<url>`,
 so check the two match before comparing results. To move the pinned version:
 
