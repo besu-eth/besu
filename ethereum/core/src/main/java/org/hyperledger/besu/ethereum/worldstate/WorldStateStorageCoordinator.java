@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.worldstate;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.trie.forest.storage.ForestWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 
@@ -66,7 +67,8 @@ public class WorldStateStorageCoordinator {
 
   public Optional<Bytes> getCode(final Hash codeHash, final Hash accountHash) {
     return applyForStrategy(
-        bonsai -> bonsai.getCode(codeHash, accountHash), forest -> forest.getCode(codeHash));
+        bonsai -> bonsai.getCode(codeHash, accountHash).map(Code::getBytes),
+        forest -> forest.getCode(codeHash));
   }
 
   @SuppressWarnings("unchecked")
