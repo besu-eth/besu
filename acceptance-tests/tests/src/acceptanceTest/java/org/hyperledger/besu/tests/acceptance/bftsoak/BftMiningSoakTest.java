@@ -122,6 +122,11 @@ public class BftMiningSoakTest extends ParameterizedBftTestBase {
     SimpleStorage simpleStorageContract =
         minerNode1.execute(contractTransactions.createSmartContract(SimpleStorage.class));
 
+    // Capture this early deploy transaction (in a low block number) so we can later verify a
+    // late-joining snap-sync node can resolve it by hash.
+    final String earlyContractDeployTxHash =
+        simpleStorageContract.getTransactionReceipt().orElseThrow().getTransactionHash();
+
     // Create another instance of the contract referencing the same contract address but on the
     // archive node. This contract instance should be able to query state from the beginning of
     // the test
@@ -526,6 +531,51 @@ public class BftMiningSoakTest extends ParameterizedBftTestBase {
     } catch (ContractCallException e) {
       // Ignore
     }
+
+    // Snap-sync regression check: a brand-new node must be able to snap-sync this QBFT/IBFT2 chain
+    // and then serve historic block and transaction queries. We deliberately do NOT check historic
+    // state (eth_call/getBalance at old blocks) - that needs an archive node.
+    verifySnapSyncNodeRetrievesHistoricData(minerNode1, earlyContractDeployTxHash);
+  }
+
+  private void verifySnapSyncNodeRetrievesHistoricData(
+      final BesuNode chainSourceNode, final String earlyTxHash) throws Exception {
+    LOG.info("Starting a new SNAP-sync node to verify historic block/transaction retrieval");
+
+    // A late-joining Bonsai snap node. It must use the same (fork-updated) genesis as the running
+    // chain, so copy it from an existing validator rather than regenerating a fresh one.
+    final BesuNode snapNode = besu.createSnapSyncNode("snapNode");
+    snapNode.setGenesisConfig(chainSourceNode.getGenesisConfig().orElseThrow());
+
+    cluster.addNode(snapNode);
+
+    // Wait for the snap node to catch up to the chain head reached by the validators.
+    final BigInteger head = chainSourceNode.execute(ethTransactions.blockNumber());
+    snapNode.verify(blockchain.minimumHeight(head.intValue(), 180));
+
+    // 1) Historic block retrieval: block 1 must be present and identical to the validator's copy.
+    final org.web3j.protocol.core.methods.response.EthBlock.Block snapBlock1 =
+        snapNode.execute(ethTransactions.block(DefaultBlockParameter.valueOf(BigInteger.ONE)));
+    final org.web3j.protocol.core.methods.response.EthBlock.Block sourceBlock1 =
+        chainSourceNode.execute(
+            ethTransactions.block(DefaultBlockParameter.valueOf(BigInteger.ONE)));
+    assertThat(snapBlock1).isNotNull();
+    assertThat(snapBlock1.getHash()).isEqualTo(sourceBlock1.getHash());
+    assertThat(snapBlock1.getNumber()).isEqualTo(BigInteger.ONE);
+
+    // 2) Historic transaction retrieval: because the snap node was started with transaction
+    // indexing enabled, an early transaction must resolve by hash, via both
+    // eth_getTransactionByHash
+    // and eth_getTransactionReceipt.
+    final Optional<org.web3j.protocol.core.methods.response.Transaction> historicTx =
+        snapNode.execute(ethTransactions.getTransactionByHash(earlyTxHash));
+    assertThat(historicTx).isPresent();
+    assertThat(historicTx.get().getHash()).isEqualTo(earlyTxHash);
+
+    final Optional<TransactionReceipt> historicReceipt =
+        snapNode.execute(ethTransactions.getTransactionReceipt(earlyTxHash));
+    assertThat(historicReceipt).isPresent();
+    assertThat(historicReceipt.get().getTransactionHash()).isEqualTo(earlyTxHash);
   }
 
   private static void updateGenesisConfigToLondon(
