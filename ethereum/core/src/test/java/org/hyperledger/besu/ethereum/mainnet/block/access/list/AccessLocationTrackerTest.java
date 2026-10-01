@@ -31,11 +31,7 @@ import java.util.function.Consumer;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
 
-/**
- * The withdrawals and the system calls after the last transaction share one block access index.
- * Each runs in its own updater and applies a view, so these tests run several of them against one
- * post-execution tracker, the way {@code SystemCallProcessor} does.
- */
+/** Several calls at one post-execution index, each applying a view as SystemCallProcessor does. */
 class AccessLocationTrackerTest {
 
   private static final Address CONTRACT = Address.fromHexString("0x1000");
@@ -49,11 +45,18 @@ class AccessLocationTrackerTest {
 
   @Test
   void writesAtSharedIndexAreNettedAgainstIndexStart() {
-    setUp(account -> account.setNonce(1));
+    createContract(account -> account.setNonce(1));
 
-    // Each call sets the slot back to where the other found it and bumps the nonce.
-    runCall(account -> account.setStorageValue(SLOT, UInt256.ONE));
-    runCall(account -> account.setStorageValue(SLOT, UInt256.ZERO));
+    runCall(
+        account -> {
+          account.setStorageValue(SLOT, UInt256.ONE);
+          account.incrementNonce();
+        });
+    runCall(
+        account -> {
+          account.setStorageValue(SLOT, UInt256.ZERO);
+          account.incrementNonce();
+        });
 
     final AccountChanges changes = accountChanges();
     assertThat(changes.storageChanges()).isEmpty();
@@ -64,7 +67,7 @@ class AccessLocationTrackerTest {
 
   @Test
   void deletedAccountKeepsBalanceChangeThroughLaterViews() {
-    setUp(account -> account.setBalance(Wei.of(5)));
+    createContract(account -> account.setBalance(Wei.of(5)));
 
     final WorldUpdater blockUpdater = worldState.updater();
     final WorldUpdater callUpdater = blockUpdater.updater();
@@ -74,7 +77,7 @@ class AccessLocationTrackerTest {
     callUpdater.commit();
     blockUpdater.commit();
 
-    // A later call at the same index, and the final flush, still see it as deleted.
+    // A later call and the final flush at the same index must keep the change.
     runCall(account -> {});
     builder.apply(tracker, worldState.updater().updater());
 
@@ -82,9 +85,9 @@ class AccessLocationTrackerTest {
         .containsExactly(new BlockAccessList.BalanceChange(1, Wei.ZERO));
   }
 
-  private void setUp(final Consumer<MutableAccount> setUp) {
+  private void createContract(final Consumer<MutableAccount> init) {
     final WorldUpdater updater = worldState.updater();
-    setUp.accept(updater.getOrCreate(CONTRACT));
+    init.accept(updater.getOrCreate(CONTRACT));
     updater.commit();
     worldState.persist(null);
   }
@@ -96,9 +99,6 @@ class AccessLocationTrackerTest {
     tracker.addSlotAccessForAccount(CONTRACT, SLOT);
     if (account != null) {
       call.accept(account);
-      if (!account.getUpdatedStorage().isEmpty()) {
-        account.incrementNonce();
-      }
     }
     builder.apply(tracker, callUpdater);
     callUpdater.commit();

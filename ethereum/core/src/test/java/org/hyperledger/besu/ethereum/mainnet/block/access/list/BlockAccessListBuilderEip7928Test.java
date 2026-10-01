@@ -71,11 +71,7 @@ class BlockAccessListBuilderEip7928Test {
         .isEqualTo(4L);
   }
 
-  /**
-   * The withdrawals and the system calls after the last transaction share one block access index,
-   * and each applies a view carrying the net change over the index so far. A later view replaces
-   * the earlier one, so a slot written back to where the index found it ends up as a read.
-   */
+  /** A slot written back to where a shared index found it ends up as a read. */
   @Test
   void laterViewAtSameIndexReplacesEarlierOne() {
     final PartialBlockAccessView.PartialBlockAccessViewBuilder first =

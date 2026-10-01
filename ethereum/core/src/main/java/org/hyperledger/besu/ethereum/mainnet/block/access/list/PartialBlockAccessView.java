@@ -51,9 +51,8 @@ public final class PartialBlockAccessView {
   private final long txIndex;
 
   /**
-   * Whether several views are applied at this index (the system calls, and the withdrawals after
-   * the last transaction). Each such view carries the net change of every account touched at the
-   * index so far, so it replaces what earlier views recorded.
+   * Set for the pre- and post-execution indices, whose views each carry the net change over the
+   * index so far and replace what earlier views at the index recorded.
    */
   private final boolean sharedIndex;
 

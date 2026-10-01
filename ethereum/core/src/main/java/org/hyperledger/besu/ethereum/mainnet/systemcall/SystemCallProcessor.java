@@ -115,7 +115,6 @@ public class SystemCallProcessor {
             : OperationTracer.NO_TRACING;
     Deque<MessageFrame> stack = frame.getMessageFrameStack();
     while (!stack.isEmpty()) {
-      // Child frames include CREATEs, which need the contract creation processor.
       final MessageFrame current = stack.peekFirst();
       mainnetTransactionProcessor.getMessageProcessor(current.getType()).process(current, tracer);
     }

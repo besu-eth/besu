@@ -44,10 +44,8 @@ public class AccessLocationTracker implements Eip7928AccessList {
   private final Map<Address, AccountAccessList> touchedAccounts = new ConcurrentHashMap<>();
 
   /**
-   * For a shared index only: accounts as they were when the index began, captured the first time
-   * the index writes them. The system calls, and the withdrawals after the last transaction, share
-   * one index and each builds a view, so every view diffs against these rather than against the
-   * previous call's result.
+   * Accounts as they were when a shared index began, captured the first time the index writes them,
+   * so each view diffs against these rather than against the previous call's result.
    */
   private final Map<Address, IndexStartAccount> indexStartAccounts = new HashMap<>();
 
@@ -219,32 +217,21 @@ public class AccessLocationTracker implements Eip7928AccessList {
       final Set<UInt256> touchedSlots,
       final boolean isDeleted,
       final boolean isUpdated) {
-    final IndexStartAccount indexStart;
-    final Account account;
     if (isDeleted) {
-      indexStart =
-          indexStartAccounts.computeIfAbsent(
-              address, __ -> new IndexStartAccount(findOriginalAccount(stackedUpdater, address)));
-      account = null;
-    } else if (isUpdated || indexStartAccounts.containsKey(address)) {
-      account = stackedUpdater.get(address);
-      if (isUpdated && account instanceof UpdateTrackingAccount<?> updatedAccount) {
-        captureIndexStart(updatedAccount, touchedSlots);
-      }
-      indexStart = indexStartAccounts.get(address);
-    } else {
-      addStorageReads(accountBuilder, touchedSlots);
-      return;
+      indexStartAccounts.computeIfAbsent(
+          address, __ -> new IndexStartAccount(findOriginalAccount(stackedUpdater, address)));
+    } else if (isUpdated
+        && stackedUpdater.get(address) instanceof UpdateTrackingAccount<?> updated) {
+      captureIndexStart(updated, touchedSlots);
     }
-
-    if (indexStart == null) {
-      addStorageReads(accountBuilder, touchedSlots);
-      return;
-    }
+    final IndexStartAccount indexStart = indexStartAccounts.get(address);
+    final Account account = indexStart == null || isDeleted ? null : stackedUpdater.get(address);
     if (account == null) {
-      // Deleted at this index, by this view's updater or an earlier one.
-      addStorageReads(accountBuilder, touchedSlots);
-      if (!indexStart.balance.isZero()) {
+      for (final UInt256 slot : touchedSlots) {
+        accountBuilder.addStorageRead(new StorageSlotKey(slot));
+      }
+      // Deleted at this index, by this call or an earlier one.
+      if (indexStart != null && !indexStart.balance.isZero()) {
         accountBuilder.withPostBalance(Wei.ZERO);
       }
       return;
@@ -291,18 +278,10 @@ public class AccessLocationTracker implements Eip7928AccessList {
     }
   }
 
-  private static void addStorageReads(
-      final AccountChangesBuilder accountBuilder, final Set<UInt256> slots) {
-    for (final UInt256 slot : slots) {
-      accountBuilder.addStorageRead(new StorageSlotKey(slot));
-    }
-  }
-
   private static final class IndexStartAccount {
     private final Wei balance;
     private final long nonce;
     private final Hash codeHash;
-    // Created on the first storage write, since withdrawal-only accounts never write storage.
     private Map<UInt256, UInt256> storage;
 
     private IndexStartAccount(final Account account) {
