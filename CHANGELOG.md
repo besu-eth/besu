@@ -32,6 +32,7 @@
 - Update `Bouncycastle` to 1.85 to address CVEs `CVE-2026-8763` and `CVE-2026-13506`. [#11336](https://github.com/besu-eth/besu/pull/11336)
 - `PoaQueryService` and `BftQueryService` are no longer deprecated. [#11376](https://github.com/besu-eth/besu/pull/11376)
 - Add `engine_newPayloadWithWitnessV5` whose VALID response also carries the EIP-8025 execution witness [#11181](https://github.com/besu-eth/besu/pull/11181)
+- Reference tests no longer keep a second copy of the execution-spec fixtures under `build/resources`, and the new Gradle property `besu.referenceTests.fixturesDir` lets all checkouts and worktrees share one unpacked copy of each fixture version. [#11413](https://github.com/besu-eth/besu/pull/11413)
 
 ## 26.9.0
 
