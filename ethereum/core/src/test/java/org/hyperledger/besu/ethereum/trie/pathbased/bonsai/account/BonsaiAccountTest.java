@@ -15,13 +15,19 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldView;
 import org.hyperledger.besu.evm.worldstate.UpdateTrackingAccount;
+
+import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -77,5 +83,43 @@ public class BonsaiAccountTest {
     account.setStorageValue(UInt256.ONE, UInt256.ONE);
     assertThat(new BonsaiAccount(account, bonsaiWorldState, true))
         .isEqualToComparingFieldByField(account);
+  }
+
+  @Test
+  void unreadableCodeShouldNotPoisonSharedCodeCache() {
+    final BonsaiCodeCache codeCache = new BonsaiCodeCache();
+    final Bytes bytecode = Bytes.fromHexString("0x5b00");
+    final Hash codeHash = Hash.hash(bytecode);
+
+    // a world state closed under a block creation thread that is still executing returns no code
+    final BonsaiWorldView closedWorldView = mock(BonsaiWorldView.class);
+    when(closedWorldView.getCode(any(), any())).thenReturn(Optional.empty());
+    assertThat(contract(closedWorldView, codeHash, codeCache).getOrCreateCachedCode().getBytes())
+        .isEqualTo(Bytes.EMPTY);
+    assertThat(
+            new UpdateTrackingAccount<>(contract(closedWorldView, codeHash, codeCache))
+                .getOrCreateCachedCode()
+                .getBytes())
+        .isEqualTo(Bytes.EMPTY);
+
+    // block import on a live world state must still execute the real code
+    final BonsaiWorldView liveWorldView = mock(BonsaiWorldView.class);
+    when(liveWorldView.getCode(any(), any())).thenReturn(Optional.of(bytecode));
+    assertThat(contract(liveWorldView, codeHash, codeCache).getOrCreateCachedCode().getBytes())
+        .isEqualTo(bytecode);
+  }
+
+  private static BonsaiAccount contract(
+      final BonsaiWorldView worldView, final Hash codeHash, final BonsaiCodeCache codeCache) {
+    return new BonsaiAccount(
+        worldView,
+        Address.ZERO,
+        Hash.hash(Address.ZERO.getBytes()),
+        0,
+        Wei.ZERO,
+        Hash.EMPTY_TRIE_HASH,
+        codeHash,
+        false,
+        codeCache);
   }
 }

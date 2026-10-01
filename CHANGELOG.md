@@ -49,6 +49,7 @@
 - A failing EIP-4788 beacon roots or EIP-2935 history storage system call no longer invalidates the block. [#11415](https://github.com/besu-eth/besu/pull/11415)
 - Publish the jump destination analysis of a contract safely to other threads [#11403](https://github.com/besu-eth/besu/pull/11403)
 - Retry bootnodes while under-peered to avoid a node on a small network staying at zero peers. [#11368](https://github.com/besu-eth/besu/pull/11368)
+- The Bonsai code cache no longer stores empty code under a non-empty code hash. A block creation thread that kept executing after its world state was closed could cache a contract as empty, after which the node executed that contract as empty code in every block, rejecting valid blocks as `INVALID` until restarted. [#11420](https://github.com/besu-eth/besu/pull/11420)
 
 ### Additions and Improvements
 - Update `Bouncycastle` to 1.85 to address CVEs `CVE-2026-8763` and `CVE-2026-13506`. [#11336](https://github.com/besu-eth/besu/pull/11336)
