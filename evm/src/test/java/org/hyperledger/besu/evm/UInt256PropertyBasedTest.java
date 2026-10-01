@@ -464,6 +464,39 @@ public class UInt256PropertyBasedTest {
   }
 
   @Property
+  void property_exp_matchesBigInteger(
+      @ForAll("unsigned1to32") final byte[] a, @ForAll("unsigned1to32") final byte[] e) {
+    // Arrange
+    final UInt256 ua = UInt256.fromBytesBE(a);
+    final UInt256 ue = UInt256.fromBytesBE(e);
+
+    // Act
+    final byte[] got = ua.exp(ue).toBytesBE();
+
+    // Assert
+    final byte[] exp = bigUnsignedToBytes32(toBigUnsigned(a).modPow(toBigUnsigned(e), TWO_256));
+    assertThat(got).containsExactly(exp);
+  }
+
+  /** Odd bases with long exponents take the 2-adic logarithm path of {@link UInt256#exp}. */
+  @Property
+  void property_exp_oddBase_matchesBigInteger(
+      @ForAll("unsigned1to32") final byte[] a, @ForAll("unsigned1to32") final byte[] e) {
+    // Arrange
+    final byte[] odd = a.clone();
+    odd[odd.length - 1] |= 1;
+    final UInt256 ua = UInt256.fromBytesBE(odd);
+    final UInt256 ue = UInt256.fromBytesBE(e);
+
+    // Act
+    final byte[] got = ua.exp(ue).toBytesBE();
+
+    // Assert
+    final byte[] exp = bigUnsignedToBytes32(toBigUnsigned(odd).modPow(toBigUnsigned(e), TWO_256));
+    assertThat(got).containsExactly(exp);
+  }
+
+  @Property
   void property_divByZero_invariants() {
     // Arrange
     UInt256 x = UInt256.fromBytesBE(new byte[] {1, 2, 3, 4});

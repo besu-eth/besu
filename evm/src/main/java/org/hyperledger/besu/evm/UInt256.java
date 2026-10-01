@@ -683,6 +683,19 @@ public record UInt256(long u3, long u2, long u1, long u0) {
     return modulus.asUInt64().mul(this, other);
   }
 
+  /**
+   * Exponentiation.
+   *
+   * <p>Compute the wrapping power {@code this^exponent mod 2^256}, with {@code 0^0 = 1} as in the
+   * EVM EXP opcode.
+   *
+   * @param exponent The exponent.
+   * @return This integer raised to the exponent (mod 2^256).
+   */
+  public UInt256 exp(final UInt256 exponent) {
+    return UInt256Exp.exp(this, exponent);
+  }
+
   // --------------------------------------------------------------------------
   // endregion
 

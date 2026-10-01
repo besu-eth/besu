@@ -32,6 +32,7 @@
 - Update `Bouncycastle` to 1.85 to address CVEs `CVE-2026-8763` and `CVE-2026-13506`. [#11336](https://github.com/besu-eth/besu/pull/11336)
 - `PoaQueryService` and `BftQueryService` are no longer deprecated. [#11376](https://github.com/besu-eth/besu/pull/11376)
 - Add `engine_newPayloadWithWitnessV5` whose VALID response also carries the EIP-8025 execution witness [#11181](https://github.com/besu-eth/besu/pull/11181)
+- Faster `EXP` opcode with the optimized opcodes (`--Xevm-optimized-opcodes`, on by default). It now uses `UInt256` arithmetic instead of `BigInteger.modPow`, and a full-width exponent of an odd base goes through the 2-adic logarithm and exponential. End to end, the execution-specs EXP benchmark (`test_exp_bench_arithmetic`) runs about 50 times faster.
 
 ## 26.9.0
 

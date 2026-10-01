@@ -42,6 +42,7 @@ import org.hyperledger.besu.evm.operation.DupNOperation;
 import org.hyperledger.besu.evm.operation.DupOperation;
 import org.hyperledger.besu.evm.operation.ExchangeOperation;
 import org.hyperledger.besu.evm.operation.ExpOperation;
+import org.hyperledger.besu.evm.operation.ExpOperationOptimized;
 import org.hyperledger.besu.evm.operation.GtOperation;
 import org.hyperledger.besu.evm.operation.InvalidOperation;
 import org.hyperledger.besu.evm.operation.IsZeroOperation;
@@ -299,7 +300,10 @@ public class EVM {
                   evmConfiguration.enableOptimizedOpcodes()
                       ? MulModOperationOptimized.staticOperation(frame)
                       : MulModOperation.staticOperation(frame);
-              case 0x0a -> ExpOperation.staticOperation(frame, gasCalculator);
+              case 0x0a ->
+                  evmConfiguration.enableOptimizedOpcodes()
+                      ? ExpOperationOptimized.staticOperation(frame, gasCalculator)
+                      : ExpOperation.staticOperation(frame, gasCalculator);
               case 0x0b -> SignExtendOperation.staticOperation(frame);
               case 0x0c, 0x0d, 0x0e, 0x0f -> InvalidOperation.invalidOperationResult(opcode);
               case 0x10 -> LtOperation.staticOperation(frame);
