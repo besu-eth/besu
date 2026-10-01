@@ -909,7 +909,6 @@ subprojects {
     apply plugin: 'me.champeau.jmh'
 
     tasks.named("jmhJar") {
-      zip64 = true
       exclude("META-INF/services/java.net.spi.InetAddressResolverProvider")
       exclude("META-INF/versions/*/META-INF/services/java.net.spi.InetAddressResolverProvider")
     }
@@ -927,11 +926,8 @@ subprojects {
         "\t-PgasProfilerFork=<fork>\tEVM fork to use for gas cost calculation (e.g. CANCUN, OSAKA). Defaults to OSAKA.\n"
     }
 
-    tasks.named("jmhJar") {
-      zip64 = true
-    }
-
     jmh {
+      zip64.set(true)
       jmhVersion = '1.37'
       fork = 3
       resultFormat = 'JSON'
@@ -946,7 +942,6 @@ subprojects {
       }
       var asyncProfiler = _strCmdArg('asyncProfiler')
       var asyncProfilerOptions = _strCmdArg('asyncProfilerOptions', 'output=flamegraph')
-      zip64.set(true)
       jvmArgs = [
         '-XX:+EnableDynamicAgentLoading'
       ]
@@ -965,7 +960,6 @@ subprojects {
         var gasProfilerFork = _strCmdArg('gasProfilerFork')
         profilers.add('org.hyperledger.besu.ethereum.vm.operations.GasProfiler' + (gasProfilerFork != null ? ':' + gasProfilerFork : ''))
       }
-      duplicateClassesStrategy = DuplicatesStrategy.INCLUDE
     }
 
     dependencies {

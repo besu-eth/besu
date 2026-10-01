@@ -277,7 +277,7 @@ public sealed class EngineNewPayloadV1<
       lastExecutionTimeInNs = System.nanoTime() - startTimeNs;
       logImportedBlockInfo(
           block, lastExecutionTimeInNs, executionResult.getNbParallelizedTransactions());
-      return respondWith(reqId, blockParam, newBlockHeader.getHash(), VALID);
+      return respondWithValid(reqId, blockParam, newBlockHeader, executionResult);
     } else {
       logger().debug("New payload is invalid: {}", executionResult);
       if (executionResult.isWorldStateUnavailable()) {
@@ -382,6 +382,28 @@ public sealed class EngineNewPayloadV1<
     }
   }
 
+  /**
+   * Responds to a payload that was just executed and imported. Overridable so variants can answer
+   * with data derived from block processing (e.g. the EIP-8025 execution witness), or with an error
+   * if they cannot produce it; the default responds with the standard VALID payload status.
+   *
+   * <p>Note this covers only the freshly-executed path: a payload whose block is already present
+   * returns VALID without passing through here.
+   *
+   * @param requestId the JSON-RPC request id
+   * @param param the execution payload parameter
+   * @param newBlockHeader the header of the imported block
+   * @param executionResult the result of processing the block
+   * @return the JSON-RPC response
+   */
+  protected JsonRpcResponse respondWithValid(
+      final Object requestId,
+      final ExecutionPayloadV1 param,
+      final BlockHeader newBlockHeader,
+      final BlockProcessingResult executionResult) {
+    return respondWith(requestId, param, newBlockHeader.getHash(), VALID);
+  }
+
   JsonRpcResponse respondWith(
       final Object requestId,
       final ExecutionPayloadV1 param,
@@ -391,6 +413,13 @@ public sealed class EngineNewPayloadV1<
       throw new IllegalArgumentException(
           "Don't call respondWith() with invalid status of " + status);
     }
+    logNewPayloadResponse(param, latestValidHash, status);
+    return new JsonRpcSuccessResponse(
+        requestId, new PayloadStatusV1(status, latestValidHash, Optional.empty()));
+  }
+
+  protected void logNewPayloadResponse(
+      final ExecutionPayloadV1 param, final Hash latestValidHash, final EngineStatus status) {
     logger()
         .atDebug()
         .setMessage(
@@ -402,8 +431,6 @@ public sealed class EngineNewPayloadV1<
             () -> latestValidHash == null ? null : latestValidHash.getBytes().toHexString())
         .addArgument(status::name)
         .log();
-    return new JsonRpcSuccessResponse(
-        requestId, new PayloadStatusV1(status, latestValidHash, Optional.empty()));
   }
 
   JsonRpcResponse respondWithInvalid(final Object requestId, final String validationError) {
