@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet.block.access.list;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView.AccountChangesBuilder;
@@ -251,15 +252,14 @@ public class AccessLocationTracker implements Eip7928AccessList {
 
     final Wei newBalance = account.getBalance();
     final long newNonce = account.getNonce();
-    final Bytes newCode = account.getCode();
     if (!newBalance.equals(indexStart.balance)) {
       accountBuilder.withPostBalance(newBalance);
     }
     if (Long.compareUnsigned(newNonce, indexStart.nonce) > 0) {
       accountBuilder.withNonceChange(newNonce);
     }
-    if (!newCode.equals(indexStart.code)) {
-      accountBuilder.withNewCode(newCode);
+    if (!account.getCodeHash().equals(indexStart.codeHash)) {
+      accountBuilder.withNewCode(account.getCode());
     }
 
     for (final UInt256 touchedSlot : touchedSlots) {
@@ -301,14 +301,14 @@ public class AccessLocationTracker implements Eip7928AccessList {
   private static final class IndexStartAccount {
     private final Wei balance;
     private final long nonce;
-    private final Bytes code;
+    private final Hash codeHash;
     // Created on the first storage write, since withdrawal-only accounts never write storage.
     private Map<UInt256, UInt256> storage;
 
     private IndexStartAccount(final Account account) {
       this.balance = account != null ? account.getBalance() : Wei.ZERO;
       this.nonce = account != null ? account.getNonce() : 0L;
-      this.code = account != null ? account.getCode() : Bytes.EMPTY;
+      this.codeHash = account != null ? account.getCodeHash() : Hash.EMPTY;
     }
 
     private UInt256 storageValue(final UInt256 slot) {
