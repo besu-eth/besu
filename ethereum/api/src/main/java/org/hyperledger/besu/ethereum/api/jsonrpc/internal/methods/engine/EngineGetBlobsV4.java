@@ -29,6 +29,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlobCellsAndProofsV1;
 import org.hyperledger.besu.ethereum.core.kzg.BlobProofBundle;
 import org.hyperledger.besu.ethereum.core.kzg.CKZG4844Helper;
+import org.hyperledger.besu.ethereum.core.kzg.CellsWithMask;
 import org.hyperledger.besu.ethereum.core.kzg.KZGProof;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 
@@ -173,32 +174,42 @@ public class EngineGetBlobsV4 extends ExecutionEngineJsonRpcMethod {
 
   private @NotNull List<BlobCellsAndProofsV1> getBlobV4Result(
       final VersionedHash[] versionedHashes, final List<Integer> cellIndexes) {
+    // One entry per requested hash, in request order, null where we cannot answer: dropping the
+    // entries we cannot answer would shift every later one onto the wrong versioned hash.
     return Arrays.stream(versionedHashes)
-        .map(transactionPool::getBlobProofBundle)
-        .map(bundle -> getBlobCellsAndProofsV1(bundle, cellIndexes))
+        .map(vh -> transactionPool.getBlobProofBundle(vh, cellIndexes))
+        .map(bundle -> bundle == null ? null : getBlobCellsAndProofsV1(bundle, cellIndexes))
         .toList();
   }
 
   private @Nullable BlobCellsAndProofsV1 getBlobCellsAndProofsV1(
       final BlobProofBundle bundle, final List<Integer> cellIndexes) {
-    if (bundle == null) {
-      return null;
-    }
     // Only KZG_CELL_PROOFS blobs support cell-level extraction, reject KZG_PROOF
     if (bundle.getBlobType() == BlobType.KZG_PROOF) {
       LOG.debug(
           "Unsupported blob type KZG_PROOF for versioned hash: {}", bundle.getVersionedHash());
       return null;
     }
-    final Bytes blobCells = bundle.getBlobCellsBytes().orElse(null);
-    if (blobCells == null) {
-      return null;
-    }
-    final int cellSize = blobCells.size() / CKZG4844Helper.CELL_PROOFS_PER_BLOB;
+    final CellsWithMask cellsWithMask =
+        bundle
+            .getCellsWithMask()
+            .orElseThrow(
+                () ->
+                    new IllegalStateException(
+                        "Internal error: bundle must have cells with mask at this point"));
+    // The pool may hold only some of the requested cells. Each one it does not hold is a null in
+    // both lists, as the spec requires, and the proof has to be null too: a partial bundle's proofs
+    // are verified only where it holds the cell, so any other proof is one nobody has checked.
     final List<Bytes> cells =
-        cellIndexes.stream().map(index -> blobCells.slice(index * cellSize, cellSize)).toList();
+        cellIndexes.stream()
+            .map(
+                index ->
+                    cellsWithMask.hasCell(index) ? cellsWithMask.getCell(index).getData() : null)
+            .toList();
     final List<KZGProof> proofs =
-        cellIndexes.stream().map(index -> bundle.getKzgProof().get(index)).toList();
+        cellIndexes.stream()
+            .map(index -> cellsWithMask.hasCell(index) ? bundle.getKzgProof().get(index) : null)
+            .toList();
     return new BlobCellsAndProofsV1(cells, proofs);
   }
 }

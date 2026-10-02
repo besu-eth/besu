@@ -27,9 +27,9 @@ public interface BlobsWithCommitments {
   BlobType getBlobType();
 
   /**
-   * Get the blobs.
+   * Get the blobs if present.
    *
-   * @return the blobs
+   * @return the blobs or empty list if not present
    */
   List<? extends Blob> getBlobs();
 

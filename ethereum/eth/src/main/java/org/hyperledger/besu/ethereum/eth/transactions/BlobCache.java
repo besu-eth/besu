@@ -46,7 +46,15 @@ public class BlobCache {
   public void cacheBlobs(final Transaction t) {
     if (t.getType().supportsBlob()) {
       var bwc = t.getBlobsWithCommitments();
-      if (bwc.isPresent()) {
+      if (bwc.isPresent() && !bwc.get().hasBlobData()) {
+        // Only full blobs are cached. A bundle is kept per versioned hash, not per transaction, so
+        // a sampled one would overwrite the full blob another transaction cached under the same
+        // hash, and restoreBlob would then assemble bundles of different shapes, which
+        // createFromBundles rejects.
+        // ToDo: EIP-8070 evaluate caching cells-only bundles too, so that a sampled transaction
+        // can be restored after a reorg and engine_getBlobsV4 can serve its cells once confirmed
+        LOG.debug("transaction holds only sampled cells of its blobs, not caching");
+      } else if (bwc.isPresent()) {
         bwc.get().getBlobProofBundles().stream()
             .forEach(
                 blobProofBundle ->
