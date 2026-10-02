@@ -149,10 +149,14 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
       executionEngineApisSupported.addAll(createGetBlobsMethods(constructorArguments));
       executionEngineApisSupported.addAll(createGetBlobsV4Methods(constructorArguments));
 
-      executionEngineApisSupported.addAll(
-          Arrays.asList(
-              new EngineExchangeCapabilities(constructorArguments),
-              new EngineGetClientVersionV1(constructorArguments, clientVersion, commit)));
+      executionEngineApisSupported.add(
+          new EngineGetClientVersionV1(constructorArguments, clientVersion, commit));
+
+      // built last from the methods registered above, so that every advertised method is callable
+      executionEngineApisSupported.add(
+          new EngineExchangeCapabilities(
+              constructorArguments,
+              executionEngineApisSupported.stream().map(JsonRpcMethod::getName).toList()));
 
       return mapOf(executionEngineApisSupported);
     } else {
@@ -199,7 +203,7 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
 
   /**
    * {@code engine_newPayloadWithWitnessV5} is a distinct method rather than another version in the
-   * newPayload series, so it is registered on its own from Amsterdam onwards.
+   * newPayload series, so it is scheduled on its own from Amsterdam onwards.
    */
   private Collection<? extends JsonRpcMethod> createEngineNewPayloadWithWitnessMethods(
       final ConstructorArguments constructorArguments) {
@@ -249,9 +253,9 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
       final ConstructorArguments constructorArguments) {
     // engine_getBlobsV4 is not the next version of the V1-V3 chain: it takes different request
     // parameters and returns BlobCellsAndProofsV1 instead of BlobAndProofV1/V2, so it is its own
-    // standalone series that is simply added from Amsterdam on, leaving V2/V3 valid indefinitely.
-    return VersionScheduler.startsFrom(AMSTERDAM, EngineGetBlobsV4::new)
-        .build(constructorArguments);
+    // standalone series, leaving V2/V3 valid indefinitely. Its specification has no fork activation
+    // condition, so it is served as soon as cell proofs exist, which is from Osaka on.
+    return VersionScheduler.startsFrom(OSAKA, EngineGetBlobsV4::new).build(constructorArguments);
   }
 
   @VisibleForTesting
@@ -307,15 +311,16 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
       return this;
     }
 
+    /**
+     * Builds every version, including the ones that start at a fork the protocol schedule does not
+     * contain. The set of engine methods must not depend on the network, a method outside its fork
+     * window answers each call with an unsupported fork error instead.
+     */
     List<? extends ExecutionEngineJsonRpcMethod> build(
         final ConstructorArguments constructorArguments) {
       readyMethods.addAll(pendingMethods);
 
       return readyMethods.stream()
-          .filter(
-              mv ->
-                  mv.from == null
-                      || constructorArguments.protocolSchedule().milestoneFor(mv.from).isPresent())
           .map(mv -> mv.factory.create(constructorArguments, mv.from, mv.to))
           .toList();
     }

@@ -75,17 +75,26 @@ the previous window at `<FORK>`, which would wrongly retire methods that stay va
 `engine_getBlobsV4` is exactly that case: despite looking like "the version after V3", it takes
 different request parameters (`versioned_blob_hashes` plus a new `indices_bitarray`), returns
 `BlobCellsAndProofsV1` rather than `BlobAndProofV1`/`V2`, and does not extend `EngineGetBlobsV3`.
-It is an *addition* at Amsterdam alongside V2/V3, which remain valid indefinitely, so it gets its
-own scheduler:
+It is an *addition* alongside V2/V3, which remain valid indefinitely, so it gets its own scheduler.
+Its specification has no fork activation condition, so it is served from Osaka on, where cell
+proofs are introduced, and answers `null` before that instead of an unsupported fork error:
 
 ```java
-VersionScheduler.startsFrom(AMSTERDAM, EngineGetBlobsV4::new).build(constructorArguments);
+VersionScheduler.startsFrom(OSAKA, EngineGetBlobsV4::new).build(constructorArguments);
 ```
 
 The scheduler instantiates each version with the right `(minSupportedFork, firstUnsupportedFork)`
-pair derived from the chain. Method names live in the `RpcMethod` enum;
-`engine_exchangeCapabilities` derives the advertised capability list automatically from every
-`RpcMethod` entry starting with `engine_`, so there is no separate capabilities list to maintain.
+pair derived from the chain. It builds **every** version, whether or not the protocol schedule of
+the network contains its forks: the set of registered engine methods is the same on every network,
+and a method outside its fork window answers each call with `-38005: Unsupported fork` (see
+`ForkSupportHelper`). Do not make registration depend on the fork schedule — a consensus client
+picks method versions from the capability list, and a call that needs no fork check, such as
+`engine_forkchoiceUpdatedV4` without payload attributes, must succeed on a network that has not
+scheduled the fork yet.
+
+Method names live in the `RpcMethod` enum. `engine_exchangeCapabilities` advertises exactly the
+methods registered in `ExecutionEngineJsonRpcMethods`, so there is no separate capabilities list to
+maintain and every advertised method is callable.
 
 ## Test pattern (src/test, same package)
 
@@ -121,10 +130,10 @@ Use the commits that introduced the current latest version as the exemplar
    spec changes. The compiler enforces the rest of the chain.
 2. If the payload/attributes/result shape changes, extend the corresponding sealed hierarchy in
    `..internal.parameters` / `..internal.results` the same way (update `permits` on the parent).
-3. Add `ENGINE_FOO_VN+1("engine_fooVN+1")` to `RpcMethod` (this also advertises it via
-   `engine_exchangeCapabilities`).
+3. Add `ENGINE_FOO_VN+1("engine_fooVN+1")` to `RpcMethod`.
 4. Extend the series' `VersionScheduler` chain in `ExecutionEngineJsonRpcMethods` with
-   `.thenFrom(<ACTIVATION_FORK>, EngineFooVN+1::new)`. Only do this if VN+1 really supersedes VN;
+   `.thenFrom(<ACTIVATION_FORK>, EngineFooVN+1::new)` (this also advertises it via
+   `engine_exchangeCapabilities`). Only do this if VN+1 really supersedes VN;
    if the "next version" is unrelated in request/response shape it belongs in its own chain via
    `startsFrom(...)` — see `engine_getBlobsV4` under "Registration and scheduling".
 5. Add `EngineFooVN+1Test extends EngineFooVNTest`: override `createMethodInstance()`, the
