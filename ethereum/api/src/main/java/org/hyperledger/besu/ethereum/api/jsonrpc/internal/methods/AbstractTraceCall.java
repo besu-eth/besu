@@ -82,6 +82,11 @@ public abstract class AbstractTraceCall extends AbstractTraceByBlock {
 
     final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(maybeBlockHeader.get());
 
+    final var forkError = CallParameterUtil.validateCallParamsForFork(callParams, protocolSpec);
+    if (forkError.isPresent()) {
+      return new JsonRpcErrorResponse(requestContext.getRequest().getId(), forkError.get());
+    }
+
     final TraceOptions effectiveTraceOptions = applyServerStepLimit(traceOptions);
     final TraceExecution execution =
         createTraceExecution(requestContext, effectiveTraceOptions, protocolSpec);

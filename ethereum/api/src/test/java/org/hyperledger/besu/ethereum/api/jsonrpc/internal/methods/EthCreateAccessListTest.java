@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -25,6 +26,7 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
@@ -36,6 +38,8 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.CreateAccessLi
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.transaction.CallParameter;
 import org.hyperledger.besu.ethereum.transaction.ImmutableCallParameter;
@@ -77,6 +81,8 @@ public class EthCreateAccessListTest {
   @Mock private BlockchainQueries blockchainQueries;
   @Mock private TransactionSimulator transactionSimulator;
   @Mock private WorldStateArchive worldStateArchive;
+  @Mock private ProtocolSchedule protocolSchedule;
+  @Mock private ProtocolSpec protocolSpec;
 
   @BeforeEach
   public void setUp() {
@@ -102,12 +108,30 @@ public class EthCreateAccessListTest {
     when(transactionSimulator.simulatePendingBlockHeader()).thenReturn(pendingBlockHeader);
     when(worldStateArchive.isWorldStateAvailable(any(), any())).thenReturn(true);
 
-    method = new EthCreateAccessList(blockchainQueries, transactionSimulator);
+    when(protocolSchedule.getByBlockHeader(any())).thenReturn(protocolSpec);
+    when(protocolSpec.getHardforkId()).thenReturn(HardforkId.MainnetHardforkId.PRAGUE);
+
+    method = new EthCreateAccessList(blockchainQueries, transactionSimulator, protocolSchedule);
   }
 
   @Test
   public void shouldReturnCorrectMethodName() {
     assertThat(method.getName()).isEqualTo(METHOD);
+  }
+
+  @Test
+  public void shouldRejectPreBerlin() {
+    when(protocolSpec.getHardforkId()).thenReturn(HardforkId.MainnetHardforkId.ISTANBUL);
+
+    final JsonRpcRequestContext request =
+        ethCreateAccessListRequest(legacyTransactionCallParameter(Wei.ZERO));
+
+    final JsonRpcResponse response = method.response(request);
+
+    assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
+    assertThat(((JsonRpcErrorResponse) response).getError().getCode())
+        .isEqualTo(RpcErrorType.INVALID_CALL_PARAMS.getCode());
+    verify(transactionSimulator, never()).processOnPending(any(), any(), any(), any(), any());
   }
 
   private JsonRpcRequestContext ethCreateAccessListRequest(final CallParameter callParameter) {
