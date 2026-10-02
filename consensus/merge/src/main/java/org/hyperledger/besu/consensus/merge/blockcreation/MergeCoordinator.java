@@ -334,12 +334,24 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   public void finalizeProposalById(final PayloadIdentifier payloadId) {
     LOG.debug("Finalizing block proposal for payload id {}", payloadId);
 
-    // Signal graceful cancellation to the block creator
+    // the block in flight is only worth finishing while there is nothing but the empty block,
+    // otherwise finishing it competes with serving the payload and is never retrieved
+    final boolean finishBlockInFlight =
+        mergeContext
+            .retrievePayloadById(payloadId)
+            .map(payload -> payload.transactionCount() == 0)
+            .orElse(true);
+
     blockCreationTasks.computeIfPresent(
         payloadId,
         (pid, task) -> {
-          task.cancel();
-          LOG.debug("Signaled block creator to cancel gracefully for payload {}", payloadId);
+          if (finishBlockInFlight) {
+            task.cancel();
+            LOG.debug("Signaled block creator to cancel gracefully for payload {}", payloadId);
+          } else {
+            task.discard();
+            LOG.debug("Discarded the block in flight for payload {}", payloadId);
+          }
           return task;
         });
 
@@ -536,6 +548,10 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
       final BlockCreationResult blockCreationResult,
       final PayloadIdentifier payloadIdentifier,
       final long startedAt) {
+    if (isBlockInFlightDiscarded(payloadIdentifier)) {
+      LOG.debug("Dropping the block built for payload id {}", payloadIdentifier);
+      return;
+    }
     final var bestBlock = blockCreationResult.getBlock();
     final var resultBest =
         validateProposedBlock(bestBlock, blockCreationResult.getBlockAccessList());
@@ -1059,6 +1075,11 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     return job.cancelled.get();
   }
 
+  private boolean isBlockInFlightDiscarded(final PayloadIdentifier payloadId) {
+    final BlockCreationTask task = blockCreationTasks.get(payloadId);
+    return task != null && task.discarded.get();
+  }
+
   private Optional<Long> getDefaultGasLimit(final ProtocolSchedule protocolSchedule) {
     return protocolSchedule
         .getChainId()
@@ -1085,6 +1106,9 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     /** The Cancelled. */
     final AtomicBoolean cancelled;
 
+    /** Set when the block in flight is dropped instead of finished. */
+    final AtomicBoolean discarded;
+
     /** The Future for the async block creation task. */
     final CompletableFuture<Void> blockCreationFuture;
 
@@ -1098,6 +1122,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
         final MergeBlockCreator blockCreator, final CompletableFuture<Void> blockCreationFuture) {
       this.blockCreator = blockCreator;
       this.cancelled = new AtomicBoolean(false);
+      this.discarded = new AtomicBoolean(false);
       this.blockCreationFuture = blockCreationFuture;
     }
 
@@ -1114,6 +1139,13 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     public void cancel() {
       cancelled.set(true);
       blockCreator.cancel();
+    }
+
+    /** Cancels and drops the block in flight instead of finishing it. */
+    public void discard() {
+      discarded.set(true);
+      cancelled.set(true);
+      blockCreator.abort();
     }
   }
 }

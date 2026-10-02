@@ -39,6 +39,7 @@
 - `PoaQueryService` and `BftQueryService` are no longer deprecated. [#11376](https://github.com/besu-eth/besu/pull/11376)
 - Add `engine_newPayloadWithWitnessV5` whose VALID response also carries the EIP-8025 execution witness [#11181](https://github.com/besu-eth/besu/pull/11181)
 - Add `--include-bals` option to `besu blocks export`, writing a `<to>.bals` sidecar with BALs for each exported block. [#11042](https://github.com/besu-eth/besu/pull/11042)
+- `engine_getPayload` no longer finishes and validates the block still being built when a block with transactions is already available, which delayed the response. [#11429](https://github.com/besu-eth/besu/pull/11429)
 
 ## 26.9.0
 
