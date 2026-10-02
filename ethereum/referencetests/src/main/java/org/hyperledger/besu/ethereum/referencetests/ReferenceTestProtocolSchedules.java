@@ -288,7 +288,28 @@ public class ReferenceTestProtocolSchedules {
                         evmConfiguration)),
                 Map.entry(
                     "Bogota",
-                    createSchedule(genesisStub.clone().futureEipsTime(0), evmConfiguration)),
+                    createSchedule(
+                        genesisStub
+                            .clone()
+                            .pragueTime(0)
+                            .osakaTime(0)
+                            .bpo1Time(0)
+                            .bpo2Time(0)
+                            .amsterdamTime(0)
+                            .bogotaTime(0),
+                        evmConfiguration)),
+                Map.entry(
+                    "AmsterdamToBogotaAtTime15k",
+                    createSchedule(
+                        genesisStub
+                            .clone()
+                            .pragueTime(0)
+                            .osakaTime(0)
+                            .bpo1Time(0)
+                            .bpo2Time(0)
+                            .amsterdamTime(0)
+                            .bogotaTime(15000),
+                        evmConfiguration)),
                 Map.entry(
                     "Polis",
                     createSchedule(genesisStub.clone().futureEipsTime(0), evmConfiguration)),
