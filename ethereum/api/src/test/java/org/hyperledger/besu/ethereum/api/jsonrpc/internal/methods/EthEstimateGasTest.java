@@ -332,6 +332,46 @@ public class EthEstimateGasTest {
   }
 
   @Test
+  public void shouldReturnGasEstimateAtBlockHash() {
+    final Hash blockHash = Hash.fromHexStringLenient("0x1234");
+    when(blockchainQueries.getBlockHeaderByHash(blockHash))
+        .thenReturn(Optional.of(finalizedBlockHeader));
+    final JsonRpcRequestContext request =
+        ethEstimateGasRequest(eip1559TransactionCallParameter(), blockHash.toHexString());
+    mockTransientProcessorResultGasEstimate(MIN_TX_GAS_COST, true, false, finalizedBlockHeader);
+
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcSuccessResponse(null, Quantity.create(MIN_TX_GAS_COST));
+
+    assertThat(method.response(request)).usingRecursiveComparison().isEqualTo(expectedResponse);
+  }
+
+  @Test
+  public void shouldReturnBlockNotFoundForLargeBlockNumber() {
+    final JsonRpcRequestContext request =
+        ethEstimateGasRequest(eip1559TransactionCallParameter(), "0x100000000000000");
+
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcErrorResponse(null, RpcErrorType.BLOCK_NOT_FOUND);
+
+    assertThat(method.response(request)).usingRecursiveComparison().isEqualTo(expectedResponse);
+  }
+
+  @Test
+  public void shouldReturnErrorWhenBlockHashIsUnknown() {
+    final Hash blockHash = Hash.fromHexStringLenient("0x1234");
+    when(blockchainQueries.getBlockHeaderByHash(blockHash)).thenReturn(Optional.empty());
+    final JsonRpcRequestContext request =
+        ethEstimateGasRequest(
+            defaultLegacyTransactionCallParameter(Wei.ZERO), blockHash.toHexString());
+
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcErrorResponse(null, RpcErrorType.BLOCK_NOT_FOUND);
+
+    assertThat(method.response(request)).usingRecursiveComparison().isEqualTo(expectedResponse);
+  }
+
+  @Test
   public void shouldReturnErrorWhenTransactionReverted() {
     final JsonRpcRequestContext request =
         ethEstimateGasRequest(defaultLegacyTransactionCallParameter(Wei.ZERO));
