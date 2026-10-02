@@ -1,0 +1,20 @@
+{
+  "comment": "An unknown transaction hash returns null.",
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "trace_replayTransaction",
+    "params": [
+      "0x0000000000000000000000000000000000000000000000000000000000000000",
+      [
+        "trace"
+      ]
+    ],
+    "id": 415
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "result": null,
+    "id": 415
+  },
+  "statusCode": 200
+}

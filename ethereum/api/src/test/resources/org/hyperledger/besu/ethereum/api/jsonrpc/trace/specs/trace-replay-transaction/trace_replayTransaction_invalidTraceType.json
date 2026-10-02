@@ -1,0 +1,23 @@
+{
+  "comment": "An unknown trace type is rejected before the transaction is looked up.",
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "trace_replayTransaction",
+    "params": [
+      "0xf882ec206292910527fd7095e59a1ca027b873296f1eba3886aa1addc4ff0ab9",
+      [
+        "bla"
+      ]
+    ],
+    "id": 415
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 415,
+    "error": {
+      "code": -32602,
+      "message": "Invalid trace type params"
+    }
+  },
+  "statusCode": 200
+}
