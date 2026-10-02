@@ -26,6 +26,7 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
+- `debug_traceCall` now accepts a block hash as its block parameter, as execution-apis specifies. A hash was rejected with `-32602 Invalid block param`; an unknown hash now returns `-32000 Block not found`, as an unknown block number does. [#11433](https://github.com/besu-eth/besu/pull/11433)
 - A contract created from within a system call now gets its initial nonce and deployed code. `SystemCallProcessor` ran every frame with the message-call processor, so a `CREATE` in a system call's code, reachable when a system contract's code is replaced on a custom or test chain, left the new account with nonce 0 and ran its initcode without deploying anything.
 - Block access lists now record the net change of the withdrawals and the system calls that share the post-execution index, measured from the state at the start of that index, and include writes made in a system call's own frame. When replaced system contract code changed a value across calls, or changed it twice, each call was diffed against the one before it, giving extra or duplicate entries.
 - `BlobCache.restoreBlob` now reports that a blob transaction cannot be restored instead of throwing `NullPointerException` when any of its blobs is no longer cached.
