@@ -96,6 +96,11 @@ public class BonsaiSnapshotWorldStateKeyValueStorage extends BonsaiWorldStateKey
   }
 
   @Override
+  public Optional<Bytes> getCodeBytes(final Hash codeHash, final Hash accountHash) {
+    return isClosedGet() ? Optional.empty() : super.getCodeBytes(codeHash, accountHash);
+  }
+
+  @Override
   public Optional<Bytes> getAccountStateTrieNode(final Bytes location, final Bytes32 nodeHash) {
     return isClosedGet() ? Optional.empty() : super.getAccountStateTrieNode(location, nodeHash);
   }

@@ -28,6 +28,19 @@ public interface CodeStorageStrategy {
   Optional<Code> getFlatCode(
       final Hash codeHash, final Hash accountHash, final SegmentedKeyValueStorage storage);
 
+  /**
+   * The bytes of the code alone, for the readers that have no use for its analysis.
+   *
+   * @param codeHash the hash of the code
+   * @param accountHash the hash of the account holding the code
+   * @param storage the storage holding the code column family
+   * @return the bytes of the code, when it is stored
+   */
+  default Optional<Bytes> getFlatCodeBytes(
+      final Hash codeHash, final Hash accountHash, final SegmentedKeyValueStorage storage) {
+    return getFlatCode(codeHash, accountHash, storage).map(Code::getBytes);
+  }
+
   void putFlatCode(
       final SegmentedKeyValueStorage storage,
       final SegmentedKeyValueStorageTransaction transaction,

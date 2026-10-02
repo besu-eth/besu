@@ -16,105 +16,165 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.CODE_STORAGE;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
 import org.hyperledger.besu.evm.Code;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
+import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBMetricsFactory;
+import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBConfigurationBuilder;
+import org.hyperledger.besu.plugin.services.storage.rocksdb.segmented.OptimisticRocksDBColumnarKeyValueStorage;
 import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
 
+import java.nio.file.Path;
 import java.util.List;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 class CodeStorageMigrationTest {
 
-  private static final Bytes CODE = Bytes.fromHexString("0x605b5b615b5b5b");
-  private static final List<Bytes> CODES =
-      List.of(CODE, Bytes.of(0x5b), Bytes.fromHexString("0x60005b"));
+  /** Code next to the analysis it has to be stored with. */
+  private record AnalysedCode(Bytes code, long... bitMask) {}
+
+  private static final List<AnalysedCode> CODES =
+      List.of(
+          // PUSH1 0x5b; JUMPDEST; PUSH2 0x5b5b; JUMPDEST
+          new AnalysedCode(Bytes.fromHexString("0x605b5b615b5b5b"), 0b1000100L),
+          new AnalysedCode(Bytes.of(0x5b), 0b1L),
+          new AnalysedCode(Bytes.fromHexString("0x60005b"), 0b100L),
+          // JUMPDEST; 61 STOP; PUSH2 with one byte of data in each word; JUMPDEST
+          new AnalysedCode(
+              Bytes.concatenate(
+                  Bytes.of(0x5b), Bytes.wrap(new byte[61]), Bytes.fromHexString("0x615b5b5b")),
+              0b1L,
+              0b10L));
+
+  /** The storages the migration runs on: the default rewrite and the one of RocksDB. */
+  enum StorageKind {
+    IN_MEMORY,
+    ROCKSDB
+  }
+
+  @TempDir Path tempDir;
+
+  private SegmentedKeyValueStorage storage;
+
+  @AfterEach
+  void tearDown() throws Exception {
+    if (storage != null) {
+      storage.close();
+    }
+  }
 
   @Test
   void marksAnEmptyColumnFamilyWithoutRewritingAnything() {
-    final SegmentedKeyValueStorage storage = storage();
+    storage = spy(new SegmentedInMemoryKeyValueStorage());
 
     CodeStorageMigration.migrate(storage);
 
+    verify(storage, never()).rewrite(any(), any(), any());
     assertThat(JumpDestCodeStorageStrategy.isMarked(storage)).isTrue();
     assertThat(storage.stream(CODE_STORAGE).count()).isEqualTo(1);
   }
 
-  @Test
-  void migratesLegacyEntriesOnce() {
-    final SegmentedKeyValueStorage storage = storage();
-    putBare(storage, CODES);
+  @ParameterizedTest
+  @EnumSource(StorageKind.class)
+  void migratesLegacyEntriesOnce(final StorageKind kind) {
+    storage = storage(kind);
+    putBare(storage);
 
     CodeStorageMigration.migrate(storage);
-    assertMigrated(storage, CODES);
+    assertMigrated(storage);
 
     // a second run finds the marker and leaves the entries alone
     CodeStorageMigration.migrate(storage);
-    assertMigrated(storage, CODES);
+    assertMigrated(storage);
   }
 
-  @Test
-  void revertsMigratedEntriesToBareCode() {
-    final SegmentedKeyValueStorage storage = storage();
-    putBare(storage, CODES);
+  @ParameterizedTest
+  @EnumSource(StorageKind.class)
+  void revertsMigratedEntriesToBareCode(final StorageKind kind) {
+    storage = storage(kind);
+    putBare(storage);
     CodeStorageMigration.migrate(storage);
 
     CodeStorageMigration.revert(storage);
-    assertBare(storage, CODES);
+    assertBare(storage);
 
     // a second run has nothing to revert
     CodeStorageMigration.revert(storage);
-    assertBare(storage, CODES);
+    assertBare(storage);
   }
 
-  @Test
-  void migratesAgainAfterARevert() {
-    final SegmentedKeyValueStorage storage = storage();
-    putBare(storage, CODES);
+  @ParameterizedTest
+  @EnumSource(StorageKind.class)
+  void migratesAgainAfterARevert(final StorageKind kind) {
+    storage = storage(kind);
+    putBare(storage);
     CodeStorageMigration.migrate(storage);
     CodeStorageMigration.revert(storage);
 
     CodeStorageMigration.migrate(storage);
 
-    assertMigrated(storage, CODES);
+    assertMigrated(storage);
   }
 
-  private static void assertMigrated(
-      final SegmentedKeyValueStorage storage, final List<Bytes> codes) {
-    for (final Bytes code : codes) {
+  private static void assertMigrated(final SegmentedKeyValueStorage storage) {
+    for (final AnalysedCode analysed : CODES) {
+      final Hash codeHash = Hash.hash(analysed.code());
       final byte[] value =
-          storage.get(CODE_STORAGE, Hash.hash(code).getBytes().toArrayUnsafe()).orElseThrow();
-      final Code stored = JumpDestCodeStorageStrategy.decode(value, Hash.hash(code));
-      assertThat(stored.getBytes()).isEqualTo(code);
-      assertThat(stored.getJumpDestBitMask()).isEqualTo(Code.jumpDestBitMaskOf(code));
+          storage.get(CODE_STORAGE, codeHash.getBytes().toArrayUnsafe()).orElseThrow();
+      final Code stored = JumpDestCodeStorageStrategy.decode(value, codeHash);
+      assertThat(stored.getBytes()).isEqualTo(analysed.code());
+      assertThat(stored.getJumpDestBitMask()).containsExactly(analysed.bitMask());
     }
     assertThat(storage.get(CODE_STORAGE, JumpDestCodeStorageStrategy.MARKER_KEY))
         .contains(JumpDestCodeStorageStrategy.MARKER);
-    assertThat(storage.stream(CODE_STORAGE).count()).isEqualTo(codes.size() + 1);
+    assertThat(storage.stream(CODE_STORAGE).count()).isEqualTo(CODES.size() + 1);
   }
 
-  private static void putBare(final SegmentedKeyValueStorage storage, final List<Bytes> codes) {
+  private static void putBare(final SegmentedKeyValueStorage storage) {
     final SegmentedKeyValueStorageTransaction setup = storage.startTransaction();
-    for (final Bytes code : codes) {
-      setup.put(CODE_STORAGE, Hash.hash(code).getBytes().toArrayUnsafe(), code.toArrayUnsafe());
+    for (final AnalysedCode analysed : CODES) {
+      setup.put(
+          CODE_STORAGE,
+          Hash.hash(analysed.code()).getBytes().toArrayUnsafe(),
+          analysed.code().toArrayUnsafe());
     }
     setup.commit();
   }
 
-  private static void assertBare(final SegmentedKeyValueStorage storage, final List<Bytes> codes) {
-    for (final Bytes code : codes) {
-      assertThat(storage.get(CODE_STORAGE, Hash.hash(code).getBytes().toArrayUnsafe()))
-          .contains(code.toArrayUnsafe());
+  private static void assertBare(final SegmentedKeyValueStorage storage) {
+    for (final AnalysedCode analysed : CODES) {
+      assertThat(storage.get(CODE_STORAGE, Hash.hash(analysed.code()).getBytes().toArrayUnsafe()))
+          .contains(analysed.code().toArrayUnsafe());
     }
     assertThat(JumpDestCodeStorageStrategy.isMarked(storage)).isFalse();
-    assertThat(storage.stream(CODE_STORAGE).count()).isEqualTo(codes.size());
+    assertThat(storage.stream(CODE_STORAGE).count()).isEqualTo(CODES.size());
   }
 
-  private static SegmentedKeyValueStorage storage() {
-    return new SegmentedInMemoryKeyValueStorage();
+  private SegmentedKeyValueStorage storage(final StorageKind kind) {
+    return switch (kind) {
+      case IN_MEMORY -> new SegmentedInMemoryKeyValueStorage();
+      case ROCKSDB ->
+          new OptimisticRocksDBColumnarKeyValueStorage(
+              // the rewrite stages its files next to the database directory
+              new RocksDBConfigurationBuilder().databaseDir(tempDir.resolve("database")).build(),
+              List.of(KeyValueSegmentIdentifier.DEFAULT, CODE_STORAGE),
+              List.of(),
+              new NoOpMetricsSystem(),
+              RocksDBMetricsFactory.PUBLIC_ROCKS_DB_METRICS);
+    };
   }
 }

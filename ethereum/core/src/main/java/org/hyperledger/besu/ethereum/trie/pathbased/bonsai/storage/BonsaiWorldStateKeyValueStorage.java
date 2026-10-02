@@ -396,6 +396,11 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
     return getFlatDbStrategy().getFlatCode(codeHash, accountHash, composedWorldStateStorage);
   }
 
+  /** The bytes of the code alone, for the readers that have no use for its analysis. */
+  public Optional<Bytes> getCodeBytes(final Hash codeHash, final Hash accountHash) {
+    return getFlatDbStrategy().getFlatCodeBytes(codeHash, accountHash, composedWorldStateStorage);
+  }
+
   public Optional<Bytes> getAccountStateTrieNode(final Bytes location, final Bytes32 nodeHash) {
     if (nodeHash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
       return Optional.of(MerkleTrie.EMPTY_TRIE_NODE);

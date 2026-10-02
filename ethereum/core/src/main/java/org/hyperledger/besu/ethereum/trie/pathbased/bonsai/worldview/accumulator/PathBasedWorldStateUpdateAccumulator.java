@@ -47,7 +47,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -73,6 +72,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
 
   private final AccountConsumingMap<BonsaiValue<ACCOUNT>> accountsToUpdate;
   private final Map<Address, BonsaiValue<Bytes>> codeToUpdate = new ConcurrentHashMap<>();
+  private final Map<Address, Code> loadedCode = new ConcurrentHashMap<>();
   private final Set<Address> storageToClear = Collections.synchronizedSet(new HashSet<>());
   protected final EvmConfiguration evmConfiguration;
 
@@ -101,6 +101,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
   public void cloneFromUpdater(final PathBasedWorldStateUpdateAccumulator<ACCOUNT> source) {
     accountsToUpdate.putAll(source.getAccountsToUpdate());
     codeToUpdate.putAll(source.codeToUpdate);
+    loadedCode.putAll(source.loadedCode);
     storageToClear.addAll(source.storageToClear);
     storageToUpdate.putAll(source.storageToUpdate);
     updatedAccounts.putAll(source.updatedAccounts);
@@ -619,26 +620,30 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
 
   @Override
   public Optional<Code> getCode(final Address address, final Hash codeHash) {
-    final BonsaiValue<Bytes> localCode = codeToUpdate.get(address);
-    if (localCode != null) {
-      return Optional.ofNullable(localCode.getUpdated()).map(code -> new Code(code, codeHash));
+    BonsaiValue<Bytes> codeValue = codeToUpdate.get(address);
+    if (codeValue == null) {
+      final Supplier<Bytes> loader = Suppliers.memoize(() -> loadCode(address, codeHash));
+      codeValue = BonsaiValue.withLazy(loader, loader);
+      onCodeValueLoaded(address, codeValue);
+      codeToUpdate.put(address, codeValue);
     }
-    final AtomicReference<Code> loaded = new AtomicReference<>();
-    final Supplier<Bytes> loader =
-        Suppliers.memoize(
-            () -> {
-              loaded.set(wrappedWorldView().getCode(address, codeHash).orElse(null));
-              return loaded.get() == null ? null : loaded.get().getBytes();
-            });
-    final BonsaiValue<Bytes> codeValue = BonsaiValue.withLazy(loader, loader);
-    onCodeValueLoaded(address, codeValue);
-    codeToUpdate.put(address, codeValue);
-    final Bytes updated = codeValue.getUpdated();
-    final Code stored = loaded.get();
-    // the hook may have replaced the loaded code, and only the loaded one has its analysis
-    return stored != null && stored.getBytes() == updated
-        ? Optional.of(stored)
-        : Optional.ofNullable(updated).map(code -> new Code(code, codeHash));
+    return Optional.ofNullable(codeValue.getUpdated())
+        .map(code -> withLoadedAnalysis(address, code, codeHash));
+  }
+
+  private Bytes loadCode(final Address address, final Hash codeHash) {
+    final Code code = wrappedWorldView().getCode(address, codeHash).orElse(null);
+    if (code == null) {
+      return null;
+    }
+    loadedCode.put(address, code);
+    return code.getBytes();
+  }
+
+  /** Only the code as it was loaded carries its analysis, code set since then does not. */
+  private Code withLoadedAnalysis(final Address address, final Bytes code, final Hash codeHash) {
+    final Code loaded = loadedCode.get(address);
+    return loaded != null && loaded.getBytes() == code ? loaded : new Code(code, codeHash);
   }
 
   @Override
@@ -1034,6 +1039,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
     storageToClear.clear();
     storageToUpdate.clear();
     codeToUpdate.clear();
+    loadedCode.clear();
     accountsToUpdate.clear();
     resetAccumulatorStateChanged();
     updatedAccounts.clear();

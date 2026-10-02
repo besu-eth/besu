@@ -14,9 +14,9 @@
  */
 package org.hyperledger.besu.plugin.services.storage.rocksdb;
 
-import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.BONSAI_ARCHIVE_WITH_CODE_FORMAT;
+import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.BONSAI_ARCHIVE_WITH_JUMPDEST_ANALYSIS;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.BONSAI_ARCHIVE_WITH_RECEIPT_COMPACTION;
-import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.BONSAI_WITH_CODE_FORMAT;
+import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.BONSAI_WITH_JUMPDEST_ANALYSIS;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.BONSAI_WITH_RECEIPT_COMPACTION;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.BONSAI_WITH_VARIABLES;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.FOREST_WITH_RECEIPT_COMPACTION;
@@ -65,15 +65,17 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
   private static final Logger LOG = LoggerFactory.getLogger(RocksDBKeyValueStorageFactory.class);
   private static final EnumSet<BaseVersionedStorageFormat> SUPPORTED_VERSIONED_FORMATS =
       EnumSet.of(
-          FOREST_WITH_RECEIPT_COMPACTION, BONSAI_WITH_CODE_FORMAT, BONSAI_ARCHIVE_WITH_CODE_FORMAT);
+          FOREST_WITH_RECEIPT_COMPACTION,
+          BONSAI_WITH_JUMPDEST_ANALYSIS,
+          BONSAI_ARCHIVE_WITH_JUMPDEST_ANALYSIS);
   // upgrades that only need the metadata updated: Besu reads both receipt formats, and the world
   // state storage migrates the code column family itself when it is opened
   private static final Map<VersionedStorageFormat, VersionedStorageFormat> METADATA_ONLY_UPGRADES =
       Map.of(
           FOREST_WITH_VARIABLES, FOREST_WITH_RECEIPT_COMPACTION,
-          BONSAI_WITH_VARIABLES, BONSAI_WITH_CODE_FORMAT,
-          BONSAI_WITH_RECEIPT_COMPACTION, BONSAI_WITH_CODE_FORMAT,
-          BONSAI_ARCHIVE_WITH_RECEIPT_COMPACTION, BONSAI_ARCHIVE_WITH_CODE_FORMAT);
+          BONSAI_WITH_VARIABLES, BONSAI_WITH_JUMPDEST_ANALYSIS,
+          BONSAI_WITH_RECEIPT_COMPACTION, BONSAI_WITH_JUMPDEST_ANALYSIS,
+          BONSAI_ARCHIVE_WITH_RECEIPT_COMPACTION, BONSAI_ARCHIVE_WITH_JUMPDEST_ANALYSIS);
   private static final String NAME = "rocksdb";
   private final RocksDBMetricsFactory rocksDBMetricsFactory;
   private DatabaseMetadata databaseMetadata;

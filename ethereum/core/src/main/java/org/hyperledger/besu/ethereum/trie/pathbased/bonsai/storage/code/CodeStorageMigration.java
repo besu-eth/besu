@@ -19,6 +19,7 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 
 import java.util.List;
+import java.util.stream.Stream;
 
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.tuweni.bytes.Bytes;
@@ -39,12 +40,17 @@ public final class CodeStorageMigration {
 
   /**
    * Rewrites every bare entry of the column family into analysed code, unless that has been done
-   * already. Runs before the storage is handed out, so nothing writes code concurrently.
+   * already. An empty column family is only marked. Runs before the storage is handed out, so
+   * nothing writes code concurrently.
    *
    * @param storage the storage holding the code column family, keyed by code hash
    */
   public static void migrate(final SegmentedKeyValueStorage storage) {
     if (JumpDestCodeStorageStrategy.isMarked(storage)) {
+      return;
+    }
+    if (isEmpty(storage)) {
+      new JumpDestCodeStorageStrategy().markEmpty(storage);
       return;
     }
     LOG.info("Migrating the code storage to code with its jump destination analysis");
@@ -75,8 +81,14 @@ public final class CodeStorageMigration {
         (key, value) ->
             JumpDestCodeStorageStrategy.isMarkerKey(key)
                 ? null
-                : JumpDestCodeStorageStrategy.decode(value, null).getBytes().toArrayUnsafe(),
+                : JumpDestCodeStorageStrategy.decodeCode(value).toArrayUnsafe(),
         List.of());
     LOG.info("Reverted the code storage to bare code");
+  }
+
+  private static boolean isEmpty(final SegmentedKeyValueStorage storage) {
+    try (Stream<byte[]> keys = storage.streamKeys(CODE_STORAGE)) {
+      return keys.findAny().isEmpty();
+    }
   }
 }

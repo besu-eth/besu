@@ -31,6 +31,12 @@ public class Code {
   /** The constant EMPTY_CODE. */
   public static final Code EMPTY_CODE = new Code(Bytes.EMPTY);
 
+  /**
+   * The version of the jump destination analysis. Bitmasks are stored next to the code they were
+   * computed from, so this has to change whenever the bitmask of any code does.
+   */
+  public static final int JUMP_DEST_ANALYSIS_VERSION = 1;
+
   /** The bytes representing the code. */
   private final Bytes bytes;
 
@@ -200,6 +206,9 @@ public class Code {
    * Computes a bitmask where each bit set to 1 indicates a valid `JUMPDEST` opcode in the EVM
    * bytecode. The bitmap is organized in 64-byte chunks, each represented as a `long` (64 bits).
    * This is used for efficiently validating dynamic jumps (`JUMP`, `JUMPI`) at runtime.
+   *
+   * <p>A change to the bitmask this returns for any code needs a new {@link
+   * #JUMP_DEST_ANALYSIS_VERSION}.
    */
   long[] calculateJumpDestBitMask() {
     // Total number of bytes in the bytecode

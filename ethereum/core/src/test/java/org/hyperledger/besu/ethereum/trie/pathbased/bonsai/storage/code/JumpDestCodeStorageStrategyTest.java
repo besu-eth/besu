@@ -24,11 +24,18 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
 
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Random;
+import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class JumpDestCodeStorageStrategyTest {
 
@@ -69,6 +76,35 @@ class JumpDestCodeStorageStrategyTest {
     assertThat(code.isJumpDestInvalid(6)).isFalse();
   }
 
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("codeWithKnownAnalysis")
+  void storesTheKnownAnalysis(final String name, final Bytes code, final long[] expectedBitMask) {
+    assertThat(Code.jumpDestBitMaskOf(code)).containsExactly(expectedBitMask);
+
+    final Code stored = roundTrip(code);
+
+    assertThat(stored.getBytes()).isEqualTo(code);
+    assertThat(stored.getJumpDestBitMask()).containsExactly(expectedBitMask);
+  }
+
+  static Stream<Arguments> codeWithKnownAnalysis() {
+    final byte[] jumpDests = new byte[64];
+    Arrays.fill(jumpDests, (byte) 0x5b);
+    // JUMPDEST; 61 STOP; PUSH2 with one byte of data in each word; JUMPDEST
+    final Bytes pushAcrossWords =
+        Bytes.concatenate(
+            Bytes.of(0x5b), Bytes.wrap(new byte[61]), Bytes.fromHexString("0x615b5b5b"));
+    return Stream.of(
+        Arguments.of("empty code", Bytes.EMPTY, new long[] {0L}),
+        Arguments.of("size a multiple of 64", Bytes.wrap(jumpDests), new long[] {-1L, 0L}),
+        Arguments.of("PUSH data across two words", pushAcrossWords, new long[] {0b1L, 0b10L}),
+        // JUMPDEST; PUSH32 with two bytes of data left
+        Arguments.of(
+            "PUSH cut off by the end of the code",
+            Bytes.fromHexString("0x5b7f5b5b"),
+            new long[] {0b1L}));
+  }
+
   @Test
   void rejectsValuesOfAnotherLayout() {
     assertThatThrownBy(() -> JumpDestCodeStorageStrategy.decode(CODE.toArrayUnsafe(), null))
@@ -78,6 +114,23 @@ class JumpDestCodeStorageStrategyTest {
     final byte[] truncated = Arrays.copyOf(JumpDestCodeStorageStrategy.encode(CODE), 10);
     assertThatThrownBy(() -> JumpDestCodeStorageStrategy.decode(truncated, null))
         .isInstanceOf(IllegalStateException.class);
+    assertThatThrownBy(() -> JumpDestCodeStorageStrategy.decodeCode(truncated))
+        .isInstanceOf(IllegalStateException.class);
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {-1, -65, Integer.MIN_VALUE, Integer.MAX_VALUE})
+  void rejectsACodeLengthTheValueCannotHold(final int codeSize) {
+    final byte[] value = ByteBuffer.allocate(12).putInt(codeSize).array();
+
+    assertThatThrownBy(() -> JumpDestCodeStorageStrategy.decode(value, null))
+        .isInstanceOf(IllegalStateException.class);
+  }
+
+  @Test
+  void decodesTheCodeAloneWithoutItsAnalysis() {
+    assertThat(JumpDestCodeStorageStrategy.decodeCode(JumpDestCodeStorageStrategy.encode(CODE)))
+        .isEqualTo(CODE);
   }
 
   @Test
@@ -93,6 +146,7 @@ class JumpDestCodeStorageStrategyTest {
     assertThat(loaded.getBytes()).isEqualTo(CODE);
     assertThat(loaded.getCodeHash()).isEqualTo(Hash.hash(CODE));
     assertThat(loaded.getJumpDestBitMask()).containsExactly(0b1000100L);
+    assertThat(strategy.getFlatCodeBytes(Hash.hash(CODE), Hash.EMPTY, storage)).contains(CODE);
   }
 
   @Test
@@ -120,6 +174,28 @@ class JumpDestCodeStorageStrategyTest {
 
     assertThatThrownBy(() -> JumpDestCodeStorageStrategy.isMarked(storage))
         .isInstanceOf(IllegalStateException.class);
+  }
+
+  @Test
+  void markerNamesTheVersionOfTheAnalysis() {
+    assertThat(new String(JumpDestCodeStorageStrategy.MARKER, StandardCharsets.UTF_8))
+        .isEqualTo("jumpDest:1");
+  }
+
+  @Test
+  void rejectsAMarkerOfAnotherAnalysisVersion() {
+    final SegmentedKeyValueStorage storage = new SegmentedInMemoryKeyValueStorage();
+    final SegmentedKeyValueStorageTransaction transaction = storage.startTransaction();
+    transaction.put(
+        CODE_STORAGE,
+        JumpDestCodeStorageStrategy.MARKER_KEY,
+        ("jumpDest:" + (Code.JUMP_DEST_ANALYSIS_VERSION + 1)).getBytes(StandardCharsets.UTF_8));
+    transaction.commit();
+
+    assertThatThrownBy(() -> JumpDestCodeStorageStrategy.isMarked(storage))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("jumpDest:2")
+        .hasMessageContaining("jumpDest:1");
   }
 
   private static Code roundTrip(final Bytes code) {
