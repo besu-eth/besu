@@ -29,7 +29,6 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Request;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
-import org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor.PreprocessingFunction.NoPreprocessing;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
@@ -156,60 +155,14 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
     return blockImportTracerProvider.getBlockImportTracer(header);
   }
 
-  /**
-   * Processes the block with no privateMetadata and no preprocessor.
-   *
-   * @param protocolContext the current context of the protocol
-   * @param blockchain the blockchain to append the block to
-   * @param worldState the world state to apply changes to
-   * @param block the block to process
-   * @return the block processing result
-   */
   @Override
-  public BlockProcessingResult processBlock(
-      final ProtocolContext protocolContext,
-      final Blockchain blockchain,
-      final MutableWorldState worldState,
-      final Block block) {
-    return processBlock(
-        protocolContext, blockchain, worldState, block, Optional.empty(), new NoPreprocessing());
-  }
-
-  @Override
-  public BlockProcessingResult processBlock(
-      final ProtocolContext protocolContext,
-      final Blockchain blockchain,
-      final MutableWorldState worldState,
-      final Block block,
-      final PreprocessingFunction preprocessingBlockFunction) {
-    return processBlock(
-        protocolContext,
-        blockchain,
-        worldState,
-        block,
-        Optional.empty(),
-        preprocessingBlockFunction);
-  }
-
-  @Override
-  public BlockProcessingResult processBlock(
-      final ProtocolContext protocolContext,
-      final Blockchain blockchain,
-      final MutableWorldState worldState,
-      final Block block,
-      final Optional<BlockAccessList> blockAccessList) {
-    return processBlock(
-        protocolContext, blockchain, worldState, block, blockAccessList, new NoPreprocessing());
-  }
-
-  @Override
-  public BlockProcessingResult processBlock(
-      final ProtocolContext protocolContext,
-      final Blockchain blockchain,
-      final MutableWorldState worldState,
-      final Block block,
-      final Optional<BlockAccessList> blockAccessList,
-      final PreprocessingFunction preprocessingBlockFunction) {
+  public BlockProcessingResult processBlock(final BlockExecutionContext context) {
+    final ProtocolContext protocolContext = context.getProtocolContext();
+    final Blockchain blockchain = protocolContext.getBlockchain();
+    final MutableWorldState worldState = context.getWorldState();
+    final Block block = context.getBlock();
+    final Optional<BlockAccessList> blockAccessList = context.getBlockAccessList();
+    final PreprocessingFunction preprocessingBlockFunction = context.getPreprocessingFunction();
     final List<TransactionReceipt> receipts = new ArrayList<>();
     // EIP-7778: Track two separate cumulative gas values
     // cumulativeExecutionGasUsed: For block gas limit enforcement (uses protocol-specific strategy)

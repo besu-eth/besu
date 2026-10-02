@@ -16,15 +16,9 @@ package org.hyperledger.besu.ethereum.mainnet;
 
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
-import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.chain.Blockchain;
-import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
-import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.List;
-import java.util.Optional;
 
 /** Processes a block. */
 public interface BlockProcessor {
@@ -56,69 +50,10 @@ public interface BlockProcessor {
   /**
    * Processes the block.
    *
-   * @param protocolContext the current context of the protocol
-   * @param blockchain the blockchain to append the block to
-   * @param worldState the world state to apply changes to
-   * @param block the block to process
+   * @param context the block execution context containing all required inputs
    * @return the block processing result
    */
-  BlockProcessingResult processBlock(
-      final ProtocolContext protocolContext,
-      final Blockchain blockchain,
-      final MutableWorldState worldState,
-      final Block block);
-
-  /**
-   * Processes the block with an optional block access list.
-   *
-   * @param protocolContext the current context of the protocol
-   * @param blockchain the blockchain to append the block to
-   * @param worldState the world state to apply changes to
-   * @param block the block to process
-   * @param blockAccessList the optional block access list
-   * @return the block processing result
-   */
-  BlockProcessingResult processBlock(
-      final ProtocolContext protocolContext,
-      final Blockchain blockchain,
-      final MutableWorldState worldState,
-      final Block block,
-      final Optional<BlockAccessList> blockAccessList);
-
-  /**
-   * Processes the block.
-   *
-   * @param protocolContext the current context of the protocol
-   * @param blockchain the blockchain to append the block to
-   * @param worldState the world state to apply changes to
-   * @param block the block to process
-   * @return the block processing result
-   */
-  BlockProcessingResult processBlock(
-      final ProtocolContext protocolContext,
-      final Blockchain blockchain,
-      final MutableWorldState worldState,
-      final Block block,
-      final AbstractBlockProcessor.PreprocessingFunction preprocessingBlockFunction);
-
-  /**
-   * Processes the block with an optional block access list.
-   *
-   * @param protocolContext the current context of the protocol
-   * @param blockchain the blockchain to append the block to
-   * @param worldState the world state to apply changes to
-   * @param block the block to process
-   * @param blockAccessList the optional block access list
-   * @param preprocessingBlockFunction a preprocessing function for block execution
-   * @return the block processing result
-   */
-  BlockProcessingResult processBlock(
-      final ProtocolContext protocolContext,
-      final Blockchain blockchain,
-      final MutableWorldState worldState,
-      final Block block,
-      final Optional<BlockAccessList> blockAccessList,
-      final AbstractBlockProcessor.PreprocessingFunction preprocessingBlockFunction);
+  BlockProcessingResult processBlock(final BlockExecutionContext context);
 
   /**
    * Get ommer reward in ${@link Wei}

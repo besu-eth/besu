@@ -17,11 +17,9 @@ package org.hyperledger.besu.ethereum.mainnet.parallelization;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
-import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.chain.Blockchain;
-import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.BlockExecutionContext;
 import org.hyperledger.besu.ethereum.mainnet.BlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
@@ -29,7 +27,6 @@ import org.hyperledger.besu.ethereum.mainnet.MiningBeneficiaryCalculator;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpecBuilder;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
@@ -39,7 +36,6 @@ import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
-import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.Optional;
 import java.util.concurrent.Executor;
@@ -54,7 +50,7 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
   private final Optional<Counter> confirmedParallelizedTransactionCounter;
   private final Optional<Counter> conflictingButCachedTransactionCounter;
 
-  private static final Executor executor = BlockProcessingExecutors.cpuExecutor();
+  static final Executor DEFAULT_EXECUTOR = BlockProcessingExecutors.cpuExecutor();
 
   public MainnetParallelBlockProcessor(
       final MainnetTransactionProcessor transactionProcessor,
@@ -125,40 +121,41 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
                     accessLocationTracker));
   }
 
-  @Override
-  public BlockProcessingResult processBlock(
-      final ProtocolContext protocolContext,
-      final Blockchain blockchain,
-      final MutableWorldState worldState,
-      final Block block) {
-    return processBlock(protocolContext, blockchain, worldState, block, Optional.empty());
+  protected PreprocessingFunction createParallelPreprocessing() {
+    return new ParallelTransactionPreprocessing(
+        transactionProcessor, DEFAULT_EXECUTOR, balConfiguration);
   }
 
   @Override
-  public BlockProcessingResult processBlock(
-      final ProtocolContext protocolContext,
-      final Blockchain blockchain,
-      final MutableWorldState worldState,
-      final Block block,
-      final Optional<BlockAccessList> blockAccessList) {
-    final BlockProcessingResult blockProcessingResult =
-        super.processBlock(
-            protocolContext,
-            blockchain,
-            worldState,
-            block,
-            blockAccessList,
-            new ParallelTransactionPreprocessing(transactionProcessor, executor, balConfiguration));
+  public BlockProcessingResult processBlock(final BlockExecutionContext context) {
+    final BlockExecutionContext parallelContext =
+        BlockExecutionContext.builder()
+            .protocolContext(context.getProtocolContext())
+            .worldState(context.getWorldState())
+            .block(context.getBlock())
+            .blockAccessList(context.getBlockAccessList())
+            // Add the parallel preprocessing function to the context
+            .preprocessingFunction(createParallelPreprocessing())
+            .build();
+    final BlockProcessingResult blockProcessingResult = super.processBlock(parallelContext);
     if (blockProcessingResult.isFailed()) {
-      // Fallback to non-parallel processing if there is a block processing exception .
+      // Fallback to non-parallel processing if there is a block processing exception.
       LOG.info(
           "Parallel transaction processing failure. Falling back to non-parallel processing for block #{} ({})",
-          block.getHeader().getNumber(),
-          block.getHash());
-      if (worldState instanceof BonsaiWorldState) {
-        ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
+          context.getBlock().getHeader().getNumber(),
+          context.getBlock().getHash());
+      if (context.getWorldState() instanceof BonsaiWorldState) {
+        ((BonsaiWorldStateUpdateAccumulator) context.getWorldState().updater()).reset();
       }
-      return super.processBlock(protocolContext, blockchain, worldState, block, blockAccessList);
+      // Create a new BlockExecutionContext without the parallel preprocessing function
+      final BlockExecutionContext sequentialContext =
+          BlockExecutionContext.builder()
+              .protocolContext(context.getProtocolContext())
+              .worldState(context.getWorldState())
+              .block(context.getBlock())
+              .blockAccessList(context.getBlockAccessList())
+              .build();
+      return super.processBlock(sequentialContext);
     }
     return blockProcessingResult;
   }

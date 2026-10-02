@@ -29,6 +29,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.ExecutionContextTestFixture;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.BlockExecutionContext;
 import org.hyperledger.besu.ethereum.mainnet.BlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockProcessor;
@@ -119,7 +120,11 @@ class BalParallelBlockProcessorIntegrationTest {
 
       final BlockProcessingResult seqResult =
           seqProcessor.processBlock(
-              seqCtx.getProtocolContext(), seqCtx.getBlockchain(), seqWs, block);
+              BlockExecutionContext.builder()
+                  .protocolContext(seqCtx.getProtocolContext())
+                  .worldState(seqWs)
+                  .block(block)
+                  .build());
       assertTrue(
           seqResult.isSuccessful(),
           "Sequential execution failed: " + seqResult.errorMessage.orElse("(no message)"));
@@ -144,11 +149,12 @@ class BalParallelBlockProcessorIntegrationTest {
 
       final BlockProcessingResult parResult =
           parProcessor.processBlock(
-              parCtx.getProtocolContext(),
-              parCtx.getBlockchain(),
-              parWs,
-              parBlock,
-              balImportPreprocessing);
+              BlockExecutionContext.builder()
+                  .protocolContext(parCtx.getProtocolContext())
+                  .worldState(parWs)
+                  .block(parBlock)
+                  .preprocessingFunction(balImportPreprocessing)
+                  .build());
       assertTrue(
           parResult.isSuccessful(),
           "BAL parallel import failed: " + parResult.errorMessage.orElse("(no message)"));
@@ -209,7 +215,11 @@ class BalParallelBlockProcessorIntegrationTest {
 
       final BlockProcessingResult seqResult =
           seqProcessor.processBlock(
-              seqCtx.getProtocolContext(), seqCtx.getBlockchain(), seqWs, seqBlock);
+              BlockExecutionContext.builder()
+                  .protocolContext(seqCtx.getProtocolContext())
+                  .worldState(seqWs)
+                  .block(seqBlock)
+                  .build());
       assertTrue(
           seqResult.isSuccessful(),
           "Sequential execution failed: " + seqResult.errorMessage.orElse("(no message)"));
@@ -240,11 +250,12 @@ class BalParallelBlockProcessorIntegrationTest {
 
       final BlockProcessingResult parResult =
           parProcessor.processBlock(
-              parCtx.getProtocolContext(),
-              parCtx.getBlockchain(),
-              parWs,
-              parBlock,
-              balImportPreprocessing);
+              BlockExecutionContext.builder()
+                  .protocolContext(parCtx.getProtocolContext())
+                  .worldState(parWs)
+                  .block(parBlock)
+                  .preprocessingFunction(balImportPreprocessing)
+                  .build());
       assertTrue(
           parResult.isSuccessful(),
           "BAL parallel import failed: " + parResult.errorMessage.orElse("(no message)"));
