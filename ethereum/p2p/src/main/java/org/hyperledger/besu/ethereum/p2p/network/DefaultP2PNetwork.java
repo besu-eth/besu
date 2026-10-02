@@ -387,10 +387,15 @@ public class DefaultP2PNetwork implements P2PNetwork {
 
   @VisibleForTesting
   DNSDaemonListener createDaemonListener() {
+    // Only prefer IPv6 when an IPv6 discovery bind exists to send from.
+    final boolean preferIpv6Outbound =
+        config.discoveryConfiguration().isPreferIpv6Outbound()
+            && config.discoveryConfiguration().isDualStackEnabled();
     return (seq, records) -> {
       for (final EthereumNodeRecord record : records) {
         try {
-          peerDiscoveryAgent.addPeer(DiscoveryPeerFactory.fromEthereumNodeRecord(record));
+          peerDiscoveryAgent.addPeer(
+              DiscoveryPeerFactory.fromEthereumNodeRecord(record, preferIpv6Outbound));
         } catch (final RuntimeException e) {
           LOG.trace(
               "Ignoring unusable ENR from DNS discovery for {}: {}",

@@ -31,6 +31,7 @@ import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.cryptoservices.NodeKeyUtils;
 import org.hyperledger.besu.ethereum.p2p.EthProtocolHelper;
 import org.hyperledger.besu.ethereum.p2p.config.DiscoveryConfiguration;
+import org.hyperledger.besu.ethereum.p2p.config.DiscoveryMode;
 import org.hyperledger.besu.ethereum.p2p.config.ImmutableNetworkingConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.RlpxConfiguration;
@@ -556,6 +557,63 @@ public final class DefaultP2PNetworkTest {
     listener.newRecords(1L, List.of(recordWithInvalidPort, validRecord));
 
     verify(discoveryAgent, times(1)).addPeer(any());
+  }
+
+  @Test
+  public void dnsDaemonListenerHonoursIpv6OutboundPreferenceWithIpv6Bind() throws Exception {
+    assertThat(
+            dnsDiscoveredPeerAddress(
+                preferIpv6(DiscoveryMode.BOTH).setBindHostIpv6(Optional.of("::"))))
+        .isEqualTo(InetAddress.getByName("2001:db8::1"));
+  }
+
+  @Test
+  public void dnsDaemonListenerHonoursIpv6OutboundPreferenceForDiscV4WithIpv6Bind()
+      throws Exception {
+    assertThat(
+            dnsDiscoveredPeerAddress(
+                preferIpv6(DiscoveryMode.V4).setBindHostIpv6(Optional.of("::"))))
+        .isEqualTo(InetAddress.getByName("2001:db8::1"));
+  }
+
+  @Test
+  public void dnsDaemonListenerKeepsIpv4WithoutIpv6Bind() throws Exception {
+    assertThat(dnsDiscoveredPeerAddress(preferIpv6(DiscoveryMode.BOTH)))
+        .isEqualTo(InetAddress.getByName("192.0.2.1"));
+  }
+
+  private static DiscoveryConfiguration preferIpv6(final DiscoveryMode discoveryMode) {
+    return DiscoveryConfiguration.create()
+        .setEnabled(false)
+        .setDiscoveryMode(discoveryMode)
+        .setPreferIpv6Outbound(true);
+  }
+
+  private InetAddress dnsDiscoveredPeerAddress(final DiscoveryConfiguration discoveryConfiguration)
+      throws Exception {
+    final NetworkingConfiguration ipv6Config =
+        ImmutableNetworkingConfiguration.builder()
+            .from(config)
+            .discoveryConfiguration(discoveryConfiguration)
+            .build();
+    final DefaultP2PNetwork network = (DefaultP2PNetwork) builder().config(ipv6Config).build();
+    final DNSDaemonListener listener = network.createDaemonListener();
+
+    final EthereumNodeRecord dualStackRecord =
+        new EthereumNodeRecord(
+            Bytes.random(64),
+            Optional.of(InetAddress.getByName("192.0.2.1")),
+            Optional.of(30303),
+            Optional.of(30303),
+            Optional.of(InetAddress.getByName("2001:db8::1")),
+            Optional.of(30303),
+            Optional.of(30303),
+            mock(NodeRecord.class));
+
+    listener.newRecords(1L, List.of(dualStackRecord));
+
+    verify(discoveryAgent).addPeer(peerCaptor.capture());
+    return peerCaptor.getValue().getEnodeURL().getIp();
   }
 
   private DefaultP2PNetwork network() {
