@@ -385,6 +385,9 @@ public class FlatTraceGenerator {
             + (traceFrame.getGasCost().orElse(0L));
 
     currentContext.setGasUsed(gasUsed);
+    if (currentContext.isCreateOp()) {
+      currentContext.getBuilder().getResultBuilder().code(Bytes.EMPTY.toHexString());
+    }
 
     final Bytes[] stack = traceFrame.getStack().orElseThrow();
     final Address refundAddress = toAddress(stack[stack.length - 1]);
