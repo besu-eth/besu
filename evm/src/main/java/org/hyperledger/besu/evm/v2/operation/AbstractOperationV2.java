@@ -106,7 +106,7 @@ public abstract class AbstractOperationV2 implements Operation {
    * @param frame the current message execution frame
    * @return the {@link Account}, or {@code null} if it does not exist
    */
-  protected Account getAccount(final Address address, final MessageFrame frame) {
+  protected static Account getAccount(final Address address, final MessageFrame frame) {
     final Account account = frame.getWorldUpdater().get(address);
     frame.getEip7928AccessList().ifPresent(t -> t.addTouchedAccount(address));
     return account;
@@ -121,7 +121,8 @@ public abstract class AbstractOperationV2 implements Operation {
    * @param frame the current message execution frame
    * @return the {@link MutableAccount}, or {@code null} if it does not exist
    */
-  protected MutableAccount getMutableAccount(final Address address, final MessageFrame frame) {
+  protected static MutableAccount getMutableAccount(
+      final Address address, final MessageFrame frame) {
     final MutableAccount account = frame.getWorldUpdater().getAccount(address);
     frame.getEip7928AccessList().ifPresent(t -> t.addTouchedAccount(address));
     return account;
@@ -137,7 +138,8 @@ public abstract class AbstractOperationV2 implements Operation {
    * @param frame the current message execution frame
    * @return the existing or newly created {@link MutableAccount}
    */
-  protected MutableAccount getOrCreateAccount(final Address address, final MessageFrame frame) {
+  protected static MutableAccount getOrCreateAccount(
+      final Address address, final MessageFrame frame) {
     final MutableAccount account = frame.getWorldUpdater().getOrCreate(address);
     frame.getEip7928AccessList().ifPresent(t -> t.addTouchedAccount(address));
     return account;
@@ -167,7 +169,7 @@ public abstract class AbstractOperationV2 implements Operation {
    * @param frame the current message execution frame
    * @return the value stored at the specified key
    */
-  protected UInt256 getStorageValue(
+  protected static UInt256 getStorageValue(
       final Account account, final UInt256 slotKey, final MessageFrame frame) {
     final UInt256 slotValue = account.getStorageValue(slotKey);
     frame
