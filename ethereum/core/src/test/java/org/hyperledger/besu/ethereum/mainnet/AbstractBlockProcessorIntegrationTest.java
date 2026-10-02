@@ -39,7 +39,6 @@ import org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor.TransactionR
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.MainnetParallelBlockProcessor;
-import org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelTransactionPreprocessing;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.BalStateRootCommitter;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
@@ -314,6 +313,104 @@ class AbstractBlockProcessorIntegrationTest {
   }
 
   @Test
+  void parallelFailureIsRerunOnSequentialFallback() {
+    final ProtocolSchedule protocolSchedule = protocolSchedule();
+    final Block block = createBlockWithTwoTransfers();
+
+    final BlockProcessingResult result =
+        new FailingAtSecondTransaction(
+                protocolSchedule, Optional.of(sequentialBlockProcessor(protocolSchedule)))
+            .processBlock(protocolContext, blockchain, worldStateArchive.getWorldState(), block);
+
+    // The parallel attempt applied the first transfer before failing. The rerun only succeeds if
+    // the world state was reset first; otherwise the first transfer fails on its nonce.
+    assertThat(result.isSuccessful()).isTrue();
+  }
+
+  @Test
+  void parallelFailureIsReturnedWithoutSequentialFallback() {
+    final Block block = createBlockWithTwoTransfers();
+
+    final BlockProcessingResult result =
+        new FailingAtSecondTransaction(protocolSchedule(), Optional.empty())
+            .processBlock(protocolContext, blockchain, worldStateArchive.getWorldState(), block);
+
+    assertThat(result.isFailed()).isTrue();
+  }
+
+  private Block createBlockWithTwoTransfers() {
+    return createBlockWithTransactions(
+        "0x8d9a8161b2c255f8f514cd92e5364624a775e274739dc9379cf938efd7d45ebc",
+        Wei.ZERO,
+        createTransferTransaction(
+            0, 1_000_000_000_000_000_000L, 300000L, 0L, 0L, ACCOUNT_2, ACCOUNT_GENESIS_1_KEYPAIR),
+        createTransferTransaction(
+            0, 2_000_000_000_000_000_000L, 300000L, 0L, 0L, ACCOUNT_3, ACCOUNT_GENESIS_2_KEYPAIR));
+  }
+
+  private static ProtocolSchedule protocolSchedule() {
+    return ExecutionContextTestFixture.builder(GenesisConfig.fromResource(GENESIS_RESOURCE))
+        .dataStorageFormat(DataStorageFormat.BONSAI)
+        .build()
+        .getProtocolSchedule();
+  }
+
+  private static ProtocolSpec genesisSpec(final ProtocolSchedule protocolSchedule) {
+    return protocolSchedule.getByBlockHeader(new BlockHeaderTestFixture().number(0L).buildHeader());
+  }
+
+  private static BlockProcessor sequentialBlockProcessor(final ProtocolSchedule protocolSchedule) {
+    final ProtocolSpec spec = genesisSpec(protocolSchedule);
+    return new MainnetBlockProcessor(
+        spec.getTransactionProcessor(),
+        spec.getTransactionReceiptFactory(),
+        Wei.ZERO,
+        BlockHeader::getCoinbase,
+        true,
+        protocolSchedule,
+        BalConfiguration.DEFAULT);
+  }
+
+  /** Fails the block at its second transaction, after the first one changed the world state. */
+  private static final class FailingAtSecondTransaction extends MainnetParallelBlockProcessor {
+
+    FailingAtSecondTransaction(
+        final ProtocolSchedule protocolSchedule,
+        final Optional<BlockProcessor> sequentialBlockProcessor) {
+      this(genesisSpec(protocolSchedule), protocolSchedule, sequentialBlockProcessor);
+    }
+
+    private FailingAtSecondTransaction(
+        final ProtocolSpec spec,
+        final ProtocolSchedule protocolSchedule,
+        final Optional<BlockProcessor> sequentialBlockProcessor) {
+      super(
+          spec.getTransactionProcessor(),
+          spec.getTransactionReceiptFactory(),
+          Wei.ZERO,
+          BlockHeader::getCoinbase,
+          true,
+          protocolSchedule,
+          BalConfiguration.DEFAULT,
+          new NoOpMetricsSystem(),
+          Runnable::run,
+          sequentialBlockProcessor);
+    }
+
+    @Override
+    protected boolean hasAvailableBlockBudget(
+        final BlockHeader blockHeader,
+        final Transaction transaction,
+        final long cumulativeExecutionGasUsed,
+        final long cumulativeStateGasUsed,
+        final ProtocolSpec protocolSpec) {
+      // Out of budget once the first transaction used gas. This failure path leaves the first
+      // transaction in the world state, so only the fallback's reset makes the rerun succeed.
+      return cumulativeExecutionGasUsed == 0;
+    }
+  }
+
+  @Test
   void testProcessBlockZeroReward() {
     ExecutionContextTestFixture contextTestFixture =
         ExecutionContextTestFixture.builder(
@@ -355,14 +452,22 @@ class AbstractBlockProcessorIntegrationTest {
             protocolSchedule,
             BalConfiguration.DEFAULT);
 
+    // No block-level fallback, so a parallel failure is not masked by a sequential rerun.
+    BlockProcessor parallelBlockProcessor =
+        new MainnetParallelBlockProcessor(
+            transactionProcessor,
+            receiptFactory,
+            Wei.ZERO,
+            BlockHeader::getCoinbase,
+            true,
+            protocolSchedule,
+            BalConfiguration.DEFAULT,
+            new NoOpMetricsSystem(),
+            Runnable::run,
+            Optional.empty());
+
     BlockProcessingResult parallelResult =
-        blockProcessor.processBlock(
-            protocolContext,
-            blockchain,
-            worldStateParallel,
-            block,
-            new ParallelTransactionPreprocessing(
-                transactionProcessor, Runnable::run, BalConfiguration.DEFAULT));
+        parallelBlockProcessor.processBlock(protocolContext, blockchain, worldStateParallel, block);
 
     BlockProcessingResult sequentialResult =
         blockProcessor.processBlock(protocolContext, blockchain, worldStateSequential, block);

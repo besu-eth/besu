@@ -69,6 +69,26 @@ public class MainnetBlockProcessor extends AbstractBlockProcessor {
         metricsSystem);
   }
 
+  public MainnetBlockProcessor(
+      final MainnetTransactionProcessor transactionProcessor,
+      final AbstractBlockProcessor.TransactionReceiptFactory transactionReceiptFactory,
+      final Wei blockReward,
+      final MiningBeneficiaryCalculator miningBeneficiaryCalculator,
+      final boolean skipZeroBlockRewards,
+      final ProtocolSchedule protocolSchedule,
+      final BalConfiguration balConfiguration,
+      final BlockProcessingMetrics blockProcessingMetrics) {
+    super(
+        transactionProcessor,
+        transactionReceiptFactory,
+        blockReward,
+        miningBeneficiaryCalculator,
+        skipZeroBlockRewards,
+        protocolSchedule,
+        balConfiguration,
+        blockProcessingMetrics);
+  }
+
   @Override
   protected boolean rewardCoinbase(
       final MutableWorldState worldState,
