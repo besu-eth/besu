@@ -31,6 +31,9 @@ import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.trie.forest.ForestWorldStateArchive;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.PathBasedWorldStateProvider;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
 import java.util.Arrays;
@@ -39,7 +42,6 @@ import java.util.Map;
 import java.util.Optional;
 
 import io.vertx.core.Vertx;
-import org.assertj.core.api.InstanceOfAssertFactories;
 import org.junit.jupiter.api.Test;
 
 class ExecutionEngineJsonRpcMethodsTest {
@@ -68,10 +70,32 @@ class ExecutionEngineJsonRpcMethodsTest {
   }
 
   @Test
+  void doesNotRegisterTheWitnessMethodWithoutPathBasedWorldState() {
+    final String witnessMethod = RpcMethod.ENGINE_NEW_PAYLOAD_WITH_WITNESS_V5.getMethodName();
+
+    final Map<String, JsonRpcMethod> engineMethods =
+        createEngineMethods(Optional.of(0L), mock(ForestWorldStateArchive.class));
+
+    assertThat(engineMethods.keySet())
+        .containsExactlyInAnyOrderElementsOf(
+            ALL_ENGINE_METHOD_NAMES.stream().filter(name -> !name.equals(witnessMethod)).toList());
+    assertThat(advertisedCapabilities(engineMethods)).doesNotContain(witnessMethod);
+  }
+
+  @Test
   void advertisesExactlyTheRegisteredMethods() {
     final Map<String, JsonRpcMethod> engineMethods = createEngineMethods(Optional.empty());
     final String exchangeCapabilities = RpcMethod.ENGINE_EXCHANGE_CAPABILITIES.getMethodName();
 
+    final List<String> registeredMethods =
+        engineMethods.keySet().stream().filter(name -> !name.equals(exchangeCapabilities)).toList();
+    assertThat(advertisedCapabilities(engineMethods))
+        .containsExactlyInAnyOrderElementsOf(registeredMethods);
+  }
+
+  @SuppressWarnings("unchecked")
+  private List<String> advertisedCapabilities(final Map<String, JsonRpcMethod> engineMethods) {
+    final String exchangeCapabilities = RpcMethod.ENGINE_EXCHANGE_CAPABILITIES.getMethodName();
     final JsonRpcResponse response =
         engineMethods
             .get(exchangeCapabilities)
@@ -79,24 +103,27 @@ class ExecutionEngineJsonRpcMethodsTest {
                 new JsonRpcRequestContext(
                     new JsonRpcRequest("2.0", exchangeCapabilities, new Object[] {List.of()})));
 
-    final List<String> registeredMethods =
-        engineMethods.keySet().stream().filter(name -> !name.equals(exchangeCapabilities)).toList();
     assertThat(response).isInstanceOf(JsonRpcSuccessResponse.class);
-    assertThat(((JsonRpcSuccessResponse) response).getResult())
-        .asInstanceOf(InstanceOfAssertFactories.list(String.class))
-        .containsExactlyInAnyOrderElementsOf(registeredMethods);
+    return (List<String>) ((JsonRpcSuccessResponse) response).getResult();
   }
 
   private Map<String, JsonRpcMethod> createEngineMethods(final Optional<Long> forkMilestone) {
+    return createEngineMethods(forkMilestone, mock(PathBasedWorldStateProvider.class));
+  }
+
+  private Map<String, JsonRpcMethod> createEngineMethods(
+      final Optional<Long> forkMilestone, final WorldStateArchive worldStateArchive) {
     MiningCoordinator miningCoordinator = mock(MergeMiningCoordinator.class);
     when(miningCoordinator.isCompatibleWithEngineApi()).thenReturn(true);
     ProtocolSchedule protocolSchedule = mock(ProtocolSchedule.class);
     when(protocolSchedule.milestoneFor(any())).thenReturn(forkMilestone);
+    ProtocolContext protocolContext = mock(ProtocolContext.class);
+    when(protocolContext.getWorldStateArchive()).thenReturn(worldStateArchive);
     ExecutionEngineJsonRpcMethods methods =
         new ExecutionEngineJsonRpcMethods(
             miningCoordinator,
             protocolSchedule,
-            mock(ProtocolContext.class),
+            protocolContext,
             mock(EthPeers.class),
             mock(Vertx.class),
             "testClient",

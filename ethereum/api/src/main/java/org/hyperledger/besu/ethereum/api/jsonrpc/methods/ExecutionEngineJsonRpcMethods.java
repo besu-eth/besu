@@ -61,6 +61,7 @@ import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.PathBasedWorldStateProvider;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
 import java.util.ArrayList;
@@ -204,9 +205,15 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
   /**
    * {@code engine_newPayloadWithWitnessV5} is a distinct method rather than another version in the
    * newPayload series, so it is scheduled on its own from Amsterdam onwards.
+   *
+   * <p>The witness can only be built from a path-based (Bonsai) world state. On any other world
+   * state the node is unable to serve the method, so it is neither registered nor advertised.
    */
   private Collection<? extends JsonRpcMethod> createEngineNewPayloadWithWitnessMethods(
       final ConstructorArguments constructorArguments) {
+    if (!(protocolContext.getWorldStateArchive() instanceof PathBasedWorldStateProvider)) {
+      return List.of();
+    }
     return VersionScheduler.startsFrom(AMSTERDAM, EngineNewPayloadWithWitnessV5::new)
         .build(constructorArguments);
   }
@@ -313,8 +320,8 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
 
     /**
      * Builds every version, including the ones that start at a fork the protocol schedule does not
-     * contain. The set of engine methods must not depend on the network, a method outside its fork
-     * window answers each call with an unsupported fork error instead.
+     * contain. The set of engine methods must not depend on the network, the fork rules are
+     * enforced on each call instead.
      */
     List<? extends ExecutionEngineJsonRpcMethod> build(
         final ConstructorArguments constructorArguments) {

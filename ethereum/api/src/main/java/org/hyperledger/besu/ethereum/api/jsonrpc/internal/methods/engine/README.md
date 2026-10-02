@@ -86,15 +86,24 @@ VersionScheduler.startsFrom(OSAKA, EngineGetBlobsV4::new).build(constructorArgum
 The scheduler instantiates each version with the right `(minSupportedFork, firstUnsupportedFork)`
 pair derived from the chain. It builds **every** version, whether or not the protocol schedule of
 the network contains its forks: the set of registered engine methods is the same on every network,
-and a method outside its fork window answers each call with `-38005: Unsupported fork` (see
-`ForkSupportHelper`). Do not make registration depend on the fork schedule — a consensus client
-picks method versions from the capability list, and a call that needs no fork check, such as
-`engine_forkchoiceUpdatedV4` without payload attributes, must succeed on a network that has not
-scheduled the fork yet.
+and the fork rules are enforced on each call instead (see `ForkSupportHelper`):
+
+- a call that carries a timestamp outside the fork window of the method (a payload, payload
+  attributes, or a built payload that is found) is answered with `-38005: Unsupported fork`;
+- `engine_getBlobsV2`, `V3` and `V4` answer `null` before Osaka, their specifications have no
+  unsupported fork error;
+- a call that needs no fork check, such as `engine_forkchoiceUpdatedV4` without payload attributes,
+  succeeds.
+
+Do not make registration depend on the fork schedule — a consensus client picks method versions
+from the capability list, and the last case must work on a network that has not scheduled the fork
+yet.
 
 Method names live in the `RpcMethod` enum. `engine_exchangeCapabilities` advertises exactly the
 methods registered in `ExecutionEngineJsonRpcMethods`, so there is no separate capabilities list to
-maintain and every advertised method is callable.
+maintain and no advertised method answers with `-32604: Method not enabled`. A method that the node
+is unable to serve for a reason other than its fork is therefore not registered at all:
+`engine_newPayloadWithWitnessV5` is left out on a node without a path-based (Bonsai) world state.
 
 ## Test pattern (src/test, same package)
 
