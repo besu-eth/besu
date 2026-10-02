@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache;
 
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
@@ -27,8 +28,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
-import java.util.Queue;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -38,31 +37,40 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Versioned cache implementation using Caffeine. */
+/**
+ * Versioned cache implementation using {@link BlockLruCache}: LRU at block granularity, evicted
+ * once per committed block on a background thread.
+ */
 public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeable {
 
   private static final Logger LOG = LoggerFactory.getLogger(VersionedFlatDbCacheManager.class);
 
-  /** Default threshold of pending tasks before triggering automatic maintenance. */
-  private static final int DEFAULT_DRAIN_THRESHOLD = 1000;
-
-  /** Upper bound for Caffeine {@code initialCapacity} (must fit in a positive int). */
+  /** Upper bound for {@code initialCapacity} (must fit in a positive int). */
   private static final long MAX_INITIAL_CAPACITY = Integer.MAX_VALUE;
+
+  private static final long ACCOUNT_TRIE_NODE_CACHE_SIZE = 100_000;
+  private static final long STORAGE_TRIE_NODE_CACHE_SIZE = 100_000;
 
   private final AtomicLong globalVersion = new AtomicLong(0);
 
   /** Nested commit-bypass count; when readers ignore the cache entirely. */
   private final AtomicInteger commitCacheBypassCount = new AtomicInteger(0);
 
-  private final Cache<CacheKey, VersionedValue> accountCache;
-  private final Cache<CacheKey, VersionedValue> storageCache;
-  private final ThresholdDrainExecutor drainExecutor;
+  private final BlockLruCache<VersionedValue> accountCache;
+  private final BlockLruCache<VersionedValue> storageCache;
+
+  /**
+   * Trie nodes near the root, keyed by hash. Every node on a modified path gets a new hash, so
+   * without them the next block's walk would read back from storage the nodes just committed.
+   */
+  private final BlockLruCache<Bytes> accountTrieNodeCache;
+
+  private final BlockLruCache<Bytes> storageTrieNodeCache;
   private final ExecutorService maintenanceWorker;
   private final AtomicBoolean maintenanceScheduled = new AtomicBoolean(false);
 
@@ -71,9 +79,11 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
   private final Counter cacheMissCounter;
   private final Counter cacheInsertCounter;
   private final Counter cacheRemovalCounter;
+  private final Counter trieNodeCacheHitCounter;
+  private final Counter trieNodeCacheMissCounter;
 
   /**
-   * Creates a new VersionedFlatDbCacheManager with the default drain threshold.
+   * Creates a new VersionedFlatDbCacheManager.
    *
    * @param accountCacheSize maximum number of entries in the account cache
    * @param storageCacheSize maximum number of entries in the storage cache
@@ -81,22 +91,6 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
    */
   public VersionedFlatDbCacheManager(
       final long accountCacheSize, final long storageCacheSize, final MetricsSystem metricsSystem) {
-    this(accountCacheSize, storageCacheSize, metricsSystem, DEFAULT_DRAIN_THRESHOLD);
-  }
-
-  /**
-   * Creates a new VersionedFlatDbCacheManager with a custom drain threshold.
-   *
-   * @param accountCacheSize maximum number of entries in the account cache
-   * @param storageCacheSize maximum number of entries in the storage cache
-   * @param metricsSystem the metrics system for instrumentation
-   * @param drainThreshold number of pending maintenance tasks before automatic drain is triggered
-   */
-  public VersionedFlatDbCacheManager(
-      final long accountCacheSize,
-      final long storageCacheSize,
-      final MetricsSystem metricsSystem,
-      final int drainThreshold) {
 
     requirePositiveCacheMaxSize("accountCacheSize", accountCacheSize);
     requirePositiveCacheMaxSize("storageCacheSize", storageCacheSize);
@@ -109,10 +103,10 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
               return t;
             });
 
-    this.drainExecutor = new ThresholdDrainExecutor(drainThreshold, this::scheduleAsyncMaintenance);
-
     this.accountCache = createCache(accountCacheSize);
     this.storageCache = createCache(storageCacheSize);
+    this.accountTrieNodeCache = createCache(ACCOUNT_TRIE_NODE_CACHE_SIZE);
+    this.storageTrieNodeCache = createCache(STORAGE_TRIE_NODE_CACHE_SIZE);
 
     this.cacheRequestCounter =
         metricsSystem.createCounter(
@@ -142,16 +136,21 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
             "bonsai_cache_removals_total",
             "Total number of cache removals");
 
-    LOG.info(
-        "Cache maintenance will trigger asynchronously after {} pending tasks", drainThreshold);
+    this.trieNodeCacheHitCounter =
+        metricsSystem.createCounter(
+            BesuMetricCategory.BLOCKCHAIN,
+            "bonsai_cache_trie_node_hits_total",
+            "Total number of trie node cache hits");
+
+    this.trieNodeCacheMissCounter =
+        metricsSystem.createCounter(
+            BesuMetricCategory.BLOCKCHAIN,
+            "bonsai_cache_trie_node_misses_total",
+            "Total number of trie node cache misses");
   }
 
-  private Cache<CacheKey, VersionedValue> createCache(final long maxSize) {
-    return Caffeine.newBuilder()
-        .initialCapacity(initialCapacityFor(maxSize))
-        .maximumSize(maxSize)
-        .executor(drainExecutor)
-        .build();
+  private <V> BlockLruCache<V> createCache(final long maxSize) {
+    return new BlockLruCache<>(maxSize, initialCapacityFor(maxSize), globalVersion::get);
   }
 
   /**
@@ -170,7 +169,7 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
     }
   }
 
-  private Cache<CacheKey, VersionedValue> cacheForSegment(final SegmentIdentifier segment) {
+  private BlockLruCache<VersionedValue> cacheForSegment(final SegmentIdentifier segment) {
     if (segment == ACCOUNT_INFO_STATE) {
       return accountCache;
     }
@@ -203,14 +202,16 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
     }
   }
 
-  /** Performs the actual maintenance work: drains pending tasks and runs Caffeine's cleanUp. */
+  /** Performs the actual maintenance work: evicts every cache down to its bound. */
   private void doMaintenance() {
     try {
-      final int drained = drainExecutor.drain();
-      accountCache.cleanUp();
-      storageCache.cleanUp();
-      if (drained > 0) {
-        LOG.trace("Cache maintenance drained {} tasks", drained);
+      final int evicted =
+          accountCache.evict()
+              + storageCache.evict()
+              + accountTrieNodeCache.evict()
+              + storageTrieNodeCache.evict();
+      if (evicted > 0) {
+        LOG.trace("Cache maintenance evicted {} entries", evicted);
       }
     } catch (final Exception e) {
       LOG.warn("Error during cache maintenance", e);
@@ -232,8 +233,6 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
       maintenanceWorker.shutdownNow();
       Thread.currentThread().interrupt();
     }
-    // Final synchronous drain to process any remaining tasks
-    doMaintenance();
   }
 
   @Override
@@ -267,9 +266,14 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
 
   @Override
   public void clear(final SegmentIdentifier segment) {
-    final Cache<CacheKey, VersionedValue> cache = cacheForSegment(segment);
+    if (segment == TRIE_BRANCH_STORAGE) {
+      accountTrieNodeCache.clear();
+      storageTrieNodeCache.clear();
+      return;
+    }
+    final BlockLruCache<VersionedValue> cache = cacheForSegment(segment);
     if (cache != null) {
-      cache.invalidateAll();
+      cache.clear();
     }
   }
 
@@ -288,7 +292,7 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
       return storageGetter.get();
     }
 
-    final Cache<CacheKey, VersionedValue> cache = cacheForSegment(segment);
+    final BlockLruCache<VersionedValue> cache = cacheForSegment(segment);
 
     if (cache == null) {
       cacheMissCounter.inc();
@@ -311,16 +315,15 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
       final Bytes valueToCache = result.orElse(null);
       final boolean isRemoval = result.isEmpty();
 
-      cache
-          .asMap()
-          .compute(
-              cacheKey,
-              (k, existingValue) -> {
-                if (existingValue == null || existingValue.version < version) {
-                  return new VersionedValue(valueToCache, version, isRemoval);
-                }
-                return existingValue;
-              });
+      cache.compute(
+          cacheKey,
+          existingValue -> {
+            if (existingValue == null || existingValue.version < version) {
+              return new VersionedValue(valueToCache, version, isRemoval);
+            }
+            return existingValue;
+          });
+      requestMaintenanceIfOverflowing(cache);
     }
 
     return result;
@@ -346,7 +349,7 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
       return fetched;
     }
 
-    final Cache<CacheKey, VersionedValue> cache = cacheForSegment(segment);
+    final BlockLruCache<VersionedValue> cache = cacheForSegment(segment);
 
     if (cache == null) {
       keys.forEach(k -> cacheMissCounter.inc());
@@ -397,18 +400,17 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
           final Bytes valueToCache = fetchedValue.orElse(null);
           final boolean isRemoval = fetchedValue.isEmpty();
 
-          cache
-              .asMap()
-              .compute(
-                  cacheKey,
-                  (k, existingValue) -> {
-                    if (existingValue == null || existingValue.version < version) {
-                      return new VersionedValue(valueToCache, version, isRemoval);
-                    }
-                    return existingValue;
-                  });
+          cache.compute(
+              cacheKey,
+              existingValue -> {
+                if (existingValue == null || existingValue.version < version) {
+                  return new VersionedValue(valueToCache, version, isRemoval);
+                }
+                return existingValue;
+              });
         }
       }
+      requestMaintenanceIfOverflowing(cache);
     }
 
     return results;
@@ -417,101 +419,101 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
   @Override
   public void putInCache(
       final SegmentIdentifier segment, final Bytes key, final Bytes value, final long version) {
-    final Cache<CacheKey, VersionedValue> cache = cacheForSegment(segment);
+    final BlockLruCache<VersionedValue> cache = cacheForSegment(segment);
     if (cache != null) {
       final CacheKey cacheKey = CacheKey.of(key);
-      cache
-          .asMap()
-          .compute(
-              cacheKey,
-              (k, existingValue) -> {
-                if (existingValue == null || existingValue.version < version) {
-                  cacheInsertCounter.inc();
-                  return new VersionedValue(value, version, false);
-                }
-                return existingValue;
-              });
+      cache.compute(
+          cacheKey,
+          existingValue -> {
+            if (existingValue == null || existingValue.version < version) {
+              cacheInsertCounter.inc();
+              return new VersionedValue(value, version, false);
+            }
+            return existingValue;
+          });
     }
   }
 
   @Override
   public void removeFromCache(
       final SegmentIdentifier segment, final Bytes key, final long version) {
-    final Cache<CacheKey, VersionedValue> cache = cacheForSegment(segment);
+    final BlockLruCache<VersionedValue> cache = cacheForSegment(segment);
     if (cache != null) {
       final CacheKey cacheKey = CacheKey.of(key);
-      cache
-          .asMap()
-          .compute(
-              cacheKey,
-              (k, existingValue) -> {
-                if (existingValue == null || existingValue.version < version) {
-                  cacheRemovalCounter.inc();
-                  return new VersionedValue(null, version, true);
-                }
-                return existingValue;
-              });
+      cache.compute(
+          cacheKey,
+          existingValue -> {
+            if (existingValue == null || existingValue.version < version) {
+              cacheRemovalCounter.inc();
+              return new VersionedValue(null, version, true);
+            }
+            return existingValue;
+          });
+    }
+  }
+
+  @Override
+  public Optional<Bytes> getAccountTrieNode(final Bytes32 nodeHash) {
+    return getTrieNode(accountTrieNodeCache, nodeHash);
+  }
+
+  @Override
+  public Optional<Bytes> getStorageTrieNode(final Bytes32 nodeHash) {
+    return getTrieNode(storageTrieNodeCache, nodeHash);
+  }
+
+  private Optional<Bytes> getTrieNode(final BlockLruCache<Bytes> cache, final Bytes32 nodeHash) {
+    final Bytes node = cache.getIfPresent(CacheKey.of(nodeHash));
+    if (node == null) {
+      trieNodeCacheMissCounter.inc();
+      return Optional.empty();
+    }
+    trieNodeCacheHitCounter.inc();
+    return Optional.of(node);
+  }
+
+  @Override
+  public void putAccountTrieNode(final Bytes32 nodeHash, final Bytes node) {
+    putTrieNode(accountTrieNodeCache, nodeHash, node);
+  }
+
+  @Override
+  public void putStorageTrieNode(final Bytes32 nodeHash, final Bytes node) {
+    putTrieNode(storageTrieNodeCache, nodeHash, node);
+  }
+
+  private void putTrieNode(
+      final BlockLruCache<Bytes> cache, final Bytes32 nodeHash, final Bytes node) {
+    // the hash may be a slice of the parent node's RLP; copy it so the key doesn't pin that
+    cache.put(CacheKey.of(nodeHash.copy()), node);
+    requestMaintenanceIfOverflowing(cache);
+  }
+
+  /** Normally eviction waits for the end of the block; a large block or RPC load can't wait. */
+  private void requestMaintenanceIfOverflowing(final BlockLruCache<?> cache) {
+    if (cache.isOverflowing()) {
+      scheduleAsyncMaintenance();
     }
   }
 
   @Override
   public long getCacheSize(final SegmentIdentifier segment) {
-    final Cache<CacheKey, VersionedValue> cache = cacheForSegment(segment);
-    return cache != null ? cache.estimatedSize() : 0;
+    if (segment == TRIE_BRANCH_STORAGE) {
+      return accountTrieNodeCache.size() + storageTrieNodeCache.size();
+    }
+    final BlockLruCache<VersionedValue> cache = cacheForSegment(segment);
+    return cache != null ? cache.size() : 0;
   }
 
   @Override
   public boolean isCached(final SegmentIdentifier segment, final Bytes key) {
-    final Cache<CacheKey, VersionedValue> cache = cacheForSegment(segment);
-    return cache != null && cache.getIfPresent(CacheKey.of(key)) != null;
+    final BlockLruCache<VersionedValue> cache = cacheForSegment(segment);
+    return cache != null && cache.peek(CacheKey.of(key)) != null;
   }
 
   @Override
   public Optional<VersionedValue> getCachedValue(final SegmentIdentifier segment, final Bytes key) {
-    final Cache<CacheKey, VersionedValue> cache = cacheForSegment(segment);
-    return cache != null
-        ? Optional.ofNullable(cache.getIfPresent(CacheKey.of(key)))
-        : Optional.empty();
-  }
-
-  /**
-   * An executor that queues maintenance tasks instead of running them immediately. This prevents
-   * Caffeine's scheduleDrainBuffers from impacting read/write performance. When the number of
-   * pending tasks exceeds a configurable threshold, an async maintenance is submitted.
-   */
-  private static class ThresholdDrainExecutor implements java.util.concurrent.Executor {
-    private final Queue<Runnable> tasks = new ConcurrentLinkedQueue<>();
-    private final AtomicInteger pendingCount = new AtomicInteger(0);
-    private final int drainThreshold;
-    private final Runnable onThresholdReached;
-
-    ThresholdDrainExecutor(final int drainThreshold, final Runnable onThresholdReached) {
-      this.drainThreshold = drainThreshold;
-      this.onThresholdReached = onThresholdReached;
-    }
-
-    @Override
-    public void execute(final Runnable command) {
-      tasks.add(command);
-      if (pendingCount.incrementAndGet() >= drainThreshold) {
-        onThresholdReached.run();
-      }
-    }
-
-    /**
-     * Execute all pending maintenance tasks.
-     *
-     * @return the number of tasks that were drained
-     */
-    public int drain() {
-      int drained = 0;
-      Runnable task;
-      while ((task = tasks.poll()) != null) {
-        task.run();
-        drained++;
-      }
-      pendingCount.addAndGet(-drained);
-      return drained;
-    }
+    final BlockLruCache<VersionedValue> cache = cacheForSegment(segment);
+    return cache != null ? Optional.ofNullable(cache.peek(CacheKey.of(key))) : Optional.empty();
   }
 }

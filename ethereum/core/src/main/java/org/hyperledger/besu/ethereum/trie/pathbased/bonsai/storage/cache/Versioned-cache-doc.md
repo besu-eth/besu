@@ -105,7 +105,9 @@ Because the version counter advances on **every commit** along the actually exec
 - `ACCOUNT_INFO_STATE`
 - `ACCOUNT_STORAGE_STORAGE`
 
-Other segments (e.g. code, trie branches) are not covered by this versioned cache.
+It also keeps an unversioned cache of **trie nodes near the root** (account trie locations of at most `MAX_CACHED_ACCOUNT_TRIE_NODE_DEPTH` nibbles, storage trie locations of at most `MAX_CACHED_STORAGE_TRIE_NODE_DEPTH`). Trie nodes are keyed by hash, so an entry is valid at every version. Every node on a modified path gets a new hash, so these nodes are filled on commit and on read misses, and served to the trie walks of `BonsaiCachedMerkleTrieLoader`. A hit only says what the node is, not that storage holds it at that location, so presence checks keep going through `getAccountStateTrieNode`.
+
+Code is not covered.
 
 ---
 
@@ -113,7 +115,7 @@ Other segments (e.g. code, trie branches) are not covered by this versioned cach
 
 | Piece | Role |
 |--------|------|
-| `VersionedCacheManager` | `globalVersion`, Caffeine caches, hit/miss/insert rules |
+| `VersionedCacheManager` | `globalVersion`, caches, hit/miss/insert rules |
 | `BonsaiWorldStateKeyValueStorage.CachedUpdater` | `incrementCacheVersion()` on commit, `updateCache()` writes/removals at new version |
 | `BonsaiSnapshotWorldStateKeyValueStorage` | Constructor passes parent `getCurrentVersion()` into `super(...)` so snapshot pins version |
 | `BonsaiWorldStateKeyValueStorageCacheTest` | Examples: version progression, overwrite single slot, rollback does not bump version |
@@ -122,4 +124,6 @@ Other segments (e.g. code, trie branches) are not covered by this versioned cach
 
 ## Operational note
 
-Cache maintenance (Caffeine cleanup) is triggered asynchronously via `ThresholdDrainExecutor` and `scheduleAsyncMaintenance()` to reduce work on the hot path; see `VersionedCacheManager` for details.
+The caches are `BlockLruCache`s: LRU at block granularity, not frequency-based. Values prefetched for a block must survive until the block reads them, and committed trie nodes matter to the next few blocks only; a frequency filter would reject both on admission.
+
+Each entry records the cache version it was last used at. Reads and writes never evict, so the block's threads pay no eviction or lock cost. After each commit, `scheduleAsyncMaintenance()` evicts the least recently used entries down to the bound on the `cache-maintenance` thread, in one pass over each cache. A cache that grows to 1.5× its bound before the block ends (large block, RPC load) is evicted right away.

@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
@@ -31,6 +32,7 @@ import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import java.io.Closeable;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -427,6 +429,116 @@ public class BonsaiWorldStateKeyValueStorageCacheTest {
     assertThat(head.isCached(ACCOUNT_INFO_STATE, account.getBytes())).isFalse();
     assertThat(head.getAccount(account)).contains(value);
     assertThat(head.isCached(ACCOUNT_INFO_STATE, account.getBytes())).isTrue();
+  }
+
+  @Test
+  void commitCachesTrieNodesNearTheRootOnly() throws Exception {
+    newHead(true);
+    final Hash account = Hash.hash(Bytes.of(50));
+    final Bytes shallowAccountNode = Bytes.of(1, 1);
+    final Bytes deepAccountNode = Bytes.of(1, 2);
+    final Bytes shallowStorageNode = Bytes.of(2, 1);
+    final Bytes deepStorageNode = Bytes.of(2, 2);
+    final Bytes shallowAccountLocation =
+        nibbles(FlatDbCacheManager.MAX_CACHED_ACCOUNT_TRIE_NODE_DEPTH);
+    final Bytes deepAccountLocation =
+        nibbles(FlatDbCacheManager.MAX_CACHED_ACCOUNT_TRIE_NODE_DEPTH + 1);
+    final Bytes shallowStorageLocation =
+        nibbles(FlatDbCacheManager.MAX_CACHED_STORAGE_TRIE_NODE_DEPTH);
+    final Bytes deepStorageLocation =
+        nibbles(FlatDbCacheManager.MAX_CACHED_STORAGE_TRIE_NODE_DEPTH + 1);
+
+    final var u = (BonsaiWorldStateKeyValueStorage.CachedUpdater) head.updater();
+    u.putAccountStateTrieNode(
+        shallowAccountLocation, hashOf(shallowAccountNode), shallowAccountNode);
+    u.putAccountStateTrieNode(deepAccountLocation, hashOf(deepAccountNode), deepAccountNode);
+    u.putAccountStorageTrieNode(
+        account, shallowStorageLocation, hashOf(shallowStorageNode), shallowStorageNode);
+    u.putAccountStorageTrieNode(
+        account, deepStorageLocation, hashOf(deepStorageNode), deepStorageNode);
+    u.commit();
+
+    final FlatDbCacheManager cache = head.getCacheManager();
+    assertThat(cache.getAccountTrieNode(hashOf(shallowAccountNode))).contains(shallowAccountNode);
+    assertThat(cache.getAccountTrieNode(hashOf(deepAccountNode))).isEmpty();
+    assertThat(cache.getStorageTrieNode(hashOf(shallowStorageNode))).contains(shallowStorageNode);
+    assertThat(cache.getStorageTrieNode(hashOf(deepStorageNode))).isEmpty();
+    assertThat(head.getCacheSize(TRIE_BRANCH_STORAGE)).isEqualTo(2);
+  }
+
+  @Test
+  void rollbackDoesNotCacheTrieNodes() throws Exception {
+    newHead(true);
+    final Bytes node = Bytes.of(3, 1);
+    final var u = (BonsaiWorldStateKeyValueStorage.CachedUpdater) head.updater();
+    u.putAccountStateTrieNode(Bytes.EMPTY, hashOf(node), node);
+    u.rollback();
+
+    assertThat(head.getCacheManager().getAccountTrieNode(hashOf(node))).isEmpty();
+  }
+
+  @Test
+  void trieNodeReadNearTheRootIsServedFromCache() throws Exception {
+    newHead(true);
+    final Bytes node = Bytes.of(4, 1);
+    head.getCacheManager().putAccountTrieNode(hashOf(node), node);
+
+    // not in storage: only the cache can serve it
+    assertThat(head.getAccountStateTrieNode(Bytes.EMPTY, hashOf(node))).isEmpty();
+    assertThat(head.getAccountStateTrieNodeFromCacheOrStorage(Bytes.EMPTY, hashOf(node)))
+        .contains(node);
+    assertThat(
+            head.getAccountStateTrieNodeFromCacheOrStorage(
+                nibbles(FlatDbCacheManager.MAX_CACHED_ACCOUNT_TRIE_NODE_DEPTH + 1), hashOf(node)))
+        .isEmpty();
+  }
+
+  @Test
+  void trieNodeReadMissNearTheRootPopulatesCache() throws Exception {
+    newHead(true);
+    final Hash account = Hash.hash(Bytes.of(51));
+    final Bytes accountNode = Bytes.of(5, 1);
+    final Bytes storageNode = Bytes.of(5, 2);
+    final var u = head.updater();
+    u.putAccountStateTrieNode(Bytes.of(1), hashOf(accountNode), accountNode);
+    u.putAccountStorageTrieNode(account, Bytes.of(1), hashOf(storageNode), storageNode);
+    u.commit();
+    head.clearCrossBlockCache();
+
+    assertThat(head.getAccountStateTrieNodeFromCacheOrStorage(Bytes.of(1), hashOf(accountNode)))
+        .contains(accountNode);
+    assertThat(
+            head.getAccountStorageTrieNodeFromCacheOrStorage(
+                account, Bytes.of(1), hashOf(storageNode)))
+        .contains(storageNode);
+
+    assertThat(head.getCacheManager().getAccountTrieNode(hashOf(accountNode)))
+        .contains(accountNode);
+    assertThat(head.getCacheManager().getStorageTrieNode(hashOf(storageNode)))
+        .contains(storageNode);
+  }
+
+  @Test
+  void clearCrossBlockCacheDropsTrieNodes() throws Exception {
+    newHead(true);
+    final Bytes node = Bytes.of(6, 1);
+    final var u = head.updater();
+    u.putAccountStateTrieNode(Bytes.EMPTY, hashOf(node), node);
+    u.commit();
+    assertThat(head.getCacheManager().getAccountTrieNode(hashOf(node))).contains(node);
+
+    head.clearCrossBlockCache();
+
+    assertThat(head.getCacheManager().getAccountTrieNode(hashOf(node))).isEmpty();
+    assertThat(head.getCacheSize(TRIE_BRANCH_STORAGE)).isZero();
+  }
+
+  private static Bytes32 hashOf(final Bytes node) {
+    return Bytes32.wrap(Hash.hash(node).getBytes());
+  }
+
+  private static Bytes nibbles(final int depth) {
+    return Bytes.wrap(new byte[depth]);
   }
 
   private void commitAccount(final Hash accountHash, final Bytes value) {

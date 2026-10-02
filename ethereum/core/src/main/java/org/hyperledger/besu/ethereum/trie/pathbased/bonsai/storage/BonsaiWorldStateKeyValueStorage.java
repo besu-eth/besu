@@ -263,6 +263,7 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
   public void clearTrie() {
     subscribers.forEach(StorageSubscriber::onClearTrie);
     composedWorldStateStorage.clear(TRIE_BRANCH_STORAGE);
+    cacheManager.clear(TRIE_BRANCH_STORAGE);
   }
 
   public boolean pruneTrieLog(final Hash blockHash) {
@@ -413,6 +414,42 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
         .filter(b -> Hash.hash(b).getBytes().equals(nodeHash));
   }
 
+  /**
+   * Account trie node for a walk that only needs the node's content. A trie node cache hit does not
+   * show that storage holds the node at this location; {@link #getAccountStateTrieNode} does.
+   */
+  public Optional<Bytes> getAccountStateTrieNodeFromCacheOrStorage(
+      final Bytes location, final Bytes32 nodeHash) {
+    if (!FlatDbCacheManager.isCachedAccountTrieNodeLocation(location)) {
+      return getAccountStateTrieNode(location, nodeHash);
+    }
+    return cacheManager
+        .getAccountTrieNode(nodeHash)
+        .or(
+            () -> {
+              final Optional<Bytes> node = getAccountStateTrieNode(location, nodeHash);
+              node.ifPresent(bytes -> cacheManager.putAccountTrieNode(nodeHash, bytes));
+              return node;
+            });
+  }
+
+  /** Storage trie counterpart of {@link #getAccountStateTrieNodeFromCacheOrStorage}. */
+  public Optional<Bytes> getAccountStorageTrieNodeFromCacheOrStorage(
+      final Hash accountHash, final Bytes location, final Bytes32 nodeHash) {
+    if (!FlatDbCacheManager.isCachedStorageTrieNodeLocation(location)) {
+      return getAccountStorageTrieNode(accountHash, location, nodeHash);
+    }
+    return cacheManager
+        .getStorageTrieNode(nodeHash)
+        .or(
+            () -> {
+              final Optional<Bytes> node =
+                  getAccountStorageTrieNode(accountHash, location, nodeHash);
+              node.ifPresent(bytes -> cacheManager.putStorageTrieNode(nodeHash, bytes));
+              return node;
+            });
+  }
+
   public Optional<Bytes> getTrieNodeUnsafe(final Bytes key) {
     return composedWorldStateStorage.get(TRIE_BRANCH_STORAGE, key.toArrayUnsafe()).map(Bytes::wrap);
   }
@@ -459,10 +496,11 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
     clearCrossBlockCache();
   }
 
-  /** Drops all cross-block flat-db cache entries without touching RocksDB. */
+  /** Drops all cross-block cache entries without touching RocksDB. */
   public void clearCrossBlockCache() {
     cacheManager.clear(ACCOUNT_INFO_STATE);
     cacheManager.clear(ACCOUNT_STORAGE_STORAGE);
+    cacheManager.clear(TRIE_BRANCH_STORAGE);
   }
 
   public BonsaiFlatDbStrategy getFlatDbStrategy() {
@@ -677,6 +715,11 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
     /** Single map per segment. Value {@code null} encodes a staged removal (last-write-wins). */
     private final Map<SegmentIdentifier, Map<Bytes, Bytes>> pending = new HashMap<>();
 
+    /** Committed trie nodes near the root, keyed by hash. */
+    private final Map<Bytes32, Bytes> pendingAccountTrieNodes = new HashMap<>();
+
+    private final Map<Bytes32, Bytes> pendingStorageTrieNodes = new HashMap<>();
+
     public CachedUpdater(
         final SegmentedKeyValueStorageTransaction composedWorldStateTransaction,
         final KeyValueStorageTransaction trieLogStorageTransaction,
@@ -723,6 +766,26 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
       super.removeStorageValueBySlotHash(accountHash, slotHash);
     }
 
+    @Override
+    public synchronized Updater putAccountStateTrieNode(
+        final Bytes location, final Bytes32 nodeHash, final Bytes node) {
+      if (FlatDbCacheManager.isCachedAccountTrieNodeLocation(location)
+          && !nodeHash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
+        pendingAccountTrieNodes.put(nodeHash, node);
+      }
+      return super.putAccountStateTrieNode(location, nodeHash, node);
+    }
+
+    @Override
+    public synchronized Updater putAccountStorageTrieNode(
+        final Hash accountHash, final Bytes location, final Bytes32 nodeHash, final Bytes node) {
+      if (FlatDbCacheManager.isCachedStorageTrieNodeLocation(location)
+          && !nodeHash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
+        pendingStorageTrieNodes.put(nodeHash, node);
+      }
+      return super.putAccountStorageTrieNode(accountHash, location, nodeHash, node);
+    }
+
     private void stagePut(final SegmentIdentifier segment, final Bytes key, final Bytes value) {
       pending
           .computeIfAbsent(segment, s -> new HashMap<>(INITIAL_CACHE_MAP_CAPACITY))
@@ -737,6 +800,8 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
 
     private void clearStaged() {
       pending.clear();
+      pendingAccountTrieNodes.clear();
+      pendingStorageTrieNodes.clear();
     }
 
     protected void incrementCacheVersion() {
@@ -754,6 +819,8 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
                       cacheManager.putInCache(segment, key, value, cacheVersion);
                     }
                   }));
+      pendingAccountTrieNodes.forEach(cacheManager::putAccountTrieNode);
+      pendingStorageTrieNodes.forEach(cacheManager::putStorageTrieNode);
       clearStaged();
       cacheManager.scheduleAsyncMaintenance();
     }

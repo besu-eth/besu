@@ -24,6 +24,7 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 
 /**
  * No-op implementation of FlatDbCacheManager that bypasses caching entirely. Used when caching is
@@ -32,6 +33,12 @@ import org.apache.tuweni.bytes.Bytes;
 public interface FlatDbCacheManager {
 
   FlatDbCacheManager NO_OP_CACHE = new FlatDbCacheManager() {};
+
+  /** Deepest account trie node location, in nibbles, kept in the trie node cache. */
+  int MAX_CACHED_ACCOUNT_TRIE_NODE_DEPTH = 4;
+
+  /** Deepest storage trie node location, in nibbles, kept in the trie node cache. */
+  int MAX_CACHED_STORAGE_TRIE_NODE_DEPTH = 3;
 
   default long getCurrentVersion() {
     return 0;
@@ -62,6 +69,7 @@ public interface FlatDbCacheManager {
     // No-op
   }
 
+  /** Evicts down to the size bounds, off the calling thread. Called once per committed block. */
   default void scheduleAsyncMaintenance() {
     // No-op
   }
@@ -95,6 +103,40 @@ public interface FlatDbCacheManager {
   default void removeFromCache(
       final SegmentIdentifier segment, final Bytes key, final long version) {
     // No-op
+  }
+
+  /**
+   * Trie nodes are cached by hash, so an entry is valid at every version. A hit only says what the
+   * node is, not that storage holds it.
+   */
+  default Optional<Bytes> getAccountTrieNode(final Bytes32 nodeHash) {
+    return Optional.empty();
+  }
+
+  /** See {@link #getAccountTrieNode(Bytes32)}. */
+  default Optional<Bytes> getStorageTrieNode(final Bytes32 nodeHash) {
+    return Optional.empty();
+  }
+
+  default void putAccountTrieNode(final Bytes32 nodeHash, final Bytes node) {
+    // No-op
+  }
+
+  default void putStorageTrieNode(final Bytes32 nodeHash, final Bytes node) {
+    // No-op
+  }
+
+  /**
+   * Only nodes near the root are cached: they lie on the paths of most modifications, so the next
+   * block walks them again, while deeper nodes are rarely revisited before being replaced.
+   */
+  static boolean isCachedAccountTrieNodeLocation(final Bytes location) {
+    return location.size() <= MAX_CACHED_ACCOUNT_TRIE_NODE_DEPTH;
+  }
+
+  /** See {@link #isCachedAccountTrieNodeLocation(Bytes)}. */
+  static boolean isCachedStorageTrieNodeLocation(final Bytes location) {
+    return location.size() <= MAX_CACHED_STORAGE_TRIE_NODE_DEPTH;
   }
 
   default long getCacheSize(final SegmentIdentifier segment) {
