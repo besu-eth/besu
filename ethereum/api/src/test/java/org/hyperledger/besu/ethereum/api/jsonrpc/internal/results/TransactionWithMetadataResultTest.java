@@ -131,4 +131,20 @@ public class TransactionWithMetadataResultTest {
                   storageKeyJson -> assertThat(storageKeyJson.asText()).matches("^0x\\X{64}$"));
         });
   }
+
+  @Test
+  public void pendingContractCreationKeepsNullFields() {
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final Transaction contractCreation =
+        new TransactionTestFixture().to(Optional.empty()).createTransaction(gen.generateKeyPair());
+
+    final JsonNode json =
+        new ObjectMapper().valueToTree(new TransactionBaseResult(contractCreation));
+
+    for (final String field :
+        List.of("to", "blockHash", "blockNumber", "transactionIndex", "blockTimestamp")) {
+      assertThat(json.has(field)).as(field).isTrue();
+      assertThat(json.get(field).isNull()).as(field).isTrue();
+    }
+  }
 }
