@@ -43,7 +43,7 @@ public abstract class BinaryOperationNoPushBenchmark {
   protected MessageFrame frame;
 
   @Setup()
-  public void setUp() {
+  public void setUp() throws Exception {
     frame = BenchmarkHelper.createMessageCallFrame();
     aPool = new Bytes[getSampleSize()];
     bPool = new Bytes[getSampleSize()];

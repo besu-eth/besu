@@ -24,7 +24,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 
 /** The Poa query service. */
-@SuppressWarnings("removal")
 public class PoaQueryServiceImpl implements PoaQueryService {
 
   private final BlockInterface blockInterface;

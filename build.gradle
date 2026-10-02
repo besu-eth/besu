@@ -188,11 +188,15 @@ configure(allprojects - project(':platform')) {
 
     mavenCentral()
 
-    // ethereum execution spec tests fixtures. Exclusively for ethereum submodule to run ref tests
+    // ethereum execution spec tests fixtures. Exclusively for ethereum submodule to run ref tests.
+    // The URL always points at the ethereum/execution-specs GitHub repo regardless of the declared
+    // module name below: the zkevm fixture tarball is declared under its own module
+    // (execution-specs-zkevm) purely so it lands in its own Gradle module cache directory, separate
+    // from the stable/devnet fixtures it would otherwise share a cache-cleanup path with.
     def ethExecSpecTestsRepo = ivy {
       url = 'https://github.com'
       patternLayout {
-        artifact '/[organisation]/[module]/releases/download/[revision]/[classifier].[ext]'
+        artifact '/[organisation]/execution-specs/releases/download/[revision]/[classifier].[ext]'
       }
       metadataSources {
         artifact()
@@ -202,6 +206,7 @@ configure(allprojects - project(':platform')) {
       forRepositories(ethExecSpecTestsRepo)
       filter {
         includeModule('ethereum', 'execution-specs')
+        includeModule('ethereum', 'execution-specs-zkevm')
       }
     }
   }
@@ -415,7 +420,6 @@ configure(allprojects - project(':platform')) {
       }
     }
     useJUnitPlatform {}
-    finalizedBy jacocoTestReport // report is always generated after tests run
   }
 
   javadoc {
@@ -904,7 +908,6 @@ subprojects {
     apply plugin: 'me.champeau.jmh'
 
     tasks.named("jmhJar") {
-      zip64 = true
       exclude("META-INF/services/java.net.spi.InetAddressResolverProvider")
       exclude("META-INF/versions/*/META-INF/services/java.net.spi.InetAddressResolverProvider")
     }
@@ -922,11 +925,8 @@ subprojects {
         "\t-PgasProfilerFork=<fork>\tEVM fork to use for gas cost calculation (e.g. CANCUN, OSAKA). Defaults to OSAKA.\n"
     }
 
-    tasks.named("jmhJar") {
-      zip64 = true
-    }
-
     jmh {
+      zip64.set(true)
       jmhVersion = '1.37'
       fork = 3
       resultFormat = 'JSON'
@@ -941,7 +941,6 @@ subprojects {
       }
       var asyncProfiler = _strCmdArg('asyncProfiler')
       var asyncProfilerOptions = _strCmdArg('asyncProfilerOptions', 'output=flamegraph')
-      zip64.set(true)
       jvmArgs = [
         '-XX:+EnableDynamicAgentLoading'
       ]
@@ -960,7 +959,6 @@ subprojects {
         var gasProfilerFork = _strCmdArg('gasProfilerFork')
         profilers.add('org.hyperledger.besu.ethereum.vm.operations.GasProfiler' + (gasProfilerFork != null ? ':' + gasProfilerFork : ''))
       }
-      duplicateClassesStrategy = DuplicatesStrategy.INCLUDE
     }
 
     dependencies {

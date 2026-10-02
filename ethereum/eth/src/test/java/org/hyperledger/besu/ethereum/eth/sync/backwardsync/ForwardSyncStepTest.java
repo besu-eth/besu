@@ -14,11 +14,16 @@
  */
 package org.hyperledger.besu.ethereum.eth.sync.backwardsync;
 
-import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createInMemoryBlockchain;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -30,6 +35,7 @@ import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
+import org.hyperledger.besu.ethereum.core.BlockDataGenerator.BlockWithAccessList;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
@@ -41,6 +47,7 @@ import org.hyperledger.besu.ethereum.eth.manager.RespondingEthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutor;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResponseCode;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResult;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetBlockAccessListsFromPeerTask;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetBodiesFromPeerTask;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
@@ -48,11 +55,13 @@ import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.MainnetProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.referencetests.ForestReferenceTestWorldState;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -61,11 +70,11 @@ import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 
 import jakarta.validation.constraints.NotNull;
-import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Answers;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -160,7 +169,7 @@ public class ForwardSyncStepTest {
 
     when(context
             .getBlockValidatorForBlock(any())
-            .validateAndProcessBlock(any(), any(), any(), any()))
+            .validateAndProcessBlock(any(), any(), any(), any(), any(), anyBoolean()))
         .thenAnswer(
             invocation -> {
               final Object[] arguments = invocation.getArguments();
@@ -220,23 +229,106 @@ public class ForwardSyncStepTest {
     final CompletableFuture<List<Block>> future =
         step.requestBodies(List.of(getBlockByNumber(LOCAL_HEIGHT + 1).getHeader()));
     final List<Block> blocks = future.get();
-    Assertions.assertThat(blocks)
-        .hasSize(1)
-        .containsExactlyInAnyOrder(getBlockByNumber(LOCAL_HEIGHT + 1));
+    assertThat(blocks).hasSize(1).containsExactlyInAnyOrder(getBlockByNumber(LOCAL_HEIGHT + 1));
+  }
+
+  @Test
+  void possibleRequestBodies_downloadsBalsAndPassesThemToSaveBlock() throws Exception {
+    final BlockWithAccessList first = blockWithBal(LOCAL_HEIGHT + 1);
+    final BlockWithAccessList second =
+        blockDataGenerator.blockWithAccessList(
+            new BlockDataGenerator.BlockOptions()
+                .setBlockNumber(LOCAL_HEIGHT + 2)
+                .setParentHash(first.getBlock().getHash())
+                .withGeneratedBlockAccessList(2));
+    assertThat(first.getBlock().getHeader().getBalHash()).isPresent();
+    assertThat(second.getBlock().getHeader().getBalHash()).isPresent();
+    when(context.getBatchSize()).thenReturn(2);
+    // saveBlock must advance the local chain so the next block's parent is found
+    doAnswer(
+            invocation -> {
+              final Block block = invocation.getArgument(0);
+              localBlockchain.appendBlock(block, blockDataGenerator.receipts(block));
+              return null;
+            })
+        .when(context)
+        .saveBlock(any(Block.class), any());
+    when(peerTaskExecutor.execute(any(GetBodiesFromPeerTask.class)))
+        .thenReturn(
+            new PeerTaskExecutorResult<>(
+                Optional.of(new ArrayList<>(List.of(first.getBlock(), second.getBlock()))),
+                PeerTaskExecutorResponseCode.SUCCESS,
+                List.of(peer.getEthPeer())));
+    when(peerTaskExecutor.execute(any(GetBlockAccessListsFromPeerTask.class)))
+        .thenReturn(
+            new PeerTaskExecutorResult<>(
+                Optional.of(List.of(first.getBlockAccessList(), second.getBlockAccessList())),
+                PeerTaskExecutorResponseCode.SUCCESS,
+                List.of(peer.getEthPeer())));
+
+    final BackwardChain backwardChain =
+        new BackwardChain(headersStorage, blocksStorage, chainStorage, sessionDataStorage);
+    backwardChain.appendTrustedBlock(second.getBlock());
+    backwardChain.prependAncestorsHeader(first.getBlock().getHeader());
+
+    final ForwardSyncStep step = new ForwardSyncStep(context, backwardChain);
+    step.possibleRequestBodies(List.of(first.getBlock().getHeader(), second.getBlock().getHeader()))
+        .get();
+
+    @SuppressWarnings("unchecked")
+    final ArgumentCaptor<Optional<BlockAccessList>> balCaptor =
+        ArgumentCaptor.forClass(Optional.class);
+    verify(context, times(2)).saveBlock(any(Block.class), balCaptor.capture());
+    assertThat(balCaptor.getAllValues())
+        .containsExactly(first.getBlockAccessList(), second.getBlockAccessList());
+  }
+
+  @Test
+  void possibleRequestBodies_stillSavesBlocksWhenBalDownloadFails() throws Exception {
+    final BlockWithAccessList withBal = blockWithBal(LOCAL_HEIGHT + 1);
+    assertThat(withBal.getBlock().getHeader().getBalHash()).isPresent();
+    when(context.getBatchSize()).thenReturn(1);
+    when(peerTaskExecutor.execute(any(GetBodiesFromPeerTask.class)))
+        .thenReturn(
+            new PeerTaskExecutorResult<>(
+                Optional.of(new ArrayList<>(List.of(withBal.getBlock()))),
+                PeerTaskExecutorResponseCode.SUCCESS,
+                List.of(peer.getEthPeer())));
+    when(peerTaskExecutor.execute(any(GetBlockAccessListsFromPeerTask.class)))
+        .thenReturn(
+            new PeerTaskExecutorResult<>(
+                Optional.empty(),
+                PeerTaskExecutorResponseCode.NO_PEER_AVAILABLE,
+                List.of(peer.getEthPeer())));
+
+    final ForwardSyncStep step =
+        new ForwardSyncStep(context, createBackwardChain(LOCAL_HEIGHT, LOCAL_HEIGHT + 1));
+    step.possibleRequestBodies(List.of(withBal.getBlock().getHeader())).get();
+
+    verify(context).saveBlock(eq(withBal.getBlock()), eq(Optional.empty()));
+  }
+
+  private BlockWithAccessList blockWithBal(final long number) {
+    final Hash parentHash = remoteBlockchain.getBlockHashByNumber(number - 1).orElseThrow();
+    return blockDataGenerator.blockWithAccessList(
+        new BlockDataGenerator.BlockOptions()
+            .setBlockNumber(number)
+            .setParentHash(parentHash)
+            .withGeneratedBlockAccessList(2));
   }
 
   @Test
   public void shouldFailWhenABlockCannotBeSaved() {
     doThrow(new BackwardSyncException("parent world state unavailable", false))
         .when(context)
-        .saveBlock(any());
+        .saveBlock(any(), any());
     final ForwardSyncStep step =
         new ForwardSyncStep(context, createBackwardChain(LOCAL_HEIGHT, LOCAL_HEIGHT + 3));
 
     final CompletableFuture<Void> future =
         step.possibleRequestBodies(List.of(getBlockByNumber(LOCAL_HEIGHT + 1).getHeader()));
 
-    Assertions.assertThatThrownBy(future::get)
+    assertThatThrownBy(future::get)
         .isInstanceOf(ExecutionException.class)
         .hasRootCauseInstanceOf(BackwardSyncException.class)
         .hasRootCauseMessage("parent world state unavailable");
@@ -255,7 +347,7 @@ public class ForwardSyncStepTest {
     step.possibleRequestBodies(List.of(getBlockByNumber(LOCAL_HEIGHT + 1).getHeader())).get();
 
     verify(context).halveBatchSize();
-    verify(context, never()).saveBlock(any());
+    verify(context, never()).saveBlock(any(), any());
   }
 
   private BackwardChain createBackwardChain(final int from, final int until) {
