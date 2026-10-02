@@ -94,13 +94,11 @@ public class BonsaiAccountTest {
     // a world state closed under a block creation thread that is still executing returns no code
     final BonsaiWorldView closedWorldView = mock(BonsaiWorldView.class);
     when(closedWorldView.getCode(any(), any())).thenReturn(Optional.empty());
-    assertThat(contract(closedWorldView, codeHash, codeCache).getOrCreateCachedCode().getBytes())
-        .isEqualTo(Bytes.EMPTY);
-    assertThat(
-            new UpdateTrackingAccount<>(contract(closedWorldView, codeHash, codeCache))
-                .getOrCreateCachedCode()
-                .getBytes())
-        .isEqualTo(Bytes.EMPTY);
+    contract(closedWorldView, codeHash, codeCache).getOrCreateCachedCode();
+    assertThat(codeCache.getIfPresent(codeHash)).isNull();
+    new UpdateTrackingAccount<>(contract(closedWorldView, codeHash, codeCache))
+        .getOrCreateCachedCode();
+    assertThat(codeCache.getIfPresent(codeHash)).isNull();
 
     // block import on a live world state must still execute the real code
     final BonsaiWorldView liveWorldView = mock(BonsaiWorldView.class);
