@@ -171,7 +171,7 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
 
     // Simulate BackwardSyncContext.emitBadChainEvent firing — MergeCoordinator is
     // registered as a BadChainListener in its constructor and receives the descendant list.
-    mergeCoordinator.onBadChain(badBlock, emptyList(), List.of(descendantHeader));
+    mergeCoordinator.onBadChain(badBlock.getHeader(), emptyList(), List.of(descendantHeader));
 
     // onBadChain recorded the latestValidHash for B and propagated "bad" status and
     // latestValidHash to the descendant.
@@ -244,7 +244,7 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
     // mock returns Optional.empty() — that's the path that drives maybeLatestValidHash empty.
 
     badBlockManager.addBadBlock(badBlock, BadBlockCause.fromValidationFailure("BAL mismatch"));
-    mergeCoordinator.onBadChain(badBlock, emptyList(), List.of(descendantHeader));
+    mergeCoordinator.onBadChain(badBlock.getHeader(), emptyList(), List.of(descendantHeader));
 
     // Descendant is still marked bad, but no latestValidHash was recorded for it.
     assertThat(mergeCoordinator.isBadBlock(descendantHeader.getHash())).isTrue();

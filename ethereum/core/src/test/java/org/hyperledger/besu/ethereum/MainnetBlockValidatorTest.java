@@ -30,6 +30,7 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -57,6 +58,8 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -97,9 +100,22 @@ public class MainnetBlockValidatorTest {
 
   public static Stream<Arguments> getBlockProcessingErrors() {
     return Stream.of(
-        Arguments.of("StorageException", new StorageException("Database closed")),
-        Arguments.of("MerkleTrieException", new MerkleTrieException("Missing trie node")),
-        Arguments.of("RuntimeException", new RuntimeException("Oops")));
+        Arguments.of("StorageException", new StorageException("Database closed"), false),
+        Arguments.of("MerkleTrieException", new MerkleTrieException("Missing trie node"), false),
+        Arguments.of(
+            "wrapped StorageException",
+            new RuntimeException(new StorageException("Database closed")),
+            false),
+        Arguments.of(
+            "interrupted",
+            new IllegalStateException("Interrupted", new InterruptedException()),
+            false),
+        Arguments.of("cancelled", new CancellationException("Cancelled"), false),
+        Arguments.of(
+            "rejected by a shut down executor",
+            new RuntimeException(new RejectedExecutionException("Shutting down")),
+            false),
+        Arguments.of("RuntimeException", new RuntimeException("Oops"), true));
   }
 
   @BeforeEach
@@ -167,6 +183,24 @@ public class MainnetBlockValidatorTest {
 
     assertThat(result.isSuccessful()).isTrue();
     assertNoBadBlocks();
+  }
+
+  @Test
+  public void validateAndProcessBlock_onSuccessForgetsAStaleBadBlockEntry() {
+    badBlockManager.addBadHeader(
+        block.getHeader(), BadBlockCause.fromValidationFailure("transient failure"));
+    badBlockManager.addLatestValidHash(block.getHash(), blockParent.getHash());
+
+    BlockProcessingResult result =
+        mainnetFrontierBlockValidator.validateAndProcessBlock(
+            protocolContext,
+            block,
+            HeaderValidationMode.DETACHED_ONLY,
+            HeaderValidationMode.DETACHED_ONLY);
+
+    assertThat(result.isSuccessful()).isTrue();
+    assertThat(badBlockManager.isBadBlock(block.getHash())).isFalse();
+    assertThat(badBlockManager.getLatestValidHash(block.getHash())).isEmpty();
   }
 
   @Test
@@ -423,7 +457,7 @@ public class MainnetBlockValidatorTest {
   @ParameterizedTest(name = "[{index}] {0}")
   @MethodSource("getBlockProcessingErrors")
   public void validateAndProcessBlock_whenProcessBlockYieldsExceptionalResult(
-      final String caseName, final Exception cause) {
+      final String caseName, final Exception cause, final boolean recordedAsBad) {
     final BlockProcessingResult exceptionalResult =
         new BlockProcessingResult(Optional.empty(), cause);
     when(blockProcessor.processBlock(
@@ -442,7 +476,12 @@ public class MainnetBlockValidatorTest {
             HeaderValidationMode.DETACHED_ONLY);
 
     assertValidationFailedExceptionally(result, cause);
-    assertNoBadBlocks();
+    // only a fault of this node leaves the block unrecorded
+    if (recordedAsBad) {
+      assertBadBlockIsTracked(block);
+    } else {
+      assertNoBadBlocks();
+    }
   }
 
   @Test

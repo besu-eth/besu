@@ -105,6 +105,20 @@ public class EnginePayloadAttributesParameterTest {
   }
 
   @Test
+  public void targetGasLimitAboveLongMaxIsClamped() {
+    final EnginePayloadAttributesParameter parameter =
+        new EnginePayloadAttributesParameter(
+            TIMESTAMP,
+            PREV_RANDAO,
+            SUGGESTED_FEE_RECIPIENT_ADDRESS,
+            null,
+            null,
+            null,
+            "0xffffffffffffffff");
+    assertThat(parameter.getTargetGasLimit()).isEqualTo(Long.MAX_VALUE);
+  }
+
+  @Test
   public void serialize_TargetGasLimitPresent() {
     final EnginePayloadAttributesParameter parameter =
         new EnginePayloadAttributesParameter(
