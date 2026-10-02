@@ -126,7 +126,8 @@ public class GetBlockAccessListsFromPeerTask implements PeerTask<List<Optional<B
       final Hash expectedBalHash = blockHeaders.get(i).getBalHash().orElse(null);
       final Optional<BlockAccessList> maybeBal = result.get(i);
       if (maybeBal.isEmpty()) {
-        // If the request BAL lies beyond WSP, the peer may not have the BAL available
+        // If the request BAL lies beyond the history expiry window, the peer may not have the BAL
+        // available
         // legitimately. TODO: Verify legitimacy of BAL unavailability.
         continue;
       }
