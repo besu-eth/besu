@@ -158,12 +158,9 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
     pendingTransactions.values().stream()
         .filter(transaction -> transaction.getAddedAt() < removeTransactionsBefore)
         .forEach(
-            transactionInfo -> {
-              LOG.atTrace()
-                  .setMessage("Evicted {} due to age")
-                  .addArgument(transactionInfo::toTraceLog)
-                  .log();
-              removeTransaction(transactionInfo.getTransaction(), TIMED_EVICTION);
+            ptx -> {
+              LOG.atTrace().setMessage("Evicted {} due to age").addArgument(ptx::toTraceLog).log();
+              removeTransaction(ptx, TIMED_EVICTION);
             });
   }
 
@@ -199,9 +196,10 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
     return transactionAddedStatus;
   }
 
-  void removeTransaction(final Transaction transaction, final SequencedRemovalReason reason) {
-    removeTransaction(transaction, false);
-    notifyTransactionDropped(transaction, reason);
+  void removeTransaction(
+      final PendingTransaction pendingTransaction, final SequencedRemovalReason reason) {
+    removeTransaction(pendingTransaction.getTransaction(), false);
+    notifyTransactionDropped(pendingTransaction, reason);
   }
 
   @Override
@@ -264,7 +262,7 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
 
       if (result.discard()) {
         synchronized (lock) {
-          removeTransaction(pendingTransaction.getTransaction(), INVALID);
+          removeTransaction(pendingTransaction, INVALID);
         }
         logDiscardedTransaction(pendingTransaction, result);
       }
@@ -304,7 +302,7 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
     PendingTransaction existingPendingTx =
         pendingTxsForSender.getPendingTransactionForNonce(pendingTransaction.getNonce());
 
-    final Optional<Transaction> maybeReplacedTransaction;
+    final Optional<PendingTransaction> maybeReplaced;
     if (existingPendingTx != null) {
       if (!transactionReplacementHandler.shouldReplace(
           existingPendingTx, pendingTransaction, chainHeadHeaderSupplier.get())) {
@@ -319,9 +317,9 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
           .addArgument(existingPendingTx::toTraceLog)
           .addArgument(pendingTransaction::toTraceLog)
           .log();
-      maybeReplacedTransaction = Optional.of(existingPendingTx.getTransaction());
+      maybeReplaced = Optional.of(existingPendingTx);
     } else {
-      maybeReplacedTransaction = Optional.empty();
+      maybeReplaced = Optional.empty();
     }
 
     pendingTxsForSender.updateSenderAccount(maybeSenderAccount);
@@ -330,7 +328,7 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
         .setMessage("Tracked transaction by sender {}")
         .addArgument(pendingTxsForSender::toTraceLog)
         .log();
-    maybeReplacedTransaction.ifPresent(tx -> removeTransaction(tx, REPLACED));
+    maybeReplaced.ifPresent(tx -> removeTransaction(tx, REPLACED));
     return ADDED;
   }
 
@@ -356,14 +354,15 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
             });
   }
 
-  private void notifyTransactionAdded(final Transaction transaction) {
-    pendingTransactionSubscribers.forEach(listener -> listener.onTransactionAdded(transaction));
+  private void notifyTransactionAdded(final PendingTransaction pendingTransaction) {
+    pendingTransactionSubscribers.forEach(
+        listener -> listener.onPendingTransactionAdded(pendingTransaction));
   }
 
   private void notifyTransactionDropped(
-      final Transaction transaction, final SequencedRemovalReason reason) {
+      final PendingTransaction pendingTransaction, final SequencedRemovalReason reason) {
     transactionDroppedListeners.forEach(
-        listener -> listener.onTransactionDropped(transaction, reason));
+        listener -> listener.onPendingTransactionDropped(pendingTransaction, reason));
   }
 
   @Override
@@ -512,7 +511,7 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
         evictLessPriorityTransactions();
       }
     }
-    notifyTransactionAdded(pendingTransaction.getTransaction());
+    notifyTransactionAdded(pendingTransaction);
     return ADDED;
   }
 
@@ -526,7 +525,7 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
 
     // remove backward to avoid gaps
     for (int i = txsToEvict.size() - 1; i >= 0; i--) {
-      removeTransaction(txsToEvict.get(i).getTransaction(), EVICTED);
+      removeTransaction(txsToEvict.get(i), EVICTED);
     }
   }
 
