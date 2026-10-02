@@ -420,7 +420,6 @@ configure(allprojects - project(':platform')) {
       }
     }
     useJUnitPlatform {}
-    finalizedBy jacocoTestReport // report is always generated after tests run
   }
 
   javadoc {

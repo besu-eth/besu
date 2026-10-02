@@ -27,6 +27,8 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguratio
 import org.hyperledger.besu.ethereum.core.AddressHelpers;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.plugins.PluginConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
+import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.permissioning.LocalPermissioningConfiguration;
 import org.hyperledger.besu.ethereum.permissioning.PermissioningConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
@@ -123,6 +125,35 @@ public class BesuNodeFactory {
             .jsonRpcConfiguration(node.createJsonRpcWithRpcApiEnabledConfig(enableRpcApis));
 
     return create(configModifier.apply(builder).build());
+  }
+
+  /**
+   * Creates a Bonsai node configured for SNAP sync, intended to join an existing chain mid-test. It
+   * is consensus-agnostic: the caller must set the genesis config to match the running chain (e.g.
+   * by copying a validator's genesis) before adding it to the cluster.
+   *
+   * <p>SNAP sync requires Bonsai, and a low sync-min-peers so it can start against a small cluster.
+   * Transaction indexing is enabled so historic {@code eth_getTransactionByHash} / {@code
+   * eth_getTransactionReceipt} queries resolve for blocks imported during the snap sync.
+   *
+   * @param name the node name
+   * @return a Bonsai SNAP-sync node
+   * @throws IOException if node creation fails
+   */
+  public BesuNode createSnapSyncNode(final String name) throws IOException {
+    final SynchronizerConfiguration snapSyncConfig =
+        SynchronizerConfiguration.builder().syncMode(SyncMode.SNAP).syncMinimumPeerCount(1).build();
+    return create(
+        new BesuNodeConfigurationBuilder()
+            .name(name)
+            .jsonRpcConfiguration(node.createJsonRpcWithRpcApiEnabledConfig(ADMIN.name()))
+            .webSocketConfiguration(node.createWebSocketEnabledConfig())
+            .devMode(false)
+            .synchronizerConfiguration(snapSyncConfig)
+            .dataStorageConfiguration(DataStorageConfiguration.DEFAULT_BONSAI_CONFIG)
+            .extraCLIOptions(List.of("--snapsync-synchronizer-transaction-indexing-enabled=true"))
+            .bootnodeEligible(false)
+            .build());
   }
 
   public Node createQbftNodeThatMustNotBeTheBootnode(final String name) throws IOException {
