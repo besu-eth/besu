@@ -75,7 +75,15 @@ public final class EngineForkchoiceUpdatedV4<
       final ConstructorArguments constructorArguments,
       final HardforkId minFork,
       final HardforkId maxFork) {
-    super(constructorArguments, minFork, maxFork);
+    this(constructorArguments, minFork, maxFork, WorldStateRecoveryCoordinator.disabled());
+  }
+
+  public EngineForkchoiceUpdatedV4(
+      final ConstructorArguments constructorArguments,
+      final HardforkId minFork,
+      final HardforkId maxFork,
+      final WorldStateRecoveryCoordinator worldStateRecoveryCoordinator) {
+    super(constructorArguments, minFork, maxFork, worldStateRecoveryCoordinator);
     this.transactionPool = constructorArguments.transactionPool();
   }
 

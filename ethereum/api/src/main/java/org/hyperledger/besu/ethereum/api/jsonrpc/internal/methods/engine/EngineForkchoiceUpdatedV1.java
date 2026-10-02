@@ -79,6 +79,7 @@ public sealed class EngineForkchoiceUpdatedV1<
   private static final Logger LOG = LoggerFactory.getLogger(EngineForkchoiceUpdatedV1.class);
 
   protected final MergeMiningCoordinator mergeCoordinator;
+  protected final WorldStateRecoveryCoordinator worldStateRecoveryCoordinator;
 
   @Override
   protected Logger logger() {
@@ -89,9 +90,22 @@ public sealed class EngineForkchoiceUpdatedV1<
       final ConstructorArguments constructorArguments,
       final HardforkId minSupportedFork,
       final HardforkId firstUnsupportedFork) {
+    this(
+        constructorArguments,
+        minSupportedFork,
+        firstUnsupportedFork,
+        WorldStateRecoveryCoordinator.disabled());
+  }
+
+  public EngineForkchoiceUpdatedV1(
+      final ConstructorArguments constructorArguments,
+      final HardforkId minSupportedFork,
+      final HardforkId firstUnsupportedFork,
+      final WorldStateRecoveryCoordinator worldStateRecoveryCoordinator) {
     super(constructorArguments, minSupportedFork, firstUnsupportedFork);
     this.mergeCoordinator =
         checkNotNull(constructorArguments.mergeCoordinator(), "mergeCoordinator must not be null");
+    this.worldStateRecoveryCoordinator = worldStateRecoveryCoordinator;
   }
 
   @Override
@@ -167,13 +181,6 @@ public sealed class EngineForkchoiceUpdatedV1<
 
     final BlockHeader newHead = maybeNewHead.get();
 
-    // verify world state is available for the newHead otherwise return syncing
-    if (!protocolContext
-        .getWorldStateArchive()
-        .isWorldStateAvailable(newHead.getStateRoot(), newHead.getHash())) {
-      return syncingResponse(requestId, forkChoice);
-    }
-
     // 5. Client software MUST return -38002: Invalid forkchoice state error if the payload
     // referenced by forkchoiceState.headBlockHash is VALID and a payload referenced by either
     // forkchoiceState.finalizedBlockHash or forkchoiceState.safeBlockHash does not belong to the
@@ -183,6 +190,16 @@ public sealed class EngineForkchoiceUpdatedV1<
       logFCU(INVALID, forkChoice);
       return new JsonRpcErrorResponse(requestId, RpcErrorType.INVALID_FORKCHOICE_STATE);
     }
+
+    // A known head with unavailable requisite world state must remain SYNCING and must not update
+    // fork choice. Recovery is coordinated across all FCU versions.
+    if (!protocolContext
+        .getWorldStateArchive()
+        .isWorldStateAvailable(newHead.getStateRoot(), newHead.getHash())) {
+      worldStateRecoveryCoordinator.requestRecovery(newHead.getHash(), newHead.getStateRoot());
+      return syncingResponse(requestId, forkChoice);
+    }
+    worldStateRecoveryCoordinator.markAvailable(newHead.getHash(), newHead.getStateRoot());
 
     // 2. Client software MAY skip an update of the forkchoice state and MUST NOT begin a payload
     // build process if there is a known finalizedBlockHash and forkchoiceState.headBlockHash

@@ -129,7 +129,8 @@ class ExecutionEngineJsonRpcMethodsTest {
             "testClient",
             "testCommit",
             mock(TransactionPool.class),
-            mock(MetricsSystem.class));
+            mock(MetricsSystem.class),
+            mock(org.hyperledger.besu.ethereum.core.Synchronizer.class));
 
     return methods.create();
   }

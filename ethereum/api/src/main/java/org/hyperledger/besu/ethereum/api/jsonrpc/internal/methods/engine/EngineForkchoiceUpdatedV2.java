@@ -50,7 +50,15 @@ public sealed class EngineForkchoiceUpdatedV2<
       final ConstructorArguments constructorArguments,
       final HardforkId minFork,
       final HardforkId maxFork) {
-    super(constructorArguments, minFork, maxFork);
+    this(constructorArguments, minFork, maxFork, WorldStateRecoveryCoordinator.disabled());
+  }
+
+  public EngineForkchoiceUpdatedV2(
+      final ConstructorArguments constructorArguments,
+      final HardforkId minFork,
+      final HardforkId maxFork,
+      final WorldStateRecoveryCoordinator worldStateRecoveryCoordinator) {
+    super(constructorArguments, minFork, maxFork, worldStateRecoveryCoordinator);
     shanghaiTimestamp = protocolSchedule.milestoneFor(HardforkId.MainnetHardforkId.SHANGHAI);
   }
 
