@@ -20,8 +20,16 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import java.util.List;
 
 public interface BadChainListener {
+  /**
+   * Called when a block of the backward chain is known to be bad, with the descendants the chain
+   * holds for it that are not marked as bad yet.
+   *
+   * @param badBlock the header of the bad block, its body is not always known
+   * @param badBlockDescendants descendants whose body is known, ordered towards the head
+   * @param badBlockHeaderDescendants descendants only known by header, ordered towards the head
+   */
   void onBadChain(
-      final Block badBlock,
+      final BlockHeader badBlock,
       final List<Block> badBlockDescendants,
       final List<BlockHeader> badBlockHeaderDescendants);
 }

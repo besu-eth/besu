@@ -14,15 +14,17 @@
  */
 package org.hyperledger.besu.ethereum.eth.sync.backwardsync;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResponseCode;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResult;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetBodiesFromPeerTask;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
 import java.util.Comparator;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -32,12 +34,23 @@ import org.slf4j.LoggerFactory;
 public class ForwardSyncStep {
 
   private static final Logger LOG = LoggerFactory.getLogger(ForwardSyncStep.class);
+
   private final BackwardSyncContext context;
   private final BackwardChain backwardChain;
+  private final BackwardSyncBalImporter balImporter;
 
   public ForwardSyncStep(final BackwardSyncContext context, final BackwardChain backwardChain) {
+    this(context, backwardChain, new BackwardSyncBalImporter(context));
+  }
+
+  @VisibleForTesting
+  ForwardSyncStep(
+      final BackwardSyncContext context,
+      final BackwardChain backwardChain,
+      final BackwardSyncBalImporter balImporter) {
     this.context = context;
     this.backwardChain = backwardChain;
+    this.balImporter = balImporter;
   }
 
   public CompletableFuture<Void> executeAsync() {
@@ -58,10 +71,13 @@ public class ForwardSyncStep {
           .addArgument(() -> blockHeaders.getLast().getNumber())
           .addArgument(() -> blockHeaders.getFirst().getHash().getBytes().toHexString())
           .log();
+      final CompletableFuture<Map<Hash, BlockAccessList>> firstWindowBals =
+          balImporter.prefetchFirstWindow(blockHeaders);
       return requestBodies(blockHeaders)
           .handle(
               (blocks, throwable) -> {
                 if (throwable != null) {
+                  firstWindowBals.cancel(false);
                   context.halveBatchSize();
                   LOG.atDebug()
                       .setMessage(
@@ -74,7 +90,8 @@ public class ForwardSyncStep {
                 }
                 // a block that cannot be saved is not a failed download, retrying it right away
                 // repeats the failure, so the sync session decides whether and when to retry
-                return saveBlocks(blocks);
+                balImporter.importBlocks(blocks, firstWindowBals);
+                return null;
               });
     }
   }
@@ -107,42 +124,5 @@ public class ForwardSyncStep {
               blocks.sort(Comparator.comparing(block -> block.getHeader().getNumber()));
               return blocks;
             });
-  }
-
-  @VisibleForTesting
-  protected Void saveBlocks(final List<Block> blocks) {
-    if (blocks.isEmpty()) {
-      context.halveBatchSize();
-      LOG.debug("No blocks to save, reducing batch size to {}", context.getBatchSize());
-      return null;
-    }
-
-    for (Block block : blocks) {
-      final Optional<BlockHeader> parent =
-          context
-              .getProtocolContext()
-              .getBlockchain()
-              .getBlockHeader(block.getHeader().getParentHash());
-
-      if (parent.isEmpty()) {
-        context.halveBatchSize();
-        LOG.atDebug()
-            .setMessage(
-                "Parent block {} not found, while saving block {}, reducing batch size to {}")
-            .addArgument(block.getHeader().getParentHash())
-            .addArgument(block::toLogString)
-            .addArgument(context::getBatchSize)
-            .log();
-        return null;
-      } else {
-        context.saveBlock(block);
-      }
-    }
-
-    if (blocks.size() == context.getBatchSize()) {
-      // reset the batch size only if we got a full batch
-      context.resetBatchSize();
-    }
-    return null;
   }
 }

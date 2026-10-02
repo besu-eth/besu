@@ -1129,6 +1129,76 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
   }
 
   @Test
+  public void assertCheckAndMarkBadDescendantByHeaderMarksTheChildOfABadBlock() {
+    final BlockHeader badParent =
+        headerGenerator.parentHash(Hash.fromHexStringLenient("0xbeef")).buildHeader();
+    final BlockHeader child = headerGenerator.parentHash(badParent.getHash()).buildHeader();
+    badBlockManager.addBadHeader(badParent, BadBlockCause.fromValidationFailure("failed"));
+
+    assertThat(coordinator.checkAndMarkBadDescendant(child))
+        .map(BadBlockCause::getDescription)
+        .contains("Descends from bad block " + badParent.toLogString());
+    assertThat(badBlockManager.isBadBlock(child.getHash())).isTrue();
+    verify(backwardSyncContext, never()).getBackwardChain();
+  }
+
+  @Test
+  public void assertCheckAndMarkBadDescendantByHeaderIgnoresAHeadWhoseParentIsOnTheChain() {
+    final BlockHeader chainParent = blockchain.getChainHeadHeader();
+    badBlockManager.addBadHeader(chainParent, BadBlockCause.fromValidationFailure("stale"));
+    final BlockHeader child = headerGenerator.parentHash(chainParent.getHash()).buildHeader();
+
+    assertThat(coordinator.checkAndMarkBadDescendant(child)).isEmpty();
+    assertThat(badBlockManager.isBadBlock(child.getHash())).isFalse();
+  }
+
+  @Test
+  public void assertOnBadChainKeepsTheBodyOfADescendantKnownAsBlock() {
+    final BlockHeader badHeader =
+        headerGenerator.parentHash(blockchain.getChainHeadHash()).buildHeader();
+    final BlockHeader descendantHeader =
+        headerGenerator.parentHash(badHeader.getHash()).buildHeader();
+    final Block descendant = new Block(descendantHeader, BlockBody.empty());
+    final BlockHeader headerOnlyDescendant =
+        headerGenerator.parentHash(descendantHeader.getHash()).buildHeader();
+    badBlockManager.addBadHeader(badHeader, BadBlockCause.fromValidationFailure("failed"));
+
+    coordinator.onBadChain(badHeader, List.of(descendant), List.of(headerOnlyDescendant));
+
+    assertThat(badBlockManager.getBadBlock(descendant.getHash())).contains(descendant);
+    assertThat(badBlockManager.getBadBlock(headerOnlyDescendant.getHash())).isEmpty();
+    assertThat(badBlockManager.isBadBlock(headerOnlyDescendant.getHash())).isTrue();
+  }
+
+  @Test
+  public void assertOnBadChainInheritsTheLatestValidHashOfAMarkedDescendantRoot() {
+    // the bad block is itself a marked descendant, its parent is not on the chain but its latest
+    // valid hash was recorded when it was marked
+    final Hash latestValidHash = Hash.fromHexStringLenient("0xcafe");
+    final BlockHeader root =
+        headerGenerator.parentHash(Hash.fromHexStringLenient("0xbeef")).buildHeader();
+    badBlockManager.addBadHeader(root, BadBlockCause.fromValidationFailure("failed"));
+    badBlockManager.addLatestValidHash(root.getHash(), latestValidHash);
+    final BlockHeader descendant = headerGenerator.parentHash(root.getHash()).buildHeader();
+
+    coordinator.onBadChain(root, List.of(), List.of(descendant));
+
+    assertThat(badBlockManager.getLatestValidHash(descendant.getHash())).contains(latestValidHash);
+  }
+
+  @Test
+  public void assertOnBadChainMarksNothingForARootThatWasResetInBetween() {
+    final BlockHeader root =
+        headerGenerator.parentHash(Hash.fromHexStringLenient("0xbeef")).buildHeader();
+    final BlockHeader descendant = headerGenerator.parentHash(root.getHash()).buildHeader();
+
+    coordinator.onBadChain(root, List.of(), List.of(descendant));
+
+    assertThat(badBlockManager.isBadBlock(descendant.getHash())).isFalse();
+    assertThat(badBlockManager.getLatestValidHash(root.getHash())).isEmpty();
+  }
+
+  @Test
   public void assertGetLatestValidHashOfBadBlockWalksTheBadAncestryAndRemembersTheResult() {
     final BlockHeader badParent =
         headerGenerator.parentHash(genesisState.getBlock().getHash()).buildHeader();
