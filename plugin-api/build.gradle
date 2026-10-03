@@ -105,8 +105,23 @@ tasks.register('checkAPICompatibility', me.champeau.gradle.japicmp.JapicmpTask) 
   //   methodExcludes = ['org.hyperledger.besu.plugin.services.metrics.Counter#inc(long)']
   // Exclusions are cleared by the release PR that bumps apiBaselineVersion.
   fieldExcludes = []
+  // Lifecycle refinements on the plugin-api-refactor holding branch: option declaration (#11223),
+  // then the phase-gated contexts (#11226) which retire ServiceManager and split RpcEndpointService
+  classExcludes = [
+    'org.hyperledger.besu.plugin.ServiceManager',
+    'org.hyperledger.besu.plugin.ServiceManager$SimpleServiceManager',
+    'org.hyperledger.besu.plugin.services.RpcEndpointService'
+  ]
   methodExcludes = [
-    'org.hyperledger.besu.plugin.BesuPlugin#beforeExternalServices()'
+    'org.hyperledger.besu.plugin.BesuPlugin#beforeExternalServices()',
+    'org.hyperledger.besu.plugin.BesuPlugin#register(org.hyperledger.besu.plugin.ServiceManager)',
+    'org.hyperledger.besu.plugin.BesuPlugin#start()',
+    'org.hyperledger.besu.plugin.BesuPlugin#afterExternalServicePostMainLoop()',
+    'org.hyperledger.besu.plugin.services.sync.SynchronizationService#subscribeSyncStatus(org.hyperledger.besu.plugin.services.sync.spi.SyncStatusListener)',
+    'org.hyperledger.besu.plugin.services.sync.SynchronizationService#subscribeInitialSyncCompletion(org.hyperledger.besu.plugin.services.sync.spi.InitialSyncCompletionListener)',
+    'org.hyperledger.besu.plugin.services.p2p.P2PService#subscribeConnect(org.hyperledger.besu.plugin.services.p2p.P2PService$ConnectionListener)',
+    'org.hyperledger.besu.plugin.services.p2p.P2PService#subscribeDisconnect(org.hyperledger.besu.plugin.services.p2p.P2PService$DisconnectionListener)',
+    'org.hyperledger.besu.plugin.services.p2p.P2PService#subscribeMessage(org.hyperledger.besu.plugin.data.p2p.Capability,org.hyperledger.besu.plugin.services.p2p.P2PService$MessageListener)'
   ]
 
   txtOutputFile = layout.buildDirectory.file('reports/japicmp/plugin-api-compatibility.txt')

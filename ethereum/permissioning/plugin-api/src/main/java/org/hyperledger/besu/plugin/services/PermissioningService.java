@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.plugin.services;
 
+import org.hyperledger.besu.plugin.RegistrationService;
 import org.hyperledger.besu.plugin.services.permissioning.NodeConnectionPermissioningProvider;
 import org.hyperledger.besu.plugin.services.permissioning.NodeMessagePermissioningProvider;
 import org.hyperledger.besu.plugin.services.permissioning.TransactionPermissioningProvider;
@@ -30,7 +31,7 @@ import org.hyperledger.besu.plugin.services.permissioning.TransactionPermissioni
  *       NodeMessagePermissioningProvider}
  * </ul>
  */
-public interface PermissioningService extends BesuService {
+public interface PermissioningService extends RegistrationService {
 
   /**
    * Registers a callback to allow the interception of a peer connection request

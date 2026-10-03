@@ -16,6 +16,7 @@ package org.hyperledger.besu.plugin.services;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Transaction;
+import org.hyperledger.besu.plugin.StartService;
 import org.hyperledger.besu.plugin.data.AddedBlockContext;
 import org.hyperledger.besu.plugin.data.BadBlockCause;
 import org.hyperledger.besu.plugin.data.BlockHeader;
@@ -50,12 +51,12 @@ import org.apache.tuweni.bytes.Bytes32;
  *     feature service and returns a {@code Subscription} handle that is closed to unsubscribe,
  *     instead of a {@code long} id: block propagated, block added, block reorg, log and bad block
  *     on {@code BlockchainService}; transaction added and transaction dropped on {@code
- *     TransactionPoolService}; sync status and initial sync completion on {@code
- *     SynchronizationService}. {@code TTDReachedListener} has no replacement: it has no add method
- *     here, so no plugin has ever been able to register one.
+ *     TransactionPoolService}; sync status and initial sync completion on {@code SyncEventService}.
+ *     {@code TTDReachedListener} has no replacement: it has no add method here, so no plugin has
+ *     ever been able to register one.
  */
 @Deprecated
-public interface BesuEvents extends BesuService {
+public interface BesuEvents extends StartService {
 
   /**
    * Add a listener watching new blocks propagated.

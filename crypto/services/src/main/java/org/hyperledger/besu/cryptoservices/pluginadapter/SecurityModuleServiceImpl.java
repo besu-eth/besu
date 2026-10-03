@@ -14,27 +14,45 @@
  */
 package org.hyperledger.besu.cryptoservices.pluginadapter;
 
+import org.hyperledger.besu.plugin.RegistrationClosedException;
 import org.hyperledger.besu.plugin.services.SecurityModuleService;
 import org.hyperledger.besu.plugin.services.securitymodule.SecurityModule;
 
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 import javax.inject.Inject;
 
 /** The Security module service implementation. */
 public class SecurityModuleServiceImpl implements SecurityModuleService {
 
-  /** Default Constructor. */
-  @Inject
-  public SecurityModuleServiceImpl() {}
-
   private final Map<String, Supplier<SecurityModule>> securityModuleSuppliers =
       new ConcurrentHashMap<>();
+  private final BooleanSupplier registrationOpen;
+
+  /** Creates a service that accepts registrations at any time. */
+  @Inject
+  public SecurityModuleServiceImpl() {
+    this(() -> true);
+  }
+
+  /**
+   * Creates the service.
+   *
+   * @param registrationOpen whether plugin registration is currently open; registrations made while
+   *     it is closed are rejected
+   */
+  public SecurityModuleServiceImpl(final BooleanSupplier registrationOpen) {
+    this.registrationOpen = registrationOpen;
+  }
 
   @Override
   public void register(final String name, final Supplier<SecurityModule> securityModuleSupplier) {
+    if (!registrationOpen.getAsBoolean()) {
+      throw new RegistrationClosedException("SecurityModuleService", "register");
+    }
     securityModuleSuppliers.put(name, securityModuleSupplier);
   }
 

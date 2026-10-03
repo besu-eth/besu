@@ -18,6 +18,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import static java.util.Objects.requireNonNull;
 
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
+import org.hyperledger.besu.plugin.RegistrationClosedException;
 import org.hyperledger.besu.plugin.services.metrics.MetricCategory;
 import org.hyperledger.besu.plugin.services.metrics.MetricCategoryRegistry;
 
@@ -25,6 +26,7 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.function.BooleanSupplier;
 
 import org.jspecify.annotations.Nullable;
 
@@ -32,9 +34,23 @@ import org.jspecify.annotations.Nullable;
 public class MetricCategoryRegistryImpl implements MetricCategoryRegistry {
   private final Map<String, MetricCategory> metricCategories = new HashMap<>();
   private @Nullable MetricsConfiguration metricsConfiguration;
+  private final BooleanSupplier registrationOpen;
 
-  /** Default constructor */
-  public MetricCategoryRegistryImpl() {}
+  /** Creates a registry that accepts plugin categories at any time. */
+  public MetricCategoryRegistryImpl() {
+    this(() -> true);
+  }
+
+  /**
+   * Creates the registry.
+   *
+   * @param registrationOpen whether plugin registration is currently open; plugin categories added
+   *     while it is closed are rejected. Besu's own categories, added through {@link
+   *     #addCategories(Class)}, are not subject to it.
+   */
+  public MetricCategoryRegistryImpl(final BooleanSupplier registrationOpen) {
+    this.registrationOpen = registrationOpen;
+  }
 
   /**
    * Add Metrics categories.
@@ -54,6 +70,9 @@ public class MetricCategoryRegistryImpl implements MetricCategoryRegistry {
    */
   @Override
   public void addMetricCategory(final MetricCategory metricCategory) {
+    if (!registrationOpen.getAsBoolean()) {
+      throw new RegistrationClosedException("MetricCategoryRegistry", "addMetricCategory");
+    }
     metricCategories.put(metricCategory.getName().toUpperCase(Locale.ROOT), metricCategory);
   }
 

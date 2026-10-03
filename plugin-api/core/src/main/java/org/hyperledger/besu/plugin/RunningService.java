@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Besu.
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -12,22 +12,15 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.plugin.services.mining;
+package org.hyperledger.besu.plugin;
 
-import org.hyperledger.besu.plugin.RunningService;
+import org.hyperledger.besu.plugin.services.BesuService;
 
 /**
- * The MiningService interface provides methods to start and stop the mining process.
+ * Marks a Besu-provided service that is usable once the node is running, that is from {@link
+ * BesuPlugin#afterMainLoop(RunningContext)} onwards.
  *
- * @deprecated no known plugin uses this service, so it is scheduled for removal from the plugin
- *     API. It will be removed in a future release.
+ * <p>The components behind these services (the peer-to-peer network, the synchronizer, the mining
+ * coordinator) only start with the main loop, so they are not offered any earlier.
  */
-@Deprecated(forRemoval = true)
-public interface MiningService extends RunningService {
-
-  /** Starts the mining process. */
-  void start();
-
-  /** Stops the mining process. */
-  void stop();
-}
+public interface RunningService extends BesuService {}
