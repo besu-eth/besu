@@ -76,6 +76,7 @@
 - Snap sync now restarts instead of staying idle when one of its world state download pipelines fails. [#11515](https://github.com/besu-eth/besu/pull/11515)
 - Snap sync no longer downloads the storage and code of an account twice when an account range response goes past the end of the range. [#11516](https://github.com/besu-eth/besu/pull/11516)
 - Snap sync no longer stalls when a download completes while the pipeline stage is handing on another result. [#11514](https://github.com/besu-eth/besu/pull/11514)
+- Strict transaction replay protection (`--strict-tx-replay-protection-enabled`) no longer rejects transactions from priority senders received from peers; it applies only to transactions submitted via JSON-RPC, as documented. [#11466](https://github.com/besu-eth/besu/pull/11466)
 
 ### Additions and Improvements
 - Update `Bouncycastle` to 1.85 to address CVEs `CVE-2026-8763` and `CVE-2026-13506`. [#11336](https://github.com/besu-eth/besu/pull/11336)
