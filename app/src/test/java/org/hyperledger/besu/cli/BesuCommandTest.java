@@ -347,6 +347,16 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
+  public void minGasPriceIsOnTheConfigurationViewBeforePluginsRegister() {
+    parseCommand("--min-gas-price", "1234");
+
+    assertThat(commonPluginConfiguration.getMinGasPrice()).isEqualTo(Wei.of(1234));
+    final InOrder inOrder = inOrder(commonPluginConfiguration, getBesuPluginContext());
+    inOrder.verify(commonPluginConfiguration).withMiningParameters(any());
+    inOrder.verify(getBesuPluginContext()).registerPlugins();
+  }
+
+  @Test
   public void pluginsRegisterAfterTheirOptionsAreDefined() {
     parseCommand();
     final InOrder inOrder = inOrder(getBesuPluginContext());
