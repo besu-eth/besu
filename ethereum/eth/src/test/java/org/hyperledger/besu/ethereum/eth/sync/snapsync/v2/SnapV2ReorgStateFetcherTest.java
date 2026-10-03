@@ -17,29 +17,23 @@ package org.hyperledger.besu.ethereum.eth.sync.snapsync.v2;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
-import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.eth.manager.snap.SnapTestServing;
-import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedAccountRangeTracker;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedStorageRangeTracker;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldStateDownloaderException;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
-import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
-import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
 import org.apache.tuweni.bytes.Bytes;
-import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -50,24 +44,12 @@ import org.junit.jupiter.api.Test;
  * state: present and absent accounts, present and absent slots, code retrieval, and rejection of
  * responses that do not prove against the pivot state root.
  */
-class SnapV2ReorgStateFetcherTest {
-
-  private static final Address ALICE =
-      Address.fromHexString("0x1111111111111111111111111111111111111111");
-  private static final Address FRANK =
-      Address.fromHexString("0x6666666666666666666666666666666666666666");
-  private static final Address CAROL =
-      Address.fromHexString("0x3333333333333333333333333333333333333333");
-  private static final Address UNKNOWN =
-      Address.fromHexString("0xabcdefabcdefabcdefabcdefabcdefabcdefabcd");
+class SnapV2ReorgStateFetcherTest extends SnapV2TestFixtures {
 
   private static final UInt256 S1 = UInt256.valueOf(1);
   private static final UInt256 S2 = UInt256.valueOf(2);
   private static final UInt256 UNKNOWN_SLOT = UInt256.valueOf(9999);
   private static final Bytes CAROL_CODE = Bytes.fromHexString("0x6080604052348015600e575f5ffd5b50");
-
-  private static final Bytes32 MAX_KEY =
-      Bytes32.fromHexString("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
 
   private final BonsaiWorldStateKeyValueStorage canonicalStorage = newBonsaiStorage();
   private final WorldStateStorageCoordinator canonicalCoordinator =
@@ -78,13 +60,6 @@ class SnapV2ReorgStateFetcherTest {
   private SnapV2ReorgStateFetcher fetcher;
   private BlockHeader pivotHeader;
   private Hash canonicalRoot;
-
-  private static BonsaiWorldStateKeyValueStorage newBonsaiStorage() {
-    return new BonsaiWorldStateKeyValueStorage(
-        new InMemoryKeyValueStorageProvider(),
-        new NoOpMetricsSystem(),
-        DataStorageConfiguration.DEFAULT_BONSAI_CONFIG);
-  }
 
   @BeforeEach
   void setup() {
@@ -231,15 +206,5 @@ class SnapV2ReorgStateFetcherTest {
             .get(FRANK.addressHash())
             .orElseThrow();
     return frank.getStorageRoot();
-  }
-
-  private static Hash worldStateRoot(final WorldStateStorageCoordinator coordinator) {
-    return coordinator.getTrieNodeUnsafe(Bytes.EMPTY).map(Hash::hash).orElse(Hash.EMPTY_TRIE_HASH);
-  }
-
-  private static DownloadedAccountRangeTracker fullAccountRange() {
-    final DownloadedAccountRangeTracker tracker = new DownloadedAccountRangeTracker();
-    tracker.registerPending(Bytes32.ZERO, MAX_KEY, 0);
-    return tracker;
   }
 }
