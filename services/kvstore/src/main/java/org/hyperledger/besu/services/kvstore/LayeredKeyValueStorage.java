@@ -30,6 +30,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Spliterators;
 import java.util.concurrent.ConcurrentHashMap;
@@ -43,6 +44,7 @@ import java.util.stream.StreamSupport;
 import com.google.common.collect.Streams;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.tuweni.bytes.Bytes;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -463,14 +465,14 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
 
   private static class PeekingIterator<E> implements Iterator<E> {
     private final Iterator<E> iterator;
-    private E next;
+    private @Nullable E next;
 
     public PeekingIterator(final Iterator<E> iterator) {
       this.iterator = iterator;
       this.next = iterator.hasNext() ? iterator.next() : null;
     }
 
-    public E peek() {
+    public @Nullable E peek() {
       return next;
     }
 
@@ -481,7 +483,10 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
 
     @Override
     public E next() {
-      E oldNext = next;
+      final E oldNext = next;
+      if (oldNext == null) {
+        throw new NoSuchElementException();
+      }
       next = iterator.hasNext() ? iterator.next() : null;
       return oldNext;
     }
