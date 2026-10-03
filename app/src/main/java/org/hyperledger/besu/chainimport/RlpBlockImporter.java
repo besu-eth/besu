@@ -64,6 +64,9 @@ public class RlpBlockImporter implements Closeable {
   private final Stopwatch cumulativeTimer = Stopwatch.createUnstarted();
   private final Stopwatch segmentTimer = Stopwatch.createUnstarted();
   private static final long SEGMENT_SIZE = 1000;
+  // lets the background work of one block settle before the next, as between blocks on a live node
+  private static final long PAUSE_BETWEEN_BLOCKS_MS =
+      Long.getLong("besu.bench.pauseBetweenBlocksMs", 0L);
 
   /** Default Constructor. */
   public RlpBlockImporter() {}
@@ -247,6 +250,17 @@ public class RlpBlockImporter implements Closeable {
       segmentGas += thisGas;
       if (header.getNumber() % SEGMENT_SIZE == 0) {
         logProgress(header.getNumber());
+      }
+      pauseBetweenBlocks();
+    }
+  }
+
+  private static void pauseBetweenBlocks() {
+    if (PAUSE_BETWEEN_BLOCKS_MS > 0) {
+      try {
+        Thread.sleep(PAUSE_BETWEEN_BLOCKS_MS);
+      } catch (final InterruptedException e) {
+        Thread.currentThread().interrupt();
       }
     }
   }
