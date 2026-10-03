@@ -14,8 +14,9 @@
  */
 package org.hyperledger.besu.plugin.storage;
 
+import org.hyperledger.besu.plugin.RegistrationService;
+import org.hyperledger.besu.plugin.StartService;
 import org.hyperledger.besu.plugin.Unstable;
-import org.hyperledger.besu.plugin.services.BesuService;
 import org.hyperledger.besu.plugin.services.storage.DataStorageConfiguration;
 
 import java.nio.file.Path;
@@ -30,7 +31,7 @@ import java.nio.file.Path;
  * org.hyperledger.besu.plugin.CoreConfiguration}.
  */
 @Unstable
-public interface StorageConfiguration extends BesuService {
+public interface StorageConfiguration extends RegistrationService, StartService {
 
   /**
    * Location of the working directory of the storage in the file system running the client.

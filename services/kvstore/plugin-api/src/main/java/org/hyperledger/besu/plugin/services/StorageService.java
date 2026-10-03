@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.plugin.services;
 
+import org.hyperledger.besu.plugin.RegistrationService;
 import org.hyperledger.besu.plugin.Unstable;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorageFactory;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
@@ -23,7 +24,7 @@ import java.util.Optional;
 
 /** This service allows plugins to register as an available storage engine. */
 @Unstable
-public interface StorageService extends BesuService {
+public interface StorageService extends RegistrationService {
 
   /**
    * Registers a factory as available for creating key-value storage instances.

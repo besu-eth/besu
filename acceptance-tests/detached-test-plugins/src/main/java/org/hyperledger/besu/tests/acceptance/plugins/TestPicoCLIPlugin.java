@@ -15,7 +15,9 @@
 package org.hyperledger.besu.tests.acceptance.plugins;
 
 import org.hyperledger.besu.plugin.BesuPlugin;
-import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.RegistrationContext;
+import org.hyperledger.besu.plugin.RunningContext;
+import org.hyperledger.besu.plugin.StartContext;
 import org.hyperledger.besu.plugin.services.PicoCLIOptions;
 
 import java.io.File;
@@ -35,8 +37,7 @@ public class TestPicoCLIPlugin implements BesuPlugin {
   private static final String UNSET = "UNSET";
   private static final String FAIL_REGISTER = "FAILREGISTER";
   private static final String FAIL_START = "FAILSTART";
-  private static final String FAIL_AFTER_EXTERNAL_SERVICE_POST_MAIN_LOOP =
-      "FAILAFTEREXTERNALSERVICEPOSTMAINLOOP";
+  private static final String FAIL_AFTER_MAIN_LOOP = "FAILAFTERMAINLOOP";
   private static final String FAIL_STOP = "FAILSTOP";
   private static final String PLUGIN_LIFECYCLE_PREFIX = "pluginLifecycle.";
 
@@ -64,7 +65,7 @@ public class TestPicoCLIPlugin implements BesuPlugin {
   }
 
   @Override
-  public void register(final ServiceManager context) {
+  public void register(final RegistrationContext context) {
     LOG.info("Registering.  Test Option is '{}'", testOption);
     state = "registering";
 
@@ -79,7 +80,7 @@ public class TestPicoCLIPlugin implements BesuPlugin {
   }
 
   @Override
-  public void start() {
+  public void start(final StartContext context) {
     LOG.info("Starting.  Test Option is '{}'", testOption);
     state = "starting";
 
@@ -93,17 +94,15 @@ public class TestPicoCLIPlugin implements BesuPlugin {
   }
 
   @Override
-  public void afterExternalServicePostMainLoop() {
-    LOG.info("After external services post main loop. Test Option is '{}'", testOption);
-    state = "afterExternalServicePostMainLoop";
-
-    if (FAIL_AFTER_EXTERNAL_SERVICE_POST_MAIN_LOOP.equals(testOption)) {
-      state = "failafterExternalServicePostMainLoop";
-      throw new RuntimeException("I was told to fail after external services post main loop");
+    public void afterMainLoop(final RunningContext context) {
+    LOG.info("After main loop. Test Option is '{}'", testOption);
+    state = "afterMainLoop";
+    if (FAIL_AFTER_MAIN_LOOP.equals(testOption)) {
+      state = "failafterMainLoop";
+      throw new RuntimeException("I was told to fail after the main loop");
     }
-
-    writeSignal("afterExternalServicePostMainLoop");
-    state = "afterExternalServicePostMainLoopFinished";
+    writeSignal("afterMainLoop");
+    state = "afterMainLoopFinished";
   }
 
   @Override

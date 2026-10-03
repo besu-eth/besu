@@ -19,7 +19,8 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.plugin.BesuPlugin;
-import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.RegistrationContext;
+import org.hyperledger.besu.plugin.StartContext;
 import org.hyperledger.besu.plugin.services.PicoCLIOptions;
 import org.hyperledger.besu.plugin.services.WorldStateService;
 
@@ -35,7 +36,6 @@ import picocli.CommandLine;
 @AutoService(BesuPlugin.class)
 public class TestWorldStateServicePlugin implements BesuPlugin {
   private static final Logger LOG = LoggerFactory.getLogger(TestWorldStateServicePlugin.class);
-  private ServiceManager serviceManager;
   private File callbackDir;
 
   @CommandLine.Option(names = "--plugin-world-state-service-test-enabled")
@@ -47,20 +47,17 @@ public class TestWorldStateServicePlugin implements BesuPlugin {
   }
 
   @Override
-  public void register(final ServiceManager serviceManager) {
+    public void register(final RegistrationContext context) {
     LOG.info("Registering TestWorldStateServicePlugin");
-    this.serviceManager = serviceManager;
-    callbackDir = PluginCallbackDir.resolve(serviceManager);
+    callbackDir = PluginCallbackDir.resolve(context);
   }
 
   @Override
-  public void start() {
+  public void start(final StartContext context) {
     if (enabled) {
       LOG.info("Starting TestWorldStateServicePlugin");
-
       try {
-        final var worldStateService =
-            serviceManager.getService(WorldStateService.class).orElseThrow();
+        final var worldStateService = context.getBesuService(WorldStateService.class);
 
         final var account =
             worldStateService

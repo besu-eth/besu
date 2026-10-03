@@ -15,10 +15,11 @@
 package org.hyperledger.besu.tests.acceptance.plugins;
 
 import org.hyperledger.besu.plugin.BesuPlugin;
-import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.RegistrationContext;
+import org.hyperledger.besu.plugin.StartContext;
 import org.hyperledger.besu.plugin.data.SyncStatus;
 import org.hyperledger.besu.plugin.services.Subscription;
-import org.hyperledger.besu.plugin.services.sync.SynchronizationService;
+import org.hyperledger.besu.plugin.services.sync.SyncEventService;
 import org.hyperledger.besu.plugin.services.sync.spi.InitialSyncCompletionListener;
 
 import java.io.File;
@@ -43,43 +44,40 @@ public class TestSynchronizationSubscriptionPlugin implements BesuPlugin {
   private static final Logger LOG =
       LoggerFactory.getLogger(TestSynchronizationSubscriptionPlugin.class);
 
-  private ServiceManager context;
   private Optional<Subscription> syncStatus = Optional.empty();
   private final AtomicReference<Subscription> initialSyncCompletion = new AtomicReference<>();
   private final AtomicInteger syncStatusCounter = new AtomicInteger();
   private File callbackDir;
 
   @Override
-  public void register(final ServiceManager context) {
-    this.context = context;
+  public void register(final RegistrationContext context) {
     callbackDir = PluginCallbackDir.resolve(context);
   }
 
   @Override
-  public void start() {
-    final Optional<SynchronizationService> service =
-        context.getService(SynchronizationService.class);
-    syncStatus = service.map(s -> s.subscribeSyncStatus(this::onSyncStatusChanged));
-    service.ifPresent(
-        s ->
-            initialSyncCompletion.set(
-                s.subscribeInitialSyncCompletion(
-                    new InitialSyncCompletionListener() {
-                      @Override
-                      public void onInitialSyncCompleted() {
-                        LOG.info("Initial sync completed via subscription");
-                        writeCallbackFile("initialSyncCompleted", "completed");
-                        final Subscription self = initialSyncCompletion.getAndSet(null);
-                        if (self != null) {
-                          self.close();
-                        }
-                      }
+  public void start(final StartContext context) {
+    // subscriptions are placed before the main loop starts the synchronizer, so the first
+    // events, such as initial sync completion on a full-sync node, are not missed
+    final SyncEventService service = context.getBesuService(SyncEventService.class);
+    syncStatus = Optional.of(service.subscribeSyncStatus(this::onSyncStatusChanged));
+    initialSyncCompletion.set(
+        service.subscribeInitialSyncCompletion(
+            new InitialSyncCompletionListener() {
+              @Override
+              public void onInitialSyncCompleted() {
+                LOG.info("Initial sync completed via subscription");
+                writeCallbackFile("initialSyncCompleted", "completed");
+                final Subscription self = initialSyncCompletion.getAndSet(null);
+                if (self != null) {
+                  self.close();
+                }
+              }
 
-                      @Override
-                      public void onInitialSyncRestart() {
-                        LOG.info("Initial sync restarted via subscription");
-                      }
-                    })));
+              @Override
+              public void onInitialSyncRestart() {
+                LOG.info("Initial sync restarted via subscription");
+              }
+            }));
     LOG.info("Subscribed to sync status: {}", syncStatus.isPresent());
   }
 

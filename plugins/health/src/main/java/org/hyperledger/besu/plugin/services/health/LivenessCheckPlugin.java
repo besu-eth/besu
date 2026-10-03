@@ -15,7 +15,8 @@
 package org.hyperledger.besu.plugin.services.health;
 
 import org.hyperledger.besu.plugin.BesuPlugin;
-import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.RegistrationContext;
+import org.hyperledger.besu.plugin.StartContext;
 import org.hyperledger.besu.plugin.services.HealthCheckService;
 
 /** The liveness check plugin. */
@@ -27,19 +28,15 @@ public class LivenessCheckPlugin implements BesuPlugin {
   public LivenessCheckPlugin() {}
 
   @Override
-  public void register(final ServiceManager context) {
-    final HealthCheckService healthCheckService =
-        context
-            .getService(HealthCheckService.class)
-            .orElseThrow(
-                () -> new IllegalStateException("Required service missing: HealthCheckService"));
+  public void register(final RegistrationContext context) {
+    final HealthCheckService healthCheckService = context.getBesuService(HealthCheckService.class);
 
     healthCheckService.registerHealthCheck(
         LIVENESS_ENDPOINT, params -> HealthCheckService.HealthCheckResult.of(true));
   }
 
   @Override
-  public void start() {}
+  public void start(final StartContext context) {}
 
   @Override
   public void stop() {}

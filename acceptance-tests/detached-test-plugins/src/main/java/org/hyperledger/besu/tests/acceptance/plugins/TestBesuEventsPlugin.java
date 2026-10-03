@@ -15,7 +15,8 @@
 package org.hyperledger.besu.tests.acceptance.plugins;
 
 import org.hyperledger.besu.plugin.BesuPlugin;
-import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.RegistrationContext;
+import org.hyperledger.besu.plugin.StartContext;
 import org.hyperledger.besu.plugin.data.AddedBlockContext;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.data.PropagatedBlockContext;
@@ -36,48 +37,34 @@ import org.slf4j.LoggerFactory;
 public class TestBesuEventsPlugin implements BesuPlugin {
   private static final Logger LOG = LoggerFactory.getLogger(TestBesuEventsPlugin.class);
 
-  private ServiceManager context;
-
-  private Optional<Long> propagationSubscriptionId;
-  private Optional<Long> addedSubscriptionId;
+    private BesuEvents besuEvents;
+  private Optional<Long> propagationSubscriptionId = Optional.empty();
+  private Optional<Long> addedSubscriptionId = Optional.empty();
   private final AtomicInteger propagatedBlockCounter = new AtomicInteger();
   private final AtomicInteger addedBlockCounter = new AtomicInteger();
   private File callbackDir;
 
   @Override
-  public void register(final ServiceManager context) {
-    this.context = context;
+  public void register(final RegistrationContext context) {
     LOG.info("Registered");
     callbackDir = PluginCallbackDir.resolve(context);
   }
 
   @Override
-  public void start() {
+  public void start(final StartContext context) {
+    besuEvents = context.getBesuService(BesuEvents.class);
     propagationSubscriptionId =
-        context
-            .getService(BesuEvents.class)
-            .map(events -> events.addBlockPropagatedListener(this::onBlockAnnounce));
+        Optional.of(besuEvents.addBlockPropagatedListener(this::onBlockAnnounce));
     LOG.info("Listening with propagation ID#" + propagationSubscriptionId);
-    addedSubscriptionId =
-        context
-            .getService(BesuEvents.class)
-            .map(events -> events.addBlockAddedListener(this::onBlockAdded));
+    addedSubscriptionId = Optional.of(besuEvents.addBlockAddedListener(this::onBlockAdded));
     LOG.info("Listening with added ID#" + addedSubscriptionId);
   }
 
   @Override
   public void stop() {
-    propagationSubscriptionId.ifPresent(
-        id ->
-            context
-                .getService(BesuEvents.class)
-                .ifPresent(besuEvents -> besuEvents.removeBlockPropagatedListener(id)));
+    propagationSubscriptionId.ifPresent(besuEvents::removeBlockPropagatedListener);
     LOG.info("No longer listening propagation with ID#" + propagationSubscriptionId);
-    addedSubscriptionId.ifPresent(
-        id ->
-            context
-                .getService(BesuEvents.class)
-                .ifPresent(besuEvents -> besuEvents.removeBlockAddedListener(id)));
+    addedSubscriptionId.ifPresent(besuEvents::removeBlockAddedListener);
     LOG.info("No longer listening added with ID#" + addedSubscriptionId);
   }
 

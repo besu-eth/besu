@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockImporter;
+import org.hyperledger.besu.ethereum.core.plugins.PluginProvidedServices;
 import org.hyperledger.besu.ethereum.mainnet.BlockImportResult;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
@@ -45,7 +46,6 @@ import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder.OpCodeTracerConfig;
 import org.hyperledger.besu.evm.tracing.StreamingOperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldView;
-import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.services.BlockImportTracerProvider;
 import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
@@ -330,8 +330,50 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       parentCommand.out.println("Running " + test);
     }
     final MutableBlockchain blockchain = spec.buildBlockchain();
+
+    BlockTestTracerManager tracerManager = null;
+    PrintStream traceWriter;
+    long totalGasUsed = 0;
+    int totalTxCount = 0;
+    int blockCount = 0;
+    long testStartTime = System.currentTimeMillis();
+
+    boolean testPassed = true;
+    String failureReason = "";
+
+    // the tracer is published the way a plugin would publish a BlockImportTracerProvider, so it
+    // has to exist before the protocol context that carries the plugin-provided services
+    PluginProvidedServices pluginProvidedServices = PluginProvidedServices.NONE;
+    if (parentCommand.showJsonResults && isLastIteration) {
+      try {
+        final boolean isFileOutput = traceOutput != null;
+        if (isFileOutput) {
+          traceWriter = new PrintStream(new FileOutputStream(traceOutput, true), true, UTF_8);
+        } else {
+          traceWriter = new PrintStream(System.err, true, UTF_8);
+        }
+        tracerManager =
+            new BlockTestTracerManager(
+                traceWriter,
+                parentCommand.showMemory,
+                !parentCommand.hideStack,
+                parentCommand.showReturnData,
+                parentCommand.showStorage);
+
+        pluginProvidedServices =
+            PluginProvidedServices.of(
+                Map.of(
+                    BlockImportTracerProvider.class,
+                    new BlockchainTestTracerProvider(tracerManager)));
+      } catch (final IOException e) {
+        parentCommand.out.println("Failed to open trace output: " + e.getMessage());
+        return;
+      }
+    }
+
     final ProtocolContext context =
-        spec.buildProtocolContext(DataStorageConfiguration.DEFAULT_BONSAI_CONFIG, blockchain);
+        spec.buildProtocolContext(
+            DataStorageConfiguration.DEFAULT_BONSAI_CONFIG, blockchain, pluginProvidedServices);
 
     final BlockHeader genesisBlockHeader = spec.getGenesisBlockHeader();
     final MutableWorldState worldState =
@@ -349,42 +391,6 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
         ReferenceTestProtocolSchedules.cached(
                 parentCommand.getEvmConfiguration(), spec.getBlobScheduleOptions().orElse(null))
             .getByName(spec.getNetwork());
-
-    BlockTestTracerManager tracerManager = null;
-    PrintStream traceWriter;
-    long totalGasUsed = 0;
-    int totalTxCount = 0;
-    int blockCount = 0;
-    long testStartTime = System.currentTimeMillis();
-
-    boolean testPassed = true;
-    String failureReason = "";
-
-    if (parentCommand.showJsonResults && isLastIteration) {
-      try {
-        final boolean isFileOutput = traceOutput != null;
-        if (isFileOutput) {
-          traceWriter = new PrintStream(new FileOutputStream(traceOutput, true), true, UTF_8);
-        } else {
-          traceWriter = new PrintStream(System.err, true, UTF_8);
-        }
-        tracerManager =
-            new BlockTestTracerManager(
-                traceWriter,
-                parentCommand.showMemory,
-                !parentCommand.hideStack,
-                parentCommand.showReturnData,
-                parentCommand.showStorage);
-
-        final ServiceManager serviceManager = context.getPluginServiceManager();
-        final BlockchainTestTracerProvider tracerProvider =
-            new BlockchainTestTracerProvider(tracerManager);
-        serviceManager.addService(BlockImportTracerProvider.class, tracerProvider);
-      } catch (final IOException e) {
-        parentCommand.out.println("Failed to open trace output: " + e.getMessage());
-        return;
-      }
-    }
 
     for (final BlockchainReferenceTestCaseSpec.CandidateBlock candidateBlock :
         spec.getCandidateBlocks()) {

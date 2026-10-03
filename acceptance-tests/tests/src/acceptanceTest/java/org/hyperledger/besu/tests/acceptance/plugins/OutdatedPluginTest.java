@@ -46,12 +46,27 @@ public class OutdatedPluginTest extends AcceptanceTestBase {
                     .jsonRpcEnabled()
                     .jsonRpcAdmin()
                     .jsonRpcDebug()
-                    .pluginConfiguration(PluginConfiguration.DEFAULT));
+                    .pluginConfiguration(PluginConfiguration.DEFAULT)
+                    // the plugin is built against a Besu version whose plugin API predates the
+                    // per-phase contexts, so it cannot be registered; without this flag that
+                    // failure stops the node, like any other plugin failure
+                    .extraCLIOptions(List.of("--plugin-continue-on-error=true")));
 
     cluster.startConsoleCapture();
     cluster.runNodeStart(pluginNode);
 
     pluginNode.verify(net.netServicesAllActive());
+
+    assertTrue(
+        cluster
+            .getConsoleContents()
+            .lines()
+            .filter(line -> line.contains("ERROR"))
+            .anyMatch(
+                line ->
+                    line.contains("TestOutdatedPlugin")
+                        && line.contains(
+                            "is not compatible with the plugin API of this Besu version")));
 
     assertTrue(
         cluster

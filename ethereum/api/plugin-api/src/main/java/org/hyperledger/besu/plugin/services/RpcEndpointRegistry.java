@@ -14,20 +14,20 @@
  */
 package org.hyperledger.besu.plugin.services;
 
+import org.hyperledger.besu.plugin.RegistrationService;
 import org.hyperledger.besu.plugin.services.rpc.PluginRpcRequest;
-import org.hyperledger.besu.plugin.services.rpc.PluginRpcResponse;
 
 import java.util.function.Function;
 
 /**
- * This service allows you to add functions exposed via RPC endpoints.
+ * Registers functions exposed by Besu as JSON-RPC endpoints.
  *
- * <p>This service will be available during the registration callback and must be used during the
- * registration callback. RPC endpoints are configured prior to the start callback and all endpoints
- * connected. No endpoint will actually be called prior to the start callback so initialization
- * unrelated to the callback registration can also be done at that time.
+ * <p>This is a registration-phase service: endpoints are read once, after every plugin has returned
+ * from {@link org.hyperledger.besu.plugin.BesuPlugin#register}, when the JSON-RPC method tables are
+ * built. Calling any of Besu's own RPC methods in-process is a separate, start-phase service:
+ * {@link InProcessRpcService}.
  */
-public interface RpcEndpointService extends BesuService {
+public interface RpcEndpointRegistry extends RegistrationService {
 
   /**
    * Register a function as an RPC endpoint exposed via JSON-RPC.
@@ -50,20 +50,16 @@ public interface RpcEndpointService extends BesuService {
    * object. If the method throws any other exception the return is an error with an INTERNAL_ERROR
    * treatment.
    *
+   * <p>The handler is invoked only after the plugin has started; the endpoint is served on the
+   * JSON-RPC HTTP and WebSocket interfaces when its namespace is enabled by the operator.
+   *
    * @param namespace The namespace of the method, must be alphanumeric.
    * @param functionName The name of the function, must be alphanumeric.
    * @param function The function itself.
    * @param <T> specified type of return object
+   * @throws org.hyperledger.besu.plugin.RegistrationClosedException if called after the plugin's
+   *     {@code register()} has returned
    */
   <T> void registerRPCEndpoint(
       String namespace, String functionName, Function<PluginRpcRequest, T> function);
-
-  /**
-   * Allow to call any of the enabled in-process RPC methods
-   *
-   * @param methodName the method to invoke
-   * @param params the list of parameters accepted by the method
-   * @return the result of the method
-   */
-  PluginRpcResponse call(String methodName, Object[] params);
 }

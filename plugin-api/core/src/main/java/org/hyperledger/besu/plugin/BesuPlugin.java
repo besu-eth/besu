@@ -44,8 +44,8 @@ public interface BesuPlugin {
    *
    * <p>The command line is parsed once, after every plugin has returned from this method; options
    * added later fail Besu startup. No Besu service is available here and the plugin must not do any
-   * other work. Unlike {@link #register(ServiceManager)}, this method also runs for {@code --help},
-   * {@code --version} and {@code --print-paths-and-exit}.
+   * other work. Unlike {@link #register(RegistrationContext)}, this method also runs for {@code
+   * --help}, {@code --version} and {@code --print-paths-and-exit}.
    *
    * @param options the registry to declare the plugin's CLI options with
    */
@@ -59,29 +59,44 @@ public interface BesuPlugin {
    * its configuration: throwing from this method rejects the configuration before the database is
    * touched, unless the operator chose to continue on plugin errors.
    *
+   * <p>This is the only phase in which registrations count: Besu reads them once, after the last
+   * plugin has returned from this method. The context only offers the services that work here
+   * ({@link RegistrationService} types) and is valid only while this method runs; a {@link
+   * RegistrationService} kept in a field and used later rejects the call with a {@link
+   * RegistrationClosedException}. Services that work in later phases are obtained from the context
+   * of that phase, so there is nothing to keep from this one.
+   *
    * <p>The configuration views provide the data path, the storage path, the data storage
-   * configuration and the RPC HTTP host, port and timeout here; the min gas price is available from
-   * {@link #start()}. On Ephemery the per-cycle data subdirectory is chosen when the node is built,
-   * so the final data path is only visible from {@link #start()}.
+   * configuration, the RPC HTTP host, port and timeout and the min gas price here. On Ephemery the
+   * per-cycle data subdirectory is chosen when the node is built, so the final data path is only
+   * visible from {@link #start(StartContext)}.
    *
-   * <p>The <code>context</code> parameter should be stored in a field in the plugin. This is the
-   * only time it will be provided to the plugin and is how the plugin will interact with Besu.
-   *
-   * <p>Typically the plugin will not begin operation until the {@link #start()} method is called.
-   *
-   * @param context the context that provides access to Besu services.
+   * @param context the registration-phase context
    */
-  void register(ServiceManager context);
+  void register(RegistrationContext context);
 
   /**
-   * Called once Besu has loaded configuration and has started external services but before the main
-   * loop is up. The plugin should begin operation, including registering any event listener with
-   * Besu services and starting any background threads the plugin requires.
+   * Called once Besu has built the node and started its external services, before the main loop is
+   * up. The plugin should begin operation: obtain the services it uses, subscribe to events and
+   * start any background threads it requires.
+   *
+   * <p>The context offers every {@link StartService}, and those services keep working for the rest
+   * of the node's life, so the context and the services obtained from it may be kept and used from
+   * callbacks and from {@link #afterMainLoop(RunningContext)}.
+   *
+   * @param context the start-phase context
    */
-  void start();
+  void start(StartContext context);
 
-  /** Hook to execute plugin setup code after external services */
-  default void afterExternalServicePostMainLoop() {}
+  /**
+   * Called once the main loop is running: the peer-to-peer network, the synchronizer and the mining
+   * coordinator have started. This is the first point at which the {@link RunningService} types
+   * ({@code P2PService}, {@code SynchronizationService}, {@code MiningService}) return meaningful
+   * answers, so work that needs them belongs here rather than in {@link #start(StartContext)}.
+   *
+   * @param context the running-phase context, whose lookup also accepts every {@link StartService}
+   */
+  default void afterMainLoop(final RunningContext context) {}
 
   /**
    * Called when the plugin is being reloaded. This method will be called through a dedicated JSON

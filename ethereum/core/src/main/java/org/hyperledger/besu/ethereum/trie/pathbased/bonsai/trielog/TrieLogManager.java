@@ -16,10 +16,10 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.core.plugins.PluginProvidedServices;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
-import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.TrieLogService;
 import org.hyperledger.besu.plugin.services.trielogs.TrieLog;
@@ -52,11 +52,11 @@ public class TrieLogManager {
       final Blockchain blockchain,
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
       final long maxLayersToLoad,
-      final ServiceManager pluginContext) {
+      final PluginProvidedServices pluginProvidedServices) {
     this.blockchain = blockchain;
     this.rootWorldStateStorage = worldStateKeyValueStorage;
     this.maxLayersToLoad = maxLayersToLoad;
-    this.trieLogFactory = setupTrieLogFactory(pluginContext);
+    this.trieLogFactory = setupTrieLogFactory(pluginProvidedServices);
   }
 
   public synchronized void saveTrieLog(
@@ -138,11 +138,11 @@ public class TrieLogManager {
     trieLogObservers.unsubscribe(id);
   }
 
-  private TrieLogFactory setupTrieLogFactory(final ServiceManager pluginContext) {
-    // if we have a TrieLogService from pluginContext, use it.
+  private TrieLogFactory setupTrieLogFactory(final PluginProvidedServices pluginProvidedServices) {
+    // if we have a TrieLogService from pluginProvidedServices, use it.
     var trieLogServicez =
-        Optional.ofNullable(pluginContext)
-            .flatMap(context -> context.getService(TrieLogService.class));
+        Optional.ofNullable(pluginProvidedServices)
+            .flatMap(services -> services.lookup(TrieLogService.class));
 
     if (trieLogServicez.isPresent()) {
       var trieLogService = trieLogServicez.get();

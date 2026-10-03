@@ -15,6 +15,7 @@
 package org.hyperledger.besu.plugin.services;
 
 import org.hyperledger.besu.datatypes.PendingTransaction;
+import org.hyperledger.besu.plugin.RegistrationService;
 import org.hyperledger.besu.plugin.Unstable;
 import org.hyperledger.besu.plugin.data.ProcessableBlockHeader;
 import org.hyperledger.besu.plugin.services.txselection.BlockTransactionSelectionService;
@@ -26,7 +27,7 @@ import java.util.List;
 
 /** Transaction selection service interface */
 @Unstable
-public interface TransactionSelectionService extends BesuService {
+public interface TransactionSelectionService extends RegistrationService {
 
   /**
    * Create a transaction selector plugin
