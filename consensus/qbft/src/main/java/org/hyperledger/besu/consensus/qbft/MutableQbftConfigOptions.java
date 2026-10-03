@@ -27,6 +27,7 @@ import java.util.OptionalLong;
  */
 public class MutableQbftConfigOptions extends MutableBftConfigOptions implements QbftConfigOptions {
   private Optional<String> validatorContractAddress;
+  private final boolean goQuorumCompatibilityMode;
 
   /**
    * Instantiates a new Mutable qbft config options.
@@ -37,11 +38,17 @@ public class MutableQbftConfigOptions extends MutableBftConfigOptions implements
     super(qbftConfigOptions);
     this.validatorContractAddress =
         qbftConfigOptions.getValidatorContractAddress().map(String::toLowerCase);
+    this.goQuorumCompatibilityMode = qbftConfigOptions.isGoQuorumCompatibilityMode();
   }
 
   @Override
   public Optional<String> getValidatorContractAddress() {
     return validatorContractAddress;
+  }
+
+  @Override
+  public boolean isGoQuorumCompatibilityMode() {
+    return goQuorumCompatibilityMode;
   }
 
   /**
