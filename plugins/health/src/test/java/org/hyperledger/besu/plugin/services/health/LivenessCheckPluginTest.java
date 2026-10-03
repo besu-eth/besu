@@ -21,7 +21,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.RegistrationContext;
+import org.hyperledger.besu.plugin.StartContext;
 import org.hyperledger.besu.plugin.services.HealthCheckService;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -29,22 +30,22 @@ import org.junit.jupiter.api.Test;
 
 public class LivenessCheckPluginTest {
 
-  private ServiceManager serviceManager;
+  private RegistrationContext registrationContext;
   private HealthCheckService healthCheckService;
 
   @BeforeEach
   void setUp() {
-    serviceManager = mock(ServiceManager.class);
+    registrationContext = mock(RegistrationContext.class);
     healthCheckService = mock(HealthCheckService.class);
-    when(serviceManager.getService(HealthCheckService.class))
-        .thenReturn(java.util.Optional.of(healthCheckService));
+    when(registrationContext.getBesuService(HealthCheckService.class))
+        .thenReturn(healthCheckService);
   }
 
   @Test
   void shouldRegisterLivenessCheck() {
     final LivenessCheckPlugin plugin = new LivenessCheckPlugin();
 
-    plugin.register(serviceManager);
+    plugin.register(registrationContext);
 
     verify(healthCheckService)
         .registerHealthCheck(eq("/liveness"), any(HealthCheckService.HealthCheckProvider.class));
@@ -54,7 +55,7 @@ public class LivenessCheckPluginTest {
   void shouldAlwaysReturnTrueForLiveness() {
     final LivenessCheckPlugin plugin = new LivenessCheckPlugin();
 
-    plugin.register(serviceManager);
+    plugin.register(registrationContext);
 
     final var captor =
         org.mockito.ArgumentCaptor.forClass(HealthCheckService.HealthCheckProvider.class);
@@ -72,7 +73,7 @@ public class LivenessCheckPluginTest {
   void shouldHaveNoOpStartAndStop() {
     final LivenessCheckPlugin plugin = new LivenessCheckPlugin();
 
-    plugin.start();
+    plugin.start(mock(StartContext.class));
     plugin.stop();
   }
 }

@@ -59,8 +59,9 @@ class BlockchainServiceImplTest {
   @BeforeEach
   void setUp() {
     blockchain = InMemoryKeyValueStorageProvider.createInMemoryBlockchain(gen.genesisBlock());
-    service = new BlockchainServiceImpl();
-    service.init(blockchain, mock(ProtocolSchedule.class), propagatedBlocks, badBlockManager);
+    service =
+        new BlockchainServiceImpl(
+            blockchain, mock(ProtocolSchedule.class), propagatedBlocks, badBlockManager);
   }
 
   @Test
