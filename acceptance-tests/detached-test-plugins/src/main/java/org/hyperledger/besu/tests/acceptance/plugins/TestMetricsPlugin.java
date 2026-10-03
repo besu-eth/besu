@@ -15,7 +15,8 @@
 package org.hyperledger.besu.tests.acceptance.plugins;
 
 import org.hyperledger.besu.plugin.BesuPlugin;
-import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.RegistrationContext;
+import org.hyperledger.besu.plugin.StartContext;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.MetricCategory;
 import org.hyperledger.besu.plugin.services.metrics.MetricCategoryRegistry;
@@ -30,24 +31,20 @@ import org.slf4j.LoggerFactory;
 @AutoService(BesuPlugin.class)
 public class TestMetricsPlugin implements BesuPlugin {
   private static final Logger LOG = LoggerFactory.getLogger(TestMetricsPlugin.class);
-  private ServiceManager serviceManager;
 
   @Override
-  public void register(final ServiceManager context) {
+  public void register(final RegistrationContext context) {
     LOG.info("Registering TestMetricsPlugin");
-    serviceManager = context;
     context
-        .getService(MetricCategoryRegistry.class)
-        .orElseThrow()
+        .getBesuService(MetricCategoryRegistry.class)
         .addMetricCategory(TestMetricCategory.TEST_METRIC_CATEGORY);
   }
 
   @Override
-  public void start() {
+  public void start(final StartContext context) {
     LOG.info("Starting TestMetricsPlugin");
-    serviceManager
-        .getService(MetricsSystem.class)
-        .orElseThrow()
+    context
+        .getBesuService(MetricsSystem.class)
         .createGauge(
             TestMetricCategory.TEST_METRIC_CATEGORY,
             "test_metric",

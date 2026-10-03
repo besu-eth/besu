@@ -15,7 +15,8 @@
 package org.hyperledger.besu.tests.acceptance.plugins;
 
 import org.hyperledger.besu.plugin.BesuPlugin;
-import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.RegistrationContext;
+import org.hyperledger.besu.plugin.StartContext;
 import org.hyperledger.besu.plugin.data.AddedBlockContext;
 import org.hyperledger.besu.plugin.services.BlockchainService;
 import org.hyperledger.besu.plugin.services.Subscription;
@@ -36,23 +37,20 @@ import org.slf4j.LoggerFactory;
 public class TestBlockchainSubscriptionPlugin implements BesuPlugin {
   private static final Logger LOG = LoggerFactory.getLogger(TestBlockchainSubscriptionPlugin.class);
 
-  private ServiceManager context;
   private Optional<Subscription> blockAdded = Optional.empty();
   private final AtomicInteger addedBlockCounter = new AtomicInteger();
   private File callbackDir;
 
   @Override
-  public void register(final ServiceManager context) {
-    this.context = context;
+  public void register(final RegistrationContext context) {
     callbackDir = PluginCallbackDir.resolve(context);
   }
 
   @Override
-  public void start() {
+  public void start(final StartContext context) {
     blockAdded =
-        context
-            .getService(BlockchainService.class)
-            .map(service -> service.subscribeBlockAdded(this::onBlockAdded));
+        Optional.of(
+            context.getBesuService(BlockchainService.class).subscribeBlockAdded(this::onBlockAdded));
     LOG.info("Subscribed to block added: {}", blockAdded.isPresent());
   }
 

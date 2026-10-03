@@ -15,7 +15,9 @@
 package org.hyperledger.besu.plugin.services.health;
 
 import org.hyperledger.besu.plugin.BesuPlugin;
-import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.RegistrationContext;
+import org.hyperledger.besu.plugin.RunningContext;
+import org.hyperledger.besu.plugin.StartContext;
 import org.hyperledger.besu.plugin.data.SyncStatus;
 import org.hyperledger.besu.plugin.services.BesuEvents;
 import org.hyperledger.besu.plugin.services.HealthCheckService;
@@ -75,8 +77,10 @@ public class ReadinessCheckPlugin implements BesuPlugin {
     }
   }
 
-  private ServiceManager context;
-  private P2PService p2pService;
+  // The peer-to-peer network only runs from the main loop, so the service is obtained in
+  // afterMainLoop(); until then the readiness check reports unhealthy.
+  private volatile P2PService p2pService;
+  private BesuEvents besuEvents;
   // Push model: sync status is fed by a BesuEvents listener registered in start().
   // Until the first callback, cachedSyncStatus is empty and the sync check is skipped
   // (node treated as sync-healthy) to avoid a false-negative at startup.
@@ -84,30 +88,21 @@ public class ReadinessCheckPlugin implements BesuPlugin {
   private long syncListenerId = -1;
 
   @Override
-  public void register(final ServiceManager context) {
-    this.context = context;
-
-    final HealthCheckService healthCheckService =
-        context
-            .getService(HealthCheckService.class)
-            .orElseThrow(
-                () -> new IllegalStateException("Required service missing: HealthCheckService"));
+  public void register(final RegistrationContext context) {
+    final HealthCheckService healthCheckService = context.getBesuService(HealthCheckService.class);
 
     healthCheckService.registerHealthCheck(READINESS_ENDPOINT, this::checkReadiness);
   }
 
   @Override
-  public void start() {
-    this.p2pService =
-        context
-            .getService(P2PService.class)
-            .orElseThrow(() -> new IllegalStateException("Required service missing: P2PService"));
-    final BesuEvents besuEvents =
-        context
-            .getService(BesuEvents.class)
-            .orElseThrow(() -> new IllegalStateException("Required service missing: BesuEvents"));
-
+  public void start(final StartContext context) {
+    besuEvents = context.getBesuService(BesuEvents.class);
     syncListenerId = besuEvents.addSyncStatusListener(status -> cachedSyncStatus = status);
+  }
+
+  @Override
+  public void afterMainLoop(final RunningContext context) {
+    this.p2pService = context.getBesuService(P2PService.class);
   }
 
   private HealthCheckService.HealthCheckResult checkReadiness(
@@ -177,14 +172,9 @@ public class ReadinessCheckPlugin implements BesuPlugin {
 
   @Override
   public void stop() {
-    if (context != null && syncListenerId != -1) {
-      context
-          .getService(BesuEvents.class)
-          .ifPresent(
-              besuEvents -> {
-                besuEvents.removeSyncStatusListener(syncListenerId);
-                syncListenerId = -1;
-              });
+    if (besuEvents != null && syncListenerId != -1) {
+      besuEvents.removeSyncStatusListener(syncListenerId);
+      syncListenerId = -1;
     }
   }
 }

@@ -15,7 +15,8 @@
 package org.hyperledger.besu.services.kvstore;
 
 import org.hyperledger.besu.plugin.BesuPlugin;
-import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.RegistrationContext;
+import org.hyperledger.besu.plugin.StartContext;
 import org.hyperledger.besu.plugin.services.BesuConfiguration;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.StorageService;
@@ -36,28 +37,23 @@ import org.slf4j.LoggerFactory;
 public class InMemoryStoragePlugin implements BesuPlugin {
 
   private static final Logger LOG = LoggerFactory.getLogger(InMemoryStoragePlugin.class);
-  private ServiceManager context;
   private InMemoryKeyValueStorageFactory factory;
 
   /** Default constructor */
   public InMemoryStoragePlugin() {}
 
   @Override
-  public void register(final ServiceManager context) {
+  public void register(final RegistrationContext context) {
     LOG.debug("Registering plugin");
-    this.context = context;
 
-    createFactoriesAndRegisterWithStorageService();
+    createAndRegister(context.getBesuService(StorageService.class));
 
     LOG.debug("Plugin registered.");
   }
 
   @Override
-  public void start() {
+  public void start(final StartContext context) {
     LOG.debug("Starting plugin.");
-    if (factory == null) {
-      createFactoriesAndRegisterWithStorageService();
-    }
   }
 
   @Override
@@ -75,14 +71,6 @@ public class InMemoryStoragePlugin implements BesuPlugin {
     factory = new InMemoryKeyValueStorageFactory("memory");
 
     service.registerKeyValueStorage(factory);
-  }
-
-  private void createFactoriesAndRegisterWithStorageService() {
-    context
-        .getService(StorageService.class)
-        .ifPresentOrElse(
-            this::createAndRegister,
-            () -> LOG.error("Failed to register KeyValueFactory due to missing StorageService."));
   }
 
   /** The Memory key value storage factory. */
