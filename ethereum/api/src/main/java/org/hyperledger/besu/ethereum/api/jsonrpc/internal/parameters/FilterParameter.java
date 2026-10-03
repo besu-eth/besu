@@ -50,11 +50,8 @@ public class FilterParameter {
   public FilterParameter(
       @JsonProperty("fromBlock") final BlockParameter fromBlock,
       @JsonProperty("toBlock") final BlockParameter toBlock,
-      @JsonFormat(with = JsonFormat.Feature.ACCEPT_SINGLE_VALUE_AS_ARRAY)
-          @JsonProperty("fromAddress")
-          final List<Address> fromAddress,
-      @JsonFormat(with = JsonFormat.Feature.ACCEPT_SINGLE_VALUE_AS_ARRAY) @JsonProperty("toAddress")
-          final List<Address> toAddress,
+      @JsonProperty("fromAddress") final List<Address> fromAddress,
+      @JsonProperty("toAddress") final List<Address> toAddress,
       @JsonFormat(with = JsonFormat.Feature.ACCEPT_SINGLE_VALUE_AS_ARRAY) @JsonProperty("address")
           final List<Address> address,
       @JsonDeserialize(using = TopicsDeserializer.class) @JsonProperty("topics")
@@ -63,6 +60,10 @@ public class FilterParameter {
       @JsonProperty("after") final Integer after,
       @JsonProperty("count") final Integer count) {
     this.isValid = blockHash == null || (fromBlock == null && toBlock == null);
+    // trace_filter pagination counts traces, so a negative offset or count is malformed
+    if ((after != null && after < 0) || (count != null && count < 0)) {
+      throw new IllegalArgumentException("after and count must not be negative");
+    }
     this.fromBlock = fromBlock != null ? fromBlock : BlockParameter.LATEST;
     this.toBlock = toBlock != null ? toBlock : BlockParameter.LATEST;
     this.fromAddress = fromAddress != null ? fromAddress : emptyList();

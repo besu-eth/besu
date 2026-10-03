@@ -645,6 +645,11 @@ public class TransactionSimulator {
               () ->
                   // needed to make some transactions valid
                   transactionBuilder.chainId(protocolSchedule.getChainId().orElse(BigInteger.ONE)));
+    } else if (callParams.getChainId().isPresent()
+        && !callParams.getChainId().equals(protocolSchedule.getChainId())) {
+      // a legacy call keeps a chainId for another chain, so that the transaction validator rejects
+      // it, as it rejects a typed call for another chain
+      transactionBuilder.chainId(callParams.getChainId().get());
     }
 
     final Transaction transaction = transactionBuilder.build();

@@ -1,0 +1,30 @@
+{
+  "comment": "A legacy call with the chain's own chainId runs",
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "trace_call",
+    "params": [
+      {
+        "chainId": "0x7be",
+        "from": "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+        "gas": "0xfffff2",
+        "gasPrice": "0xef",
+        "input": "0x602a60005260206000f3"
+      },
+      [],
+      "latest"
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "output": "0x000000000000000000000000000000000000000000000000000000000000002a",
+      "stateDiff": null,
+      "trace": [],
+      "vmTrace": null
+    }
+  },
+  "statusCode": 200
+}

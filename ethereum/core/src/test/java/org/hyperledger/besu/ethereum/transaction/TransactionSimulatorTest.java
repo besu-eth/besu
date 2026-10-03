@@ -445,6 +445,61 @@ public class TransactionSimulatorTest extends TrustedSetupClassLoaderExtension {
   }
 
   @Test
+  public void shouldKeepChainIdOfAnotherChainOnLegacyCall() {
+    // the validator then rejects the call as it rejects a typed call for another chain
+    final CallParameter callParameter =
+        legacyTransactionCallParameterBuilder().chainId(BigInteger.TWO).build();
+
+    final BlockHeader blockHeader = mockBlockchainAndWorldState(callParameter);
+
+    final Transaction expectedTransaction =
+        Transaction.builder()
+            .type(TransactionType.FRONTIER)
+            .chainId(BigInteger.TWO)
+            .nonce(1L)
+            .gasPrice(Wei.ZERO)
+            .gasLimit(blockHeader.getGasLimit())
+            .to(DEFAULT_FROM)
+            .sender(Address.fromHexString("0x0"))
+            .value(Wei.ZERO)
+            .payload(Bytes.EMPTY)
+            .signature(FAKE_SIGNATURE)
+            .build();
+    mockProcessorStatusForTransaction(expectedTransaction, Status.SUCCESSFUL);
+
+    uncappedTransactionSimulator.process(callParameter, 1L);
+
+    verifyTransactionWasProcessed(expectedTransaction);
+  }
+
+  @Test
+  public void shouldNotSetOwnChainIdOnLegacyCall() {
+    // a legacy call for this chain is built as before, so it also runs before EIP-155
+    final CallParameter callParameter =
+        legacyTransactionCallParameterBuilder().chainId(BigInteger.ONE).build();
+
+    final BlockHeader blockHeader = mockBlockchainAndWorldState(callParameter);
+
+    final Transaction expectedTransaction =
+        Transaction.builder()
+            .type(TransactionType.FRONTIER)
+            .nonce(1L)
+            .gasPrice(Wei.ZERO)
+            .gasLimit(blockHeader.getGasLimit())
+            .to(DEFAULT_FROM)
+            .sender(Address.fromHexString("0x0"))
+            .value(Wei.ZERO)
+            .payload(Bytes.EMPTY)
+            .signature(FAKE_SIGNATURE)
+            .build();
+    mockProcessorStatusForTransaction(expectedTransaction, Status.SUCCESSFUL);
+
+    uncappedTransactionSimulator.process(callParameter, 1L);
+
+    verifyTransactionWasProcessed(expectedTransaction);
+  }
+
+  @Test
   public void shouldUseSpecifiedNonceWhenProvided() {
     long expectedNonce = 2L;
     long accountNonce = 1L;

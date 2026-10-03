@@ -1,0 +1,30 @@
+{
+  "comment": "A legacy call with the chainId of another chain is rejected, as a typed call is",
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "trace_call",
+    "params": [
+      {
+        "chainId": "0x1",
+        "from": "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+        "gas": "0xfffff2",
+        "gasPrice": "0xef",
+        "input": "0x602a60005260206000f3"
+      },
+      [
+        "trace"
+      ],
+      "latest"
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "error": {
+      "code": -32000,
+      "message": "Wrong chainId (transaction was meant for chain id 1 and not this chain id 1982)"
+    }
+  },
+  "statusCode": 200
+}
