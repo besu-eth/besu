@@ -226,6 +226,35 @@ public class DebugTraceBlockByNumberTest {
   }
 
   @Test
+  public void shouldReturnBlockNotFoundErrorWhenBlockNumberDoesNotExist() {
+    final Object[] params = new Object[] {"0x64"};
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(new JsonRpcRequest("2.0", "debug_traceBlockByNumber", params));
+
+    final JsonRpcResponse jsonRpcResponse = debugTraceBlockByNumber.response(request);
+    assertThat(jsonRpcResponse).isInstanceOf(JsonRpcErrorResponse.class);
+    final JsonRpcErrorResponse errorResponse = (JsonRpcErrorResponse) jsonRpcResponse;
+    assertThat(errorResponse.getErrorType()).isEqualByComparingTo(RpcErrorType.BLOCK_NOT_FOUND);
+  }
+
+  @Test
+  public void shouldStreamBlockNotFoundErrorWhenBlockNumberDoesNotExist() throws IOException {
+    final Object[] params = new Object[] {"0x64"};
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(new JsonRpcRequest("2.0", "debug_traceBlockByNumber", params));
+
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    debugTraceBlockByNumber.streamResponse(request, out, mapper);
+    final JsonNode response = mapper.readTree(out.toByteArray());
+
+    assertThat(response.has("error")).isTrue();
+    assertThat(response.get("error").get("code").asInt())
+        .isEqualTo(RpcErrorType.BLOCK_NOT_FOUND.getCode());
+    assertThat(response.get("error").get("message").asText())
+        .isEqualTo(RpcErrorType.BLOCK_NOT_FOUND.getMessage());
+  }
+
+  @Test
   public void serverStepLimitShouldTruncateStructLogs() throws IOException {
     final DebugTraceBlockByNumber limitedMethod =
         new DebugTraceBlockByNumber(

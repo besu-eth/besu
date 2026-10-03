@@ -86,12 +86,12 @@ public class DebugTraceBlockByNumber extends AbstractBlockParameterMethod
           request.getRequest().getId(), RpcErrorType.GENESIS_BLOCK_NOT_TRACEABLE);
     }
 
-    return maybeBlock
-        .map(
-            block ->
-                new DebugTraceBlockStreamer(
-                    block, traceOptions, protocolSchedule, blockchainQueriesRef, serverStepLimit))
-        .orElse(null);
+    if (maybeBlock.isEmpty()) {
+      return new JsonRpcErrorResponse(request.getRequest().getId(), RpcErrorType.BLOCK_NOT_FOUND);
+    }
+
+    return new DebugTraceBlockStreamer(
+        maybeBlock.get(), traceOptions, protocolSchedule, blockchainQueriesRef, serverStepLimit);
   }
 
   @Override
