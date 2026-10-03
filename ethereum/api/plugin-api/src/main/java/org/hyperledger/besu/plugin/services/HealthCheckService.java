@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.plugin.services;
 
+import org.hyperledger.besu.plugin.RegistrationService;
+
 import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
@@ -23,7 +25,7 @@ import java.util.Optional;
  * endpoints. Registering a provider for {@code /liveness} or {@code /readiness} overrides that
  * endpoint's default implementation.
  */
-public interface HealthCheckService extends BesuService {
+public interface HealthCheckService extends RegistrationService {
 
   /**
    * Registers a health check provider for one of the built-in endpoints, overriding its default

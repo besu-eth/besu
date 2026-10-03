@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.plugin.services;
 
+import org.hyperledger.besu.plugin.StartService;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.metrics.ExternalSummary;
 import org.hyperledger.besu.plugin.services.metrics.Histogram;
@@ -32,7 +33,7 @@ import java.util.function.Supplier;
 import com.google.common.cache.Cache;
 
 /** An interface for creating various Metrics components. */
-public interface MetricsSystem extends BesuService {
+public interface MetricsSystem extends StartService {
 
   /**
    * Creates a Counter.

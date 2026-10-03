@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Besu.
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -12,22 +12,18 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.plugin.services.mining;
-
-import org.hyperledger.besu.plugin.RunningService;
+package org.hyperledger.besu.plugin.services.exception;
 
 /**
- * The MiningService interface provides methods to start and stop the mining process.
- *
- * @deprecated no known plugin uses this service, so it is scheduled for removal from the plugin
- *     API. It will be removed in a future release.
+ * Thrown by {@link org.hyperledger.besu.plugin.services.InProcessRpcService#call(String, Object[])}
+ * when in-process RPC is disabled on this node.
  */
-@Deprecated(forRemoval = true)
-public interface MiningService extends RunningService {
+public class InProcessRpcDisabledException extends IllegalStateException {
 
-  /** Starts the mining process. */
-  void start();
-
-  /** Stops the mining process. */
-  void stop();
+  /** Creates the exception. */
+  public InProcessRpcDisabledException() {
+    super(
+        "In-process RPC is disabled on this node; enable it with --Xin-process-rpc-enabled and"
+            + " select the namespaces with --Xin-process-rpc-apis");
+  }
 }

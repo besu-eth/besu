@@ -16,13 +16,14 @@ package org.hyperledger.besu.plugin.services;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.evm.worldstate.WorldView;
+import org.hyperledger.besu.plugin.StartService;
 import org.hyperledger.besu.plugin.Unstable;
 
 import java.util.Optional;
 
 /** A service that plugin can use to access world state */
 @Unstable
-public interface WorldStateService extends BesuService {
+public interface WorldStateService extends StartService {
 
   /**
    * Returns a view of the head world state.

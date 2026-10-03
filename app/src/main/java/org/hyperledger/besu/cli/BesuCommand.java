@@ -118,11 +118,11 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.RpcApis;
 import org.hyperledger.besu.ethereum.api.jsonrpc.authentication.JwtAlgorithm;
 import org.hyperledger.besu.ethereum.api.jsonrpc.ipc.JsonRpcIpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration;
-import org.hyperledger.besu.ethereum.api.pluginadapter.RpcEndpointServiceImpl;
+import org.hyperledger.besu.ethereum.api.pluginadapter.HealthCheckServiceImpl;
+import org.hyperledger.besu.ethereum.api.pluginadapter.RpcEndpointRegistryImpl;
 import org.hyperledger.besu.ethereum.blockcreation.pluginadapter.TransactionSelectionServiceImpl;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.ChainDataPruner.ChainPruningStrategy;
-import org.hyperledger.besu.ethereum.chain.pluginadapter.BlockchainServiceImpl;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.MiningParametersMetrics;
 import org.hyperledger.besu.ethereum.core.VersionMetadata;
@@ -151,7 +151,6 @@ import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStorageProviderBuilder;
-import org.hyperledger.besu.ethereum.transaction.pluginadapter.TransactionSimulationServiceImpl;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.ImmutableDataStorageConfiguration;
@@ -173,9 +172,7 @@ import org.hyperledger.besu.nat.NatMethod;
 import org.hyperledger.besu.plugin.CoreConfiguration;
 import org.hyperledger.besu.plugin.rpc.RpcConfiguration;
 import org.hyperledger.besu.plugin.services.BesuConfiguration;
-import org.hyperledger.besu.plugin.services.HealthCheckService;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
-import org.hyperledger.besu.plugin.services.PicoCLIOptions;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.health.LivenessCheckPlugin;
 import org.hyperledger.besu.plugin.services.health.ReadinessCheckPlugin;
@@ -334,11 +331,11 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   private final StorageServiceImpl storageService;
   private final SecurityModuleServiceImpl securityModuleService;
   private final PermissioningServiceImpl permissioningService;
-  private final RpcEndpointServiceImpl rpcEndpointServiceImpl;
+  private final RpcEndpointRegistryImpl rpcEndpointRegistry;
+  private final HealthCheckServiceImpl healthCheckService;
 
   private final Map<String, String> environment;
-  private final MetricCategoryRegistryImpl metricCategoryRegistry =
-      new MetricCategoryRegistryImpl();
+  private final MetricCategoryRegistryImpl metricCategoryRegistry;
 
   private final PreSynchronizationTaskRunner preSynchronizationTaskRunner =
       new PreSynchronizationTaskRunner();
@@ -451,8 +448,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   private final TransactionSelectionServiceImpl transactionSelectionServiceImpl;
   private final TransactionPoolValidatorServiceImpl transactionPoolValidatorServiceImpl;
   private final TransactionValidatorServiceImpl transactionValidatorServiceImpl;
-  private final TransactionSimulationServiceImpl transactionSimulationServiceImpl;
-  private final BlockchainServiceImpl blockchainServiceImpl;
   private BesuComponent besuComponent;
 
   private SyncMode syncMode = null;
@@ -755,15 +750,13 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         controllerBuilder,
         besuPluginContext,
         environment,
-        new StorageServiceImpl(),
-        new SecurityModuleServiceImpl(),
-        new PermissioningServiceImpl(),
-        new RpcEndpointServiceImpl(),
-        new TransactionSelectionServiceImpl(),
-        new TransactionPoolValidatorServiceImpl(),
-        new TransactionSimulationServiceImpl(),
-        new BlockchainServiceImpl(),
-        new TransactionValidatorServiceImpl(),
+        new StorageServiceImpl(besuPluginContext::isRegistering),
+        new SecurityModuleServiceImpl(besuPluginContext::isRegistering),
+        new PermissioningServiceImpl(besuPluginContext::isRegistering),
+        new RpcEndpointRegistryImpl(besuPluginContext::isRegistering),
+        new TransactionSelectionServiceImpl(besuPluginContext::isRegistering),
+        new TransactionPoolValidatorServiceImpl(besuPluginContext::isRegistering),
+        new TransactionValidatorServiceImpl(besuPluginContext::isRegistering),
         commandLogger);
   }
 
@@ -782,11 +775,9 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
    * @param storageService instance of StorageServiceImpl
    * @param securityModuleService instance of SecurityModuleServiceImpl
    * @param permissioningService instance of PermissioningServiceImpl
-   * @param rpcEndpointServiceImpl instance of RpcEndpointServiceImpl
+   * @param rpcEndpointRegistry instance of RpcEndpointRegistryImpl
    * @param transactionSelectionServiceImpl instance of TransactionSelectionServiceImpl
    * @param transactionPoolValidatorServiceImpl instance of TransactionPoolValidatorServiceImpl
-   * @param transactionSimulationServiceImpl instance of TransactionSimulationServiceImpl
-   * @param blockchainServiceImpl instance of BlockchainServiceImpl
    * @param transactionValidatorServiceImpl instance of TransactionValidatorServiceImpl
    * @param commandLogger instance of Logger for outputting to the CLI
    */
@@ -804,11 +795,9 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       final StorageServiceImpl storageService,
       final SecurityModuleServiceImpl securityModuleService,
       final PermissioningServiceImpl permissioningService,
-      final RpcEndpointServiceImpl rpcEndpointServiceImpl,
+      final RpcEndpointRegistryImpl rpcEndpointRegistry,
       final TransactionSelectionServiceImpl transactionSelectionServiceImpl,
       final TransactionPoolValidatorServiceImpl transactionPoolValidatorServiceImpl,
-      final TransactionSimulationServiceImpl transactionSimulationServiceImpl,
-      final BlockchainServiceImpl blockchainServiceImpl,
       final TransactionValidatorServiceImpl transactionValidatorServiceImpl,
       final Logger commandLogger) {
 
@@ -825,21 +814,16 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     this.storageService = storageService;
     this.securityModuleService = securityModuleService;
     this.permissioningService = permissioningService;
-    if (besuPluginContext.getService(BesuConfigurationImpl.class).isPresent()) {
-      this.pluginCommonConfiguration =
-          besuPluginContext.getService(BesuConfigurationImpl.class).get();
-    } else {
-      this.pluginCommonConfiguration = new BesuConfigurationImpl();
-      besuPluginContext.addService(BesuConfiguration.class, this.pluginCommonConfiguration);
-      besuPluginContext.addService(CoreConfiguration.class, this.pluginCommonConfiguration);
-      besuPluginContext.addService(StorageConfiguration.class, this.pluginCommonConfiguration);
-      besuPluginContext.addService(RpcConfiguration.class, this.pluginCommonConfiguration);
-    }
-    this.rpcEndpointServiceImpl = rpcEndpointServiceImpl;
+    this.metricCategoryRegistry = new MetricCategoryRegistryImpl(besuPluginContext::isRegistering);
+    this.healthCheckService = new HealthCheckServiceImpl(besuPluginContext::isRegistering);
+    this.pluginCommonConfiguration = new BesuConfigurationImpl();
+    besuPluginContext.addService(BesuConfiguration.class, this.pluginCommonConfiguration);
+    besuPluginContext.addService(CoreConfiguration.class, this.pluginCommonConfiguration);
+    besuPluginContext.addService(StorageConfiguration.class, this.pluginCommonConfiguration);
+    besuPluginContext.addService(RpcConfiguration.class, this.pluginCommonConfiguration);
+    this.rpcEndpointRegistry = rpcEndpointRegistry;
     this.transactionSelectionServiceImpl = transactionSelectionServiceImpl;
     this.transactionPoolValidatorServiceImpl = transactionPoolValidatorServiceImpl;
-    this.transactionSimulationServiceImpl = transactionSimulationServiceImpl;
-    this.blockchainServiceImpl = blockchainServiceImpl;
     this.transactionValidatorServiceImpl = transactionValidatorServiceImpl;
   }
 
@@ -955,30 +939,33 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     configureLogging(false);
     initPluginCommonConfiguration();
 
+    besuPluginContext.beginRegistration();
+
+    // Besu's own default security module registers inside the window like every other
+    // registration, ahead of the plugins so that a plugin can still provide a module of its own
+    securityModuleService.register(
+        DEFAULT_SECURITY_MODULE, Suppliers.memoize(this::defaultSecurityModule));
+
     // Built-in storage plugins register before external plugins, so external plugins can build on
     // or override their factories in register(); the health-check built-ins below register after,
     // so external plugins can claim the endpoints first
-    rocksDBPlugin.register(besuPluginContext);
-    inMemoryStoragePlugin.register(besuPluginContext);
+    rocksDBPlugin.register(besuPluginContext.registrationContextFor(rocksDBPlugin));
+    inMemoryStoragePlugin.register(besuPluginContext.registrationContextFor(inMemoryStoragePlugin));
     besuPluginContext.registerPlugins();
 
     // Register built-in health-check plugins only if no external plugin already claimed the
     // endpoint. This runs after registerPlugins() so external plugins have had their chance;
     // the built-in field stays null when an external plugin owns the endpoint, so the
     // start()/stop() calls skip it (no orphaned SyncStatusListener).
-    besuPluginContext
-        .getService(HealthCheckService.class)
-        .ifPresent(
-            healthCheckService -> {
-              if (!healthCheckService.getHealthCheck("/liveness").isPresent()) {
-                livenessCheckPlugin = new LivenessCheckPlugin();
-                livenessCheckPlugin.register(besuPluginContext);
-              }
-              if (!healthCheckService.getHealthCheck("/readiness").isPresent()) {
-                readinessCheckPlugin = new ReadinessCheckPlugin();
-                readinessCheckPlugin.register(besuPluginContext);
-              }
-            });
+    if (healthCheckService.getHealthCheck("/liveness").isEmpty()) {
+      livenessCheckPlugin = new LivenessCheckPlugin();
+      livenessCheckPlugin.register(besuPluginContext.registrationContextFor(livenessCheckPlugin));
+    }
+    if (healthCheckService.getHealthCheck("/readiness").isEmpty()) {
+      readinessCheckPlugin = new ReadinessCheckPlugin();
+      readinessCheckPlugin.register(besuPluginContext.registrationContextFor(readinessCheckPlugin));
+    }
+    besuPluginContext.endRegistration();
   }
 
   /**
@@ -988,7 +975,9 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   public void reRegisterPlugins() {
     besuPluginContext.resetState();
     initPluginCommonConfiguration();
+    besuPluginContext.beginRegistration();
     besuPluginContext.registerPlugins();
+    besuPluginContext.endRegistration();
   }
 
   /**
@@ -1168,7 +1157,16 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
     runner.startEthereumMainLoop();
 
-    besuPluginContext.afterExternalServicesMainLoop();
+    BesuPluginServiceRegistrar.registerRunningServices(besuPluginContext, besuController, runner);
+    besuPluginContext.afterMainLoop();
+    if (readinessCheckPlugin != null) {
+      try {
+        readinessCheckPlugin.afterMainLoop(
+            besuPluginContext.runningContextFor(readinessCheckPlugin));
+      } catch (final Exception e) {
+        logger.warn("Failed to run readinessCheckPlugin after the main loop", e);
+      }
+    }
   }
 
   private void configurePrecompileCaching() {
@@ -1403,31 +1401,25 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
   private void preparePlugins() {
     picoCLIOptions = new PicoCLIOptionsImpl(commandLine);
-    besuPluginContext.addService(PicoCLIOptions.class, picoCLIOptions);
 
     metricCategoryRegistry.addCategories(BesuMetricCategory.class);
     metricCategoryRegistry.addCategories(StandardMetricCategory.class);
 
-    BesuPluginServiceRegistrar.registerEarlyServices(
+    BesuPluginServiceRegistrar.registerRegistrationServices(
         besuPluginContext,
         securityModuleService,
         storageService,
         metricCategoryRegistry,
         permissioningService,
-        rpcEndpointServiceImpl,
+        rpcEndpointRegistry,
         transactionSelectionServiceImpl,
         transactionPoolValidatorServiceImpl,
-        transactionSimulationServiceImpl,
-        blockchainServiceImpl,
-        transactionValidatorServiceImpl);
+        transactionValidatorServiceImpl,
+        healthCheckService);
 
     // created here; defineOptions() and register() run later, from the execution strategy chain
     rocksDBPlugin = new RocksDBPlugin();
     inMemoryStoragePlugin = new InMemoryStoragePlugin();
-
-    // register default security module
-    securityModuleService.register(
-        DEFAULT_SECURITY_MODULE, Suppliers.memoize(this::defaultSecurityModule));
   }
 
   private SecurityModule defaultSecurityModule() {
@@ -1472,34 +1464,25 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   }
 
   private void startPlugins(final Runner runner) {
-    blockchainServiceImpl.init(
-        besuController.getProtocolContext().getBlockchain(),
-        besuController.getProtocolSchedule(),
-        besuController.getProtocolManager().getBlockBroadcaster(),
-        besuController.getProtocolContext().getBadBlockManager());
-    transactionSimulationServiceImpl.init(
-        besuController.getProtocolContext().getBlockchain(),
-        besuController.getTransactionSimulator());
-    rpcEndpointServiceImpl.init(runner.getInProcessRpcMethods());
-
-    BesuPluginServiceRegistrar.registerRuntimeServices(
+    BesuPluginServiceRegistrar.registerStartServices(
         besuPluginContext,
         besuController,
         runner,
         getMetricsSystem(),
-        miningParametersSupplier.get());
+        miningParametersSupplier.get(),
+        inProcessRpcConfiguration.isEnabled());
 
     besuPluginContext.startPlugins();
     if (livenessCheckPlugin != null) {
       try {
-        livenessCheckPlugin.start();
+        livenessCheckPlugin.start(besuPluginContext.startContextFor(livenessCheckPlugin));
       } catch (final Exception e) {
         logger.warn("Failed to start livenessCheckPlugin", e);
       }
     }
     if (readinessCheckPlugin != null) {
       try {
-        readinessCheckPlugin.start();
+        readinessCheckPlugin.start(besuPluginContext.startContextFor(readinessCheckPlugin));
       } catch (final Exception e) {
         logger.warn("Failed to start readinessCheckPlugin", e);
       }
@@ -1750,7 +1733,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         apiName ->
             Arrays.stream(RpcApis.values())
                     .anyMatch(builtInApi -> apiName.equals(builtInApi.name()))
-                || rpcEndpointServiceImpl.hasNamespace(apiName);
+                || rpcEndpointRegistry.hasNamespace(apiName);
     jsonRpcHttpOptions.validate(logger, commandLine, configuredApis);
   }
 
@@ -1759,7 +1742,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         apiName ->
             Arrays.stream(RpcApis.values())
                     .anyMatch(builtInApi -> apiName.equals(builtInApi.name()))
-                || rpcEndpointServiceImpl.hasNamespace(apiName);
+                || rpcEndpointRegistry.hasNamespace(apiName);
     rpcWebsocketOptions.validate(logger, commandLine, configuredApis);
   }
 
@@ -2582,7 +2565,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .autoLogBloomCaching(autoLogBloomCachingEnabled)
             .ethstatsOptions(ethstatsOptions)
             .storageProvider(keyValueStorageProvider(keyValueStorageName))
-            .rpcEndpointService(rpcEndpointServiceImpl)
+            .rpcEndpointRegistry(rpcEndpointRegistry)
+            .healthCheckService(healthCheckService)
             .enodeDnsConfiguration(getEnodeDnsConfiguration())
             .allowedSubnets(p2PDiscoveryConfig.allowedSubnets())
             .poaDiscoveryRetryBootnodes(p2PDiscoveryConfig.poaDiscoveryRetryBootnodes())

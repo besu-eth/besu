@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.permissioning.pluginadapter;
 
+import org.hyperledger.besu.plugin.RegistrationClosedException;
 import org.hyperledger.besu.plugin.services.PermissioningService;
 import org.hyperledger.besu.plugin.services.permissioning.NodeConnectionPermissioningProvider;
 import org.hyperledger.besu.plugin.services.permissioning.NodeMessagePermissioningProvider;
@@ -21,6 +22,7 @@ import org.hyperledger.besu.plugin.services.permissioning.TransactionPermissioni
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.BooleanSupplier;
 import javax.inject.Inject;
 
 import com.google.common.collect.Lists;
@@ -36,19 +38,41 @@ public class PermissioningServiceImpl implements PermissioningService {
   private final List<TransactionPermissioningProvider> transactionPermissioningProviders =
       new ArrayList<>();
 
-  /** Default Constructor. */
+  private final BooleanSupplier registrationOpen;
+
+  /** Creates a service that accepts providers at any time. */
   @Inject
-  public PermissioningServiceImpl() {}
+  public PermissioningServiceImpl() {
+    this(() -> true);
+  }
+
+  /**
+   * Creates the service.
+   *
+   * @param registrationOpen whether plugin registration is currently open; providers registered
+   *     while it is closed are rejected
+   */
+  public PermissioningServiceImpl(final BooleanSupplier registrationOpen) {
+    this.registrationOpen = registrationOpen;
+  }
+
+  private void checkRegistrationOpen(final String method) {
+    if (!registrationOpen.getAsBoolean()) {
+      throw new RegistrationClosedException("PermissioningService", method);
+    }
+  }
 
   @Override
   public void registerNodePermissioningProvider(
       final NodeConnectionPermissioningProvider provider) {
+    checkRegistrationOpen("registerNodePermissioningProvider");
     connectionPermissioningProviders.add(provider);
   }
 
   @Override
   public void registerTransactionPermissioningProvider(
       final TransactionPermissioningProvider provider) {
+    checkRegistrationOpen("registerTransactionPermissioningProvider");
     transactionPermissioningProviders.add(provider);
     LOG.info("Registered new transaction permissioning provider.");
   }
@@ -68,6 +92,7 @@ public class PermissioningServiceImpl implements PermissioningService {
   @Override
   public void registerNodeMessagePermissioningProvider(
       final NodeMessagePermissioningProvider provider) {
+    checkRegistrationOpen("registerNodeMessagePermissioningProvider");
     messagePermissioningProviders.add(provider);
   }
 

@@ -16,7 +16,7 @@ package org.hyperledger.besu.plugin.services.exception;
 
 import org.hyperledger.besu.plugin.services.rpc.RpcMethodError;
 
-/** Base exception class for problems encountered in the RpcEndpointService. */
+/** Base exception class for problems encountered in an RPC endpoint registered by a plugin. */
 public class PluginRpcEndpointException extends RuntimeException {
   /** The error */
   private final RpcMethodError rpcMethodError;
