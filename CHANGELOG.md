@@ -55,6 +55,7 @@
 - Publish the jump destination analysis of a contract safely to other threads [#11403](https://github.com/besu-eth/besu/pull/11403)
 - Retry bootnodes while under-peered to avoid a node on a small network staying at zero peers. [#11368](https://github.com/besu-eth/besu/pull/11368)
 - The Bonsai code cache and the EVM jump destination cache refuse to store empty code under a non-empty code hash. [#11420](https://github.com/besu-eth/besu/pull/11420)
+- When fetching announced transactions from a peer, Besu again requests them in the order they were announced and, after a partial response, asks only for the ones not yet returned. Since 26.6.0 the request order did not follow the announcements and every retry asked for the whole batch again, so a peer that returned the whole batch was asked for it a second time unless the last transaction it sent was also the last one announced. [#11465](https://github.com/besu-eth/besu/pull/11465)
 
 ### Additions and Improvements
 - Update `Bouncycastle` to 1.85 to address CVEs `CVE-2026-8763` and `CVE-2026-13506`. [#11336](https://github.com/besu-eth/besu/pull/11336)
