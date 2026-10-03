@@ -21,6 +21,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
+import java.util.function.LongConsumer;
 import java.util.function.Supplier;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -58,6 +59,53 @@ public interface FlatDbCacheManager {
     return false;
   }
 
+  /**
+   * Commits storage and publishes the matching cache writes as one step with respect to other
+   * publishes and {@link #invalidateAll(LongConsumer)}.
+   *
+   * <p>The storage commit runs first, then a new version is allocated and handed to {@code
+   * publisher}, which must publish the committed writes at exactly that version. Readers bypass the
+   * cache for the whole sequence. Concurrent calls are serialized, so version order always matches
+   * storage commit order.
+   *
+   * @param storageCommit commits the underlying storage transaction
+   * @param publisher receives the new version; publishes the committed writes at that version
+   */
+  default void commitAndPublish(final Runnable storageCommit, final LongConsumer publisher) {
+    // No cache to publish into: commit only, without serializing concurrent commits
+    storageCommit.run();
+  }
+
+  /**
+   * Turns the cache on (e.g. once the initial sync is done). Any leftover entry is dropped first.
+   */
+  default void enable() {
+    // No-op
+  }
+
+  /**
+   * Turns the cache off (e.g. while snap syncing): reads go to storage, nothing is cached and
+   * commits are not serialized. All entries are dropped.
+   */
+  default void disable() {
+    // No-op
+  }
+
+  default boolean isEnabled() {
+    return false;
+  }
+
+  /**
+   * Drops every cached entry. The version is advanced first (and handed to {@code onNewVersion}) so
+   * that a read which loaded a pre-clear value and has not inserted it yet is rejected instead of
+   * repopulating the cache right after the clear.
+   *
+   * @param onNewVersion receives the version allocated for the clear
+   */
+  default void invalidateAll(final LongConsumer onNewVersion) {
+    // No-op
+  }
+
   default void clear(final SegmentIdentifier segment) {
     // No-op
   }
@@ -75,6 +123,14 @@ public interface FlatDbCacheManager {
     return storageGetter.get();
   }
 
+  /**
+   * Batch read through the cache.
+   *
+   * <p>The returned list is always aligned with {@code keys}, but an element may be {@code null}
+   * (not {@link Optional#empty()}) when the value is unknown: the batch fetcher does not support
+   * multi-get in the current flat-db mode, or returned a list of a different size. {@code
+   * Optional.empty()} means the key is known to be absent. Callers must handle both.
+   */
   default List<Optional<Bytes>> getMultipleFromCacheOrStorage(
       final SegmentIdentifier segment,
       final List<Bytes> keys,

@@ -120,6 +120,22 @@ Other segments (e.g. code, trie branches) are not covered by this versioned cach
 
 ---
 
+## Commit publish and concurrency
+
+`CachedUpdater.commit()` goes through `FlatDbCacheManager.commitAndPublish()`, which holds the cache's publish lock, enables the commit cache bypass, commits storage, allocates the next version and hands it to the updater, which publishes its staged writes at exactly that version:
+
+- **Serialized publishes**: concurrent updaters (e.g. snap sync pipelines) commit one at a time, so the cache version order matches the storage commit order and the head `cacheVersion` never moves backwards. Each updater publishes at the version it obtained itself.
+- **Read-path inserts re-check under the key lock**: a reader inserts a value it loaded from storage only if, inside `compute`, no bypass is active and its pinned version is still `globalVersion`. A read that overlapped a commit therefore cannot shadow the published value, even if that entry was evicted in between.
+- **Clearing bumps the version**: `clearCrossBlockCache()` calls `FlatDbCacheManager.invalidateAll()`, which (under the same lock) advances the version before invalidating, so a read that loaded a pre-clear value cannot repopulate the cache after the clear.
+
+---
+
+## Disabled during the initial sync
+
+`BesuControllerBuilder` disables the cache while the initial (snap) sync runs and enables it on `onInitialSyncCompleted()` (disabling it again on `onInitialSyncRestart()`). While disabled, reads go straight to storage, nothing is inserted or published, and `commitAndPublish()` does not take the publish lock, so concurrent sync pipelines are never serialized. Commits still advance the version under the bypass, so a read that loaded a value around a disable → commit → enable sequence cannot insert it afterwards. Managers built directly (tests, tools) start enabled.
+
+---
+
 ## Operational note
 
-Cache maintenance (Caffeine cleanup) is triggered asynchronously via `ThresholdDrainExecutor` and `scheduleAsyncMaintenance()` to reduce work on the hot path; see `VersionedCacheManager` for details.
+Cache maintenance (Caffeine cleanup) is deferred on purpose: Caffeine's drain task is queued by `ThresholdDrainExecutor` and only run by `scheduleAsyncMaintenance()` after each commit, so no eviction work runs while a block is being processed. Only new keys use Caffeine's bounded write buffer (`128 × ceilPow2(NCPU)` entries); an inserting thread performs maintenance inline only if more new keys than that are inserted between two commits.

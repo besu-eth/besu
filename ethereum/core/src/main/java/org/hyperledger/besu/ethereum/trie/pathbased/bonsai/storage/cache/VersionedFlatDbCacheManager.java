@@ -36,6 +36,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
+import java.util.function.LongConsumer;
 import java.util.function.Supplier;
 
 import com.github.benmanes.caffeine.cache.Cache;
@@ -59,6 +60,20 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
 
   /** Nested commit-bypass count; when readers ignore the cache entirely. */
   private final AtomicInteger commitCacheBypassCount = new AtomicInteger(0);
+
+  /**
+   * Serializes {@link #commitAndPublish} and {@link #invalidateAll} across every storage sharing
+   * this cache (e.g. concurrent snap sync pipelines), so version order matches storage commit
+   * order.
+   */
+  private final Object publishLock = new Object();
+
+  /**
+   * When {@code false} (e.g. during the initial snap sync) the cache is bypassed entirely: reads go
+   * to storage, nothing is inserted and commits are not serialized. Versions keep advancing on
+   * every commit so that a read which loaded a value while disabled cannot insert it once enabled.
+   */
+  private volatile boolean enabled = true;
 
   private final Cache<CacheKey, VersionedValue> accountCache;
   private final Cache<CacheKey, VersionedValue> storageCache;
@@ -266,6 +281,59 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
   }
 
   @Override
+  public void commitAndPublish(final Runnable storageCommit, final LongConsumer publisher) {
+    // The bypass is started before reading `enabled`: a reader that inserted before this commit
+    // did so while enabled, so this commit necessarily takes the publishing path below.
+    beginCommitCacheBypass();
+    try {
+      if (enabled) {
+        synchronized (publishLock) {
+          storageCommit.run();
+          publisher.accept(incrementAndGetVersion());
+        }
+      } else {
+        // cache disabled: nothing is published (putInCache/removeFromCache are no-ops), and
+        // concurrent commits are not serialized
+        storageCommit.run();
+        publisher.accept(incrementAndGetVersion());
+      }
+    } finally {
+      endCommitCacheBypass();
+    }
+  }
+
+  @Override
+  public void enable() {
+    // entries inserted by reads racing the previous disable() are dropped before re-enabling
+    accountCache.invalidateAll();
+    storageCache.invalidateAll();
+    enabled = true;
+    LOG.info("Bonsai cross-block cache enabled");
+  }
+
+  @Override
+  public void disable() {
+    enabled = false;
+    accountCache.invalidateAll();
+    storageCache.invalidateAll();
+    LOG.info("Bonsai cross-block cache disabled");
+  }
+
+  @Override
+  public boolean isEnabled() {
+    return enabled;
+  }
+
+  @Override
+  public void invalidateAll(final LongConsumer onNewVersion) {
+    synchronized (publishLock) {
+      onNewVersion.accept(incrementAndGetVersion());
+      accountCache.invalidateAll();
+      storageCache.invalidateAll();
+    }
+  }
+
+  @Override
   public void clear(final SegmentIdentifier segment) {
     final Cache<CacheKey, VersionedValue> cache = cacheForSegment(segment);
     if (cache != null) {
@@ -279,6 +347,10 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
       final Bytes key,
       final long version,
       final Supplier<Optional<Bytes>> storageGetter) {
+
+    if (!enabled) {
+      return storageGetter.get();
+    }
 
     cacheRequestCounter.inc();
 
@@ -307,23 +379,42 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
     final Optional<Bytes> result = storageGetter.get();
 
     if (version == globalVersion.get()) {
-      cacheInsertCounter.inc();
-      final Bytes valueToCache = result.orElse(null);
-      final boolean isRemoval = result.isEmpty();
-
-      cache
-          .asMap()
-          .compute(
-              cacheKey,
-              (k, existingValue) -> {
-                if (existingValue == null || existingValue.version < version) {
-                  return new VersionedValue(valueToCache, version, isRemoval);
-                }
-                return existingValue;
-              });
+      insertReadResult(cache, cacheKey, result, version);
     }
 
     return result;
+  }
+
+  /**
+   * Caches a value read from storage by a reader pinned at {@code version}.
+   *
+   * <p>The bypass/version check is repeated inside {@code compute} (under the key's bin lock)
+   * because the reader may have passed the checks at the top of the read, then been delayed while a
+   * commit started, published and even had its entry evicted. Re-checking here guarantees that a
+   * value is only inserted while no commit is publishing and the reader's version is still the
+   * current one, so it can never shadow a newer committed value.
+   */
+  private void insertReadResult(
+      final Cache<CacheKey, VersionedValue> cache,
+      final CacheKey cacheKey,
+      final Optional<Bytes> result,
+      final long version) {
+    final Bytes valueToCache = result.orElse(null);
+    final boolean isRemoval = result.isEmpty();
+    cache
+        .asMap()
+        .compute(
+            cacheKey,
+            (k, existingValue) -> {
+              if (!enabled || isCommitCacheBypassActive() || version != globalVersion.get()) {
+                return existingValue;
+              }
+              if (existingValue == null || existingValue.version < version) {
+                cacheInsertCounter.inc();
+                return new VersionedValue(valueToCache, version, isRemoval);
+              }
+              return existingValue;
+            });
   }
 
   @Override
@@ -332,6 +423,11 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
       final List<Bytes> keys,
       final long version,
       final Function<List<Bytes>, List<Optional<Bytes>>> batchFetcher) {
+
+    if (!enabled) {
+      return FlatDbCacheManager.super.getMultipleFromCacheOrStorage(
+          segment, keys, version, batchFetcher);
+    }
 
     if (isCommitCacheBypassActive()) {
       keys.forEach(
@@ -392,21 +488,7 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
         results.set(resultIndex, fetchedValue);
 
         if (shouldUpdateCache && fetchedValue != null) {
-          cacheInsertCounter.inc();
-          final CacheKey cacheKey = CacheKey.of(key);
-          final Bytes valueToCache = fetchedValue.orElse(null);
-          final boolean isRemoval = fetchedValue.isEmpty();
-
-          cache
-              .asMap()
-              .compute(
-                  cacheKey,
-                  (k, existingValue) -> {
-                    if (existingValue == null || existingValue.version < version) {
-                      return new VersionedValue(valueToCache, version, isRemoval);
-                    }
-                    return existingValue;
-                  });
+          insertReadResult(cache, CacheKey.of(key), fetchedValue, version);
         }
       }
     }
@@ -418,7 +500,7 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
   public void putInCache(
       final SegmentIdentifier segment, final Bytes key, final Bytes value, final long version) {
     final Cache<CacheKey, VersionedValue> cache = cacheForSegment(segment);
-    if (cache != null) {
+    if (cache != null && enabled) {
       final CacheKey cacheKey = CacheKey.of(key);
       cache
           .asMap()
@@ -438,7 +520,7 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
   public void removeFromCache(
       final SegmentIdentifier segment, final Bytes key, final long version) {
     final Cache<CacheKey, VersionedValue> cache = cacheForSegment(segment);
-    if (cache != null) {
+    if (cache != null && enabled) {
       final CacheKey cacheKey = CacheKey.of(key);
       cache
           .asMap()

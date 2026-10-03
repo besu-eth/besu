@@ -29,6 +29,7 @@ import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
 import java.io.Closeable;
+import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -381,9 +382,12 @@ public class BonsaiWorldStateKeyValueStorageCacheTest {
     final Hash account = Hash.hash(Bytes.of(42));
 
     head.getCacheManager().beginCommitCacheBypass();
-    assertThat(head.getAccount(account)).isEmpty();
-    assertThat(head.isCached(ACCOUNT_INFO_STATE, account.getBytes())).isFalse();
-    head.getCacheManager().endCommitCacheBypass();
+    try {
+      assertThat(head.getAccount(account)).isEmpty();
+      assertThat(head.isCached(ACCOUNT_INFO_STATE, account.getBytes())).isFalse();
+    } finally {
+      head.getCacheManager().endCommitCacheBypass();
+    }
 
     assertThat(head.getAccount(account)).isEmpty();
     assertThat(head.isCached(ACCOUNT_INFO_STATE, account.getBytes())).isTrue();
@@ -409,8 +413,11 @@ public class BonsaiWorldStateKeyValueStorageCacheTest {
             ACCOUNT_INFO_STATE, account.getBytes(), Bytes.of(9, 9, 9), head.getCurrentVersion());
 
     head.getCacheManager().beginCommitCacheBypass();
-    assertThat(head.getAccount(account)).contains(value);
-    head.getCacheManager().endCommitCacheBypass();
+    try {
+      assertThat(head.getAccount(account)).contains(value);
+    } finally {
+      head.getCacheManager().endCommitCacheBypass();
+    }
   }
 
   @Test
@@ -419,14 +426,47 @@ public class BonsaiWorldStateKeyValueStorageCacheTest {
     final Hash account = Hash.hash(Bytes.of(46));
     final Bytes value = Bytes.of(7, 7, 7);
     commitAccount(account, value);
+    final long versionBeforeClear = head.getCurrentVersion();
     assertThat(head.getCacheSize(ACCOUNT_INFO_STATE)).isEqualTo(1);
 
     head.clearCrossBlockCache();
 
     assertThat(head.getCacheSize(ACCOUNT_INFO_STATE)).isZero();
     assertThat(head.isCached(ACCOUNT_INFO_STATE, account.getBytes())).isFalse();
+    // the clear advances the version and the head follows it
+    assertThat(head.getCurrentVersion())
+        .isGreaterThan(versionBeforeClear)
+        .isEqualTo(head.getCacheManager().getCurrentVersion());
+    // a read still pinned to the pre-clear version must not repopulate the cache
+    head.getCacheManager()
+        .getFromCacheOrStorage(
+            ACCOUNT_INFO_STATE, account.getBytes(), versionBeforeClear, () -> Optional.of(value));
+    assertThat(head.isCached(ACCOUNT_INFO_STATE, account.getBytes())).isFalse();
+    // a head read repopulates it from storage
     assertThat(head.getAccount(account)).contains(value);
     assertThat(head.isCached(ACCOUNT_INFO_STATE, account.getBytes())).isTrue();
+  }
+
+  @Test
+  void disabledCache_commitsAndReadsDoNotPopulateUntilEnabled() throws Exception {
+    newHead(true);
+    final Hash account = Hash.hash(Bytes.of(47));
+    head.getCacheManager().disable();
+
+    commitAccount(account, Bytes.of(1));
+
+    assertThat(head.isCached(ACCOUNT_INFO_STATE, account.getBytes())).isFalse();
+    assertThat(head.getCurrentVersion()).isEqualTo(head.getCacheManager().getCurrentVersion());
+    assertThat(head.getAccount(account)).contains(Bytes.of(1));
+    assertThat(head.isCached(ACCOUNT_INFO_STATE, account.getBytes())).isFalse();
+
+    head.getCacheManager().enable();
+
+    assertThat(head.getAccount(account)).contains(Bytes.of(1));
+    assertThat(head.isCached(ACCOUNT_INFO_STATE, account.getBytes())).isTrue();
+    commitAccount(account, Bytes.of(2));
+    assertThat(head.getCachedValue(ACCOUNT_INFO_STATE, account.getBytes()))
+        .hasValueSatisfying(cv -> assertThat(cv.getValue()).isEqualTo(Bytes.of(2)));
   }
 
   private void commitAccount(final Hash accountHash, final Bytes value) {

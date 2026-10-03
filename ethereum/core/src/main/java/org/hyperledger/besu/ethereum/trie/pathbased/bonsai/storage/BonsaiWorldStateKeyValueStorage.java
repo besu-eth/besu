@@ -424,8 +424,7 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
 
   public void upgradeToFullFlatDbMode() {
     flatDbStrategyProvider.upgradeToFullFlatDbMode(composedWorldStateStorage);
-    cacheManager.clear(ACCOUNT_INFO_STATE);
-    cacheManager.clear(ACCOUNT_STORAGE_STORAGE);
+    clearCrossBlockCache();
   }
 
   public void upgradeToArchiveFlatDbMode() {
@@ -461,8 +460,7 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
 
   /** Drops all cross-block flat-db cache entries without touching RocksDB. */
   public void clearCrossBlockCache() {
-    cacheManager.clear(ACCOUNT_INFO_STATE);
-    cacheManager.clear(ACCOUNT_STORAGE_STORAGE);
+    cacheManager.invalidateAll(newVersion -> cacheVersion = newVersion);
   }
 
   public BonsaiFlatDbStrategy getFlatDbStrategy() {
@@ -667,8 +665,8 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
 
   /**
    * Cached updater that stages changes and refreshes the cache only after a successful storage
-   * commit ({@code updateCache()} is not run if {@code super.commit()} fails). Used only by base
-   * storage (not snapshots or layers).
+   * commit ({@code updateCache(long)} is not run if {@code super.commit()} fails). Used only by
+   * base storage (not snapshots or layers).
    */
   public class CachedUpdater extends Updater {
 
@@ -739,19 +737,16 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
       pending.clear();
     }
 
-    protected void incrementCacheVersion() {
-      cacheVersion = cacheManager.incrementAndGetVersion();
-    }
-
-    protected void updateCache() {
+    /** Publishes the staged writes at {@code publishVersion}, the version this commit obtained. */
+    protected void updateCache(final long publishVersion) {
       pending.forEach(
           (segment, updates) ->
               updates.forEach(
                   (key, value) -> {
                     if (value == null) {
-                      cacheManager.removeFromCache(segment, key, cacheVersion);
+                      cacheManager.removeFromCache(segment, key, publishVersion);
                     } else {
-                      cacheManager.putInCache(segment, key, value, cacheVersion);
+                      cacheManager.putInCache(segment, key, value, publishVersion);
                     }
                   }));
       clearStaged();
@@ -759,19 +754,18 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
     }
 
     /**
-     * Write storage first, then publish the new cache version. While publishing, readers bypass the
-     * cross-block cache entirely so they neither hit stale entries nor insert (including negative)
-     * results that could race {@link #updateCache()}.
+     * Write storage first, then publish the staged writes at the version the cache manager
+     * allocated for this commit (see {@link FlatDbCacheManager#commitAndPublish}).
      */
     private void commitAndPublishCache(final Runnable storageCommit) {
-      cacheManager.beginCommitCacheBypass();
-      try {
-        storageCommit.run();
-        incrementCacheVersion();
-        updateCache();
-      } finally {
-        cacheManager.endCommitCacheBypass();
-      }
+      cacheManager.commitAndPublish(
+          storageCommit,
+          newVersion -> {
+            cacheVersion = newVersion;
+            updateCache(newVersion);
+          });
+      // no-op when published; drops staged writes when the cache is disabled
+      clearStaged();
     }
 
     @Override
