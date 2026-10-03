@@ -15,6 +15,8 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
@@ -27,6 +29,8 @@ import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.TrieIterator;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.FlatDbCacheManager.TrieNode;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.VersionedFlatDbCacheManager;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
@@ -93,6 +97,41 @@ class BonsaiCachedMerkleTrieLoaderTest {
     final Hash hashAccountZero = accounts.get(0).addressHash();
     assertThat(cachedTrie.get(hashAccountZero.getBytes()))
         .isEqualTo(trie.get(hashAccountZero.getBytes()));
+  }
+
+  @Test
+  void shouldServeCommittedNodesFromCrossBlockCache() throws Exception {
+    final Bytes accountNode = Bytes.fromHexString("0xc58320aaaa01");
+    final Bytes storageNode = Bytes.fromHexString("0xc58320bbbb02");
+    final Bytes32 accountNodeHash = Bytes32.wrap(Hash.hash(accountNode).getBytes());
+    final Bytes32 storageNodeHash = Bytes32.wrap(Hash.hash(storageNode).getBytes());
+    final VersionedFlatDbCacheManager cacheManager =
+        new VersionedFlatDbCacheManager(100, 100, new NoOpMetricsSystem());
+    try (cacheManager;
+        BonsaiWorldStateKeyValueStorage emptyStorage =
+            new BonsaiWorldStateKeyValueStorage(
+                new InMemoryKeyValueStorageProvider(),
+                new NoOpMetricsSystem(),
+                DataStorageConfiguration.DEFAULT_BONSAI_CONFIG,
+                cacheManager)) {
+      cacheManager.putTrieNodes(
+          List.of(new TrieNode(accountNodeHash, accountNode)),
+          List.of(new TrieNode(storageNodeHash, storageNode)));
+      await()
+          .untilAsserted(
+              () -> assertThat(cacheManager.getCacheSize(TRIE_BRANCH_STORAGE)).isEqualTo(2));
+
+      // the BAL state root computation reads through a disabled loader
+      for (final BonsaiCachedMerkleTrieLoader loader :
+          List.of(merkleTrieLoader, new NoOpBonsaiCachedMerkleTrieLoader())) {
+        assertThat(loader.getAccountStateTrieNode(emptyStorage, Bytes.EMPTY, accountNodeHash))
+            .contains(accountNode);
+        assertThat(
+                loader.getAccountStorageTrieNode(
+                    emptyStorage, accounts.get(0).addressHash(), Bytes.EMPTY, storageNodeHash))
+            .contains(storageNode);
+      }
+    }
   }
 
   @Test

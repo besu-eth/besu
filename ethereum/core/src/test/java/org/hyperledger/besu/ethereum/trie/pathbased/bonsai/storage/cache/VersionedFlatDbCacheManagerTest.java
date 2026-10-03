@@ -15,8 +15,12 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 
+import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.FlatDbCacheManager.TrieNode;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.util.ArrayList;
@@ -24,6 +28,7 @@ import java.util.List;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -98,5 +103,42 @@ class VersionedFlatDbCacheManagerTest {
         .hasValueSatisfying(cv -> assertThat(cv.isRemoval()).isTrue());
     assertThat(cacheManager.getCachedValue(ACCOUNT_INFO_STATE, keyC))
         .hasValueSatisfying(cv -> assertThat(cv.getValue()).isEqualTo(valueC));
+  }
+
+  @Test
+  void trieNodes_areServedByHashUntilCleared() {
+    final Bytes accountNode = Bytes.fromHexString("0xc58320aaaa01");
+    final Bytes storageNode = Bytes.fromHexString("0xc58320bbbb02");
+    final Bytes32 accountNodeHash = Bytes32.wrap(Hash.hash(accountNode).getBytes());
+    final Bytes32 storageNodeHash = Bytes32.wrap(Hash.hash(storageNode).getBytes());
+
+    cacheManager.putTrieNodes(
+        List.of(new TrieNode(accountNodeHash, accountNode)),
+        List.of(new TrieNode(storageNodeHash, storageNode)));
+    await()
+        .untilAsserted(
+            () -> assertThat(cacheManager.getCacheSize(TRIE_BRANCH_STORAGE)).isEqualTo(2));
+
+    assertThat(cacheManager.getAccountTrieNode(accountNodeHash)).contains(accountNode);
+    assertThat(cacheManager.getStorageTrieNode(storageNodeHash)).contains(storageNode);
+    assertThat(cacheManager.getStorageTrieNode(accountNodeHash)).isEmpty();
+    assertThat(cacheManager.getAccountTrieNode(storageNodeHash)).isEmpty();
+
+    cacheManager.clear(TRIE_BRANCH_STORAGE);
+
+    assertThat(cacheManager.getCacheSize(TRIE_BRANCH_STORAGE)).isZero();
+    assertThat(cacheManager.getAccountTrieNode(accountNodeHash)).isEmpty();
+    assertThat(cacheManager.getStorageTrieNode(storageNodeHash)).isEmpty();
+  }
+
+  @Test
+  void trieNodes_putAfterCloseIsDropped() {
+    final Bytes node = Bytes.fromHexString("0xc58320aaaa01");
+    final Bytes32 nodeHash = Bytes32.wrap(Hash.hash(node).getBytes());
+    cacheManager.close();
+
+    cacheManager.putTrieNodes(List.of(new TrieNode(nodeHash, node)), List.of());
+
+    assertThat(cacheManager.getAccountTrieNode(nodeHash)).isEmpty();
   }
 }

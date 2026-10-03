@@ -15,8 +15,10 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
@@ -31,6 +33,7 @@ import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import java.io.Closeable;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -41,6 +44,14 @@ import org.junit.jupiter.api.Test;
  * views pinned to a cache epoch so they do not observe newer cache-only state after the head moves.
  */
 public class BonsaiWorldStateKeyValueStorageCacheTest {
+
+  private static final Bytes TRIE_NODE_LOCATION = Bytes.of(1);
+  private static final Bytes ACCOUNT_TRIE_NODE = Bytes.fromHexString("0xc58320aaaa01");
+  private static final Bytes STORAGE_TRIE_NODE = Bytes.fromHexString("0xc58320bbbb02");
+  private static final Bytes32 ACCOUNT_TRIE_NODE_HASH =
+      Bytes32.wrap(Hash.hash(ACCOUNT_TRIE_NODE).getBytes());
+  private static final Bytes32 STORAGE_TRIE_NODE_HASH =
+      Bytes32.wrap(Hash.hash(STORAGE_TRIE_NODE).getBytes());
 
   private BonsaiWorldStateKeyValueStorage head;
 
@@ -427,6 +438,111 @@ public class BonsaiWorldStateKeyValueStorageCacheTest {
     assertThat(head.isCached(ACCOUNT_INFO_STATE, account.getBytes())).isFalse();
     assertThat(head.getAccount(account)).contains(value);
     assertThat(head.isCached(ACCOUNT_INFO_STATE, account.getBytes())).isTrue();
+  }
+
+  @Test
+  void committedTrieNodesAreCachedByHash() throws Exception {
+    newHead(true);
+    final Hash account = Hash.hash(Bytes.of(1));
+    final var updater = head.updater();
+    updater.putAccountStateTrieNode(TRIE_NODE_LOCATION, ACCOUNT_TRIE_NODE_HASH, ACCOUNT_TRIE_NODE);
+    updater.putAccountStorageTrieNode(
+        account, TRIE_NODE_LOCATION, STORAGE_TRIE_NODE_HASH, STORAGE_TRIE_NODE);
+    updater.commit();
+    awaitCachedTrieNodes(2);
+
+    final var removal = head.updater();
+    removal.removeAccountStateTrieNode(TRIE_NODE_LOCATION);
+    removal.commit();
+
+    // the cache answers what the node is; only the plain read says whether storage holds it
+    assertThat(
+            head.getAccountStateTrieNodeFromCacheOrStorage(
+                TRIE_NODE_LOCATION, ACCOUNT_TRIE_NODE_HASH))
+        .contains(ACCOUNT_TRIE_NODE);
+    assertThat(head.getAccountStateTrieNode(TRIE_NODE_LOCATION, ACCOUNT_TRIE_NODE_HASH)).isEmpty();
+
+    final Hash accountWithSameNode = Hash.hash(Bytes.of(2));
+    assertThat(
+            head.getAccountStorageTrieNodeFromCacheOrStorage(
+                accountWithSameNode, TRIE_NODE_LOCATION, STORAGE_TRIE_NODE_HASH))
+        .contains(STORAGE_TRIE_NODE);
+    assertThat(
+            head.getAccountStorageTrieNode(
+                accountWithSameNode, TRIE_NODE_LOCATION, STORAGE_TRIE_NODE_HASH))
+        .isEmpty();
+  }
+
+  @Test
+  void layerReadsCommittedTrieNodesFromHeadCache() throws Exception {
+    newHead(true);
+    commitAccountTrieNode(ACCOUNT_TRIE_NODE_HASH, ACCOUNT_TRIE_NODE);
+    awaitCachedTrieNodes(1);
+    final var removal = head.updater();
+    removal.removeAccountStateTrieNode(TRIE_NODE_LOCATION);
+    removal.commit();
+
+    try (BonsaiWorldStateLayerStorage layer = new BonsaiWorldStateLayerStorage(head)) {
+      assertThat(
+              layer.getAccountStateTrieNodeFromCacheOrStorage(
+                  TRIE_NODE_LOCATION, ACCOUNT_TRIE_NODE_HASH))
+          .contains(ACCOUNT_TRIE_NODE);
+      assertThat(layer.getAccountStateTrieNode(TRIE_NODE_LOCATION, ACCOUNT_TRIE_NODE_HASH))
+          .isEmpty();
+    }
+  }
+
+  @Test
+  void rollbackDoesNotCacheTrieNodes() throws Exception {
+    newHead(true);
+    final var rolledBack = head.updater();
+    rolledBack.putAccountStateTrieNode(
+        TRIE_NODE_LOCATION, ACCOUNT_TRIE_NODE_HASH, ACCOUNT_TRIE_NODE);
+    rolledBack.rollback();
+
+    // nodes reach the cache in commit order, so the rolled back one would be there by now
+    commitAccountTrieNode(STORAGE_TRIE_NODE_HASH, STORAGE_TRIE_NODE);
+    awaitCachedTrieNodes(1);
+
+    assertThat(head.getCacheManager().getAccountTrieNode(ACCOUNT_TRIE_NODE_HASH)).isEmpty();
+  }
+
+  @Test
+  void clearCrossBlockCacheDropsTrieNodes() throws Exception {
+    newHead(true);
+    commitAccountTrieNode(ACCOUNT_TRIE_NODE_HASH, ACCOUNT_TRIE_NODE);
+    awaitCachedTrieNodes(1);
+
+    head.clearCrossBlockCache();
+
+    assertThat(head.getCacheSize(TRIE_BRANCH_STORAGE)).isZero();
+    assertThat(
+            head.getAccountStateTrieNodeFromCacheOrStorage(
+                TRIE_NODE_LOCATION, ACCOUNT_TRIE_NODE_HASH))
+        .contains(ACCOUNT_TRIE_NODE);
+  }
+
+  @Test
+  void crossBlockDisabled_trieNodeReadsComeFromStorage() throws Exception {
+    newHead(false);
+    commitAccountTrieNode(ACCOUNT_TRIE_NODE_HASH, ACCOUNT_TRIE_NODE);
+
+    assertThat(head.getCacheSize(TRIE_BRANCH_STORAGE)).isZero();
+    assertThat(
+            head.getAccountStateTrieNodeFromCacheOrStorage(
+                TRIE_NODE_LOCATION, ACCOUNT_TRIE_NODE_HASH))
+        .contains(ACCOUNT_TRIE_NODE);
+  }
+
+  private void commitAccountTrieNode(final Bytes32 nodeHash, final Bytes node) {
+    final var updater = head.updater();
+    updater.putAccountStateTrieNode(TRIE_NODE_LOCATION, nodeHash, node);
+    updater.commit();
+  }
+
+  private void awaitCachedTrieNodes(final long count) {
+    await()
+        .untilAsserted(() -> assertThat(head.getCacheSize(TRIE_BRANCH_STORAGE)).isEqualTo(count));
   }
 
   private void commitAccount(final Hash accountHash, final Bytes value) {

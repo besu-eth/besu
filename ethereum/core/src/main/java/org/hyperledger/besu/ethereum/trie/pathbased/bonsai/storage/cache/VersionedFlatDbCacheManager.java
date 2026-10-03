@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache;
 
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
@@ -31,6 +32,7 @@ import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -41,6 +43,7 @@ import java.util.function.Supplier;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -55,6 +58,9 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
   /** Upper bound for Caffeine {@code initialCapacity} (must fit in a positive int). */
   private static final long MAX_INITIAL_CAPACITY = Integer.MAX_VALUE;
 
+  private static final long ACCOUNT_TRIE_NODE_CACHE_SIZE = 100_000;
+  private static final long STORAGE_TRIE_NODE_CACHE_SIZE = 200_000;
+
   private final AtomicLong globalVersion = new AtomicLong(0);
 
   /** Nested commit-bypass count; when readers ignore the cache entirely. */
@@ -62,6 +68,14 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
 
   private final Cache<CacheKey, VersionedValue> accountCache;
   private final Cache<CacheKey, VersionedValue> storageCache;
+
+  /**
+   * Trie nodes committed by recent blocks, keyed by hash. Every node on a modified path gets a new
+   * hash, so the next block's walk down that path would otherwise read back what was just written.
+   */
+  private final Cache<CacheKey, Bytes> accountTrieNodeCache;
+
+  private final Cache<CacheKey, Bytes> storageTrieNodeCache;
   private final ThresholdDrainExecutor drainExecutor;
   private final ExecutorService maintenanceWorker;
   private final AtomicBoolean maintenanceScheduled = new AtomicBoolean(false);
@@ -71,6 +85,8 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
   private final Counter cacheMissCounter;
   private final Counter cacheInsertCounter;
   private final Counter cacheRemovalCounter;
+  private final Counter trieNodeCacheHitCounter;
+  private final Counter trieNodeCacheMissCounter;
 
   /**
    * Creates a new VersionedFlatDbCacheManager with the default drain threshold.
@@ -113,6 +129,8 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
 
     this.accountCache = createCache(accountCacheSize);
     this.storageCache = createCache(storageCacheSize);
+    this.accountTrieNodeCache = createCache(ACCOUNT_TRIE_NODE_CACHE_SIZE);
+    this.storageTrieNodeCache = createCache(STORAGE_TRIE_NODE_CACHE_SIZE);
 
     this.cacheRequestCounter =
         metricsSystem.createCounter(
@@ -142,11 +160,23 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
             "bonsai_cache_removals_total",
             "Total number of cache removals");
 
+    this.trieNodeCacheHitCounter =
+        metricsSystem.createCounter(
+            BesuMetricCategory.BLOCKCHAIN,
+            "bonsai_cache_trie_node_hits_total",
+            "Total number of trie node cache hits");
+
+    this.trieNodeCacheMissCounter =
+        metricsSystem.createCounter(
+            BesuMetricCategory.BLOCKCHAIN,
+            "bonsai_cache_trie_node_misses_total",
+            "Total number of trie node cache misses");
+
     LOG.info(
         "Cache maintenance will trigger asynchronously after {} pending tasks", drainThreshold);
   }
 
-  private Cache<CacheKey, VersionedValue> createCache(final long maxSize) {
+  private <V> Cache<CacheKey, V> createCache(final long maxSize) {
     return Caffeine.newBuilder()
         .initialCapacity(initialCapacityFor(maxSize))
         .maximumSize(maxSize)
@@ -209,6 +239,8 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
       final int drained = drainExecutor.drain();
       accountCache.cleanUp();
       storageCache.cleanUp();
+      accountTrieNodeCache.cleanUp();
+      storageTrieNodeCache.cleanUp();
       if (drained > 0) {
         LOG.trace("Cache maintenance drained {} tasks", drained);
       }
@@ -267,6 +299,11 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
 
   @Override
   public void clear(final SegmentIdentifier segment) {
+    if (segment == TRIE_BRANCH_STORAGE) {
+      accountTrieNodeCache.invalidateAll();
+      storageTrieNodeCache.invalidateAll();
+      return;
+    }
     final Cache<CacheKey, VersionedValue> cache = cacheForSegment(segment);
     if (cache != null) {
       cache.invalidateAll();
@@ -455,7 +492,50 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
   }
 
   @Override
+  public Optional<Bytes> getAccountTrieNode(final Bytes32 nodeHash) {
+    return getTrieNode(accountTrieNodeCache, nodeHash);
+  }
+
+  @Override
+  public Optional<Bytes> getStorageTrieNode(final Bytes32 nodeHash) {
+    return getTrieNode(storageTrieNodeCache, nodeHash);
+  }
+
+  private Optional<Bytes> getTrieNode(final Cache<CacheKey, Bytes> cache, final Bytes32 nodeHash) {
+    final Bytes node = cache.getIfPresent(CacheKey.of(nodeHash));
+    if (node == null) {
+      trieNodeCacheMissCounter.inc();
+      return Optional.empty();
+    }
+    trieNodeCacheHitCounter.inc();
+    return Optional.of(node);
+  }
+
+  /** Runs on the maintenance worker, so the committing thread does not pay for the inserts. */
+  @Override
+  public void putTrieNodes(final List<TrieNode> accountNodes, final List<TrieNode> storageNodes) {
+    if (accountNodes.isEmpty() && storageNodes.isEmpty()) {
+      return;
+    }
+    try {
+      maintenanceWorker.execute(
+          () -> {
+            accountNodes.forEach(
+                node -> accountTrieNodeCache.put(CacheKey.of(node.hash()), node.node()));
+            storageNodes.forEach(
+                node -> storageTrieNodeCache.put(CacheKey.of(node.hash()), node.node()));
+            doMaintenance();
+          });
+    } catch (final RejectedExecutionException e) {
+      LOG.debug("Cache maintenance worker is shut down, dropping committed trie nodes");
+    }
+  }
+
+  @Override
   public long getCacheSize(final SegmentIdentifier segment) {
+    if (segment == TRIE_BRANCH_STORAGE) {
+      return accountTrieNodeCache.estimatedSize() + storageTrieNodeCache.estimatedSize();
+    }
     final Cache<CacheKey, VersionedValue> cache = cacheForSegment(segment);
     return cache != null ? cache.estimatedSize() : 0;
   }
