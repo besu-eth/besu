@@ -18,10 +18,11 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.plugin.BesuPlugin;
-import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.RegistrationContext;
+import org.hyperledger.besu.plugin.StartContext;
 import org.hyperledger.besu.plugin.data.BlockContext;
 import org.hyperledger.besu.plugin.services.BlockchainService;
-import org.hyperledger.besu.plugin.services.RpcEndpointService;
+import org.hyperledger.besu.plugin.services.RpcEndpointRegistry;
 import org.hyperledger.besu.plugin.services.exception.PluginRpcEndpointException;
 import org.hyperledger.besu.plugin.services.rpc.PluginRpcRequest;
 
@@ -37,39 +38,26 @@ public class TestBlockchainServiceFinalizedPlugin implements BesuPlugin {
       LoggerFactory.getLogger(TestBlockchainServiceFinalizedPlugin.class);
   private static final String RPC_NAMESPACE = "updater";
   private static final String RPC_METHOD_FINALIZED_BLOCK = "updateFinalizedBlockV1";
-  private static final String RPC_METHOD_SAFE_BLOCK = "updateSafeBlockV1";
+    private static final String RPC_METHOD_SAFE_BLOCK = "updateSafeBlockV1";
+  private final FinalizationUpdaterRpcMethod rpcMethod = new FinalizationUpdaterRpcMethod();
 
   @Override
-  public void register(final ServiceManager serviceManager) {
+  public void register(final RegistrationContext context) {
     LOG.trace("Registering plugin ...");
-
-    final RpcEndpointService rpcEndpointService =
-        serviceManager
-            .getService(RpcEndpointService.class)
-            .orElseThrow(
-                () ->
-                    new RuntimeException(
-                        "Failed to obtain RpcEndpointService from the BesuContext."));
-
-    final BlockchainService blockchainService =
-        serviceManager
-            .getService(BlockchainService.class)
-            .orElseThrow(
-                () ->
-                    new RuntimeException(
-                        "Failed to obtain BlockchainService from the BesuContext."));
-
-    final FinalizationUpdaterRpcMethod rpcMethod =
-        new FinalizationUpdaterRpcMethod(blockchainService);
-    rpcEndpointService.registerRPCEndpoint(
+    // the endpoints are registered here; the BlockchainService they use is a start-phase service,
+    // so the handler receives it in start(), before any request can reach it
+    final RpcEndpointRegistry rpcEndpointRegistry =
+        context.getBesuService(RpcEndpointRegistry.class);
+    rpcEndpointRegistry.registerRPCEndpoint(
         RPC_NAMESPACE, RPC_METHOD_FINALIZED_BLOCK, rpcMethod::setFinalizedBlock);
-    rpcEndpointService.registerRPCEndpoint(
+    rpcEndpointRegistry.registerRPCEndpoint(
         RPC_NAMESPACE, RPC_METHOD_SAFE_BLOCK, rpcMethod::setSafeBlock);
   }
 
   @Override
-  public void start() {
+  public void start(final StartContext context) {
     LOG.trace("Starting plugin ...");
+    rpcMethod.setBlockchainService(context.getBesuService(BlockchainService.class));
   }
 
   @Override
@@ -78,10 +66,10 @@ public class TestBlockchainServiceFinalizedPlugin implements BesuPlugin {
   }
 
   static class FinalizationUpdaterRpcMethod {
-    private final BlockchainService blockchainService;
+    private volatile BlockchainService blockchainService;
     private final JsonRpcParameter parameterParser = new JsonRpcParameter();
 
-    FinalizationUpdaterRpcMethod(final BlockchainService blockchainService) {
+    void setBlockchainService(final BlockchainService blockchainService) {
       this.blockchainService = blockchainService;
     }
 
@@ -95,8 +83,11 @@ public class TestBlockchainServiceFinalizedPlugin implements BesuPlugin {
 
     private Boolean setFinalizedOrSafeBlock(
         final PluginRpcRequest request, final boolean isFinalized) {
-      final Long blockNumberToSet = parseResult(request);
-
+            final Long blockNumberToSet = parseResult(request);
+      if (blockchainService == null) {
+        throw new PluginRpcEndpointException(
+            RpcErrorType.INTERNAL_ERROR, "Plugin has not started yet");
+      }
       // lookup finalized block by number in local chain
       final Optional<BlockContext> finalizedBlock =
           blockchainService.getBlockByNumber(blockNumberToSet);
