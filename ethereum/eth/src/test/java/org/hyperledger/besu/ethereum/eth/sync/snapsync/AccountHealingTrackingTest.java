@@ -29,17 +29,14 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.StorageTrieN
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
-import org.hyperledger.besu.ethereum.trie.RangeStorageEntriesCollector;
-import org.hyperledger.besu.ethereum.trie.TrieIterator;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredNodeFactory;
-import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
-import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.util.List;
+import java.util.NavigableMap;
 import java.util.TreeMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -58,10 +55,7 @@ public class AccountHealingTrackingTest {
 
   private final List<Address> accounts = List.of(Address.fromHexString("0xdeadbeef"));
   private final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage =
-      new BonsaiWorldStateKeyValueStorage(
-          new InMemoryKeyValueStorageProvider(),
-          new NoOpMetricsSystem(),
-          DataStorageConfiguration.DEFAULT_BONSAI_CONFIG);
+      InMemoryKeyValueStorageProvider.createBonsaiInMemoryWorldStateStorage();
 
   private WorldStateStorageCoordinator worldStateStorageCoordinator;
   private WorldStateProofProvider worldStateProofProvider;
@@ -96,16 +90,9 @@ public class AccountHealingTrackingTest {
                 Function.identity()),
             Bytes32.wrap(stateTrieAccountValue.getStorageRoot().getBytes()));
 
-    final RangeStorageEntriesCollector collector =
-        RangeStorageEntriesCollector.createCollector(
-            Bytes32.wrap(Hash.ZERO.getBytes()), MAX_RANGE, 10, Integer.MAX_VALUE);
-    final TrieIterator<Bytes> visitor = RangeStorageEntriesCollector.createVisitor(collector);
-    final TreeMap<Bytes32, Bytes> slots =
-        (TreeMap<Bytes32, Bytes>)
-            storageTrie.entriesFrom(
-                root ->
-                    RangeStorageEntriesCollector.collectEntries(
-                        collector, visitor, root, Bytes32.wrap(Hash.ZERO.getBytes())));
+    final NavigableMap<Bytes32, Bytes> slots =
+        TrieGenerator.collectEntries(
+            storageTrie, Bytes32.wrap(Hash.ZERO.getBytes()), MAX_RANGE, 10);
 
     final List<Bytes> proofs =
         worldStateProofProvider.getStorageProofRelatedNodes(
@@ -148,16 +135,9 @@ public class AccountHealingTrackingTest {
                 Function.identity()),
             Bytes32.wrap(stateTrieAccountValue.getStorageRoot().getBytes()));
 
-    final RangeStorageEntriesCollector collector =
-        RangeStorageEntriesCollector.createCollector(
-            Bytes32.wrap(Hash.ZERO.getBytes()), MAX_RANGE, 10, Integer.MAX_VALUE);
-    final TrieIterator<Bytes> visitor = RangeStorageEntriesCollector.createVisitor(collector);
-    final TreeMap<Bytes32, Bytes> slots =
-        (TreeMap<Bytes32, Bytes>)
-            storageTrie.entriesFrom(
-                root ->
-                    RangeStorageEntriesCollector.collectEntries(
-                        collector, visitor, root, Bytes32.wrap(Hash.ZERO.getBytes())));
+    final NavigableMap<Bytes32, Bytes> slots =
+        TrieGenerator.collectEntries(
+            storageTrie, Bytes32.wrap(Hash.ZERO.getBytes()), MAX_RANGE, 10);
 
     final StorageRangeDataRequest storageRangeDataRequest =
         SnapDataRequest.createStorageRangeDataRequest(
@@ -220,16 +200,8 @@ public class AccountHealingTrackingTest {
                 Function.identity()),
             Bytes32.wrap(stateTrieAccountValue.getStorageRoot().getBytes()));
 
-    final RangeStorageEntriesCollector collector =
-        RangeStorageEntriesCollector.createCollector(
-            Bytes32.wrap(Hash.ZERO.getBytes()), MAX_RANGE, 1, Integer.MAX_VALUE);
-    final TrieIterator<Bytes> visitor = RangeStorageEntriesCollector.createVisitor(collector);
-    final TreeMap<Bytes32, Bytes> slots =
-        (TreeMap<Bytes32, Bytes>)
-            storageTrie.entriesFrom(
-                root ->
-                    RangeStorageEntriesCollector.collectEntries(
-                        collector, visitor, root, Bytes32.wrap(Hash.ZERO.getBytes())));
+    final NavigableMap<Bytes32, Bytes> slots =
+        TrieGenerator.collectEntries(storageTrie, Bytes32.wrap(Hash.ZERO.getBytes()), MAX_RANGE, 1);
 
     final StorageRangeDataRequest storageRangeDataRequest =
         SnapDataRequest.createStorageRangeDataRequest(
@@ -261,16 +233,8 @@ public class AccountHealingTrackingTest {
                 Function.identity()),
             Bytes32.wrap(stateTrieAccountValue.getStorageRoot().getBytes()));
 
-    final RangeStorageEntriesCollector collector =
-        RangeStorageEntriesCollector.createCollector(
-            Bytes32.wrap(Hash.ZERO.getBytes()), MAX_RANGE, 1, Integer.MAX_VALUE);
-    final TrieIterator<Bytes> visitor = RangeStorageEntriesCollector.createVisitor(collector);
-    final TreeMap<Bytes32, Bytes> slots =
-        (TreeMap<Bytes32, Bytes>)
-            storageTrie.entriesFrom(
-                root ->
-                    RangeStorageEntriesCollector.collectEntries(
-                        collector, visitor, root, Bytes32.wrap(Hash.ZERO.getBytes())));
+    final NavigableMap<Bytes32, Bytes> slots =
+        TrieGenerator.collectEntries(storageTrie, Bytes32.wrap(Hash.ZERO.getBytes()), MAX_RANGE, 1);
 
     final List<Bytes> proofs =
         worldStateProofProvider.getStorageProofRelatedNodes(
