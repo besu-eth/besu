@@ -33,6 +33,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StateOverride;
 import org.hyperledger.besu.datatypes.TransactionType;
+import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.GasLimitCalculator;
 import org.hyperledger.besu.ethereum.api.ApiConfiguration;
@@ -69,6 +70,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -79,6 +81,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -94,6 +97,9 @@ public class TransactionSimulatorTest extends TrustedSetupClassLoaderExtension {
   private static final BigInteger HALF_CURVE_ORDER = SIGNATURE_ALGORITHM.getHalfCurveOrder();
   private static final SECPSignature FAKE_SIGNATURE =
       SIGNATURE_ALGORITHM.createSignature(HALF_CURVE_ORDER, HALF_CURVE_ORDER, (byte) 0);
+
+  // the block's blob base fee, above the minimum of 1
+  private static final Wei BLOCK_BLOB_GAS_PRICE = Wei.of(5);
 
   private static final Address DEFAULT_FROM =
       Address.fromHexString("0x0000000000000000000000000000000000000000");
@@ -872,40 +878,139 @@ public class TransactionSimulatorTest extends TrustedSetupClassLoaderExtension {
     verifyTransactionWasProcessed(expectedTransaction);
   }
 
-  @Test
-  public void shouldSetMaxFeePerBlobGasToMinBlobGaspriceWhenExceedingBalanceAllowed() {
-    final CallParameter callParameter = blobTransactionCallParameter();
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("blobFeeCases")
+  public void shouldPriceBlobGasIndependentlyOfExecutionGas(
+      final String description,
+      final CallParameter callParameter,
+      final TransactionValidationParams validationParams,
+      final Optional<Wei> expectedMaxFeePerBlobGas,
+      final Wei expectedBlobGasPrice) {
     mockBlockchainAndWorldState(callParameter);
+    mockProtocolSpecForProcessWithWorldUpdater();
+    final FeeMarket feeMarket = mock(FeeMarket.class);
+    when(feeMarket.blobGasPricePerGas(any())).thenReturn(BLOCK_BLOB_GAS_PRICE);
+    when(protocolSpec.getFeeMarket()).thenReturn(feeMarket);
+    when(transactionProcessor.processTransaction(
+            any(), any(), any(), any(), any(), any(), any(), any(Wei.class), any()))
+        .thenReturn(mock(TransactionProcessingResult.class));
 
-    final Transaction expectedTransaction =
-        Transaction.builder()
-            .type(TransactionType.BLOB)
-            .chainId(callParameter.getChainId().orElseThrow())
-            .nonce(callParameter.getNonce().orElseThrow())
-            .gasLimit(callParameter.getGas().orElseThrow())
-            .maxFeePerGas(Wei.ZERO)
-            .maxPriorityFeePerGas(Wei.ZERO)
-            .to(callParameter.getTo().orElseThrow())
-            .sender(callParameter.getSender().orElseThrow())
-            .value(callParameter.getValue().orElseThrow())
-            .payload(callParameter.getPayload().orElseThrow())
-            .maxFeePerBlobGas(MIN_BLOB_GASPRICE)
-            .versionedHashes(callParameter.getBlobVersionedHashes().orElseThrow())
-            .signature(FAKE_SIGNATURE)
-            .build();
+    assertThat(
+            uncappedTransactionSimulator.process(callParameter, validationParams, NO_TRACING, 1L))
+        .isPresent();
 
-    mockProcessorStatusForTransaction(expectedTransaction, Status.SUCCESSFUL);
+    final ArgumentCaptor<Transaction> transaction = ArgumentCaptor.forClass(Transaction.class);
+    final ArgumentCaptor<Wei> blobGasPrice = ArgumentCaptor.forClass(Wei.class);
+    verify(transactionProcessor)
+        .processTransaction(
+            any(),
+            any(),
+            transaction.capture(),
+            any(),
+            any(),
+            any(),
+            any(),
+            blobGasPrice.capture(),
+            any());
+    assertThat(transaction.getValue().getMaxFeePerBlobGas())
+        .as(description)
+        .isEqualTo(expectedMaxFeePerBlobGas);
+    assertThat(blobGasPrice.getValue()).as(description).isEqualTo(expectedBlobGasPrice);
+  }
 
-    final Optional<TransactionSimulatorResult> result =
-        uncappedTransactionSimulator.process(
-            callParameter,
-            ImmutableTransactionValidationParams.builder().isAllowExceedingBalance(true).build(),
-            NO_TRACING,
-            1L);
+  private static Stream<Arguments> blobFeeCases() {
+    final TransactionValidationParams unpriced =
+        TransactionValidationParams.transactionSimulatorAllowExceedingBalanceAndFutureNonce();
+    final TransactionValidationParams priced =
+        TransactionValidationParams.transactionSimulatorAllowFutureNonce();
+    final Wei cap = BLOCK_BLOB_GAS_PRICE.add(2);
+    return Stream.of(
+        Arguments.of(
+            "unpriced, zero cap",
+            blobCall(b -> b.maxFeePerBlobGas(Wei.ZERO)),
+            unpriced,
+            Optional.of(Wei.ZERO),
+            Wei.ZERO),
+        Arguments.of(
+            "unpriced, omitted cap", blobCall(b -> b), unpriced, Optional.of(Wei.ZERO), Wei.ZERO),
+        Arguments.of(
+            "priced, omitted cap",
+            blobCall(b -> b.maxFeePerGas(Wei.ONE)),
+            priced,
+            Optional.of(Wei.ZERO),
+            Wei.ZERO),
+        Arguments.of(
+            "unpriced, positive cap",
+            blobCall(b -> b.maxFeePerBlobGas(cap)),
+            unpriced,
+            Optional.of(cap),
+            BLOCK_BLOB_GAS_PRICE),
+        Arguments.of(
+            "priced, positive cap",
+            blobCall(b -> b.maxFeePerGas(Wei.ONE).maxFeePerBlobGas(cap)),
+            priced,
+            Optional.of(cap),
+            BLOCK_BLOB_GAS_PRICE),
+        Arguments.of(
+            "strict, zero cap",
+            blobCall(b -> b.strict(true).maxFeePerBlobGas(Wei.ZERO)),
+            priced,
+            Optional.of(Wei.ZERO),
+            BLOCK_BLOB_GAS_PRICE),
+        Arguments.of(
+            "strict, omitted cap",
+            blobCall(b -> b.strict(true)),
+            priced,
+            Optional.of(BLOCK_BLOB_GAS_PRICE),
+            BLOCK_BLOB_GAS_PRICE),
+        Arguments.of(
+            "transaction, zero cap",
+            CallParameter.fromTransaction(blobTransaction(Wei.ZERO)),
+            priced,
+            Optional.of(Wei.ZERO),
+            BLOCK_BLOB_GAS_PRICE),
+        Arguments.of(
+            "unpriced, no blobs",
+            legacyTransactionCallParameterBuilder().build(),
+            unpriced,
+            Optional.empty(),
+            MIN_BLOB_GASPRICE),
+        Arguments.of(
+            "priced, no blobs",
+            legacyTransactionCallParameterBuilder().gasPrice(Wei.ONE).build(),
+            priced,
+            Optional.empty(),
+            BLOCK_BLOB_GAS_PRICE));
+  }
 
-    assertThat(result).isPresent();
-    assertThat(result.get().isSuccessful()).isTrue();
-    verifyTransactionWasProcessed(expectedTransaction);
+  // a transaction converted to a call keeps its own blob fee cap
+  private static Transaction blobTransaction(final Wei maxFeePerBlobGas) {
+    return Transaction.builder()
+        .type(TransactionType.BLOB)
+        .chainId(BigInteger.ONE)
+        .nonce(0)
+        .gasLimit(21_000L)
+        .maxFeePerGas(Wei.ONE)
+        .maxPriorityFeePerGas(Wei.ZERO)
+        .to(Address.ZERO)
+        .sender(Address.ZERO)
+        .value(Wei.ZERO)
+        .payload(Bytes.EMPTY)
+        .maxFeePerBlobGas(maxFeePerBlobGas)
+        .versionedHashes(List.of(VersionedHash.DEFAULT_VERSIONED_HASH))
+        .signature(FAKE_SIGNATURE)
+        .build();
+  }
+
+  private static CallParameter blobCall(
+      final UnaryOperator<ImmutableCallParameter.Builder> customise) {
+    return customise
+        .apply(
+            eip1559TransactionCallParameterBuilder()
+                .chainId(BigInteger.ONE)
+                .gas(21_000L)
+                .blobVersionedHashes(List.of(VersionedHash.DEFAULT_VERSIONED_HASH)))
+        .build();
   }
 
   @Test
@@ -975,6 +1080,109 @@ public class TransactionSimulatorTest extends TrustedSetupClassLoaderExtension {
 
     assertThat(result).isPresent();
     assertThat(result.get().transaction().getType()).isEqualTo(TransactionType.DELEGATE_CODE);
+  }
+
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("feeFieldCases")
+  public void shouldTypeAndPriceCallFromItsFeeFields(
+      final String description,
+      final CallParameter callParameter,
+      final Optional<Wei> baseFee,
+      final TransactionValidationParams validationParams,
+      final Optional<BigInteger> scheduleChainId,
+      final TransactionType expectedType,
+      final Optional<Wei> expectedMaxFeePerGas) {
+    final BlockHeaderTestFixture header =
+        new BlockHeaderTestFixture().number(1L).gasLimit(DEFAULT_BLOCK_GAS_LIMIT);
+    baseFee.ifPresent(header::baseFeePerGas);
+    final BlockHeader blockHeader = header.buildHeader();
+    mockBlockchainAndWorldState(callParameter, blockHeader);
+    mockProtocolSpecForProcessWithWorldUpdater();
+    when(protocolSchedule.getChainId()).thenReturn(scheduleChainId);
+    when(transactionProcessor.processTransaction(
+            any(), any(), any(), any(), any(), any(), any(), any(Wei.class), any()))
+        .thenReturn(mock(TransactionProcessingResult.class));
+
+    assertThat(
+            uncappedTransactionSimulator.process(callParameter, validationParams, NO_TRACING, 1L))
+        .isPresent();
+
+    final ArgumentCaptor<Transaction> transaction = ArgumentCaptor.forClass(Transaction.class);
+    verify(transactionProcessor)
+        .processTransaction(
+            any(), any(), transaction.capture(), any(), any(), any(), any(), any(Wei.class), any());
+    assertThat(transaction.getValue().getType()).as(description).isEqualTo(expectedType);
+    assertThat(transaction.getValue().getMaxFeePerGas())
+        .as(description)
+        .isEqualTo(expectedMaxFeePerGas);
+    assertThat(transaction.getValue().getMaxPriorityFeePerGas())
+        .as(description)
+        .isEqualTo(expectedMaxFeePerGas);
+  }
+
+  private static Stream<Arguments> feeFieldCases() {
+    final CodeDelegation delegation =
+        new CodeDelegation(BigInteger.ONE, Address.fromHexString("0x1"), 42L, FAKE_SIGNATURE);
+    final Wei price = Wei.of(7);
+    final TransactionValidationParams priced =
+        TransactionValidationParams.transactionSimulatorAllowFutureNonce();
+    final TransactionValidationParams callerPriced =
+        ImmutableTransactionValidationParams.builder()
+            .from(priced)
+            .isPreserveCallerGasPricing(true)
+            .build();
+    final Optional<BigInteger> chainId = Optional.of(BigInteger.ONE);
+    final CallParameter authorizationCall =
+        legacyTransactionCallParameterBuilder()
+            .gasPrice(price)
+            .codeDelegationAuthorizations(List.of(delegation))
+            .build();
+    final CallParameter dynamicFeeCall =
+        eip1559TransactionCallParameterBuilder()
+            .maxFeePerGas(price)
+            .maxPriorityFeePerGas(price)
+            .build();
+    return Stream.of(
+        Arguments.of(
+            "gasPrice with authorizations serves as both caps",
+            authorizationCall,
+            Optional.of(Wei.ONE),
+            priced,
+            chainId,
+            TransactionType.DELEGATE_CODE,
+            Optional.of(price)),
+        Arguments.of(
+            "gasPrice with authorizations serves as both caps at the caller's pricing",
+            authorizationCall,
+            Optional.of(Wei.ONE),
+            callerPriced,
+            chainId,
+            TransactionType.DELEGATE_CODE,
+            Optional.of(price)),
+        Arguments.of(
+            "dynamic fees before London stay dynamic",
+            dynamicFeeCall,
+            Optional.empty(),
+            priced,
+            chainId,
+            TransactionType.EIP1559,
+            Optional.of(price)),
+        Arguments.of(
+            "dynamic fees stay dynamic without a schedule chain id",
+            dynamicFeeCall,
+            Optional.empty(),
+            priced,
+            Optional.empty(),
+            TransactionType.EIP1559,
+            Optional.of(price)),
+        Arguments.of(
+            "gasPrice before London stays legacy",
+            legacyTransactionCallParameterBuilder().gasPrice(price).build(),
+            Optional.empty(),
+            priced,
+            chainId,
+            TransactionType.FRONTIER,
+            Optional.empty()));
   }
 
   private BlockHeader mockBlockchainAndWorldState(final CallParameter callParameter) {
@@ -1103,7 +1311,7 @@ public class TransactionSimulatorTest extends TrustedSetupClassLoaderExtension {
             any());
   }
 
-  private ImmutableCallParameter.Builder legacyTransactionCallParameterBuilder() {
+  private static ImmutableCallParameter.Builder legacyTransactionCallParameterBuilder() {
     return ImmutableCallParameter.builder()
         .sender(Address.fromHexString("0x0"))
         .to(Address.fromHexString("0x0"))
@@ -1112,7 +1320,7 @@ public class TransactionSimulatorTest extends TrustedSetupClassLoaderExtension {
         .input(Bytes.EMPTY);
   }
 
-  private ImmutableCallParameter.Builder eip1559TransactionCallParameterBuilder() {
+  private static ImmutableCallParameter.Builder eip1559TransactionCallParameterBuilder() {
     return legacyTransactionCallParameterBuilder()
         .gasPrice(Optional.empty())
         .maxFeePerGas(Wei.ZERO)
@@ -1134,6 +1342,7 @@ public class TransactionSimulatorTest extends TrustedSetupClassLoaderExtension {
         .maxFeePerBlobGas(Wei.ZERO)
         .gas(0L)
         .blobVersionedHashes(bwc.getVersionedHashes())
+        .strict(true)
         .build();
   }
 }

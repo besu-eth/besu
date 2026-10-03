@@ -62,7 +62,7 @@ public abstract class AbstractTraceCall extends AbstractTraceByBlock {
   @Override
   protected Object resultByBlockNumber(
       final JsonRpcRequestContext requestContext, final long blockNumber) {
-    final CallParameter callParams = CallParameterUtil.validateAndGetCallParams(requestContext);
+    final CallParameter callParams = getCallParams(requestContext);
     final TraceOptions traceOptions = getTraceOptions(requestContext);
     final String blockNumberString = String.valueOf(blockNumber);
     LOG.atTrace()
@@ -95,6 +95,10 @@ public abstract class AbstractTraceCall extends AbstractTraceByBlock {
             maybeBlockHeader.get())
         .orElseGet(
             () -> new JsonRpcErrorResponse(requestContext.getRequest().getId(), INTERNAL_ERROR));
+  }
+
+  protected CallParameter getCallParams(final JsonRpcRequestContext requestContext) {
+    return CallParameterUtil.validateAndGetCallParams(requestContext);
   }
 
   /**
