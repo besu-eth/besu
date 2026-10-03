@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcPara
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.TraceTypeParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.Tracer;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTrace;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TraceReplayResult;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
@@ -82,6 +83,13 @@ public class TraceReplayBlockTransactions extends AbstractBlockParameterMethod {
   @Override
   public String getName() {
     return RpcMethod.TRACE_REPLAY_BLOCK_TRANSACTIONS.getMethodName();
+  }
+
+  @Override
+  protected Object pendingResult(final JsonRpcRequestContext request) {
+    // there is no pending block to replay, so pending is rejected rather than replayed as latest
+    return new JsonRpcErrorResponse(
+        request.getRequest().getId(), RpcErrorType.INVALID_BLOCK_NUMBER_PARAMS);
   }
 
   @Override

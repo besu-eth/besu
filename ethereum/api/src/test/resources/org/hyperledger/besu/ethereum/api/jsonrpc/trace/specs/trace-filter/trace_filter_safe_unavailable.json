@@ -1,0 +1,23 @@
+{
+  "comment": "The chain has no safe block, so a safe bound is rejected rather than replaced by the head",
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "trace_filter",
+    "params": [
+      {
+        "fromBlock": "0x1",
+        "toBlock": "safe"
+      }
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "error": {
+      "code": -32602,
+      "message": "Invalid block number params"
+    }
+  },
+  "statusCode": 200
+}
