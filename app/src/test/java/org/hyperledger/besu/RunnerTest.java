@@ -41,7 +41,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.ImmutableInProcessRpcConfigurat
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.ipc.JsonRpcIpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration;
-import org.hyperledger.besu.ethereum.api.pluginadapter.RpcEndpointServiceImpl;
+import org.hyperledger.besu.ethereum.api.pluginadapter.RpcEndpointRegistryImpl;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockImporter;
 import org.hyperledger.besu.ethereum.core.BlockSyncTestUtils;
@@ -202,7 +202,7 @@ public final class RunnerTest {
             .permissioningService(new PermissioningServiceImpl())
             .staticNodes(emptySet())
             .storageProvider(new InMemoryKeyValueStorageProvider())
-            .rpcEndpointService(new RpcEndpointServiceImpl())
+            .rpcEndpointRegistry(new RpcEndpointRegistryImpl())
             .apiConfiguration(ImmutableApiConfiguration.builder().build())
             .transactionValidatorService(new TransactionValidatorServiceImpl());
 
@@ -220,7 +220,7 @@ public final class RunnerTest {
             .dataDir(dbAhead)
             .pidPath(pidPath)
             .besuPluginContext(new BesuPluginContextImpl())
-            .rpcEndpointService(new RpcEndpointServiceImpl())
+            .rpcEndpointRegistry(new RpcEndpointRegistryImpl())
             .build();
     try {
       runnerAhead.startExternalServices();
