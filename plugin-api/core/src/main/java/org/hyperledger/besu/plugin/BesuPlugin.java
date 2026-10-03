@@ -67,9 +67,9 @@ public interface BesuPlugin {
    * of that phase, so there is nothing to keep from this one.
    *
    * <p>The configuration views provide the data path, the storage path, the data storage
-   * configuration and the RPC HTTP host, port and timeout here; the min gas price is available from
-   * {@link #start(StartContext)}. On Ephemery the per-cycle data subdirectory is chosen when the
-   * node is built, so the final data path is only visible from {@link #start(StartContext)}.
+   * configuration, the RPC HTTP host, port and timeout and the min gas price here. On Ephemery the
+   * per-cycle data subdirectory is chosen when the node is built, so the final data path is only
+   * visible from {@link #start(StartContext)}.
    *
    * @param context the registration-phase context
    */
