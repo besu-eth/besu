@@ -44,14 +44,24 @@ public class DebugStandardTraceBlockToFile implements JsonRpcMethod {
   protected final Supplier<BlockchainQueries> blockchainQueries;
   private final Supplier<TransactionTracer> transactionTracerSupplier;
   private final Path dataDir;
+  private final long serverStepLimit;
 
   public DebugStandardTraceBlockToFile(
       final Supplier<TransactionTracer> transactionTracerSupplier,
       final BlockchainQueries blockchainQueries,
       final Path dataDir) {
+    this(transactionTracerSupplier, blockchainQueries, dataDir, 0L);
+  }
+
+  public DebugStandardTraceBlockToFile(
+      final Supplier<TransactionTracer> transactionTracerSupplier,
+      final BlockchainQueries blockchainQueries,
+      final Path dataDir,
+      final long serverStepLimit) {
     this.transactionTracerSupplier = transactionTracerSupplier;
     this.blockchainQueries = Suppliers.ofInstance(blockchainQueries);
     this.dataDir = dataDir;
+    this.serverStepLimit = serverStepLimit;
   }
 
   @Override
@@ -106,7 +116,8 @@ public class DebugStandardTraceBlockToFile implements JsonRpcMethod {
                             mutableWorldState,
                             block.getHash(),
                             transactionTraceParams,
-                            dataDir.resolve(TRACE_PATH))))
+                            dataDir.resolve(TRACE_PATH),
+                            serverStepLimit)))
         .orElse(new ArrayList<>());
   }
 }
