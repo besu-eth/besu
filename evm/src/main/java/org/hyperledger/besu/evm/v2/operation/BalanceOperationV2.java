@@ -24,6 +24,7 @@ import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
+import org.hyperledger.besu.evm.operation.Operation;
 
 /** The Balance operation. */
 public class BalanceOperationV2 extends AbstractOperationV2 {
@@ -41,24 +42,37 @@ public class BalanceOperationV2 extends AbstractOperationV2 {
    * Gets Balance operation Gas Cost plus warm storage read cost or cold account access cost.
    *
    * @param accountIsWarm true to add warm storage read cost, false to add cold account access cost
+   * @param gasCalculator the gas calculator
    * @return the long
    */
-  protected long cost(final boolean accountIsWarm) {
-    return gasCalculator().getBalanceOperationGasCost()
+  protected static long cost(final boolean accountIsWarm, final GasCalculator gasCalculator) {
+    return gasCalculator.getBalanceOperationGasCost()
         + (accountIsWarm
-            ? gasCalculator().getWarmStorageReadCost()
-            : gasCalculator().getColdAccountAccessCost());
+            ? gasCalculator.getWarmStorageReadCost()
+            : gasCalculator.getColdAccountAccessCost());
   }
 
   @Override
   public OperationResult execute(final MessageFrame frame, final EVM evm) {
+    return staticOperation(frame, gasCalculator());
+  }
+
+  /**
+   * Performs BALANCE operation.
+   *
+   * @param frame the frame
+   * @param gasCalculator the gas calculator
+   * @return the operation result
+   */
+  public static Operation.OperationResult staticOperation(
+      final MessageFrame frame, final GasCalculator gasCalculator) {
     if (!frame.stackHasItemsV2(1)) return UNDERFLOW_RESPONSE;
     final long[] stack = frame.stackDataV2();
     final int top = frame.stackTopV2();
     final Address address = readAddressAt(stack, top, 0);
     final boolean accountIsWarm =
-        frame.warmUpAddress(address) || gasCalculator().isPrecompile(address);
-    final long cost = cost(accountIsWarm);
+        frame.warmUpAddress(address) || gasCalculator.isPrecompile(address);
+    final long cost = cost(accountIsWarm, gasCalculator);
     if (frame.getRemainingGas() < cost) {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
