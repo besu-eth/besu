@@ -28,6 +28,7 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
+- Fix JSON-RPC active-connection counter leaks on the Engine API, HTTP, and WebSocket services. Rejected connections no longer increment the count or register a close handler; abrupt WebSocket disconnects (including TCP RST mid-response) now release the counter exactly once; rejection logs print `{current}/{max}`; and the Engine API exposes `besu_rpc_active_engine_connection_count` like the existing HTTP/WS gauges. Without this, counters could climb until `--rpc-*-max-active-connections` blocked all new clients (including a consensus client on the Engine API). [#11453](https://github.com/besu-eth/besu/pull/11453)
 - Block propagation no longer repeatedly re-requests an announced block that is already saved as pending while waiting for its parent. The repeated header and body requests could use up the announcing peer's request capacity and starve the parent request, leaving a node that connects well behind the chain head stuck at its starting block. [#11517](https://github.com/besu-eth/besu/issues/11517)
 - `admin_logsRemoveCache` now returns an error when any log bloom cache segment could not be deleted, instead of reporting `Cache Removed` after a partial deletion. [#11067](https://github.com/besu-eth/besu/issues/11067)
 - `txparse --corpus-file` now closes the corpus file stream after processing instead of leaking the underlying file descriptor (it previously suppressed the `StreamResourceLeak` warning rather than releasing the resource). [#11423](https://github.com/besu-eth/besu/pull/11423)
@@ -65,6 +66,7 @@
 - Receipt sync no longer rejects a partial receipt list from a peer when one of its transactions used more than 45M gas. [#11414](https://github.com/besu-eth/besu/pull/11414)
 
 ### Additions and Improvements
+- `--rpc-http-max-active-connections` and `--rpc-ws-max-active-connections` accept `0` as unlimited (same convention as `--rpc-ws-max-active-subscriptions`). Negative values are rejected. [#11453](https://github.com/besu-eth/besu/pull/11453)
 - Update `Bouncycastle` to 1.85 to address CVEs `CVE-2026-8763` and `CVE-2026-13506`. [#11336](https://github.com/besu-eth/besu/pull/11336)
 - Update Jackson to 2.21.6 to address CVE `CVE-2026-68497` [#11396](https://github.com/besu-eth/besu/pull/11396)
 - Update Jackson to 2.21.7 to address CVE `CVE-2026-91777` [#11503](https://github.com/besu-eth/besu/pull/11503)
