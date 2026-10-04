@@ -32,8 +32,10 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContex
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.v2.SnapV2DataRequest;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.rlp.RLP;
+import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.NodeUpdater;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
+import org.hyperledger.besu.ethereum.trie.forest.storage.ForestWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
@@ -107,6 +109,25 @@ public class SnapV2AccountRangeRequest extends SnapV2DataRequest {
         });
 
     stackTrie.commit(flatDatabaseUpdater.get(), nodeUpdater, true);
+
+    // Forest has no flat DB so trie nodes written are unreachable without updating the account
+    // trie root; Bonsai accounts are directly retrievable via the flat DB and need no trie update.
+    worldStateStorageCoordinator.consumeForStrategy(
+        onBonsai -> {},
+        onForest -> {
+          final Bytes32 currentRoot =
+              onForest.getWorldStateRoot().orElse(MerkleTrie.EMPTY_TRIE_NODE_HASH);
+          final NavigableMap<Bytes32, Bytes> inRangeAccounts =
+              stackTrie
+                  .getElement(startKeyHash)
+                  .keys()
+                  .subMap(startKeyHash, true, endKeyHash, true);
+          final Bytes32 newRoot =
+              new ForestTrieStitcher(worldStateStorageCoordinator)
+                  .stitchAccounts(currentRoot, inRangeAccounts, updater);
+          ((ForestWorldStateKeyValueStorage.Updater) updater).putWorldStateRoot(newRoot);
+        });
+
     downloadState.getMetricsManager().notifyAccountsDownloaded(stackTrie.getElementsCount().get());
     return nbNodesSaved.get();
   }

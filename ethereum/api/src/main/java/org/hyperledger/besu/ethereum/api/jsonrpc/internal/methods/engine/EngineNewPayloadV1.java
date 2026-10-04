@@ -212,6 +212,17 @@ public sealed class EngineNewPayloadV1<
       appendNewPayloadToSync(unvalidatedBlock, blockParam);
     }
 
+    // World state may be incomplete during initial sync; defer execution until it is ready.
+    if (!mergeContext.get().isInitialSyncDone()) {
+      logger()
+          .atDebug()
+          .setMessage("initial sync in progress, returning SYNCING for new payload #{} ({})")
+          .addArgument(blockParam::getBlockNumber)
+          .addArgument(blockParam::getBlockHash)
+          .log();
+      return respondWith(reqId, blockParam, null, SYNCING);
+    }
+
     final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(newBlockHeader);
 
     // 4. Client software MUST validate the payload if it extends the canonical chain, and requisite

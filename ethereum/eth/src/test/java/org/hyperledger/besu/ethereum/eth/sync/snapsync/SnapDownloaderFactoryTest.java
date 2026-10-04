@@ -27,6 +27,7 @@ import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.Checkpoint;
 import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.ImmutableCheckpoint;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
+import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
 import java.util.Optional;
 
@@ -113,5 +114,13 @@ class SnapDownloaderFactoryTest {
 
     assertThat(SnapDownloaderFactory.holdsNothingButTheTrustAnchor(blockchain, syncState))
         .isFalse();
+  }
+
+  @Test
+  void snap2SupportsBonsaiAndForest() {
+    assertThat(SnapDownloaderFactory.snap2SupportsFormat(DataStorageFormat.BONSAI)).isTrue();
+    assertThat(SnapDownloaderFactory.snap2SupportsFormat(DataStorageFormat.FOREST)).isTrue();
+    assertThat(SnapDownloaderFactory.snap2SupportsFormat(DataStorageFormat.X_BONSAI_ARCHIVE))
+        .isTrue();
   }
 }
