@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -197,6 +198,20 @@ public class EthSimulateV1Test {
     final Bytes payload =
         captor.getValue().getBlockStateCalls().get(0).getCalls().get(0).getPayload().orElseThrow();
     assertThat(payload).isEqualTo(Bytes.fromHexString("0xDEADBEEF"));
+  }
+
+  @Test
+  public void shouldUseLatestBlockWhenBlockParameterIsOmitted() {
+    setupMethodWithMockSimulator();
+    setupBlockchainForLatest();
+
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest("2.0", "eth_simulateV1", new Object[] {simulateParameter(false)}));
+
+    method.response(request);
+
+    verify(blockSimulator).process(eq(blockHeader), any(), any(OperationTracer.class));
   }
 
   @Test

@@ -5,6 +5,8 @@
 ### Breaking Changes
 - The default discovery mode is now `BOTH`: nodes run DiscV4 and DiscV5 concurrently unless `--discovery-mode=V4` or `--discovery-mode=V5` selects a single protocol. [#11344](https://github.com/besu-eth/besu/pull/11344)
 - `trace_call` and `trace_callMany` now select transaction validation as `eth_call` does, including its `strict` flag. Unless `strict` is `true`, a call whose `gasPrice`, `maxFeePerGas` and `maxPriorityFeePerGas` are all zero or omitted runs with `GASPRICE` and `BASEFEE` 0 and pays no execution gas fees. Previously such a call was rejected as underpriced at a block with a base fee, or, with its fees omitted, was charged at the base fee. Calls that `eth_call` validates and charges are still validated and charged, each call in a `trace_callMany` bundle is priced on its own, and, as in `eth_call`, a nonce above the sender's is accepted. A `trace_call` that fails validation now returns the reason, such as `Gas price below current base fee` (`-32009`), instead of `Internal error`. [#11404](https://github.com/besu-eth/besu/pull/11404)
+- RPC changes to enhance compatibility with other ELs
+  - `eth_call` and `eth_simulateV1` default an omitted block parameter to `latest`, as the other state methods already do. [#11446](https://github.com/besu-eth/besu/pull/11446)
 
 - Chain data pruning now retains blocks and block access lists for the EIP-4444 history expiry window (`HISTORY_PRUNE_EPOCHS` = 14299 epochs) instead of the weak subjectivity period (3533 epochs), as required by EIP-7928. The default and minimum of `--Xchain-pruning-blocks-retained`, `--Xchain-pruning-bals-retained` and `--Xchain-pruning-retained-minimum` change from `113056` to `457568` blocks. [#11316](https://github.com/besu-eth/besu/issues/11316)
 
