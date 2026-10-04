@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.mainnet.blockhash;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
+import org.hyperledger.besu.ethereum.mainnet.systemcall.SystemCallFailedException;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.SystemCallNoCodeAtAddressException;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.SystemCallProcessor;
 
@@ -71,6 +72,9 @@ public class PraguePreExecutionProcessor extends CancunPreExecutionProcessor {
       // According to EIP-2935, the system call should fail silently if no code exists at the
       // contract address
       LOG.warn("Invalid system call address: {}", historyStorageAddress);
+    } catch (SystemCallFailedException e) {
+      // The EIP-2935 call is unchecked: a failed call leaves the block valid, its writes dropped
+      LOG.warn("History storage system call failed: {}", e.getMessage());
     }
     return null;
   }

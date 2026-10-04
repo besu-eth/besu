@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
@@ -26,7 +27,10 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
+import org.hyperledger.besu.ethereum.mainnet.blockhash.CancunPreExecutionProcessor;
+import org.hyperledger.besu.ethereum.mainnet.blockhash.PraguePreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
+import org.hyperledger.besu.ethereum.mainnet.systemcall.SystemCallFailedException;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.SystemCallNoCodeAtAddressException;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.SystemCallProcessor;
 import org.hyperledger.besu.evm.Code;
@@ -46,12 +50,15 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 public class MainnetBlockContextProcessorTest {
   private static final Address CALL_ADDRESS = Address.fromHexString("0x1");
+  private static final Address BEACON_ROOTS_ADDRESS =
+      Address.fromHexString("0x000F3df6D732807Ef1319fB7B8bB8522d0Beac02");
   private static final Bytes EXPECTED_OUTPUT = Bytes.fromHexString("0x01");
   private ProcessableBlockHeader mockBlockHeader;
   private MainnetTransactionProcessor mockTransactionProcessor;
@@ -101,7 +108,8 @@ public class MainnetBlockContextProcessorTest {
         .when(mockMessageCallProcessor)
         .process(any(), any());
     final MutableWorldState worldState = createWorldState(CALL_ADDRESS);
-    var exception = assertThrows(RuntimeException.class, () -> processSystemCall(worldState));
+    var exception =
+        assertThrows(SystemCallFailedException.class, () -> processSystemCall(worldState));
     assertThat(exception.getMessage()).isEqualTo("System call did not execute to completion");
   }
 
@@ -119,8 +127,35 @@ public class MainnetBlockContextProcessorTest {
         .when(mockMessageCallProcessor)
         .process(any(), any());
     final MutableWorldState worldState = createWorldState(CALL_ADDRESS);
-    var exception = assertThrows(RuntimeException.class, () -> processSystemCall(worldState));
+    var exception =
+        assertThrows(SystemCallFailedException.class, () -> processSystemCall(worldState));
     assertThat(exception.getMessage()).isEqualTo("System call halted: Stack underflow");
+  }
+
+  @Test
+  void failedHistoryStorageCallDoesNotRejectBlock() {
+    failedProcess();
+    final MutableWorldState worldState = createWorldState(CALL_ADDRESS);
+    when(mockBlockHeader.getParentHash()).thenReturn(Hash.ZERO);
+
+    assertThatCode(
+            () ->
+                new PraguePreExecutionProcessor(CALL_ADDRESS)
+                    .process(preExecutionContext(worldState), Optional.empty()))
+        .doesNotThrowAnyException();
+  }
+
+  @Test
+  void failedBeaconRootsCallDoesNotRejectBlock() {
+    failedProcess();
+    final MutableWorldState worldState = createWorldState(BEACON_ROOTS_ADDRESS);
+    when(mockBlockHeader.getParentBeaconBlockRoot()).thenReturn(Optional.of(Bytes32.ZERO));
+
+    assertThatCode(
+            () ->
+                new CancunPreExecutionProcessor()
+                    .process(preExecutionContext(worldState), Optional.empty()))
+        .doesNotThrowAnyException();
   }
 
   @Test
@@ -183,6 +218,30 @@ public class MainnetBlockContextProcessorTest {
             })
         .when(mockMessageCallProcessor)
         .process(any(), any());
+  }
+
+  private void failedProcess() {
+    doAnswer(
+            invocation -> {
+              MessageFrame messageFrame = invocation.getArgument(0);
+              messageFrame.getMessageFrameStack().pop();
+              messageFrame.setState(MessageFrame.State.COMPLETED_FAILED);
+              return null;
+            })
+        .when(mockMessageCallProcessor)
+        .process(any(), any());
+  }
+
+  private BlockProcessingContext preExecutionContext(final MutableWorldState worldState) {
+    final ProtocolSpec protocolSpec = mock(ProtocolSpec.class);
+    when(protocolSpec.getTransactionProcessor()).thenReturn(mockTransactionProcessor);
+    return new BlockProcessingContext(
+        mockBlockHeader,
+        worldState,
+        protocolSpec,
+        mockBlockHashLookup,
+        BlockAwareOperationTracer.NO_TRACING,
+        Optional.empty());
   }
 
   Bytes processSystemCall(final MutableWorldState worldState) {

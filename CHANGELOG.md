@@ -26,6 +26,7 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
+- A failed EIP-4788 beacon roots or EIP-2935 history storage system call no longer fails block processing. Both calls are unchecked: the block stays valid, the call's writes are dropped and its reads stay in the block access list. Besu threw instead, so `engine_newPayload` answered with an error rather than a payload status. Request contract calls (EIP-7002, EIP-7251) still reject the block when they fail.
 - A contract created from within a system call now gets its initial nonce and deployed code. `SystemCallProcessor` ran every frame with the message-call processor, so a `CREATE` in a system call's code, reachable when a system contract's code is replaced on a custom or test chain, left the new account with nonce 0 and ran its initcode without deploying anything.
 - Block access lists now record the net change of the withdrawals and the system calls that share the post-execution index, measured from the state at the start of that index, and include writes made in a system call's own frame. When replaced system contract code changed a value across calls, or changed it twice, each call was diffed against the one before it, giving extra or duplicate entries.
 - `BlobCache.restoreBlob` now reports that a blob transaction cannot be restored instead of throwing `NullPointerException` when any of its blobs is no longer cached.

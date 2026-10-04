@@ -127,7 +127,6 @@ public class SystemCallProcessor {
       return frame.getOutputData();
     }
 
-    // The call must execute to completion
     LOG.error(
         "System call did not execute to completion - haltReason: {}, address: {}, frame state: {}",
         frame.getExceptionalHaltReason().orElse(ExceptionalHaltReason.NONE),
@@ -138,7 +137,7 @@ public class SystemCallProcessor {
             .getExceptionalHaltReason()
             .map(haltReason -> "System call halted: " + haltReason.getDescription())
             .orElse("System call did not execute to completion");
-    throw new RuntimeException(errorMessage);
+    throw new SystemCallFailedException(errorMessage);
   }
 
   private static void applyAccessLocationTracker(

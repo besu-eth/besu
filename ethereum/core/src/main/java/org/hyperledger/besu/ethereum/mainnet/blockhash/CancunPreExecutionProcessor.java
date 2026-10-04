@@ -18,6 +18,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
+import org.hyperledger.besu.ethereum.mainnet.systemcall.SystemCallFailedException;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.SystemCallNoCodeAtAddressException;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.SystemCallProcessor;
 
@@ -55,6 +56,9 @@ public class CancunPreExecutionProcessor extends FrontierPreExecutionProcessor {
     } catch (SystemCallNoCodeAtAddressException e) {
       // According to EIP-4788, fail silently if no code exists
       LOG.warn("Invalid system call address: {}", BEACON_ROOTS_ADDRESS);
+    } catch (SystemCallFailedException e) {
+      // The EIP-4788 call is unchecked: a failed call leaves the block valid, its writes dropped
+      LOG.warn("Beacon roots system call failed: {}", e.getMessage());
     }
   }
 
