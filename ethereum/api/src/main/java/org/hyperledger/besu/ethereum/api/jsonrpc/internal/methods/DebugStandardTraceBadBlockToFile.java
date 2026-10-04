@@ -43,7 +43,16 @@ public class DebugStandardTraceBadBlockToFile extends DebugStandardTraceBlockToF
       final BlockchainQueries blockchainQueries,
       final ProtocolContext protocolContext,
       final Path dataDir) {
-    super(transactionTracerSupplier, blockchainQueries, dataDir);
+    this(transactionTracerSupplier, blockchainQueries, protocolContext, dataDir, 0L);
+  }
+
+  public DebugStandardTraceBadBlockToFile(
+      final Supplier<TransactionTracer> transactionTracerSupplier,
+      final BlockchainQueries blockchainQueries,
+      final ProtocolContext protocolContext,
+      final Path dataDir,
+      final long serverStepLimit) {
+    super(transactionTracerSupplier, blockchainQueries, dataDir, serverStepLimit);
     this.protocolContext = protocolContext;
   }
 
