@@ -165,7 +165,14 @@ public class EthFeeHistory implements JsonRpcMethod {
 
     final BlockHeader chainHeadHeader = blockchain.getChainHeadHeader();
     final long chainHeadBlockNumber = chainHeadHeader.getNumber();
-    final long highestBlockNumber = highestBlock.getNumber().orElse(chainHeadBlockNumber);
+    final Optional<Long> maybeHighestBlockNumber =
+        highestBlock.isFinalized() || highestBlock.isSafe()
+            ? highestBlock.getBlockNumber(blockchainQueries)
+            : Optional.of(highestBlock.getNumber().orElse(chainHeadBlockNumber));
+    if (maybeHighestBlockNumber.isEmpty()) {
+      return new JsonRpcErrorResponse(requestId, RpcErrorType.UNKNOWN_BLOCK);
+    }
+    final long highestBlockNumber = maybeHighestBlockNumber.get();
     if (highestBlockNumber > chainHeadBlockNumber) {
       return new JsonRpcErrorResponse(requestId, RpcErrorType.INVALID_BLOCK_NUMBER_PARAMS);
     }

@@ -408,6 +408,21 @@ public class EthFeeHistoryTest {
   }
 
   @Test
+  public void resolvesFinalizedToTheFinalizedBlock() {
+    when(blockchainQueries.finalizedBlockHeader()).thenReturn(blockchain.getBlockHeader(5));
+    final FeeHistory.FeeHistoryResult result =
+        (ImmutableFeeHistoryResult)
+            ((JsonRpcSuccessResponse) feeHistoryRequest("0x1", "finalized")).getResult();
+    assertThat(Long.decode(result.getOldestBlock())).isEqualTo(5);
+  }
+
+  @Test
+  public void unknownBlockWhenSafeBlockIsNotKnown() {
+    assertThat(((JsonRpcErrorResponse) feeHistoryRequest("0x1", "safe")).getErrorType())
+        .isEqualTo(RpcErrorType.UNKNOWN_BLOCK);
+  }
+
+  @Test
   public void blockCountBounds() {
     assertThat(
             ((JsonRpcErrorResponse) feeHistoryRequest("0x0", "latest", new double[] {100.0}))
