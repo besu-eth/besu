@@ -68,6 +68,8 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
   // Index the serial loop has reached. A speculative run for that index or an earlier one can no
   // longer be used, so workers skip it instead of competing with the import for cores.
   private final AtomicInteger serialLoopPosition = new AtomicInteger(-1);
+  // senders recovered per task, few enough to spread over the executor's threads
+  private static final int SENDER_RECOVERY_BATCH = 8;
 
   /**
    * Constructs a PreloadConcurrentTransactionProcessor with a specified transaction processor. This
@@ -94,7 +96,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
    * left by the previous one; run alone against the parent state they would fail the nonce check
    * before touching any state. A chained result is reused when the block, at its turn, holds the
    * state the chain assumed; otherwise it still turns a cold re-execution into a warm one. Senders
-   * not recovered yet are left alone rather than recovered here on the importing thread.
+   * the transaction pool did not know are recovered first, in parallel.
    */
   @Override
   @SuppressWarnings({"unchecked", "rawtypes"})
@@ -109,6 +111,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
       final Optional<BlockHeader> maybeParentHeader) {
 
+    recoverUnknownSenders(transactions, executor);
     final Map<Address, List<Integer>> bySender = new HashMap<>();
     for (int i = 0; i < transactions.size(); i++) {
       final int txIndex = i;
@@ -163,6 +166,46 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
                     blockAccessListBuilder,
                     maybeParentHeader));
       }
+    }
+  }
+
+  /**
+   * The transaction pool knows the senders of the transactions it saw, but not those sent to block
+   * builders directly. Run alone against the parent state, the later transactions of such a sender
+   * fail their nonce check and are executed again on the importing thread, so their senders are
+   * recovered here first, in parallel, to chain them like the others.
+   */
+  private static void recoverUnknownSenders(
+      final List<Transaction> transactions, final Executor executor) {
+    final List<Transaction> unknown = new ArrayList<>();
+    for (final Transaction transaction : transactions) {
+      if (transaction.getSenderIfKnown().isEmpty()) {
+        unknown.add(transaction);
+      }
+    }
+    if (unknown.isEmpty()) {
+      return;
+    }
+    final AtomicInteger next = new AtomicInteger();
+    final AtomicInteger recovered = new AtomicInteger();
+    final Runnable recover =
+        () -> {
+          for (int i = next.getAndIncrement(); i < unknown.size(); i = next.getAndIncrement()) {
+            try {
+              unknown.get(i).getSender();
+            } catch (final RuntimeException e) {
+              // a sender that cannot be recovered leaves its transaction unchained
+            }
+            recovered.incrementAndGet();
+          }
+        };
+    for (int helper = 1; helper * SENDER_RECOVERY_BATCH < unknown.size(); helper++) {
+      executor.execute(recover);
+    }
+    // taking part means never waiting for an executor that is busy or runs tasks later
+    recover.run();
+    while (recovered.get() < unknown.size()) {
+      Thread.onSpinWait();
     }
   }
 
