@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.evm;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import static org.hyperledger.besu.evm.operation.PushOperation.PUSH_BASE;
 import static org.hyperledger.besu.evm.operation.SwapOperation.SWAP_BASE;
 
@@ -570,7 +569,7 @@ public class EVM {
    */
   public Code getOrCreateCachedJumpDest(final Hash codeHash, final Bytes codeBytes) {
     if (Hash.EMPTY.getBytes().equals(codeHash.getBytes())) {
-     return Code.EMPTY_CODE;
+      return Code.EMPTY_CODE;
     }
 
     Code result = jumpDestOnlyCodeCache.getIfPresent(codeHash);
