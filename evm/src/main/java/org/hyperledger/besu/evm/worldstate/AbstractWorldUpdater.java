@@ -156,6 +156,13 @@ public abstract class AbstractWorldUpdater<W extends WorldView, A extends Accoun
   }
 
   @Override
+  public void observeBalance(final Address address) {
+    if (world instanceof WorldUpdater worldUpdater) {
+      worldUpdater.observeBalance(address);
+    }
+  }
+
+  @Override
   public Optional<WorldUpdater> parentUpdater() {
     if (world instanceof WorldUpdater worldUpdater) {
       return Optional.of(worldUpdater);

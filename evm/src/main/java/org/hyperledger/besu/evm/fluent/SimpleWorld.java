@@ -137,4 +137,11 @@ public class SimpleWorld implements WorldUpdater {
   public Optional<WorldUpdater> parentUpdater() {
     return Optional.ofNullable(parent);
   }
+
+  @Override
+  public void observeBalance(final Address address) {
+    if (parent != null) {
+      parent.observeBalance(address);
+    }
+  }
 }

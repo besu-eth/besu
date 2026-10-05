@@ -127,6 +127,11 @@ public class JournaledUpdater<W extends WorldView> implements WorldUpdater {
   }
 
   @Override
+  public void observeBalance(final Address address) {
+    parentWorld.observeBalance(address);
+  }
+
+  @Override
   public MutableAccount createAccount(final Address address, final long nonce, final Wei balance) {
     JournaledAccount journaledAccount =
         new JournaledAccount(rootWorld.createAccount(address, nonce, balance));

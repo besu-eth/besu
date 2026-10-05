@@ -93,6 +93,7 @@ public class SelfDestructOperation extends AbstractOperation {
     final Address originatorAddress = frame.getRecipientAddress();
     final MutableAccount originatorAccount = getMutableAccount(originatorAddress, frame);
     final Wei originatorBalance = originatorAccount.getBalance();
+    frame.getWorldUpdater().observeBalance(originatorAddress);
 
     final long cost =
         gasCalculator().selfDestructOperationGasCost(beneficiaryNullable, originatorBalance)

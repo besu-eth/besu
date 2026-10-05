@@ -234,6 +234,51 @@ class OptimisticParallelBlockProcessorIntegrationTest {
     }
 
     @Test
+    @DisplayName("Credits to an account whose balance changed earlier in the block are reused")
+    void creditsToTheSameAccountAreReused() {
+      final String recipient = "0xa4664C40AACeBD82A2Db79f0ea36C06Bc6A19Adb";
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5),
+              transfer(0, recipient),
+              createTransferTransaction(
+                  0,
+                  2_000_000_000_000_000_000L,
+                  300_000L,
+                  0L,
+                  5L,
+                  recipient,
+                  ACCOUNT_GENESIS_2_KEYPAIR));
+
+      assertAccountsMatch(
+          result.seqWorldState(), result.parWorldState(), Address.fromHexString(recipient));
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(2);
+    }
+
+    @Test
+    @DisplayName("A credit to an account whose balance the transaction reads is executed again")
+    void creditToAnAccountWhoseBalanceIsReadIsExecutedAgain() {
+      // the contract self-destructs to itself, which reads its balance
+      final String recipient = "0x0000000000000000000000000000000000007701";
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5),
+              transfer(0, recipient),
+              createTransferTransaction(
+                  0,
+                  2_000_000_000_000_000_000L,
+                  300_000L,
+                  0L,
+                  5L,
+                  recipient,
+                  ACCOUNT_GENESIS_2_KEYPAIR));
+
+      assertAccountsMatch(
+          result.seqWorldState(), result.parWorldState(), Address.fromHexString(recipient));
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(1);
+    }
+
+    @Test
     @DisplayName("A reverted transaction keeps its speculative result")
     void revertedTransactionIsReused() {
       final Address contract = Address.fromHexStringStrict(CONTRACT_ADDRESS);
