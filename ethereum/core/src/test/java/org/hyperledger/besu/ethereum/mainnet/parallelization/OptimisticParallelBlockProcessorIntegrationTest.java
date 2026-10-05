@@ -15,10 +15,15 @@
 package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_4;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_5;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_6;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_GENESIS_1;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_GENESIS_1_KEYPAIR;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_GENESIS_2;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_GENESIS_2_KEYPAIR;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.CONTRACT_ADDRESS;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.PARALLEL_TEST_CONTRACT;
 
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.datatypes.Address;
@@ -125,6 +130,7 @@ class OptimisticParallelBlockProcessorIntegrationTest {
   @Nested
   @DisplayName("Reuse of Speculative Results")
   class SpeculativeResultReuse extends AbstractParallelBlockProcessorIntegrationTest {
+    private final Address sender = Address.fromHexStringStrict(ACCOUNT_GENESIS_1);
 
     /** Sets slot 0 when called without call data, else reverts while slot 0 is unset. */
     private static final Address SLOT_GATE =
@@ -142,6 +148,82 @@ class OptimisticParallelBlockProcessorIntegrationTest {
     @Override
     protected BalConfiguration getBalConfiguration() {
       return OPTIMISTIC_CONFIG;
+    }
+
+    private Transaction transfer(final long nonce, final String to) {
+      return createTransferTransaction(
+          nonce, 1_000_000_000_000_000_000L, 300_000L, 0L, 5L, to, ACCOUNT_GENESIS_1_KEYPAIR);
+    }
+
+    @Test
+    @DisplayName("Transfers chained after an earlier one of their sender are reused")
+    void chainedTransfersAreReused() {
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5), transfer(0, ACCOUNT_4), transfer(1, ACCOUNT_5), transfer(2, ACCOUNT_6));
+
+      assertAccountsMatch(result.seqWorldState(), result.parWorldState(), sender);
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(3);
+    }
+
+    @Test
+    @DisplayName("A chained transfer is executed again when another sender paid its sender")
+    void chainedTransferIsExecutedAgainWhenItsSenderWasPaid() {
+      final Transaction payment =
+          createTransferTransaction(
+              0,
+              1_000_000_000_000_000_000L,
+              300_000L,
+              0L,
+              5L,
+              ACCOUNT_GENESIS_1,
+              ACCOUNT_GENESIS_2_KEYPAIR);
+
+      final ComparisonResult result =
+          executeAndCompare(Wei.of(5), transfer(0, ACCOUNT_4), payment, transfer(1, ACCOUNT_5));
+
+      assertAccountsMatch(result.seqWorldState(), result.parWorldState(), sender);
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(1);
+    }
+
+    @Test
+    @DisplayName("Storage writes chained after an earlier one of their sender are reused")
+    void chainedStorageWritesAreReused() {
+      final Address contract = Address.fromHexStringStrict(CONTRACT_ADDRESS);
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5),
+              createContractCallTransaction(
+                  0, contract, "setSlot1", ACCOUNT_GENESIS_1_KEYPAIR, Optional.of(100)),
+              createContractCallTransaction(
+                  1, contract, "setSlot2", ACCOUNT_GENESIS_1_KEYPAIR, Optional.of(200)),
+              createContractCallTransaction(
+                  2, contract, "setSlot3", ACCOUNT_GENESIS_1_KEYPAIR, Optional.of(300)));
+
+      for (int slot = 0; slot < 3; slot++) {
+        assertContractStorageMatches(
+            result.seqWorldState(), result.parWorldState(), contract, slot);
+      }
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(3);
+    }
+
+    @Test
+    @DisplayName("A chained increment is executed again when another sender wrote the slot")
+    void chainedIncrementIsExecutedAgainWhenTheSlotWasWritten() {
+      final Address contract = Address.fromHexStringStrict(PARALLEL_TEST_CONTRACT);
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5),
+              createContractCallTransaction(
+                  0, contract, "setSlot1", ACCOUNT_GENESIS_1_KEYPAIR, Optional.of(100)),
+              createContractCallTransaction(
+                  0, contract, "setSlot1", ACCOUNT_GENESIS_2_KEYPAIR, Optional.of(999)),
+              createContractCallTransaction(
+                  1, contract, "incrementSlot1", ACCOUNT_GENESIS_1_KEYPAIR, Optional.empty()));
+
+      assertContractStorage(result.seqWorldState(), contract, 0, 1000);
+      assertContractStorageMatches(result.seqWorldState(), result.parWorldState(), contract, 0);
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(1);
     }
 
     @Test

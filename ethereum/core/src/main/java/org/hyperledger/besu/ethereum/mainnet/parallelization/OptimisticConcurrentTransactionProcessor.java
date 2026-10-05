@@ -92,9 +92,9 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
   /**
    * Transactions of one sender are chained on one worker so that each sees the nonce and balance
    * left by the previous one; run alone against the parent state they would fail the nonce check
-   * before touching any state. The chained results are only ever warm-ups, since the serial loop
-   * always finds the sender changed, but they turn cold re-executions into warm ones. Senders not
-   * recovered yet are left alone rather than recovered here on the importing thread.
+   * before touching any state. A chained result is reused when the block, at its turn, holds the
+   * state the chain assumed; otherwise it still turns a cold re-execution into a warm one. Senders
+   * not recovered yet are left alone rather than recovered here on the importing thread.
    */
   @Override
   @SuppressWarnings({"unchecked", "rawtypes"})
@@ -271,6 +271,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       if (previousInChain != null) {
         ((PathBasedWorldStateUpdateAccumulator) roundWorldStateUpdater)
             .importStateChangesFromSource(previousInChain);
+        contextBuilder.chainPredecessorAccumulator(previousInChain);
       }
       final WorldUpdater transactionUpdater = roundWorldStateUpdater.updater();
       final Optional<AccessLocationTracker> transactionLocationTracker =
