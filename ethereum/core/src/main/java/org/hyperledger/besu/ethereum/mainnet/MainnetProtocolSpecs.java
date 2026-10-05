@@ -1309,6 +1309,20 @@ public abstract class MainnetProtocolSpecs {
       LOG.warn(
           "Skipping system contract request processors for PoA consensus (clique/ibft/qbft) without system contract addresses.");
     } else {
+      if (isPoAConsensus(genesisConfigOptions)
+          && RequestContractAddresses.usesDefaultBuilderAddresses(genesisConfigOptions)) {
+        // A PoA chain that opted in to system calls must have the contracts deployed, but the
+        // genesis never has to name the builder ones, so a missing deployment would otherwise only
+        // surface as invalid blocks once Amsterdam activates.
+        LOG.warn(
+            "Amsterdam on a PoA chain without builderDepositRequestContractAddress and/or "
+                + "builderExitRequestContractAddress in the genesis: using the EIP-8282 defaults "
+                + "{} (builder deposit) and {} (builder exit). Every Amsterdam block is invalid "
+                + "unless contracts are deployed at these addresses before the fork, for example "
+                + "in the genesis alloc.",
+            RequestContractAddresses.DEFAULT_BUILDER_DEPOSIT_REQUEST_CONTRACT_ADDRESS,
+            RequestContractAddresses.DEFAULT_BUILDER_EXIT_REQUEST_CONTRACT_ADDRESS);
+      }
       try {
         amsterdamSpecBuilder.requestProcessorCoordinator(
             amsterdamRequestsProcessors(
