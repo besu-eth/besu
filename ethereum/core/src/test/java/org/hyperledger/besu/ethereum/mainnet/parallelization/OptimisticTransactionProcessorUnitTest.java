@@ -919,6 +919,25 @@ class OptimisticTransactionProcessorUnitTest {
     }
 
     @Test
+    @DisplayName("Transactions of a sender the pool did not know are recovered and chained")
+    void unknownSenderIsRecoveredAndChained() {
+      final Transaction tx1 = mockTransaction();
+      final Transaction tx2 = mockTransaction();
+      for (final Transaction transaction : List.of(tx1, tx2)) {
+        when(transaction.getSenderIfKnown())
+            .thenReturn(Optional.empty())
+            .thenReturn(Optional.of(sender));
+      }
+      final List<Runnable> tasks = new ArrayList<>();
+
+      runBlock(List.of(tx1, tx2), tasks::add);
+
+      verify(tx1).getSender();
+      verify(tx2).getSender();
+      assertThat(tasks).as("both transactions run as one chain").hasSize(1);
+    }
+
+    @Test
     @DisplayName("A chain is dropped once the serial loop has reached one of its members")
     void chainStopsWhenSerialLoopReachedAMember() {
       final Transaction tx1 = mockTransactionFrom(sender);
