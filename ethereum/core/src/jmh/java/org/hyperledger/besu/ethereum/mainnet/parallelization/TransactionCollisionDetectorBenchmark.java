@@ -187,4 +187,11 @@ public class TransactionCollisionDetectorBenchmark {
   public boolean hasCollision() {
     return detector.hasCollision(transaction, COINBASE, context, blockAccumulator);
   }
+
+  /** Taking over the speculative result once it does not conflict. */
+  @Benchmark
+  public void importStateChanges() {
+    blockAccumulator.importStateChangesFromSource(
+        (BonsaiWorldStateUpdateAccumulator) context.transactionAccumulator());
+  }
 }
