@@ -62,6 +62,16 @@ class BlockchainTestSubCommandTest {
         .contains("RLP exception");
   }
 
+  @Test
+  void jsonArrayKeepsFirstBlockFailureWhenLaterBlockImports() throws Exception {
+    final String output = runJsonArray("blockchain-truncated-then-good-rlp.json");
+    final List<Map<String, Object>> results = MAPPER.readValue(output, new TypeReference<>() {});
+
+    assertThat(results).hasSize(1);
+    assertThat(results.getFirst().get("pass")).isEqualTo(false);
+    assertThat(results.getFirst().get("error")).asString().contains("RLP exception");
+  }
+
   private static String runJsonArray(final String fixtureResource) {
     final ByteArrayOutputStream baos = new ByteArrayOutputStream();
     final EvmToolCommand parentCommand =

@@ -425,20 +425,29 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
           totalTxCount += block.getBody().getTransactions().size();
         }
 
-        failureReason = getBlockImportFailureReason(importResult, candidateBlock, block);
-        testPassed &= (failureReason == null);
+        final String blockFailureReason =
+            getBlockImportFailureReason(importResult, candidateBlock, block);
+        testPassed &= (blockFailureReason == null);
+        // the first failing block is the root cause; later blocks only fail as a consequence
+        if (failureReason == null) {
+          failureReason = blockFailureReason;
+        }
 
         if (!jsonArray) {
-          printBlockImportResult(timer, importResult, block, failureReason);
+          printBlockImportResult(timer, importResult, block, blockFailureReason);
         }
       } catch (final RLPException e) {
         // Do not call getBlock() again here: decoding already failed, and a second call rethrows
         // and drops this test from --json-array output (see #11328).
         if (candidateBlock.isValid()) {
           testPassed = false;
-          failureReason = String.format("Block %d RLP exception: %s", blockIndex, e.getMessage());
+          final String rlpFailureReason =
+              String.format("Block %d RLP exception: %s", blockIndex, e.getMessage());
+          if (failureReason == null) {
+            failureReason = rlpFailureReason;
+          }
           if (!jsonArray) {
-            parentCommand.out.println(failureReason);
+            parentCommand.out.println(rlpFailureReason);
           }
         }
       }
