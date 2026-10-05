@@ -156,4 +156,14 @@ public interface WorldUpdater extends MutableWorldView {
   default void markTransactionBoundary() {
     // default is to ignore
   }
+
+  /**
+   * Records that the executing transaction depends on the balance of an account, by reading it or
+   * by spending from it, rather than only adding to it.
+   *
+   * @param address the account whose balance the transaction depends on
+   */
+  default void observeBalance(final Address address) {
+    // default is to ignore
+  }
 }

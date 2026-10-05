@@ -21,11 +21,14 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.BiPredicate;
 
 import org.apache.tuweni.units.bigints.UInt256;
+import org.jspecify.annotations.Nullable;
 
 public class TransactionCollisionDetector {
 
@@ -51,6 +54,33 @@ public class TransactionCollisionDetector {
       final Address miningBeneficiary,
       final ParallelizedTransactionContext parallelizedTransactionContext,
       final PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount> blockAccumulator) {
+    return hasCollision(
+        transaction, miningBeneficiary, parallelizedTransactionContext, blockAccumulator, null);
+  }
+
+  /**
+   * Like {@link #hasCollision(Transaction, Address, ParallelizedTransactionContext,
+   * PathBasedWorldStateUpdateAccumulator)}, except that an account of which earlier transactions
+   * changed only the balance, while this transaction neither depended on that balance nor saw the
+   * account empty, is no collision. Such accounts are added to {@code creditedAccounts}: taking the
+   * result over must then carry the transaction's credit onto the balance the block has reached. A
+   * chained transaction's result is never carried over this way.
+   *
+   * @param transaction the transaction that executed speculatively, with a result that is not
+   *     invalid
+   * @param miningBeneficiary the mining beneficiary of the block
+   * @param parallelizedTransactionContext the speculative result with the state it read and wrote
+   * @param blockAccumulator the state changes of the earlier transactions of the block
+   * @param creditedAccounts receives the accounts whose credit must be carried over, or null to
+   *     treat every balance change as a collision
+   * @return true if the speculative result must not be used
+   */
+  public boolean hasCollision(
+      final Transaction transaction,
+      final Address miningBeneficiary,
+      final ParallelizedTransactionContext parallelizedTransactionContext,
+      final PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount> blockAccumulator,
+      final @Nullable List<Address> creditedAccounts) {
     final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator =
         parallelizedTransactionContext.transactionAccumulator();
     if (isAddressTouchedByTransaction(transaction, transactionAccumulator, miningBeneficiary)) {
@@ -65,7 +95,8 @@ public class TransactionCollisionDetector {
     // an executed transaction loaded its sender and recipient, and the commit added the accounts
     // it deleted
     for (final Address address : transactionAccumulator.getAccountsToUpdate().keySet()) {
-      if (hasCollision(address, transactionAccumulator, blockAccumulator)) {
+      if (hasCollision(
+          transaction, address, transactionAccumulator, blockAccumulator, creditedAccounts)) {
         return true;
       }
     }
@@ -163,16 +194,22 @@ public class TransactionCollisionDetector {
   }
 
   private boolean hasCollision(
+      final Transaction transaction,
       final Address address,
       final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator,
-      final PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount> blockAccumulator) {
+      final PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount> blockAccumulator,
+      final @Nullable List<Address> creditedAccounts) {
     final BonsaiValue<? extends BonsaiAccount> inBlock =
         blockAccumulator.getAccountsToUpdate().get(address);
     if (inBlock == null) {
       return false;
     }
     if (!areAccountDetailsEqualExcludingStorage(inBlock.getPrior(), inBlock.getUpdated())) {
-      return true;
+      if (creditedAccounts == null
+          || !isOnlyCredited(transaction, transactionAccumulator, address, inBlock)) {
+        return true;
+      }
+      creditedAccounts.add(address);
     }
     final Map<StorageSlotKey, ? extends BonsaiValue<UInt256>> slots =
         transactionAccumulator.getStorageToUpdate().get(address);
@@ -197,6 +234,44 @@ public class TransactionCollisionDetector {
       }
     }
     return false;
+  }
+
+  /**
+   * Whether earlier transactions changed only the balance of an account whose balance the
+   * transaction neither read nor spent from, so it ends the same on the balance the block has
+   * reached. Emptiness depends on the balance and decides call costs and state clearing, so an
+   * account empty on either side does not qualify.
+   */
+  private static boolean isOnlyCredited(
+      final Transaction transaction,
+      final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator,
+      final Address address,
+      final BonsaiValue<? extends BonsaiAccount> inBlock) {
+    final Set<Address> observedBalances = transactionAccumulator.getObservedBalances();
+    // the sender's balance pays for the gas
+    if (observedBalances == null
+        || observedBalances.contains(address)
+        || address.equals(transaction.getSender())) {
+      return false;
+    }
+    final BonsaiValue<? extends BonsaiAccount> inTransaction =
+        transactionAccumulator.getAccountsToUpdate().get(address);
+    final BonsaiAccount blockPrior = inBlock.getPrior();
+    final BonsaiAccount blockUpdated = inBlock.getUpdated();
+    if (blockPrior == null
+        || blockUpdated == null
+        || inTransaction == null
+        || inTransaction.getPrior() == null
+        || inTransaction.getUpdated() == null) {
+      return false;
+    }
+    return blockPrior.getNonce() == blockUpdated.getNonce()
+        && blockPrior.getCodeHash().equals(blockUpdated.getCodeHash())
+        && !blockPrior.isEmpty()
+        && !blockUpdated.isEmpty()
+        && !inTransaction.getUpdated().isEmpty()
+        && inTransaction.getUpdated().getBalance().compareTo(inTransaction.getPrior().getBalance())
+            >= 0;
   }
 
   /**

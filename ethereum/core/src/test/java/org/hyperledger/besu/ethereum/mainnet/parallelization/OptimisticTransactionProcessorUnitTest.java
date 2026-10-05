@@ -400,7 +400,7 @@ class OptimisticTransactionProcessorUnitTest {
     void collisionDetectorCalledWithCorrectTransaction() {
       final Transaction transaction = mockTransaction();
       stubSuccessfulTransaction(Optional.empty());
-      when(collisionDetector.hasCollision(any(), any(), any(), any())).thenReturn(false);
+      when(collisionDetector.hasCollision(any(), any(), any(), any(), any())).thenReturn(false);
 
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -421,6 +421,7 @@ class OptimisticTransactionProcessorUnitTest {
               eq(transaction),
               eq(MINING_BENEFICIARY),
               any(ParallelizedTransactionContext.class),
+              any(),
               any());
     }
 
@@ -430,7 +431,7 @@ class OptimisticTransactionProcessorUnitTest {
       final Transaction transaction = mockTransaction();
       final Address customBeneficiary = Address.fromHexString("0xABCDEF");
       stubSuccessfulTransaction(Optional.empty());
-      when(collisionDetector.hasCollision(any(), any(), any(), any())).thenReturn(false);
+      when(collisionDetector.hasCollision(any(), any(), any(), any(), any())).thenReturn(false);
 
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -447,7 +448,7 @@ class OptimisticTransactionProcessorUnitTest {
           env.worldState(), customBeneficiary, transaction, 0, Optional.empty(), Optional.empty());
 
       verify(collisionDetector, times(1))
-          .hasCollision(eq(transaction), eq(customBeneficiary), any(), any());
+          .hasCollision(eq(transaction), eq(customBeneficiary), any(), any(), any());
     }
 
     @Test
@@ -457,7 +458,7 @@ class OptimisticTransactionProcessorUnitTest {
       final Transaction tx2 = mockTransaction();
       final Transaction tx3 = mockTransaction();
       stubSuccessfulTransaction(Optional.empty());
-      when(collisionDetector.hasCollision(any(), any(), any(), any())).thenReturn(false);
+      when(collisionDetector.hasCollision(any(), any(), any(), any(), any())).thenReturn(false);
 
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -478,11 +479,11 @@ class OptimisticTransactionProcessorUnitTest {
           env.worldState(), MINING_BENEFICIARY, tx3, 2, Optional.empty(), Optional.empty());
 
       verify(collisionDetector, times(1))
-          .hasCollision(eq(tx1), eq(MINING_BENEFICIARY), any(), any());
+          .hasCollision(eq(tx1), eq(MINING_BENEFICIARY), any(), any(), any());
       verify(collisionDetector, times(1))
-          .hasCollision(eq(tx2), eq(MINING_BENEFICIARY), any(), any());
+          .hasCollision(eq(tx2), eq(MINING_BENEFICIARY), any(), any(), any());
       verify(collisionDetector, times(1))
-          .hasCollision(eq(tx3), eq(MINING_BENEFICIARY), any(), any());
+          .hasCollision(eq(tx3), eq(MINING_BENEFICIARY), any(), any(), any());
     }
   }
 
@@ -507,7 +508,7 @@ class OptimisticTransactionProcessorUnitTest {
           Optional.empty(),
           env.maybeParentHeader());
 
-      when(collisionDetector.hasCollision(any(), any(), any(), any())).thenReturn(true);
+      when(collisionDetector.hasCollision(any(), any(), any(), any(), any())).thenReturn(true);
 
       final Optional<TransactionProcessingResult> result =
           processor.getProcessingResult(
@@ -608,7 +609,7 @@ class OptimisticTransactionProcessorUnitTest {
     void returnsResultWhenNoCollision() {
       final Transaction transaction = mockTransaction();
       stubSuccessfulTransaction(Optional.empty());
-      when(collisionDetector.hasCollision(any(), any(), any(), any())).thenReturn(false);
+      when(collisionDetector.hasCollision(any(), any(), any(), any(), any())).thenReturn(false);
 
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -649,7 +650,7 @@ class OptimisticTransactionProcessorUnitTest {
                   Optional.of(Bytes.EMPTY),
                   Optional.empty(),
                   Optional.empty()));
-      when(collisionDetector.hasCollision(any(), any(), any(), any())).thenReturn(false);
+      when(collisionDetector.hasCollision(any(), any(), any(), any(), any())).thenReturn(false);
 
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -726,8 +727,8 @@ class OptimisticTransactionProcessorUnitTest {
           Optional.empty(),
           env.maybeParentHeader());
 
-      when(collisionDetector.hasCollision(eq(tx1), any(), any(), any())).thenReturn(false);
-      when(collisionDetector.hasCollision(eq(tx2), any(), any(), any())).thenReturn(true);
+      when(collisionDetector.hasCollision(eq(tx1), any(), any(), any(), any())).thenReturn(false);
+      when(collisionDetector.hasCollision(eq(tx2), any(), any(), any(), any())).thenReturn(true);
 
       final Optional<TransactionProcessingResult> result1 =
           processor.getProcessingResult(
@@ -785,7 +786,7 @@ class OptimisticTransactionProcessorUnitTest {
       final PartialBlockAccessView partialView = mock(PartialBlockAccessView.class);
 
       stubSuccessfulTransaction(Optional.of(partialView));
-      when(collisionDetector.hasCollision(any(), any(), any(), any())).thenReturn(false);
+      when(collisionDetector.hasCollision(any(), any(), any(), any(), any())).thenReturn(false);
 
       final BlockAccessListBuilder balBuilder = mock(BlockAccessListBuilder.class);
 
@@ -833,7 +834,7 @@ class OptimisticTransactionProcessorUnitTest {
     void zeroRewardDoesNotMaterializeEmptyMiningBeneficiary() {
       final Transaction transaction = mockTransaction();
       stubSuccessfulTransaction(Optional.empty());
-      when(collisionDetector.hasCollision(any(), any(), any(), any())).thenReturn(false);
+      when(collisionDetector.hasCollision(any(), any(), any(), any(), any())).thenReturn(false);
       when(transactionProcessor.getClearEmptyAccounts()).thenReturn(true);
 
       processor.runAsyncBlock(
@@ -871,7 +872,7 @@ class OptimisticTransactionProcessorUnitTest {
     void zeroRewardStillMaterializesBeneficiaryWhenEmptyAccountsAreKept() {
       final Transaction transaction = mockTransaction();
       stubSuccessfulTransaction(Optional.empty());
-      when(collisionDetector.hasCollision(any(), any(), any(), any())).thenReturn(false);
+      when(collisionDetector.hasCollision(any(), any(), any(), any(), any())).thenReturn(false);
       when(transactionProcessor.getClearEmptyAccounts()).thenReturn(false);
 
       processor.runAsyncBlock(
@@ -1007,6 +1008,7 @@ class OptimisticTransactionProcessorUnitTest {
               eq(tx2),
               eq(MINING_BENEFICIARY),
               argThat(context -> context.chainPredecessorAccumulator() != null),
+              any(),
               any());
       assertThat(result).isNotNull();
     }
@@ -1127,7 +1129,8 @@ class OptimisticTransactionProcessorUnitTest {
           env.worldState(), MINING_BENEFICIARY, known2, 2, Optional.empty(), Optional.empty());
       final ArgumentCaptor<ParallelizedTransactionContext> contexts =
           ArgumentCaptor.forClass(ParallelizedTransactionContext.class);
-      verify(collisionDetector, times(2)).hasCollision(any(), any(), contexts.capture(), any());
+      verify(collisionDetector, times(2))
+          .hasCollision(any(), any(), contexts.capture(), any(), any());
       assertThat(contexts.getAllValues().get(1).chainPredecessorAccumulator())
           .as("the second known transaction ran on the state the unknown one left")
           .isSameAs(contexts.getAllValues().get(0).transactionAccumulator());
@@ -1193,12 +1196,14 @@ class OptimisticTransactionProcessorUnitTest {
               eq(lastChained),
               any(),
               argThat(context -> context.chainPredecessorAccumulator() != null),
+              any(),
               any());
       verify(collisionDetector)
           .hasCollision(
               eq(firstAlone),
               any(),
               argThat(context -> context.chainPredecessorAccumulator() == null),
+              any(),
               any());
     }
 
