@@ -569,7 +569,9 @@ public class EVM {
    * @return the code instance with the cached jump destination
    */
   public Code getOrCreateCachedJumpDest(final Hash codeHash, final Bytes codeBytes) {
-    checkNotNull(codeHash);
+    if (Hash.EMPTY.getBytes().equals(codeHash.getBytes())) {
+     return Code.EMPTY_CODE;
+    }
 
     Code result = jumpDestOnlyCodeCache.getIfPresent(codeHash);
     if (result == null) {
