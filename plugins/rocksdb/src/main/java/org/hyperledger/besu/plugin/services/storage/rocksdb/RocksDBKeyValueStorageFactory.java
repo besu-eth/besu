@@ -182,7 +182,7 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
                   rocksDBMetricsFactory);
         }
       }
-      segmentedStorage.warmUpAtStartup();
+      requireNonNull(segmentedStorage).warmUpAtStartup();
     }
     return requireNonNull(segmentedStorage);
   }
