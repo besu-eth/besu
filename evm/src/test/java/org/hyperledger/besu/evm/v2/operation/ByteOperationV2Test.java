@@ -35,9 +35,9 @@ import org.junit.jupiter.params.provider.MethodSource;
 class ByteOperationV2Test extends BinaryOperationV2Test {
   private final GasCalculator gasCalculator = new FrontierGasCalculator();
 
-  /** Byte i of this value is i, so the expected result of BYTE(i) is easy to read. */
+  /** Byte i of this value is 0xa0 + i, so a result can't be mistaken for its index. */
   private static final String SEQUENCE =
-      "0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+      "0xa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf";
 
   public ByteOperationV2Test() {
     super(new ByteOperationV2(new FrontierGasCalculator()));
@@ -52,20 +52,22 @@ class ByteOperationV2Test extends BinaryOperationV2Test {
     return List.of(
         // (index, value, expected)
         // First and last byte of each limb: catches limb selection and in-limb shift mistakes.
-        Arguments.of("0x00", SEQUENCE, "0x00"),
-        Arguments.of("0x07", SEQUENCE, "0x07"),
-        Arguments.of("0x08", SEQUENCE, "0x08"),
-        Arguments.of("0x0f", SEQUENCE, "0x0f"),
-        Arguments.of("0x10", SEQUENCE, "0x10"),
-        Arguments.of("0x17", SEQUENCE, "0x17"),
-        Arguments.of("0x18", SEQUENCE, "0x18"),
-        Arguments.of("0x1f", SEQUENCE, "0x1f"),
+        Arguments.of("0x00", SEQUENCE, "0xa0"),
+        Arguments.of("0x07", SEQUENCE, "0xa7"),
+        Arguments.of("0x08", SEQUENCE, "0xa8"),
+        Arguments.of("0x0f", SEQUENCE, "0xaf"),
+        Arguments.of("0x10", SEQUENCE, "0xb0"),
+        Arguments.of("0x17", SEQUENCE, "0xb7"),
+        Arguments.of("0x18", SEQUENCE, "0xb8"),
+        Arguments.of("0x1f", SEQUENCE, "0xbf"),
         // The result is the byte alone, not sign-extended.
         Arguments.of(
             "0x00", "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "0xff"),
         // Index 32 and above is out of range.
         Arguments.of("0x20", SEQUENCE, "0x00"),
         Arguments.of("0xffffffffffffffff", SEQUENCE, "0x00"),
+        // An index whose low 32 bits alone would be in range.
+        Arguments.of("0x0100000003", SEQUENCE, "0x00"),
         // A large index whose low limb alone would be in range.
         Arguments.of("0x010000000000000003", SEQUENCE, "0x00"),
         Arguments.of(
