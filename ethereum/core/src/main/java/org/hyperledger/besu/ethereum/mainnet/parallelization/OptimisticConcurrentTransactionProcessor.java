@@ -44,6 +44,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
@@ -70,6 +71,9 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
   // Index the serial loop has reached. A speculative run for that index or an earlier one can no
   // longer be used, so workers skip it instead of competing with the import for cores.
   private final AtomicInteger serialLoopPosition = new AtomicInteger(-1);
+  // chained runs of transactions whose sender was recovered only after they ran alone
+  private volatile AtomicReferenceArray<CompletableFuture<ParallelizedTransactionContext>>
+      lateChainFutures = new AtomicReferenceArray<>(0);
   // senders recovered per task, few enough to spread over the executor's threads
   private static final int SENDER_RECOVERY_BATCH = 8;
 
@@ -124,18 +128,20 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
       final Optional<BlockHeader> maybeParentHeader) {
 
-    recoverUnknownSenders(transactions, executor);
     final Map<Address, List<Integer>> bySender = new HashMap<>();
+    final List<Integer> unknownSenders = new ArrayList<>();
     for (int i = 0; i < transactions.size(); i++) {
       final int txIndex = i;
       transactions
           .get(i)
           .getSenderIfKnown()
-          .ifPresent(
-              sender -> bySender.computeIfAbsent(sender, k -> new ArrayList<>(1)).add(txIndex));
+          .ifPresentOrElse(
+              sender -> bySender.computeIfAbsent(sender, k -> new ArrayList<>(1)).add(txIndex),
+              () -> unknownSenders.add(txIndex));
     }
 
     futures = new CompletableFuture[transactions.size()];
+    lateChainFutures = new AtomicReferenceArray<>(transactions.size());
     for (int i = 0; i < transactions.size(); i++) {
       final Transaction transaction = transactions.get(i);
       final List<Integer> chain = transaction.getSenderIfKnown().map(bySender::get).orElse(null);
@@ -197,6 +203,142 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
         }
       }
     }
+    if (!unknownSenders.isEmpty()) {
+      chainUnknownSenders(
+          protocolContext,
+          blockHeader,
+          transactions,
+          unknownSenders,
+          miningBeneficiary,
+          blockHashLookup,
+          blobGasPrice,
+          executor,
+          blockAccessListBuilder,
+          maybeParentHeader);
+    }
+  }
+
+  /**
+   * The transaction pool knows the senders of the transactions it saw, but not those sent to block
+   * builders directly, so those run alone at first and the later ones of a sender fail their nonce
+   * check. Their senders are recovered meanwhile on the I/O executor, and the transactions that
+   * turn out to share a sender run again chained on the result of the first one, which ran alone
+   * correctly.
+   */
+  private void chainUnknownSenders(
+      final ProtocolContext protocolContext,
+      final BlockHeader blockHeader,
+      final List<Transaction> transactions,
+      final List<Integer> unknownSenders,
+      final Address miningBeneficiary,
+      final BlockHashLookup blockHashLookup,
+      final Wei blobGasPrice,
+      final Executor executor,
+      final Optional<BlockAccessListBuilder> blockAccessListBuilder,
+      final Optional<BlockHeader> maybeParentHeader) {
+    final Map<Integer, CompletableFuture<ParallelizedTransactionContext>> aloneRuns =
+        new HashMap<>();
+    for (final int txIndex : unknownSenders) {
+      aloneRuns.put(txIndex, futures[txIndex]);
+    }
+    final List<CompletableFuture<Void>> recoveries = new ArrayList<>();
+    for (int from = 0; from < unknownSenders.size(); from += SENDER_RECOVERY_BATCH) {
+      final List<Integer> batch =
+          unknownSenders.subList(
+              from, Math.min(unknownSenders.size(), from + SENDER_RECOVERY_BATCH));
+      recoveries.add(
+          CompletableFuture.runAsync(
+              () -> batch.forEach(txIndex -> transactions.get(txIndex).getSender()),
+              warmUpExecutor));
+    }
+    CompletableFuture.allOf(recoveries.toArray(CompletableFuture[]::new))
+        .thenRunAsync(
+            () -> {
+              final Map<Address, List<Integer>> bySender = new HashMap<>();
+              for (final int txIndex : unknownSenders) {
+                transactions
+                    .get(txIndex)
+                    .getSenderIfKnown()
+                    .ifPresent(
+                        sender ->
+                            bySender.computeIfAbsent(sender, k -> new ArrayList<>(1)).add(txIndex));
+              }
+              for (final List<Integer> chain : bySender.values()) {
+                if (chain.size() < 2) {
+                  continue;
+                }
+                final List<CompletableFuture<ParallelizedTransactionContext>> chainFutures =
+                    new ArrayList<>(chain.size());
+                chainFutures.add(aloneRuns.get(chain.get(0)));
+                for (int k = 1; k < chain.size(); k++) {
+                  final CompletableFuture<ParallelizedTransactionContext> future =
+                      new CompletableFuture<>();
+                  lateChainFutures.set(chain.get(k), future);
+                  chainFutures.add(future);
+                }
+                chainFutures
+                    .get(0)
+                    .whenCompleteAsync(
+                        (first, failure) ->
+                            runChainAfter(
+                                first,
+                                protocolContext,
+                                blockHeader,
+                                transactions,
+                                chain,
+                                chainFutures,
+                                miningBeneficiary,
+                                blockHashLookup,
+                                blobGasPrice,
+                                blockAccessListBuilder,
+                                maybeParentHeader),
+                        executor);
+              }
+            },
+            warmUpExecutor);
+  }
+
+  /** Runs the rest of a chain on the result of its first member, which ran alone. */
+  private void runChainAfter(
+      final ParallelizedTransactionContext first,
+      final ProtocolContext protocolContext,
+      final BlockHeader blockHeader,
+      final List<Transaction> transactions,
+      final List<Integer> chain,
+      final List<CompletableFuture<ParallelizedTransactionContext>> chainFutures,
+      final Address miningBeneficiary,
+      final BlockHashLookup blockHashLookup,
+      final Wei blobGasPrice,
+      final Optional<BlockAccessListBuilder> blockAccessListBuilder,
+      final Optional<BlockHeader> maybeParentHeader) {
+    PathBasedWorldStateUpdateAccumulator<?> previous =
+        first == null || first.transactionProcessingResult().isInvalid()
+            ? null
+            : first.transactionAccumulator();
+    for (int k = 1; k < chain.size(); k++) {
+      final int txIndex = chain.get(k);
+      final CompletableFuture<ParallelizedTransactionContext> future = chainFutures.get(k);
+      if (previous == null || future.isCancelled() || serialLoopHasPassed(txIndex)) {
+        for (int j = k; j < chain.size(); j++) {
+          chainFutures.get(j).complete(null);
+        }
+        return;
+      }
+      final ParallelizedTransactionContext context =
+          runTransaction(
+              protocolContext,
+              blockHeader,
+              txIndex,
+              transactions.get(txIndex),
+              miningBeneficiary,
+              blockHashLookup,
+              blobGasPrice,
+              blockAccessListBuilder,
+              maybeParentHeader,
+              previous);
+      future.complete(context);
+      previous = context == null ? null : context.transactionAccumulator();
+    }
   }
 
   /**
@@ -240,46 +382,6 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       // only fetching state, the chained run reports any failure
     } finally {
       ws.close();
-    }
-  }
-
-  /**
-   * The transaction pool knows the senders of the transactions it saw, but not those sent to block
-   * builders directly. Run alone against the parent state, the later transactions of such a sender
-   * fail their nonce check and are executed again on the importing thread, so their senders are
-   * recovered here first, in parallel, to chain them like the others.
-   */
-  private static void recoverUnknownSenders(
-      final List<Transaction> transactions, final Executor executor) {
-    final List<Transaction> unknown = new ArrayList<>();
-    for (final Transaction transaction : transactions) {
-      if (transaction.getSenderIfKnown().isEmpty()) {
-        unknown.add(transaction);
-      }
-    }
-    if (unknown.isEmpty()) {
-      return;
-    }
-    final AtomicInteger next = new AtomicInteger();
-    final AtomicInteger recovered = new AtomicInteger();
-    final Runnable recover =
-        () -> {
-          for (int i = next.getAndIncrement(); i < unknown.size(); i = next.getAndIncrement()) {
-            try {
-              unknown.get(i).getSender();
-            } catch (final RuntimeException e) {
-              // a sender that cannot be recovered leaves its transaction unchained
-            }
-            recovered.incrementAndGet();
-          }
-        };
-    for (int helper = 1; helper * SENDER_RECOVERY_BATCH < unknown.size(); helper++) {
-      executor.execute(recover);
-    }
-    // taking part means never waiting for an executor that is busy or runs tasks later
-    recover.run();
-    while (recovered.get() < unknown.size()) {
-      Thread.onSpinWait();
     }
   }
 
@@ -495,8 +597,15 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       final Optional<Counter> conflictingButCachedTransactionCounter) {
 
     serialLoopPosition.set(transactionLocation);
-    final CompletableFuture<ParallelizedTransactionContext> future =
+    final CompletableFuture<ParallelizedTransactionContext> aloneOrChained =
         removeFuture(transactionLocation);
+    // a chained run replaces the run alone that failed its nonce check
+    final CompletableFuture<ParallelizedTransactionContext> lateChained =
+        transactionLocation < lateChainFutures.length()
+            ? lateChainFutures.getAndSet(transactionLocation, null)
+            : null;
+    final CompletableFuture<ParallelizedTransactionContext> future =
+        lateChained != null ? lateChained : aloneOrChained;
 
     if (future != null && future.state() == Future.State.FAILED) {
       LOG.debug(
