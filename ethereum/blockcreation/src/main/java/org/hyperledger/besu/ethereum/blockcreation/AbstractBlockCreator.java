@@ -64,6 +64,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.google.common.collect.Lists;
@@ -200,7 +201,9 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
 
     final var timings = new BlockCreationTiming();
 
-    try (final MutableWorldState disposableWorldState = duplicateWorldStateAtParent(parentHeader)) {
+    try (final DisposableWorldState disposable =
+        new DisposableWorldState(duplicateWorldStateAtParent(parentHeader))) {
+      final MutableWorldState disposableWorldState = disposable.worldState;
       timings.register("duplicateWorldState");
       final ProtocolSpec newProtocolSpec =
           protocolSchedule.getForNextBlockHeader(parentHeader, timestamp);
@@ -454,6 +457,42 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
                       + " with state root "
                       + parentStateRoot);
             });
+  }
+
+  /**
+   * The world state of the block being created. Closing it waits for the transaction selection
+   * tasks to stop, since one that timed out can still be executing a transaction when the block is
+   * assembled, and reads on a closed world state find nothing.
+   */
+  private final class DisposableWorldState implements AutoCloseable {
+    private final MutableWorldState worldState;
+
+    private DisposableWorldState(final MutableWorldState worldState) {
+      this.worldState = worldState;
+    }
+
+    @Override
+    public void close() throws Exception {
+      final var currSelector = selector;
+      final var selectionDone =
+          currSelector != null
+              ? currSelector.selectionTasksDone()
+              : CompletableFuture.<Void>completedFuture(null);
+      if (selectionDone.isDone()) {
+        worldState.close();
+        return;
+      }
+      LOG.debug("Transaction selection still running, the world state will be closed after it");
+      selectionDone.whenComplete((unused, error) -> closeWorldState());
+    }
+
+    private void closeWorldState() {
+      try {
+        worldState.close();
+      } catch (final Exception e) {
+        LOG.warn("Failed to close the world state of the created block", e);
+      }
+    }
   }
 
   private List<BlockHeader> selectOmmers() {
