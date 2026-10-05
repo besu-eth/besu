@@ -25,7 +25,9 @@ import org.hyperledger.besu.evm.fluent.SimpleWorld;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 
 import java.math.BigInteger;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -41,6 +43,8 @@ class BalanceObservationTest {
       Address.fromHexString("0x00000000000000000000000000000000000c0de2");
   private static final String PUSH_OTHER = "73" + OTHER.getBytes().toUnprefixedHexString();
 
+  private final Map<Address, Wei> margins = new HashMap<>();
+
   private Set<Address> observedBalances(final boolean evmV2, final String code, final Wei value) {
     final Set<Address> observed = new HashSet<>();
     final SimpleWorld world =
@@ -48,6 +52,11 @@ class BalanceObservationTest {
           @Override
           public void observeBalance(final Address address) {
             observed.add(address);
+          }
+
+          @Override
+          public void observeSufficientBalance(final Address address, final Wei margin) {
+            margins.merge(address, margin, (a, b) -> a.compareTo(b) <= 0 ? a : b);
           }
         };
     world.createAccount(CONTRACT, 1, Wei.of(1_000));
@@ -84,9 +93,28 @@ class BalanceObservationTest {
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
-  void callWithValueObservesTheCaller(final boolean evmV2) {
-    assertThat(observedBalances(evmV2, "5f5f5f5f6001" + PUSH_OTHER + "5af100", Wei.ZERO))
+  void callWithValueOnlyNeedsASufficientBalance(final boolean evmV2) {
+    assertThat(observedBalances(evmV2, "5f5f5f5f6001" + PUSH_OTHER + "5af100", Wei.ZERO)).isEmpty();
+    assertThat(margins).containsExactly(Map.entry(CONTRACT, Wei.of(999)));
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void callWithMoreValueThanTheBalanceObservesTheCaller(final boolean evmV2) {
+    assertThat(observedBalances(evmV2, "5f5f5f5f6107d0" + PUSH_OTHER + "5af100", Wei.ZERO))
         .containsExactly(CONTRACT);
+    assertThat(margins).isEmpty();
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void theSmallestMarginOfSeveralSpendingsCounts(final boolean evmV2) {
+    observedBalances(
+        evmV2,
+        "5f5f5f5f6001" + PUSH_OTHER + "5af1" + "5f5f5f5f6064" + PUSH_OTHER + "5af100",
+        Wei.ZERO);
+    // the second call spends 100 of the 999 left after the first
+    assertThat(margins).containsExactly(Map.entry(CONTRACT, Wei.of(899)));
   }
 
   @ParameterizedTest
@@ -97,8 +125,9 @@ class BalanceObservationTest {
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
-  void createWithValueObservesTheCreator(final boolean evmV2) {
-    assertThat(observedBalances(evmV2, "5f5f6001f000", Wei.ZERO)).containsExactly(CONTRACT);
+  void createWithValueOnlyNeedsASufficientBalance(final boolean evmV2) {
+    assertThat(observedBalances(evmV2, "5f5f6001f000", Wei.ZERO)).isEmpty();
+    assertThat(margins).containsExactly(Map.entry(CONTRACT, Wei.of(999)));
   }
 
   @ParameterizedTest

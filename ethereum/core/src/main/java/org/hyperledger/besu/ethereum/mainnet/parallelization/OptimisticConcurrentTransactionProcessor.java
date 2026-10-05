@@ -796,16 +796,17 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
           final Address credited = creditedAccounts.get(i);
           final BonsaiValue<? extends BonsaiAccount> inTransaction =
               transactionAccumulator.getAccountsToUpdate().get(credited);
-          creditedBalances[i] =
+          final Wei inBlock =
               ((BonsaiValue<? extends BonsaiAccount>)
                       blockAccumulator.getAccountsToUpdate().get(credited))
                   .getUpdated()
-                  .getBalance()
-                  .add(
-                      inTransaction
-                          .getUpdated()
-                          .getBalance()
-                          .subtract(inTransaction.getPrior().getBalance()));
+                  .getBalance();
+          final Wei before = inTransaction.getPrior().getBalance();
+          final Wei after = inTransaction.getUpdated().getBalance();
+          creditedBalances[i] =
+              after.compareTo(before) >= 0
+                  ? inBlock.add(after.subtract(before))
+                  : inBlock.subtract(before.subtract(after));
         }
         blockAccumulator.importStateChangesFromSource(transactionAccumulator);
         for (int i = 0; i < creditedBalances.length; i++) {

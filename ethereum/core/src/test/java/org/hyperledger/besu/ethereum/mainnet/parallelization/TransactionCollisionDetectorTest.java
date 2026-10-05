@@ -957,6 +957,37 @@ class TransactionCollisionDetectorTest {
   }
 
   @Test
+  void spendingWithinItsMarginFromAnAccountWhoseBalanceChangedIsCarriedOver() {
+    final Transaction transaction = creditScenario(45);
+    // the transaction found 50 where it spent 10
+    trxUpdater.observeSufficientBalance(Address.fromHexString("0x2"), Wei.of(40));
+    final List<Address> credited = new ArrayList<>();
+
+    assertFalse(hasCollisionCarryingCredits(transaction, credited));
+    assertThat(credited).containsExactly(Address.fromHexString("0x2"));
+  }
+
+  @Test
+  void spendingBeyondItsMarginFromAnAccountWhoseBalanceChangedIsACollision() {
+    final Address sender = Address.fromHexString("0x1");
+    final Address spent = Address.fromHexString("0x2");
+    final BonsaiAccount senderAccount = createAccount(sender, 0, 100);
+    trxUpdater.recordBalanceObservations();
+    trxUpdater.getAccountsToUpdate().put(sender, new BonsaiValue<>(senderAccount, senderAccount));
+    // an earlier transaction of the block took 30 of the 50
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(spent, new BonsaiValue<>(createAccount(spent, 1, 50), createAccount(spent, 1, 20)));
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(spent, new BonsaiValue<>(createAccount(spent, 1, 50), createAccount(spent, 1, 5)));
+    // the transaction found 50 where it spent 45
+    trxUpdater.observeSufficientBalance(spent, Wei.of(5));
+
+    assertTrue(hasCollisionCarryingCredits(createTransaction(sender, spent), new ArrayList<>()));
+  }
+
+  @Test
   void creditWithoutRecordedObservationsIsACollision() {
     final Transaction transaction = creditScenario(55);
     final BonsaiWorldStateUpdateAccumulator unrecorded =

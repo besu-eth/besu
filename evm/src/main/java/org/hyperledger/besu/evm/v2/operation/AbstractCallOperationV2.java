@@ -249,7 +249,7 @@ public abstract class AbstractCallOperationV2 extends AbstractOperationV2 {
 
     final Wei balance = account == null ? Wei.ZERO : account.getBalance();
     if (!transferValue.isZero()) {
-      frame.getWorldUpdater().observeBalance(frame.getRecipientAddress());
+      frame.getWorldUpdater().observeSpending(frame.getRecipientAddress(), balance, transferValue);
     }
 
     // If the call is sending more value than the account has or the message frame is too deep
