@@ -906,6 +906,56 @@ class OptimisticTransactionProcessorUnitTest {
     }
 
     @Test
+    @DisplayName("The later members of a chain are warmed up against the parent state meanwhile")
+    void laterChainMembersAreWarmedUp() {
+      final List<Runnable> warmUps = new ArrayList<>();
+      processor =
+          new OptimisticConcurrentTransactionProcessor(
+              transactionProcessor, collisionDetector, warmUps::add);
+      final Transaction tx1 = mockTransactionFrom(sender);
+      final Transaction tx2 = mockTransactionFrom(sender);
+      final Transaction tx3 = mockTransactionFrom(sender);
+      stubSuccessfulTransaction(Optional.empty());
+
+      runBlock(List.of(tx1, tx2, tx3), task -> {});
+
+      assertThat(warmUps).hasSize(2);
+      warmUps.forEach(Runnable::run);
+      verify(transactionProcessor, times(2))
+          .processTransaction(
+              any(),
+              any(),
+              any(),
+              any(),
+              any(),
+              any(),
+              eq(
+                  TransactionValidationParams
+                      .transactionSimulatorAllowExceedingBalanceAndFutureNonce()),
+              any(),
+              any());
+    }
+
+    @Test
+    @DisplayName("A member the serial loop has reached is not warmed up")
+    void memberTheSerialLoopReachedIsNotWarmedUp() {
+      final List<Runnable> warmUps = new ArrayList<>();
+      processor =
+          new OptimisticConcurrentTransactionProcessor(
+              transactionProcessor, collisionDetector, warmUps::add);
+      final Transaction tx1 = mockTransactionFrom(sender);
+      final Transaction tx2 = mockTransactionFrom(sender);
+
+      runBlock(List.of(tx1, tx2), task -> {});
+      processor.getProcessingResult(
+          env.worldState(), MINING_BENEFICIARY, tx2, 1, Optional.empty(), Optional.empty());
+      warmUps.forEach(Runnable::run);
+
+      verify(transactionProcessor, never())
+          .processTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
     @DisplayName("A chain is dropped once the serial loop has reached one of its members")
     void chainStopsWhenSerialLoopReachedAMember() {
       final Transaction tx1 = mockTransactionFrom(sender);

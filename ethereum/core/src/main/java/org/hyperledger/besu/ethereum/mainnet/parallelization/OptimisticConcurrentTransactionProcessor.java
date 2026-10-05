@@ -65,6 +65,8 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
 
   private final TransactionCollisionDetector transactionCollisionDetector;
 
+  private final Executor warmUpExecutor;
+
   // Index the serial loop has reached. A speculative run for that index or an earlier one can no
   // longer be used, so workers skip it instead of competing with the import for cores.
   private final AtomicInteger serialLoopPosition = new AtomicInteger(-1);
@@ -79,16 +81,27 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
    */
   public OptimisticConcurrentTransactionProcessor(
       final MainnetTransactionProcessor transactionProcessor) {
-    this.transactionProcessor = transactionProcessor;
-    this.transactionCollisionDetector = new TransactionCollisionDetector();
+    this(
+        transactionProcessor,
+        new TransactionCollisionDetector(),
+        BlockProcessingExecutors.ioExecutor());
   }
 
   @VisibleForTesting
   public OptimisticConcurrentTransactionProcessor(
       final MainnetTransactionProcessor transactionProcessor,
       final TransactionCollisionDetector transactionCollisionDetector) {
+    this(transactionProcessor, transactionCollisionDetector, warmUp -> {});
+  }
+
+  @VisibleForTesting
+  OptimisticConcurrentTransactionProcessor(
+      final MainnetTransactionProcessor transactionProcessor,
+      final TransactionCollisionDetector transactionCollisionDetector,
+      final Executor warmUpExecutor) {
     this.transactionProcessor = transactionProcessor;
     this.transactionCollisionDetector = transactionCollisionDetector;
+    this.warmUpExecutor = warmUpExecutor;
   }
 
   /**
@@ -165,7 +178,68 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
                     blobGasPrice,
                     blockAccessListBuilder,
                     maybeParentHeader));
+        // a member runs only after its predecessors, so what it reads is fetched meanwhile
+        for (int k = 1; k < chain.size(); k++) {
+          final int member = chain.get(k);
+          final CompletableFuture<ParallelizedTransactionContext> future = chainFutures.get(k);
+          warmUpExecutor.execute(
+              () ->
+                  warmUp(
+                      protocolContext,
+                      blockHeader,
+                      member,
+                      transactions.get(member),
+                      future,
+                      miningBeneficiary,
+                      blockHashLookup,
+                      blobGasPrice,
+                      maybeParentHeader));
+        }
       }
+    }
+  }
+
+  /**
+   * Executes a chained transaction against the parent state only for what it reads, so that its run
+   * on top of its predecessors finds that state cached. Its nonce and balance checks are relaxed as
+   * the predecessors have not run, and its result is discarded.
+   */
+  private void warmUp(
+      final ProtocolContext protocolContext,
+      final BlockHeader blockHeader,
+      final int transactionLocation,
+      final Transaction transaction,
+      final CompletableFuture<ParallelizedTransactionContext> future,
+      final Address miningBeneficiary,
+      final BlockHashLookup blockHashLookup,
+      final Wei blobGasPrice,
+      final Optional<BlockHeader> maybeParentHeader) {
+    if (future.isDone()
+        || serialLoopHasPassed(transactionLocation)
+        || maybeParentHeader.isEmpty()) {
+      return;
+    }
+    final BonsaiWorldState ws =
+        getWorldState(protocolContext, maybeParentHeader.get()).orElse(null);
+    if (ws == null) {
+      return;
+    }
+    try {
+      ws.disableCacheMerkleTrieLoader();
+      transactionProcessor.processTransaction(
+          ws.updater().updater(),
+          blockHeader,
+          transaction.detachedCopy(),
+          miningBeneficiary,
+          OperationTracer.NO_TRACING,
+          blockHashLookup.forkForParallelWorker(),
+          TransactionValidationParams.transactionSimulatorAllowExceedingBalanceAndFutureNonce(),
+          blobGasPrice,
+          Optional.empty());
+    } catch (final RuntimeException e) {
+      // only fetching state, the chained run reports any failure
+    } finally {
+      ws.close();
     }
   }
 
