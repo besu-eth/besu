@@ -47,7 +47,6 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.blockcreation.BlockCreationTiming;
 import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.BlockAddedEvent;
@@ -975,7 +974,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
                 .prevRandao(Bytes32.ZERO)
                 .feeRecipient(suggestedFeeRecipient)
                 .build());
-    final BlockCreationTiming firstEmptyBlockTiming =
+    final var firstEmptyBlockTiming =
         firstPayloadStoredFor(payloads, firstPayloadId).getBlockCreationTimings();
 
     final Instant secondPayloadPreparedAt = Instant.now();
@@ -987,7 +986,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
                 .prevRandao(Bytes32.ZERO)
                 .feeRecipient(suggestedFeeRecipient)
                 .build());
-    final BlockCreationTiming secondEmptyBlockTiming =
+    final var secondEmptyBlockTiming =
         firstPayloadStoredFor(payloads, secondPayloadId).getBlockCreationTimings();
     coordinator.finalizeProposalById(secondPayloadId);
 
