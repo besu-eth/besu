@@ -195,7 +195,7 @@ final class RocksDBSegmentRewrite {
 
   private static SegmentIdentifier openSegment(
       final RocksDBColumnarKeyValueStorage storage, final String name) {
-    return storage.columnHandlesBySegmentIdentifier.keySet().stream()
+    return storage.getColumnHandlesBySegmentIdentifier().keySet().stream()
         .filter(candidate -> candidate.getName().equals(name))
         .findFirst()
         .orElseThrow(
