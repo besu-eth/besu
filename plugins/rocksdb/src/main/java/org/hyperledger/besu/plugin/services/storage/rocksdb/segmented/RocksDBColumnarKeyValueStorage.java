@@ -536,7 +536,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
     return requireNonNull(metrics);
   }
 
-  private Map<SegmentIdentifier, RocksDbSegmentIdentifier> getColumnHandlesBySegmentIdentifier() {
+  Map<SegmentIdentifier, RocksDbSegmentIdentifier> getColumnHandlesBySegmentIdentifier() {
     return requireNonNull(columnHandlesBySegmentIdentifier);
   }
 
@@ -574,7 +574,8 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
       return List.of();
     }
     final ColumnFamilyHandle columnHandle = safeColumnHandle(segment);
-    try (final OperationTimer.TimingContext ignored = metrics.getMultiReadLatency().startTimer()) {
+    try (final OperationTimer.TimingContext ignored =
+        getMetrics().getMultiReadLatency().startTimer()) {
       final List<byte[]> rawResult =
           getDB().multiGetAsList(readOptions, Collections.nCopies(keys.size(), columnHandle), keys);
       if (rawResult == null) {
