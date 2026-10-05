@@ -104,7 +104,7 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
     final Code code = codeSupplier.get();
 
     if (!value.isZero()) {
-      frame.getWorldUpdater().observeBalance(address);
+      frame.getWorldUpdater().observeSpending(address, account.getBalance(), value);
     }
     final boolean insufficientBalance = value.compareTo(account.getBalance()) > 0;
     final boolean maxDepthReached = frame.getDepth() >= 1024;

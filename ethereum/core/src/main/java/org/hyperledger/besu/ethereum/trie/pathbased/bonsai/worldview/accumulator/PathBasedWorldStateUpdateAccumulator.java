@@ -40,6 +40,7 @@ import org.hyperledger.besu.plugin.services.trielogs.TrieLogAccumulator;
 
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
@@ -89,6 +90,8 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
 
   // the balances a speculatively executed transaction depends on, null when not recorded
   private @Nullable Set<Address> observedBalances;
+  // how far the balances it only spends from may be lower, null when not recorded
+  private @Nullable Map<Address, Wei> balanceMargins;
 
   public PathBasedWorldStateUpdateAccumulator(
       final BonsaiWorldView world,
@@ -109,6 +112,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
    */
   public void recordBalanceObservations() {
     observedBalances = new HashSet<>();
+    balanceMargins = new HashMap<>();
   }
 
   /**
@@ -120,10 +124,31 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
     return observedBalances;
   }
 
+  /**
+   * How far below its starting value the balance of an account the transaction only spends from may
+   * be without changing the transaction's outcome.
+   *
+   * @param address the account
+   * @return the margin, or empty if the transaction did not spend from the account or the margins
+   *     were not recorded
+   */
+  public Optional<Wei> getBalanceMargin(final Address address) {
+    return balanceMargins == null
+        ? Optional.empty()
+        : Optional.ofNullable(balanceMargins.get(address));
+  }
+
   @Override
   public void observeBalance(final Address address) {
     if (observedBalances != null) {
       observedBalances.add(address);
+    }
+  }
+
+  @Override
+  public void observeSufficientBalance(final Address address, final Wei margin) {
+    if (balanceMargins != null) {
+      balanceMargins.merge(address, margin, (a, b) -> a.compareTo(b) <= 0 ? a : b);
     }
   }
 

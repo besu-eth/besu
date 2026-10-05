@@ -144,4 +144,11 @@ public class SimpleWorld implements WorldUpdater {
       parent.observeBalance(address);
     }
   }
+
+  @Override
+  public void observeSufficientBalance(final Address address, final Wei margin) {
+    if (parent != null) {
+      parent.observeSufficientBalance(address, margin);
+    }
+  }
 }

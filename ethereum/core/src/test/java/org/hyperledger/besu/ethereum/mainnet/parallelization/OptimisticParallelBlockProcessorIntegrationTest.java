@@ -280,6 +280,26 @@ class OptimisticParallelBlockProcessorIntegrationTest {
     }
 
     @Test
+    @DisplayName("Spending from an account whose balance changed earlier in the block is reused")
+    void spendingFromAnAccountWhoseBalanceChangedIsReused() {
+      // the contract pays 1 wei from its own balance on every call, without reading the balance
+      final String payer = "0x0000000000000000000000000000000000007720";
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5),
+              transfer(0, payer),
+              createTransferTransaction(0, 0L, 300_000L, 0L, 5L, payer, ACCOUNT_GENESIS_2_KEYPAIR));
+
+      assertAccountsMatch(
+          result.seqWorldState(), result.parWorldState(), Address.fromHexString(payer));
+      assertAccountsMatch(
+          result.seqWorldState(),
+          result.parWorldState(),
+          Address.fromHexString("0xa4664C40AACeBD82A2Db79f0ea36C06Bc6A19Adb"));
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(2);
+    }
+
+    @Test
     @DisplayName("A payment to the mining beneficiary after paid priority fees is reused")
     void paymentToTheMiningBeneficiaryIsReused() {
       final ComparisonResult result =
