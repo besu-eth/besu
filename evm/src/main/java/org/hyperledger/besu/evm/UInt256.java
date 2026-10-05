@@ -387,6 +387,37 @@ public record UInt256(long u3, long u2, long u1, long u0) {
   }
 
   /**
+   * Byte at a big-endian position, as the EVM BYTE opcode defines it.
+   *
+   * @param index The byte position, where 0 is the most significant byte.
+   * @return The byte at {@code index} as a UInt256, or zero if {@code index} is 32 or more.
+   */
+  public UInt256 byteAt(final UInt256 index) {
+    if (!index.isUInt64() || Long.compareUnsigned(index.u0, BYTESIZE) >= 0) return ZERO;
+    final int i = (int) index.u0;
+    final long limb =
+        switch (i >>> 3) {
+          case 0 -> u3;
+          case 1 -> u2;
+          case 2 -> u1;
+          default -> u0;
+        };
+    return new UInt256(0, 0, 0, (limb >>> ((7 - (i & 7)) << 3)) & 0xFFL);
+  }
+
+  /**
+   * Number of leading zero bits, as the EVM CLZ opcode defines it.
+   *
+   * @return The number of zero bits above the most significant one bit, or 256 for zero.
+   */
+  public int numberOfLeadingZeros() {
+    if (u3 != 0) return Long.numberOfLeadingZeros(u3);
+    if (u2 != 0) return N_BITS_PER_LIMB + Long.numberOfLeadingZeros(u2);
+    if (u1 != 0) return 2 * N_BITS_PER_LIMB + Long.numberOfLeadingZeros(u1);
+    return 3 * N_BITS_PER_LIMB + Long.numberOfLeadingZeros(u0);
+  }
+
+  /**
    * Bitwise shift left.
    *
    * @param shift The number of bits to shift left (at most 0-256 (inclusive)).

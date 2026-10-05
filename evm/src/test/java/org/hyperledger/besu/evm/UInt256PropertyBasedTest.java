@@ -68,6 +68,11 @@ public class UInt256PropertyBasedTest {
   }
 
   @Provide
+  Arbitrary<Integer> byteIndices() {
+    return Arbitraries.integers().between(0, 40);
+  }
+
+  @Provide
   Arbitrary<Integer> powerOfTwoExponent() {
     final Arbitrary<Integer> edges =
         Arbitraries.of(0, 1, 63, 64, 65, 127, 128, 129, 191, 192, 193, 254, 255);
@@ -1370,6 +1375,71 @@ public class UInt256PropertyBasedTest {
 
     // Assert - A XOR ~A = 0xFF...FF
     assertThat(ua.xor(ua.not())).isEqualTo(allOnes);
+  }
+
+  // --------------------------------------------------------------------------
+  // endregion
+
+  // region BYTE Operation Tests
+  // --------------------------------------------------------------------------
+
+  @Property
+  void property_byteAt_matchesBigInteger(
+      @ForAll("unsigned1to32") final byte[] a, @ForAll("byteIndices") final int index) {
+    // Arrange
+    final UInt256 ua = UInt256.fromBytesBE(a);
+
+    // Act
+    final UInt256 got = ua.byteAt(UInt256.fromInt(index));
+
+    // Assert - byte i counts from the most significant byte; 32 and above give zero
+    final BigInteger expected =
+        index < 32
+            ? toBigUnsigned(a).shiftRight(8 * (31 - index)).and(BigInteger.valueOf(0xFF))
+            : BigInteger.ZERO;
+    assertThat(got.toBigInteger()).isEqualTo(expected);
+  }
+
+  @Property
+  void property_byteAt_largeIndex_isZero(
+      @ForAll("unsigned1to32") final byte[] a, @ForAll("unsigned1to32") final byte[] index) {
+    // Arrange
+    final UInt256 ua = UInt256.fromBytesBE(a);
+    final UInt256 uIndex = UInt256.fromBytesBE(index);
+    Assume.that(toBigUnsigned(index).compareTo(BigInteger.valueOf(32)) >= 0);
+
+    // Act & Assert
+    assertThat(ua.byteAt(uIndex)).isEqualTo(UInt256.ZERO);
+  }
+
+  // --------------------------------------------------------------------------
+  // endregion
+
+  // region CLZ Operation Tests
+  // --------------------------------------------------------------------------
+
+  @Property
+  void property_numberOfLeadingZeros_matchesBigInteger(@ForAll("unsigned1to32") final byte[] a) {
+    // Arrange
+    final UInt256 ua = UInt256.fromBytesBE(a);
+
+    // Act & Assert
+    assertThat(ua.numberOfLeadingZeros()).isEqualTo(256 - toBigUnsigned(a).bitLength());
+  }
+
+  @Property
+  void property_numberOfLeadingZeros_powerOfTwo(@ForAll("powerOfTwoExponent") final int exponent) {
+    // Arrange
+    final UInt256 ua =
+        UInt256.fromBytesBE(bigUnsignedToBytes32(BigInteger.ONE.shiftLeft(exponent)));
+
+    // Act & Assert
+    assertThat(ua.numberOfLeadingZeros()).isEqualTo(255 - exponent);
+  }
+
+  @Property
+  void property_numberOfLeadingZeros_zero() {
+    assertThat(UInt256.ZERO.numberOfLeadingZeros()).isEqualTo(256);
   }
 
   // --------------------------------------------------------------------------

@@ -90,6 +90,8 @@ import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.v2.operation.AddModOperationV2;
 import org.hyperledger.besu.evm.v2.operation.AddOperationV2;
 import org.hyperledger.besu.evm.v2.operation.AndOperationV2;
+import org.hyperledger.besu.evm.v2.operation.ByteOperationV2;
+import org.hyperledger.besu.evm.v2.operation.CountLeadingZerosOperationV2;
 import org.hyperledger.besu.evm.v2.operation.DivOperationV2;
 import org.hyperledger.besu.evm.v2.operation.ModOperationV2;
 import org.hyperledger.besu.evm.v2.operation.MulModOperationV2;
@@ -510,6 +512,7 @@ public class EVM {
               case 0x17 -> OrOperationV2.staticOperation(frame);
               case 0x18 -> XorOperationV2.staticOperation(frame);
               case 0x19 -> NotOperationV2.staticOperation(frame);
+              case 0x1a -> ByteOperationV2.staticOperation(frame);
               case 0x1b ->
                   enableConstantinople
                       ? ShlOperationV2.staticOperation(frame)
@@ -521,6 +524,10 @@ public class EVM {
               case 0x1d ->
                   enableConstantinople
                       ? SarOperationV2.staticOperation(frame)
+                      : InvalidOperation.invalidOperationResult(opcode);
+              case 0x1e ->
+                  enableOsaka
+                      ? CountLeadingZerosOperationV2.staticOperation(frame)
                       : InvalidOperation.invalidOperationResult(opcode);
               // TODO EVMv2: implement remaining opcodes in v2; until then fall through to v1
               default -> {

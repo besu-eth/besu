@@ -23,6 +23,8 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.operation.AndOperation;
+import org.hyperledger.besu.evm.operation.ByteOperation;
+import org.hyperledger.besu.evm.operation.CountLeadingZerosOperation;
 import org.hyperledger.besu.evm.operation.NotOperation;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.operation.OrOperation;
@@ -54,6 +56,26 @@ public class BitwiseOperationsV2PropertyBasedTest {
     return Arbitraries.bytes().array(byte[].class).ofMinSize(1).ofMaxSize(32);
   }
 
+  @Provide
+  Arbitrary<byte[]> byteIndices() {
+    return Arbitraries.oneOf(
+        Arbitraries.integers().between(0, 40).map(i -> new byte[] {i.byteValue()}),
+        Arbitraries.bytes().array(byte[].class).ofMinSize(1).ofMaxSize(32));
+  }
+
+  /** Values whose most significant one bit is at any of the 256 positions, or zero. */
+  @Provide
+  Arbitrary<byte[]> leadingZeroValues() {
+    return Arbitraries.integers()
+        .between(0, 256)
+        .flatMap(
+            zeros ->
+                Arbitraries.bytes()
+                    .array(byte[].class)
+                    .ofSize(32)
+                    .map(bytes -> withLeadingZeros(bytes, zeros)));
+  }
+
   // endregion
 
   // region Property Tests
@@ -79,6 +101,21 @@ public class BitwiseOperationsV2PropertyBasedTest {
   @Property(tries = 10000)
   void property_notV2_matchesOriginal(@ForAll("values1to32") final byte[] a) {
     assertUnaryMatches(NotOperation::staticOperation, NotOperationV2::staticOperation, a);
+  }
+
+  @Property(tries = 10000)
+  void property_byteV2_matchesOriginal(
+      @ForAll("byteIndices") final byte[] index, @ForAll("values1to32") final byte[] value) {
+    assertBinaryMatches(
+        ByteOperation::staticOperation, ByteOperationV2::staticOperation, index, value);
+  }
+
+  @Property(tries = 10000)
+  void property_clzV2_matchesOriginal(@ForAll("leadingZeroValues") final byte[] a) {
+    assertUnaryMatches(
+        CountLeadingZerosOperation::staticOperation,
+        CountLeadingZerosOperationV2::staticOperation,
+        a);
   }
 
   // endregion
@@ -150,6 +187,16 @@ public class BitwiseOperationsV2PropertyBasedTest {
 
     assertThat(frame.stackTopV2()).isEqualTo(1);
     return Bytes32.wrap(getV2StackItem(frame, 0).toBytesBE());
+  }
+
+  private static byte[] withLeadingZeros(final byte[] bytes, final int zeros) {
+    for (int bit = 0; bit < zeros; bit++) {
+      bytes[bit >>> 3] &= (byte) ~(0x80 >>> (bit & 7));
+    }
+    if (zeros < 256) {
+      bytes[zeros >>> 3] |= (byte) (0x80 >>> (zeros & 7));
+    }
+    return bytes;
   }
 
   // endregion
