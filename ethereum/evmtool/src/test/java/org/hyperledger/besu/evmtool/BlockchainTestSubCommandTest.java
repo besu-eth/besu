@@ -38,13 +38,12 @@ class BlockchainTestSubCommandTest {
   @Test
   void jsonArrayReportsUndecodableRlpAsFailedRatherThanOmittingTheTest() throws Exception {
     final String output = runJsonArray("blockchain-truncated-rlp.json");
-    final List<Map<String, Object>> results =
-        MAPPER.readValue(output, new TypeReference<List<Map<String, Object>>>() {});
+    final List<Map<String, Object>> results = MAPPER.readValue(output, new TypeReference<>() {});
 
     assertThat(results).hasSize(1);
-    assertThat(results.get(0).get("name")).isEqualTo("truncated_rlp_no_expectException");
-    assertThat(results.get(0).get("pass")).isEqualTo(false);
-    assertThat(results.get(0).get("error").toString()).contains("RLP exception");
+    assertThat(results.getFirst().get("name")).isEqualTo("truncated_rlp_no_expectException");
+    assertThat(results.getFirst().get("pass")).isEqualTo(false);
+    assertThat(results.getFirst().get("error").toString()).contains("RLP exception");
   }
 
   @Test
