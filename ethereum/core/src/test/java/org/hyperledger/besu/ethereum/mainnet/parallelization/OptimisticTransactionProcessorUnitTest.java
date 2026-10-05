@@ -919,8 +919,12 @@ class OptimisticTransactionProcessorUnitTest {
     }
 
     @Test
-    @DisplayName("Transactions of a sender the pool did not know are recovered and chained")
+    @DisplayName("Transactions of a sender the pool did not know run again chained once recovered")
     void unknownSenderIsRecoveredAndChained() {
+      final List<Runnable> background = new ArrayList<>();
+      processor =
+          new OptimisticConcurrentTransactionProcessor(
+              transactionProcessor, collisionDetector, background::add);
       final Transaction tx1 = mockTransaction();
       final Transaction tx2 = mockTransaction();
       for (final Transaction transaction : List.of(tx1, tx2)) {
@@ -928,13 +932,37 @@ class OptimisticTransactionProcessorUnitTest {
             .thenReturn(Optional.empty())
             .thenReturn(Optional.of(sender));
       }
+      stubSuccessfulTransaction(Optional.empty());
       final List<Runnable> tasks = new ArrayList<>();
 
       runBlock(List.of(tx1, tx2), tasks::add);
-
+      assertThat(tasks).as("both run alone at first").hasSize(2);
+      // the recovery, then the chaining it leads to
+      runAll(background);
+      runAll(background);
       verify(tx1).getSender();
       verify(tx2).getSender();
-      assertThat(tasks).as("both transactions run as one chain").hasSize(1);
+      tasks.get(0).run();
+      // the second member runs on the result of the first once that finished
+      assertThat(tasks).hasSize(3);
+      tasks.get(2).run();
+
+      final Optional<TransactionProcessingResult> result =
+          processor.getProcessingResult(
+              env.worldState(), MINING_BENEFICIARY, tx2, 1, Optional.empty(), Optional.empty());
+      verify(collisionDetector)
+          .hasCollision(
+              eq(tx2),
+              eq(MINING_BENEFICIARY),
+              argThat(context -> context.chainPredecessorAccumulator() != null),
+              any());
+      assertThat(result).isNotNull();
+    }
+
+    private void runAll(final List<Runnable> runnables) {
+      final List<Runnable> pending = new ArrayList<>(runnables);
+      runnables.clear();
+      pending.forEach(Runnable::run);
     }
 
     @Test
