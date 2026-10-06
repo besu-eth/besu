@@ -442,8 +442,18 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
     if (transactions.isPresent()) {
       return selector.evaluateTransactions(transactions.get());
     } else {
-      return selector.buildTransactionListForBlock();
+      return selector.buildTransactionListForBlock(txsSelectionMaxTime(protocolSpec));
     }
+  }
+
+  /**
+   * Returns the maximum time to select the transactions of the block from the pool.
+   *
+   * @param protocolSpec the protocol spec of the block
+   * @return the maximum time to select the transactions from the pool
+   */
+  protected Duration txsSelectionMaxTime(final ProtocolSpec protocolSpec) {
+    return miningConfiguration.getBlockTxsSelectionMaxTime(protocolSpec.isPoS());
   }
 
   private MutableWorldState duplicateWorldStateAtParent(final BlockHeader parentHeader) {

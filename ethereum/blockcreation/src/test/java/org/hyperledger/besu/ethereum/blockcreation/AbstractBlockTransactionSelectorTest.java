@@ -1376,6 +1376,41 @@ public abstract class AbstractBlockTransactionSelectorTest {
     assertThat(selectionThreadFinished.get()).isTrue();
   }
 
+  @Test
+  public void shorterSelectionStopsTheTransactionInFlightWithoutPenalizingIt() {
+    final Duration configuredSelectionMaxTime = Duration.ofSeconds(10);
+    final BlockTransactionSelector selector =
+        createBlockSelectorAndSetupTxPool(
+            createMiningParameters(
+                transactionSelectionService,
+                Wei.ZERO,
+                PositiveNumber.fromInt((int) configuredSelectionMaxTime.toMillis())),
+            transactionProcessor,
+            createBlock(301_000),
+            AddressHelpers.ofValue(1),
+            Wei.ZERO,
+            transactionSelectionService);
+
+    final Transaction fastTx = createTransaction(0, Wei.of(7), 100_000);
+    ensureTransactionIsValid(fastTx);
+    // takes longer than the configured selection time, unless it is interrupted
+    final Transaction slowTx = createTransaction(1, Wei.of(7), 100_000);
+    ensureTransactionIsValid(slowTx, 0, 0, configuredSelectionMaxTime.multipliedBy(2).toMillis());
+    transactionPool.addRemoteTransactions(List.of(fastTx, slowTx));
+
+    final long startedAt = System.nanoTime();
+    final TransactionSelectionResults results =
+        selector.buildTransactionListForBlock(Duration.ofMillis(300));
+    final Duration selectionTime = Duration.ofNanos(System.nanoTime() - startedAt);
+
+    assertThat(selectionTime).isLessThan(configuredSelectionMaxTime.dividedBy(2));
+    assertThat(results.getSelectedTransactions()).containsExactly(fastTx);
+    // the selection only ends once the tx in flight has stopped
+    assertThat(results.getNotSelectedTransactions())
+        .containsOnly(entry(slowTx, BLOCK_SELECTION_TIMEOUT));
+    assertThat(transactionPool.getTransactionByHash(slowTx.getHash())).isPresent();
+  }
+
   private void internalBlockSelectionTimeoutSimulation(
       final boolean isPoa,
       final boolean preProcessingTooLate,

@@ -47,6 +47,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.blockcreation.pluginadapter.TransactionSelectionServiceImpl;
 import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.BlockAddedEvent;
@@ -83,8 +84,17 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
 import org.hyperledger.besu.plugin.data.AddedBlockContext.EventType;
+import org.hyperledger.besu.plugin.data.ProcessableBlockHeader;
+import org.hyperledger.besu.plugin.data.TransactionProcessingResult;
+import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
+import org.hyperledger.besu.plugin.services.TransactionSelectionService;
+import org.hyperledger.besu.plugin.services.txselection.PluginTransactionSelector;
+import org.hyperledger.besu.plugin.services.txselection.PluginTransactionSelectorFactory;
+import org.hyperledger.besu.plugin.services.txselection.SelectorsStateManager;
+import org.hyperledger.besu.plugin.services.txselection.TransactionEvaluationContext;
 import org.hyperledger.besu.testutil.TestClock;
 import org.hyperledger.besu.util.number.Fraction;
+import org.hyperledger.besu.util.number.PositiveNumber;
 
 import java.math.BigInteger;
 import java.time.Duration;
@@ -931,6 +941,103 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     assertThat(payloadWrapper.getValue().payloadIdentifier()).isEqualTo(payloadId);
     assertThat(payloadWrapper.getValue().blockWithReceipts().getHeader().getExtraData())
         .isEqualTo(extraData);
+  }
+
+  @Test
+  public void firstBlockWithTransactionsIsStoredBeforeTheConfiguredSelectionTimeIsOver()
+      throws Exception {
+    final Duration configuredSelectionMaxTime = Duration.ofSeconds(60);
+    final MergeCoordinator slowSelectionCoordinator =
+        new MergeCoordinator(
+            protocolContext,
+            protocolSchedule,
+            ethScheduler,
+            transactionPool,
+            ImmutableMiningConfiguration.builder()
+                .mutableInitValues(MutableInitValues.builder().coinbase(coinbase).build())
+                .posBlockTxsSelectionMaxTime(
+                    PositiveNumber.fromInt((int) configuredSelectionMaxTime.toMillis()))
+                .transactionSelectionService(secondTransactionEvaluatedUntilInterrupted())
+                .unstable(
+                    Unstable.builder()
+                        .posBlockCreationMaxTime(configuredSelectionMaxTime.toMillis())
+                        .posBlockCreationRepetitionMinDuration(REPETITION_MIN_DURATION)
+                        .build())
+                .build(),
+            backwardSyncContext);
+    final CompletableFuture<PayloadWrapper> firstBlockWithTransactions = new CompletableFuture<>();
+    doAnswer(
+            invocation -> {
+              final PayloadWrapper payload = invocation.getArgument(0, PayloadWrapper.class);
+              if (payload.transactionCount() > 0) {
+                firstBlockWithTransactions.complete(payload);
+              }
+              return null;
+            })
+        .when(mergeContext)
+        .putPayloadById(any());
+    transactions.addTransaction(createLocalTransaction(0), Optional.empty());
+    transactions.addTransaction(createLocalTransaction(1), Optional.empty());
+
+    final long startedAt = System.nanoTime();
+    final PayloadIdentifier payloadId =
+        slowSelectionCoordinator.preparePayload(
+            new PreparePayloadArgsBuilder()
+                .parentHeader(genesisState.getBlock().getHeader())
+                .timestamp(System.currentTimeMillis() / 1000)
+                .prevRandao(Bytes32.ZERO)
+                .feeRecipient(suggestedFeeRecipient)
+                .build());
+    try {
+      final PayloadWrapper firstBlock = firstBlockWithTransactions.get(10, TimeUnit.SECONDS);
+      final Duration storedAfter = Duration.ofNanos(System.nanoTime() - startedAt);
+
+      assertThat(firstBlock.transactionCount()).isEqualTo(1);
+      assertThat(storedAfter)
+          .isGreaterThanOrEqualTo(MergeBlockCreator.FIRST_BLOCK_TXS_SELECTION_MAX_TIME);
+    } finally {
+      slowSelectionCoordinator.finalizeProposalById(payloadId);
+      blockCreationTask.get(10, TimeUnit.SECONDS);
+    }
+  }
+
+  /** The evaluation of the second transaction lasts until the selection is interrupted. */
+  private TransactionSelectionService secondTransactionEvaluatedUntilInterrupted() {
+    final PluginTransactionSelector slowSelector =
+        new PluginTransactionSelector() {
+          @Override
+          public TransactionSelectionResult evaluateTransactionPreProcessing(
+              final TransactionEvaluationContext evaluationContext) {
+            if (evaluationContext.getPendingTransaction().getTransaction().getNonce() == 1) {
+              try {
+                Thread.sleep(Long.MAX_VALUE);
+              } catch (final InterruptedException e) {
+                // a slow transaction stops once its execution sees the interruption
+                Thread.currentThread().interrupt();
+              }
+            }
+            return TransactionSelectionResult.SELECTED;
+          }
+
+          @Override
+          public TransactionSelectionResult evaluateTransactionPostProcessing(
+              final TransactionEvaluationContext evaluationContext,
+              final TransactionProcessingResult processingResult) {
+            return TransactionSelectionResult.SELECTED;
+          }
+        };
+    final TransactionSelectionService transactionSelectionService =
+        new TransactionSelectionServiceImpl();
+    transactionSelectionService.registerPluginTransactionSelectorFactory(
+        new PluginTransactionSelectorFactory() {
+          @Override
+          public PluginTransactionSelector create(
+              final ProcessableBlockHeader pendingBlockHeader,
+              final SelectorsStateManager selectorsStateManager) {
+            return slowSelector;
+          }
+        });
+    return transactionSelectionService;
   }
 
   @Test

@@ -26,15 +26,23 @@ import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 
+import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.tuweni.bytes.Bytes32;
 
 /** The Merge block creator. */
 class MergeBlockCreator extends AbstractBlockCreator {
+
+  /** The maximum time to select the transactions of the first block built from the pool. */
+  static final Duration FIRST_BLOCK_TXS_SELECTION_MAX_TIME = Duration.ofSeconds(1);
+
+  private final AtomicBoolean firstBlockFromPool = new AtomicBoolean(true);
 
   /**
    * Instantiates a new Merge block creator.
@@ -106,6 +114,25 @@ class MergeBlockCreator extends AbstractBlockCreator {
       final long timestamp,
       final BlockHeader parentHeader) {
     throw new UnsupportedOperationException("random is required");
+  }
+
+  /**
+   * Shortens the selection of the first block built from the pool, the later blocks get the
+   * configured time.
+   *
+   * @param protocolSpec the protocol spec of the block
+   * @return the maximum time to select the transactions from the pool
+   */
+  @Override
+  protected Duration txsSelectionMaxTime(final ProtocolSpec protocolSpec) {
+    final Duration configuredMaxTime = super.txsSelectionMaxTime(protocolSpec);
+    // a block is validated before it can be retrieved, so a full selection followed by its
+    // validation can take longer than the consensus client waits for the first block
+    if (firstBlockFromPool.getAndSet(false)
+        && FIRST_BLOCK_TXS_SELECTION_MAX_TIME.compareTo(configuredMaxTime) < 0) {
+      return FIRST_BLOCK_TXS_SELECTION_MAX_TIME;
+    }
+    return configuredMaxTime;
   }
 
   @Override

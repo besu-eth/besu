@@ -126,7 +126,6 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
   private final EthScheduler ethScheduler;
   private final AtomicBoolean isTimeout = new AtomicBoolean(false);
   private final long blockTxsSelectionMaxTimeNanos;
-  private final long pluginTxsSelectionMaxTimeNanos;
   private final Optional<BlockAccessList.BlockAccessListBuilder> maybeBlockAccessListBuilder;
 
   private WorldUpdater blockWorldStateUpdater;
@@ -179,8 +178,6 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
     final var blockTxsSelectionMaxTime =
         miningConfiguration.getBlockTxsSelectionMaxTime(protocolSpec.isPoS());
     this.blockTxsSelectionMaxTimeNanos = blockTxsSelectionMaxTime.toNanos();
-    this.pluginTxsSelectionMaxTimeNanos =
-        miningConfiguration.getPluginTxsSelectionMaxTime(blockTxsSelectionMaxTime).toNanos();
     this.maybeBlockAccessListBuilder = maybeBlockAccessListBuilder;
   }
 
@@ -210,7 +207,22 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
    *     evaluation.
    */
   public TransactionSelectionResults buildTransactionListForBlock() {
-    blockSelectionContext.transactionPool().selectTransactions(this::timeLimitedSelection);
+    return buildTransactionListForBlock(Duration.ofNanos(blockTxsSelectionMaxTimeNanos));
+  }
+
+  /**
+   * Builds a list of transactions for a block like {@link #buildTransactionListForBlock()}, but
+   * ends the selection after the given time.
+   *
+   * @param txsSelectionMaxTime the maximum time of the selection, at most the configured one
+   * @return The {@code TransactionSelectionResults} containing the results of transaction
+   *     evaluation.
+   */
+  public TransactionSelectionResults buildTransactionListForBlock(
+      final Duration txsSelectionMaxTime) {
+    blockSelectionContext
+        .transactionPool()
+        .selectTransactions(candidates -> timeLimitedSelection(candidates, txsSelectionMaxTime));
     LOG.atTrace()
         .setMessage("Transaction selection result {}")
         .addArgument(transactionSelectionResults::toTraceLog)
@@ -227,33 +239,48 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
   }
 
   private Map<PendingTransaction, TransactionSelectionResult> timeLimitedSelection(
-      final List<PendingTransaction> candidatePendingTransactions) {
+      final List<PendingTransaction> candidatePendingTransactions,
+      final Duration txsSelectionMaxTime) {
     final long startTime = System.nanoTime();
+    final long txsSelectionMaxTimeNanos = txsSelectionMaxTime.toNanos();
+    final long pluginTxsSelectionMaxTimeNanos =
+        blockSelectionContext
+            .miningConfiguration()
+            .getPluginTxsSelectionMaxTime(txsSelectionMaxTime)
+            .toNanos();
 
     selectorsStateManager.blockSelectionStarted();
 
-    pluginTimeLimitedSelection(candidatePendingTransactions, startTime);
+    pluginTimeLimitedSelection(
+        candidatePendingTransactions,
+        startTime,
+        pluginTxsSelectionMaxTimeNanos,
+        txsSelectionMaxTimeNanos);
 
     final long elapsedPluginTxsSelectionTime = System.nanoTime() - startTime;
-    final long remainingSelectionTime =
-        blockTxsSelectionMaxTimeNanos - elapsedPluginTxsSelectionTime;
+    final long remainingSelectionTime = txsSelectionMaxTimeNanos - elapsedPluginTxsSelectionTime;
     LOG.atTrace()
         .setMessage(
             "Plugin transaction selection took: {}ms of max {}ms, remaining block selection time {}ms of max {}ms")
         .addArgument(() -> nanosToMillis(elapsedPluginTxsSelectionTime))
         .addArgument(() -> nanosToMillis(pluginTxsSelectionMaxTimeNanos))
         .addArgument(() -> nanosToMillis(remainingSelectionTime))
-        .addArgument(() -> nanosToMillis(blockTxsSelectionMaxTimeNanos))
+        .addArgument(() -> nanosToMillis(txsSelectionMaxTimeNanos))
         .log();
 
     // reset timeout status for next selection run
     isTimeout.set(false);
 
-    return internalTimeLimitedSelection(candidatePendingTransactions, remainingSelectionTime);
+    return internalTimeLimitedSelection(
+        candidatePendingTransactions,
+        remainingSelectionTime,
+        txsSelectionMaxTimeNanos < blockTxsSelectionMaxTimeNanos);
   }
 
   private Map<PendingTransaction, TransactionSelectionResult> internalTimeLimitedSelection(
-      final List<PendingTransaction> candidateTransactions, final long remainingSelectionTime) {
+      final List<PendingTransaction> candidateTransactions,
+      final long remainingSelectionTime,
+      final boolean shorterThanConfigured) {
     final long startTimeNanos = System.nanoTime();
 
     validTxSelectionTimeoutResult = BLOCK_SELECTION_TIMEOUT;
@@ -292,6 +319,7 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
     ethScheduler.scheduleBlockCreationTask(
         blockSelectionContext.pendingBlockHeader().getNumber(), currTxSelectionTask);
 
+    long waitForSelectionUntilNanos = startTimeNanos + remainingSelectionTime;
     try {
       currTxSelectionTask.get(remainingSelectionTime, TimeUnit.NANOSECONDS);
     } catch (ExecutionException e) {
@@ -311,12 +339,23 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
         isTimeout.set(true);
       }
 
-      cancelEvaluatingTxWithGraceTime(currTxSelectionTask);
+      if (shorterThanConfigured) {
+        // a shorter selection cannot tell whether the tx in flight takes too long, so it is
+        // interrupted without being judged, and stops at its next operation
+        currTxSelectionTask.cancel(true);
+        waitForSelectionUntilNanos = System.nanoTime() + CANCELLATION_GRACE_TIME_NANOS;
+        LOG.debug(
+            "Ending the internal selection of transactions for block inclusion after its max"
+                + " duration of {}ms",
+            nanosToMillis(remainingSelectionTime));
+      } else {
+        cancelEvaluatingTxWithGraceTime(currTxSelectionTask);
 
-      LOG.warn(
-          "Interrupting the internal selection of transactions for block inclusion as it exceeds"
-              + " the allowed max duration of {}ms",
-          nanosToMillis(remainingSelectionTime));
+        LOG.warn(
+            "Interrupting the internal selection of transactions for block inclusion as it exceeds"
+                + " the allowed max duration of {}ms",
+            nanosToMillis(remainingSelectionTime));
+      }
     }
 
     // in case of a cancellation or a timeout, it is possible that the thread that is processing the
@@ -325,16 +364,18 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
     // for a max amount of time, for the cancellation to complete, before proceeding in
     // a best effort mode that could potentially fail.
     if (internalSelectionDone.getCount() != 0) {
-      final long elapsedSelectionTime = System.nanoTime() - startTimeNanos;
-      final long maxWaitTime = remainingSelectionTime - elapsedSelectionTime;
-      waitForCancellationToBeProcessed("Internal", internalSelectionDone, maxWaitTime);
+      waitForCancellationToBeProcessed(
+          "Internal", internalSelectionDone, waitForSelectionUntilNanos - System.nanoTime());
     }
 
     return selectionResults;
   }
 
   private void pluginTimeLimitedSelection(
-      final List<PendingTransaction> candidatePendingTransactions, final long startTime) {
+      final List<PendingTransaction> candidatePendingTransactions,
+      final long startTime,
+      final long pluginTxsSelectionMaxTimeNanos,
+      final long txsSelectionMaxTimeNanos) {
     validTxSelectionTimeoutResult = PLUGIN_SELECTION_TIMEOUT;
     invalidTxSelectionTimeoutResult = PLUGIN_SELECTION_TIMEOUT_INVALID_TX;
 
@@ -391,7 +432,7 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
     // a best effort mode that could potentially fail.
     if (pluginSelectionDone.getCount() != 0) {
       final long elapsedSelectionTime = System.nanoTime() - startTime;
-      final long maxWaitTime = blockTxsSelectionMaxTimeNanos - elapsedSelectionTime;
+      final long maxWaitTime = txsSelectionMaxTimeNanos - elapsedSelectionTime;
       waitForCancellationToBeProcessed("Plugin", pluginSelectionDone, maxWaitTime);
     }
   }
