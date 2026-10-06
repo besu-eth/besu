@@ -189,7 +189,7 @@ public class SparseTransactions extends AbstractTransactionsLayer {
       }
     }
 
-    // remove promoted txs from this layer
+    // remove promoted txs from this layer, the gap of their senders is kept by internalRemove
     promotedTxs.forEach(
         promotedTx -> {
           final var sender = promotedTx.getSender();
@@ -198,14 +198,6 @@ public class SparseTransactions extends AbstractTransactionsLayer {
           processRemove(senderTxs, promotedTx.getTransaction(), PROMOTED);
           if (senderTxs.isEmpty()) {
             txsBySender.remove(sender);
-            orderByGap.get(0).remove(sender);
-            gapBySender.remove(sender);
-          } else {
-            final long firstNonce = senderTxs.firstKey();
-            final int newGap = (int) (firstNonce - (promotedTx.getNonce() + 1));
-            if (newGap != 0) {
-              updateGap(sender, 0, newGap);
-            }
           }
         });
 

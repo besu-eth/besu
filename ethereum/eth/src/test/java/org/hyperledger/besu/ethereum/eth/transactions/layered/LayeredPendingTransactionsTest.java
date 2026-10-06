@@ -516,6 +516,123 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
   }
 
   @Test
+  public void lateInvalidResultForReplacedTransactionDoesNotRemoveReplacement() {
+    final Transaction tx = createEIP1559Transaction(0, KEYS1, 1);
+    final Transaction replacementTx = createTransactionReplacement(tx, KEYS1);
+    pendingTransactions.addTransaction(createRemotePendingTransaction(tx), Optional.empty());
+
+    final List<PendingTransaction> evaluatedTxs = new ArrayList<>();
+    pendingTransactions.selectTransactions(
+        pendingTxs -> {
+          evaluatedTxs.addAll(pendingTxs);
+          return Map.of();
+        });
+
+    pendingTransactions.addTransaction(
+        createRemotePendingTransaction(replacementTx), Optional.empty());
+
+    // the result for the evaluated tx arrives after it has been replaced
+    pendingTransactions.selectTransactions(
+        unused ->
+            Map.of(
+                evaluatedTxs.getFirst(),
+                TransactionSelectionResult.invalid(UPFRONT_GAS_COST_EXCEEDS_BALANCE.name())));
+
+    pendingTransactions.selectTransactions(
+        pendingTxs -> {
+          assertThat(pendingTxs)
+              .map(PendingTransaction::getTransaction)
+              .containsExactly(replacementTx);
+          return Map.of();
+        });
+  }
+
+  @Test
+  public void lateInvalidResultForConfirmedTransactionKeepsFollowingOnesPrioritized() {
+    final Transaction tx0 = createEIP1559Transaction(0, KEYS1, 1);
+    final Transaction tx1 = createEIP1559Transaction(1, KEYS1, 1);
+    pendingTransactions.addTransaction(createRemotePendingTransaction(tx0), Optional.empty());
+    pendingTransactions.addTransaction(createRemotePendingTransaction(tx1), Optional.empty());
+
+    final List<PendingTransaction> evaluatedTxs = new ArrayList<>();
+    pendingTransactions.selectTransactions(
+        pendingTxs -> {
+          evaluatedTxs.addAll(pendingTxs);
+          return Map.of();
+        });
+
+    pendingTransactions.manageBlockAdded(
+        mockBlockHeader(), List.of(tx0), List.of(), FeeMarket.london(0L));
+
+    // the result for the evaluated tx arrives after its block has been processed
+    pendingTransactions.selectTransactions(
+        unused ->
+            Map.of(
+                evaluatedTxs.getFirst(),
+                TransactionSelectionResult.invalid(UPFRONT_GAS_COST_EXCEEDS_BALANCE.name())));
+
+    assertThat(layers.prioritizedTransactions.getByScore())
+        .map(PendingTransaction::getTransaction)
+        .containsExactly(tx1);
+  }
+
+  @Test
+  public void latePenaltyForReAddedTransactionDoesNotStopPromotionsFromReady() {
+    final KeyPair keys3 = SIGNATURE_ALGORITHM.generateKeyPair();
+    final Transaction lowFeeTx = createEIP1559Transaction(0, KEYS1, 1);
+    pendingTransactions.addTransaction(createRemotePendingTransaction(lowFeeTx), Optional.empty());
+
+    final List<PendingTransaction> evaluatedTxs = new ArrayList<>();
+    pendingTransactions.selectTransactions(
+        pendingTxs -> {
+          evaluatedTxs.addAll(pendingTxs);
+          return Map.of();
+        });
+
+    // the evaluated tx is removed, then added again as a new instance that lands in ready
+    pendingTransactions.selectTransactions(
+        pendingTxs ->
+            Map.of(
+                pendingTxs.getFirst(),
+                TransactionSelectionResult.invalid(UPFRONT_GAS_COST_EXCEEDS_BALANCE.name())));
+    final List<Transaction> highFeeTxs = new ArrayList<>(MAX_TRANSACTIONS);
+    for (int nonce = 0; nonce < MAX_TRANSACTIONS; nonce++) {
+      final Transaction highFeeTx = createEIP1559Transaction(nonce, KEYS2, 3);
+      highFeeTxs.add(highFeeTx);
+      pendingTransactions.addTransaction(
+          createRemotePendingTransaction(highFeeTx), Optional.empty());
+    }
+    pendingTransactions.addTransaction(createRemotePendingTransaction(lowFeeTx), Optional.empty());
+    final Transaction readyTx = createEIP1559Transaction(0, keys3, 2);
+    pendingTransactions.addTransaction(createRemotePendingTransaction(readyTx), Optional.empty());
+    assertThat(layers.readyTransactions.getBySender().stream().flatMap(List::stream))
+        .map(PendingTransaction::getTransaction)
+        .containsExactly(readyTx, lowFeeTx);
+
+    // the penalty for the evaluated instance arrives after it has been re-added
+    pendingTransactions.selectTransactions(
+        unused ->
+            Map.of(
+                evaluatedTxs.getFirst(),
+                TransactionSelectionResult.invalidPenalized(
+                    GAS_PRICE_BELOW_CURRENT_BASE_FEE.name())));
+
+    // confirming the re-added tx empties its sender in ready, while the freed prioritized slots
+    // make ready promote
+    pendingTransactions.manageBlockAdded(
+        mockBlockHeader(),
+        List.of(lowFeeTx, highFeeTxs.get(0), highFeeTxs.get(1)),
+        List.of(),
+        FeeMarket.london(0L));
+
+    assertThat(layers.prioritizedTransactions.getByScore())
+        .map(PendingTransaction::getTransaction)
+        .containsExactlyInAnyOrder(
+            highFeeTxs.get(2), highFeeTxs.get(3), highFeeTxs.get(4), readyTx);
+    assertThat(layers.readyTransactions.getBySender()).isEmpty();
+  }
+
+  @Test
   public void returnEmptyOptionalAsMaximumNonceWhenNoTransactionsPresent() {
     assertThat(pendingTransactions.getNextNonceForSender(SENDER1)).isEmpty();
   }
