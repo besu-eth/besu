@@ -1124,6 +1124,29 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
   }
 
   @Test
+  public void backwardSyncSessionUpdatesFinalizedOnceWithTheLatestFinalizedHash() {
+    when(mergeContext.isInitialSyncDone()).thenReturn(true);
+    final CompletableFuture<Void> firstSession = new CompletableFuture<>();
+    final CompletableFuture<Void> secondSession = new CompletableFuture<>();
+
+    when(backwardSyncContext.syncBackwardsUntil(any(Hash.class))).thenReturn(firstSession);
+    forkchoiceUpdateWithUnknownHead(1);
+    forkchoiceUpdateWithUnknownHead(2);
+    final BlockHeader firstSessionFinalized = forkchoiceUpdateWithUnknownHead(3);
+    firstSession.complete(null);
+
+    when(backwardSyncContext.syncBackwardsUntil(any(Hash.class))).thenReturn(secondSession);
+    forkchoiceUpdateWithUnknownHead(4);
+    final BlockHeader secondSessionFinalized = forkchoiceUpdateWithUnknownHead(5);
+    secondSession.complete(null);
+
+    final ArgumentCaptor<BlockHeader> finalized = ArgumentCaptor.forClass(BlockHeader.class);
+    verify(mergeContext, times(2)).setFinalized(finalized.capture());
+    assertThat(finalized.getAllValues())
+        .containsExactly(firstSessionFinalized, secondSessionFinalized);
+  }
+
+  @Test
   public void assertCheckAndMarkBadDescendantMarksTheChildOfABadBlock() {
     final BlockHeader badParent =
         headerGenerator.parentHash(Hash.fromHexStringLenient("0xbeef")).buildHeader();
@@ -1308,6 +1331,15 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
         Arguments.of("sepolia", 11_155_111L, 60_000_000L),
         Arguments.of("hoodi", 560_048L, 60_000_000L),
         Arguments.of("ephemery", 39_438_135L, 60_000_000L));
+  }
+
+  private BlockHeader forkchoiceUpdateWithUnknownHead(final long finalizedNumber) {
+    final BlockHeader finalizedHeader = headerGenerator.number(finalizedNumber).buildHeader();
+    when(blockchain.getBlockHeader(finalizedHeader.getHash()))
+        .thenReturn(Optional.of(finalizedHeader));
+    final Hash unknownHead = headerGenerator.number(finalizedNumber + 100).buildHeader().getHash();
+    coordinator.getOrSyncHeadByHash(unknownHead, finalizedHeader.getHash());
+    return finalizedHeader;
   }
 
   private void sendNewPayloadAndForkchoiceUpdate(
