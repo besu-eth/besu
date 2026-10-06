@@ -73,7 +73,7 @@ jobs:
             VCS_REF=${{ github.sha }}
           tags: hyperledger/besu:test
           cache-from: type=gha,scope=${{ inputs.cache_scope }}-amd64
-          cache-to: type=gha,mode=max,scope=${{ inputs.cache_scope }}-amd64
+          cache-to: type=gha,mode=min,scope=${{ inputs.cache_scope }}-amd64
       - name: Download Goss binaries
         run: |
           GOSS_VERSION="v0.4.9"
