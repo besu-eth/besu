@@ -30,6 +30,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSucces
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineExecutionWitnessResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EnginePayloadWithWitnessResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadPostExecutionValidationResultV1;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiExecutionWitnessBuilder;
@@ -82,7 +83,8 @@ public final class EngineNewPayloadWithWitnessV5<
       final Object requestId,
       final ExecutionPayloadV1 param,
       final BlockHeader newBlockHeader,
-      final BlockProcessingResult executionResult) {
+      final BlockProcessingResult executionResult,
+      final PayloadPostExecutionValidationResultV1 postExecutionResult) {
     final Hash validHash = newBlockHeader.getHash();
     final Optional<BlockAccessList> blockAccessList =
         executionResult.getYield().flatMap(BlockProcessingOutputs::getBlockAccessList);
@@ -119,7 +121,7 @@ public final class EngineNewPayloadWithWitnessV5<
         new EnginePayloadWithWitnessResult(
             VALID,
             validHash,
-            Optional.empty(),
+            null,
             new EngineExecutionWitnessResult(witness.state(), witness.codes(), witness.headers())));
   }
 }
