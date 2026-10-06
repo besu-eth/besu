@@ -185,7 +185,10 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
   private record SortableSlotRead(byte[] sortKey, StorageSlotKey value) {}
 
   public static class BlockAccessListBuilder {
-    final Map<Address, AccountBuilder> accountChangesBuilders = new HashMap<>();
+    private final Map<Address, AccountBuilder> accountChangesBuilders = new HashMap<>();
+
+    // Kept up to date on every change so a budget check per transaction does not walk the list.
+    private long itemCount;
 
     public static AccessLocationTracker createPreExecutionAccessLocationTracker() {
       return new AccessLocationTracker(0, true);
@@ -202,7 +205,13 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
     }
 
     public AccountBuilder getOrCreateAccountBuilder(final Address address) {
-      return accountChangesBuilders.computeIfAbsent(address, __ -> new AccountBuilder(address));
+      AccountBuilder accountBuilder = accountChangesBuilders.get(address);
+      if (accountBuilder == null) {
+        accountBuilder = new AccountBuilder(this, address);
+        accountChangesBuilders.put(address, accountBuilder);
+        itemCount++;
+      }
+      return accountBuilder;
     }
 
     public void apply(
@@ -298,22 +307,80 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
     }
 
     public long eip7928ItemCount() {
-      long count = accountChangesBuilders.size();
-      for (AccountBuilder ab : accountChangesBuilders.values()) {
-        count += (long) ab.slotWrites.size() + ab.slotReads.size();
+      return itemCount;
+    }
+
+    /**
+     * Returns the {@link #eip7928ItemCount()} this builder would have after {@link
+     * #apply(PartialBlockAccessView)}, without changing the builder.
+     */
+    public long eip7928ItemCountIfApplied(final PartialBlockAccessView view) {
+      if (view.isSharedIndex()) {
+        return sharedIndexItemCountIfApplied(view);
+      }
+      // Without a shared index applying only adds accounts and slots, and a slot counts once
+      // whether read or written, so only those not in the list yet add to the count.
+      final Map<Address, Set<StorageSlotKey>> newSlotsByAccount = new HashMap<>();
+      long count = itemCount;
+      for (PartialBlockAccessView.AccountChanges account : view.accountChanges()) {
+        final Address address = account.getAddress();
+        final AccountBuilder existing = accountChangesBuilders.get(address);
+        Set<StorageSlotKey> newSlots = newSlotsByAccount.get(address);
+        if (newSlots == null) {
+          newSlots = new HashSet<>();
+          newSlotsByAccount.put(address, newSlots);
+          if (existing == null) {
+            count++;
+          }
+        }
+        for (PartialBlockAccessView.SlotChange change : account.getStorageChanges()) {
+          if (isNewSlot(existing, newSlots, change.slot())) {
+            count++;
+          }
+        }
+        for (StorageSlotKey read : account.getStorageReads()) {
+          if (isNewSlot(existing, newSlots, read)) {
+            count++;
+          }
+        }
       }
       return count;
     }
 
+    private static boolean isNewSlot(
+        final AccountBuilder existing,
+        final Set<StorageSlotKey> newSlots,
+        final StorageSlotKey slot) {
+      return (existing == null || !existing.hasSlot(slot)) && newSlots.add(slot);
+    }
+
+    private long sharedIndexItemCountIfApplied(final PartialBlockAccessView view) {
+      // Applying a shared-index view first drops earlier writes at its index, so replay it on
+      // copies of just the accounts it touches.
+      final BlockAccessListBuilder touchedAccounts = new BlockAccessListBuilder();
+      for (PartialBlockAccessView.AccountChanges account : view.accountChanges()) {
+        final Address address = account.getAddress();
+        final AccountBuilder existing = accountChangesBuilders.get(address);
+        if (existing != null && !touchedAccounts.accountChangesBuilders.containsKey(address)) {
+          existing.copySlotsTo(touchedAccounts.getOrCreateAccountBuilder(address));
+        }
+      }
+      final long itemCountBefore = touchedAccounts.itemCount;
+      touchedAccounts.apply(view);
+      return itemCount + touchedAccounts.itemCount - itemCountBefore;
+    }
+
     public static class AccountBuilder {
+      private final BlockAccessListBuilder owner;
       final Address address;
-      final Map<StorageSlotKey, List<StorageChange>> slotWrites = new HashMap<>();
-      final Set<StorageSlotKey> slotReads = new HashSet<>();
+      private final Map<StorageSlotKey, List<StorageChange>> slotWrites = new HashMap<>();
+      private final Set<StorageSlotKey> slotReads = new HashSet<>();
       final List<BalanceChange> balances = new ArrayList<>();
       final List<NonceChange> nonces = new ArrayList<>();
       final List<CodeChange> codes = new ArrayList<>();
 
-      AccountBuilder(final Address address) {
+      AccountBuilder(final BlockAccessListBuilder owner, final Address address) {
+        this.owner = owner;
         this.address = address;
       }
 
@@ -364,21 +431,41 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
       }
 
       void addStorageWrite(final StorageSlotKey slot, final long txIndex, final UInt256 value) {
-        final List<StorageChange> changes =
-            slotWrites.computeIfAbsent(slot, __ -> new ArrayList<>());
-        slotReads.remove(slot);
+        List<StorageChange> changes = slotWrites.get(slot);
+        if (changes == null) {
+          changes = new ArrayList<>();
+          slotWrites.put(slot, changes);
+          owner.itemCount++;
+        }
+        if (slotReads.remove(slot)) {
+          owner.itemCount--;
+        }
         changes.add(new StorageChange(txIndex, value));
       }
 
       void addStorageRead(final StorageSlotKey slot) {
-        if (!slotWrites.containsKey(slot)) {
-          slotReads.add(slot);
+        if (!slotWrites.containsKey(slot) && slotReads.add(slot)) {
+          owner.itemCount++;
         }
+      }
+
+      boolean hasSlot(final StorageSlotKey slot) {
+        return slotWrites.containsKey(slot) || slotReads.contains(slot);
+      }
+
+      void copySlotsTo(final AccountBuilder target) {
+        slotWrites.forEach(
+            (slot, changes) ->
+                changes.forEach(
+                    change -> target.addStorageWrite(slot, change.txIndex(), change.newValue())));
+        slotReads.forEach(target::addStorageRead);
       }
 
       void removeChangesAt(final long txIndex) {
         slotWrites.values().forEach(changes -> changes.removeIf(c -> c.txIndex() == txIndex));
+        final int writtenSlots = slotWrites.size();
         slotWrites.values().removeIf(List::isEmpty);
+        owner.itemCount -= writtenSlots - slotWrites.size();
         balances.removeIf(c -> c.txIndex() == txIndex);
         nonces.removeIf(c -> c.txIndex() == txIndex);
         codes.removeIf(c -> c.txIndex() == txIndex);
