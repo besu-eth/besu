@@ -139,8 +139,7 @@ public class Code {
 
     long[] bitMask = jumpDestBitMask;
     if (bitMask == null) {
-      bitMask = calculateJumpDestBitMask();
-      jumpDestBitMask = bitMask;
+      bitMask = initJumpDestBitMask();
     }
 
     // This selects which long in the array holds the bit for the given offset:
@@ -154,6 +153,17 @@ public class Code {
 
     // If the bit is not set, then it is an invalid jump destination
     return (targetLong & targetBit) == 0L;
+  }
+
+  // Separate method so that isJumpDestInvalid stays small enough to be inlined into JUMP and JUMPI.
+  // Synchronized so that threads reaching the first JUMP together analyse the code only once.
+  private synchronized long[] initJumpDestBitMask() {
+    long[] bitMask = jumpDestBitMask;
+    if (bitMask == null) {
+      bitMask = calculateJumpDestBitMask();
+      jumpDestBitMask = bitMask;
+    }
+    return bitMask;
   }
 
   /**
