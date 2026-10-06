@@ -1,0 +1,42 @@
+{
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "debug_traceTransaction",
+    "params": [
+      "0x92b42fe5e9f74dc1d0afdf9356abbf879ff24430471df1177f66ed094dee190e",
+      {
+        "tracer": "callTracer",
+        "tracerConfig": {
+          "withLog": true
+        }
+      }
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "from": "0xfe3b557e8fb62b89f4916b721be55ceb828dbd73",
+      "gas": "0xfffff2",
+      "gasUsed": "0x568d",
+      "to": "0x00b0000000000000000000000000000000000000",
+      "input": "0x",
+      "logs": [
+        {
+          "address": "0x00b0000000000000000000000000000000000000",
+          "topics": [
+            "0x00000000000000000000000000000000000000000000000000000000000000ff",
+            "0x00000000000000000000000000000000000000000000000000000000000000aa"
+          ],
+          "data": "0x8b",
+          "index": "0x1",
+          "position": "0x0"
+        }
+      ],
+      "value": "0x0",
+      "type": "CALL"
+    }
+  },
+  "statusCode": 200
+}

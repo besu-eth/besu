@@ -138,13 +138,15 @@ public final class BodyValidation {
   }
 
   /**
-   * Generates the block access list hash.
+   * Generates the block access list hash: the hash of its encoding, which is the bytes it was
+   * decoded from if it was decoded, so that it is not encoded again.
    *
    * @param bal the block access list
    * @return the block access list hash
    */
   public static Hash balHash(final BlockAccessList bal) {
-    return Hash.wrap(keccak256(RLP.encode(bal::writeTo)));
+    final Bytes encoded = bal.rawRlp().orElseGet(() -> RLP.encode(bal::writeTo));
+    return Hash.wrap(keccak256(encoded));
   }
 
   /**

@@ -29,7 +29,7 @@ The [Besu documentation](https://docs.besu-eth.org/) answers many common questio
 * [Troubleshoot performance](https://docs.besu-eth.org/public-networks/how-to/troubleshoot/performance)
 * [Configure ports](https://docs.besu-eth.org/public-networks/how-to/connect/configure-ports)
 * [Understand metrics](https://docs.besu-eth.org/public-networks/how-to/monitor/understand-metrics)
-* [Configure the JVM](https://docs.besu-eth.org/public-networks/how-to/configure-jvm)
+* [Configure the JVM](https://docs.besu-eth.org/public-networks/how-to/configure-java/pass-jvm-options)
 
 ### Chat
 
@@ -74,13 +74,25 @@ Instructions for how to get started with developing on the Besu codebase. Please
 
 #### Dependency Verification
 
-This project uses [Gradle dependency verification](https://docs.gradle.org/current/userguide/dependency_verification.html). When adding or updating dependencies, regenerate `gradle/verification-metadata.xml` with:
+This project uses [Gradle dependency verification](https://docs.gradle.org/current/userguide/dependency_verification.html). Whenever you add or update a dependency or a Gradle plugin (including the `apiBaselineVersion` bump), regenerate `gradle/verification-metadata.xml` with:
 
 ```shell
-./gradlew --write-verification-metadata sha256 --refresh-dependencies resolveSourceArtifacts :plugin-api:checkAPICompatibility --rerun-tasks
+./gradlew --write-verification-metadata sha256 --refresh-dependencies --rerun-tasks updateVerificationMetadata
 ```
 
-The `resolveSourceArtifacts` task ensures source JARs are included in the metadata, which is required for IDE sync (e.g. IntelliJ automatically downloads sources). The `:plugin-api:checkAPICompatibility` task resolves the released Plugin API baseline so its artifacts are recorded as well. The `--rerun-tasks` and `--refresh-dependencies` flags make the regeneration behave like a clean checkout: without them, cached task results and cached dependency metadata can produce a silently incomplete file that passes locally but fails on a fresh clone.
+and commit the updated file. The `updateVerificationMetadata` task resolves everything the build and the IDE need, so that their checksums get recorded:
+
+* the binary and source JARs of every project's dependencies; the source JARs are required for IDE sync, since IntelliJ automatically downloads sources and fails the sync on missing checksums;
+* the binary and source JARs of every project's Gradle plugins, including the ones declared in subproject `plugins {}` blocks;
+* the released Plugin API baseline and the tooling used by `:plugin-api:checkAPICompatibility`.
+
+All three flags are required, and the task fails fast if any of them is missing. `--refresh-dependencies` and `--rerun-tasks` make the regeneration behave like a clean checkout: without them, cached dependency metadata and cached task results can produce a silently incomplete file that passes locally but fails on a fresh clone.
+
+To check that the metadata is complete without modifying it (this is what CI runs), use:
+
+```shell
+./gradlew verifySourceArtifacts
+```
 
 ### Profiling Besu
 

@@ -60,6 +60,10 @@ public class EthTransactions {
     return new EthGetTransactionReceiptTransaction(transactionHash);
   }
 
+  public EthGetTransactionByHashTransaction getTransactionByHash(final String transactionHash) {
+    return new EthGetTransactionByHashTransaction(transactionHash);
+  }
+
   public EthSendRawTransactionTransaction sendRawTransaction(final String transactionData) {
     return new EthSendRawTransactionTransaction(transactionData);
   }

@@ -16,6 +16,8 @@ package org.hyperledger.besu.ethereum.chain;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -26,17 +28,26 @@ import org.hyperledger.besu.ethereum.core.BlockDataGenerator.BlockOptions;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.LogWithMetadata;
+import org.hyperledger.besu.ethereum.core.SyncBlock;
+import org.hyperledger.besu.ethereum.core.SyncBlockBody;
+import org.hyperledger.besu.ethereum.core.SyncBlockWithReceipts;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
+import org.hyperledger.besu.ethereum.mainnet.DefaultProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStoragePrefixedKeyBlockchainStorage;
 import org.hyperledger.besu.ethereum.storage.keyvalue.VariablesKeyValueStorage;
 import org.hyperledger.besu.metrics.MetricsSystemFactory;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
+import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
+import org.hyperledger.besu.plugin.services.storage.KeyValueStorageTransaction;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
+import java.math.BigInteger;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -44,7 +55,14 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.IntSupplier;
 import java.util.stream.Collectors;
 
 import com.google.common.collect.Lists;
@@ -240,6 +258,66 @@ public class DefaultBlockchainTest {
     assertBlockIsHead(blockchain, newBlock);
     assertTotalDifficultiesAreConsistent(blockchain, newBlock);
     assertThat(blockchain.getForks()).isEmpty();
+  }
+
+  @Test
+  public void unsafeImportSyncBodiesAndReceiptsPublishesHeadStateAfterCommit() throws Exception {
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final CommitBlockingKeyValueStorage chainStorage = new CommitBlockingKeyValueStorage();
+    final KeyValueStorage variablesStorage = new InMemoryKeyValueStorage();
+    final Block genesisBlock = gen.genesisBlock();
+    final MetricsSystem metricsSystem = mock(MetricsSystem.class);
+    final AtomicReference<IntSupplier> chainHeadTransactionCount = new AtomicReference<>();
+    doAnswer(
+            invocation -> {
+              chainHeadTransactionCount.set(invocation.getArgument(3));
+              return null;
+            })
+        .when(metricsSystem)
+        .createIntegerGauge(any(), any(), any(), any());
+    final DefaultBlockchain blockchain =
+        createMutableBlockchain(chainStorage, variablesStorage, genesisBlock, metricsSystem);
+    final Block importedBlock =
+        gen.block(
+            new BlockDataGenerator.BlockOptions()
+                .setBlockNumber(1L)
+                .addTransaction(gen.transactions(2))
+                .setParentHash(genesisBlock.getHash()));
+    blockchain.storeBlockHeaders(List.of(importedBlock.getHeader()));
+    final SyncBlockWithReceipts syncBlockWithReceipts = toSyncBlockWithReceipts(importedBlock);
+    final ExecutorService executor = Executors.newSingleThreadExecutor();
+    final Difficulty initialTotalDifficulty = blockchain.getChainHead().getTotalDifficulty();
+
+    chainStorage.blockNextCommit();
+    final Future<?> importFuture =
+        executor.submit(
+            () ->
+                blockchain.unsafeImportSyncBodiesAndReceipts(
+                    List.of(syncBlockWithReceipts), false));
+    try {
+      assertThat(chainStorage.awaitCommit()).isTrue();
+      assertThat(blockchain.getChainHeadBlockNumber())
+          .isEqualTo(genesisBlock.getHeader().getNumber());
+      assertThat(blockchain.getChainHead().getTotalDifficulty()).isEqualTo(initialTotalDifficulty);
+      assertThat(blockchain.getBlockByNumber(blockchain.getChainHeadBlockNumber())).isPresent();
+      assertThat(chainHeadTransactionCount.get()).isNotNull();
+      assertThat(chainHeadTransactionCount.get().getAsInt())
+          .isEqualTo(genesisBlock.getBody().getTransactions().size());
+
+      chainStorage.releaseCommit();
+      importFuture.get(10, TimeUnit.SECONDS);
+
+      assertThat(blockchain.getChainHeadBlockNumber())
+          .isEqualTo(importedBlock.getHeader().getNumber());
+      assertThat(blockchain.getChainHead().getTotalDifficulty())
+          .isEqualTo(initialTotalDifficulty.add(importedBlock.getHeader().getDifficulty()));
+      assertThat(blockchain.getBlockByNumber(blockchain.getChainHeadBlockNumber())).isPresent();
+      assertThat(chainHeadTransactionCount.get().getAsInt())
+          .isEqualTo(importedBlock.getBody().getTransactions().size());
+    } finally {
+      chainStorage.releaseCommit();
+      executor.shutdownNow();
+    }
   }
 
   @Test
@@ -1102,13 +1180,34 @@ public class DefaultBlockchainTest {
         false);
   }
 
+  private SyncBlockWithReceipts toSyncBlockWithReceipts(final Block block) {
+    final BytesValueRLPOutput output = new BytesValueRLPOutput();
+    block.getBody().writeWrappedBodyTo(output);
+    final SyncBlockBody body =
+        SyncBlockBody.readWrappedBodyFrom(
+            new BytesValueRLPInput(output.encoded(), false),
+            false,
+            new DefaultProtocolSchedule(Optional.of(BigInteger.ONE)));
+    return new SyncBlockWithReceipts(
+        new SyncBlock(block.getHeader(), body), Collections.emptyList());
+  }
+
   private DefaultBlockchain createMutableBlockchain(
       final KeyValueStorage kvStore,
       final KeyValueStorage kvStorageVariables,
       final Block genesisBlock) {
+    return createMutableBlockchain(
+        kvStore, kvStorageVariables, genesisBlock, new NoOpMetricsSystem());
+  }
+
+  private DefaultBlockchain createMutableBlockchain(
+      final KeyValueStorage kvStore,
+      final KeyValueStorage kvStorageVariables,
+      final Block genesisBlock,
+      final MetricsSystem metricsSystem) {
     return (DefaultBlockchain)
         DefaultBlockchain.createMutable(
-            genesisBlock, createStorage(kvStore, kvStorageVariables), new NoOpMetricsSystem(), 0);
+            genesisBlock, createStorage(kvStore, kvStorageVariables), metricsSystem, 0);
   }
 
   private DefaultBlockchain createMutableBlockchain(
@@ -1226,5 +1325,65 @@ public class DefaultBlockchainTest {
     }
     when(blockchain.getChainHeadBlockNumber()).thenReturn(lastBlockNumber);
     return blockchain;
+  }
+
+  private static class CommitBlockingKeyValueStorage extends InMemoryKeyValueStorage {
+    private final AtomicBoolean blockNextCommit = new AtomicBoolean();
+    private final CountDownLatch commitStarted = new CountDownLatch(1);
+    private final CountDownLatch releaseCommit = new CountDownLatch(1);
+
+    void blockNextCommit() {
+      blockNextCommit.set(true);
+    }
+
+    boolean awaitCommit() throws InterruptedException {
+      return commitStarted.await(10, TimeUnit.SECONDS);
+    }
+
+    void releaseCommit() {
+      releaseCommit.countDown();
+    }
+
+    @Override
+    public KeyValueStorageTransaction startTransaction() {
+      final KeyValueStorageTransaction transaction = super.startTransaction();
+      return new KeyValueStorageTransaction() {
+        @Override
+        public void put(final byte[] key, final byte[] value) {
+          transaction.put(key, value);
+        }
+
+        @Override
+        public void remove(final byte[] key) {
+          transaction.remove(key);
+        }
+
+        @Override
+        public void commit() {
+          if (blockNextCommit.compareAndSet(true, false)) {
+            commitStarted.countDown();
+            try {
+              if (!releaseCommit.await(10, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("Timed out waiting to release the commit");
+              }
+            } catch (final InterruptedException e) {
+              Thread.currentThread().interrupt();
+              throw new IllegalStateException("Interrupted while waiting to release the commit", e);
+            }
+          }
+          transaction.commit();
+        }
+
+        @Override
+        public void rollback() {
+          transaction.rollback();
+        }
+
+        @Override
+        public void close() {
+          transaction.close();
+        }
+      };
+    }
   }
 }

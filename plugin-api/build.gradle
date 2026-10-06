@@ -60,6 +60,11 @@ def apiBaselineJar = configurations.detachedConfiguration(
   dependencies.create("org.hyperledger.besu:besu-plugin-api:${apiBaselineVersion}") { transitive = false })
 def apiBaselineClasspath = configurations.detachedConfiguration(
   dependencies.create("org.hyperledger.besu:besu-plugin-api:${apiBaselineVersion}"))
+// Detached configurations are invisible to the root build's source artifact tasks unless listed here.
+ext.verificationMetadataConfigurations = [
+  apiBaselineJar,
+  apiBaselineClasspath
+]
 
 tasks.register('checkAPICompatibility', me.champeau.gradle.japicmp.JapicmpTask) {
   description = "Checks that the Plugin API remains binary and source compatible with the last released version, allowing only additions"
