@@ -44,6 +44,8 @@ import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFullFlatDbStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.FlatDbStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
@@ -54,6 +56,7 @@ import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
+import org.hyperledger.besu.plugin.services.storage.KeyValueStorageTransaction;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 
@@ -69,6 +72,7 @@ import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 
 public class BonsaiWorldStateKeyValueStorageTest {
@@ -859,6 +863,35 @@ public class BonsaiWorldStateKeyValueStorageTest {
         .contains(bytesB);
     assertThat(storage.getCode(Hash.hash(bytesC), accountHashD).map(Code::getBytes))
         .contains(bytesC);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void putCode_writesSharedCodeOncePerUpdater(final boolean codeByCodeHash) {
+    final FlatDbStrategy flatDbStrategy = mock(FlatDbStrategy.class);
+    when(flatDbStrategy.isCodeByCodeHash()).thenReturn(codeByCodeHash);
+    final SegmentedKeyValueStorage worldStorage = mock(SegmentedKeyValueStorage.class);
+    final Bytes code = Bytes.fromHexString("0x605b5b");
+    final Hash codeHash = Hash.hash(code);
+    final Hash accountHashA = Address.fromHexString("0x1").addressHash();
+    final Hash accountHashB = Address.fromHexString("0x2").addressHash();
+
+    for (int i = 0; i < 2; i++) {
+      new BonsaiWorldStateKeyValueStorage.Updater(
+              mock(SegmentedKeyValueStorageTransaction.class),
+              mock(KeyValueStorageTransaction.class),
+              flatDbStrategy,
+              worldStorage,
+              mock(TrieNodeStrategy.class))
+          .putCode(accountHashA, codeHash, code)
+          .putCode(accountHashB, codeHash, code);
+    }
+
+    // keyed by code hash, each updater writes the code once; keyed by account, once per account
+    verify(flatDbStrategy, times(2))
+        .putFlatCode(any(), any(), eq(accountHashA), eq(codeHash), eq(code));
+    verify(flatDbStrategy, times(codeByCodeHash ? 0 : 2))
+        .putFlatCode(any(), any(), eq(accountHashB), eq(codeHash), eq(code));
   }
 
   @ParameterizedTest
