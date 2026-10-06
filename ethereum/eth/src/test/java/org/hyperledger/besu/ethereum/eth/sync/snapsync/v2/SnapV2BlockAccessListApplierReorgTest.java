@@ -16,11 +16,14 @@ package org.hyperledger.besu.ethereum.eth.sync.snapsync.v2;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hyperledger.besu.ethereum.eth.sync.snapsync.v2.ReorgBlockchainBuilder.accountExists;
+import static org.hyperledger.besu.ethereum.eth.sync.snapsync.v2.ReorgBlockchainBuilder.readAccount;
+import static org.hyperledger.besu.ethereum.eth.sync.snapsync.v2.ReorgBlockchainBuilder.readCode;
+import static org.hyperledger.besu.ethereum.eth.sync.snapsync.v2.ReorgBlockchainBuilder.readStorageSlot;
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator.applyForStrategy;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
@@ -36,7 +39,6 @@ import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 
 import java.util.Map;
-import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -162,7 +164,7 @@ class SnapV2BlockAccessListApplierReorgTest {
     // Post-orphan flat state: only Alice exists; Grace was never seen on either fork at download
     // time.
     seedAccount(ALICE, Wei.of(50));
-    assertThat(accountExists(GRACE)).isFalse();
+    assertThat(accountExists(coordinator, GRACE)).isFalse();
 
     applier(b)
         .applyBlockAccessLists(
@@ -173,7 +175,7 @@ class SnapV2BlockAccessListApplierReorgTest {
         .commit();
 
     assertThat(readBalance(ALICE)).isEqualTo(Wei.of(80));
-    final PmtStateTrieAccountValue grace = readAccount(GRACE);
+    final PmtStateTrieAccountValue grace = readAccount(coordinator, GRACE);
     assertThat(grace.getBalance()).isEqualTo(Wei.of(50));
     assertThat(grace.getNonce()).isZero();
     assertThat(grace.getCodeHash()).isEqualTo(Hash.EMPTY);
@@ -299,10 +301,10 @@ class SnapV2BlockAccessListApplierReorgTest {
         .commit();
 
     // s1: canonical write applied, and the account's storage root moved off the empty trie.
-    assertThat(readStorageSlot(FRANK, slot1)).hasValue(UInt256.valueOf(111));
-    assertThat(readAccount(FRANK).getStorageRoot()).isNotEqualTo(Hash.EMPTY_TRIE_HASH);
+    assertThat(readStorageSlot(coordinator, FRANK, slot1)).hasValue(UInt256.valueOf(111));
+    assertThat(readAccount(coordinator, FRANK).getStorageRoot()).isNotEqualTo(Hash.EMPTY_TRIE_HASH);
     // s2: diverged — stale orphaned value retained; a later re-fetch step will correct it.
-    assertThat(readStorageSlot(FRANK, slot2)).hasValue(UInt256.valueOf(200));
+    assertThat(readStorageSlot(coordinator, FRANK, slot2)).hasValue(UInt256.valueOf(200));
   }
 
   /**
@@ -339,7 +341,7 @@ class SnapV2BlockAccessListApplierReorgTest {
             new DownloadedStorageRangeTracker())
         .commit();
 
-    assertThat(readStorageSlot(FRANK, slot1)).isEmpty();
+    assertThat(readStorageSlot(coordinator, FRANK, slot1)).isEmpty();
   }
 
   // ---------------------------------------------------------------------------
@@ -382,7 +384,7 @@ class SnapV2BlockAccessListApplierReorgTest {
         .commit();
 
     assertThat(readBalance(ALICE)).isEqualTo(Wei.of(80));
-    assertThat(accountExists(DAVE)).isFalse();
+    assertThat(accountExists(coordinator, DAVE)).isFalse();
   }
 
   // ---------------------------------------------------------------------------
@@ -424,14 +426,14 @@ class SnapV2BlockAccessListApplierReorgTest {
         .commit();
 
     // Alice: nonce applied, balance (untouched by the canonical BAL) preserved.
-    final PmtStateTrieAccountValue alice = readAccount(ALICE);
+    final PmtStateTrieAccountValue alice = readAccount(coordinator, ALICE);
     assertThat(alice.getNonce()).isEqualTo(7L);
     assertThat(alice.getBalance()).isEqualTo(Wei.of(50));
 
     // Charlie: code stored and code hash updated (the "deployed on both forks" case).
-    final PmtStateTrieAccountValue charlie = readAccount(CHARLIE);
+    final PmtStateTrieAccountValue charlie = readAccount(coordinator, CHARLIE);
     assertThat(charlie.getCodeHash()).isEqualTo(Hash.hash(code));
-    assertThat(readCode(CHARLIE)).hasValue(code);
+    assertThat(readCode(coordinator, CHARLIE)).hasValue(code);
   }
 
   // ---------------------------------------------------------------------------
@@ -577,36 +579,6 @@ class SnapV2BlockAccessListApplierReorgTest {
   }
 
   private Wei readBalance(final Address address) {
-    return readAccount(address).getBalance();
-  }
-
-  private PmtStateTrieAccountValue readAccount(final Address address) {
-    return PmtStateTrieAccountValue.readFrom(RLP.input(readAccountBytes(address).orElseThrow()));
-  }
-
-  private boolean accountExists(final Address address) {
-    return readAccountBytes(address).isPresent();
-  }
-
-  private Optional<Bytes> readAccountBytes(final Address address) {
-    return coordinator.applyForStrategy(
-        bonsai -> bonsai.getAccount(address.addressHash()), forest -> Optional.<Bytes>empty());
-  }
-
-  private Optional<UInt256> readStorageSlot(final Address address, final UInt256 slotKey) {
-    return coordinator
-        .applyForStrategy(
-            bonsai ->
-                bonsai.getStorageValueByStorageSlotKey(
-                    address.addressHash(), new StorageSlotKey(slotKey)),
-            forest -> Optional.<Bytes>empty())
-        .map(UInt256::fromBytes);
-  }
-
-  private Optional<Bytes> readCode(final Address address) {
-    final PmtStateTrieAccountValue account = readAccount(address);
-    return coordinator.applyForStrategy(
-        bonsai -> bonsai.getCode(account.getCodeHash(), address.addressHash()),
-        forest -> Optional.<Bytes>empty());
+    return readAccount(coordinator, address).getBalance();
   }
 }
