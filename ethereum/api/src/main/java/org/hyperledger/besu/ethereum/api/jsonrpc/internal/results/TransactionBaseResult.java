@@ -208,6 +208,8 @@ public class TransactionBaseResult implements TransactionResult, JsonRpcResult {
     return nonce;
   }
 
+  // null marks a contract creation; JsonRpcResult's NON_ABSENT inclusion would drop it.
+  @JsonInclude(JsonInclude.Include.ALWAYS)
   @JsonGetter(value = "to")
   public String getTo() {
     return to;
