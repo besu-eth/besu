@@ -28,8 +28,10 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -41,6 +43,7 @@ import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
+import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.NoOpTrieLogManager;
@@ -57,6 +60,7 @@ import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
+import java.math.BigInteger;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -484,6 +488,55 @@ class OptimisticTransactionProcessorUnitTest {
 
       assertTrue(
           result.isEmpty(), "Expected empty result when context is null - triggers fallback");
+    }
+
+    @Test
+    @DisplayName("Returns empty for an invalid transaction whose sender cannot be recovered")
+    void returnsEmptyForInvalidTransactionWithUnrecoverableSender() {
+      final OptimisticConcurrentTransactionProcessor processorWithCollisionDetector =
+          new OptimisticConcurrentTransactionProcessor(
+              transactionProcessor, new TransactionCollisionDetector());
+      // r = 5 is a valid scalar but not the x-coordinate of any curve point
+      final Transaction transaction =
+          Transaction.builder()
+              .type(TransactionType.FRONTIER)
+              .nonce(0)
+              .gasPrice(Wei.ONE)
+              .gasLimit(21_000)
+              .to(Address.ZERO)
+              .value(Wei.ZERO)
+              .payload(Bytes.EMPTY)
+              .signature(
+                  SignatureAlgorithmFactory.getInstance()
+                      .createSignature(BigInteger.valueOf(5), BigInteger.ONE, (byte) 0))
+              .build();
+      when(transactionProcessor.processTransaction(
+              any(), any(), any(), any(), any(), any(), any(), any(), any()))
+          .thenReturn(
+              TransactionProcessingResult.invalid(
+                  ValidationResult.invalid(TransactionInvalidReason.INVALID_SIGNATURE)));
+
+      processorWithCollisionDetector.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          Collections.singletonList(transaction),
+          MINING_BENEFICIARY,
+          EMPTY_BLOCK_HASH_LOOKUP,
+          BLOB_GAS_PRICE,
+          sameThreadExecutor,
+          Optional.empty(),
+          env.maybeParentHeader());
+
+      final Optional<TransactionProcessingResult> result =
+          processorWithCollisionDetector.getProcessingResult(
+              env.worldState(),
+              MINING_BENEFICIARY,
+              transaction,
+              0,
+              Optional.empty(),
+              Optional.empty());
+
+      assertTrue(result.isEmpty(), "Expected the invalid transaction to be replayed sequentially");
     }
 
     @Test

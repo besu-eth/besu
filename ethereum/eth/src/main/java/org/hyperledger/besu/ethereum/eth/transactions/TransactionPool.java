@@ -184,17 +184,7 @@ public class TransactionPool implements BlockAddedObserver {
     LOG.trace("Adding {} remote transactions", initialCount);
 
     // recover and cache tx sender:
-    var txStream =
-        transactions.stream()
-            .filter(
-                tx -> {
-                  try {
-                    tx.getSender();
-                    return true;
-                  } catch (IllegalArgumentException | IllegalStateException ex) {
-                    return false;
-                  }
-                });
+    var txStream = transactions.stream().filter(TransactionPool::hasRecoverableSender);
 
     final var validationResults =
         sortedBySenderAndNonce(txStream)
@@ -354,8 +344,19 @@ public class TransactionPool implements BlockAddedObserver {
       // unless no-local-priority option is specified, senders of local sent txs are prioritized
       return true;
     }
-    // otherwise check if the sender belongs to the priority list
-    return configuration.getPrioritySenders().contains(transaction.getSender());
+    // otherwise check if the sender belongs to the priority list, an unrecoverable sender is left
+    // to the transaction validator to reject
+    return hasRecoverableSender(transaction)
+        && configuration.getPrioritySenders().contains(transaction.getSender());
+  }
+
+  private static boolean hasRecoverableSender(final Transaction transaction) {
+    try {
+      transaction.getSender();
+      return true;
+    } catch (final IllegalArgumentException | IllegalStateException e) {
+      return false;
+    }
   }
 
   public long subscribePendingTransactions(final PendingTransactionAddedListener listener) {

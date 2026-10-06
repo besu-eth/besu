@@ -22,6 +22,7 @@ import static org.hyperledger.besu.ethereum.mainnet.ValidationResult.valid;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.EXCEEDS_BLOCK_GAS_LIMIT;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.EXCEEDS_MAX_TX_BYTES;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.GAS_PRICE_TOO_LOW;
+import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.INVALID_SIGNATURE;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.INVALID_TRANSACTION_FORMAT;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.NONCE_TOO_FAR_IN_FUTURE_FOR_SENDER;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.NONCE_TOO_LOW;
@@ -40,6 +41,7 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.quality.Strictness.LENIENT;
 
+import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
@@ -58,6 +60,7 @@ import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.plugin.services.TransactionPoolValidatorService;
 import org.hyperledger.besu.util.number.Percentage;
 
+import java.math.BigInteger;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -576,6 +579,28 @@ public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoo
     givenTransactionIsValid(transactionFarFuture);
 
     addAndAssertTransactionViaApiInvalid(transactionFarFuture, NONCE_TOO_FAR_IN_FUTURE_FOR_SENDER);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  public void shouldRejectLocalTransactionWithUnrecoverableSignature(
+      final boolean noLocalPriority) {
+    transactionPool = createTransactionPool(b -> b.noLocalPriority(noLocalPriority));
+    // r = 5 is a valid scalar but not the x-coordinate of any curve point
+    final Transaction transaction =
+        Transaction.builder()
+            .copiedFrom(createTransaction(0))
+            .sender(null)
+            .signature(
+                SignatureAlgorithmFactory.getInstance()
+                    .createSignature(BigInteger.valueOf(5), BigInteger.ONE, (byte) 0))
+            .build();
+    when(transactionValidatorFactory
+            .get()
+            .validate(eq(transaction), any(Optional.class), any(Optional.class), any()))
+        .thenReturn(ValidationResult.invalid(INVALID_SIGNATURE));
+
+    addAndAssertTransactionViaApiInvalid(transaction, INVALID_SIGNATURE);
   }
 
   @Test
