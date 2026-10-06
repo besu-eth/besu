@@ -980,6 +980,63 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
         Arguments.of(ValidationParamsVariant.SIMULATING, 4_294_967_296L, true));
   }
 
+  @ParameterizedTest
+  @MethodSource("shouldCapIntrinsicAndFloorGas_EIP_8037")
+  public void shouldCapIntrinsicAndFloorGas_EIP_8037(
+      final long intrinsicGas, final long floorGas, final boolean valid) {
+    final var feeMarket = FeeMarket.london(0L);
+    final TransactionValidator validator =
+        createTransactionValidator(
+            gasCalculator,
+            new AmsterdamTargetingGasLimitCalculator(
+                0L, feeMarket, gasCalculator, 6, 3, OptionalInt.of(6), OptionalInt.empty()),
+            feeMarket,
+            false,
+            Optional.of(BigInteger.ONE),
+            Set.of(TransactionType.FRONTIER, TransactionType.EIP1559),
+            Integer.MAX_VALUE);
+    // tx.gas is within TX_MAX_TOTAL_GAS_LIMIT, so only the intrinsic/floor cap can reject it
+    final Transaction transaction =
+        new TransactionTestFixture()
+            .maxPriorityFeePerGas(Optional.of(Wei.of(1)))
+            .maxFeePerGas(Optional.of(Wei.of(150000L)))
+            .type(TransactionType.EIP1559)
+            .chainId(Optional.of(BigInteger.ONE))
+            .gasLimit(100_000_000L)
+            .createTransaction(senderKeys);
+    when(gasCalculator.transactionIntrinsicGasCost(any(), anyLong())).thenReturn(intrinsicGas);
+    when(gasCalculator.transactionFloorCost(any(Transaction.class))).thenReturn(floorGas);
+
+    final var validationResult =
+        validator.validate(
+            transaction,
+            Optional.of(Wei.of(150000L)),
+            Optional.empty(),
+            transactionProcessingParams);
+
+    if (valid) {
+      assertThat(validationResult.isValid()).isTrue();
+    } else {
+      assertThat(validationResult.isValid()).isFalse();
+      assertThat(validationResult.getInvalidReason())
+          .isEqualTo(TransactionInvalidReason.INTRINSIC_GAS_EXCEEDS_GAS_LIMIT);
+      assertThat(validationResult.getErrorMessage())
+          .isEqualTo(
+              String.format(
+                  "intrinsic gas cost %s exceeds gas limit 16777216",
+                  Math.max(intrinsicGas, floorGas)));
+    }
+  }
+
+  private static Stream<Arguments> shouldCapIntrinsicAndFloorGas_EIP_8037() {
+    return Stream.of(
+        Arguments.of(16_777_216L, 0L, true),
+        Arguments.of(0L, 16_777_216L, true),
+        Arguments.of(16_777_217L, 0L, false),
+        Arguments.of(0L, 16_777_217L, false),
+        Arguments.of(16_777_217L, 16_777_217L, false));
+  }
+
   private enum ValidationParamsVariant {
     PROCESSING,
     SIMULATING

@@ -27,7 +27,7 @@ import java.util.OptionalInt;
 public class AmsterdamTargetingGasLimitCalculator extends OsakaTargetingGasLimitCalculator {
 
   /** The EIP-8037 cap on {@code tx.gas} as a whole ({@code TX_MAX_TOTAL_GAS_LIMIT}, 2^32 - 1). */
-  public static final long TRANSACTION_TOTAL_GAS_LIMIT_CAP = 4_294_967_295L;
+  public static final long TRANSACTION_TOTAL_GAS_LIMIT_CAP = (1L << 32) - 1;
 
   public AmsterdamTargetingGasLimitCalculator(
       final long londonForkBlock,
