@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.trie;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 
 import java.util.Optional;
 
@@ -55,6 +56,29 @@ public class MerkleTrieException extends RuntimeException {
     this.hash = hash;
     this.location = location;
     this.maybeAddress = maybeAddress;
+  }
+
+  /**
+   * Checks that the code of a non-empty code hash was found. Meant to be called from an {@code
+   * assert}: it throws instead of returning false, so with assertions enabled the failure is a
+   * local storage error rather than an {@link AssertionError}.
+   *
+   * @param address the account the code belongs to
+   * @param codeHash the account's code hash
+   * @param found whether the code was found in storage
+   * @return always true
+   * @throws MerkleTrieException if the code hash is non-empty and the code was not found
+   */
+  public static boolean checkCodeFound(
+      final Address address, final Hash codeHash, final boolean found) {
+    if (!found && !Hash.EMPTY.equals(codeHash)) {
+      throw new MerkleTrieException(
+          "invalid account code",
+          Optional.of(address),
+          Bytes32.wrap(codeHash.getBytes()),
+          Bytes.EMPTY);
+    }
+    return true;
   }
 
   public Optional<Address> getMaybeAddress() {

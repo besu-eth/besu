@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.trie.forest.worldview;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createInMemoryWorldState;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -22,6 +23,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.storage.keyvalue.WorldStatePreimageKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
+import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.forest.storage.ForestWorldStateKeyValueStorage;
 import org.hyperledger.besu.evm.account.AccountStorageEntry;
 import org.hyperledger.besu.evm.account.MutableAccount;
@@ -30,6 +32,7 @@ import org.hyperledger.besu.evm.worldstate.WorldState;
 import org.hyperledger.besu.evm.worldstate.WorldState.StreamableAccount;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
+import org.hyperledger.besu.plugin.services.storage.KeyValueStorageTransaction;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
@@ -594,6 +597,26 @@ class ForestMutableWorldStateTest {
         .isEqualTo(
             Hash.fromHexString(
                 "0xc14f5e30581de9155ea092affa665fad83bcd9f98e45c4a42885b9b36d939702"));
+  }
+
+  @Test
+  void unreadableAccountCodeThrows() {
+    final KeyValueStorage keyValueStorage = new InMemoryKeyValueStorage();
+    final MutableWorldState worldState =
+        createEmpty(new ForestWorldStateKeyValueStorage(keyValueStorage));
+    final Bytes code = Bytes.of(1, 2, 3);
+    final WorldUpdater updater = worldState.updater();
+    updater.createAccount(ADDRESS).setCode(code);
+    updater.commit();
+    worldState.persist(null);
+
+    // the account still references the code that storage no longer returns
+    final KeyValueStorageTransaction transaction = keyValueStorage.startTransaction();
+    transaction.remove(Hash.hash(code).getBytes().toArrayUnsafe());
+    transaction.commit();
+
+    assertThatThrownBy(() -> worldState.get(ADDRESS).getCode())
+        .isInstanceOf(MerkleTrieException.class);
   }
 
   @Test

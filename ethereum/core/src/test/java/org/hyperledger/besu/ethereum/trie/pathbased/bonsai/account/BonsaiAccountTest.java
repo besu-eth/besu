@@ -15,13 +15,21 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldView;
 import org.hyperledger.besu.evm.worldstate.UpdateTrackingAccount;
+
+import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -77,5 +85,46 @@ public class BonsaiAccountTest {
     account.setStorageValue(UInt256.ONE, UInt256.ONE);
     assertThat(new BonsaiAccount(account, bonsaiWorldState, true))
         .isEqualToComparingFieldByField(account);
+  }
+
+  @Test
+  void unreadableCodeShouldThrowAndNotBeCached() {
+    final BonsaiCodeCache codeCache = new BonsaiCodeCache();
+    final Hash codeHash = Hash.hash(Bytes.fromHexString("0x5b00"));
+    final BonsaiAccount account = accountWithUnreadableCode(codeHash, codeCache);
+
+    assertThatThrownBy(account::getOrCreateCachedCode).isInstanceOf(MerkleTrieException.class);
+    assertThatThrownBy(account::getCode).isInstanceOf(MerkleTrieException.class);
+    assertThat(codeCache.getIfPresent(codeHash)).isNull();
+  }
+
+  @Test
+  void unreadableCodeShouldThrowThroughUpdateTrackingAccountAndNotBeCached() {
+    final BonsaiCodeCache codeCache = new BonsaiCodeCache();
+    final Hash codeHash = Hash.hash(Bytes.fromHexString("0x5b00"));
+
+    assertThatThrownBy(
+            () ->
+                new UpdateTrackingAccount<>(accountWithUnreadableCode(codeHash, codeCache))
+                    .getOrCreateCachedCode())
+        .isInstanceOf(MerkleTrieException.class);
+    assertThat(codeCache.getIfPresent(codeHash)).isNull();
+  }
+
+  private static BonsaiAccount accountWithUnreadableCode(
+      final Hash codeHash, final BonsaiCodeCache codeCache) {
+    // a closed world state, or one that lost the code, finds no code for the account's code hash
+    final BonsaiWorldView worldView = mock(BonsaiWorldView.class);
+    when(worldView.getCode(any(), any())).thenReturn(Optional.empty());
+    return new BonsaiAccount(
+        worldView,
+        Address.ZERO,
+        Address.ZERO.addressHash(),
+        0,
+        Wei.ZERO,
+        Hash.EMPTY_TRIE_HASH,
+        codeHash,
+        false,
+        codeCache);
   }
 }

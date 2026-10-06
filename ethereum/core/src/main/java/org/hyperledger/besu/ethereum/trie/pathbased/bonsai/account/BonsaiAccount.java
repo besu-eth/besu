@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPOutput;
+import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldView;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.ModificationNotAllowedException;
@@ -240,8 +241,12 @@ public class BonsaiAccount implements MutableAccount, AccountValue {
     }
 
     // cache miss get the code from the disk, set it and put it in the cache
-    final Bytes byteCode = context.getCode(address, codeHash).orElse(Bytes.EMPTY);
-    code = new Code(byteCode, codeHash);
+    final Optional<Bytes> byteCode = context.getCode(address, codeHash);
+    // a storage fault, not empty code: it must neither run nor be cached, and block import must
+    // report it as a local failure rather than an invalid block. Asserted so that nodes without
+    // -ea skip the check.
+    assert MerkleTrieException.checkCodeFound(address, codeHash, byteCode.isPresent());
+    code = new Code(byteCode.orElse(Bytes.EMPTY), codeHash);
     Optional.ofNullable(codeCache).ifPresent(c -> c.put(codeHash, code));
 
     return code;
