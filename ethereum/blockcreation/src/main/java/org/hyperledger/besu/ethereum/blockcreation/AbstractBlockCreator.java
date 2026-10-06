@@ -202,7 +202,8 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
 
     final var timings = new BlockCreationTiming();
 
-    try (final MutableWorldState disposableWorldState = duplicateWorldStateAtParent(parentHeader)) {
+    final MutableWorldState disposableWorldState = duplicateWorldStateAtParent(parentHeader);
+    try {
       timings.register("duplicateWorldState");
       final ProtocolSpec newProtocolSpec =
           protocolSchedule.getForNextBlockHeader(parentHeader, timestamp);
@@ -374,6 +375,26 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
     } catch (final Exception ex) {
       throw new IllegalStateException(
           "Block creation failed unexpectedly. Will restart on next block added to chain.", ex);
+    } finally {
+      closeAfterSelectionStops(disposableWorldState);
+    }
+  }
+
+  private void closeAfterSelectionStops(final MutableWorldState worldState) {
+    final Runnable close =
+        () -> {
+          try {
+            worldState.close();
+          } catch (final Exception e) {
+            LOG.warn("Failed to close the world state used to create the block", e);
+          }
+        };
+    final var currSelector = selector;
+    if (currSelector == null) {
+      close.run();
+    } else {
+      // a selection task that did not stop in time can still be using the world state
+      currSelector.runAfterSelectionStops(close);
     }
   }
 

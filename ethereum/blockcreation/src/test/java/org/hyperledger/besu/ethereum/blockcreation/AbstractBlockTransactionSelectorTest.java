@@ -14,8 +14,10 @@
  */
 package org.hyperledger.besu.ethereum.blockcreation;
 
+import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.entry;
 import static org.awaitility.Awaitility.await;
 import static org.hyperledger.besu.ethereum.blockcreation.AbstractBlockTransactionSelectorTest.Sender.SENDER1;
@@ -82,12 +84,14 @@ import org.hyperledger.besu.ethereum.storage.keyvalue.VariablesKeyValueStorage;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
+import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.TransactionSelectionService;
+import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
 import org.hyperledger.besu.plugin.services.txselection.PluginTransactionSelector;
 import org.hyperledger.besu.plugin.services.txselection.PluginTransactionSelectorFactory;
 import org.hyperledger.besu.plugin.services.txselection.SelectorsStateManager;
@@ -104,10 +108,12 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
@@ -1043,6 +1049,7 @@ public abstract class AbstractBlockTransactionSelectorTest {
         processingTooLate,
         postProcessingTooLate,
         500,
+        false,
         BLOCK_SELECTION_TIMEOUT,
         false);
   }
@@ -1055,12 +1062,14 @@ public abstract class AbstractBlockTransactionSelectorTest {
       final boolean processingTooLate,
       final boolean postProcessingTooLate) {
 
+    // the evaluation ignores the interrupt, so it really takes longer than the max selection time
     internalBlockSelectionTimeoutSimulation(
         isPoa,
         preProcessingTooLate,
         processingTooLate,
         postProcessingTooLate,
-        900,
+        800,
+        true,
         TX_EVALUATION_TOO_LONG,
         false);
   }
@@ -1289,26 +1298,24 @@ public abstract class AbstractBlockTransactionSelectorTest {
 
   /**
    * When no plugin factory is registered the plugin phase is a no-op, so processTransaction is only
-   * called during internal selection. This test verifies that the CountDownLatch added in
-   * internalTimeLimitedSelection causes buildTransactionListForBlock() to wait for the selection
-   * thread to fully finish before returning, even when cancel() is called mid-processing and the
-   * thread performs additional work after the interrupt.
+   * called during internal selection. This test verifies that buildTransactionListForBlock() waits
+   * for the selection thread to fully finish before returning, even when cancel() is called
+   * mid-processing and the thread performs additional work after the interrupt.
    *
    * <p>Coordination flow:
    *
    * <ol>
    *   <li>Selection thread calls cancel() on itself and blocks on {@code cleanupCanFinish}.
-   *   <li>It signals {@code cleanupStarted} so the test thread knows the latch has not yet counted
-   *       down and that {@code buildTransactionListForBlock()} is therefore still blocked.
+   *   <li>It signals {@code cleanupStarted} so the test thread knows the selection thread has not
+   *       stopped and that {@code buildTransactionListForBlock()} is therefore still blocked.
    *   <li>Test thread asserts the build future is still running, then releases {@code
    *       cleanupCanFinish}.
-   *   <li>Selection thread unblocks, sets {@code selectionThreadFinished}, and counts down the
-   *       internal latch — allowing buildTransactionListForBlock() to return.
+   *   <li>Selection thread unblocks, sets {@code selectionThreadFinished}, and stops — allowing
+   *       buildTransactionListForBlock() to return.
    * </ol>
    */
   @Test
-  public void internalSelectionLatchEnsuresBuildTransactionListWaitsForSelectionThreadToFinish()
-      throws InterruptedException {
+  public void buildTransactionListWaitsForSelectionThreadToFinish() throws InterruptedException {
     final AtomicBoolean selectionThreadFinished = new AtomicBoolean(false);
     final AtomicReference<BlockTransactionSelector> selectorRef = new AtomicReference<>();
     final CountDownLatch cleanupStarted = new CountDownLatch(1);
@@ -1361,19 +1368,199 @@ public abstract class AbstractBlockTransactionSelectorTest {
     final CompletableFuture<Void> buildFuture =
         CompletableFuture.runAsync(selector::buildTransactionListForBlock);
 
-    // Wait until the selection thread has started cleanup; at this point internalSelectionDone
-    // has NOT yet counted down, so buildFuture must still be blocked.
+    // Wait until the selection thread has started cleanup; at this point it has NOT yet stopped,
+    // so buildFuture must still be blocked.
     assertThat(cleanupStarted.await(5, TimeUnit.SECONDS)).isTrue();
     assertThat(buildFuture.isDone()).isFalse();
 
-    // Release the selection thread; it will set selectionThreadFinished and count down the latch,
-    // which unblocks buildTransactionListForBlock().
+    // Release the selection thread; it will set selectionThreadFinished and stop, which unblocks
+    // buildTransactionListForBlock().
     cleanupCanFinish.countDown();
     buildFuture.orTimeout(5, TimeUnit.SECONDS).join();
 
-    // Without the CountDownLatch, buildTransactionListForBlock() would have returned before the
-    // selection thread reached selectionThreadFinished.set(true).
+    // buildTransactionListForBlock() must not return before the selection thread reached
+    // selectionThreadFinished.set(true).
     assertThat(selectionThreadFinished.get()).isTrue();
+  }
+
+  @Test
+  public void selectionIsGivenUpWhenTheEvaluationDoesNotStopInTime() {
+    final int txsSelectionMaxTime = 200;
+    final AtomicBoolean evaluationRunning = new AtomicBoolean(false);
+
+    final PluginTransactionSelectorFactory transactionSelectorFactory =
+        mock(PluginTransactionSelectorFactory.class);
+    when(transactionSelectorFactory.create(any(), any()))
+        .thenReturn(
+            new PluginTransactionSelector() {
+              @Override
+              public TransactionSelectionResult evaluateTransactionPreProcessing(
+                  final TransactionEvaluationContext evaluationContext) {
+                evaluationRunning.set(true);
+                // ignores the interrupt, and runs longer than the wait for the selection to stop
+                sleepUninterruptibly(Duration.ofMillis(txsSelectionMaxTime * 4L));
+                evaluationRunning.set(false);
+                return SELECTED;
+              }
+
+              @Override
+              public TransactionSelectionResult evaluateTransactionPostProcessing(
+                  final TransactionEvaluationContext evaluationContext,
+                  final org.hyperledger.besu.plugin.data.TransactionProcessingResult
+                      processingResult) {
+                return SELECTED;
+              }
+            });
+
+    transactionSelectionService.registerPluginTransactionSelectorFactory(
+        transactionSelectorFactory);
+
+    final BlockTransactionSelector selector =
+        createBlockSelectorAndSetupTxPool(
+            createMiningParameters(
+                transactionSelectionService, Wei.ZERO, PositiveNumber.fromInt(txsSelectionMaxTime)),
+            transactionProcessor,
+            createBlock(301_000),
+            AddressHelpers.ofValue(1),
+            Wei.ZERO,
+            transactionSelectionService);
+
+    final var tx = createTransaction(0, Wei.of(7), 100_000);
+    ensureTransactionIsValid(tx);
+    transactionPool.addRemoteTransactions(List.of(tx));
+
+    // the block cannot be finished while the evaluation still uses its state
+    assertThatThrownBy(selector::buildTransactionListForBlock)
+        .isInstanceOf(CancellationException.class);
+    assertThat(evaluationRunning).isTrue();
+    // keeps the evaluation from running into the next test
+    await().atMost(Duration.ofSeconds(5)).untilFalse(evaluationRunning);
+  }
+
+  @Test
+  public void transactionStillExecutingAtTimeoutStopsEvenIfTheInterruptIsCleared() {
+    final int txsSelectionMaxTime = 300;
+    final Address contract = Address.fromHexString("0x00000000000000000000000000000000000c0de0");
+    final var worldStateUpdater = worldState.updater();
+    // JUMPDEST, PUSH1 0, JUMP: loops until it runs out of gas
+    worldStateUpdater.createAccount(contract).setCode(Bytes.fromHexString("0x5b600056"));
+    worldStateUpdater.commit();
+
+    final AtomicBoolean interruptCleared = new AtomicBoolean(false);
+    final AtomicInteger operationsAfterInterrupt = new AtomicInteger(0);
+    final BlockAwareOperationTracer interruptClearingTracer =
+        new BlockAwareOperationTracer() {
+          @Override
+          public void traceContextEnter(final MessageFrame frame) {
+            // waits for the interrupt sent at the timeout and clears it, like code that swallows it
+            final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (!Thread.currentThread().isInterrupted() && System.nanoTime() < deadline) {
+              Thread.onSpinWait();
+            }
+            interruptCleared.set(Thread.interrupted());
+          }
+
+          @Override
+          public void tracePreExecution(final MessageFrame frame) {
+            if (interruptCleared.get()) {
+              operationsAfterInterrupt.incrementAndGet();
+            }
+          }
+        };
+
+    final PluginTransactionSelectorFactory transactionSelectorFactory =
+        mock(PluginTransactionSelectorFactory.class);
+    when(transactionSelectorFactory.create(any(), any()))
+        .thenReturn(
+            new PluginTransactionSelector() {
+              @Override
+              public BlockAwareOperationTracer getOperationTracer() {
+                return interruptClearingTracer;
+              }
+
+              @Override
+              public TransactionSelectionResult evaluateTransactionPreProcessing(
+                  final TransactionEvaluationContext evaluationContext) {
+                return SELECTED;
+              }
+
+              @Override
+              public TransactionSelectionResult evaluateTransactionPostProcessing(
+                  final TransactionEvaluationContext evaluationContext,
+                  final org.hyperledger.besu.plugin.data.TransactionProcessingResult
+                      processingResult) {
+                return SELECTED;
+              }
+            });
+
+    transactionSelectionService.registerPluginTransactionSelectorFactory(
+        transactionSelectorFactory);
+
+    final ProcessableBlockHeader blockHeader = createBlock(10_000_000);
+    final BlockTransactionSelector selector =
+        createBlockSelectorAndSetupTxPool(
+            createMiningParameters(
+                transactionSelectionService, Wei.ZERO, PositiveNumber.fromInt(txsSelectionMaxTime)),
+            protocolSchedule.getByBlockHeader(blockHeader).getTransactionProcessor(),
+            blockHeader,
+            AddressHelpers.ofValue(1),
+            Wei.ZERO,
+            transactionSelectionService);
+
+    final Transaction tx =
+        Transaction.builder()
+            .gasLimit(1_000_000)
+            .gasPrice(Wei.of(7))
+            .nonce(0)
+            .payload(Bytes.EMPTY)
+            .to(contract)
+            .value(Wei.ZERO)
+            .sender(SENDER1.address())
+            .chainId(CHAIN_ID)
+            .guessType()
+            .signAndBuild(SENDER1.keyPair());
+    transactionPool.addRemoteTransactions(List.of(tx));
+
+    final var results = selector.buildTransactionListForBlock();
+
+    assertThat(interruptCleared).isTrue();
+    // no operation is executed once the selection has timed out
+    assertThat(operationsAfterInterrupt).hasValue(0);
+    assertThat(results.getSelectedTransactions()).isEmpty();
+    assertThat(results.getNotSelectedTransactions()).containsOnlyKeys(tx);
+  }
+
+  @Test
+  public void exceptionEvaluatingTransactionAfterCancellationDoesNotDropTheTransaction() {
+    final AtomicReference<BlockTransactionSelector> selectorRef = new AtomicReference<>();
+    final BlockTransactionSelector selector =
+        createBlockSelectorAndSetupTxPool(
+            defaultTestMiningConfiguration,
+            transactionProcessor,
+            createBlock(301_000),
+            AddressHelpers.ofValue(1),
+            Wei.ZERO,
+            transactionSelectionService);
+    selectorRef.set(selector);
+
+    final var tx = createTransaction(0, Wei.of(7), 100_000);
+    final Answer<TransactionProcessingResult> failAfterCancellation =
+        invocation -> {
+          selectorRef.get().cancel();
+          throw new IllegalStateException("evaluation interrupted by the cancellation");
+        };
+    when(transactionProcessor.processTransaction(
+            any(), any(), eq(tx), any(), any(), any(), any(), any()))
+        .thenAnswer(failAfterCancellation);
+    when(transactionProcessor.processTransaction(
+            any(), any(), eq(tx), any(), any(), any(), any(), any(), any()))
+        .thenAnswer(failAfterCancellation);
+    transactionPool.addRemoteTransactions(List.of(tx));
+
+    final var results = selector.buildTransactionListForBlock();
+
+    assertThat(results.getSelectedTransactions()).isEmpty();
+    assertThat(transactionPool.getTransactionByHash(tx.getHash())).isPresent();
   }
 
   private void internalBlockSelectionTimeoutSimulation(
@@ -1382,6 +1569,7 @@ public abstract class AbstractBlockTransactionSelectorTest {
       final boolean processingTooLate,
       final boolean postProcessingTooLate,
       final long longProcessingTxTime,
+      final boolean longProcessingTxIgnoresInterrupt,
       final TransactionSelectionResult longProcessingTxResult,
       final boolean isLongProcessingTxDropped) {
 
@@ -1396,10 +1584,15 @@ public abstract class AbstractBlockTransactionSelectorTest {
                       .TransactionEvaluationContext
                   ctx = invocation.getArgument(0);
               if (ctx.getTransaction().equals(p)) {
-                try {
-                  Thread.sleep(t);
-                } catch (final InterruptedException e) {
-                  return TransactionSelectionResult.invalidPenalized(EXECUTION_INTERRUPTED.name());
+                if (longProcessingTxIgnoresInterrupt) {
+                  sleepUninterruptibly(Duration.ofMillis(t));
+                } else {
+                  try {
+                    Thread.sleep(t);
+                  } catch (final InterruptedException e) {
+                    return TransactionSelectionResult.invalidPenalized(
+                        EXECUTION_INTERRUPTED.name());
+                  }
                 }
               } else {
                 try {
@@ -1425,7 +1618,12 @@ public abstract class AbstractBlockTransactionSelectorTest {
 
     final Transaction lateTx = createTransaction(2, Wei.of(7), 100_000);
     transactionsToInject.add(lateTx);
-    ensureTransactionIsValid(lateTx, 0, 0, processingTooLate ? longProcessingTxTime : 0);
+    ensureTransactionIsValid(
+        lateTx,
+        0,
+        0,
+        processingTooLate ? longProcessingTxTime : 0,
+        longProcessingTxIgnoresInterrupt);
 
     PluginTransactionSelector transactionSelector = mock(PluginTransactionSelector.class);
     when(transactionSelector.evaluateTransactionPreProcessing(any()))
@@ -1479,8 +1677,7 @@ public abstract class AbstractBlockTransactionSelectorTest {
     assertThat(results.getReceipts().get(0).getCumulativeGasUsed()).isEqualTo(100_000);
     assertThat(results.getReceipts().get(1).getCumulativeGasUsed()).isEqualTo(200_000);
 
-    // given enough time we can check the not selected tx
-    await().until(() -> !results.getNotSelectedTransactions().isEmpty());
+    // the selection only returns once the evaluation of the late tx is over
     assertThat(results.getNotSelectedTransactions())
         .containsOnly(entry(lateTx, longProcessingTxResult));
     assertThat(transactionPool.getTransactionByHash(lateTx.getHash()).isEmpty())
@@ -1509,12 +1706,11 @@ public abstract class AbstractBlockTransactionSelectorTest {
 
   @ParameterizedTest
   @MethodSource("subsetOfPendingTransactionsIncludedWhenTxSelectionMaxTimeIsOver")
-  public void
-      evaluationOfInvalidPendingTransactionThatTakesTooLongToEvaluateIsInterruptedAndPenalized(
-          final boolean isPoa,
-          final boolean preProcessingTooLate,
-          final boolean processingTooLate,
-          final boolean postProcessingTooLate) {
+  public void invalidPendingTransactionStillEvaluatingAtTimeoutIsInterruptedWithoutPenalty(
+      final boolean isPoa,
+      final boolean preProcessingTooLate,
+      final boolean processingTooLate,
+      final boolean postProcessingTooLate) {
 
     internalBlockSelectionTimeoutSimulationInvalidTxs(
         isPoa,
@@ -1522,7 +1718,7 @@ public abstract class AbstractBlockTransactionSelectorTest {
         processingTooLate,
         postProcessingTooLate,
         900,
-        TX_EVALUATION_TOO_LONG,
+        BLOCK_SELECTION_TIMEOUT,
         false,
         NONCE_TOO_LOW);
   }
@@ -1630,9 +1826,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
     // no tx is selected since all are invalid or late
     assertThat(results.getSelectedTransactions()).isEmpty();
 
-    // all txs are not selected so wait until all are evaluated
-    // before checking the results
-    await().until(() -> results.getNotSelectedTransactions().size() == transactionsToInject.size());
+    // the selection only returns once all the txs are evaluated
+    assertThat(results.getNotSelectedTransactions()).hasSize(transactionsToInject.size());
     final var expectedEntries = new HashMap<Transaction, TransactionSelectionResult>();
     for (int i = 0; i < txCount - 1; i++) {
       expectedEntries.put(
@@ -1793,46 +1988,43 @@ public abstract class AbstractBlockTransactionSelectorTest {
       final long gasUsedByTransaction,
       final long gasRemaining,
       final long processingTime) {
+    ensureTransactionIsValid(tx, gasUsedByTransaction, gasRemaining, processingTime, false);
+  }
+
+  protected void ensureTransactionIsValid(
+      final Transaction tx,
+      final long gasUsedByTransaction,
+      final long gasRemaining,
+      final long processingTime,
+      final boolean ignoreInterrupt) {
+    final Answer<TransactionProcessingResult> processing =
+        invocation -> {
+          if (processingTime > 0) {
+            if (ignoreInterrupt) {
+              sleepUninterruptibly(Duration.ofMillis(processingTime));
+            } else {
+              try {
+                Thread.sleep(processingTime);
+              } catch (final InterruptedException e) {
+                return TransactionProcessingResult.invalid(
+                    ValidationResult.invalid(EXECUTION_INTERRUPTED));
+              }
+            }
+          }
+          return TransactionProcessingResult.successful(
+              new ArrayList<>(),
+              gasUsedByTransaction,
+              gasRemaining,
+              Bytes.EMPTY,
+              Optional.empty(),
+              ValidationResult.valid());
+        };
     when(transactionProcessor.processTransaction(
             any(), any(), eq(tx), any(), any(), any(), any(), any()))
-        .thenAnswer(
-            invocation -> {
-              if (processingTime > 0) {
-                try {
-                  Thread.sleep(processingTime);
-                } catch (final InterruptedException e) {
-                  return TransactionProcessingResult.invalid(
-                      ValidationResult.invalid(EXECUTION_INTERRUPTED));
-                }
-              }
-              return TransactionProcessingResult.successful(
-                  new ArrayList<>(),
-                  gasUsedByTransaction,
-                  gasRemaining,
-                  Bytes.EMPTY,
-                  Optional.empty(),
-                  ValidationResult.valid());
-            });
+        .thenAnswer(processing);
     when(transactionProcessor.processTransaction(
             any(), any(), eq(tx), any(), any(), any(), any(), any(), any()))
-        .thenAnswer(
-            invocation -> {
-              if (processingTime > 0) {
-                try {
-                  Thread.sleep(processingTime);
-                } catch (final InterruptedException e) {
-                  return TransactionProcessingResult.invalid(
-                      ValidationResult.invalid(EXECUTION_INTERRUPTED));
-                }
-              }
-              return TransactionProcessingResult.successful(
-                  new ArrayList<>(),
-                  gasUsedByTransaction,
-                  gasRemaining,
-                  Bytes.EMPTY,
-                  Optional.empty(),
-                  ValidationResult.valid());
-            });
+        .thenAnswer(processing);
   }
 
   protected void ensureTransactionIsInvalid(

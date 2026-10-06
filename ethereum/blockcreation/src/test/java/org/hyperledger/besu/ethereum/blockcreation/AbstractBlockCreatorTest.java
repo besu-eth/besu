@@ -14,10 +14,14 @@
  */
 package org.hyperledger.besu.ethereum.blockcreation;
 
+import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -40,6 +44,7 @@ import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.blockcreation.BlockCreator.BlockCreationResult;
+import org.hyperledger.besu.ethereum.blockcreation.pluginadapter.TransactionSelectionServiceImpl;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlobTestFixture;
@@ -86,16 +91,32 @@ import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessingContext;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.ethereum.util.TrustedSetupClassLoaderExtension;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+import org.hyperledger.besu.plugin.data.ProcessableBlockHeader;
+import org.hyperledger.besu.plugin.data.TransactionProcessingResult;
+import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
+import org.hyperledger.besu.plugin.services.txselection.PluginTransactionSelector;
+import org.hyperledger.besu.plugin.services.txselection.PluginTransactionSelectorFactory;
+import org.hyperledger.besu.plugin.services.txselection.SelectorsStateManager;
+import org.hyperledger.besu.plugin.services.txselection.TransactionEvaluationContext;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.testutil.DeterministicEthScheduler;
+import org.hyperledger.besu.util.number.PositiveNumber;
 
 import java.math.BigInteger;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
@@ -308,21 +329,23 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
   }
 
   private CreateOn blockCreatorWithBalSupport() {
+    return createBlockCreator(balSupportSpecAdapters());
+  }
+
+  private ProtocolSpecAdapters balSupportSpecAdapters() {
     final var alwaysValidTransactionValidatorFactory = mock(TransactionValidatorFactory.class);
     when(alwaysValidTransactionValidatorFactory.get())
         .thenReturn(new AlwaysValidTransactionValidator());
-    final ProtocolSpecAdapters protocolSpecAdapters =
-        ProtocolSpecAdapters.create(
-            0,
-            specBuilder -> {
-              specBuilder.isReplayProtectionSupported(true);
-              specBuilder.withdrawalsProcessor(withdrawalsProcessor);
-              specBuilder.blockAccessListFactory(new BlockAccessListFactory());
-              specBuilder.transactionValidatorFactoryBuilder(
-                  (evm, gasLimitCalculator, feeMarket) -> alwaysValidTransactionValidatorFactory);
-              return specBuilder;
-            });
-    return createBlockCreator(protocolSpecAdapters);
+    return ProtocolSpecAdapters.create(
+        0,
+        specBuilder -> {
+          specBuilder.isReplayProtectionSupported(true);
+          specBuilder.withdrawalsProcessor(withdrawalsProcessor);
+          specBuilder.blockAccessListFactory(new BlockAccessListFactory());
+          specBuilder.transactionValidatorFactoryBuilder(
+              (evm, gasLimitCalculator, feeMarket) -> alwaysValidTransactionValidatorFactory);
+          return specBuilder;
+        });
   }
 
   @Test
@@ -394,6 +417,158 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
     assertThat(maybeBlockAccessList).isEmpty();
   }
 
+  @Test
+  void blockIsFinishedOnlyAfterTheTransactionSelectionStops() throws Exception {
+    final AtomicBoolean evaluationRunning = new AtomicBoolean(false);
+    final AtomicBoolean finishedDuringEvaluation = new AtomicBoolean(false);
+    final CompletableFuture<Boolean> closedDuringEvaluation = new CompletableFuture<>();
+    doAnswer(
+            invocation -> {
+              finishedDuringEvaluation.set(evaluationRunning.get());
+              return null;
+            })
+        .when(withdrawalsProcessor)
+        .processWithdrawals(any(), any(), any(), any());
+
+    final EthScheduler blockCreationScheduler = new EthScheduler(1, 1, 1, new NoOpMetricsSystem());
+    try {
+      // the evaluation ignores the interrupt sent at the timeout, but stops before the wait ends
+      final CreateOn miningOn =
+          blockCreatorWithSlowTransactionSelection(
+              500,
+              600,
+              evaluationRunning,
+              blockCreationScheduler,
+              () -> closedDuringEvaluation.complete(evaluationRunning.get()));
+
+      final BlockCreationResult blockCreationResult =
+          miningOn.blockCreator.createBlock(
+              Optional.empty(),
+              Optional.empty(),
+              Optional.of(withdrawals()),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              Optional.empty(),
+              1L,
+              false,
+              miningOn.parentHeader);
+
+      assertThat(blockCreationResult.getBlock().getBody().getTransactions()).isEmpty();
+      verify(withdrawalsProcessor).processWithdrawals(any(), any(), any(), any());
+      assertThat(finishedDuringEvaluation).isFalse();
+      assertThat(closedDuringEvaluation).isCompletedWithValue(false);
+    } finally {
+      blockCreationScheduler.stop();
+      blockCreationScheduler.awaitStop();
+    }
+  }
+
+  @Test
+  void blockIsGivenUpWhenTheTransactionSelectionDoesNotStopInTime() throws Exception {
+    final AtomicBoolean evaluationRunning = new AtomicBoolean(false);
+    final CompletableFuture<Boolean> closedDuringEvaluation = new CompletableFuture<>();
+
+    final EthScheduler blockCreationScheduler = new EthScheduler(1, 1, 1, new NoOpMetricsSystem());
+    try {
+      // the evaluation ignores the interrupt sent at the timeout, and outlives the wait for it
+      final CreateOn miningOn =
+          blockCreatorWithSlowTransactionSelection(
+              200,
+              800,
+              evaluationRunning,
+              blockCreationScheduler,
+              () -> closedDuringEvaluation.complete(evaluationRunning.get()));
+
+      assertThatThrownBy(
+              () ->
+                  miningOn.blockCreator.createBlock(
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.of(withdrawals()),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      1L,
+                      false,
+                      miningOn.parentHeader))
+          .isInstanceOf(CancellationException.class);
+
+      verify(withdrawalsProcessor, never()).processWithdrawals(any(), any(), any(), any());
+      // the world state is closed only once the evaluation is over
+      assertThat(closedDuringEvaluation.get(5, TimeUnit.SECONDS)).isFalse();
+    } finally {
+      blockCreationScheduler.stop();
+      blockCreationScheduler.awaitStop();
+    }
+  }
+
+  private static List<Withdrawal> withdrawals() {
+    return List.of(new Withdrawal(UInt64.ONE, UInt64.ONE, Address.fromHexString("0x1"), GWei.ONE));
+  }
+
+  private CreateOn blockCreatorWithSlowTransactionSelection(
+      final int txsSelectionMaxTimeMs,
+      final long evaluationTimeMs,
+      final AtomicBoolean evaluationRunning,
+      final EthScheduler blockCreationScheduler,
+      final Runnable onWorldStateClose) {
+    final PluginTransactionSelector slowSelector =
+        new PluginTransactionSelector() {
+          @Override
+          public TransactionSelectionResult evaluateTransactionPreProcessing(
+              final TransactionEvaluationContext evaluationContext) {
+            evaluationRunning.set(true);
+            sleepUninterruptibly(Duration.ofMillis(evaluationTimeMs));
+            evaluationRunning.set(false);
+            return TransactionSelectionResult.SELECTED;
+          }
+
+          @Override
+          public TransactionSelectionResult evaluateTransactionPostProcessing(
+              final TransactionEvaluationContext evaluationContext,
+              final TransactionProcessingResult processingResult) {
+            return TransactionSelectionResult.SELECTED;
+          }
+        };
+    final TransactionSelectionServiceImpl transactionSelectionService =
+        new TransactionSelectionServiceImpl();
+    transactionSelectionService.registerPluginTransactionSelectorFactory(
+        new PluginTransactionSelectorFactory() {
+          @Override
+          public PluginTransactionSelector create(
+              final ProcessableBlockHeader pendingBlockHeader,
+              final SelectorsStateManager selectorsStateManager) {
+            return slowSelector;
+          }
+        });
+
+    final CreateOn miningOn =
+        createBlockCreator(
+            balSupportSpecAdapters(),
+            ImmutableMiningConfiguration.builder()
+                .transactionSelectionService(transactionSelectionService)
+                .posBlockTxsSelectionMaxTime(PositiveNumber.fromInt(txsSelectionMaxTimeMs)),
+            blockCreationScheduler,
+            Optional.of(onWorldStateClose));
+
+    final GenesisAccount sender = accounts.get(1);
+    final KeyPair keyPair =
+        SIGNATURE_ALGORITHM.createKeyPair(SECPPrivateKey.create(sender.privateKey(), "ECDSA"));
+    final Transaction transaction =
+        new TransactionTestFixture()
+            .sender(sender.address())
+            .to(Optional.of(accounts.get(2).address()))
+            .value(Wei.ONE)
+            .gasLimit(21_000L)
+            .nonce(sender.nonce())
+            .chainId(Optional.of(BigInteger.valueOf(42)))
+            .createTransaction(keyPair);
+    assertThat(miningOn.transactionPool.addTransactionViaApi(transaction).isValid()).isTrue();
+    return miningOn;
+  }
+
   private CreateOn blockCreatorWithWithdrawalsProcessor() {
     final ProtocolSpecAdapters protocolSpecAdapters =
         ProtocolSpecAdapters.create(
@@ -407,9 +582,24 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
     return createBlockCreator(protocolSpecAdapters);
   }
 
-  record CreateOn(AbstractBlockCreator blockCreator, BlockHeader parentHeader) {}
+  record CreateOn(
+      AbstractBlockCreator blockCreator,
+      BlockHeader parentHeader,
+      TransactionPool transactionPool) {}
 
   private CreateOn createBlockCreator(final ProtocolSpecAdapters protocolSpecAdapters) {
+    return createBlockCreator(
+        protocolSpecAdapters,
+        ImmutableMiningConfiguration.builder(),
+        ethScheduler,
+        Optional.empty());
+  }
+
+  private CreateOn createBlockCreator(
+      final ProtocolSpecAdapters protocolSpecAdapters,
+      final ImmutableMiningConfiguration.Builder miningConfigurationBuilder,
+      final EthScheduler blockCreationScheduler,
+      final Optional<Runnable> onWorldStateClose) {
 
     final ExecutionContextTestFixture executionContextTestFixture =
         ExecutionContextTestFixture.builder(genesisConfig)
@@ -456,7 +646,7 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
     transactionPool.setEnabled();
 
     final MiningConfiguration miningConfiguration =
-        ImmutableMiningConfiguration.builder()
+        miningConfigurationBuilder
             .mutableInitValues(
                 MutableInitValues.builder()
                     .extraData(Bytes.fromHexString("deadbeef"))
@@ -465,16 +655,57 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
                     .build())
             .build();
 
+    final ProtocolContext protocolContext =
+        onWorldStateClose.isPresent()
+            ? new ProtocolContext.Builder()
+                .withBlockchain(blockchain)
+                .withWorldStateArchive(
+                    closeTrackingWorldStateArchive(
+                        executionContextTestFixture.getStateArchive(), onWorldStateClose.get()))
+                .build()
+            : executionContextTestFixture.getProtocolContext();
+
     return new CreateOn(
         new TestBlockCreator(
             miningConfiguration,
             (__, ___) -> Address.ZERO,
             __ -> Bytes.fromHexString("deadbeef"),
             transactionPool,
-            executionContextTestFixture.getProtocolContext(),
+            protocolContext,
             executionContextTestFixture.getProtocolSchedule(),
-            ethScheduler),
-        parentHeader);
+            blockCreationScheduler),
+        parentHeader,
+        transactionPool);
+  }
+
+  private static WorldStateArchive closeTrackingWorldStateArchive(
+      final WorldStateArchive worldStateArchive, final Runnable onWorldStateClose) {
+    final WorldStateArchive trackingArchive =
+        mock(WorldStateArchive.class, delegatesTo(worldStateArchive));
+    doAnswer(
+            invocation -> {
+              final Optional<MutableWorldState> maybeWorldState =
+                  worldStateArchive.getWorldState(
+                      invocation.getArgument(0, WorldStateQueryParams.class));
+              if (maybeWorldState.isEmpty()) {
+                return maybeWorldState;
+              }
+              final MutableWorldState worldState = maybeWorldState.get();
+              final MutableWorldState trackingWorldState =
+                  mock(MutableWorldState.class, delegatesTo(worldState));
+              doAnswer(
+                      close -> {
+                        onWorldStateClose.run();
+                        worldState.close();
+                        return null;
+                      })
+                  .when(trackingWorldState)
+                  .close();
+              return Optional.of(trackingWorldState);
+            })
+        .when(trackingArchive)
+        .getWorldState(any(WorldStateQueryParams.class));
+    return trackingArchive;
   }
 
   static class TestBlockCreator extends AbstractBlockCreator {

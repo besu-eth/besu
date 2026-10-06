@@ -28,14 +28,18 @@ import org.hyperledger.besu.evm.worldstate.WorldView;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 
 import org.apache.tuweni.bytes.Bytes;
 
 public class InterruptibleOperationTracer implements OperationTracer {
   private final OperationTracer delegate;
+  private final BooleanSupplier isCancelled;
 
-  public InterruptibleOperationTracer(final OperationTracer delegate) {
+  public InterruptibleOperationTracer(
+      final OperationTracer delegate, final BooleanSupplier isCancelled) {
     this.delegate = delegate;
+    this.isCancelled = isCancelled;
   }
 
   @Override
@@ -130,7 +134,8 @@ public class InterruptibleOperationTracer implements OperationTracer {
   }
 
   private void checkInterrupt() {
-    if (Thread.interrupted()) {
+    // the interrupt alone is not enough, since other code running on the thread can clear it
+    if (Thread.interrupted() || isCancelled.getAsBoolean()) {
       throw new RuntimeException(new InterruptedException("Transaction execution interrupted"));
     }
   }

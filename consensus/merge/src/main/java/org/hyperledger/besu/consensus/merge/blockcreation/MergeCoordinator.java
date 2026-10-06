@@ -491,13 +491,9 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
         return null;
       } catch (final Throwable e) {
         if (isBlockCreationCancelled(payloadIdentifier)) {
-          // when the block creation is canceled, in some edge cases it is possible to have
-          // concurrency issues, so inform the user how to interpret that possibility
+          // the block is discarded anyway, but block creation is not expected to fail this way
           LOG.info(
-              "Got an exception after cancellation of block creation for payload id {}. "
-                  + "This is expected if you already saw the earlier "
-                  + "\"the completion of the block creation continues in a best effort mode, and could fail due to concurrency issues\" log. "
-                  + "If you do not see that earlier warning log please report this stack trace.",
+              "Got an exception after cancellation of block creation for payload id {}, please report this stack trace",
               payloadIdentifier,
               e);
         } else {
