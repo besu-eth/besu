@@ -65,6 +65,15 @@ public class BlockSimulationResult {
     return blockStateCallSimulationResult.getReceipts();
   }
 
+  /**
+   * Returns the gas used by the calls of the block, as their receipts report it.
+   *
+   * @return the cumulative receipt gas used
+   */
+  public long getCumulativeGasUsed() {
+    return blockStateCallSimulationResult.getCumulativeGasUsed();
+  }
+
   public List<TransactionSimulatorResult> getTransactionSimulations() {
     return blockStateCallSimulationResult.getTransactionSimulationResults();
   }
