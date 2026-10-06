@@ -21,8 +21,12 @@ import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.internal.OverflowException;
 import org.hyperledger.besu.evm.internal.UnderflowException;
+import org.hyperledger.besu.evm.operation.DupNOperation;
 import org.hyperledger.besu.evm.operation.DupOperation;
+import org.hyperledger.besu.evm.operation.Eip8024Decoder;
+import org.hyperledger.besu.evm.operation.ExchangeOperation;
 import org.hyperledger.besu.evm.operation.Operation;
+import org.hyperledger.besu.evm.operation.SwapNOperation;
 import org.hyperledger.besu.evm.operation.SwapOperation;
 import org.hyperledger.besu.evm.testutils.TestMessageFrameBuilder;
 import org.hyperledger.besu.evm.v2.testutils.TestMessageFrameBuilderV2;
@@ -42,7 +46,8 @@ import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * Compares the v2 stack manipulation operations with the original Bytes-based implementations on
- * the same stacks: every DUP and SWAP index, at the stack depths around underflow and overflow.
+ * the same stacks: every DUP and SWAP index, and every immediate of DUPN, SWAPN and EXCHANGE, at
+ * the stack depths around underflow and overflow.
  */
 class StackOperationsV2ComparisonTest {
 
@@ -60,6 +65,49 @@ class StackOperationsV2ComparisonTest {
     return IntStream.rangeClosed(1, 16)
         .boxed()
         .flatMap(n -> depths(0, n, n + 1, n + 2, MAX).map(d -> Arguments.of(n, d)));
+  }
+
+  static Stream<Arguments> dupNCases() {
+    return IntStream.range(0, 256)
+        .boxed()
+        .flatMap(
+            imm -> {
+              if (!Eip8024Decoder.VALID_SINGLE[imm]) return depths(0, MAX).map(d -> code(imm, d));
+              final int n = Eip8024Decoder.DECODE_SINGLE[imm];
+              return depths(n - 1, n, MAX - 1, MAX).map(d -> code(imm, d));
+            });
+  }
+
+  static Stream<Arguments> swapNCases() {
+    return IntStream.range(0, 256)
+        .boxed()
+        .flatMap(
+            imm -> {
+              if (!Eip8024Decoder.VALID_SINGLE[imm]) return depths(0, MAX).map(d -> code(imm, d));
+              final int n = Eip8024Decoder.DECODE_SINGLE[imm];
+              return depths(n, n + 1, MAX).map(d -> code(imm, d));
+            });
+  }
+
+  static Stream<Arguments> exchangeCases() {
+    return IntStream.range(0, 256)
+        .boxed()
+        .flatMap(
+            imm -> {
+              final int packed = Eip8024Decoder.DECODE_PAIR_PACKED[imm];
+              if (packed == Eip8024Decoder.INVALID_PAIR) {
+                return depths(0, MAX).map(d -> code(imm, d));
+              }
+              final int deepest = Math.max(packed & 0xFF, (packed >>> 8) & 0xFF);
+              return depths(deepest, deepest + 1, MAX).map(d -> code(imm, d));
+            });
+  }
+
+  /**
+   * The immediate past the end of the code reads as 0, which is a valid immediate for all three.
+   */
+  static Stream<Arguments> endOfCodeCases() {
+    return depths(0, 16, 17, 18, 30, MAX).map(d -> Arguments.of(d));
   }
 
   // endregion
@@ -84,6 +132,62 @@ class StackOperationsV2ComparisonTest {
         frame -> SwapOperationV2.staticOperation(frame, n));
   }
 
+  @ParameterizedTest(name = "DUPN {0} at depth {1}")
+  @MethodSource("dupNCases")
+  void dupNMatchesOriginal(final int imm, final int depth) {
+    final byte[] code = {(byte) DupNOperationV2.OPCODE, (byte) imm};
+    assertMatches(
+        depth,
+        code,
+        frame -> DupNOperation.staticOperation(frame, code, 0),
+        frame -> DupNOperationV2.staticOperation(frame, code, 0));
+  }
+
+  @ParameterizedTest(name = "SWAPN {0} at depth {1}")
+  @MethodSource("swapNCases")
+  void swapNMatchesOriginal(final int imm, final int depth) {
+    final byte[] code = {(byte) SwapNOperationV2.OPCODE, (byte) imm};
+    assertMatches(
+        depth,
+        code,
+        frame -> SwapNOperation.staticOperation(frame, code, 0),
+        frame -> SwapNOperationV2.staticOperation(frame, code, 0));
+  }
+
+  @ParameterizedTest(name = "EXCHANGE {0} at depth {1}")
+  @MethodSource("exchangeCases")
+  void exchangeMatchesOriginal(final int imm, final int depth) {
+    final byte[] code = {(byte) ExchangeOperationV2.OPCODE, (byte) imm};
+    assertMatches(
+        depth,
+        code,
+        frame -> ExchangeOperation.staticOperation(frame, code, 0),
+        frame -> ExchangeOperationV2.staticOperation(frame, code, 0));
+  }
+
+  @ParameterizedTest(name = "at depth {0}")
+  @MethodSource("endOfCodeCases")
+  void immediateOperationsMatchOriginalAtEndOfCode(final int depth) {
+    final byte[] dupN = {(byte) DupNOperationV2.OPCODE};
+    assertMatches(
+        depth,
+        dupN,
+        frame -> DupNOperation.staticOperation(frame, dupN, 0),
+        frame -> DupNOperationV2.staticOperation(frame, dupN, 0));
+    final byte[] swapN = {(byte) SwapNOperationV2.OPCODE};
+    assertMatches(
+        depth,
+        swapN,
+        frame -> SwapNOperation.staticOperation(frame, swapN, 0),
+        frame -> SwapNOperationV2.staticOperation(frame, swapN, 0));
+    final byte[] exchange = {(byte) ExchangeOperationV2.OPCODE};
+    assertMatches(
+        depth,
+        exchange,
+        frame -> ExchangeOperation.staticOperation(frame, exchange, 0),
+        frame -> ExchangeOperationV2.staticOperation(frame, exchange, 0));
+  }
+
   // endregion
 
   // region Helpers
@@ -94,6 +198,10 @@ class StackOperationsV2ComparisonTest {
       if (depth >= 0 && depth <= MAX) valid.add(depth);
     }
     return valid.stream();
+  }
+
+  private static Arguments code(final int imm, final int depth) {
+    return Arguments.of(imm, depth);
   }
 
   /**

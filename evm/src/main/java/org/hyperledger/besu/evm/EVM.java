@@ -90,7 +90,9 @@ import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.v2.operation.AddModOperationV2;
 import org.hyperledger.besu.evm.v2.operation.AddOperationV2;
 import org.hyperledger.besu.evm.v2.operation.DivOperationV2;
+import org.hyperledger.besu.evm.v2.operation.DupNOperationV2;
 import org.hyperledger.besu.evm.v2.operation.DupOperationV2;
+import org.hyperledger.besu.evm.v2.operation.ExchangeOperationV2;
 import org.hyperledger.besu.evm.v2.operation.ModOperationV2;
 import org.hyperledger.besu.evm.v2.operation.MulModOperationV2;
 import org.hyperledger.besu.evm.v2.operation.MulOperationV2;
@@ -100,6 +102,7 @@ import org.hyperledger.besu.evm.v2.operation.SarOperationV2;
 import org.hyperledger.besu.evm.v2.operation.ShlOperationV2;
 import org.hyperledger.besu.evm.v2.operation.ShrOperationV2;
 import org.hyperledger.besu.evm.v2.operation.SubOperationV2;
+import org.hyperledger.besu.evm.v2.operation.SwapNOperationV2;
 import org.hyperledger.besu.evm.v2.operation.SwapOperationV2;
 
 import java.util.Optional;
@@ -550,6 +553,18 @@ public class EVM {
                   0x9e,
                   0x9f ->
                   SwapOperationV2.staticOperation(frame, opcode - SwapOperationV2.SWAP_BASE);
+              case 0xe6 -> // DUPN (EIP-8024)
+                  enableAmsterdam
+                      ? DupNOperationV2.staticOperation(frame, code, pc)
+                      : InvalidOperation.invalidOperationResult(opcode);
+              case 0xe7 -> // SWAPN (EIP-8024)
+                  enableAmsterdam
+                      ? SwapNOperationV2.staticOperation(frame, code, pc)
+                      : InvalidOperation.invalidOperationResult(opcode);
+              case 0xe8 -> // EXCHANGE (EIP-8024)
+                  enableAmsterdam
+                      ? ExchangeOperationV2.staticOperation(frame, code, pc)
+                      : InvalidOperation.invalidOperationResult(opcode);
               // TODO EVMv2: implement remaining opcodes in v2; until then fall through to v1
               default -> {
                 frame.setCurrentOperation(currentOperation);
