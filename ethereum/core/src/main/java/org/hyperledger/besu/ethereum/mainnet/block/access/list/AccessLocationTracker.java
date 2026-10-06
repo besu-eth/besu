@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet.block.access.list;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView.AccountChangesBuilder;
@@ -27,6 +28,7 @@ import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -38,15 +40,24 @@ import org.apache.tuweni.units.bigints.UInt256;
 public class AccessLocationTracker implements Eip7928AccessList {
 
   private final long blockAccessIndex;
+  private final boolean sharedIndex;
   private final Map<Address, AccountAccessList> touchedAccounts = new ConcurrentHashMap<>();
 
-  public AccessLocationTracker(final long blockAccessIndex) {
+  /**
+   * Accounts as they were when a shared index began, captured the first time the index writes them,
+   * so each view diffs against these rather than against the previous call's result.
+   */
+  private final Map<Address, IndexStartAccount> indexStartAccounts = new HashMap<>();
+
+  public AccessLocationTracker(final long blockAccessIndex, final boolean sharedIndex) {
     this.blockAccessIndex = blockAccessIndex;
+    this.sharedIndex = sharedIndex;
   }
 
   @Override
   public void clear() {
     touchedAccounts.clear();
+    indexStartAccounts.clear();
   }
 
   @Override
@@ -88,7 +99,7 @@ public class AccessLocationTracker implements Eip7928AccessList {
   public PartialBlockAccessView createPartialBlockAccessView(final WorldUpdater updater) {
     final StackedUpdater<?, ?> stackedUpdater = (StackedUpdater<?, ?>) updater;
     final PartialBlockAccessViewBuilder builder = new PartialBlockAccessViewBuilder();
-    builder.withTxIndex(this.blockAccessIndex);
+    builder.withTxIndex(this.blockAccessIndex).withSharedIndex(sharedIndex);
 
     final Collection<Address> deletedAddressesCol = stackedUpdater.getDeletedAccountAddresses();
     final Set<Address> deletedAddresses =
@@ -110,6 +121,17 @@ public class AccessLocationTracker implements Eip7928AccessList {
       final Address address = entry.getKey();
       final Set<UInt256> touchedSlots = entry.getValue().getSlots();
       final AccountChangesBuilder accountBuilder = builder.getOrCreateAccountBuilder(address);
+
+      if (sharedIndex) {
+        addChangesSinceIndexStart(
+            accountBuilder,
+            stackedUpdater,
+            address,
+            touchedSlots,
+            deletedAddresses.contains(address),
+            updatedAddresses.contains(address));
+        continue;
+      }
 
       final boolean isDeleted = deletedAddresses.contains(address);
       if (isDeleted || !updatedAddresses.contains(address)) {
@@ -186,6 +208,98 @@ public class AccessLocationTracker implements Eip7928AccessList {
       }
     }
     return builder.build();
+  }
+
+  private void addChangesSinceIndexStart(
+      final AccountChangesBuilder accountBuilder,
+      final StackedUpdater<?, ?> stackedUpdater,
+      final Address address,
+      final Set<UInt256> touchedSlots,
+      final boolean isDeleted,
+      final boolean isUpdated) {
+    if (isDeleted) {
+      indexStartAccounts.computeIfAbsent(
+          address, __ -> new IndexStartAccount(findOriginalAccount(stackedUpdater, address)));
+    } else if (isUpdated
+        && stackedUpdater.get(address) instanceof UpdateTrackingAccount<?> updated) {
+      captureIndexStart(updated, touchedSlots);
+    }
+    final IndexStartAccount indexStart = indexStartAccounts.get(address);
+    final Account account = indexStart == null || isDeleted ? null : stackedUpdater.get(address);
+    if (account == null) {
+      for (final UInt256 slot : touchedSlots) {
+        accountBuilder.addStorageRead(new StorageSlotKey(slot));
+      }
+      // Deleted at this index, by this call or an earlier one.
+      if (indexStart != null && !indexStart.balance.isZero()) {
+        accountBuilder.withPostBalance(Wei.ZERO);
+      }
+      return;
+    }
+
+    final Wei newBalance = account.getBalance();
+    final long newNonce = account.getNonce();
+    if (!newBalance.equals(indexStart.balance)) {
+      accountBuilder.withPostBalance(newBalance);
+    }
+    if (Long.compareUnsigned(newNonce, indexStart.nonce) > 0) {
+      accountBuilder.withNonceChange(newNonce);
+    }
+    if (!account.getCodeHash().equals(indexStart.codeHash)) {
+      accountBuilder.withNewCode(account.getCode());
+    }
+
+    for (final UInt256 touchedSlot : touchedSlots) {
+      final StorageSlotKey slotKeyObj = new StorageSlotKey(touchedSlot);
+      final UInt256 originalValue = indexStart.storageValue(touchedSlot);
+      if (originalValue == null) {
+        accountBuilder.addStorageRead(slotKeyObj);
+        continue;
+      }
+      final UInt256 updatedValue = account.getStorageValue(touchedSlot);
+      if (originalValue.equals(updatedValue)) {
+        accountBuilder.addStorageRead(slotKeyObj);
+      } else {
+        accountBuilder.addStorageChange(slotKeyObj, originalValue, updatedValue);
+      }
+    }
+  }
+
+  private void captureIndexStart(
+      final UpdateTrackingAccount<?> account, final Set<UInt256> touchedSlots) {
+    final IndexStartAccount indexStart =
+        indexStartAccounts.computeIfAbsent(
+            account.getAddress(), __ -> new IndexStartAccount(account.getWrappedAccount()));
+    final Map<UInt256, UInt256> updatedStorage = account.getUpdatedStorage();
+    for (final UInt256 slot : touchedSlots) {
+      if (updatedStorage.containsKey(slot) && indexStart.storageValue(slot) == null) {
+        indexStart.putStorageValue(slot, account.getOriginalStorageValue(slot));
+      }
+    }
+  }
+
+  private static final class IndexStartAccount {
+    private final Wei balance;
+    private final long nonce;
+    private final Hash codeHash;
+    private Map<UInt256, UInt256> storage;
+
+    private IndexStartAccount(final Account account) {
+      this.balance = account != null ? account.getBalance() : Wei.ZERO;
+      this.nonce = account != null ? account.getNonce() : 0L;
+      this.codeHash = account != null ? account.getCodeHash() : Hash.EMPTY;
+    }
+
+    private UInt256 storageValue(final UInt256 slot) {
+      return storage != null ? storage.get(slot) : null;
+    }
+
+    private void putStorageValue(final UInt256 slot, final UInt256 value) {
+      if (storage == null) {
+        storage = new HashMap<>();
+      }
+      storage.put(slot, value);
+    }
   }
 
   private Account findOriginalAccount(final WorldUpdater updater, final Address address) {

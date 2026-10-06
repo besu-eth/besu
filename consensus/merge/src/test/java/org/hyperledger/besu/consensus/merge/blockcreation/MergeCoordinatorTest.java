@@ -87,6 +87,7 @@ import org.hyperledger.besu.testutil.TestClock;
 import org.hyperledger.besu.util.number.Fraction;
 
 import java.math.BigInteger;
+import java.time.Duration;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
@@ -95,6 +96,7 @@ import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -746,6 +748,54 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
                 .getBody()
                 .getTransactions())
         .hasSize(0);
+  }
+
+  @Test
+  public void finalizingDuringThePauseBetweenBlockCreationsDoesNotWaitForThePauseToEnd()
+      throws InterruptedException {
+    final long pauseBetweenBlockCreations = 2000;
+    final MergeCoordinator slowRepetitionCoordinator =
+        new MergeCoordinator(
+            protocolContext,
+            protocolSchedule,
+            ethScheduler,
+            transactionPool,
+            ImmutableMiningConfiguration.builder()
+                .mutableInitValues(MutableInitValues.builder().coinbase(coinbase).build())
+                .unstable(
+                    Unstable.builder()
+                        .posBlockCreationRepetitionMinDuration(pauseBetweenBlockCreations)
+                        .build())
+                .build(),
+            backwardSyncContext);
+
+    // the empty block first, then the block built from the empty pool
+    final CountDownLatch firstBlockBuilt = new CountDownLatch(2);
+    doAnswer(
+            invocation -> {
+              firstBlockBuilt.countDown();
+              return null;
+            })
+        .when(mergeContext)
+        .putPayloadById(any());
+
+    final var payloadId =
+        slowRepetitionCoordinator.preparePayload(
+            new PreparePayloadArgsBuilder()
+                .parentHeader(genesisState.getBlock().getHeader())
+                .timestamp(System.currentTimeMillis() / 1000)
+                .prevRandao(Bytes32.ZERO)
+                .feeRecipient(suggestedFeeRecipient)
+                .build());
+    firstBlockBuilt.await();
+
+    final long startedAt = System.nanoTime();
+    slowRepetitionCoordinator.finalizeProposalById(payloadId);
+    slowRepetitionCoordinator.awaitCurrentBuildCompletion(payloadId);
+    final long waitedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
+
+    assertThat(waitedMs).isLessThan(400);
+    assertThat(blockCreationTask).succeedsWithin(Duration.ofMillis(500));
   }
 
   @Test

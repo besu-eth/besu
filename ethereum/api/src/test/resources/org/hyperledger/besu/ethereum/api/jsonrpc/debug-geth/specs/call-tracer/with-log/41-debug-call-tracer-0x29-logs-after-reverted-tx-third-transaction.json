@@ -1,0 +1,82 @@
+{
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "debug_traceTransaction",
+    "params": [
+      "0xf4a589cd87fcf733fd893b7ef44913efbdead344ecbf4b3698508d9be4facd24",
+      {
+        "tracer": "callTracer",
+        "tracerConfig": {
+          "withLog": true
+        }
+      }
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "from": "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+      "gas": "0xfffff2",
+      "gasUsed": "0x72b3",
+      "to": "0xd54b47f8e6a1b97f3a84f63c867286272b273b7c",
+      "input": "0x",
+      "calls": [
+        {
+          "from": "0xd54b47f8e6a1b97f3a84f63c867286272b273b7c",
+          "gas": "0xfba221",
+          "gasUsed": "0x311",
+          "to": "0xde5491f774f0cb009abcea7326342e105dbb1b2e",
+          "input": "0x",
+          "error": "execution reverted",
+          "value": "0x0",
+          "type": "CALL"
+        },
+        {
+          "from": "0xd54b47f8e6a1b97f3a84f63c867286272b273b7c",
+          "gas": "0xfb9507",
+          "gasUsed": "0x30b",
+          "to": "0xb9b7e0cb2edf5ea031c8b297a5a1fa20379b6a0a",
+          "input": "0x",
+          "logs": [
+            {
+              "address": "0xb9b7e0cb2edf5ea031c8b297a5a1fa20379b6a0a",
+              "topics": [
+                "0x00000000000000000000000000000000000000000000000000000000000000d1"
+              ],
+              "data": "0xbb",
+              "index": "0x2",
+              "position": "0x0"
+            }
+          ],
+          "value": "0x0",
+          "type": "CALL"
+        }
+      ],
+      "logs": [
+        {
+          "address": "0xd54b47f8e6a1b97f3a84f63c867286272b273b7c",
+          "topics": [
+            "0x00000000000000000000000000000000000000000000000000000000000000e0"
+          ],
+          "data": "0x01",
+          "index": "0x1",
+          "position": "0x0"
+        },
+        {
+          "address": "0xd54b47f8e6a1b97f3a84f63c867286272b273b7c",
+          "topics": [
+            "0x00000000000000000000000000000000000000000000000000000000000000e1"
+          ],
+          "data": "0x02",
+          "index": "0x3",
+          "position": "0x2"
+        }
+      ],
+      "value": "0x0",
+      "type": "CALL"
+    }
+  },
+  "statusCode": 200
+}

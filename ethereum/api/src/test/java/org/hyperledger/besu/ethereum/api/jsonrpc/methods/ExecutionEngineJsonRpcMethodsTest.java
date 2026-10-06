@@ -22,11 +22,18 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.trie.forest.ForestWorldStateArchive;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.PathBasedWorldStateProvider;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
 import java.util.Arrays;
@@ -38,22 +45,85 @@ import io.vertx.core.Vertx;
 import org.junit.jupiter.api.Test;
 
 class ExecutionEngineJsonRpcMethodsTest {
+  private static final List<String> ALL_ENGINE_METHOD_NAMES =
+      Arrays.stream(RpcMethod.values())
+          .map(RpcMethod::getMethodName)
+          .filter(name -> name.startsWith("engine_"))
+          .toList();
+
   /**
    * Ensures that all methods returned by create() are valid and declared "engine_" methods. This
-   * protects against accidental omissions from the RpcMethod enum, which is used by
-   * engine_exchangeCapabilities
+   * protects against accidental omissions from the RpcMethod enum.
    */
   @Test
   void testGetSupportedMethods() {
+    final Map<String, JsonRpcMethod> engineMethods = createEngineMethods(Optional.of(0L));
+
+    assertThat(engineMethods.keySet()).containsExactlyInAnyOrderElementsOf(ALL_ENGINE_METHOD_NAMES);
+  }
+
+  @Test
+  void registersEveryMethodWhenNoForkIsScheduled() {
+    final Map<String, JsonRpcMethod> engineMethods = createEngineMethods(Optional.empty());
+
+    assertThat(engineMethods.keySet()).containsExactlyInAnyOrderElementsOf(ALL_ENGINE_METHOD_NAMES);
+  }
+
+  @Test
+  void doesNotRegisterTheWitnessMethodWithoutPathBasedWorldState() {
+    final String witnessMethod = RpcMethod.ENGINE_NEW_PAYLOAD_WITH_WITNESS_V5.getMethodName();
+
+    final Map<String, JsonRpcMethod> engineMethods =
+        createEngineMethods(Optional.of(0L), mock(ForestWorldStateArchive.class));
+
+    assertThat(engineMethods.keySet())
+        .containsExactlyInAnyOrderElementsOf(
+            ALL_ENGINE_METHOD_NAMES.stream().filter(name -> !name.equals(witnessMethod)).toList());
+    assertThat(advertisedCapabilities(engineMethods)).doesNotContain(witnessMethod);
+  }
+
+  @Test
+  void advertisesExactlyTheRegisteredMethods() {
+    final Map<String, JsonRpcMethod> engineMethods = createEngineMethods(Optional.empty());
+    final String exchangeCapabilities = RpcMethod.ENGINE_EXCHANGE_CAPABILITIES.getMethodName();
+
+    final List<String> registeredMethods =
+        engineMethods.keySet().stream().filter(name -> !name.equals(exchangeCapabilities)).toList();
+    assertThat(advertisedCapabilities(engineMethods))
+        .containsExactlyInAnyOrderElementsOf(registeredMethods);
+  }
+
+  @SuppressWarnings("unchecked")
+  private List<String> advertisedCapabilities(final Map<String, JsonRpcMethod> engineMethods) {
+    final String exchangeCapabilities = RpcMethod.ENGINE_EXCHANGE_CAPABILITIES.getMethodName();
+    final JsonRpcResponse response =
+        engineMethods
+            .get(exchangeCapabilities)
+            .response(
+                new JsonRpcRequestContext(
+                    new JsonRpcRequest("2.0", exchangeCapabilities, new Object[] {List.of()})));
+
+    assertThat(response).isInstanceOf(JsonRpcSuccessResponse.class);
+    return (List<String>) ((JsonRpcSuccessResponse) response).getResult();
+  }
+
+  private Map<String, JsonRpcMethod> createEngineMethods(final Optional<Long> forkMilestone) {
+    return createEngineMethods(forkMilestone, mock(PathBasedWorldStateProvider.class));
+  }
+
+  private Map<String, JsonRpcMethod> createEngineMethods(
+      final Optional<Long> forkMilestone, final WorldStateArchive worldStateArchive) {
     MiningCoordinator miningCoordinator = mock(MergeMiningCoordinator.class);
     when(miningCoordinator.isCompatibleWithEngineApi()).thenReturn(true);
     ProtocolSchedule protocolSchedule = mock(ProtocolSchedule.class);
-    when(protocolSchedule.milestoneFor(any())).thenReturn(Optional.of(0L));
+    when(protocolSchedule.milestoneFor(any())).thenReturn(forkMilestone);
+    ProtocolContext protocolContext = mock(ProtocolContext.class);
+    when(protocolContext.getWorldStateArchive()).thenReturn(worldStateArchive);
     ExecutionEngineJsonRpcMethods methods =
         new ExecutionEngineJsonRpcMethods(
             miningCoordinator,
             protocolSchedule,
-            mock(ProtocolContext.class),
+            protocolContext,
             mock(EthPeers.class),
             mock(Vertx.class),
             "testClient",
@@ -61,27 +131,6 @@ class ExecutionEngineJsonRpcMethodsTest {
             mock(TransactionPool.class),
             mock(MetricsSystem.class));
 
-    Map<String, JsonRpcMethod> engineMethods = methods.create();
-    List<String> expectedMethodNames =
-        Arrays.stream(RpcMethod.values())
-            .map(RpcMethod::getMethodName)
-            .filter(name -> name.startsWith("engine_"))
-            .toList();
-
-    // All expected method names should be present in the result
-    for (String expectedMethod : expectedMethodNames) {
-      assertThat(engineMethods)
-          .as("Method '%s' should be present in engine methods", expectedMethod)
-          .containsKey(expectedMethod);
-    }
-
-    // All keys in the map starting with "engine_" must be valid method names
-    for (String actualMethod : engineMethods.keySet()) {
-      if (actualMethod.startsWith("engine_")) {
-        assertThat(expectedMethodNames)
-            .as("Unexpected engine method: '%s'", actualMethod)
-            .contains(actualMethod);
-      }
-    }
+    return methods.create();
   }
 }
