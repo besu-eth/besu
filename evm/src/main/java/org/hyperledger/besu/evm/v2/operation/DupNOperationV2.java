@@ -34,7 +34,8 @@ public class DupNOperationV2 extends AbstractFixedCostOperationV2 {
 
   private static final OperationResult DUPN_SUCCESS = new OperationResult(3, null, 2);
 
-  private static final OperationResult INVALID_IMMEDIATE =
+  // Halts report the same gas and PC increment as the original operation, so traces match v1.
+  private static final OperationResult DUPN_INVALID_IMMEDIATE =
       new OperationResult(3, ExceptionalHaltReason.INVALID_OPERATION, 2);
 
   private static final OperationResult DUPN_UNDERFLOW =
@@ -71,7 +72,7 @@ public class DupNOperationV2 extends AbstractFixedCostOperationV2 {
       final MessageFrame frame, final byte[] code, final int pc) {
     // An immediate past the end of the code reads as 0.
     final int imm = (pc + 1 >= code.length) ? 0 : code[pc + 1] & 0xFF;
-    if (!Eip8024Decoder.VALID_SINGLE[imm]) return INVALID_IMMEDIATE;
+    if (!Eip8024Decoder.VALID_SINGLE[imm]) return DUPN_INVALID_IMMEDIATE;
     final int n = Eip8024Decoder.DECODE_SINGLE[imm];
 
     if (!frame.stackHasItemsV2(n)) return DUPN_UNDERFLOW;

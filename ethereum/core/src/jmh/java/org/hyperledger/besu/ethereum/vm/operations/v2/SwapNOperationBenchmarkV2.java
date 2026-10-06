@@ -28,7 +28,8 @@ public class SwapNOperationBenchmarkV2 extends ImmediateByteOperationBenchmarkV2
 
   @Override
   protected byte getImmediate() {
-    // Immediate 0x80 decodes to n=17 (swap top with 18th stack item), as in the v1 benchmark
+    // Immediate 0x80 decodes to n=17 (swap top with 18th stack item),
+    // the same immediate as the v1 benchmark
     return (byte) 0x80;
   }
 

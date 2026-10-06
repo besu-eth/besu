@@ -67,6 +67,22 @@ class ExchangeOperationV2Test {
     }
   }
 
+  /** An immediate past the end of the code reads as 0, which decodes to (n, m) = (9, 16). */
+  @Test
+  void endOfCodeReadsImmediateZero() {
+    final MessageFrame frame = frame("e8", 17);
+
+    final Operation.OperationResult result = operation.execute(frame, null);
+
+    assertThat(result.getHaltReason()).isNull();
+    for (int depth = 1; depth <= 17; depth++) {
+      final int expected = depth == 10 ? 17 : depth == 17 ? 10 : depth;
+      assertThat(getV2StackItem(frame, depth - 1)).isEqualTo(word(expected));
+    }
+    assertThat(operation.execute(frame("e8", 16), null).getHaltReason())
+        .isEqualTo(ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
+  }
+
   @Test
   void shouldHaltOnStackUnderflow() {
     final MessageFrame frame = frame("e82f", 19);

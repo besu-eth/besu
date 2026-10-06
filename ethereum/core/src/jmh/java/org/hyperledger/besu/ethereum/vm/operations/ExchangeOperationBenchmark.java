@@ -32,8 +32,7 @@ public class ExchangeOperationBenchmark extends ImmediateByteOperationBenchmark
 
   @Override
   protected byte getImmediate() {
-    // Immediate 0x00 decodes to n=1, m=1 (swap 2nd with 2nd - effectively a no-op for testing)
-    // Using 0x01 would give n=1, m=2 (swap 2nd with 3rd stack item)
+    // Immediate 0x01 decodes to n=9, m=15 (swap 10th with 16th stack item)
     return 0x01;
   }
 

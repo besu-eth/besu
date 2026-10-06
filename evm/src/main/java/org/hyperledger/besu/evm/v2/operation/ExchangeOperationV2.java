@@ -34,7 +34,8 @@ public class ExchangeOperationV2 extends AbstractFixedCostOperationV2 {
 
   private static final OperationResult EXCHANGE_SUCCESS = new OperationResult(3, null, 2);
 
-  private static final OperationResult INVALID_IMMEDIATE =
+  // Halts report the same gas and PC increment as the original operation, so traces match v1.
+  private static final OperationResult EXCHANGE_INVALID_IMMEDIATE =
       new OperationResult(3, ExceptionalHaltReason.INVALID_OPERATION, 2);
 
   private static final OperationResult EXCHANGE_UNDERFLOW =
@@ -70,7 +71,7 @@ public class ExchangeOperationV2 extends AbstractFixedCostOperationV2 {
     // An immediate past the end of the code reads as 0.
     final int imm = (pc + 1 >= code.length) ? 0 : code[pc + 1] & 0xFF;
     final int packed = Eip8024Decoder.DECODE_PAIR_PACKED[imm];
-    if (packed == Eip8024Decoder.INVALID_PAIR) return INVALID_IMMEDIATE;
+    if (packed == Eip8024Decoder.INVALID_PAIR) return EXCHANGE_INVALID_IMMEDIATE;
     final int n = packed & 0xFF;
     final int m = (packed >>> 8) & 0xFF;
 

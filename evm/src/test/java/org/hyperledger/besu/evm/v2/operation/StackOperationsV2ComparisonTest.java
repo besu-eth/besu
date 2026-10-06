@@ -53,6 +53,14 @@ class StackOperationsV2ComparisonTest {
 
   private static final int MAX = MessageFrame.DEFAULT_MAX_STACK_SIZE;
 
+  /**
+   * The immediate operations run at pc 1, behind a JUMPDEST, so that reading the immediate relative
+   * to the start of the code is detected.
+   */
+  private static final int PC = 1;
+
+  private static final byte JUMPDEST = 0x5b;
+
   // region Cases
 
   static Stream<Arguments> dupCases() {
@@ -72,9 +80,10 @@ class StackOperationsV2ComparisonTest {
         .boxed()
         .flatMap(
             imm -> {
-              if (!Eip8024Decoder.VALID_SINGLE[imm]) return depths(0, MAX).map(d -> code(imm, d));
+              if (!Eip8024Decoder.VALID_SINGLE[imm])
+                return depths(0, MAX).map(d -> Arguments.of(imm, d));
               final int n = Eip8024Decoder.DECODE_SINGLE[imm];
-              return depths(n - 1, n, MAX - 1, MAX).map(d -> code(imm, d));
+              return depths(n - 1, n, MAX - 1, MAX).map(d -> Arguments.of(imm, d));
             });
   }
 
@@ -83,9 +92,10 @@ class StackOperationsV2ComparisonTest {
         .boxed()
         .flatMap(
             imm -> {
-              if (!Eip8024Decoder.VALID_SINGLE[imm]) return depths(0, MAX).map(d -> code(imm, d));
+              if (!Eip8024Decoder.VALID_SINGLE[imm])
+                return depths(0, MAX).map(d -> Arguments.of(imm, d));
               final int n = Eip8024Decoder.DECODE_SINGLE[imm];
-              return depths(n, n + 1, MAX).map(d -> code(imm, d));
+              return depths(n, n + 1, MAX).map(d -> Arguments.of(imm, d));
             });
   }
 
@@ -96,18 +106,19 @@ class StackOperationsV2ComparisonTest {
             imm -> {
               final int packed = Eip8024Decoder.DECODE_PAIR_PACKED[imm];
               if (packed == Eip8024Decoder.INVALID_PAIR) {
-                return depths(0, MAX).map(d -> code(imm, d));
+                return depths(0, MAX).map(d -> Arguments.of(imm, d));
               }
               final int deepest = Math.max(packed & 0xFF, (packed >>> 8) & 0xFF);
-              return depths(deepest, deepest + 1, MAX).map(d -> code(imm, d));
+              return depths(deepest, deepest + 1, MAX).map(d -> Arguments.of(imm, d));
             });
   }
 
   /**
-   * The immediate past the end of the code reads as 0, which is a valid immediate for all three.
+   * The immediate past the end of the code reads as 0, which decodes to n = 145 for DUPN and SWAPN
+   * and to (n, m) = (9, 16) for EXCHANGE.
    */
   static Stream<Arguments> endOfCodeCases() {
-    return depths(0, 16, 17, 18, 30, MAX).map(d -> Arguments.of(d));
+    return depths(0, 16, 17, 144, 145, 146, MAX - 1, MAX).map(d -> Arguments.of(d));
   }
 
   // endregion
@@ -135,57 +146,51 @@ class StackOperationsV2ComparisonTest {
   @ParameterizedTest(name = "DUPN {0} at depth {1}")
   @MethodSource("dupNCases")
   void dupNMatchesOriginal(final int imm, final int depth) {
-    final byte[] code = {(byte) DupNOperationV2.OPCODE, (byte) imm};
+    final byte[] code = {JUMPDEST, (byte) DupNOperationV2.OPCODE, (byte) imm};
     assertMatches(
         depth,
-        code,
-        frame -> DupNOperation.staticOperation(frame, code, 0),
-        frame -> DupNOperationV2.staticOperation(frame, code, 0));
+        frame -> DupNOperation.staticOperation(frame, code, PC),
+        frame -> DupNOperationV2.staticOperation(frame, code, PC));
   }
 
   @ParameterizedTest(name = "SWAPN {0} at depth {1}")
   @MethodSource("swapNCases")
   void swapNMatchesOriginal(final int imm, final int depth) {
-    final byte[] code = {(byte) SwapNOperationV2.OPCODE, (byte) imm};
+    final byte[] code = {JUMPDEST, (byte) SwapNOperationV2.OPCODE, (byte) imm};
     assertMatches(
         depth,
-        code,
-        frame -> SwapNOperation.staticOperation(frame, code, 0),
-        frame -> SwapNOperationV2.staticOperation(frame, code, 0));
+        frame -> SwapNOperation.staticOperation(frame, code, PC),
+        frame -> SwapNOperationV2.staticOperation(frame, code, PC));
   }
 
   @ParameterizedTest(name = "EXCHANGE {0} at depth {1}")
   @MethodSource("exchangeCases")
   void exchangeMatchesOriginal(final int imm, final int depth) {
-    final byte[] code = {(byte) ExchangeOperationV2.OPCODE, (byte) imm};
+    final byte[] code = {JUMPDEST, (byte) ExchangeOperationV2.OPCODE, (byte) imm};
     assertMatches(
         depth,
-        code,
-        frame -> ExchangeOperation.staticOperation(frame, code, 0),
-        frame -> ExchangeOperationV2.staticOperation(frame, code, 0));
+        frame -> ExchangeOperation.staticOperation(frame, code, PC),
+        frame -> ExchangeOperationV2.staticOperation(frame, code, PC));
   }
 
   @ParameterizedTest(name = "at depth {0}")
   @MethodSource("endOfCodeCases")
   void immediateOperationsMatchOriginalAtEndOfCode(final int depth) {
-    final byte[] dupN = {(byte) DupNOperationV2.OPCODE};
+    final byte[] dupN = {JUMPDEST, (byte) DupNOperationV2.OPCODE};
     assertMatches(
         depth,
-        dupN,
-        frame -> DupNOperation.staticOperation(frame, dupN, 0),
-        frame -> DupNOperationV2.staticOperation(frame, dupN, 0));
-    final byte[] swapN = {(byte) SwapNOperationV2.OPCODE};
+        frame -> DupNOperation.staticOperation(frame, dupN, PC),
+        frame -> DupNOperationV2.staticOperation(frame, dupN, PC));
+    final byte[] swapN = {JUMPDEST, (byte) SwapNOperationV2.OPCODE};
     assertMatches(
         depth,
-        swapN,
-        frame -> SwapNOperation.staticOperation(frame, swapN, 0),
-        frame -> SwapNOperationV2.staticOperation(frame, swapN, 0));
-    final byte[] exchange = {(byte) ExchangeOperationV2.OPCODE};
+        frame -> SwapNOperation.staticOperation(frame, swapN, PC),
+        frame -> SwapNOperationV2.staticOperation(frame, swapN, PC));
+    final byte[] exchange = {JUMPDEST, (byte) ExchangeOperationV2.OPCODE};
     assertMatches(
         depth,
-        exchange,
-        frame -> ExchangeOperation.staticOperation(frame, exchange, 0),
-        frame -> ExchangeOperationV2.staticOperation(frame, exchange, 0));
+        frame -> ExchangeOperation.staticOperation(frame, exchange, PC),
+        frame -> ExchangeOperationV2.staticOperation(frame, exchange, PC));
   }
 
   // endregion
@@ -198,10 +203,6 @@ class StackOperationsV2ComparisonTest {
       if (depth >= 0 && depth <= MAX) valid.add(depth);
     }
     return valid.stream();
-  }
-
-  private static Arguments code(final int imm, final int depth) {
-    return Arguments.of(imm, depth);
   }
 
   /**
