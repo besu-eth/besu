@@ -51,6 +51,7 @@
 - Add `--include-bals` option to `besu blocks export`, writing a `<to>.bals` sidecar with BALs for each exported block. [#11042](https://github.com/besu-eth/besu/pull/11042)
 - `callTracer` now honours the `withLog` tracer option. Each call frame that emitted logs carries a `logs` array of `{address, topics, data, position, index}`, where `index` equals the receipt `logIndex` of the same log and `position` is the number of subcalls the frame had made when the log was emitted. Logs of reverted frames are omitted, as specified in [execution-apis#855](https://github.com/ethereum/execution-apis/pull/855). [#11342](https://github.com/besu-eth/besu/pull/11342)
 - EVM v2: add DUP1-16 and SWAP1-16. [#11482](https://github.com/besu-eth/besu/pull/11482)
+- EVM v2: add DUPN, SWAPN and EXCHANGE. [#11483](https://github.com/besu-eth/besu/pull/11483)
 
 ## 26.9.0
 
