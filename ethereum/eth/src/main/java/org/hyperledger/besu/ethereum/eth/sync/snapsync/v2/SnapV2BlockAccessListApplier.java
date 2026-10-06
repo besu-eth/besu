@@ -711,8 +711,7 @@ public class SnapV2BlockAccessListApplier {
             .orElseThrow(
                 () -> new IllegalStateException("BAL hash missing in block number " + blockNumber));
 
-    final Hash computedBalHash =
-        bal.rawRlp().map(BodyValidation::balHash).orElseGet(() -> BodyValidation.balHash(bal));
+    final Hash computedBalHash = BodyValidation.balHash(bal);
 
     if (computedBalHash.equals(headerBalHash)) {
       return;

@@ -60,6 +60,10 @@ import org.slf4j.LoggerFactory;
 public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends BonsaiAccount>
     extends AbstractWorldUpdater<BonsaiWorldView, ACCOUNT>
     implements BonsaiWorldView, TrieLogAccumulator {
+
+  /** Minimum number of updated accounts for {@link #commit} to process them in parallel. */
+  private static final int PARALLEL_COMMIT_MIN_ACCOUNTS = 64;
+
   private static final Logger LOG =
       LoggerFactory.getLogger(PathBasedWorldStateUpdateAccumulator.class);
   protected final Consumer<BonsaiValue<ACCOUNT>> accountPreloader;
@@ -510,7 +514,12 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
       accountValue.setUpdated(null);
     }
 
-    getUpdatedAccounts().parallelStream()
+    // The block updater is committed after every transaction, usually with a handful of accounts:
+    // forking parallel tasks for those costs more (waking pool threads) than the work itself.
+    final var updatedAccounts = getUpdatedAccounts();
+    (updatedAccounts.size() >= PARALLEL_COMMIT_MIN_ACCOUNTS
+            ? updatedAccounts.parallelStream()
+            : updatedAccounts.stream())
         .forEach(
             tracked -> {
               final Address updatedAddress = tracked.getAddress();

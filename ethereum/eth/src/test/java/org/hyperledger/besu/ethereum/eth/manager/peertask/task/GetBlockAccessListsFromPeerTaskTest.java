@@ -27,6 +27,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
 import org.hyperledger.besu.ethereum.eth.manager.PeerReputation;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.InvalidPeerTaskResponseException;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.MalformedRlpFromPeerException;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskValidationResponse;
 import org.hyperledger.besu.ethereum.eth.messages.BlockAccessListsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.EthProtocolMessages;
@@ -35,12 +36,15 @@ import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
@@ -70,7 +74,8 @@ class GetBlockAccessListsFromPeerTaskTest {
   }
 
   @Test
-  void testProcessResponseWithMatchingData() throws InvalidPeerTaskResponseException {
+  void testProcessResponseWithMatchingData()
+      throws InvalidPeerTaskResponseException, MalformedRlpFromPeerException {
     final BlockAccessList blockAccessList = new BlockAccessList(List.of());
     final BlockHeader header = mockBlockHeader(1, blockAccessList);
 
@@ -82,6 +87,97 @@ class GetBlockAccessListsFromPeerTaskTest {
             BlockAccessListsMessage.createFromBlockAccessLists(List.of(blockAccessList)), Set.of());
 
     assertThat(response).containsExactly(Optional.of(blockAccessList));
+  }
+
+  @Test
+  void testProcessResponseWithUnavailableEntry()
+      throws InvalidPeerTaskResponseException, MalformedRlpFromPeerException {
+    final BlockHeader header = mockBlockHeader(1, new BlockAccessList(List.of()));
+    final GetBlockAccessListsFromPeerTask task =
+        new GetBlockAccessListsFromPeerTask(List.of(header));
+
+    // an empty string is the legitimate "BAL not available" marker, not malformed data
+    final List<Optional<BlockAccessList>> response =
+        task.processResponse(
+            BlockAccessListsMessage.createUnsafe(rlpList(out -> out.writeBytes(Bytes.EMPTY))),
+            Set.of());
+
+    assertThat(response).containsExactly(Optional.empty());
+  }
+
+  @Test
+  void testProcessResponseWithTruncatedListIsMalformed() {
+    final GetBlockAccessListsFromPeerTask task = taskForOneHeader();
+    // a list header that declares more payload than is present
+    final Bytes truncated = Bytes.fromHexString("0xc5c0");
+
+    assertMalformed(task, truncated);
+  }
+
+  @Test
+  void testProcessResponseWithNonListPayloadIsMalformed() {
+    final GetBlockAccessListsFromPeerTask task = taskForOneHeader();
+    final Bytes notAList = Bytes.fromHexString("0x83010203");
+
+    assertMalformed(task, notAList);
+  }
+
+  @Test
+  void testProcessResponseWithMalformedEntryIsMalformed() {
+    final GetBlockAccessListsFromPeerTask task = taskForOneHeader();
+    // [[[0x01]]]: one BAL with one account whose address is a single byte instead of 20
+    final Bytes badAddress =
+        rlpList(
+            bal -> {
+              bal.startList();
+              bal.startList();
+              bal.writeBytes(Bytes.of(1));
+              bal.endList();
+              bal.endList();
+            });
+
+    assertMalformed(task, badAddress);
+  }
+
+  @Test
+  void testProcessResponseWithMalformedEntryAfterValidOneIsMalformed() {
+    final BlockAccessList valid = new BlockAccessList(List.of());
+    final GetBlockAccessListsFromPeerTask task =
+        new GetBlockAccessListsFromPeerTask(
+            List.of(mockBlockHeader(1, valid), mockBlockHeader(2, valid)));
+    // entries are decoded lazily, so a bad entry behind a good one must still be caught
+    final Bytes validThenBad =
+        rlpList(
+            out -> {
+              out.startList();
+              out.endList();
+              out.writeBytes(Bytes.of(1, 2, 3));
+            });
+
+    assertMalformed(task, validThenBad);
+  }
+
+  private GetBlockAccessListsFromPeerTask taskForOneHeader() {
+    return new GetBlockAccessListsFromPeerTask(
+        List.of(mockBlockHeader(1, new BlockAccessList(List.of()))));
+  }
+
+  private static void assertMalformed(
+      final GetBlockAccessListsFromPeerTask task, final Bytes payload) {
+    final MalformedRlpFromPeerException exception =
+        assertThrows(
+            MalformedRlpFromPeerException.class,
+            () -> task.processResponse(BlockAccessListsMessage.createUnsafe(payload), Set.of()));
+    assertThat(exception.getCause()).isInstanceOf(RLPException.class);
+    assertThat(exception.getMessageData()).isEqualTo(payload);
+  }
+
+  private static Bytes rlpList(final java.util.function.Consumer<BytesValueRLPOutput> entries) {
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    out.startList();
+    entries.accept(out);
+    out.endList();
+    return out.encoded();
   }
 
   @Test
