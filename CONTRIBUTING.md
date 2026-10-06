@@ -64,9 +64,24 @@ To contribute changes, use the following workflow:
 9. **Add labels** to identify the type of your PR, if you have permission. For example, if your PR fixes a bug, add the "bug" label. If you don't have permission, maintainers will label the PR during triage.
 10. **Ensure your changes are reviewed**. Let us know on Discord that your PR is ready for review. If you are a maintainer, you can choose reviewers; otherwise this is done by one of the maintainers.
 11. **Make any required changes** based on reviewer feedback. Make the changes, commit to your branch, and push to your remote fork.
-12. **When your PR is approved and validated**, all tests pass, and your branch has no conflicts, it can be merged. This is done by a maintainer, usually the same person who approves also merges it.
+12. **When your PR is approved and validated**, all tests pass, and your branch has no conflicts, a maintainer — usually the same person who approved it — adds it to the merge queue.
 
 You contributed to Besu! Thanks!
+
+### The merge queue
+
+Approved PRs are not merged directly. They are added to a merge queue, which rebases each PR
+onto the current `main` (plus any entries queued ahead of it) and runs the full CI suite against
+that combination before merging. This means:
+
+- **You no longer need to keep your branch up to date with `main`.** The queue does the rebase
+  for you, so a merge landing while your PR is in review does not invalidate your CI run.
+- **Your PR can be removed from the queue after approval.** If CI fails against the rebased
+  combination, the queue ejects your PR and comments on it. This usually means either your
+  change genuinely conflicts with something that landed in the meantime, or CI was flaky —
+  check the failing job before re-queueing.
+- **Being ejected is not a rejection.** Your approval stands; a maintainer re-queues once the
+  cause is addressed.
 
 ## Reporting bugs
 

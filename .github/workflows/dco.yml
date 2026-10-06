@@ -1,6 +1,10 @@
 name: DCO
 
-on: [pull_request]
+on:
+  pull_request:
+  # Required checks must report a conclusion on the merge queue's branch or the entry stalls
+  # until the queue's status-check timeout ejects it. The job below short-circuits there.
+  merge_group:
 
 permissions:
   contents: read
@@ -12,7 +16,15 @@ jobs:
     name: DCO
     if: ${{ github.actor != 'dependabot[bot]' }}
     steps:
+      # The queue branch carries no pull_request payload, and every commit in it was already
+      # sign-off checked on the pull request that put it there. Report success explicitly
+      # rather than relying on a skipped job satisfying the required check.
+      - name: Already verified before the queue
+        if: ${{ github.event_name == 'merge_group' }}
+        run: echo "DCO sign-off was verified on each pull request before it entered the merge queue."
+
       - name: Verify DCO Sign-off
+        if: ${{ github.event_name != 'merge_group' }}
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
         with:
           script: |
