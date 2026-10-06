@@ -25,18 +25,14 @@ import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
-import org.hyperledger.besu.ethereum.trie.RangeStorageEntriesCollector;
-import org.hyperledger.besu.ethereum.trie.TrieIterator;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
-import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
-import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.services.tasks.Task;
 
 import java.util.List;
-import java.util.TreeMap;
+import java.util.NavigableMap;
 
 import kotlin.collections.ArrayDeque;
 import org.apache.tuweni.bytes.Bytes;
@@ -48,10 +44,7 @@ public class TaskGenerator {
       final boolean withData, final boolean withNullTaskElement) {
 
     final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage =
-        new BonsaiWorldStateKeyValueStorage(
-            new InMemoryKeyValueStorageProvider(),
-            new NoOpMetricsSystem(),
-            DataStorageConfiguration.DEFAULT_BONSAI_CONFIG);
+        InMemoryKeyValueStorageProvider.createBonsaiInMemoryWorldStateStorage();
 
     final WorldStateStorageCoordinator worldStateStorageCoordinator =
         new WorldStateStorageCoordinator(worldStateKeyValueStorage);
@@ -61,16 +54,8 @@ public class TaskGenerator {
 
     final MerkleTrie<Bytes, Bytes> trie =
         TrieGenerator.generateTrie(worldStateStorageCoordinator, 1);
-    final RangeStorageEntriesCollector collector =
-        RangeStorageEntriesCollector.createCollector(
-            Bytes32.ZERO, RangeManager.MAX_RANGE, 1, Integer.MAX_VALUE);
-    final TrieIterator<Bytes> visitor = RangeStorageEntriesCollector.createVisitor(collector);
-    final TreeMap<Bytes32, Bytes> accounts =
-        (TreeMap<Bytes32, Bytes>)
-            trie.entriesFrom(
-                root ->
-                    RangeStorageEntriesCollector.collectEntries(
-                        collector, visitor, root, Bytes32.ZERO));
+    final NavigableMap<Bytes32, Bytes> accounts =
+        TrieGenerator.collectEntries(trie, Bytes32.ZERO, RangeManager.MAX_RANGE, 1);
 
     final Hash rootHash = Hash.wrap(trie.getRootHash());
 
@@ -117,9 +102,6 @@ public class TaskGenerator {
       final boolean withData,
       final boolean withNullTaskElement) {
 
-    final RangeStorageEntriesCollector collector =
-        RangeStorageEntriesCollector.createCollector(
-            Bytes32.ZERO, RangeManager.MAX_RANGE, 100, Integer.MAX_VALUE);
     final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
         new StoredMerklePatriciaTrie<>(
             (location, hash) ->
@@ -128,13 +110,8 @@ public class TaskGenerator {
             b -> b,
             b -> b);
 
-    final TrieIterator<Bytes> visitor = RangeStorageEntriesCollector.createVisitor(collector);
-    final TreeMap<Bytes32, Bytes> slots =
-        (TreeMap<Bytes32, Bytes>)
-            storageTrie.entriesFrom(
-                root ->
-                    RangeStorageEntriesCollector.collectEntries(
-                        collector, visitor, root, Bytes32.ZERO));
+    final NavigableMap<Bytes32, Bytes> slots =
+        TrieGenerator.collectEntries(storageTrie, Bytes32.ZERO, RangeManager.MAX_RANGE, 100);
 
     final StorageRangeDataRequest request =
         SnapDataRequest.createStorageRangeDataRequest(
