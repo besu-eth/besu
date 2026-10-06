@@ -262,14 +262,13 @@ public class WebSocketService {
   }
 
   private Handler<HttpConnection> connectionHandler() {
-
     return connection -> {
       if (activeConnectionsCount.get() >= maxActiveConnections) {
         // disallow new connections to prevent DoS
         LOG.warn(
             "Rejecting new connection from {}. {}/{} max active connections limit reached.",
             connection.remoteAddress(),
-            activeConnectionsCount.getAndIncrement(),
+            activeConnectionsCount.get(),
             maxActiveConnections);
         connection.close();
       } else {
@@ -278,14 +277,14 @@ public class WebSocketService {
             connection.remoteAddress(),
             activeConnectionsCount.incrementAndGet(),
             maxActiveConnections);
+        connection.closeHandler(
+            c ->
+                LOG.debug(
+                    "Connection closed from {}. Total of active connections: {}/{}",
+                    connection.remoteAddress(),
+                    activeConnectionsCount.decrementAndGet(),
+                    maxActiveConnections));
       }
-      connection.closeHandler(
-          c ->
-              LOG.debug(
-                  "Connection closed from {}. Total of active connections: {}/{}",
-                  connection.remoteAddress(),
-                  activeConnectionsCount.decrementAndGet(),
-                  maxActiveConnections));
     };
   }
 
