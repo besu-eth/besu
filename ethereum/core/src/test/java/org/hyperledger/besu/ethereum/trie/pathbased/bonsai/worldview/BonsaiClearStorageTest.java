@@ -80,7 +80,7 @@ class BonsaiClearStorageTest {
     updater.deleteAccount(CONTRACT);
     updater.commit();
 
-    // frontierRootHash triggers calculateRootHash → clearStorage
+    // frontierRootHash triggers DefaultStateRootCommitter.compute → clearStorage
     final CompletableFuture<Hash> future =
         CompletableFuture.supplyAsync(
             archive.getWorldState()::frontierRootHash,

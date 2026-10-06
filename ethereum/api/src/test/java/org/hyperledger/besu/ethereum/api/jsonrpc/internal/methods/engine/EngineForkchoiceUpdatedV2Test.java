@@ -34,6 +34,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttr
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.ForkchoiceUpdatedResultV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
@@ -55,7 +56,7 @@ public class EngineForkchoiceUpdatedV2Test extends EngineForkchoiceUpdatedV1Test
   private final long withdrawalsEnabledTimestamp = shanghaiHardfork.milestone();
 
   @Override
-  protected EngineForkchoiceUpdatedV1<?> createMethodInstance() {
+  protected EngineForkchoiceUpdatedV1<?, ?> createMethodInstance() {
     return new EngineForkchoiceUpdatedV2<>(
         new ConstructorArgumentsBuilder()
             .protocolSchedule(protocolSchedule)
@@ -65,6 +66,7 @@ public class EngineForkchoiceUpdatedV2Test extends EngineForkchoiceUpdatedV1Test
             .mergeCoordinator(mergeCoordinator)
             .ethPeers(mock(EthPeers.class))
             .metricsSystem(new NoOpMetricsSystem())
+            .transactionPool(transactionPool)
             .maxRequestBlocks(0)
             .build(),
         PARIS,
@@ -103,8 +105,9 @@ public class EngineForkchoiceUpdatedV2Test extends EngineForkchoiceUpdatedV1Test
 
   @Override
   protected Object validPayloadAttributesForBlock(final BlockHeader head) {
-    // if called with a timestamp before, Shanghai should behave like V1
-    if (head.getTimestamp() < withdrawalsEnabledTimestamp) {
+    // if called with a timestamp before, Shanghai should behave like V1. The timestamp is a uint64
+    // carried in a long, so it must be compared unsigned.
+    if (Long.compareUnsigned(head.getTimestamp(), withdrawalsEnabledTimestamp) < 0) {
       when(protocolSpec.getWithdrawalsValidator())
           .thenReturn(new WithdrawalsValidator.ProhibitedWithdrawals());
       return super.validPayloadAttributesForBlock(head);
@@ -114,7 +117,7 @@ public class EngineForkchoiceUpdatedV2Test extends EngineForkchoiceUpdatedV1Test
 
   private PayloadAttributesV2 validPayloadAttributesForBlockV2(final BlockHeader head) {
     return new PayloadAttributesV2(
-        String.valueOf(head.getTimestamp() + 1),
+        Quantity.create(head.getTimestamp() + 1),
         Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
         Address.ECREC.toString(),
         emptyList());
@@ -123,7 +126,7 @@ public class EngineForkchoiceUpdatedV2Test extends EngineForkchoiceUpdatedV1Test
   @Override
   protected Object invalidTimestampPayloadAttributesForBlock(final BlockHeader head) {
     return new PayloadAttributesV2(
-        String.valueOf(head.getTimestamp()),
+        Quantity.create(head.getTimestamp()),
         Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
         Address.ECREC.toString(),
         emptyList());
@@ -167,7 +170,7 @@ public class EngineForkchoiceUpdatedV2Test extends EngineForkchoiceUpdatedV1Test
 
   protected Object payloadAttributesWithNullWithdrawalsForBlock(final BlockHeader head) {
     return new PayloadAttributesV2(
-        String.valueOf(head.getTimestamp() + 1),
+        Quantity.create(head.getTimestamp() + 1),
         Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
         Address.ECREC.toString(),
         null);

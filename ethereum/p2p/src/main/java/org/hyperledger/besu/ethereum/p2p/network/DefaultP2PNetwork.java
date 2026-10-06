@@ -126,6 +126,9 @@ public class DefaultP2PNetwork implements P2PNetwork {
 
   private static final Logger LOG = LoggerFactory.getLogger(DefaultP2PNetwork.class);
 
+  // Tolerates failed attempts without capping to exactly the open slot count.
+  private static final int CANDIDATE_OVERPROVISION_FACTOR = 3;
+
   private final ScheduledExecutorService peerConnectionScheduler =
       Executors.newSingleThreadScheduledExecutor();
   private final PeerDiscoveryAgent peerDiscoveryAgent;
@@ -417,13 +420,19 @@ public class DefaultP2PNetwork implements P2PNetwork {
 
   @VisibleForTesting
   void attemptPeerConnections() {
+    if (rlpxAgent.getConnectionCount() >= rlpxAgent.getMaxPeers()) {
+      LOG.trace("Skipping connection attempts to discovered peers - already at max peers.");
+      return;
+    }
     LOG.trace("Initiating connections to discovered peers.");
-    final Stream<DiscoveryPeer> toTry =
-        streamDiscoveredPeers()
-            .filter(DiscoveryPeer::isReadyForConnections)
-            .filter(peerDiscoveryAgent::checkForkId)
-            .sorted(Comparator.comparing(DiscoveryPeer::getLastAttemptedConnection));
-    toTry.forEach(p -> rlpxAgent.connect(p, ConnectSource.MAINTAIN));
+    final int openSlots = rlpxAgent.getMaxPeers() - rlpxAgent.getConnectionCount();
+    streamDiscoveredPeers()
+        .filter(DiscoveryPeer::isReadyForConnections)
+        .filter(peerDiscoveryAgent::checkForkId)
+        .filter(p -> !rlpxAgent.isConnectingOrConnected(p.getId()))
+        .sorted(Comparator.comparing(DiscoveryPeer::getLastAttemptedConnection))
+        .limit((long) openSlots * CANDIDATE_OVERPROVISION_FACTOR)
+        .forEach(p -> rlpxAgent.connect(p, ConnectSource.MAINTAIN));
   }
 
   @Override

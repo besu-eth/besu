@@ -19,7 +19,13 @@ import org.hyperledger.besu.plugin.Unstable;
 
 import org.apache.tuweni.bytes.Bytes;
 
-/** A request is an operation sent to the Beacon Node */
+/**
+ * A request is an operation sent to the Beacon Node
+ *
+ * @deprecated This type is scheduled for removal in a future release, with no replacement. No
+ *     plugin service or data contract returns or accepts it, so it cannot be used by plugins.
+ */
+@Deprecated(forRemoval = true)
 @Unstable
 public interface Request {
 

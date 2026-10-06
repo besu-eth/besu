@@ -31,10 +31,7 @@ import org.hyperledger.besu.ethereum.mainnet.ImmutableTransactionValidationParam
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
-import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
 import org.hyperledger.besu.ethereum.vm.StreamingDebugOperationTracer;
 import org.hyperledger.besu.evm.ModificationNotAllowedException;
 import org.hyperledger.besu.evm.account.MutableAccount;
@@ -52,6 +49,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
+import java.util.function.BooleanSupplier;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.tuweni.bytes.Bytes;
@@ -93,7 +91,14 @@ public class DebugTraceBlockStreamer {
   private static final byte ARR_CLOSE = ']';
 
   private final Block block;
+
+  /**
+   * Caller-supplied options with the server step ceiling already applied. Every tracer built here —
+   * streaming and accumulating alike — is constructed from this, so no request path can exceed the
+   * configured ceiling.
+   */
   private final TraceOptions traceOptions;
+
   private final ProtocolSchedule protocolSchedule;
   private final BlockchainQueries blockchainQueries;
 
@@ -106,14 +111,24 @@ public class DebugTraceBlockStreamer {
   private int writePos;
   private boolean firstStructLog;
   private boolean firstTx;
+  private int logIndexOffset;
 
   public DebugTraceBlockStreamer(
       final Block block,
       final TraceOptions traceOptions,
       final ProtocolSchedule protocolSchedule,
       final BlockchainQueries blockchainQueries) {
+    this(block, traceOptions, protocolSchedule, blockchainQueries, 0L);
+  }
+
+  public DebugTraceBlockStreamer(
+      final Block block,
+      final TraceOptions traceOptions,
+      final ProtocolSchedule protocolSchedule,
+      final BlockchainQueries blockchainQueries,
+      final long serverStepLimit) {
     this.block = block;
-    this.traceOptions = traceOptions;
+    this.traceOptions = TraceStepLimit.clamp(traceOptions, serverStepLimit);
     this.protocolSchedule = protocolSchedule;
     this.blockchainQueries = blockchainQueries;
   }
@@ -149,10 +164,13 @@ public class DebugTraceBlockStreamer {
 
   // ── public API ────────────────────────────────────────────────────
 
-  public void streamTo(final OutputStream out, final ObjectMapper mapper) throws IOException {
+  public void streamTo(
+      final OutputStream out, final ObjectMapper mapper, final BooleanSupplier isAlive)
+      throws IOException {
     this.rawOut = out;
     this.writePos = 0;
     this.firstTx = true;
+    this.logIndexOffset = 0;
 
     try {
       writeByte('[');
@@ -184,7 +202,10 @@ public class DebugTraceBlockStreamer {
 
             final boolean isOpcodeTracer = traceOptions.tracerType() == TracerType.OPCODE_TRACER;
 
-            for (final Transaction transaction : block.getBody().getTransactions()) {
+            final List<Transaction> transactions = block.getBody().getTransactions();
+            for (int i = 0; i < transactions.size(); i++) {
+              if (!isAlive.getAsBoolean()) break;
+              final Transaction transaction = transactions.get(i);
               if (isOpcodeTracer) {
                 streamOpcodeTransaction(
                     transaction,
@@ -199,6 +220,7 @@ public class DebugTraceBlockStreamer {
                       mapper.writeValueAsBytes(
                           buildTransactionResult(
                               transaction,
+                              i,
                               chainUpdater,
                               transactionProcessor,
                               protocolSpec,
@@ -224,8 +246,9 @@ public class DebugTraceBlockStreamer {
     }
   }
 
-  public List<Object> accumulateAll() {
+  public List<Object> accumulateAll(final BooleanSupplier isAlive) {
     final List<Object> results = new ArrayList<>();
+    this.logIndexOffset = 0;
     Tracer.processTracing(
         blockchainQueries,
         Optional.of(block.getHeader()),
@@ -250,10 +273,14 @@ public class DebugTraceBlockStreamer {
                   .getPreExecutionProcessor()
                   .createBlockHashLookup(blockchainQueries.getBlockchain(), header);
 
-          for (final Transaction transaction : block.getBody().getTransactions()) {
+          final List<Transaction> transactions = block.getBody().getTransactions();
+          for (int i = 0; i < transactions.size(); i++) {
+            if (!isAlive.getAsBoolean()) break;
+            final Transaction transaction = transactions.get(i);
             results.add(
                 buildTransactionResult(
                     transaction,
+                    i,
                     chainUpdater,
                     transactionProcessor,
                     protocolSpec,
@@ -321,17 +348,15 @@ public class DebugTraceBlockStreamer {
 
   private DebugTraceTransactionResult buildTransactionResult(
       final Transaction transaction,
+      final int transactionIndex,
       final TraceBlock.ChainUpdater chainUpdater,
       final MainnetTransactionProcessor transactionProcessor,
       final ProtocolSpec protocolSpec,
       final BlockHeader header,
       final Wei blobGasPrice,
       final BlockHashLookup blockHashLookup) {
-    final DebugOperationTracer tracer =
-        new DebugOperationTracer(traceOptions.opCodeTracerConfig(), true);
-
-    final AccessLocationTracker accessListTracker =
-        BlockAccessList.BlockAccessListBuilder.createTransactionAccessLocationTracker(0);
+    final DebugTraceTransactionStep step =
+        DebugTraceTransactionStep.of(traceOptions, protocolSpec, logIndexOffset);
 
     final TransactionProcessingResult result =
         transactionProcessor.processTransaction(
@@ -339,23 +364,22 @@ public class DebugTraceBlockStreamer {
             header,
             transaction,
             header.getCoinbase(),
-            tracer,
+            step.getOperationTracer(),
             blockHashLookup,
             ImmutableTransactionValidationParams.builder().build(),
             blobGasPrice,
-            Optional.of(accessListTracker));
+            Optional.empty());
+    logIndexOffset += result.getLogs().size();
 
     final TransactionTrace transactionTrace =
         new TransactionTrace(
             transaction,
             result,
-            tracer.copyTraceFrames(),
-            Optional.empty(),
-            accessListTracker.getTouchedAccounts());
-    tracer.reset();
+            step.getOperationTracer().getTraceFrames(),
+            Optional.of(block),
+            transactionIndex);
 
-    return DebugTraceTransactionStepFactory.create(traceOptions, protocolSpec)
-        .apply(transactionTrace);
+    return step.buildResult(transactionTrace);
   }
 
   // ── struct log writer (hot path) ──────────────────────────────────

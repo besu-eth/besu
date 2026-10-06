@@ -52,7 +52,9 @@ class DNSRecordEncodingTest {
 
   @BeforeEach
   void prepare(final Vertx vertx, final VertxTestContext vertxTestContext) {
-    vertx.deployVerticle(mockDnsServerVerticle, vertxTestContext.succeedingThenComplete());
+    vertx
+        .deployVerticle(mockDnsServerVerticle)
+        .onComplete(vertxTestContext.succeedingThenComplete());
   }
 
   private DNSResolver resolver(final Vertx vertx) {

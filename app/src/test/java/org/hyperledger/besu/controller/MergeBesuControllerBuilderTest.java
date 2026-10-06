@@ -59,7 +59,7 @@ import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStoragePrefixedKeyBlockchainStorage;
 import org.hyperledger.besu.ethereum.storage.keyvalue.VariablesKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.forest.storage.ForestWorldStateKeyValueStorage;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
@@ -337,9 +337,8 @@ public class MergeBesuControllerBuilderTest {
   }
 
   @Test
-  public void reportSyncingWhenP2pEnabled() {
-    when(synchronizerConfiguration.getSyncMode())
-        .thenReturn(new Random().nextBoolean() ? SyncMode.FULL : SyncMode.SNAP);
+  public void reportSyncingWhenP2pEnabledAndSnapSync() {
+    when(synchronizerConfiguration.getSyncMode()).thenReturn(SyncMode.SNAP);
 
     final boolean isSyncing =
         visitWithMockConfigs(new MergeBesuControllerBuilder())
@@ -349,7 +348,26 @@ public class MergeBesuControllerBuilderTest {
             .getConsensusContext(MergeContext.class)
             .isSyncing();
 
+    // The initial sync phase has not completed yet.
     assertThat(isSyncing).isTrue();
+  }
+
+  @Test
+  public void reportNotSyncingWhenP2pEnabledAndFullSyncAndNoPeers() {
+    when(synchronizerConfiguration.getSyncMode()).thenReturn(SyncMode.FULL);
+
+    final boolean isSyncing =
+        visitWithMockConfigs(new MergeBesuControllerBuilder())
+            .p2pEnabled(true)
+            .build()
+            .getProtocolContext()
+            .getConsensusContext(MergeContext.class)
+            .isSyncing();
+
+    // Full sync marks the initial sync phase done at startup and leaves terminal difficulty
+    // undetermined until the downloader terminates. That undetermined state now defaults to
+    // "reached", so with no peers ahead of us we are in sync rather than syncing.
+    assertThat(isSyncing).isFalse();
   }
 
   @Test
@@ -425,7 +443,7 @@ public class MergeBesuControllerBuilderTest {
         GenesisState.fromConfig(
             genesisConfig,
             this.besuControllerBuilder.createProtocolSchedule(),
-            new PathBasedCodeCache());
+            new BonsaiCodeCache());
     final MutableBlockchain blockchain = createInMemoryBlockchain(genesisState.getBlock());
     final MergeContext mergeContext =
         spy(

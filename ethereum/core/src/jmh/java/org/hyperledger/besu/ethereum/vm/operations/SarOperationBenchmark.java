@@ -15,14 +15,23 @@
 package org.hyperledger.besu.ethereum.vm.operations;
 
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.operation.SarOperation;
 
+import org.openjdk.jmh.infra.BenchmarkParams;
+
 /** JMH benchmark for the original SAR (Shift Arithmetic Right) operation. */
-public class SarOperationBenchmark extends AbstractSarOperationBenchmark {
+public class SarOperationBenchmark extends AbstractSarOperationBenchmark
+    implements GasCostBenchmark {
 
   @Override
   protected Operation.OperationResult invoke(final MessageFrame frame) {
     return SarOperation.staticOperation(frame);
+  }
+
+  @Override
+  public long getGasCost(final BenchmarkParams params, final GasCalculator calc) {
+    return new SarOperation(calc).getGasCost();
   }
 }

@@ -32,6 +32,8 @@ public final class JsonRpcObjectMapperFactory {
   private static final ObjectMapper PARAMETER_MAPPER = createParameterMapper();
   private static final ObjectMapper PARAMETER_MAPPER_IGNORING_UNKNOWN_NULLS =
       createParameterMapperIgnoringUnknownNulls();
+  private static final ObjectMapper PARAMETER_MAPPER_IGNORING_UNKNOWN_EMPTIES =
+      createParameterMapperIgnoringUnknownEmpties();
   private static final ObjectMapper RESPONSE_MAPPER = createResponseMapper();
 
   private JsonRpcObjectMapperFactory() {}
@@ -52,6 +54,10 @@ public final class JsonRpcObjectMapperFactory {
     return getParameterMapper().copy().addHandler(new IgnoreNullUnknownHandler());
   }
 
+  private static ObjectMapper createParameterMapperIgnoringUnknownEmpties() {
+    return getParameterMapper().copy().addHandler(new IgnoreEmptyUnknownHandler());
+  }
+
   private static ObjectMapper createResponseMapper() {
     return getBaseMapper().copy();
   }
@@ -66,6 +72,10 @@ public final class JsonRpcObjectMapperFactory {
 
   public static ObjectMapper getParameterMapperIgnoringUnknownNulls() {
     return PARAMETER_MAPPER_IGNORING_UNKNOWN_NULLS;
+  }
+
+  public static ObjectMapper getParameterMapperIgnoringUnknownEmpties() {
+    return PARAMETER_MAPPER_IGNORING_UNKNOWN_EMPTIES;
   }
 
   public static ObjectMapper getResponseMapper() {
@@ -86,6 +96,41 @@ public final class JsonRpcObjectMapperFactory {
       }
       p.skipChildren();
       return true;
+    }
+  }
+
+  /**
+   * An empty unknown property states nothing, so an engine payload carrying one (e.g. {@code
+   * blockAccessList} on {@code engine_newPayloadV4}) is left for block validation to judge rather
+   * than rejected as invalid params. A non-empty value, {@code 0xc0} included, is a real attempt to
+   * set the field and still fails.
+   */
+  private static class IgnoreEmptyUnknownHandler extends DeserializationProblemHandler {
+    @Override
+    public boolean handleUnknownProperty(
+        final DeserializationContext ctxt,
+        final JsonParser p,
+        final JsonDeserializer<?> deserializer,
+        final Object beanOrClass,
+        final String propertyName)
+        throws IOException {
+      if (!isValueless(p)) {
+        return false;
+      }
+      p.skipChildren();
+      return true;
+    }
+
+    private boolean isValueless(final JsonParser p) throws IOException {
+      final JsonToken token = p.currentToken();
+      if (token == JsonToken.VALUE_NULL) {
+        return true;
+      }
+      if (token != JsonToken.VALUE_STRING) {
+        return false;
+      }
+      final String value = p.getText();
+      return value.isEmpty() || "0x".equalsIgnoreCase(value);
     }
   }
 }

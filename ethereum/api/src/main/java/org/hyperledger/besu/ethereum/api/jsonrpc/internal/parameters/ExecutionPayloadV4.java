@@ -72,7 +72,7 @@ public final class ExecutionPayloadV4 extends ExecutionPayloadV3 {
   }
 
   @JsonSetter("slotNumber")
-  @JsonDeserialize(using = QuantityJson.LongDeserializer.class)
+  @JsonDeserialize(using = QuantityJson.UnsignedLongDeserializer.class)
   public void setSlotNumber(final Long slotNumber) {
     this.slotNumber = slotNumber;
   }

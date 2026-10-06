@@ -16,8 +16,6 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod.ENGINE_EXCHANGE_CAPABILITIES;
 
-import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod;
@@ -26,22 +24,30 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcRespon
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 
+import java.util.Collection;
 import java.util.List;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
-import io.vertx.core.Vertx;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class EngineExchangeCapabilities extends ExecutionEngineJsonRpcMethod {
   private static final Logger LOG = LoggerFactory.getLogger(EngineExchangeCapabilities.class);
 
+  private final List<String> localCapabilities;
+
+  /**
+   * @param constructorArguments the arguments shared by all engine methods
+   * @param registeredMethodNames the names of the engine methods this node serves
+   */
   public EngineExchangeCapabilities(
-      final Vertx vertx,
-      final ProtocolContext protocolContext,
-      final EngineCallListener engineCallListener) {
-    super(vertx, protocolContext, engineCallListener);
+      final ConstructorArguments constructorArguments,
+      final Collection<String> registeredMethodNames) {
+    super(constructorArguments, null, null);
+    // the specification forbids listing engine_exchangeCapabilities itself
+    this.localCapabilities =
+        registeredMethodNames.stream()
+            .filter(name -> !name.equals(ENGINE_EXCHANGE_CAPABILITIES.getMethodName()))
+            .toList();
   }
 
   @Override
@@ -69,13 +75,6 @@ public class EngineExchangeCapabilities extends ExecutionEngineJsonRpcMethod {
               }
             })
         .log();
-
-    final List<String> localCapabilities =
-        Stream.of(RpcMethod.values())
-            .filter(e -> e.getMethodName().startsWith("engine_"))
-            .filter(e -> !e.equals(ENGINE_EXCHANGE_CAPABILITIES))
-            .map(RpcMethod::getMethodName)
-            .collect(Collectors.toList());
 
     return respondWith(reqId, localCapabilities);
   }

@@ -14,14 +14,14 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
-import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.INTERNAL_ERROR;
-
+import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.TraceTypeParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTrace;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
@@ -35,17 +35,20 @@ import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
 
 import java.util.Set;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 public class TraceCall extends AbstractTraceCall {
-  private static final Logger LOG = LoggerFactory.getLogger(TraceCall.class);
-
   public TraceCall(
       final BlockchainQueries blockchainQueries,
       final ProtocolSchedule protocolSchedule,
       final TransactionSimulator transactionSimulator) {
-    super(blockchainQueries, protocolSchedule, transactionSimulator, false);
+    this(blockchainQueries, protocolSchedule, transactionSimulator, null);
+  }
+
+  public TraceCall(
+      final BlockchainQueries blockchainQueries,
+      final ProtocolSchedule protocolSchedule,
+      final TransactionSimulator transactionSimulator,
+      final ApiConfiguration apiConfiguration) {
+    super(blockchainQueries, protocolSchedule, transactionSimulator, apiConfiguration);
   }
 
   @Override
@@ -69,27 +72,35 @@ public class TraceCall extends AbstractTraceCall {
   }
 
   @Override
-  protected PreCloseStateHandler<Object> getSimulatorResultHandler(
+  protected TraceExecution createTraceExecution(
       final JsonRpcRequestContext requestContext,
-      final DebugOperationTracer tracer,
+      final TraceOptions traceOptions,
       final ProtocolSpec protocolSpec) {
-    return (mutableWorldState, maybeSimulatorResult) ->
-        maybeSimulatorResult.map(
-            result -> {
-              if (result.isInvalid()) {
-                LOG.error("Invalid simulator result {}", result);
-                return new JsonRpcErrorResponse(
-                    requestContext.getRequest().getId(), INTERNAL_ERROR);
-              }
+    final DebugOperationTracer tracer =
+        new DebugOperationTracer(traceOptions.opCodeTracerConfig(), false);
+    final PreCloseStateHandler<Object> handler =
+        (mutableWorldState, maybeSimulatorResult) ->
+            maybeSimulatorResult.map(
+                result -> {
+                  if (result.isInvalid()) {
+                    return new JsonRpcErrorResponse(
+                        requestContext.getRequest().getId(),
+                        JsonRpcError.from(result.getValidationResult()));
+                  }
 
-              final TransactionTrace transactionTrace =
-                  new TransactionTrace(
-                      result.transaction(), result.result(), tracer.getTraceFrames());
+                  final TransactionTrace transactionTrace =
+                      new TransactionTrace(
+                          result.transaction(), result.result(), tracer.getTraceFrames());
 
-              final Block block =
-                  blockchainQueriesSupplier.get().getBlockchain().getChainHeadBlock();
-              return getTraceCallResult(
-                  protocolSchedule, getTraceTypes(requestContext), result, transactionTrace, block);
-            });
+                  final Block block =
+                      blockchainQueriesSupplier.get().getBlockchain().getChainHeadBlock();
+                  return getTraceCallResult(
+                      protocolSchedule,
+                      getTraceTypes(requestContext),
+                      result,
+                      transactionTrace,
+                      block);
+                });
+    return new TraceExecution(tracer, handler);
   }
 }

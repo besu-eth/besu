@@ -16,8 +16,8 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static java.util.Collections.emptyList;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SHANGHAI;
-import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.ACCEPTED;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID_BLOCK_HASH;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.SYNCING;
@@ -48,12 +48,15 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadStatusV1;
+import org.hyperledger.besu.ethereum.chain.BadBlockCause;
+import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
@@ -84,6 +87,12 @@ import org.mockito.quality.Strictness;
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
+
+  /**
+   * uint64 {@code 0xffffffffffffffff}: above {@code Long.MAX_VALUE}, so carried as a negative long.
+   */
+  protected static final long TIMESTAMP_ABOVE_LONG_MAX_VALUE = -1L;
+
   protected EngineNewPayloadV1<?, ?> method;
 
   public EngineNewPayloadV1Test() {}
@@ -107,12 +116,24 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
 
   @Mock protected EngineCallListener engineCallListener;
 
+  @Mock protected TransactionPool transactionPool;
+
+  protected BadBlockManager badBlockManager;
+
   @BeforeEach
   @Override
   public void before() {
     super.before();
+    badBlockManager = new BadBlockManager();
     when(protocolContext.safeConsensusContext(any())).thenReturn(Optional.of(mergeContext));
     when(protocolContext.getBlockchain()).thenReturn(blockchain);
+    when(protocolContext.getBadBlockManager()).thenReturn(badBlockManager);
+    // the coordinator answers the bad block checks from the real manager, like production does
+    when(mergeCoordinator.isBadBlock(any()))
+        .thenAnswer(invocation -> badBlockManager.isBadBlock(invocation.getArgument(0)));
+    when(mergeCoordinator.checkAndMarkBadDescendant(any(BlockHeader.class)))
+        .thenAnswer(
+            invocation -> badBlockManager.checkAndMarkBadDescendant(invocation.getArgument(0)));
     when(protocolSchedule.getByBlockHeader(any())).thenReturn(protocolSpec);
     when(protocolContext.getWorldStateArchive()).thenReturn(worldStateArchive);
     when(ethPeers.peerCount()).thenReturn(1);
@@ -134,6 +155,7 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
             .mergeCoordinator(mergeCoordinator)
             .ethPeers(ethPeers)
             .metricsSystem(new NoOpMetricsSystem())
+            .transactionPool(transactionPool)
             .maxRequestBlocks(0)
             .build(),
         null,
@@ -142,6 +164,25 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
 
   private void createMethod() {
     this.method = createMethodInstance();
+  }
+
+  @Test
+  public void shouldFailFastWhenMergeCoordinatorIsNull() {
+    var constructorArguments =
+        new ConstructorArgumentsBuilder()
+            .protocolSchedule(protocolSchedule)
+            .protocolContext(protocolContext)
+            .vertx(vertx)
+            .engineCallListener(engineCallListener)
+            .ethPeers(ethPeers)
+            .metricsSystem(new NoOpMetricsSystem())
+            .transactionPool(transactionPool)
+            .maxRequestBlocks(0)
+            .build();
+
+    assertThatThrownBy(() -> new EngineNewPayloadV1<>(constructorArguments, null, SHANGHAI))
+        .isInstanceOf(NullPointerException.class)
+        .hasMessageContaining("mergeCoordinator must not be null");
   }
 
   protected long getMinSupportedTimestamp() {
@@ -171,24 +212,34 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
 
     PayloadStatusV1 res = fromSuccessResp(resp);
     assertThat(res.getLatestValidHash().get()).isEqualTo(mockHash);
-    assertThat(res.getStatusAsString()).isEqualTo(INVALID.name());
+    assertThat(res.getStatus()).isEqualTo(INVALID);
     assertThat(res.getError()).isEqualTo("error 42");
+    assertThat(badBlockManager.getLatestValidHash(mockHeader.getHash())).contains(mockHash);
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 
   @Test
-  public void shouldReturnAcceptedOnLatestValidAncestorEmpty() {
-    BlockHeader mockHeader = setupPayloadV1(getMinSupportedTimestamp());
-    when(mergeCoordinator.getLatestValidAncestor(any(BlockHeader.class)))
-        .thenReturn(Optional.empty());
+  public void shouldReuseStoredLatestValidHashOnRepeatedInvalidPayload() {
+    // #11299: second newPayload for the same invalid hash must reuse the stored LVH, not Hash.ZERO.
+    final BlockHeader mockHeader =
+        setupPayloadV1(getMinSupportedTimestamp(), new BlockProcessingResult("error 42"));
+    final var payload = mockEnginePayloadParam(mockHeader, emptyList());
 
-    var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList())));
+    final PayloadStatusV1 first = fromSuccessResp(resp(requestParams(payload)));
+    assertThat(first.getStatus()).isEqualTo(INVALID);
+    assertThat(first.getLatestValidHash()).contains(mockHash);
+    assertThat(badBlockManager.getLatestValidHash(mockHeader.getHash())).contains(mockHash);
 
-    PayloadStatusV1 res = fromSuccessResp(resp);
-    assertThat(res.getLatestValidHash()).isEmpty();
-    assertThat(res.getStatusAsString()).isEqualTo(ACCEPTED.name());
-    assertThat(res.getError()).isNull();
-    verify(engineCallListener, times(1)).executionEngineCalled();
+    badBlockManager.addBadBlock(
+        new Block(mockHeader, new BlockBody(emptyList(), emptyList())),
+        BadBlockCause.fromValidationFailure("error 42"));
+    when(mergeCoordinator.getLatestValidHashOfBadBlock(mockHeader.getHash()))
+        .thenAnswer(invocation -> badBlockManager.getLatestValidHash(mockHeader.getHash()));
+
+    final PayloadStatusV1 second = fromSuccessResp(resp(requestParams(payload)));
+    assertThat(second.getStatus()).isEqualTo(INVALID);
+    assertThat(second.getLatestValidHash()).contains(mockHash);
+    assertThat(second.getError()).isEqualTo("Block is a known bad block.");
   }
 
   @Test
@@ -208,7 +259,7 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
     BlockHeader mockHeader = createBlockHeader(getMinSupportedTimestamp());
     Hash latestValidHash = Hash.hash(Bytes32.fromHexStringLenient("0xcafebabe"));
 
-    when(mergeCoordinator.isBadBlock(mockHeader.getHash())).thenReturn(true);
+    badBlockManager.addBadHeader(mockHeader, BadBlockCause.fromValidationFailure("error 42"));
     when(mergeCoordinator.getLatestValidHashOfBadBlock(mockHeader.getHash()))
         .thenReturn(Optional.of(latestValidHash));
 
@@ -216,7 +267,7 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
 
     PayloadStatusV1 res = fromSuccessResp(resp);
     assertThat(res.getLatestValidHash()).isEqualTo(Optional.of(latestValidHash));
-    assertThat(res.getStatusAsString()).isEqualTo(INVALID.name());
+    assertThat(res.getStatus()).isEqualTo(INVALID);
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 
@@ -270,7 +321,7 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
     var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList())));
 
     PayloadStatusV1 res = fromSuccessResp(resp);
-    assertThat(res.getStatusAsString()).isEqualTo(getExpectedInvalidBlockHashStatus().name());
+    assertThat(res.getStatus()).isEqualTo(getExpectedInvalidBlockHashStatus());
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 
@@ -284,7 +335,7 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
 
     PayloadStatusV1 res = fromSuccessResp(resp);
     assertThat(res.getLatestValidHash()).isEmpty();
-    assertThat(res.getStatusAsString()).isEqualTo(getExpectedInvalidBlockHashStatus().name());
+    assertThat(res.getStatus()).isEqualTo(getExpectedInvalidBlockHashStatus());
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 
@@ -298,37 +349,36 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
 
     PayloadStatusV1 res = fromSuccessResp(resp);
     assertThat(res.getLatestValidHash()).isEmpty();
-    assertThat(res.getStatusAsString()).isEqualTo(INVALID.name());
+    assertThat(res.getStatus()).isEqualTo(INVALID);
     assertThat(res.getError()).startsWith("Failed to decode transactions from block parameter");
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 
   @Test
-  public void shouldRespondWithSyncingDuringForwardSync() {
-    BlockHeader mockHeader = setupPayloadV1(getMinSupportedTimestamp());
+  public void shouldReturnValidDuringForwardSync() {
+    BlockHeader mockHeader =
+        setupPayloadV1(
+            getMinSupportedTimestamp(),
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))));
     when(mergeContext.isSyncing()).thenReturn(Boolean.TRUE);
     var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList())));
 
-    PayloadStatusV1 res = fromSuccessResp(resp);
-    assertThat(res.getError()).isNull();
-    assertThat(res.getStatusAsString()).isEqualTo(SYNCING.name());
-    assertThat(res.getLatestValidHash()).isEmpty();
-    verify(engineCallListener, times(1)).executionEngineCalled();
+    assertValidResponse(mockHeader, resp);
   }
 
   @Test
   public void shouldRespondWithSyncingDuringBackwardsSync() {
     BlockHeader mockHeader = createBlockHeader(getMinSupportedTimestamp());
     when(mergeContext.isInitialSyncDone()).thenReturn(true);
-    when(mergeCoordinator.appendNewPayloadToSync(any()))
+    when(mergeCoordinator.appendNewPayloadToSync(any(), any()))
         .thenReturn(CompletableFuture.completedFuture(null));
     var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList())));
 
     PayloadStatusV1 res = fromSuccessResp(resp);
     assertThat(res.getLatestValidHash()).isEmpty();
-    assertThat(res.getStatusAsString()).isEqualTo(SYNCING.name());
+    assertThat(res.getStatus()).isEqualTo(SYNCING);
     assertThat(res.getError()).isNull();
-    verify(mergeCoordinator).appendNewPayloadToSync(any());
+    verify(mergeCoordinator).appendNewPayloadToSync(any(), any());
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 
@@ -340,9 +390,9 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
 
     PayloadStatusV1 res = fromSuccessResp(resp);
     assertThat(res.getLatestValidHash()).isEmpty();
-    assertThat(res.getStatusAsString()).isEqualTo(SYNCING.name());
+    assertThat(res.getStatus()).isEqualTo(SYNCING);
     assertThat(res.getError()).isNull();
-    verify(mergeCoordinator, never()).appendNewPayloadToSync(any());
+    verify(mergeCoordinator, never()).appendNewPayloadToSync(any(), any());
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 
@@ -364,13 +414,40 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
 
   @Test
   public void shouldReturnInvalidWhenBadBlock() {
-    when(mergeCoordinator.isBadBlock(any(Hash.class))).thenReturn(true);
     BlockHeader mockHeader = createBlockHeader(getMinSupportedTimestamp());
+    badBlockManager.addBadHeader(mockHeader, BadBlockCause.fromValidationFailure("error 42"));
     var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList())));
     PayloadStatusV1 res = fromSuccessResp(resp);
-    assertThat(res.getLatestValidHash()).contains(Hash.ZERO);
-    assertThat(res.getStatusAsString()).isEqualTo(INVALID.name());
-    assertThat(res.getError()).isEqualTo("Block already present in bad block manager.");
+    assertThat(res.getLatestValidHash()).isEmpty();
+    assertThat(res.getStatus()).isEqualTo(INVALID);
+    assertThat(res.getError()).isEqualTo("Block is a known bad block.");
+    verify(engineCallListener, times(1)).executionEngineCalled();
+  }
+
+  @Test
+  public void shouldReturnInvalidWhenParentIsBadBlock() {
+    final BlockHeader badParentHeader = createBlockHeader(getMinSupportedTimestamp());
+    final Hash latestValidHash = Hash.hash(Bytes32.fromHexStringLenient("0xcafebabe"));
+    badBlockManager.addBadHeader(badParentHeader, BadBlockCause.fromValidationFailure("error 42"));
+    badBlockManager.addLatestValidHash(badParentHeader.getHash(), latestValidHash);
+    final BlockHeader childHeader =
+        createBlockHeader(
+            getMinSupportedTimestamp() + 1,
+            fixture -> fixture.parentHash(badParentHeader.getHash()));
+    when(mergeCoordinator.getLatestValidHashOfBadBlock(childHeader.getHash()))
+        .thenAnswer(invocation -> badBlockManager.getLatestValidHash(childHeader.getHash()));
+    // without initial sync done the sync branch is dead and the never() verify below is vacuous
+    when(mergeContext.isInitialSyncDone()).thenReturn(true);
+
+    var resp = resp(requestParams(mockEnginePayloadParam(childHeader, emptyList())));
+
+    PayloadStatusV1 res = fromSuccessResp(resp);
+    assertThat(res.getStatus()).isEqualTo(INVALID);
+    assertThat(res.getLatestValidHash()).contains(latestValidHash);
+    assertThat(res.getError())
+        .isEqualTo("Descends from bad block " + badParentHeader.toLogString());
+    assertThat(badBlockManager.isBadBlock(childHeader.getHash())).isTrue();
+    verify(mergeCoordinator, never()).appendNewPayloadToSync(any(), any());
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 
@@ -391,6 +468,25 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
               assertThat(jsonRpcError.getCode()).isEqualTo(UNSUPPORTED_FORK.getCode());
               verify(engineCallListener, times(1)).executionEngineCalled();
             });
+  }
+
+  @Test
+  public void shouldHandleTimestampAboveLongMaxValue() {
+    // uint64 0xffffffffffffffff, carried as -1. Compared signed it looks pre-Shanghai, and from V2
+    // on the payload's withdrawals are then rejected as "must not be present before Shanghai".
+    final BlockHeader mockHeader =
+        setupPayloadV1(
+            TIMESTAMP_ABOVE_LONG_MAX_VALUE,
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))));
+
+    var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList())));
+
+    if (getMaxSupportedTimestamp().isPresent()) {
+      // every version but the latest one rejects such a timestamp for being past its fork window
+      assertThat(fromErrorResp(resp).getCode()).isEqualTo(UNSUPPORTED_FORK.getCode());
+    } else {
+      assertValidResponse(mockHeader, resp);
+    }
   }
 
   protected Object[] requestParams(final Map<String, Object> payloadParams) {
@@ -497,8 +593,8 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
 
   protected void assertValidResponse(final BlockHeader mockHeader, final JsonRpcResponse resp) {
     PayloadStatusV1 res = fromSuccessResp(resp);
-    assertThat(res.getLatestValidHash().get()).isEqualTo(mockHeader.getHash());
-    assertThat(res.getStatusAsString()).isEqualTo(VALID.name());
+    assertThat(res.getLatestValidHash()).contains(mockHeader.getHash());
+    assertThat(res.getStatus()).isEqualTo(VALID);
     assertThat(res.getError()).isNull();
     verify(engineCallListener, times(1)).executionEngineCalled();
   }

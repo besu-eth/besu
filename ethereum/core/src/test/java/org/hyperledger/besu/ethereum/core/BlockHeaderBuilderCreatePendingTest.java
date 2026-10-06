@@ -20,6 +20,7 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.ethereum.GasLimitCalculator;
 import org.hyperledger.besu.ethereum.mainnet.DifficultyCalculator;
+import org.hyperledger.besu.ethereum.mainnet.FrontierTargetingGasLimitCalculator;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 
@@ -93,6 +94,77 @@ public class BlockHeaderBuilderCreatePendingTest {
         Optional.empty());
 
     assertThat(observedTarget.get()).isEqualTo(PARENT_GAS_LIMIT);
+  }
+
+  @Test
+  public void withParentGasLimitAsTarget_noAdjustmentOccurs() {
+    // target == parent → calculator leaves gas limit unchanged.
+    final long parentGasLimit = 200_000_000L;
+
+    final ProtocolSpec protocolSpec = realCalculatorProtocolSpec();
+    final BlockHeader parent =
+        new BlockHeaderTestFixture()
+            .number(54L)
+            .timestamp(1_000L)
+            .gasLimit(parentGasLimit)
+            .buildHeader();
+    final MiningConfiguration miningConfiguration = MiningConfiguration.newDefault();
+
+    final BlockHeaderBuilder result =
+        BlockHeaderBuilder.createPending(
+            protocolSpec,
+            parent,
+            miningConfiguration,
+            parent.getTimestamp() + 1,
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.of(parentGasLimit)); // target == current → no decrement
+
+    assertThat(result.buildProcessableBlockHeader().getGasLimit()).isEqualTo(parentGasLimit);
+  }
+
+  @Test
+  public void withGenesisGasLimitAsTarget_oneStepDecrementMatchesGeth() {
+    // genesis (100M) < safeSubAtMost(200M) → calculator applies one-step decrement.
+    final long parentGasLimit = 200_000_000L;
+    final long genesisGasLimit = 100_000_000L;
+    final long expectedGasLimit = 199_804_689L; // safeSubAtMost(200M) = 200M - (200M/1024 - 1)
+
+    final ProtocolSpec protocolSpec = realCalculatorProtocolSpec();
+    final BlockHeader parent =
+        new BlockHeaderTestFixture()
+            .number(54L)
+            .timestamp(1_000L)
+            .gasLimit(parentGasLimit)
+            .buildHeader();
+    final MiningConfiguration miningConfiguration = MiningConfiguration.newDefault();
+
+    final BlockHeaderBuilder result =
+        BlockHeaderBuilder.createPending(
+            protocolSpec,
+            parent,
+            miningConfiguration,
+            parent.getTimestamp() + 1,
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.of(genesisGasLimit)); // genesis as target → one-step decrement
+
+    assertThat(result.buildProcessableBlockHeader().getGasLimit()).isEqualTo(expectedGasLimit);
+  }
+
+  private static ProtocolSpec realCalculatorProtocolSpec() {
+    final GasLimitCalculator gasLimitCalculator = new FrontierTargetingGasLimitCalculator();
+    final DifficultyCalculator difficultyCalculator = (time, parent) -> BigInteger.ZERO;
+    final FeeMarket feeMarket = mock(FeeMarket.class);
+    when(feeMarket.implementsBaseFee()).thenReturn(false);
+
+    final ProtocolSpec protocolSpec = mock(ProtocolSpec.class);
+    when(protocolSpec.getGasLimitCalculator()).thenReturn(gasLimitCalculator);
+    when(protocolSpec.getDifficultyCalculator()).thenReturn(difficultyCalculator);
+    when(protocolSpec.getFeeMarket()).thenReturn(feeMarket);
+    return protocolSpec;
   }
 
   private static BlockHeader parentHeader() {

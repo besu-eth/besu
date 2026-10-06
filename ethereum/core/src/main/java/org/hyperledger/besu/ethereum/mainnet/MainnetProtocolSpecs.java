@@ -77,7 +77,7 @@ import org.hyperledger.besu.ethereum.mainnet.parallelization.MainnetParallelBloc
 import org.hyperledger.besu.ethereum.mainnet.requests.MainnetRequestsValidator;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestContractAddresses;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
-import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.BalStateRootCommitterFactory;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitterFactory;
 import org.hyperledger.besu.ethereum.mainnet.transactionpool.OsakaTransactionPoolPreProcessor;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.evm.MainnetEVMs;
@@ -985,7 +985,7 @@ public abstract class MainnetProtocolSpecs {
         pragueSpecBuilder.requestProcessorCoordinator(
             pragueRequestsProcessors(requestContractAddresses));
       } catch (NoSuchElementException nsee) {
-        LOG.warn("Prague definitions require system contract addresses in genesis");
+        LOG.warn("Prague definitions require depositContractAddress in genesis");
         throw nsee;
       }
     }
@@ -999,6 +999,10 @@ public abstract class MainnetProtocolSpecs {
         || genesisConfigOptions.isQbft();
   }
 
+  // Deliberately stricter than RequestContractAddresses.fromGenesis, which defaults the
+  // withdrawal and consolidation addresses: PoA chains opt in to system calls by configuring all
+  // three, and treating a deposit-only PoA genesis as opted in would change how existing chains
+  // execute their blocks.
   private static boolean hasSystemContractAddresses(
       final GenesisConfigOptions genesisConfigOptions) {
     return genesisConfigOptions.getDepositContractAddress().isPresent()
@@ -1267,10 +1271,9 @@ public abstract class MainnetProtocolSpecs {
                         .build())
             .blockAccessListFactory(new BlockAccessListFactory())
             .blockAccessListValidatorBuilder(MainnetBlockAccessListValidator::create)
-            .stateRootCommitterFactory(new BalStateRootCommitterFactory(balConfiguration))
+            .stateRootCommitterFactory(new StateRootCommitterFactory(balConfiguration))
             // EIP-8037: Disable validation-time TX_MAX_GAS_LIMIT cap (enforced at runtime on
-            // regular
-            // gas)
+            // execution gas)
             .gasLimitCalculatorBuilder(
                 (feeMarket, gasCalculator, blobSchedule) -> {
                   final long londonForkBlock =
@@ -1288,9 +1291,14 @@ public abstract class MainnetProtocolSpecs {
             .gasCalculator(AmsterdamGasCalculator::new)
             // Amsterdam (EIP-7778 + EIP-8037): Pre-refund 2D gas accounting
             .blockGasAccountingStrategy(BlockGasAccountingStrategy.AMSTERDAM)
-            // Amsterdam: Validator uses pre-refund gas_metered = max(regular, state) from
+            // Amsterdam: Validator uses pre-refund gas_metered = max(execution, state) from
             // processing
             .blockGasUsedValidator(BlockGasUsedValidator.AMSTERDAM)
+            // EIP-7843: slotNumber is the last header field, so a header omitting it still
+            // decodes cleanly - only this rule rejects it.
+            .blockHeaderValidatorBuilder(
+                MainnetBlockHeaderValidator::slotNumberAwareBlockHeaderValidator)
+            .slotNumberRequired(true)
             .hardforkId(AMSTERDAM);
 
     // EIP-8282 introduces the builder deposit (0x03) and builder exit (0x04) system-contract
@@ -1307,8 +1315,8 @@ public abstract class MainnetProtocolSpecs {
                 RequestContractAddresses.fromGenesis(genesisConfigOptions)));
       } catch (NoSuchElementException nsee) {
         // Surface the missing-address cause explicitly: without it the bare NoSuchElementException
-        // gives no hint that the genesis file is what needs the system contract addresses.
-        LOG.warn("Amsterdam definitions require system contract addresses in genesis");
+        // gives no hint that the genesis file is what needs the deposit contract address.
+        LOG.warn("Amsterdam definitions require depositContractAddress in genesis");
         throw nsee;
       }
     }

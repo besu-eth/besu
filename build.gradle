@@ -188,11 +188,15 @@ configure(allprojects - project(':platform')) {
 
     mavenCentral()
 
-    // ethereum execution spec tests fixtures. Exclusively for ethereum submodule to run ref tests
+    // ethereum execution spec tests fixtures. Exclusively for ethereum submodule to run ref tests.
+    // The URL always points at the ethereum/execution-specs GitHub repo regardless of the declared
+    // module name below: the zkevm fixture tarball is declared under its own module
+    // (execution-specs-zkevm) purely so it lands in its own Gradle module cache directory, separate
+    // from the stable/devnet fixtures it would otherwise share a cache-cleanup path with.
     def ethExecSpecTestsRepo = ivy {
       url = 'https://github.com'
       patternLayout {
-        artifact '/[organisation]/[module]/releases/download/[revision]/[classifier].[ext]'
+        artifact '/[organisation]/execution-specs/releases/download/[revision]/[classifier].[ext]'
       }
       metadataSources {
         artifact()
@@ -201,8 +205,8 @@ configure(allprojects - project(':platform')) {
     exclusiveContent {
       forRepositories(ethExecSpecTestsRepo)
       filter {
-        includeModule('ethereum', 'execution-spec-tests')
         includeModule('ethereum', 'execution-specs')
+        includeModule('ethereum', 'execution-specs-zkevm')
       }
     }
   }
@@ -416,7 +420,6 @@ configure(allprojects - project(':platform')) {
       }
     }
     useJUnitPlatform {}
-    finalizedBy jacocoTestReport // report is always generated after tests run
   }
 
   javadoc {
@@ -489,8 +492,18 @@ configure(allprojects - project(':platform')) {
 // 2. The legacy ArtifactResolutionQuery/SourcesArtifact API, for components published only via
 //    a plain Maven POM with a "-sources.jar" classifier convention (e.g. the besu-native
 //    artifacts, netty's native-transport jars, reactor-core).
+//
+// Besides the project's own configurations, this also covers:
+// - its buildscript classpath, i.e. the plugins from its own `plugins {}` block (see
+//   forEachProjectBuildscriptSourceArtifact below);
+// - any detached configuration the project lists in the `verificationMetadataConfigurations`
+//   extra property (e.g. the Plugin API baseline in plugin-api/build.gradle), since detached
+//   configurations are not part of `proj.configurations`.
 ext.forEachProjectSourceArtifact = { Project proj, Closure action ->
-  def resolvableConfigs = proj.configurations.matching { it.canBeResolved }
+  def resolvableConfigs = proj.configurations.matching { it.canBeResolved }.toList()
+  if (proj.ext.has('verificationMetadataConfigurations')) {
+    resolvableConfigs.addAll(proj.ext.verificationMetadataConfigurations)
+  }
   def seen = new HashSet()
   def guardedAction = { id, artifact ->
     if (seen.add(id)) {
@@ -546,6 +559,50 @@ ext.forEachProjectSourceArtifact = { Project proj, Closure action ->
     }
     logger.info("Could not resolve legacy sources for ${proj.path}: ${e.message}")
   }
+
+  forEachProjectBuildscriptSourceArtifact(proj, guardedAction)
+}
+
+// Plugin/buildscript classpath dependencies (declared via the `plugins {}` block) aren't
+// published with documentation variants, so their sources need the legacy
+// ArtifactResolutionQuery API - and it must go through the buildscript's own DependencyHandler,
+// so that the plugin repositories (e.g. the Gradle Plugin Portal) are used rather than the
+// project's. Every project has its own buildscript classpath holding only the plugins its own
+// `plugins {}` block adds (e.g. org.web3j in acceptance-tests:tests, which also pulls in the
+// kotlin and node-gradle plugins), so this runs per project, not just for the root.
+ext.forEachProjectBuildscriptSourceArtifact = { Project proj, Closure action ->
+  def componentIds = new HashSet()
+  proj.buildscript.configurations.matching { it.canBeResolved }.each { cfg ->
+    try {
+      cfg.incoming.resolutionResult.allComponents.each { c -> componentIds.add(c.id) }
+    } catch (Exception e) {
+      logger.info("Could not resolve ${proj.path} buildscript config '${cfg.name}': ${e.message}")
+    }
+  }
+  def externalIds = componentIds.findAll { it instanceof ModuleComponentIdentifier }
+  if (externalIds.isEmpty()) {
+    return
+  }
+  try {
+    def result = proj.buildscript.dependencies.createArtifactResolutionQuery()
+      .forComponents(externalIds)
+      .withArtifacts(JvmLibrary, SourcesArtifact)
+      .execute()
+    result.resolvedComponents.each { component ->
+      component.getArtifacts(SourcesArtifact).each { source ->
+        if (source instanceof ResolvedArtifactResult) {
+          action(component.id, source)
+        } else {
+          logger.info("Could not resolve sources for ${component.id}: ${source}")
+        }
+      }
+    }
+  } catch (Exception e) {
+    if (e.message?.contains('Dependency verification failed')) {
+      throw e
+    }
+    logger.info("Could not resolve buildscript sources for ${proj.path}: ${e.message}")
+  }
 }
 
 // A configuration can only be resolved by a task owned by the same project - resolving it from
@@ -584,47 +641,51 @@ allprojects { proj ->
   }
 }
 
-// Plugin/buildscript classpath dependencies (declared via the `plugins {}` block) aren't
-// published with documentation variants, so their sources still need the legacy
-// ArtifactResolutionQuery API. Only the root project declares plugins, so no per-project
-// resolution (and no exclusive-lock issue) is needed here.
-ext.forEachBuildscriptSourceArtifact = { Closure action ->
-  def componentIds = buildscript.configurations
-    .matching { it.canBeResolved }
-    .collectMany {
-      it.incoming.resolutionResult.allComponents.collect { c ->
-        c.id
-      }
-    }
-    .findAll { it instanceof ModuleComponentIdentifier }
-
-  def result = buildscript.dependencies.createArtifactResolutionQuery()
-    .forComponents(componentIds)
-    .withArtifacts(JvmLibrary, SourcesArtifact)
-    .execute()
-  result.resolvedComponents.each { component ->
-    component.getArtifacts(SourcesArtifact).each { source ->
-      if (source instanceof ResolvedArtifactResult) {
-        action(component.id, source)
-      } else {
-        logger.info("Could not resolve sources for ${component.id}: ${source}")
-      }
-    }
-  }
-}
-
 task resolveSourceArtifacts {
   group = 'verification'
-  description = 'Resolves source artifacts for all configurations (including the plugin classpath) so they can be included in dependency verification metadata'
+  description = 'Resolves source artifacts for all configurations (including each project\'s plugin classpath) so they can be included in dependency verification metadata'
   dependsOn getAllprojects().collect { it.tasks.named('resolveProjectSourceArtifacts') }
   finalizedBy 'backfillLegacySourceChecksums'
-  doLast {
-    def resolved = new HashSet()
-    forEachBuildscriptSourceArtifact { id, source ->
-      source.file // access .file to trigger download and register with verification metadata
-      resolved.add(id)
-    }
-    logger.lifecycle("Resolved sources for ${resolved.size()} plugin classpath components")
+}
+
+// Single entry point to regenerate gradle/verification-metadata.xml after adding or updating a
+// dependency or a plugin. Dependency verification is configured by start parameters that a task
+// cannot set for its own build, so this only checks they were passed and fails fast otherwise,
+// instead of silently producing an incomplete file. See "Dependency Verification" in README.md.
+ext.updateVerificationMetadataCommand =
+  './gradlew --write-verification-metadata sha256 --refresh-dependencies --rerun-tasks updateVerificationMetadata'
+
+task updateVerificationMetadata {
+  group = 'verification'
+  description = 'Records checksums of every artifact the build and the IDE resolve in gradle/verification-metadata.xml. ' +
+    "Must be run as: ${updateVerificationMetadataCommand}"
+  dependsOn 'resolveSourceArtifacts'
+  // The Plugin API compatibility check resolves the released baseline and japicmp's own
+  // tooling only while executing, so it has to actually run for those to be recorded.
+  dependsOn ':plugin-api:checkAPICompatibility'
+}
+
+gradle.taskGraph.whenReady { graph ->
+  if (!graph.hasTask(':updateVerificationMetadata')) {
+    return
+  }
+  def startParameter = gradle.startParameter
+  def missing = []
+  if (!startParameter.writeDependencyVerifications.contains('sha256')) {
+    missing << '--write-verification-metadata sha256'
+  }
+  // Without these, cached dependency metadata and up-to-date tasks skip resolutions, producing a
+  // file that passes locally but fails on a fresh clone.
+  if (!startParameter.refreshDependencies) {
+    missing << '--refresh-dependencies'
+  }
+  if (!startParameter.rerunTasks) {
+    missing << '--rerun-tasks'
+  }
+  if (!missing.isEmpty()) {
+    throw new GradleException(
+    "updateVerificationMetadata is missing the ${missing.join(', ')} option(s). Run it as:\n" +
+    "  ${updateVerificationMetadataCommand}")
   }
 }
 
@@ -709,13 +770,6 @@ task verifySourceArtifacts {
   description = 'Fails the build if gradle/verification-metadata.xml is missing source artifact entries for any resolvable dependency'
   dependsOn getAllprojects().collect { it.tasks.named('verifyProjectSourceArtifacts') }
   doLast {
-    forEachBuildscriptSourceArtifact { id, source ->
-      def key = "${id.group}:${id.module}:${id.version}".toString()
-      if (!recordedSourceComponents.contains(key)) {
-        missingSourceComponents.add(key)
-      }
-    }
-
     if (!missingSourceComponents.isEmpty()) {
       def list = missingSourceComponents.collect { "  - ${it}" }.join('\n')
       throw new GradleException(
@@ -723,7 +777,7 @@ task verifySourceArtifacts {
       "${missingSourceComponents.size() == 1 ? 'dependency' : 'dependencies'}:\n" +
       "${list}\n\n" +
       "Regenerate the metadata by running:\n" +
-      "  ./gradlew --write-verification-metadata sha256 resolveSourceArtifacts\n" +
+      "  ${updateVerificationMetadataCommand}\n" +
       "and commit the updated gradle/verification-metadata.xml.")
     }
 
@@ -903,6 +957,12 @@ subprojects {
 
   if (file('src/jmh').directory) {
     apply plugin: 'me.champeau.jmh'
+
+    tasks.named("jmhJar") {
+      exclude("META-INF/services/java.net.spi.InetAddressResolverProvider")
+      exclude("META-INF/versions/*/META-INF/services/java.net.spi.InetAddressResolverProvider")
+    }
+
     tasks.named("jmh") {
       description = "Usage: gradle jmh -Pincludes=MyBench -PasyncProfiler=<libPath> -PasyncProfilerOptions=<options>\n" +
         "\nRun JMH benchmarks in each of the projects. Allows for controlling JMH execution directly from the command line.\n" +
@@ -911,14 +971,13 @@ subprojects {
         "\t-Pcases=<caseNames>\t\tComma-separated list of @Param caseName values to run (e.g. MOD_32_32,MOD_256_256). Defaults to running all cases.\n" +
         "\t-PgcProfiler=true\t\tEnable the JMH GC profiler to capture allocation rates (gc.alloc.rate.norm) alongside timing.\n" +
         "\t-PasyncProfiler=<libPath>\tLibrary path to fetch the Async profiler from. Default is to disable profiling.\n" +
-        "\t-PasyncProfilerOptions=<asyncProfilerOptions>\tOptions to pass on to the Async profiler separated by ';'. Default is to produce a flamegraph with all other default profiler options.\n"
-    }
-
-    tasks.named("jmhJar") {
-      zip64 = true
+        "\t-PasyncProfilerOptions=<asyncProfilerOptions>\tOptions to pass on to the Async profiler separated by ';'. Default is to produce a flamegraph with all other default profiler options.\n" +
+        "\t-PgasProfiler=true\t\tEnable the gas profiler to emit per-benchmark EVM gas cost as a secondary metric.\n" +
+        "\t-PgasProfilerFork=<fork>\tEVM fork to use for gas cost calculation (e.g. CANCUN, OSAKA). Defaults to OSAKA.\n"
     }
 
     jmh {
+      zip64.set(true)
       jmhVersion = '1.37'
       fork = 3
       resultFormat = 'JSON'
@@ -933,23 +992,24 @@ subprojects {
       }
       var asyncProfiler = _strCmdArg('asyncProfiler')
       var asyncProfilerOptions = _strCmdArg('asyncProfilerOptions', 'output=flamegraph')
-      zip64.set(true)
       jvmArgs = [
         '-XX:+EnableDynamicAgentLoading'
       ]
+      profilers = []
       if (asyncProfiler != null) {
-        profilers = [
-          'async:libPath=' + asyncProfiler + ';' + asyncProfilerOptions
-        ]
+        profilers.add('async:libPath=' + asyncProfiler + ';' + asyncProfilerOptions)
         // Force debug symbols of stack traces to the profiler
         jvmArgs.addAll("-XX:+UnlockDiagnosticVMOptions", "-XX:+DebugNonSafepoints")
       }
       var gcProfiler = _strCmdArg('gcProfiler')
       if (gcProfiler != null && gcProfiler.toBoolean()) {
-        if (asyncProfiler == null) profilers = []
         profilers.add('gc')
       }
-      duplicateClassesStrategy = DuplicatesStrategy.INCLUDE
+      var gasProfiler = _strCmdArg('gasProfiler')
+      if (gasProfiler != null && gasProfiler.toBoolean()) {
+        var gasProfilerFork = _strCmdArg('gasProfilerFork')
+        profilers.add('org.hyperledger.besu.ethereum.vm.operations.GasProfiler' + (gasProfilerFork != null ? ':' + gasProfilerFork : ''))
+      }
     }
 
     dependencies {
@@ -972,6 +1032,7 @@ application {
   mainClass = 'org.hyperledger.besu.Besu'
   applicationDefaultJvmArgs = [
     '-Dvertx.disableFileCPResolving=true',
+    '-XX:+ExitOnOutOfMemoryError',
     // BESU_HOME is replaced by a doFirst block in the run task.
     '-Dbesu.home=BESU_HOME',
     // We shutdown log4j ourselves, as otherwise this shutdown hook runs before our own and whatever

@@ -134,6 +134,14 @@ public class SECP256K1 extends AbstractSECP256 {
   public Optional<SECPPublicKey> recoverPublicKeyFromSignature(
       final Bytes32 dataHash, final SECPSignature signature) {
     if (useNative) {
+      // The BouncyCastle path gets this same check from super; only the native path needs it
+      // here. Without it the two backends disagree on out-of-range r/s: native rejects r >= n in
+      // its compact parser while BouncyCastle bounds r only by the field prime, so an EIP-7702
+      // authorization tuple carrying n < r < p would recover different authorities on different
+      // nodes. See AbstractSECP256#isRecoverable.
+      if (!isRecoverable(signature)) {
+        return Optional.empty();
+      }
       try {
         return recoverFromSignatureNative(dataHash, signature);
       } catch (final IllegalArgumentException e) {

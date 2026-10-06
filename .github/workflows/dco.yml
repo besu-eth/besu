@@ -2,18 +2,97 @@ name: DCO
 
 on: [pull_request]
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   dco_check:
     runs-on: ubuntu-latest
     name: DCO
     if: ${{ github.actor != 'dependabot[bot]' }}
     steps:
-    - name: Get PR Commits
-      id: 'get-pr-commits'
-      uses: tim-actions/get-pr-commits@198af03565609bb4ed924d1260247b4881f09e7d
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-    - name: DCO Check
-      uses: tim-actions/dco@f2279e6e62d5a7d9115b0cb8e837b777b1b02e21
-      with:
-        commits: ${{ steps.get-pr-commits.outputs.commits }}
+      - name: Verify DCO Sign-off
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const pr = context.payload.pull_request;
+            const basehead = `${pr.base.sha}...${pr.head.sha}`;
+
+            // pulls.listCommits is hard-capped at 250 commits; repos.compareCommitsWithBasehead
+            // paginates without a cap and uses merge-base (three-dot) semantics, so it yields
+            // exactly the PR's commits. Fork heads resolve because the fork is in the repo network.
+            let totalCommits = 0;
+            const commits = await github.paginate(
+              github.rest.repos.compareCommitsWithBasehead,
+              { owner, repo, basehead, per_page: 100 },
+              (response) => {
+                totalCommits = response.data.total_commits;
+                return response.data.commits;
+              }
+            );
+
+            if (commits.length !== totalCommits) {
+              core.setFailed(
+                `Expected ${totalCommits} commits in ${basehead} but the compare API returned ${commits.length}. ` +
+                `Refusing to validate a partial commit list.`
+              );
+              return;
+            }
+            core.info(`Validating ${commits.length} commit(s) in ${basehead}`);
+
+            const failed = [];
+
+            for (const { sha, commit, parents, author } of commits) {
+              // Skip merge commits (e.g. branch sync from web UI or git merge)
+              if (parents && parents.length > 1) {
+                continue;
+              }
+
+              // Skip bot commits (Dependabot, Renovate, GitHub Actions, etc.)
+              const isBot =
+                (author && author.type === 'Bot') ||
+                (author && author.login && author.login.endsWith('[bot]'));
+              if (isBot) {
+                continue;
+              }
+
+              const regex = /^Signed-off-by:[ \t]+([^<\r\n]+?)[ \t]*<([^>\r\n]+)>[ \t]*$/img;
+              const signoffs = [];
+              let match;
+              while ((match = regex.exec(commit.message)) !== null) {
+                signoffs.push({
+                  name: match[1].trim().toLowerCase(),
+                  email: match[2].trim().toLowerCase()
+                });
+              }
+
+              const authorName = (commit.author?.name || '').trim().toLowerCase();
+              const authorEmail = (commit.author?.email || '').trim().toLowerCase();
+              const committerName = (commit.committer?.name || '').trim().toLowerCase();
+              const committerEmail = (commit.committer?.email || '').trim().toLowerCase();
+
+              const hasValidSignoff = signoffs.some(
+                sig => (sig.name === authorName && sig.email === authorEmail) ||
+                       (sig.name === committerName && sig.email === committerEmail)
+              );
+
+              if (!hasValidSignoff) {
+                failed.push({
+                  sha: sha.substring(0, 7),
+                  title: commit.message.split(/\r?\n/)[0],
+                  author: `${commit.author?.name} <${commit.author?.email}>`
+                });
+              }
+            }
+
+            if (failed.length > 0) {
+              const summary = failed
+                .map(f => `- ${f.sha}: "${f.title}" (${f.author})`)
+                .join('\n');
+              core.setFailed(
+                `The following commit(s) are missing a valid 'Signed-off-by' matching the author or committer:\n\n${summary}\n\n` +
+                `To sign off commits, run: git commit --amend -s`
+              );
+            }

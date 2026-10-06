@@ -50,6 +50,16 @@ public class ProposalMessageData extends AbstractBftMessageData {
   }
 
   /**
+   * Decode, bounding signature recoveries to the maximum for the given validator-set size.
+   *
+   * @param validatorCount the current validator-set size
+   * @return the proposal
+   */
+  public Proposal decode(final int validatorCount) {
+    return Proposal.decode(data, validatorCount);
+  }
+
+  /**
    * Create proposal message data from proposal.
    *
    * @param proposal the proposal

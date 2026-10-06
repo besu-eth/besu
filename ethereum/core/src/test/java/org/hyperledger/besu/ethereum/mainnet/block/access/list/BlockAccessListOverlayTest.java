@@ -30,7 +30,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.C
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.NonceChange;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.SlotChanges;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.StorageChange;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedValue;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiValue;
 import org.hyperledger.besu.evm.account.MutableAccount;
 
 import java.util.List;
@@ -70,12 +70,12 @@ class BlockAccessListOverlayTest {
         new BlockAccessListOverlay(
             BlockAccessListAccountLookup.of(new BlockAccessList(List.of(accountChanges))), 2L);
 
-    final PathBasedValue<UInt256> storageValue =
-        new PathBasedValue<>(UInt256.valueOf(99), UInt256.valueOf(99));
+    final BonsaiValue<UInt256> storageValue =
+        new BonsaiValue<>(UInt256.valueOf(99), UInt256.valueOf(99));
     overlay.applyToStorage(ADDRESS, SLOT, storageValue::setUpdated);
     assertThat(storageValue.getUpdated()).isEqualTo(UInt256.valueOf(1));
 
-    final PathBasedValue<Bytes> codeValue = new PathBasedValue<>(Bytes.EMPTY, Bytes.EMPTY);
+    final BonsaiValue<Bytes> codeValue = new BonsaiValue<>(Bytes.EMPTY, Bytes.EMPTY);
     overlay.applyToCode(ADDRESS, codeValue::setUpdated);
     assertThat(codeValue.getUpdated()).isEqualTo(Bytes.fromHexString("0xBB"));
 
@@ -101,12 +101,12 @@ class BlockAccessListOverlayTest {
         new BlockAccessListOverlay(
             BlockAccessListAccountLookup.of(new BlockAccessList(List.of(accountChanges))), 2L);
 
-    final PathBasedValue<UInt256> storageValue =
-        new PathBasedValue<>(UInt256.valueOf(42), UInt256.valueOf(42));
+    final BonsaiValue<UInt256> storageValue =
+        new BonsaiValue<>(UInt256.valueOf(42), UInt256.valueOf(42));
     overlay.applyToStorage(ADDRESS, SLOT, storageValue::setUpdated);
     assertThat(storageValue.getUpdated()).isEqualTo(UInt256.valueOf(42));
 
-    final PathBasedValue<Bytes> codeValue = new PathBasedValue<>(Bytes.EMPTY, Bytes.EMPTY);
+    final BonsaiValue<Bytes> codeValue = new BonsaiValue<>(Bytes.EMPTY, Bytes.EMPTY);
     overlay.applyToCode(ADDRESS, codeValue::setUpdated);
     assertThat(codeValue.getUpdated()).isEqualTo(Bytes.EMPTY);
 
@@ -133,8 +133,8 @@ class BlockAccessListOverlayTest {
         new BlockAccessListOverlay(
             BlockAccessListAccountLookup.of(new BlockAccessList(List.of(accountChanges))), 2L);
 
-    final PathBasedValue<UInt256> storageValue =
-        new PathBasedValue<>(UInt256.valueOf(99), UInt256.valueOf(99));
+    final BonsaiValue<UInt256> storageValue =
+        new BonsaiValue<>(UInt256.valueOf(99), UInt256.valueOf(99));
     overlay.applyToStorage(ADDRESS, SLOT, storageValue::setUpdated);
     assertThat(storageValue.getUpdated()).isEqualTo(UInt256.ZERO);
   }

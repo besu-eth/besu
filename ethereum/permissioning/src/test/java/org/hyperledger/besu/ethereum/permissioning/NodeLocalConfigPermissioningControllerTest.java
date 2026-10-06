@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.permissioning;
 
 import static java.util.Collections.singletonList;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -119,6 +120,23 @@ public class NodeLocalConfigPermissioningControllerTest {
         .comparingOnlyFields("result")
         .isEqualTo(expected);
     assertThat(controller.getNodesAllowlist()).containsExactly(enode1);
+  }
+
+  @Test
+  public void missingNodePermissioningFileIsInvalidConfigurationState() {
+    final LocalPermissioningConfiguration permissioningConfiguration =
+        LocalPermissioningConfiguration.createDefault();
+
+    assertThatThrownBy(
+            () ->
+                new NodeLocalConfigPermissioningController(
+                    permissioningConfiguration,
+                    bootnodesList,
+                    selfEnode.getNodeId(),
+                    metricsSystem))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage(
+            "Node permissioning config file path is required when node permissioning is enabled");
   }
 
   @Test

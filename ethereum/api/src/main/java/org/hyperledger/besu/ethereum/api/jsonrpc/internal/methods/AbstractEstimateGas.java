@@ -82,7 +82,8 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
     final var minTxCost = getBlockchainQueries().getMinimumTransactionCost(pendingBlockHeader);
     final var gasLimitUpperBound = calculateGasLimitUpperBound(callParameter, pendingBlockHeader);
     if (gasLimitUpperBound < minTxCost) {
-      return errorResponse(requestContext, RpcErrorType.TRANSACTION_UPFRONT_COST_EXCEEDS_BALANCE);
+      return errorResponse(
+          requestContext, RpcErrorType.TRANSACTION_UPFRONT_GAS_COST_EXCEEDS_BALANCE);
     }
     final TransactionSimulationFunction simulationFunction =
         (cp, op) ->
@@ -118,7 +119,8 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
     final var minTxCost = getBlockchainQueries().getMinimumTransactionCost(blockHeader);
     final var gasLimitUpperBound = calculateGasLimitUpperBound(callParameter, blockHeader);
     if (gasLimitUpperBound < minTxCost) {
-      return errorResponse(requestContext, RpcErrorType.TRANSACTION_UPFRONT_COST_EXCEEDS_BALANCE);
+      return errorResponse(
+          requestContext, RpcErrorType.TRANSACTION_UPFRONT_GAS_COST_EXCEEDS_BALANCE);
     }
     final TransactionSimulationFunction simulationFunction =
         (cp, op) ->
@@ -214,6 +216,10 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
     }
   }
 
+  protected static boolean isPlainValueTransfer(final CallParameter callParams) {
+    return callParams.getPayload().isEmpty() || callParams.getPayload().get().equals(Bytes.EMPTY);
+  }
+
   protected boolean attemptOptimisticSimulationWithMinimumBlockGasUsed(
       final long minTxCost,
       final CallParameter callParams,
@@ -221,7 +227,7 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
       final OperationTracer operationTracer) {
 
     // If the transaction is a plain value transfer, try minTxCost. It is likely to succeed.
-    if (callParams.getPayload().isEmpty() || callParams.getPayload().get().equals(Bytes.EMPTY)) {
+    if (isPlainValueTransfer(callParams)) {
       var maybeSimpleTransferResult =
           simulationFunction.simulate(overrideGasLimit(callParams, minTxCost), operationTracer);
       return maybeSimpleTransferResult.isPresent()

@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.evm.frame;
 
+import org.hyperledger.besu.collections.undo.UndoMap;
 import org.hyperledger.besu.collections.undo.UndoScalar;
 import org.hyperledger.besu.collections.undo.UndoSet;
 import org.hyperledger.besu.collections.undo.UndoTable;
@@ -21,12 +22,14 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.internal.AddressStorageSlotKey;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
-import java.util.TreeSet;
 
 import com.google.common.collect.TreeBasedTable;
 import org.apache.tuweni.bytes.Bytes32;
@@ -51,7 +54,7 @@ public class TxValues {
   private final Deque<MessageFrame> messageFrameStack;
   private final Address miningBeneficiary;
   private final Optional<List<VersionedHash>> versionedHashes;
-  private final UndoTable<Address, Bytes32, Bytes32> transientStorage;
+  private final UndoMap<AddressStorageSlotKey, Bytes32> transientStorage;
   private final UndoSet<Address> creates;
   private final UndoSet<Address> selfDestructs;
   private final UndoScalar<Long> gasRefunds;
@@ -70,7 +73,7 @@ public class TxValues {
       final Deque<MessageFrame> messageFrameStack,
       final Address miningBeneficiary,
       final Optional<List<VersionedHash>> versionedHashes,
-      final UndoTable<Address, Bytes32, Bytes32> transientStorage,
+      final UndoMap<AddressStorageSlotKey, Bytes32> transientStorage,
       final UndoSet<Address> creates,
       final UndoSet<Address> selfDestructs,
       final UndoScalar<Long> gasRefunds,
@@ -96,10 +99,9 @@ public class TxValues {
   }
 
   /**
-   * Creates a new TxValues for the initial (depth-0) frame of a transaction. Intrinsic EIP-8037
-   * charges that should be in effect at frame entry are passed in via {@code initialStateGasUsed}
-   * and {@code initialStateGasReservoir} so the frame is constructed with its final values and no
-   * post-hoc setters / undo-mark advances are required.
+   * Creates a new TxValues for the initial (depth-0) frame of a transaction. The EIP-8037 state-gas
+   * reservoir it starts with is passed in via {@code initialStateGasReservoir} so the frame is
+   * constructed with its final value and no post-hoc setter is required.
    *
    * @param blockHashLookup block hash lookup function
    * @param maxStackSize maximum stack size
@@ -110,7 +112,6 @@ public class TxValues {
    * @param blockValues the block values
    * @param miningBeneficiary the mining beneficiary
    * @param versionedHashes optional versioned hashes
-   * @param initialStateGasUsed cumulative state gas charged at frame entry (intrinsic state gas)
    * @param initialStateGasReservoir state-gas reservoir balance at frame entry
    * @return a new TxValues instance
    */
@@ -124,12 +125,7 @@ public class TxValues {
       final BlockValues blockValues,
       final Address miningBeneficiary,
       final Optional<List<VersionedHash>> versionedHashes,
-      final long initialStateGasUsed,
       final long initialStateGasReservoir) {
-    // TreeBasedTable/TreeSet (sorted by each key's natural ordering) are used instead of
-    // HashBasedTable/HashSet: Address and Bytes32 hash with a grindable base-31 hash and never
-    // declare Comparable<Self> directly, so HashMap/HashBasedTable bucket treeification never
-    // engages, letting an attacker force O(n) bucket walks per insert.
     return new TxValues(
         blockHashLookup,
         maxStackSize,
@@ -142,11 +138,11 @@ public class TxValues {
         new ArrayDeque<>(),
         miningBeneficiary,
         versionedHashes,
-        UndoTable.of(TreeBasedTable.create()),
-        UndoSet.of(new TreeSet<>()),
-        UndoSet.of(new TreeSet<>()),
+        new UndoMap<>(new HashMap<>()),
+        UndoSet.of(new HashSet<>()),
+        UndoSet.of(new HashSet<>()),
         new UndoScalar<>(0L),
-        new UndoScalar<>(initialStateGasUsed),
+        new UndoScalar<>(0L),
         new UndoScalar<>(initialStateGasReservoir));
   }
 
@@ -270,7 +266,7 @@ public class TxValues {
    *
    * @return the transient storage
    */
-  public UndoTable<Address, Bytes32, Bytes32> transientStorage() {
+  public UndoMap<AddressStorageSlotKey, Bytes32> transientStorage() {
     return transientStorage;
   }
 
@@ -293,7 +289,7 @@ public class TxValues {
   }
 
   /**
-   * Returns the accumulated regular-gas refund counter.
+   * Returns the accumulated execution-gas refund counter.
    *
    * @return the gas refunds
    */

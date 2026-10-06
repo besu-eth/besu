@@ -455,7 +455,8 @@ public class WebSocketMessageHandlerTest {
     vertx
         .eventBus()
         .<String>consumer(SubscriptionManager.EVENTBUS_REMOVE_SUBSCRIPTIONS_ADDRESS, onRemoval)
-        .completionHandler(_ -> registered.countDown());
+        .completion()
+        .onComplete(_ -> registered.countDown());
     assertThat(registered.await(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)).isTrue();
   }
 

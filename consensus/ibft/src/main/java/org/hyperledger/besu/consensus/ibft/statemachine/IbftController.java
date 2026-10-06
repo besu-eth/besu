@@ -75,7 +75,7 @@ public class IbftController extends BaseBftController {
       case IbftV2.PROPOSAL:
         consumeMessage(
             message,
-            ProposalMessageData.fromMessageData(messageData).decode(),
+            ProposalMessageData.fromMessageData(messageData).decode(currentValidatorCount()),
             currentHeightManager::handleProposalPayload);
         break;
 

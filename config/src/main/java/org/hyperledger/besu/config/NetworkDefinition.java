@@ -18,6 +18,8 @@ import java.math.BigInteger;
 import java.util.Locale;
 import java.util.Optional;
 
+import org.jspecify.annotations.Nullable;
+
 /** The enum Network name. */
 public enum NetworkDefinition {
   /** Mainnet network name. */
@@ -119,8 +121,8 @@ public enum NetworkDefinition {
   private final long chainId;
   private final long networkId;
   private final boolean canSnapSync;
-  private final String deprecationDate;
-  private final String deprecationMessage;
+  private final @Nullable String deprecationDate;
+  private final @Nullable String deprecationMessage;
   private final boolean removed;
   private final boolean nativeRequired;
   private final long targetGasLimit;
@@ -151,8 +153,8 @@ public enum NetworkDefinition {
       final boolean canSnapSync,
       final boolean nativeRequired,
       final long targetGasLimit,
-      final String deprecationDate,
-      final String deprecationMessage,
+      final @Nullable String deprecationDate,
+      final @Nullable String deprecationMessage,
       final boolean removed) {
     this.genesisFile = genesisFile;
     this.chainId = chainId;

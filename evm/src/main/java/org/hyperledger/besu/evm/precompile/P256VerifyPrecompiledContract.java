@@ -141,12 +141,14 @@ public class P256VerifyPrecompiledContract extends AbstractPrecompiledContract {
           cacheEventConsumer.accept(new CacheEvent(PRECOMPILE_NAME, CacheMetric.HIT));
           return res.cachedResult();
         } else {
-          LOG.debug(
-              "false positive p256verify {}, cache key {}, cached input: {}, input: {}",
-              input.getClass().getSimpleName(),
-              cacheKey,
-              res.cachedInput().toHexString(),
-              input.toHexString());
+          if (LOG.isDebugEnabled()) {
+            LOG.debug(
+                "false positive p256verify {}, cache key {}, cached input: {}, input: {}",
+                input.getClass().getSimpleName(),
+                cacheKey,
+                res.cachedInput().toHexString(),
+                input.toHexString());
+          }
           cacheEventConsumer.accept(new CacheEvent(PRECOMPILE_NAME, CacheMetric.FALSE_POSITIVE));
         }
       } else {
@@ -168,7 +170,6 @@ public class P256VerifyPrecompiledContract extends AbstractPrecompiledContract {
 
     } catch (Exception e) {
       LOG.warn("P256VERIFY verification failed: {}", e.getMessage());
-      System.err.println("P256VERIFY verification failed: " + e.getMessage());
       return PrecompileContractResult.success(INVALID);
     }
   }

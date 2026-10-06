@@ -57,6 +57,7 @@ import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -67,7 +68,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * The testing_buildBlockV1 RPC method is a debugging and testing tool that simplifies the block
- * production process into a single call. It is intended to replace the multi-step workflow of
+ * production process into a single call. It is intended to replace the multistep workflow of
  * sending transactions, calling engine_forkchoiceUpdated with payloadAttributes, and then calling
  * engine_getPayload.
  *
@@ -209,7 +210,10 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
     final Bytes32 parentBeaconBlockRoot = payloadAttributes.getParentBeaconBlockRoot();
     final Long timestamp = payloadAttributes.getTimestamp();
     final Long slotNumber = payloadAttributes.getSlotNumber();
-    final Long targetGasLimit = payloadAttributes.getTargetGasLimit();
+    final long targetGasLimit =
+        Objects.requireNonNullElseGet(
+            payloadAttributes.getTargetGasLimit(),
+            () -> protocolContext.getBlockchain().getGenesisBlock().getHeader().getGasLimit());
 
     try {
       final Address coinbase = payloadAttributes.getSuggestedFeeRecipient();
@@ -241,7 +245,7 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
               Optional.of(withdrawals),
               Optional.ofNullable(parentBeaconBlockRoot),
               Optional.ofNullable(slotNumber),
-              Optional.ofNullable(targetGasLimit),
+              Optional.of(targetGasLimit),
               parentHeader);
 
       // When transactions are explicitly provided, return an error if any were not applied.

@@ -38,7 +38,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.FrontierPreExecutionProcessor;
-import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.DefaultStateRootCommitterFactory;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitterFactory;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestBlockchain;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestWorldState;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
@@ -77,7 +77,7 @@ abstract class AbstractBlockProcessorTest {
         .thenReturn(new FrontierPreExecutionProcessor());
     lenient()
         .when(protocolSpec.getStateRootCommitterFactory())
-        .thenReturn(new DefaultStateRootCommitterFactory());
+        .thenReturn(new StateRootCommitterFactory(BalConfiguration.DISABLED));
     blockProcessor =
         new TestBlockProcessor(
             transactionProcessor,
@@ -140,24 +140,22 @@ abstract class AbstractBlockProcessorTest {
     final GasCalculator gasCalculator = mock(GasCalculator.class);
     final StateGasCostCalculator stateGasCalc = mock(StateGasCostCalculator.class);
     when(gasCalculator.stateGasCostCalculator()).thenReturn(stateGasCalc);
-    when(gasCalculator.transactionIntrinsicRegularGas(tx)).thenReturn(0L);
-    when(stateGasCalc.transactionIntrinsicStateGas(tx)).thenReturn(0L);
-    when(stateGasCalc.transactionRegularGasLimit()).thenReturn(Long.MAX_VALUE);
+    when(stateGasCalc.transactionExecutionGasLimit()).thenReturn(Long.MAX_VALUE);
     when(protocolSpec.getGasCalculator()).thenReturn(gasCalculator);
 
-    // Regular=60k, State=40k. Per-dimension: worstCaseRegular = min(MAX, 50k - 0) = 50k.
-    // regularAvailable = 100k - 60k = 40k. 50k > 40k → fails AMSTERDAM per-dimension check.
+    // Execution=60k, State=40k. Per-dimension: worstCaseExecution = min(MAX, 50k) = 50k.
+    // executionAvailable = 100k - 60k = 40k. 50k > 40k → fails AMSTERDAM per-dimension check.
     when(protocolSpec.getBlockGasAccountingStrategy())
         .thenReturn(BlockGasAccountingStrategy.AMSTERDAM);
     assertThat(blockProcessor.hasAvailableBlockBudget(header, tx, 60_000L, 40_000L, protocolSpec))
         .isFalse();
 
-    // txGasLimit=40k: worstCaseRegular=40k <= 40k, worstCaseState=40k <= 60k → passes AMSTERDAM.
+    // txGasLimit=40k: worstCaseExecution=40k <= 40k, worstCaseState=40k <= 60k → passes AMSTERDAM.
     when(tx.getGasLimit()).thenReturn(40_000L);
     assertThat(blockProcessor.hasAvailableBlockBudget(header, tx, 60_000L, 40_000L, protocolSpec))
         .isTrue();
 
-    // Same scenario with FRONTIER (1D check, only regular): 40k <= 100k-60k=40k → passes
+    // Same scenario with FRONTIER (1D check, only execution): 40k <= 100k-60k=40k → passes
     when(protocolSpec.getBlockGasAccountingStrategy())
         .thenReturn(BlockGasAccountingStrategy.FRONTIER);
     assertThat(blockProcessor.hasAvailableBlockBudget(header, tx, 60_000L, 40_000L, protocolSpec))

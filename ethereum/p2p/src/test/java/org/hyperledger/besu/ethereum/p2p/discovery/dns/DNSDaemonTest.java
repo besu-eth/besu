@@ -52,7 +52,9 @@ class DNSDaemonTest {
   @BeforeEach
   @DisplayName("Deploy Mock Dns Server Verticle")
   void prepare(final Vertx vertx, final VertxTestContext vertxTestContext) {
-    vertx.deployVerticle(mockDnsServerVerticle, vertxTestContext.succeedingThenComplete());
+    vertx
+        .deployVerticle(mockDnsServerVerticle)
+        .onComplete(vertxTestContext.succeedingThenComplete());
   }
 
   @Test
@@ -92,7 +94,7 @@ class DNSDaemonTest {
             0,
             1L,
             0,
-            "localhost:" + mockDnsServerVerticle.port());
+            "127.0.0.1:" + mockDnsServerVerticle.port());
 
     final DeploymentOptions options =
         new DeploymentOptions()
@@ -138,7 +140,7 @@ class DNSDaemonTest {
             0,
             1L,
             0,
-            "localhost:" + mockDnsServerVerticle.port());
+            "127.0.0.1:" + mockDnsServerVerticle.port());
 
     mockDnsServerVerticle.addTxtRecord(
         "FDXN3SN67NA5DKA4J2GOK7BVQI.all.holesky.ethdisco.net",
@@ -211,7 +213,7 @@ class DNSDaemonTest {
             0,
             1, // initial delay
             3000, // second lookup after 3 seconds (the thread scheduling can be slower in CI)
-            "localhost:" + mockDnsServerVerticle.port());
+            "127.0.0.1:" + mockDnsServerVerticle.port());
 
     final DeploymentOptions options =
         new DeploymentOptions()

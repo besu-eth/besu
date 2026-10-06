@@ -15,6 +15,7 @@
 package org.hyperledger.besu.consensus.qbft.core.validation;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.consensus.qbft.core.validation.RoundChangePayloadValidator.MAX_ALLOWED_ROUND;
 
 import org.hyperledger.besu.consensus.common.bft.ConsensusRoundIdentifier;
 import org.hyperledger.besu.consensus.common.bft.payload.SignedData;
@@ -146,6 +147,28 @@ public class RoundChangePayloadValidatorTest {
     final SignedData<RoundChangePayload> signedPayload =
         createSignedPayload(payload, validators.getNode(0).getNodeKey());
     assertThat(messageValidator.validate(signedPayload)).isFalse();
+  }
+
+  @Test
+  public void roundChangeWithExcessiveTargetRoundFails() {
+    final RoundChangePayload payload =
+        new RoundChangePayload(
+            new ConsensusRoundIdentifier(chainHeight, MAX_ALLOWED_ROUND + 1), Optional.empty());
+
+    final SignedData<RoundChangePayload> signedPayload =
+        createSignedPayload(payload, validators.getNode(0).getNodeKey());
+    assertThat(messageValidator.validate(signedPayload)).isFalse();
+  }
+
+  @Test
+  public void roundChangeAtMaxAllowedRoundPasses() {
+    final RoundChangePayload payload =
+        new RoundChangePayload(
+            new ConsensusRoundIdentifier(chainHeight, MAX_ALLOWED_ROUND), Optional.empty());
+
+    final SignedData<RoundChangePayload> signedPayload =
+        createSignedPayload(payload, validators.getNode(0).getNodeKey());
+    assertThat(messageValidator.validate(signedPayload)).isTrue();
   }
 
   private SignedData<RoundChangePayload> createSignedPayload(

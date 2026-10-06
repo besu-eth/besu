@@ -58,8 +58,8 @@ import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStoragePrefixedKeyBlockchainStorage;
 import org.hyperledger.besu.ethereum.storage.keyvalue.VariablesKeyValueStorage;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
@@ -79,6 +79,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
@@ -220,6 +223,64 @@ public class BesuEventsImplTest {
 
     clearSyncTarget();
     assertThat(result.get()).isNull();
+  }
+
+  /**
+   * A sync-status listener registered through {@code BesuEvents.addSyncStatusListener} is invoked
+   * by SyncState on whichever thread changed the sync target. If SyncState holds its own monitor
+   * across that callback, any plugin listener that waits on another thread causes the node to hang.
+   */
+  @Test
+  public void pluginSyncStatusListenerWaitingOnAnotherThreadDoesNotBlockBlockImport()
+      throws Exception {
+    final CountDownLatch inPluginCallback = new CountDownLatch(1);
+    final CountDownLatch blockAppended = new CountDownLatch(1);
+    final AtomicBoolean importProgressedDuringCallback = new AtomicBoolean();
+
+    // The same call ReadinessCheckPlugin.start() makes, with a listener that waits on a worker
+    // instead of assigning a field.
+    serviceImpl.addSyncStatusListener(
+        _ -> {
+          inPluginCallback.countDown();
+          try {
+            importProgressedDuringCallback.set(blockAppended.await(5, TimeUnit.SECONDS));
+          } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+          }
+        });
+
+    final Thread importer =
+        new Thread(
+            () -> {
+              try {
+                if (!inPluginCallback.await(5, TimeUnit.SECONDS)) {
+                  return;
+                }
+                // Appending fires SyncState's own block-added observer, which calls the
+                // synchronized checkInSync() on this thread.
+                final Block block =
+                    gen.block(
+                        new BlockDataGenerator.BlockOptions()
+                            .setParentHash(blockchain.getGenesisBlock().getHash()));
+                blockchain.appendBlock(block, gen.receipts(block));
+              } catch (final InterruptedException e) {
+                Thread.currentThread().interrupt();
+              } finally {
+                blockAppended.countDown();
+              }
+            },
+            "block-importer");
+    importer.start();
+
+    // Publishes on this thread, as the chain-download loop does in production.
+    setSyncTarget();
+    importer.join(TimeUnit.SECONDS.toMillis(30));
+
+    assertThat(importProgressedDuringCallback)
+        .withFailMessage(
+            "a block import could not proceed while a plugin sync-status listener was running: "
+                + "SyncState is holding its monitor across subscriber callbacks")
+        .isTrue();
   }
 
   private void setSyncTarget() {
@@ -368,26 +429,50 @@ public class BesuEventsImplTest {
   public void reorgedBlockEventDoesNotFireAfterUnsubscribe() {
     final AtomicReference<AddedBlockContext> result = new AtomicReference<>();
     final long id = serviceImpl.addBlockReorgListener(result::set);
-    assertThat(result.get()).isNull();
-
     serviceImpl.removeBlockReorgListener(id);
-    result.set(null);
 
+    appendReorg();
+    assertThat(result.get()).isNull();
+  }
+
+  @Test
+  public void removingReorgListenerDoesNotRemoveBlockAddedListener() {
+    // block-added and reorg observers are numbered independently, so a reorg id can collide with
+    // a block-added id; removing the reorg listener must not touch the block-added one
+    final AtomicReference<AddedBlockContext> added = new AtomicReference<>();
+    final AtomicReference<AddedBlockContext> reorged = new AtomicReference<>();
+    serviceImpl.addBlockAddedListener(added::set);
+    final long reorgId = serviceImpl.addBlockReorgListener(reorged::set);
+    serviceImpl.removeBlockReorgListener(reorgId);
+
+    appendReorg();
+    assertThat(added.get()).isNotNull();
+    assertThat(reorged.get()).isNull();
+  }
+
+  private void appendReorg() {
     final var block =
         gen.block(
             new BlockDataGenerator.BlockOptions()
                 .setParentHash(blockchain.getGenesisBlock().getHash())
                 .setBlockNumber(blockchain.getGenesisBlock().getHeader().getNumber() + 1));
     blockchain.appendBlock(block, gen.receipts(block));
-    assertThat(result.get()).isNull();
+
+    final var forkBlock =
+        gen.block(
+            new BlockDataGenerator.BlockOptions()
+                .setParentHash(blockchain.getGenesisBlock().getHash())
+                .setDifficulty(block.getHeader().getDifficulty().subtract(1))
+                .setBlockNumber(blockchain.getGenesisBlock().getHeader().getNumber() + 1));
+    blockchain.appendBlock(forkBlock, gen.receipts(forkBlock));
 
     final var reorgBlock =
         gen.block(
             new BlockDataGenerator.BlockOptions()
-                .setParentHash(blockchain.getGenesisBlock().getHash())
-                .setBlockNumber(blockchain.getGenesisBlock().getHeader().getNumber() + 1));
+                .setParentHash(forkBlock.getHash())
+                .setDifficulty(Difficulty.of(10000000))
+                .setBlockNumber(forkBlock.getHeader().getNumber() + 1));
     blockchain.appendBlock(reorgBlock, gen.receipts(reorgBlock));
-    assertThat(result.get()).isNull();
   }
 
   @Test

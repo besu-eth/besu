@@ -14,7 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.worldstate;
 
-import org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.PathBasedUnstable;
+import org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration.Unstable;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
 import org.immutables.value.Value;
@@ -30,7 +30,7 @@ public interface DataStorageConfiguration {
   DataStorageConfiguration DEFAULT_CONFIG =
       ImmutableDataStorageConfiguration.builder()
           .dataStorageFormat(DataStorageFormat.BONSAI)
-          .pathBasedExtraStorageConfiguration(PathBasedExtraStorageConfiguration.DEFAULT)
+          .extraStorageConfiguration(ExtraStorageConfiguration.DEFAULT)
           .build();
 
   DataStorageConfiguration DEFAULT_BONSAI_CONFIG = DEFAULT_CONFIG;
@@ -43,23 +43,21 @@ public interface DataStorageConfiguration {
   DataStorageConfiguration DEFAULT_BONSAI_PARTIAL_DB_CONFIG =
       ImmutableDataStorageConfiguration.builder()
           .dataStorageFormat(DataStorageFormat.BONSAI)
-          .pathBasedExtraStorageConfiguration(
-              ImmutablePathBasedExtraStorageConfiguration.builder()
-                  .unstable(PathBasedUnstable.PARTIAL_MODE)
-                  .build())
+          .extraStorageConfiguration(
+              ImmutableExtraStorageConfiguration.builder().unstable(Unstable.PARTIAL_MODE).build())
           .build();
 
   DataStorageConfiguration DEFAULT_FOREST_CONFIG =
       ImmutableDataStorageConfiguration.builder()
           .dataStorageFormat(DataStorageFormat.FOREST)
-          .pathBasedExtraStorageConfiguration(PathBasedExtraStorageConfiguration.DISABLED)
+          .extraStorageConfiguration(ExtraStorageConfiguration.DISABLED)
           .build();
 
   DataStorageFormat getDataStorageFormat();
 
   @Value.Default
-  default PathBasedExtraStorageConfiguration getPathBasedExtraStorageConfiguration() {
-    return PathBasedExtraStorageConfiguration.DEFAULT;
+  default ExtraStorageConfiguration getExtraStorageConfiguration() {
+    return ExtraStorageConfiguration.DEFAULT;
   }
 
   @Value.Default

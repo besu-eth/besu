@@ -104,6 +104,7 @@ public class TransactionPoolSaveRestoreTest extends AbstractTransactionPoolTestB
             transactionReplacementTester,
             new BlobCache());
     return new LayeredPendingTransactions(
+        protocolContext,
         poolConfig,
         new BaseFeePrioritizedTransactions(
             poolConfig,

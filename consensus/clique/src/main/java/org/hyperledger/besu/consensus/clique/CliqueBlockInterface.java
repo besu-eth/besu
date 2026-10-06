@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.consensus.clique;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 import org.hyperledger.besu.consensus.common.BlockInterface;
 import org.hyperledger.besu.consensus.common.validator.ValidatorVote;
 import org.hyperledger.besu.consensus.common.validator.VoteType;
@@ -64,6 +66,7 @@ public class CliqueBlockInterface implements BlockInterface {
     if (!candidate.equals(NO_VOTE_SUBJECT)) {
       final Address proposer = getProposerOfBlock(header);
       final VoteType votePolarity = voteToValue.inverse().get(header.getNonce());
+      checkArgument(votePolarity != null, "Header nonce does not contain a valid vote value");
       final Address recipient = header.getCoinbase();
 
       return Optional.of(new ValidatorVote(votePolarity, proposer, recipient));
@@ -81,15 +84,22 @@ public class CliqueBlockInterface implements BlockInterface {
   public static BlockHeaderBuilder createHeaderBuilderWithVoteHeaders(
       final BlockHeaderBuilder builder, final Optional<ValidatorVote> vote) {
     final BlockHeaderBuilder voteHeaderBuilder = BlockHeaderBuilder.fromBuilder(builder);
-    if (vote.isPresent()) {
-      final ValidatorVote voteToCast = vote.get();
-      voteHeaderBuilder.nonce(voteToValue.get(voteToCast.getVotePolarity()));
-      voteHeaderBuilder.coinbase(voteToCast.getRecipient());
-    } else {
-      voteHeaderBuilder.nonce(voteToValue.get(VoteType.DROP));
-      voteHeaderBuilder.coinbase(NO_VOTE_SUBJECT);
-    }
+    vote.ifPresentOrElse(
+        voteToCast -> {
+          voteHeaderBuilder.nonce(getVoteValue(voteToCast.getVotePolarity()));
+          voteHeaderBuilder.coinbase(voteToCast.getRecipient());
+        },
+        () -> {
+          voteHeaderBuilder.nonce(getVoteValue(VoteType.DROP));
+          voteHeaderBuilder.coinbase(NO_VOTE_SUBJECT);
+        });
     return voteHeaderBuilder;
+  }
+
+  private static long getVoteValue(final VoteType voteType) {
+    final Long voteValue = voteToValue.get(voteType);
+    checkArgument(voteValue != null, "Vote type %s does not have a configured nonce", voteType);
+    return voteValue;
   }
 
   @Override

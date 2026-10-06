@@ -85,6 +85,7 @@ import io.vertx.core.http.HttpServerOptions;
 import io.vertx.core.http.HttpServerRequest;
 import io.vertx.core.http.HttpServerResponse;
 import io.vertx.core.http.ServerWebSocket;
+import io.vertx.core.http.ServerWebSocketHandshake;
 import io.vertx.core.net.HostAndPort;
 import io.vertx.core.net.PfxOptions;
 import io.vertx.core.net.SocketAddress;
@@ -232,12 +233,13 @@ public class EngineJsonRpcService {
     try {
       // Create the HTTP server and a router object.
       httpServer = vertx.createHttpServer(getHttpServerOptions());
-      httpServer.webSocketHandler(webSocketHandler());
+      httpServer.webSocketHandshakeHandler(webSocketHandshakeHandler());
       httpServer.connectionHandler(connectionHandler());
 
       httpServer
           .requestHandler(buildRouter())
-          .listen(
+          .listen()
+          .onComplete(
               res -> {
                 if (!res.failed()) {
                   resultFuture.complete(null);
@@ -284,15 +286,17 @@ public class EngineJsonRpcService {
     }
 
     final CompletableFuture<Void> resultFuture = new CompletableFuture<>();
-    httpServer.close(
-        res -> {
-          if (res.failed()) {
-            resultFuture.completeExceptionally(res.cause());
-          } else {
-            httpServer = null;
-            resultFuture.complete(null);
-          }
-        });
+    httpServer
+        .close()
+        .onComplete(
+            res -> {
+              if (res.failed()) {
+                resultFuture.completeExceptionally(res.cause());
+              } else {
+                httpServer = null;
+                resultFuture.complete(null);
+              }
+            });
     return resultFuture;
   }
 
@@ -332,13 +336,11 @@ public class EngineJsonRpcService {
     };
   }
 
-  private Handler<ServerWebSocket> webSocketHandler() {
-    return websocket -> {
-      final SocketAddress socketAddress = websocket.remoteAddress();
-      final String connectionId = websocket.textHandlerID();
+  private Handler<ServerWebSocketHandshake> webSocketHandshakeHandler() {
+    return handshake -> {
       final String token =
           AuthenticationUtils.getJwtTokenFromAuthorizationHeaderValue(
-              websocket.headers().get("Authorization"));
+              handshake.headers().get("Authorization"));
       if (token != null) {
         LOG.atTrace()
             .setMessage("JWT authentication token {}")
@@ -347,8 +349,9 @@ public class EngineJsonRpcService {
       }
 
       if (!hostIsInAllowlist(
-          Optional.ofNullable(websocket.headers().get("Host")).orElse("NOHOST"))) {
-        websocket.reject(403);
+          Optional.ofNullable(handshake.headers().get("Host")).orElse("NOHOST"))) {
+        handshake.reject(403);
+        return;
       }
 
       if (authenticationService.isPresent()) {
@@ -358,40 +361,53 @@ public class EngineJsonRpcService {
                 token,
                 user -> {
                   if (user.isEmpty()) {
-                    websocket.reject(403);
+                    handshake.reject(403);
                   } else {
-                    final Handler<Buffer> socketHandler =
-                        handlerForUser(socketAddress, websocket, user);
-                    websocket.textMessageHandler(text -> socketHandler.handle(Buffer.buffer(text)));
-                    websocket.binaryMessageHandler(socketHandler);
+                    acceptWebSocketHandshake(handshake, user);
                   }
                 });
       } else {
-        final Handler<Buffer> socketHandler =
-            handlerForUser(socketAddress, websocket, Optional.empty());
-        websocket.textMessageHandler(text -> socketHandler.handle(Buffer.buffer(text)));
-        websocket.binaryMessageHandler(socketHandler);
+        acceptWebSocketHandshake(handshake, Optional.empty());
       }
-      String addr = socketAddressAsString(socketAddress);
-      LOG.debug("Websocket Connected ({})", addr);
-
-      websocket.closeHandler(
-          v -> {
-            LOG.debug("Websocket Disconnected ({})", socketAddressAsString(socketAddress));
-            vertx
-                .eventBus()
-                .publish(SubscriptionManager.EVENTBUS_REMOVE_SUBSCRIPTIONS_ADDRESS, connectionId);
-          });
-
-      websocket.exceptionHandler(
-          t -> {
-            LOG.debug(
-                "Unrecoverable error on Websocket: {} ({})",
-                t.getMessage(),
-                socketAddressAsString(socketAddress));
-            websocket.close();
-          });
     };
+  }
+
+  private void acceptWebSocketHandshake(
+      final ServerWebSocketHandshake handshake, final Optional<User> user) {
+    handshake
+        .accept()
+        .onSuccess(
+            websocket -> {
+              final SocketAddress socketAddress = websocket.remoteAddress();
+              final String connectionId = websocket.textHandlerID();
+
+              final Handler<Buffer> socketHandler = handlerForUser(socketAddress, websocket, user);
+              websocket.textMessageHandler(text -> socketHandler.handle(Buffer.buffer(text)));
+              websocket.binaryMessageHandler(socketHandler);
+
+              String addr = socketAddressAsString(socketAddress);
+              LOG.debug("Websocket Connected ({})", addr);
+
+              websocket.closeHandler(
+                  v -> {
+                    LOG.debug("Websocket Disconnected ({})", socketAddressAsString(socketAddress));
+                    vertx
+                        .eventBus()
+                        .publish(
+                            SubscriptionManager.EVENTBUS_REMOVE_SUBSCRIPTIONS_ADDRESS,
+                            connectionId);
+                  });
+
+              websocket.exceptionHandler(
+                  t -> {
+                    LOG.debug(
+                        "Unrecoverable error on Websocket: {} ({})",
+                        t.getMessage(),
+                        socketAddressAsString(socketAddress));
+                    websocket.close();
+                  });
+            })
+        .onFailure(t -> LOG.debug("Failed to accept websocket handshake", t));
   }
 
   @NotNull
@@ -553,7 +569,7 @@ public class EngineJsonRpcService {
       try {
         httpServerOptions
             .setSsl(true)
-            .setPfxKeyCertOptions(
+            .setKeyCertOptions(
                 new PfxOptions()
                     .setPath(tlsConfiguration.getKeyStorePath().toString())
                     .setPassword(tlsConfiguration.getKeyStorePassword()))

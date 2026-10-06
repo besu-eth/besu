@@ -173,7 +173,7 @@ public class FilterManagerLogFilterTest {
 
   @Test
   public void getLogsForAbsentFilterReturnsNull() {
-    assertThat(filterManager.logs("NOTTHERE")).isNull();
+    assertThat(filterManager.logs("NOTTHERE", () -> true)).isNull();
   }
 
   @Test
@@ -184,7 +184,7 @@ public class FilterManagerLogFilterTest {
         .thenReturn(singletonList(log));
 
     final String filterId = filterManager.installLogFilter(latest(), latest(), logsQuery());
-    final List<LogWithMetadata> retrievedLogs = filterManager.logs(filterId);
+    final List<LogWithMetadata> retrievedLogs = filterManager.logs(filterId, () -> true);
 
     assertThat(retrievedLogs).usingRecursiveComparison().isEqualTo(singletonList(log));
   }
@@ -206,7 +206,7 @@ public class FilterManagerLogFilterTest {
         spy(new LogFilter("foo", latest(), latest(), logsQuery(), DEFAULT_FILTER_TIMEOUT));
     doReturn(Optional.of(filter)).when(filterRepository).getFilter(eq("foo"), eq(LogFilter.class));
 
-    filterManager.logs("foo");
+    filterManager.logs("foo", () -> true);
 
     verify(filter).resetExpireTime();
   }

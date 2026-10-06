@@ -155,6 +155,48 @@ class JsonRpcMethodsFactoryTest {
     assertThat(rpcMethods).containsKey("engine_newPayloadV4");
   }
 
+  @Test
+  public void shouldExposeEthGetRawTransactionByHashWhenEthApiEnabled() {
+    final JsonRpcConfiguration jsonRpcConfiguration = JsonRpcConfiguration.createDefault();
+    final Map<String, JsonRpcMethod> rpcMethods =
+        new JsonRpcMethodsFactory()
+            .methods(
+                CLIENT_NODE_NAME,
+                CLIENT_VERSION,
+                CLIENT_COMMIT,
+                NETWORK_ID,
+                new StubGenesisConfigOptions(),
+                mock(P2PNetwork.class),
+                blockchainQueries,
+                mock(Synchronizer.class),
+                pragueAllMilestonesZeroProtocolSchedule,
+                mock(ProtocolContext.class),
+                mock(FilterManager.class),
+                mock(TransactionPool.class),
+                mock(MiningConfiguration.class),
+                mergeCoordinator,
+                new NoOpMetricsSystem(),
+                supportedCapabilities,
+                Optional.of(mock(AccountLocalConfigPermissioningController.class)),
+                Optional.of(mock(NodeLocalConfigPermissioningController.class)),
+                jsonRpcConfiguration.getRpcApis(),
+                mock(JsonRpcConfiguration.class),
+                mock(WebSocketConfiguration.class),
+                mock(MetricsConfiguration.class),
+                mock(GraphQLConfiguration.class),
+                natService,
+                new HashMap<>(),
+                folder,
+                mock(EthPeers.class),
+                vertx,
+                mock(ApiConfiguration.class),
+                Optional.empty(),
+                mock(TransactionSimulator.class),
+                new DeterministicEthScheduler());
+
+    assertThat(rpcMethods).containsKey("eth_getRawTransactionByHash");
+  }
+
   private GenesisConfigOptions getPragueAllZeroMilestonesConfigOptions() {
     return getGenesisConfigOptions("/prague_all_milestones_zero.json");
   }

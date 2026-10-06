@@ -1,0 +1,30 @@
+{
+  "comment" : "An invalid call (value above the sender's balance) after a valid one returns a single JSON-RPC error, not an error envelope inside a successful result",
+  "request" : {
+    "method" : "trace_callMany",
+    "params" : [ [ [ {
+      "from" : "0xfe3b557e8fb62b89f4916b721be55ceb828dbd73",
+      "to" : "0x0010000000000000000000000000000000000000",
+      "gas" : "0xfffff2",
+      "gasPrice" : "0xef",
+      "value" : "0x0"
+    }, [ "trace" ] ], [ {
+      "from" : "0xfe3b557e8fb62b89f4916b721be55ceb828dbd73",
+      "to" : "0x0010000000000000000000000000000000000000",
+      "gas" : "0xfffff2",
+      "gasPrice" : "0xef",
+      "value" : "0x1000000000000000000000000000000000000000000"
+    }, [ "trace" ] ] ], "latest" ],
+    "id" : 1,
+    "jsonrpc" : "2.0"
+  },
+  "response" : {
+    "jsonrpc" : "2.0",
+    "id" : 1,
+    "error" : {
+      "code" : -32603,
+      "message" : "Internal error"
+    }
+  },
+  "statusCode" : 200
+}

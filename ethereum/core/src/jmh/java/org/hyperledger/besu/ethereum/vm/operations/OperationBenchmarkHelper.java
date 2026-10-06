@@ -65,7 +65,7 @@ public class OperationBenchmarkHelper {
     final OptimisticRocksDBColumnarKeyValueStorage optimisticRocksDBColumnarKeyValueStorage =
         new OptimisticRocksDBColumnarKeyValueStorage(
             new RocksDBConfigurationBuilder().databaseDir(storageDirectory).build(),
-            List.of(KeyValueSegmentIdentifier.BLOCKCHAIN),
+            List.of(KeyValueSegmentIdentifier.DEFAULT, KeyValueSegmentIdentifier.BLOCKCHAIN),
             emptyList(),
             new NoOpMetricsSystem(),
             RocksDBMetricsFactory.PUBLIC_ROCKS_DB_METRICS);
@@ -114,21 +114,23 @@ public class OperationBenchmarkHelper {
   }
 
   public MessageFrame.Builder createMessageFrameBuilder() {
-    return MessageFrame.builder()
-        .parentMessageFrame(messageFrame)
-        .type(MessageFrame.Type.MESSAGE_CALL)
-        .worldUpdater(messageFrame.getWorldUpdater())
-        .initialGas(messageFrame.getRemainingGas())
-        .address(messageFrame.getContractAddress())
-        .contract(messageFrame.getRecipientAddress())
-        .inputData(messageFrame.getInputData())
-        .eip7928AccessList(messageFrame.getEip7928AccessList().get())
-        .sender(messageFrame.getSenderAddress())
-        .value(messageFrame.getValue())
-        .apparentValue(messageFrame.getApparentValue())
-        .code(messageFrame.getCode())
-        .isStatic(messageFrame.isStatic())
-        .completer(frame -> {});
+    final MessageFrame.Builder builder =
+        MessageFrame.builder()
+            .parentMessageFrame(messageFrame)
+            .type(MessageFrame.Type.MESSAGE_CALL)
+            .worldUpdater(messageFrame.getWorldUpdater())
+            .initialGas(messageFrame.getRemainingGas())
+            .address(messageFrame.getContractAddress())
+            .contract(messageFrame.getRecipientAddress())
+            .inputData(messageFrame.getInputData())
+            .sender(messageFrame.getSenderAddress())
+            .value(messageFrame.getValue())
+            .apparentValue(messageFrame.getApparentValue())
+            .code(messageFrame.getCode())
+            .isStatic(messageFrame.isStatic())
+            .completer(frame -> {});
+    messageFrame.getEip7928AccessList().ifPresent(builder::eip7928AccessList);
+    return builder;
   }
 
   public void cleanUp() throws IOException {

@@ -60,6 +60,7 @@ public class EngineGetPayloadBodiesByHashV2Test extends EngineGetPayloadBodiesBy
             .mergeCoordinator(mock(MergeMiningCoordinator.class))
             .ethPeers(mock(EthPeers.class))
             .metricsSystem(new NoOpMetricsSystem())
+            .transactionPool(transactionPool)
             .maxRequestBlocks(maxRequestBlocks)
             .build(),
         null,

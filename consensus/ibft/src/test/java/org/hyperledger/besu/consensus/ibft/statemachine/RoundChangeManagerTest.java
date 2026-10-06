@@ -15,6 +15,7 @@
 package org.hyperledger.besu.consensus.ibft.statemachine;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.consensus.ibft.validation.RoundChangePayloadValidator.MAX_ALLOWED_ROUND;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -215,6 +216,15 @@ public class RoundChangeManagerTest {
     assertThat(manager.appendRoundChangeMessage(roundChangeDataValidator2))
         .isEqualTo(Optional.empty());
     assertThat(manager.roundChangeCache.get(ri2).receivedMessages.size()).isEqualTo(2);
+  }
+
+  @Test
+  public void rejectsRoundChangeMessageWithExcessiveRoundNumber() {
+    final ConsensusRoundIdentifier excessiveRound =
+        new ConsensusRoundIdentifier(2, MAX_ALLOWED_ROUND + 1);
+    final RoundChange roundChangeData = makeRoundChangeMessage(proposerKey, excessiveRound);
+    assertThat(manager.appendRoundChangeMessage(roundChangeData)).isEmpty();
+    assertThat(manager.roundChangeCache.get(excessiveRound)).isNull();
   }
 
   @Test

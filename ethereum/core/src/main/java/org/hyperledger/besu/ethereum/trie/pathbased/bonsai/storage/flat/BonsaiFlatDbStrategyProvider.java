@@ -16,9 +16,7 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat;
 
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 
-import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.CodeStorageStrategy;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.FlatDbStrategy;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.FlatDbStrategyProvider;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.CodeStorageStrategy;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
@@ -41,7 +39,7 @@ public class BonsaiFlatDbStrategyProvider extends FlatDbStrategyProvider {
   protected FlatDbMode getRequestedFlatDbMode(
       final DataStorageConfiguration dataStorageConfiguration) {
     return dataStorageConfiguration
-            .getPathBasedExtraStorageConfiguration()
+            .getExtraStorageConfiguration()
             .getUnstable()
             .getFullFlatDbEnabled()
         ? FlatDbMode.FULL
@@ -69,17 +67,6 @@ public class BonsaiFlatDbStrategyProvider extends FlatDbStrategyProvider {
     LOG.info("setting FlatDbStrategy to ARCHIVE");
     transaction.put(
         TRIE_BRANCH_STORAGE, FLAT_DB_MODE, FlatDbMode.ARCHIVE.getVersion().toArrayUnsafe());
-    transaction.commit();
-    loadFlatDbStrategy(composedWorldStateStorage); // force reload of flat db reader strategy
-  }
-
-  public void downgradeToPartialFlatDbMode(
-      final SegmentedKeyValueStorage composedWorldStateStorage) {
-    final SegmentedKeyValueStorageTransaction transaction =
-        composedWorldStateStorage.startTransaction();
-    LOG.info("setting FlatDbStrategy to PARTIAL");
-    transaction.put(
-        TRIE_BRANCH_STORAGE, FLAT_DB_MODE, FlatDbMode.PARTIAL.getVersion().toArrayUnsafe());
     transaction.commit();
     loadFlatDbStrategy(composedWorldStateStorage); // force reload of flat db reader strategy
   }

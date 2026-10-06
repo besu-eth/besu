@@ -22,6 +22,8 @@ import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
+import java.util.Objects;
+
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -30,7 +32,7 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.jspecify.annotations.Nullable;
 
 /** A 160-bits account address. */
-public class Address extends BytesHolder {
+public final class Address extends BytesHolder implements Comparable<Address> {
 
   /** The constant SIZE. */
   public static final int SIZE = 20;
@@ -100,7 +102,7 @@ public class Address extends BytesHolder {
    *
    * @param bytes the bytes
    */
-  protected Address(final Bytes bytes) {
+  private Address(final Bytes bytes) {
     super(bytes);
   }
 
@@ -183,12 +185,7 @@ public class Address extends BytesHolder {
   public static Address fromHexStringStrict(final String str) {
     checkArgument(str != null);
     final Bytes value = Bytes.fromHexString(str);
-    checkArgument(
-        value.size() == SIZE,
-        "An account address must be %s bytes long, got %s",
-        SIZE,
-        value.size());
-    return new Address(value);
+    return wrap(value);
   }
 
   /**
@@ -234,5 +231,21 @@ public class Address extends BytesHolder {
    */
   public Hash addressHash() {
     return hashCache.get(this, k -> Hash.hash(k.getBytes()));
+  }
+
+  /**
+   * Compares this Address with another for ordering.
+   *
+   * <p>The comparison is performed lexicographically on the underlying byte sequences.
+   *
+   * @param address the Address to compare with
+   * @return a negative integer, zero, or a positive integer as this Address is less than, equal to,
+   *     or greater than the specified Address
+   * @throws NullPointerException if address is null
+   */
+  @Override
+  public int compareTo(final Address address) {
+    Objects.requireNonNull(address, "address cannot be null");
+    return getBytes().compareTo(address.getBytes());
   }
 }

@@ -24,7 +24,7 @@ import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.MainnetProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ScheduleBasedBlockHeaderFunctions;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.util.RawBlockIterator;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
@@ -65,7 +65,7 @@ public class BlockchainImporter {
 
     genesisBlock = blocks.get(0);
     // only used in tests no global code cache is needed
-    genesisState = GenesisState.fromJson(genesisJson, protocolSchedule, new PathBasedCodeCache());
+    genesisState = GenesisState.fromJson(genesisJson, protocolSchedule, new BonsaiCodeCache());
   }
 
   public GenesisState getGenesisState() {

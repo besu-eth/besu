@@ -181,9 +181,19 @@ public class PeerTaskExecutor {
             new PeerTaskExecutorResult<>(
                 Optional.empty(), PeerTaskExecutorResponseCode.PEER_DISCONNECTED, List.of(peer));
 
-      } catch (InterruptedException | TimeoutException e) {
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
         peer.recordRequestTimeout(peerTaskSubProtocol.getName(), requestMessageData.getCode());
         timeoutCounter.labels(taskClassName).inc();
+        LOG.debug("Interrupted executing {} against peer {}", taskClassName, peer.getLoggableId());
+        executorResult =
+            new PeerTaskExecutorResult<>(
+                Optional.empty(), PeerTaskExecutorResponseCode.TIMEOUT, List.of(peer));
+
+      } catch (TimeoutException e) {
+        peer.recordRequestTimeout(peerTaskSubProtocol.getName(), requestMessageData.getCode());
+        timeoutCounter.labels(taskClassName).inc();
+        LOG.debug("Timeout executing {} against peer {}", taskClassName, peer.getLoggableId());
         executorResult =
             new PeerTaskExecutorResult<>(
                 Optional.empty(), PeerTaskExecutorResponseCode.TIMEOUT, List.of(peer));

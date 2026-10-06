@@ -42,6 +42,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
@@ -67,6 +68,7 @@ public class EngineGetPayloadBodiesByRangeV1Test extends AbstractScheduledApiTes
   @Mock protected ProtocolContext protocolContext;
   @Mock protected EngineCallListener engineCallListener;
   @Mock protected MutableBlockchain blockchain;
+  @Mock protected TransactionPool transactionPool;
 
   @Override
   @BeforeEach
@@ -85,6 +87,7 @@ public class EngineGetPayloadBodiesByRangeV1Test extends AbstractScheduledApiTes
             .mergeCoordinator(mock(MergeMiningCoordinator.class))
             .ethPeers(mock(EthPeers.class))
             .metricsSystem(new NoOpMetricsSystem())
+            .transactionPool(transactionPool)
             .maxRequestBlocks(maxRequestBlocks)
             .build(),
         null,

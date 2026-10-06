@@ -268,7 +268,7 @@ public class BaseTransactionPoolTest extends TrustedSetupClassLoaderExtension {
         final var versionedHashes =
             blobProofBundles.stream().map(BlobProofBundle::getVersionedHash).toList();
 
-        final var blobsWithCommitments = new BlobsWithCommitments(blobProofBundles);
+        final var blobsWithCommitments = BlobsWithCommitments.createFromBundles(blobProofBundles);
 
         tx.versionedHashes(Optional.of(versionedHashes));
         tx.blobsWithCommitments(Optional.of(blobsWithCommitments));
