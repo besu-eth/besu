@@ -489,6 +489,21 @@ public class EthEstimateGasTest {
   }
 
   @Test
+  public void omittedBlockParameterEstimatesOnLatestBlock() {
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest(
+                "2.0", "eth_estimateGas", new Object[] {eip1559TransactionCallParameter()}));
+    mockTransientProcessorResultGasEstimate(MIN_TX_GAS_COST, true, false, latestBlockHeader);
+
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcSuccessResponse(null, Quantity.create(MIN_TX_GAS_COST));
+
+    assertThat(method.response(request)).usingRecursiveComparison().isEqualTo(expectedResponse);
+    verify(transactionSimulator, times(0)).simulatePendingBlockHeader();
+  }
+
+  @Test
   public void shouldUseBlockHashNotParentHashForBalanceLookup() {
     // Set up distinct hashes so we can verify the correct one is used
     final Hash latestBlockHash = Hash.wrap(Bytes32.fromHexString("0x" + "aa".repeat(32)));
@@ -806,8 +821,7 @@ public class EthEstimateGasTest {
   }
 
   private JsonRpcRequestContext ethEstimateGasRequest(final CallParameter callParameter) {
-    return new JsonRpcRequestContext(
-        new JsonRpcRequest("2.0", "eth_estimateGas", new Object[] {callParameter}));
+    return ethEstimateGasRequest(callParameter, "pending");
   }
 
   private JsonRpcRequestContext ethEstimateGasRequest(

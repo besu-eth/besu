@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Breaking Changes
+- `eth_estimateGas` and `eth_createAccessList` now default to the `latest` block when the block parameter is omitted, as other clients do. Previously they defaulted to `pending` [#8627](https://github.com/besu-eth/besu/pull/8627). Pass `"pending"` to keep the previous behavior. `eth_call` now also accepts an omitted block parameter and uses `latest`. It returned `-32602`. [#11490](https://github.com/besu-eth/besu/pull/11490)
 - The default discovery mode is now `BOTH`: nodes run DiscV4 and DiscV5 concurrently unless `--discovery-mode=V4` or `--discovery-mode=V5` selects a single protocol. [#11344](https://github.com/besu-eth/besu/pull/11344)
 - `trace_call` and `trace_callMany` now select transaction validation as `eth_call` does, including its `strict` flag. Unless `strict` is `true`, a call whose `gasPrice`, `maxFeePerGas` and `maxPriorityFeePerGas` are all zero or omitted runs with `GASPRICE` and `BASEFEE` 0 and pays no execution gas fees. Previously such a call was rejected as underpriced at a block with a base fee, or, with its fees omitted, was charged at the base fee. Calls that `eth_call` validates and charges are still validated and charged, each call in a `trace_callMany` bundle is priced on its own, and, as in `eth_call`, a nonce above the sender's is accepted. A `trace_call` that fails validation now returns the reason, such as `Gas price below current base fee` (`-32009`), instead of `Internal error`. [#11404](https://github.com/besu-eth/besu/pull/11404)
 

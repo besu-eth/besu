@@ -12,7 +12,7 @@
     "id": 4,
     "error":{
       "code":-32602,
-      "message":"Invalid block param (block not found)"
+      "message":"Invalid call params"
     }
   },
   "statusCode": 200

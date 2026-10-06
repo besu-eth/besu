@@ -58,7 +58,7 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
   @Override
   protected BlockParameter blockParameter(final JsonRpcRequestContext request) {
     try {
-      return request.getOptionalParameter(1, BlockParameter.class).orElse(BlockParameter.PENDING);
+      return request.getOptionalParameter(1, BlockParameter.class).orElse(BlockParameter.LATEST);
     } catch (JsonRpcParameter.JsonRpcParameterException e) {
       throw new InvalidJsonRpcParameters(
           "Invalid block parameter (index 1)", RpcErrorType.INVALID_BLOCK_PARAMS, e);

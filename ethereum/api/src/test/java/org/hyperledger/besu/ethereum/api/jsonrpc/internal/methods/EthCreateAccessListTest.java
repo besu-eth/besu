@@ -111,8 +111,7 @@ public class EthCreateAccessListTest {
   }
 
   private JsonRpcRequestContext ethCreateAccessListRequest(final CallParameter callParameter) {
-    return new JsonRpcRequestContext(
-        new JsonRpcRequest("2.0", METHOD, new Object[] {callParameter}));
+    return ethCreateAccessListRequest(callParameter, "pending");
   }
 
   private JsonRpcRequestContext ethCreateAccessListRequest(

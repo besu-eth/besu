@@ -427,6 +427,26 @@ public class EthCallTest {
   }
 
   @Test
+  public void shouldUseLatestBlockWhenBlockParameterIsOmitted() {
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest("2.0", "eth_call", new Object[] {callParameter()}));
+    when(blockchainQueries.getBlockchain()).thenReturn(blockchain);
+    when(blockchain.getChainHead()).thenReturn(chainHead);
+    when(transactionSimulator.process(any(), eq(Optional.empty()), any(), any(), any(), any()))
+        .thenReturn(Optional.empty());
+
+    final BlockHeader blockHeader = mock(BlockHeader.class);
+    when(blockHeader.getBaseFee()).thenReturn(Optional.of(Wei.ZERO));
+    when(chainHead.getBlockHeader()).thenReturn(blockHeader);
+
+    method.response(request);
+
+    verify(blockchainQueries, atLeastOnce()).getBlockchain();
+    verify(transactionSimulator).process(any(), eq(Optional.empty()), any(), any(), any(), any());
+  }
+
+  @Test
   public void shouldUseCorrectBlockNumberWhenEarliest() {
     final JsonRpcRequestContext request = ethCallRequest(callParameter(), "earliest");
     when(blockchainQueries.getBlockHashByNumber(anyLong())).thenReturn(Optional.of(Hash.ZERO));
