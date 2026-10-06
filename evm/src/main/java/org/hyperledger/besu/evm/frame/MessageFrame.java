@@ -25,6 +25,7 @@ import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.internal.AddressStorageSlotKey;
 import org.hyperledger.besu.evm.internal.MemoryEntry;
 import org.hyperledger.besu.evm.internal.OperandStack;
 import org.hyperledger.besu.evm.internal.StorageEntry;
@@ -35,11 +36,11 @@ import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.TreeSet;
 import java.util.function.Consumer;
 
 import com.google.common.collect.HashMultimap;
@@ -218,10 +219,6 @@ public class MessageFrame {
   private Bytes returnData = Bytes.EMPTY;
   private Code createdCode = null;
   private final boolean isStatic;
-
-  // EIP-8037: an already-alive CREATE/CREATE2 target adds no leaf, so its NEW_ACCOUNT state gas
-  // is refunded on success.
-  private boolean createTargetWasAlive = false;
 
   // EIP-8037: state gas drawn from gasRemaining once the reservoir ran dry. Frame-local, so
   // refunds and failures can unwind it separately.
@@ -898,8 +895,9 @@ public class MessageFrame {
   }
 
   /**
-   * Decrements stateGasUsed for in-frame refunds (SSTORE 0→X→0, CREATE silent failure, same-tx
-   * SELFDESTRUCT). UndoScalar-scoped: refunds propagate to parents only on full success.
+   * Decrements stateGasUsed for in-frame refunds (SSTORE 0→X→0, CREATE silent failure).
+   * UndoScalar-scoped: refunds propagate to parents only on full success. A same-tx SELFDESTRUCT
+   * does not refund state gas (EIP-8037, "Gas refills for SELFDESTRUCT").
    *
    * @param amount the amount to subtract
    */
@@ -1043,6 +1041,26 @@ public class MessageFrame {
       incrementStateGasReservoir(toReservoir);
     }
     decrementStateGasUsed(amount);
+  }
+
+  /**
+   * EIP-8037: settle state gas into gas_left after a successful child frame merges its spill.
+   *
+   * <p>When a child succeeds, its {@code state_gas_from_gas_left} is absorbed into the parent's
+   * before this step runs. The reservoir may now hold gas that was originally drawn from {@code
+   * gas_left} (charged in a different frame), so it has to be moved from the reservoir to the
+   * parent's execution gas. {@code evm_state_gas_used} is unchanged — no state creation is undone
+   * by this step.
+   */
+  public void settleStateGasOnChildSuccess() {
+    final long reservoir = txValues.stateGasReservoir().get();
+    final long spilled = stateGasSpilled;
+    final long d = Math.min(reservoir, spilled);
+    if (d > 0L) {
+      gasRemaining += d;
+      txValues.stateGasReservoir().set(reservoir - d);
+      stateGasSpilled = spilled - d;
+    }
   }
 
   // ============================================================
@@ -1267,26 +1285,6 @@ public class MessageFrame {
   }
 
   /**
-   * Records whether the CREATE/CREATE2 spawned from this frame targets an already-alive (existing,
-   * non-empty) address.
-   *
-   * @param wasAlive true if the create target was already alive
-   */
-  public void setCreateTargetWasAlive(final boolean wasAlive) {
-    this.createTargetWasAlive = wasAlive;
-  }
-
-  /**
-   * Whether the most recent CREATE/CREATE2 targeted an already-alive address, in which case no leaf
-   * is added and its NEW_ACCOUNT state gas is refunded.
-   *
-   * @return true if the create target was already alive
-   */
-  public boolean wasCreateTargetAlive() {
-    return createTargetWasAlive;
-  }
-
-  /**
    * Returns the current gas price.
    *
    * @return the current gas price
@@ -1488,7 +1486,7 @@ public class MessageFrame {
    * @return the data value read
    */
   public Bytes32 getTransientStorageValue(final Address accountAddress, final Bytes32 slot) {
-    Bytes32 v = txValues.transientStorage().get(accountAddress, slot);
+    Bytes32 v = txValues.transientStorage().get(new AddressStorageSlotKey(accountAddress, slot));
     return v == null ? Bytes32.ZERO : v;
   }
 
@@ -1501,7 +1499,7 @@ public class MessageFrame {
    */
   public void setTransientStorageValue(
       final Address accountAddress, final Bytes32 slot, final Bytes32 value) {
-    txValues.transientStorage().put(accountAddress, slot, value);
+    txValues.transientStorage().put(new AddressStorageSlotKey(accountAddress, slot), value);
   }
 
   /** Undo all the changes done by this message frame, such as when a revert is called for. */
@@ -1511,7 +1509,7 @@ public class MessageFrame {
 
   /**
    * Advances the undo mark, so that a rollback of the initial frame cannot undo the transaction's
-   * intrinsic state-gas charges.
+   * top-frame preparation charges, which persist regardless of the execution outcome.
    */
   public void advanceUndoMark() {
     this.undoMark = txValues.transientStorage().mark();
@@ -1573,7 +1571,6 @@ public class MessageFrame {
     private Optional<List<VersionedHash>> versionedHashes = Optional.empty();
 
     private long initialStateGasReservoir = 0L;
-    private long initialStateGasUsed = 0L;
 
     private boolean enableEvmV2 = false;
 
@@ -1893,19 +1890,6 @@ public class MessageFrame {
       return this;
     }
 
-    /**
-     * EIP-8037: initial {@code stateGasUsed} for the transaction's top-level frame, used to bake
-     * intrinsic state gas charges into the frame before execution begins. Ignored for child frames.
-     * Default 0.
-     *
-     * @param initialStateGasUsed the cumulative state gas already charged at frame entry
-     * @return the builder
-     */
-    public Builder initialStateGasUsed(final long initialStateGasUsed) {
-      this.initialStateGasUsed = initialStateGasUsed;
-      return this;
-    }
-
     private void validate() {
       if (parentMessageFrame == null) {
         checkState(worldUpdater != null, "Missing message frame world updater");
@@ -1941,11 +1925,7 @@ public class MessageFrame {
       TxValues newTxValues;
 
       if (parentMessageFrame == null) {
-        // A TreeSet (sorted by Address's natural ordering) is used instead of a HashSet:
-        // Address's hashCode() is a grindable base-31 hash with no direct Comparable<Address>
-        // declaration, so HashMap/HashSet bucket treeification never engages, letting an
-        // attacker force O(n) bucket walks per insert.
-        TreeSet<Address> warmedUpAddresses = new TreeSet<>();
+        HashSet<Address> warmedUpAddresses = new HashSet<>();
         warmedUpAddresses.add(contract);
         newTxValues =
             TxValues.forTransaction(
@@ -1958,7 +1938,6 @@ public class MessageFrame {
                 blockValues,
                 miningBeneficiary,
                 versionedHashes,
-                initialStateGasUsed,
                 initialStateGasReservoir);
         updater = worldUpdater;
         newStatic = isStatic;

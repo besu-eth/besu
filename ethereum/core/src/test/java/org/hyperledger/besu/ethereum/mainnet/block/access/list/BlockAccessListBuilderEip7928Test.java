@@ -71,6 +71,38 @@ class BlockAccessListBuilderEip7928Test {
         .isEqualTo(4L);
   }
 
+  /** A slot written back to where a shared index found it ends up as a read. */
+  @Test
+  void laterViewAtSameIndexReplacesEarlierOne() {
+    final PartialBlockAccessView.PartialBlockAccessViewBuilder first =
+        new PartialBlockAccessView.PartialBlockAccessViewBuilder()
+            .withTxIndex(1)
+            .withSharedIndex(true);
+    first
+        .getOrCreateAccountBuilder(ADDR_1)
+        .withPostBalance(Wei.of(5))
+        .withNonceChange(2L)
+        .addStorageChange(SLOT_1, UInt256.ZERO, UInt256.ONE);
+
+    final PartialBlockAccessView.PartialBlockAccessViewBuilder second =
+        new PartialBlockAccessView.PartialBlockAccessViewBuilder()
+            .withTxIndex(1)
+            .withSharedIndex(true);
+    second.getOrCreateAccountBuilder(ADDR_1).withNonceChange(3L).addStorageRead(SLOT_1);
+
+    final BlockAccessList.BlockAccessListBuilder builder = BlockAccessList.builder();
+    builder.apply(first.build());
+    builder.apply(second.build());
+    final BlockAccessList.AccountChanges account = builder.build().accountChanges().getFirst();
+
+    Assertions.assertThat(account.storageChanges()).isEmpty();
+    Assertions.assertThat(account.storageReads())
+        .containsExactly(new BlockAccessList.SlotRead(SLOT_1));
+    Assertions.assertThat(account.balanceChanges()).isEmpty();
+    Assertions.assertThat(account.nonceChanges())
+        .containsExactly(new BlockAccessList.NonceChange(1, 3L));
+  }
+
   @Test
   void mergeFromRejectsStorageSlotWithEmptyChanges() {
     final BlockAccessList invalid =
@@ -94,7 +126,7 @@ class BlockAccessListBuilderEip7928Test {
     final PartialBlockAccessView.PartialBlockAccessViewBuilder b =
         new PartialBlockAccessView.PartialBlockAccessViewBuilder().withTxIndex(txIndex);
     b.getOrCreateAccountBuilder(addr)
-        .addStorageChange(new StorageSlotKey(UInt256.ONE), UInt256.ZERO);
+        .addStorageChange(new StorageSlotKey(UInt256.ONE), null, UInt256.ZERO);
     return b.build();
   }
 }

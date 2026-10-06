@@ -154,7 +154,7 @@ public class SubscriptionManager extends AbstractVerticle {
 
   private void removeSubscriptions(final Message<String> message) {
     final String connectionId = message.body();
-    if (connectionId == null || "".equals(connectionId)) {
+    if (connectionId == null || connectionId.isEmpty()) {
       LOG.warn("Received invalid connectionId ({}). No subscriptions removed.", connectionId);
     }
 
@@ -195,16 +195,13 @@ public class SubscriptionManager extends AbstractVerticle {
       final SubscriptionType subscriptionType,
       final Class<T> clazz,
       final Consumer<List<T>> runnable) {
-    vertx.executeBlocking(
-        future -> {
-          final List<T> syncingSubscriptions = subscriptionsOfType(subscriptionType, clazz);
-          runnable.accept(syncingSubscriptions);
-          future.complete();
-        },
-        result -> {
-          if (result.failed()) {
-            LOG.error("Failed to notify subscribers.", result.cause());
-          }
-        });
+    vertx
+        .<Void>executeBlocking(
+            () -> {
+              final List<T> syncingSubscriptions = subscriptionsOfType(subscriptionType, clazz);
+              runnable.accept(syncingSubscriptions);
+              return null;
+            })
+        .onFailure(t -> LOG.error("Failed to notify subscribers.", t));
   }
 }

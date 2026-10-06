@@ -17,6 +17,8 @@ package org.hyperledger.besu.ethereum.transaction.exceptions;
 import static org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError.GAS_PRICE_BELOW_BASE_FEE;
 import static org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError.GAS_PRICE_TOO_LOW;
 import static org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError.INTRINSIC_GAS_EXCEEDS_GAS_LIMIT;
+import static org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError.NONCE_TOO_HIGH;
+import static org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError.NONCE_TOO_LOW;
 import static org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError.UNKNOWN;
 import static org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError.UPFRONT_COST_EXCEEDS_BALANCE;
 
@@ -69,10 +71,13 @@ public class BlockStateCallException extends RuntimeException {
   private static BlockStateCallError fromTransactionInvalidReason(
       final TransactionInvalidReason transactionInvalidReason) {
     return switch (transactionInvalidReason) {
-      case UPFRONT_COST_EXCEEDS_BALANCE -> UPFRONT_COST_EXCEEDS_BALANCE;
+      case UPFRONT_GAS_COST_EXCEEDS_BALANCE, INSUFFICIENT_FUNDS_FOR_TRANSFER ->
+          UPFRONT_COST_EXCEEDS_BALANCE;
       case GAS_PRICE_TOO_LOW -> GAS_PRICE_TOO_LOW;
       case GAS_PRICE_BELOW_CURRENT_BASE_FEE -> GAS_PRICE_BELOW_BASE_FEE;
       case INTRINSIC_GAS_EXCEEDS_GAS_LIMIT -> INTRINSIC_GAS_EXCEEDS_GAS_LIMIT;
+      case NONCE_TOO_LOW -> NONCE_TOO_LOW;
+      case NONCE_TOO_HIGH -> NONCE_TOO_HIGH;
       default -> UNKNOWN;
     };
   }

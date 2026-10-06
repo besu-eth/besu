@@ -15,12 +15,15 @@
 package org.hyperledger.besu.ethereum.vm.operations;
 
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.operation.DivOperationOptimized;
 import org.hyperledger.besu.evm.operation.Operation;
 
 import org.openjdk.jmh.annotations.Param;
+import org.openjdk.jmh.infra.BenchmarkParams;
 
-public class DivOperationBenchmark extends BinaryArithmeticOperationBenchmark {
+public class DivOperationBenchmark extends BinaryArithmeticOperationBenchmark
+    implements GasCostBenchmark {
   @Param({
     "DIV_32_32",
     "DIV_64_32",
@@ -62,5 +65,10 @@ public class DivOperationBenchmark extends BinaryArithmeticOperationBenchmark {
   @Override
   protected String opCode() {
     return "DIV";
+  }
+
+  @Override
+  public long getGasCost(final BenchmarkParams params, final GasCalculator calc) {
+    return new DivOperationOptimized(calc).getGasCost();
   }
 }

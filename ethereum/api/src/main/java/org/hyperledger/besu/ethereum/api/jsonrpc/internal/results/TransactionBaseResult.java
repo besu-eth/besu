@@ -54,7 +54,7 @@ import org.apache.tuweni.bytes.Bytes;
   "s",
   "blobVersionedHashes"
 })
-public class TransactionBaseResult implements TransactionResult {
+public class TransactionBaseResult implements TransactionResult, JsonRpcResult {
 
   @JsonInclude(JsonInclude.Include.NON_NULL)
   private final List<AccessListEntry> accessList;
@@ -208,6 +208,8 @@ public class TransactionBaseResult implements TransactionResult {
     return nonce;
   }
 
+  // null marks a contract creation; JsonRpcResult's NON_ABSENT inclusion would drop it.
+  @JsonInclude(JsonInclude.Include.ALWAYS)
   @JsonGetter(value = "to")
   public String getTo() {
     return to;

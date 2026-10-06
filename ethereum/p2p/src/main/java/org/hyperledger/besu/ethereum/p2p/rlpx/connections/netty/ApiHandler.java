@@ -79,17 +79,17 @@ final class ApiHandler extends SimpleChannelInboundHandler<MessageData> {
           waitingForPong.set(false);
           break;
         case WireMessageCodes.DISCONNECT:
-          final DisconnectMessage disconnect = DisconnectMessage.readFrom(message);
           DisconnectMessage.DisconnectReason reason = DisconnectMessage.DisconnectReason.UNKNOWN;
           try {
+            final DisconnectMessage disconnect = DisconnectMessage.readFrom(message);
             reason = disconnect.getReason();
             LOG.trace(
                 "Received Wire DISCONNECT ({}) from peer: {}",
                 reason.name(),
                 connection.getPeerInfo());
-          } catch (final RLPException e) {
-            LOG.trace(
-                "Received Wire DISCONNECT with invalid RLP. Peer: {}", connection.getPeerInfo());
+          } catch (final FramingException | RLPException e) {
+            LOG.debug(
+                "Received Wire DISCONNECT with malformed body. Peer: {}", connection.getPeerInfo());
           } catch (final Exception e) {
             LOG.error(
                 "Received Wire DISCONNECT, but unable to parse reason. Peer: {}",
@@ -117,8 +117,13 @@ final class ApiHandler extends SimpleChannelInboundHandler<MessageData> {
 
   @Override
   public void exceptionCaught(final ChannelHandlerContext ctx, final Throwable throwable) {
-    if (throwable instanceof FramingException || throwable instanceof RLPException) {
-      LOG.debug("Invalid incoming message from peer: {}", connection.getPeerInfo(), throwable);
+    if (throwable instanceof FramingException
+        || throwable instanceof RLPException
+        || throwable instanceof IllegalArgumentException) {
+      LOG.debug(
+          "Invalid incoming message from peer {}: {}",
+          connection.getPeerInfo(),
+          throwable.getMessage());
     } else {
       LOG.error("Error:", throwable);
     }

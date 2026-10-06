@@ -225,6 +225,8 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest>
               });
           updater.commit();
 
+          worldStateStorageCoordinator.clearCrossBlockCache();
+
           // Remove the blockchain observer
           blockchain.removeObserver(blockObserverId);
           // Notify that the snap sync has completed

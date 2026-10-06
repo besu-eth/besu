@@ -20,6 +20,8 @@ import java.util.HashSet;
 import java.util.Queue;
 import java.util.Set;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * The Caching task collection.
  *
@@ -79,7 +81,7 @@ public class CachingTaskCollection<T> implements TaskCollection<T> {
   }
 
   @Override
-  public synchronized Task<T> remove() {
+  public synchronized @Nullable Task<T> remove() {
     assertNotClosed();
     if (cache.size() == 0) {
       return wrappedCollection.remove();

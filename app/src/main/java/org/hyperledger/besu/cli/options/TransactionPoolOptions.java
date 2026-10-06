@@ -58,6 +58,7 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
       "--strict-tx-replay-protection-enabled";
   private static final String TX_POOL_PRIORITY_SENDERS = "--tx-pool-priority-senders";
   private static final String TX_POOL_MIN_GAS_PRICE = "--tx-pool-min-gas-price";
+  private static final String TX_POOL_MAX_TX_BYTES = "--tx-pool-max-tx-bytes";
 
   private TransactionPoolValidatorService transactionPoolValidatorService;
 
@@ -146,6 +147,13 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
           "Transactions with gas price (in Wei) lower than this minimum will not be accepted into the txpool"
               + "(not to be confused with min-gas-price, that is applied on block creation) (default: ${DEFAULT-VALUE})")
   private Wei minGasPrice = TransactionPoolConfiguration.DEFAULT_TX_POOL_MIN_GAS_PRICE;
+
+  @CommandLine.Option(
+      names = {TX_POOL_MAX_TX_BYTES},
+      paramLabel = MANDATORY_INTEGER_FORMAT_HELP,
+      description =
+          "Maximum encoded size, in bytes, of a single transaction (excluding blobs) accepted into the txpool (default: ${DEFAULT-VALUE})")
+  private Integer maxTxBytes = TransactionPoolConfiguration.DEFAULT_TX_POOL_MAX_TX_BYTES;
 
   @CommandLine.ArgGroup(
       validate = false,
@@ -255,9 +263,6 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
     private static final String ETH65_TX_ANNOUNCED_BUFFERING_PERIOD_FLAG =
         "--Xeth65-tx-announced-buffering-period-milliseconds";
 
-    @Deprecated(forRemoval = true) // alias of MAX_TRACKED_SEEN_TXS
-    private static final String MAX_TRACKED_SEEN_TXS_PER_PEER = "--Xmax-tracked-seen-txs-per-peer";
-
     private static final String MAX_TRACKED_SEEN_TXS = "--Xmax-tracked-seen-txs";
     private static final String MAX_SEND_QUEUE_SIZE_PER_PEER = "--Xmax-send-queue-size-per-peer";
     private static final String PEER_TRACKER_FORGET_EVICTED_TXS_FLAG =
@@ -285,7 +290,7 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
         TransactionPoolConfiguration.Unstable.ETH65_TRX_ANNOUNCED_BUFFERING_PERIOD;
 
     @CommandLine.Option(
-        names = {MAX_TRACKED_SEEN_TXS, /*Deprecated*/ MAX_TRACKED_SEEN_TXS_PER_PEER},
+        names = {MAX_TRACKED_SEEN_TXS},
         paramLabel = "<LONG>",
         hidden = true,
         description =
@@ -366,6 +371,7 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
     options.strictTxReplayProtectionEnabled = config.getStrictTransactionReplayProtectionEnabled();
     options.prioritySenders = config.getPrioritySenders();
     options.minGasPrice = config.getMinGasPrice();
+    options.maxTxBytes = config.getTxPoolMaxTxBytes();
     options.layeredOptions.txPoolLayerMaxCapacity =
         config.getPendingTransactionsLayerMaxCapacityBytes();
     options.layeredOptions.txPoolMaxPrioritized = config.getMaxPrioritizedTransactions();
@@ -418,6 +424,11 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
         "Price bump option is not compatible with zero base fee market",
         !genesisConfigOptions.isZeroBaseFee(),
         List.of(TX_POOL_PRICE_BUMP));
+
+    if (maxTxBytes <= 0) {
+      throw new CommandLine.ParameterException(
+          commandLine, "Max transaction bytes must be greater than 0");
+    }
   }
 
   @Override
@@ -434,6 +445,7 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
         .strictTransactionReplayProtectionEnabled(strictTxReplayProtectionEnabled)
         .prioritySenders(prioritySenders)
         .minGasPrice(minGasPrice)
+        .txPoolMaxTxBytes(maxTxBytes)
         .pendingTransactionsLayerMaxCapacityBytes(layeredOptions.txPoolLayerMaxCapacity)
         .maxPrioritizedTransactions(layeredOptions.txPoolMaxPrioritized)
         .maxPrioritizedTransactionsByType(layeredOptions.txPoolMaxPrioritizedByType)

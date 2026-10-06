@@ -139,7 +139,7 @@ public class BesuNode implements NodeConfiguration, RunnableNode, AutoCloseable 
   private final List<String> extraCLIOptions;
   private final List<String> staticNodes;
   private boolean isDnsEnabled = false;
-  private Optional<Integer> exitCode = Optional.empty();
+  private volatile Optional<Integer> exitCode = Optional.empty();
   private final boolean isStrictTxReplayProtectionEnabled;
   private final Map<String, String> environment;
   private SynchronizerConfiguration synchronizerConfiguration;

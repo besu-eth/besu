@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.referencetests;
 
+import static org.hyperledger.besu.evm.internal.Words.decodeUnsignedLong;
+
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
@@ -156,7 +158,7 @@ public class AccountChangesJson {
 
     public NonceChange toNonceChange() {
       return new NonceChange(
-          decodeIndex(blockAccessIndex), postNonce != null ? Long.decode(postNonce) : 0L);
+          decodeIndex(blockAccessIndex), postNonce != null ? decodeUnsignedLong(postNonce) : 0L);
     }
   }
 

@@ -110,6 +110,20 @@ class TransactionBuilderTest {
   }
 
   @Test
+  void emptyCodeDelegationListBuilds() {
+    // an empty authorization_list is a validity rule, not an encoding one, so building succeeds
+    TransactionTestFixture ttf =
+        new TransactionTestFixture()
+            .type(TransactionType.DELEGATE_CODE)
+            .chainId(Optional.of(BigInteger.ONE))
+            .maxFeePerGas(Optional.of(Wei.of(5)))
+            .maxPriorityFeePerGas(Optional.of(Wei.of(5)))
+            .codeDelegations(List.of());
+
+    assertThat(ttf.createTransaction(senderKeys).getCodeDelegationList()).contains(List.of());
+  }
+
+  @Test
   @SuppressWarnings("ReferenceEquality")
   void copyFromIsIdentical() {
     final TransactionTestFixture fixture = new TransactionTestFixture();

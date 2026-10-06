@@ -41,19 +41,11 @@ public class PayloadStatusV1 {
   }
 
   @JsonGetter(value = "status")
-  public String getStatusAsString() {
-    return status.name();
-  }
-
   public EngineStatus getStatus() {
     return status;
   }
 
   @JsonGetter(value = "latestValidHash")
-  public String getLatestValidHashAsString() {
-    return latestValidHash.map(h -> h.getBytes().toHexString()).orElse(null);
-  }
-
   public Optional<Hash> getLatestValidHash() {
     return latestValidHash;
   }

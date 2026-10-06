@@ -130,16 +130,30 @@ public class PostMergeContext implements MergeContext {
     if (state == null) {
       return true;
     }
-    // Pre-TTD: if terminal difficulty hasn't been reached we're still in PoW sync.
-    // When started with --p2p-enabled=false the controller marks TTD reached at startup,
-    // so this branch is skipped and the node can serve the engine API immediately.
-    if (!state.hasReachedTerminalDifficulty().orElse(false)) {
+    // At startup assume we are syncing until initial sync is marked as done
+    if (!state.isInitialSyncPhaseDone()) {
+      return true;
+    }
+    // Pre-TTD: if terminal difficulty is known *not* to have been reached we're still in PoW sync.
+    // An empty Optional just means "not determined yet" (normal right after startup), so default to
+    // "reached" as SyncState.isInSync() does; a node genuinely mid-PoW-sync has peers ahead of it
+    // and is still caught by the isInSync() check below.
+    if (!state.hasReachedTerminalDifficulty().orElse(true)) {
       return true;
     }
     // Post-TTD (post-merge): rely solely on peer sync state. This correctly handles full sync on
     // post-merge networks where reachedTerminalDifficulty is always true, which previously caused
     // this method to always return false even while the node was actively downloading the chain.
     return !state.isInSync();
+  }
+
+  @Override
+  public boolean isInitialSyncDone() {
+    final SyncState state = syncState.get();
+    if (state == null) {
+      return false;
+    }
+    return state.isInitialSyncPhaseDone();
   }
 
   @Override

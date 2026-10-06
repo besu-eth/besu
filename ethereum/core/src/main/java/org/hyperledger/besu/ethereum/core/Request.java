@@ -18,23 +18,25 @@ import static com.google.common.base.Preconditions.checkArgument;
 
 import org.hyperledger.besu.datatypes.RequestType;
 
+import java.util.Comparator;
+import java.util.List;
+
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
 import org.apache.tuweni.bytes.Bytes;
 
+// implements the deprecated plugin.data.Request until the next breaking release
+@SuppressWarnings("removal")
 public record Request(RequestType type, Bytes data)
     implements org.hyperledger.besu.plugin.data.Request {
 
   @JsonCreator
   public static Request fromBytes(final Bytes bytes) {
-    checkArgument(!bytes.isEmpty(), "Request cannot be empty");
+    // The length has to fail before the type byte does: the Engine API answers a request of 1 byte
+    // or shorter with -32602, but an unrecognised request type with an INVALID payload status.
+    checkArgument(bytes.size() > 1, "Request must be longer than 1 byte, but is %s", bytes.size());
 
-    final RequestType type = RequestType.of(bytes.get(0));
-    final Bytes data = bytes.slice(1);
-
-    checkArgument(!data.isEmpty(), "Request must be at least 1 byte");
-
-    return new Request(type, data);
+    return new Request(RequestType.of(bytes.get(0)), bytes.slice(1));
   }
 
   @Override
@@ -55,5 +57,20 @@ public record Request(RequestType type, Bytes data)
   @JsonValue
   public Bytes getEncodedRequest() {
     return Bytes.concatenate(Bytes.of(getType().getSerializedType()), getData());
+  }
+
+  /**
+   * Converts a list of request to the protocol canonical form: elements of the list MUST be ordered
+   * by request_type in ascending order. Elements with empty request_data MUST be excluded from the
+   * list.
+   *
+   * @param requests list of requests
+   * @return protocol canonical request list
+   */
+  public static List<Request> asCanonicalList(final List<Request> requests) {
+    return requests.stream()
+        .sorted(Comparator.comparing(Request::getType))
+        .filter(r -> !r.getData().isEmpty())
+        .toList();
   }
 }

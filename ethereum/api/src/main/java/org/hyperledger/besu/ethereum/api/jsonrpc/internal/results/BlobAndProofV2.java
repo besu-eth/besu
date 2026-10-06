@@ -14,8 +14,13 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
+import org.hyperledger.besu.ethereum.core.kzg.BlobProofBundle;
+import org.hyperledger.besu.ethereum.core.kzg.KZGProof;
+
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonGetter;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 
 /**
@@ -23,22 +28,18 @@ import com.fasterxml.jackson.annotation.JsonPropertyOrder;
  * BlobAndProofV2 contains the blob data and a list of kzg proof for the cells.
  */
 @JsonPropertyOrder({"blob", "proofs"})
-public class BlobAndProofV2 {
+@JsonIgnoreProperties({"proof"})
+public final class BlobAndProofV2 extends BlobAndProofV1 {
 
-  private final String blob;
+  private final List<KZGProof> cellProofs;
 
-  private final List<String> cellProofs;
-
-  public BlobAndProofV2(final String blob, final List<String> cellProofs) {
-    this.blob = blob;
-    this.cellProofs = cellProofs;
+  public BlobAndProofV2(final BlobProofBundle blobProofBundle) {
+    super(blobProofBundle.getBlob());
+    this.cellProofs = blobProofBundle.getKzgProof();
   }
 
-  public List<String> getProofs() {
+  @JsonGetter("proofs")
+  public List<KZGProof> getProofs() {
     return cellProofs;
-  }
-
-  public String getBlob() {
-    return blob;
   }
 }

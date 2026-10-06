@@ -18,6 +18,7 @@ import static java.util.concurrent.CompletableFuture.completedFuture;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.chain.ChainDataPruner;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.exceptions.NoAvailablePeersException;
@@ -40,6 +41,7 @@ import org.hyperledger.besu.plugin.services.metrics.Counter;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -62,6 +64,7 @@ public class PivotSyncActions {
   protected final Counter pivotBlockSelectionCounter;
   protected final AtomicLong pivotBlockGauge = new AtomicLong(0);
   protected final java.nio.file.Path fastSyncDataDirectory;
+  protected final Optional<ChainDataPruner> chainDataPruner;
 
   private volatile PivotUpdateListener chainDownloaderListener;
 
@@ -74,7 +77,8 @@ public class PivotSyncActions {
       final SyncState syncState,
       final PivotBlockSelector pivotBlockSelector,
       final MetricsSystem metricsSystem,
-      final Path fastSyncDataDirectory) {
+      final Path fastSyncDataDirectory,
+      final Optional<ChainDataPruner> chainDataPruner) {
     this.syncConfig = syncConfig;
     this.worldStateStorageCoordinator = worldStateStorageCoordinator;
     this.protocolSchedule = protocolSchedule;
@@ -84,6 +88,7 @@ public class PivotSyncActions {
     this.pivotBlockSelector = pivotBlockSelector;
     this.metricsSystem = metricsSystem;
     this.fastSyncDataDirectory = fastSyncDataDirectory;
+    this.chainDataPruner = chainDataPruner;
 
     pivotBlockSelectionCounter =
         metricsSystem.createCounter(
@@ -187,7 +192,8 @@ public class PivotSyncActions {
         metricsSystem,
         currentState,
         syncDurationMetrics,
-        fastSyncDataDirectory);
+        fastSyncDataDirectory,
+        chainDataPruner);
   }
 
   private CompletableFuture<SnapSyncProcessState> downloadPivotBlockHeaderByHash(final Hash hash) {

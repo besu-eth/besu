@@ -130,7 +130,7 @@ public class BftMiningCoordinator implements MiningCoordinator, BlockAddedObserv
   }
 
   @Override
-  public void start() {
+  public synchronized void start() {
     if (state.compareAndSet(State.IDLE, State.RUNNING)
         || state.compareAndSet(State.STOPPED, State.RUNNING)) {
       bftProcessor.start();
@@ -152,13 +152,20 @@ public class BftMiningCoordinator implements MiningCoordinator, BlockAddedObserv
     // still safe in that case: bftProcessor.awaitStop() returns immediately if its event loop
     // never ran, blockchain.removeObserver() is skipped when no observer was ever registered,
     // and eventHandler.stop()/bftExecutors.stop() are self-guarded no-ops when never started.
-    if (state.compareAndSet(State.RUNNING, State.STOPPED)
-        || state.compareAndSet(State.PAUSED, State.STOPPED)
-        || state.compareAndSet(State.IDLE, State.STOPPED)) {
-      if (blockAddedObserverId != NOT_REGISTERED) {
-        blockchain.removeObserver(blockAddedObserverId);
+    final boolean stopping;
+    synchronized (this) {
+      stopping =
+          state.compareAndSet(State.RUNNING, State.STOPPED)
+              || state.compareAndSet(State.PAUSED, State.STOPPED)
+              || state.compareAndSet(State.IDLE, State.STOPPED);
+      if (stopping) {
+        if (blockAddedObserverId != NOT_REGISTERED) {
+          blockchain.removeObserver(blockAddedObserverId);
+        }
+        bftProcessor.stop();
       }
-      bftProcessor.stop();
+    }
+    if (stopping) {
       // The merge transition watcher invokes stop() from the BFT event thread itself
       // (via the block-added observers fired while QBFT imports the terminal block).
       // The shutdown flag is already set, so no further events will be dispatched;
@@ -182,8 +189,14 @@ public class BftMiningCoordinator implements MiningCoordinator, BlockAddedObserv
       LOG.debug("Interrupted while waiting for BftProcessor to stop.", e);
       Thread.currentThread().interrupt();
     }
-    eventHandler.stop();
-    bftExecutors.stop();
+    synchronized (this) {
+      if (state.get() != State.STOPPED) {
+        LOG.debug("Coordinator restarted while stopping, leaving the new processor running");
+        return;
+      }
+      eventHandler.stop();
+      bftExecutors.stop();
+    }
   }
 
   @Override
@@ -227,7 +240,9 @@ public class BftMiningCoordinator implements MiningCoordinator, BlockAddedObserv
   }
 
   @Override
-  public boolean enable() {
+  public synchronized boolean enable() {
+    // Synchronized with start()/stop() so the multi-step state checks below cannot interleave
+    // with a concurrent lifecycle transition (see #10877).
     // Return true if we're already running or idle, or successfully switch to idle. UNINITIALIZED
     // (the initial state) is treated the same as PAUSED here: neither has ever been started.
     return state.get() == State.RUNNING
@@ -237,7 +252,9 @@ public class BftMiningCoordinator implements MiningCoordinator, BlockAddedObserv
   }
 
   @Override
-  public boolean disable() {
+  public synchronized boolean disable() {
+    // Synchronized with start()/stop() so the multi-step state checks below cannot interleave
+    // with a concurrent lifecycle transition (see #10877).
     // UNINITIALIZED (the initial state) is already at rest, same as PAUSED: report success
     // without transitioning, there being nothing to disable.
     return state.get() == State.PAUSED

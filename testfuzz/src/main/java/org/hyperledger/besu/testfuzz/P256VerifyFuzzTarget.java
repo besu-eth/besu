@@ -36,6 +36,7 @@ import org.apache.tuweni.bytes.MutableBytes;
 import org.bouncycastle.asn1.sec.SECNamedCurves;
 import org.bouncycastle.asn1.x9.X9ECParameters;
 import org.bouncycastle.math.ec.ECPoint;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -249,8 +250,12 @@ public class P256VerifyFuzzTarget implements FuzzTarget {
     }
   }
 
-  /** Generates a signature test case using the specified signature algorithm. */
-  private SignatureTestCase generateSignatureTestCase(
+  /**
+   * Generates a signature test case using the specified signature algorithm.
+   *
+   * @return the generated test case, or {@code null} if signature generation fails
+   */
+  private @Nullable SignatureTestCase generateSignatureTestCase(
       SignatureAlgorithm sigAlgo,
       String algorithmName,
       byte[] fuzzData,

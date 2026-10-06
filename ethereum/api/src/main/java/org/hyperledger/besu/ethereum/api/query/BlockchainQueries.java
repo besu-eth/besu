@@ -17,7 +17,7 @@ package org.hyperledger.besu.ethereum.api.query;
 import static com.google.common.base.Preconditions.checkArgument;
 import static org.hyperledger.besu.ethereum.api.query.cache.TransactionLogBloomCacher.BLOCKS_PER_BLOOM_CACHE;
 import static org.hyperledger.besu.ethereum.mainnet.feemarket.ExcessBlobGasCalculator.calculateExcessBlobGasForParent;
-import static org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
+import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
@@ -718,6 +718,7 @@ public class BlockchainQueries {
     final List<TransactionReceipt> transactionReceipts =
         blockchain.getTxReceipts(blockHash).orElseThrow();
 
+    final boolean removed = !blockchain.blockIsOnCanonicalChain(blockHash);
     long cumulativeGasUsedUntilTx = 0;
     int logIndexOffset = 0;
 
@@ -750,7 +751,8 @@ public class BlockchainQueries {
               header.getNumber(),
               maybeBlobGasUsed,
               maybeBlobGasPrice,
-              logIndexOffset));
+              logIndexOffset,
+              removed));
 
       cumulativeGasUsedUntilTx = transactionReceipt.getCumulativeGasUsed();
       logIndexOffset += transactionReceipt.getLogsList().size();
@@ -801,6 +803,8 @@ public class BlockchainQueries {
     Optional<Wei> maybeBlobGasPrice =
         getBlobGasPrice(transaction, header, protocolSchedule.getByBlockHeader(header));
 
+    final boolean removed = !blockchain.blockIsOnCanonicalChain(blockhash);
+
     return Optional.of(
         TransactionReceiptWithMetadata.create(
             transactionReceipt,
@@ -814,7 +818,8 @@ public class BlockchainQueries {
             header.getNumber(),
             maybeBlobGasUsed,
             maybeBlobGasPrice,
-            logIndexOffset));
+            logIndexOffset,
+            removed));
   }
 
   /**
@@ -978,7 +983,6 @@ public class BlockchainQueries {
         }
       }
     } catch (final IOException e) {
-      e.printStackTrace(System.out);
       LOG.error("Error reading cached log blooms", e);
     }
     return results;

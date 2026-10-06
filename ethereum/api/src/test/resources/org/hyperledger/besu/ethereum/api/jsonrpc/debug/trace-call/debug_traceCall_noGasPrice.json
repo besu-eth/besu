@@ -22,16 +22,8 @@
     "result":{
       "gas":21164,
       "failed":false,
-      "returnValue":"",
-      "structLogs":[
-        {
-          "pc":0,
-          "op":"STOP",
-          "gas":17592186023252,
-          "gasCost":0,
-          "depth":1
-        }
-      ]
+      "returnValue":"0x",
+      "structLogs":[]
     }
   },
   "statusCode": 200

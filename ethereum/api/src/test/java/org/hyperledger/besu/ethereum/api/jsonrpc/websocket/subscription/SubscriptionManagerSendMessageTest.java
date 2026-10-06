@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
 
@@ -50,7 +51,7 @@ public class SubscriptionManagerSendMessageTest {
     vertx = Vertx.vertx();
     testContext = new VertxTestContext();
     subscriptionManager = new SubscriptionManager(new NoOpMetricsSystem());
-    vertx.deployVerticle(subscriptionManager, testContext.succeedingThenComplete());
+    vertx.deployVerticle(subscriptionManager).onComplete(testContext.succeedingThenComplete());
   }
 
   @Test
@@ -77,9 +78,15 @@ public class SubscriptionManagerSendMessageTest {
               assertEquals(Json.encode(expectedResponse), msg.body());
               testContext.completeNow();
             })
-        .completionHandler(v -> subscriptionManager.sendMessage(subscriptionId, expectedResult));
+        .completion()
+        .onComplete(v -> subscriptionManager.sendMessage(subscriptionId, expectedResult));
 
-    testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    assertThat(testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        .as("test context should complete before the timeout")
+        .isTrue();
+    if (testContext.failed()) {
+      throw new AssertionError(testContext.causeOfFailure());
+    }
   }
 
   @Test
@@ -95,11 +102,17 @@ public class SubscriptionManagerSendMessageTest {
               Assertions.fail("Shouldn't receive message");
               testContext.completeNow();
             })
-        .completionHandler(v -> subscriptionManager.sendMessage(1L, mock(JsonRpcResult.class)));
+        .completion()
+        .onComplete(v -> subscriptionManager.sendMessage(1L, mock(JsonRpcResult.class)));
 
     // if it doesn't receive the message in 5 seconds we assume it won't receive anymore
     vertx.setPeriodic(5000, v -> testContext.completeNow());
 
-    testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    assertThat(testContext.awaitCompletion(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        .as("test context should complete before the timeout")
+        .isTrue();
+    if (testContext.failed()) {
+      throw new AssertionError(testContext.causeOfFailure());
+    }
   }
 }

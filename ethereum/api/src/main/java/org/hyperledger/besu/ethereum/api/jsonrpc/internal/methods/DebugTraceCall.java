@@ -16,10 +16,13 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.INTERNAL_ERROR;
 
+import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameter;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameterOrBlockHash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.TransactionTraceParams;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTrace;
@@ -28,30 +31,28 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorR
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
-import org.hyperledger.besu.ethereum.mainnet.ImmutableTransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
-import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.transaction.PreCloseStateHandler;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
-import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
 
 import java.util.Optional;
 
 public class DebugTraceCall extends AbstractTraceCall {
-  private static final TransactionValidationParams TRANSACTION_VALIDATION_PARAMS =
-      ImmutableTransactionValidationParams.builder()
-          .from(TransactionValidationParams.transactionSimulator())
-          .isAllowFutureNonce(true)
-          .isAllowExceedingBalance(true)
-          .allowUnderpriced(true)
-          .build();
 
   public DebugTraceCall(
       final BlockchainQueries blockchainQueries,
       final ProtocolSchedule protocolSchedule,
       final TransactionSimulator transactionSimulator) {
-    super(blockchainQueries, protocolSchedule, transactionSimulator, true);
+    this(blockchainQueries, protocolSchedule, transactionSimulator, null);
+  }
+
+  public DebugTraceCall(
+      final BlockchainQueries blockchainQueries,
+      final ProtocolSchedule protocolSchedule,
+      final TransactionSimulator transactionSimulator,
+      final ApiConfiguration apiConfiguration) {
+    super(blockchainQueries, protocolSchedule, transactionSimulator, apiConfiguration);
   }
 
   @Override
@@ -79,6 +80,34 @@ public class DebugTraceCall extends AbstractTraceCall {
   }
 
   @Override
+  protected Object findResultByParamType(final JsonRpcRequestContext request) {
+    return blockHashParameter(request)
+        .map(blockHash -> resultByBlockHash(request, blockHash))
+        .orElseGet(() -> super.findResultByParamType(request));
+  }
+
+  private Optional<Hash> blockHashParameter(final JsonRpcRequestContext request) {
+    try {
+      return request
+          .getOptionalParameter(1, BlockParameterOrBlockHash.class)
+          .flatMap(BlockParameterOrBlockHash::getHash);
+    } catch (JsonRpcParameterException e) {
+      // Not a hash. blockParameter() parses the value again and reports any error.
+      return Optional.empty();
+    }
+  }
+
+  private Object resultByBlockHash(final JsonRpcRequestContext request, final Hash blockHash) {
+    return getBlockchainQueries()
+        .getBlockHeaderByHash(blockHash)
+        .<Object>map(blockHeader -> resultByBlockHeader(request, blockHeader))
+        .orElseGet(
+            () ->
+                new JsonRpcErrorResponse(
+                    request.getRequest().getId(), RpcErrorType.BLOCK_NOT_FOUND));
+  }
+
+  @Override
   protected BlockParameter blockParameter(final JsonRpcRequestContext request) {
     final Optional<BlockParameter> maybeBlockParameter;
     try {
@@ -92,32 +121,29 @@ public class DebugTraceCall extends AbstractTraceCall {
   }
 
   @Override
-  protected PreCloseStateHandler<Object> getSimulatorResultHandler(
+  protected TraceExecution createTraceExecution(
       final JsonRpcRequestContext requestContext,
-      final DebugOperationTracer tracer,
+      final TraceOptions traceOptions,
       final ProtocolSpec protocolSpec) {
-    return (mutableWorldState, maybeSimulatorResult) ->
-        maybeSimulatorResult.map(
-            result -> {
-              if (result.isInvalid()) {
-                final JsonRpcError error =
-                    new JsonRpcError(
-                        INTERNAL_ERROR, result.getValidationResult().getErrorMessage());
-                return new JsonRpcErrorResponse(requestContext.getRequest().getId(), error);
-              }
+    final DebugTraceTransactionStep step = DebugTraceTransactionStep.of(traceOptions, protocolSpec);
+    final PreCloseStateHandler<Object> handler =
+        (mutableWorldState, maybeSimulatorResult) ->
+            maybeSimulatorResult.map(
+                result -> {
+                  if (result.isInvalid()) {
+                    final JsonRpcError error =
+                        new JsonRpcError(
+                            INTERNAL_ERROR, result.getValidationResult().getErrorMessage());
+                    return new JsonRpcErrorResponse(requestContext.getRequest().getId(), error);
+                  }
 
-              final TransactionTrace transactionTrace =
-                  new TransactionTrace(
-                      result.transaction(), result.result(), tracer.getTraceFrames());
-              return DebugTraceTransactionStepFactory.create(
-                      getTraceOptions(requestContext), protocolSpec)
-                  .apply(transactionTrace)
-                  .getResult();
-            });
-  }
-
-  @Override
-  protected TransactionValidationParams buildTransactionValidationParams() {
-    return TRANSACTION_VALIDATION_PARAMS;
+                  final TransactionTrace transactionTrace =
+                      new TransactionTrace(
+                          result.transaction(),
+                          result.result(),
+                          step.getOperationTracer().getTraceFrames());
+                  return step.buildResult(transactionTrace).getResult();
+                });
+    return new TraceExecution(step.getOperationTracer(), handler);
   }
 }

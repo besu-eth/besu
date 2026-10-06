@@ -24,6 +24,9 @@
             "0x71562b71999873db5b286df957af199ec94617f7": {
               "balance": "0x1c93b43be42c5"
             },
+            "0xe03ef2490316bff9808d936eee70f23896f07548": {
+              "codeHash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+            },
             "0xfe3b557e8fb62b89f4916b721be55ceb828dbd73": {
               "balance": "0xffffffffffffffffffffffffffffffffbff0f9854",
               "nonce": 30

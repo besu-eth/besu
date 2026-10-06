@@ -33,15 +33,19 @@ import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.Packet
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions;
 import org.hyperledger.besu.ethereum.p2p.rlpx.RlpxAgent;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
+import org.hyperledger.besu.plugin.services.metrics.Counter;
 
 import java.net.SocketException;
 import java.nio.channels.UnsupportedAddressTypeException;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
 
@@ -54,6 +58,9 @@ import org.slf4j.LoggerFactory;
 public class NettyPeerDiscoveryAgent extends PeerDiscoveryAgentV4 {
 
   private static final Logger LOG = LoggerFactory.getLogger(NettyPeerDiscoveryAgent.class);
+
+  // At most 2 signing tasks per admitted packet: a PONG response and a bonding PING.
+  static final int CRYPTO_QUEUE_CAPACITY = 2 * MAX_INFLIGHT_INBOUND_PACKETS;
 
   // Lazily created on first use (via prepareHandlers(), only reached when config.isEnabled()),
   // so a node running with discovery disabled doesn't pay for 3 permanently-idle threads.
@@ -133,6 +140,9 @@ public class NettyPeerDiscoveryAgent extends PeerDiscoveryAgentV4 {
    * Returns the same single-threaded scheduler that drives timers, so timer callbacks and
    * dispatched packet handling share a single thread (matching the Vert.x event-loop ordering the
    * migration to Netty otherwise loses).
+   *
+   * <p>Its queue is unbounded, but its depth is bounded by the ingress gate and {@link
+   * #CRYPTO_QUEUE_CAPACITY} that feed it. Preserve that when adding work here.
    */
   @Override
   protected Executor createDispatchExecutor() {
@@ -151,10 +161,19 @@ public class NettyPeerDiscoveryAgent extends PeerDiscoveryAgentV4 {
   private synchronized ExecutorService cryptoExecutor() {
     if (cryptoExecutor == null) {
       final AtomicInteger threadCount = new AtomicInteger(0);
+      final Counter dropped = droppedPacketCounter("crypto_capacity");
       cryptoExecutor =
-          Executors.newFixedThreadPool(
+          new ThreadPoolExecutor(
               2,
-              (ThreadFactory) r -> new Thread(r, "discv4-crypto-" + threadCount.getAndIncrement()));
+              2,
+              0L,
+              TimeUnit.MILLISECONDS,
+              new ArrayBlockingQueue<>(CRYPTO_QUEUE_CAPACITY),
+              (ThreadFactory) r -> new Thread(r, "discv4-crypto-" + threadCount.getAndIncrement()),
+              // Must not throw: createPacket logs at ERROR, so an attacker could trade the OOM for
+              // a log flood. A dropped task loses one send; the interaction retry timer recovers
+              // it.
+              (r, executor) -> dropped.inc());
     }
     return cryptoExecutor;
   }

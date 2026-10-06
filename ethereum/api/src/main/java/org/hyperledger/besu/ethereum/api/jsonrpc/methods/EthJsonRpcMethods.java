@@ -40,8 +40,11 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetBlockTra
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetCode;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetFilterChanges;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetFilterLogs;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetHeaderByHash;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetHeaderByNumber;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetLogs;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetProof;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetRawTransactionByHash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetStorageAt;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetStorageValues;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetTransactionByBlockHashAndIndex;
@@ -145,6 +148,8 @@ public class EthJsonRpcMethods extends ApiGroupJsonRpcMethods {
             new EthGetBlockReceipts(blockchainQueries, protocolSchedule),
             new EthGetBlockTransactionCountByNumber(blockchainQueries),
             new EthGetBlockTransactionCountByHash(blockchainQueries),
+            new EthGetHeaderByHash(blockchainQueries),
+            new EthGetHeaderByNumber(blockchainQueries),
             new EthCall(blockchainQueries, transactionSimulator, metricsSystem),
             new EthFeeHistory(
                 protocolSchedule, blockchainQueries, miningCoordinator, apiConfiguration),
@@ -157,8 +162,13 @@ public class EthJsonRpcMethods extends ApiGroupJsonRpcMethods {
             new EthGetUncleByBlockHashAndIndex(blockchainQueries),
             new EthNewBlockFilter(filterManager),
             new EthNewPendingTransactionFilter(filterManager),
-            new EthNewFilter(filterManager),
+            new EthNewFilter(
+                filterManager,
+                blockchainQueries,
+                apiConfiguration.getMaxLogsRange(),
+                apiConfiguration.getMaxFilterAddresses()),
             new EthGetTransactionByHash(blockchainQueries, transactionPool),
+            new EthGetRawTransactionByHash(blockchainQueries, transactionPool),
             new EthGetTransactionByBlockHashAndIndex(blockchainQueries),
             new EthGetTransactionByBlockNumberAndIndex(blockchainQueries),
             new EthGetTransactionBySenderAndNonce(blockchainQueries, transactionPool),

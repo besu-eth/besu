@@ -19,16 +19,25 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 public class DebugGetRawReceiptsTest {
 
@@ -47,6 +56,7 @@ public class DebugGetRawReceiptsTest {
   @Test
   public void returnsNullForMissingBlock() {
     final long missingBlockNumber = 999_999_999L;
+    when(blockchainQueries.headBlockNumber()).thenReturn(missingBlockNumber);
     when(blockchainQueries.getBlockHashByNumber(missingBlockNumber)).thenReturn(Optional.empty());
 
     final JsonRpcRequestContext request =
@@ -62,8 +72,8 @@ public class DebugGetRawReceiptsTest {
 
   @Test
   public void returnsNullForFutureBlock() {
-    final long futureBlockNumber = Long.MAX_VALUE;
-    when(blockchainQueries.getBlockHashByNumber(futureBlockNumber)).thenReturn(Optional.empty());
+    final long futureBlockNumber = 999_999_999_999L;
+    when(blockchainQueries.headBlockNumber()).thenReturn(42L);
 
     final JsonRpcRequestContext request =
         new JsonRpcRequestContext(
@@ -80,6 +90,7 @@ public class DebugGetRawReceiptsTest {
   public void returnsEmptyArrayForBlockWithNoReceipts() {
     final long blockNumber = 42L;
     final Hash blockHash = Hash.fromHexStringLenient("0x1234");
+    when(blockchainQueries.headBlockNumber()).thenReturn(blockNumber);
     when(blockchainQueries.getBlockHashByNumber(blockNumber)).thenReturn(Optional.of(blockHash));
     when(blockchain.getTxReceipts(blockHash)).thenReturn(Optional.of(java.util.List.of()));
 
@@ -92,5 +103,85 @@ public class DebugGetRawReceiptsTest {
 
     final JsonRpcSuccessResponse response = (JsonRpcSuccessResponse) method.response(request);
     assertThat((String[]) response.getResult()).isEmpty();
+  }
+
+  @Test
+  public void returnsReceiptsForBlockHash() {
+    final Hash blockHash =
+        Hash.fromHexString("0xd69523419c14a8c91d66477868b5ac215d792b4ea7047542fc6e20d48f50db75");
+    final BlockHeader blockHeader = mock(BlockHeader.class);
+    final TransactionReceipt receipt =
+        new TransactionReceipt(
+            TransactionType.EIP1559,
+            1,
+            100L,
+            Collections.singletonList(new BlockDataGenerator().log()),
+            Optional.empty());
+    when(blockchainQueries.getBlockHeaderByHash(blockHash)).thenReturn(Optional.of(blockHeader));
+    when(blockchain.getTxReceipts(blockHash)).thenReturn(Optional.of(List.of(receipt)));
+
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest(
+                "2.0", "debug_getRawReceipts", new Object[] {blockHash.getBytes().toHexString()}));
+
+    final JsonRpcSuccessResponse response = (JsonRpcSuccessResponse) method.response(request);
+    final String[] results = (String[]) response.getResult();
+    assertThat(results).hasSize(1);
+    final Bytes raw = Bytes.fromHexString(results[0]);
+    assertThat(raw.get(0)).isEqualTo(TransactionType.EIP1559.getSerializedType());
+  }
+
+  @Test
+  public void returnsNullForUnknownBlockHash() {
+    final Hash blockHash =
+        Hash.fromHexString("0xb8a651cb280e169015aef5235a141cb2d905058d1ff9bba788b7ad2c729c9837");
+    when(blockchainQueries.getBlockHeaderByHash(blockHash)).thenReturn(Optional.empty());
+
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest(
+                "2.0", "debug_getRawReceipts", new Object[] {blockHash.getBytes().toHexString()}));
+
+    final JsonRpcSuccessResponse response = (JsonRpcSuccessResponse) method.response(request);
+    assertThat(response.getResult()).isNull();
+  }
+
+  @ParameterizedTest
+  @EnumSource(
+      value = TransactionType.class,
+      names = {"ACCESS_LIST", "EIP1559", "BLOB", "DELEGATE_CODE"})
+  public void typedReceiptRawStartsWithTypeByte(final TransactionType type) {
+    final long blockNumber = 42L;
+    final Hash blockHash = Hash.fromHexStringLenient("0x1234");
+    final TransactionReceipt receipt =
+        new TransactionReceipt(
+            type,
+            1,
+            100L,
+            Collections.singletonList(new BlockDataGenerator().log()),
+            Optional.empty());
+
+    when(blockchainQueries.headBlockNumber()).thenReturn(blockNumber);
+    when(blockchainQueries.getBlockHashByNumber(blockNumber)).thenReturn(Optional.of(blockHash));
+    when(blockchain.getTxReceipts(blockHash)).thenReturn(Optional.of(List.of(receipt)));
+
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest(
+                "2.0",
+                "debug_getRawReceipts",
+                new Object[] {"0x" + Long.toHexString(blockNumber)}));
+
+    final JsonRpcSuccessResponse response = (JsonRpcSuccessResponse) method.response(request);
+    final String[] results = (String[]) response.getResult();
+    assertThat(results).hasSize(1);
+
+    final Bytes raw = Bytes.fromHexString(results[0]);
+    assertThat(raw.get(0))
+        .as(
+            "first byte must be the EIP-2718 type byte for type %s — not an RLP byte-string prefix",
+            type)
+        .isEqualTo(type.getSerializedType());
   }
 }

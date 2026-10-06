@@ -49,11 +49,20 @@ import org.apache.tuweni.units.bigints.UInt256;
 public final class PartialBlockAccessView {
 
   private final long txIndex;
+
+  /**
+   * Set for the pre- and post-execution indices, whose views each carry the net change over the
+   * index so far and replace what earlier views at the index recorded.
+   */
+  private final boolean sharedIndex;
+
   private final List<AccountChanges> accountChanges;
 
-  public PartialBlockAccessView(final List<AccountChanges> accountChanges, final long txIndex) {
+  public PartialBlockAccessView(
+      final List<AccountChanges> accountChanges, final long txIndex, final boolean sharedIndex) {
     this.accountChanges = accountChanges;
     this.txIndex = txIndex;
+    this.sharedIndex = sharedIndex;
   }
 
   @Override
@@ -68,6 +77,10 @@ public final class PartialBlockAccessView {
 
   public long getTxIndex() {
     return txIndex;
+  }
+
+  public boolean isSharedIndex() {
+    return sharedIndex;
   }
 
   public List<AccountChanges> accountChanges() {
@@ -87,10 +100,10 @@ public final class PartialBlockAccessView {
     return Objects.hash(accountChanges);
   }
 
-  public record SlotChange(StorageSlotKey slot, UInt256 newValue) {
+  public record SlotChange(StorageSlotKey slot, UInt256 previousValue, UInt256 newValue) {
     @Override
     public String toString() {
-      return "SlotChange{newValue=" + newValue + '}';
+      return "SlotChange{previousValue=" + previousValue + ", newValue=" + newValue + '}';
     }
   }
 
@@ -167,10 +180,16 @@ public final class PartialBlockAccessView {
   /** Builder for PartialBlockAccessView. */
   public static class PartialBlockAccessViewBuilder {
     private long txIndex;
+    private boolean sharedIndex;
     private final Map<Address, AccountChangesBuilder> accountBuilders = new HashMap<>();
 
     public PartialBlockAccessViewBuilder withTxIndex(final long txIndex) {
       this.txIndex = txIndex;
+      return this;
+    }
+
+    public PartialBlockAccessViewBuilder withSharedIndex(final boolean sharedIndex) {
+      this.sharedIndex = sharedIndex;
       return this;
     }
 
@@ -188,7 +207,7 @@ public final class PartialBlockAccessView {
               Arrays.compareUnsigned(
                   left.getAddress().getBytes().toArrayUnsafe(),
                   right.getAddress().getBytes().toArrayUnsafe()));
-      return new PartialBlockAccessView(accountChanges, txIndex);
+      return new PartialBlockAccessView(accountChanges, txIndex, sharedIndex);
     }
   }
 
@@ -225,8 +244,8 @@ public final class PartialBlockAccessView {
     }
 
     public AccountChangesBuilder addStorageChange(
-        final StorageSlotKey slot, final UInt256 newValue) {
-      storageChanges.add(new SlotChange(slot, newValue));
+        final StorageSlotKey slot, final UInt256 previousValue, final UInt256 newValue) {
+      storageChanges.add(new SlotChange(slot, previousValue, newValue));
       return this;
     }
 

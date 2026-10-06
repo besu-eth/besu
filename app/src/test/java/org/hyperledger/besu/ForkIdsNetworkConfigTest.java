@@ -37,7 +37,7 @@ import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.DefaultProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.MainnetProtocolSchedule;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
@@ -70,8 +70,9 @@ public class ForkIdsNetworkConfigTest {
               new ForkId(Bytes.ofUnsignedInt(0xed88b5fdL), 1760427360L),
               new ForkId(Bytes.ofUnsignedInt(0xe2ae4999L), 1761017184L),
               new ForkId(Bytes.ofUnsignedInt(0x56078a1eL), 1761607008L),
-              new ForkId(Bytes.ofUnsignedInt(0x268956b6L), 0L),
-              new ForkId(Bytes.ofUnsignedInt(0x268956b6L), 0L))
+              new ForkId(Bytes.ofUnsignedInt(0x268956b6L), 1791294816L),
+              new ForkId(Bytes.ofUnsignedInt(0x6c1d9423L), 0L),
+              new ForkId(Bytes.ofUnsignedInt(0x6c1d9423L), 0L))
         },
         new Object[] {
           NetworkDefinition.HOODI,
@@ -117,7 +118,7 @@ public class ForkIdsNetworkConfigTest {
     final GenesisConfig genesisConfig = GenesisConfig.fromResource(chainName.getGenesisFile());
     final MilestoneStreamingTransitionProtocolSchedule schedule = createSchedule(genesisConfig);
     final GenesisState genesisState =
-        GenesisState.fromConfig(genesisConfig, schedule, new PathBasedCodeCache());
+        GenesisState.fromConfig(genesisConfig, schedule, new BonsaiCodeCache());
     final Blockchain mockBlockchain = mock(Blockchain.class);
     final BlockHeader mockBlockHeader = mock(BlockHeader.class);
 

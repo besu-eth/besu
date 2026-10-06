@@ -122,6 +122,15 @@ public interface TransactionTraceParams {
             ? TracerType.fromString(tracer())
             : TracerType.OPCODE_TRACER; // Default to opcode tracer when null
 
+    if (tracerType == TracerType.PRESTATE_TRACER && tracerConfig() != null) {
+      // Diff mode has special semantics around account creation and deletion which
+      // requires it to include empty accounts and storage.
+      if (Boolean.TRUE.equals(tracerConfig().get("diffMode"))
+          && Boolean.TRUE.equals(tracerConfig().get("includeEmpty"))) {
+        throw new IllegalArgumentException("cannot use diffMode with includeEmpty");
+      }
+    }
+
     var builder = OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT);
     // Only override defaults when the user explicitly provided a value
     if (disableStorageNullable() != null) {
@@ -131,10 +140,6 @@ public interface TransactionTraceParams {
       builder.traceMemory(enableMemory());
     } else if (disableMemoryNullable() != null) {
       builder.traceMemory(!disableMemory());
-    } else if (tracerType != TracerType.OPCODE_TRACER) {
-      // Non-opcode tracers (e.g. callTracer) need memory capture enabled for internal
-      // operations such as extracting CREATE init code, even when disableMemory is not set
-      builder.traceMemory(true);
     }
     if (disableStackNullable() != null) {
       builder.traceStack(!disableStack());

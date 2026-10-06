@@ -1,0 +1,72 @@
+{
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "debug_traceBlockByNumber",
+    "params": [
+      "0x10",
+      {
+        "tracer": "prestateTracer",
+        "tracerConfig": {
+          "diffMode": false,
+          "disableCode": true
+        }
+      }
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": [
+      {
+        "txHash": "0xe8556111060136f3dbc907569cd95aefba870d1c6910a041bac5bf7a665c77ac",
+        "result": {
+          "0x00c0000000000000000000000000000000000000": {
+            "balance": "0x0",
+            "codeHash": "0xc38e235964f5ed1581c599e5aa4c82771e13d499e28732c6c9569629e78b09f8"
+          },
+          "0x71562b71999873db5b286df957af199ec94617f7": {
+            "balance": "0x8241cf5"
+          },
+          "0xfe3b557e8fb62b89f4916b721be55ceb828dbd73": {
+            "balance": "0xffffffffffffffffffffffffffffffffff9b254a2",
+            "nonce": 15
+          }
+        }
+      },
+      {
+        "txHash": "0x5d01f0d836692ec7b8af21e612900464b32d35875628c746df07787aa39c435f",
+        "result": {
+          "0x00d0000000000000000000000000000000000000": {
+            "balance": "0x0",
+            "codeHash": "0xd587a9016e83b41a2723bb150ebf7ba126adfd7390052aba2116afafee18087e"
+          },
+          "0x71562b71999873db5b286df957af199ec94617f7": {
+            "balance": "0xf7240fe3"
+          },
+          "0xfe3b557e8fb62b89f4916b721be55ceb828dbd73": {
+            "balance": "0xfffffffffffffffffffffffffffffffff0ab261b4",
+            "nonce": 16
+          }
+        }
+      },
+      {
+        "txHash": "0x17c288be76b23bc868ca24b26a11e55165241f297a82a890cff346b90588e0a8",
+        "result": {
+          "0x00e0000000000000000000000000000000000000": {
+            "balance": "0x0",
+            "codeHash": "0x62446b14bf8fc3c0f4e3d22827cb446ddaf6e4457ef95a3231291f60eb15e576"
+          },
+          "0x71562b71999873db5b286df957af199ec94617f7": {
+            "balance": "0x1e62402d1"
+          },
+          "0xfe3b557e8fb62b89f4916b721be55ceb828dbd73": {
+            "balance": "0xffffffffffffffffffffffffffffffffe1bb26ec6",
+            "nonce": 17
+          }
+        }
+      }
+    ]
+  },
+  "statusCode": 200
+}

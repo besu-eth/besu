@@ -16,7 +16,7 @@ package org.hyperledger.besu.ethereum.blockcreation;
 
 import static org.hyperledger.besu.ethereum.core.BlockHeaderBuilder.createPending;
 import static org.hyperledger.besu.ethereum.mainnet.feemarket.ExcessBlobGasCalculator.calculateExcessBlobGasForParent;
-import static org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
+import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BlobGas;
@@ -71,6 +71,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import com.google.common.collect.Lists;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -92,7 +93,7 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
   protected final BlockHeaderFunctions blockHeaderFunctions;
   private final EthScheduler ethScheduler;
   private final AtomicBoolean isCancelled = new AtomicBoolean(false);
-  private volatile BlockTransactionSelector selector;
+  private volatile @Nullable BlockTransactionSelector selector;
 
   protected AbstractBlockCreator(
       final MiningConfiguration miningConfiguration,
@@ -336,7 +337,7 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
               .logsBloom(BodyValidation.logsBloom(transactionResults.getReceipts()))
               .gasUsed(
                   Math.max(
-                      transactionResults.getCumulativeRegularGasUsed(),
+                      transactionResults.getCumulativeExecutionGasUsed(),
                       transactionResults.getCumulativeStateGasUsed()))
               .extraData(extraDataCalculator.get(parentHeader))
               .withdrawalsRoot(
@@ -378,7 +379,7 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
 
   record GasUsage(BlobGas excessBlobGas, BlobGas used) {}
 
-  private GasUsage computeExcessBlobGas(
+  private @Nullable GasUsage computeExcessBlobGas(
       final TransactionSelectionResults transactionResults,
       final ProtocolSpec newProtocolSpec,
       final BlockHeader parentHeader) {

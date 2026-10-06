@@ -27,7 +27,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.Subscrip
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -85,7 +84,7 @@ public class WebSocketMessageHandler {
         if (jsonRpcExecutor.isStreamingMethod(jsonRpcRequest.getString("method"))) {
           vertx
               .<Void>executeBlocking(
-                  promise -> {
+                  () -> {
                     try (JsonResponseStreamer streamer = new JsonResponseStreamer(websocket)) {
                       jsonRpcExecutor.executeStreaming(
                           user,
@@ -101,9 +100,7 @@ public class WebSocketMessageHandler {
                           },
                           streamer,
                           jsonObjectMapper);
-                      promise.complete();
-                    } catch (IOException e) {
-                      promise.fail(e);
+                      return null;
                     }
                   })
               .onFailure(
@@ -121,26 +118,19 @@ public class WebSocketMessageHandler {
 
         vertx
             .<JsonRpcResponse>executeBlocking(
-                promise -> {
-                  try {
-                    final JsonRpcResponse jsonRpcResponse =
-                        jsonRpcExecutor.execute(
-                            user,
-                            null,
-                            null,
-                            new IsAliveHandler(ethScheduler, timeoutSec),
-                            jsonRpcRequest,
-                            req -> {
-                              final WebSocketRpcRequest websocketRequest =
-                                  req.mapTo(WebSocketRpcRequest.class);
-                              websocketRequest.setConnectionId(websocket.textHandlerID());
-                              return websocketRequest;
-                            });
-                    promise.complete(jsonRpcResponse);
-                  } catch (RuntimeException e) {
-                    promise.fail(e);
-                  }
-                })
+                () ->
+                    jsonRpcExecutor.execute(
+                        user,
+                        null,
+                        null,
+                        new IsAliveHandler(ethScheduler, timeoutSec),
+                        jsonRpcRequest,
+                        req -> {
+                          final WebSocketRpcRequest websocketRequest =
+                              req.mapTo(WebSocketRpcRequest.class);
+                          websocketRequest.setConnectionId(websocket.textHandlerID());
+                          return websocketRequest;
+                        }))
             .onSuccess(
                 jsonRpcResponse -> {
                   replyToClient(websocket, jsonRpcResponse);
@@ -160,7 +150,7 @@ public class WebSocketMessageHandler {
           final JsonArray batchJsonRpcRequest = buffer.toJsonArray();
           vertx
               .<List<JsonRpcResponse>>executeBlocking(
-                  promise -> {
+                  () -> {
                     List<JsonRpcResponse> responses = new ArrayList<>();
                     for (int i = 0; i < batchJsonRpcRequest.size(); i++) {
                       final JsonObject jsonRequest;
@@ -184,7 +174,7 @@ public class WebSocketMessageHandler {
                                 return websocketRequest;
                               }));
                     }
-                    promise.complete(responses);
+                    return responses;
                   })
               .onSuccess(
                   jsonRpcBatchResponse -> {
@@ -228,16 +218,12 @@ public class WebSocketMessageHandler {
   private void replyToClient(final ServerWebSocket websocket, final Object result) {
     vertx
         .<Void>executeBlocking(
-            promise -> {
-              try {
-                traceResponse(result);
-                // JsonResponseStreamer may block while waiting for the websocket write queue to
-                // drain, so keep the full response serialization path off the event loop.
-                JSON_OBJECT_WRITER.writeValue(new JsonResponseStreamer(websocket), result);
-                promise.complete();
-              } catch (IOException ex) {
-                promise.fail(ex);
-              }
+            () -> {
+              traceResponse(result);
+              // JsonResponseStreamer may block while waiting for the websocket write queue to
+              // drain, so keep the full response serialization path off the event loop.
+              JSON_OBJECT_WRITER.writeValue(new JsonResponseStreamer(websocket), result);
+              return null;
             },
             false)
         .onFailure(ex -> LOG.error("Error streaming JSON-RPC response", ex));

@@ -469,13 +469,18 @@ public class PeerDiscoveryController {
     }
 
     if (peer.getFirstDiscovered() == 0L) {
+      if (!peer.isListening()) {
+        if (LOG.isTraceEnabled()) {
+          LOG.trace("Skipping RLPx connection to discovery-only peer {}", peer.getLoggableId());
+        }
+        markBondedAndAddToPeerTable(peer);
+        return;
+      }
       connectOnRlpxLayer(peer)
           .whenComplete(
               (pc, th) -> {
                 if (th == null || !(th.getCause() instanceof TimeoutException)) {
-                  peer.setStatus(PeerDiscoveryStatus.BONDED);
-                  peer.setFirstDiscovered(System.currentTimeMillis());
-                  addToPeerTable(peer);
+                  markBondedAndAddToPeerTable(peer);
                 } else {
                   if (LOG.isTraceEnabled()) {
                     LOG.trace(
@@ -483,7 +488,9 @@ public class PeerDiscoveryController {
                         peer.getLoggableId(),
                         th.getMessage());
                   } else {
-                    LOG.debug("Handshake timed out with peer {}", peer.getLoggableId());
+                    if (LOG.isDebugEnabled()) {
+                      LOG.debug("Handshake timed out with peer {}", peer.getLoggableId());
+                    }
                   }
                   peerTable.invalidateIP(peer.getEndpoint());
                 }
@@ -492,6 +499,12 @@ public class PeerDiscoveryController {
       peer.setStatus(PeerDiscoveryStatus.BONDED);
       addToPeerTable(peer);
     }
+  }
+
+  private void markBondedAndAddToPeerTable(final DiscoveryPeerV4 peer) {
+    peer.setStatus(PeerDiscoveryStatus.BONDED);
+    peer.setFirstDiscovered(System.currentTimeMillis());
+    addToPeerTable(peer);
   }
 
   public void addToPeerTable(final DiscoveryPeerV4 peer) {

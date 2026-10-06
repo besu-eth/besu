@@ -16,7 +16,9 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.BLOCK_NOT_FOUND;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.INTERNAL_ERROR;
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.WORLD_STATE_UNAVAILABLE;
 
+import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
@@ -55,7 +57,15 @@ public class TraceCallMany extends TraceCall implements JsonRpcMethod {
       final BlockchainQueries blockchainQueries,
       final ProtocolSchedule protocolSchedule,
       final TransactionSimulator transactionSimulator) {
-    super(blockchainQueries, protocolSchedule, transactionSimulator);
+    this(blockchainQueries, protocolSchedule, transactionSimulator, null);
+  }
+
+  public TraceCallMany(
+      final BlockchainQueries blockchainQueries,
+      final ProtocolSchedule protocolSchedule,
+      final TransactionSimulator transactionSimulator,
+      final ApiConfiguration apiConfiguration) {
+    super(blockchainQueries, protocolSchedule, transactionSimulator, apiConfiguration);
   }
 
   @Override
@@ -112,8 +122,10 @@ public class TraceCallMany extends TraceCall implements JsonRpcMethod {
 
     final List<JsonNode> traceCallResults = new ArrayList<>();
 
+    // unwrap the Optional: AbstractBlockParameterMethod only sends a bare JsonRpcErrorResponse as
+    // an error, and would serialize one inside an Optional as a successful result
     return getBlockchainQueries()
-        .getAndMapWorldState(
+        .<Object>getAndMapWorldState(
             blockHeader.getBlockHash(),
             ws -> {
               final WorldUpdater updater = transactionSimulator.getEffectiveWorldStateUpdater(ws);
@@ -135,10 +147,7 @@ public class TraceCallMany extends TraceCall implements JsonRpcMethod {
                 return Optional.of(
                     new JsonRpcErrorResponse(requestContext.getRequest().getId(), INTERNAL_ERROR));
               } catch (final EmptySimulatorResultException e) {
-                LOG.error(
-                    "Empty simulator result, call params: {}, blockHeader: {} ",
-                    CallParameterUtil.validateAndGetCallParams(requestContext),
-                    blockHeader);
+                LOG.error("Empty simulator result, blockHeader: {}", blockHeader);
                 return Optional.of(
                     new JsonRpcErrorResponse(requestContext.getRequest().getId(), INTERNAL_ERROR));
               } catch (final Exception e) {
@@ -146,7 +155,11 @@ public class TraceCallMany extends TraceCall implements JsonRpcMethod {
                     new JsonRpcErrorResponse(requestContext.getRequest().getId(), INTERNAL_ERROR));
               }
               return Optional.of(traceCallResults);
-            });
+            })
+        .orElseGet(
+            () ->
+                new JsonRpcErrorResponse(
+                    requestContext.getRequest().getId(), WORLD_STATE_UNAVAILABLE));
   }
 
   private JsonNode getSingleCallResult(
@@ -156,7 +169,8 @@ public class TraceCallMany extends TraceCall implements JsonRpcMethod {
       final WorldUpdater worldUpdater) {
     final Set<TraceTypeParameter.TraceType> traceTypes = traceTypeParameter.getTraceTypes();
     final DebugOperationTracer tracer =
-        new DebugOperationTracer(buildTraceOptions(traceTypes).opCodeTracerConfig(), false);
+        new DebugOperationTracer(
+            applyServerStepLimit(buildTraceOptions(traceTypes)).opCodeTracerConfig(), false);
     final var miningBeneficiary =
         protocolSchedule
             .getByBlockHeader(header)
@@ -166,7 +180,7 @@ public class TraceCallMany extends TraceCall implements JsonRpcMethod {
         transactionSimulator.processWithWorldUpdater(
             callParameter,
             Optional.empty(),
-            buildTransactionValidationParams(),
+            buildTransactionValidationParams(header, callParameter),
             tracer,
             header,
             worldUpdater,

@@ -17,6 +17,19 @@ apply plugin: 'application'
 apply plugin: 'java-library'
 apply plugin: 'jacoco'
 
+compileJava {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.ERROR)
+    option('NullAway:AnnotatedPackages', 'org.hyperledger.besu.testfuzz')
+  }
+}
+
+tasks.named('compileTestJava', JavaCompile).configure {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.OFF)
+  }
+}
+
 jar {
   archiveBaseName = calculateArtifactId(project)
   manifest {
@@ -31,6 +44,10 @@ jar {
 }
 
 dependencies {
+  errorprone 'com.uber.nullaway:nullaway'
+
+  compileOnly 'org.jspecify:jspecify'
+
   implementation project(':app')
   implementation project(':crypto:algorithms')
   implementation project(':datatypes')

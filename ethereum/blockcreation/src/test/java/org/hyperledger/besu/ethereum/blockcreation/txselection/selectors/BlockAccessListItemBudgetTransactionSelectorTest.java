@@ -186,7 +186,7 @@ class BlockAccessListItemBudgetTransactionSelectorTest {
     final PartialBlockAccessView.PartialBlockAccessViewBuilder b =
         new PartialBlockAccessView.PartialBlockAccessViewBuilder().withTxIndex(txIndex);
     b.getOrCreateAccountBuilder(addr)
-        .addStorageChange(new StorageSlotKey(UInt256.ONE), UInt256.ZERO);
+        .addStorageChange(new StorageSlotKey(UInt256.ONE), null, UInt256.ZERO);
     return b.build();
   }
 }

@@ -121,7 +121,7 @@
           ],
           "gas":61584,
           "failed":false,
-          "returnValue":""
+          "returnValue":"0x"
         }
       },
       {
@@ -231,7 +231,7 @@
           ],
           "gas":31584,
           "failed":false,
-          "returnValue":""
+          "returnValue":"0x"
         }
       },
       {
@@ -341,7 +341,7 @@
           ],
           "gas":13686,
           "failed":false,
-          "returnValue":""
+          "returnValue":"0x"
         }
       }
     ]

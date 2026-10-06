@@ -25,10 +25,12 @@ import org.hyperledger.besu.ethereum.core.Util;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.jspecify.annotations.Nullable;
 
 /** The Ibft block hashing. */
 public class IbftBlockHashing {
@@ -100,11 +102,16 @@ public class IbftBlockHashing {
    * @param header the block header that was signed by the proposer seal
    * @param ibftExtraData the parsed IBftExtraData from the header
    * @return the proposer address
+   * @throws NullPointerException if the proposer seal is missing in the IBFT extra data
    */
   public static Address recoverProposerAddress(
       final BlockHeader header, final IbftLegacyExtraData ibftExtraData) {
     final Hash proposerHash = calculateDataHashForProposerSeal(header, ibftExtraData);
-    Address addr = Util.signatureToAddress(ibftExtraData.getProposerSeal(), proposerHash);
+    final SECPSignature proposerSeal =
+        Objects.requireNonNull(
+            ibftExtraData.getProposerSeal(),
+            "Missing proposer seal in IBFT extra data while recovering proposer address");
+    Address addr = Util.signatureToAddress(proposerSeal, proposerHash);
     return addr;
   }
 
@@ -126,7 +133,7 @@ public class IbftBlockHashing {
   }
 
   private static Bytes encodeExtraDataWithoutCommittedSeals(
-      final BftExtraData ibftExtraData, final SECPSignature proposerSeal) {
+      final BftExtraData ibftExtraData, final @Nullable SECPSignature proposerSeal) {
     final BytesValueRLPOutput extraDataEncoding = new BytesValueRLPOutput();
     extraDataEncoding.startList();
     extraDataEncoding.writeList(

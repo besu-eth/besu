@@ -15,12 +15,15 @@
 package org.hyperledger.besu.ethereum.vm.operations;
 
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.operation.SDivOperationOptimized;
 
 import org.openjdk.jmh.annotations.Param;
+import org.openjdk.jmh.infra.BenchmarkParams;
 
-public class SDivOperationBenchmark extends SignedBinaryArithmeticOperationBenchmark {
+public class SDivOperationBenchmark extends SignedBinaryArithmeticOperationBenchmark
+    implements GasCostBenchmark {
   @Param({
     "SDIV_32_32",
     "SDIV_64_32",
@@ -58,5 +61,10 @@ public class SDivOperationBenchmark extends SignedBinaryArithmeticOperationBench
   @Override
   protected Operation.OperationResult invoke(final MessageFrame frame) {
     return SDivOperationOptimized.staticOperation(frame);
+  }
+
+  @Override
+  public long getGasCost(final BenchmarkParams params, final GasCalculator calc) {
+    return new SDivOperationOptimized(calc).getGasCost();
   }
 }
