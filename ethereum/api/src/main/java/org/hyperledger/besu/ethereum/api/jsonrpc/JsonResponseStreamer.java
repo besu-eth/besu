@@ -94,6 +94,13 @@ public class JsonResponseStreamer extends OutputStream {
     }
 
     Throwable t = failure.get();
+    // a client that hangs up is reported as a failure too, so the closed connection wins
+    if (response.closed()) {
+      final ClosedChannelException clientGone = new ClosedChannelException();
+      clientGone.initCause(t);
+      throw clientGone;
+    }
+
     if (t != null) {
       LOG.debug("Stop writing to remote address {} due to a failure", remoteAddress, t);
       throw (t instanceof IOException ioException) ? ioException : new IOException(t);
@@ -101,7 +108,7 @@ public class JsonResponseStreamer extends OutputStream {
 
     // The event loop can complete the response - the JSON-RPC timeout handler does - while this
     // worker thread is between writes. Writing to it afterwards throws IllegalStateException.
-    if (response.closed() || response.ended()) {
+    if (response.ended()) {
       throw new ClosedChannelException();
     }
   }
