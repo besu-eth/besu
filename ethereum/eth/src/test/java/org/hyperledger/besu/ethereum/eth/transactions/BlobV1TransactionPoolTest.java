@@ -15,7 +15,11 @@
 package org.hyperledger.besu.ethereum.eth.transactions;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentCaptor.forClass;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.datatypes.BlobType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -26,14 +30,17 @@ import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.core.kzg.BlobProofBundle;
 import org.hyperledger.besu.ethereum.eth.transactions.sorter.BaseFeePendingTransactionsSorter;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
+import org.hyperledger.besu.ethereum.mainnet.transactionpool.OsakaTransactionPoolPreProcessor;
 import org.hyperledger.besu.testutil.TestClock;
 
 import java.time.ZoneId;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.BiFunction;
 
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 public class BlobV1TransactionPoolTest extends AbstractTransactionPoolTestBase {
 
@@ -137,5 +144,40 @@ public class BlobV1TransactionPoolTest extends AbstractTransactionPoolTestBase {
     // so the blobs should no longer be returned from the tx pool
     expectedBlobProofBundles.forEach(
         bq -> assertThat(transactionPool.getBlobProofBundle(bq.getVersionedHash())).isNull());
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void shouldBroadcastPooledRepresentationOfLocallySubmittedV0BlobTransaction() {
+    // From Osaka on, a locally submitted blob transaction carrying a version 0 (blob proof) wrapper
+    // is upgraded to a version 1 (cell proofs, EIP-7594) wrapper before it is pooled. The pooled
+    // form is what GetPooledTransactions serves, so it is also what has to be broadcast and
+    // announced: announcing the pre-upgrade size makes every peer that checks the announced size
+    // against the delivered transaction (e.g. go-ethereum) treat us as a protocol violator.
+    when(protocolSpec.getTransactionPoolPreProcessor())
+        .thenReturn(Optional.of(new OsakaTransactionPoolPreProcessor()));
+
+    givenTransactionIsValid(transactionWithBlobs);
+    assertThat(transactionWithBlobs.getBlobsWithCommitments().orElseThrow().getBlobType())
+        .isEqualTo(BlobType.KZG_PROOF);
+
+    assertThat(transactionPool.addTransactionViaApi(transactionWithBlobs).isValid()).isTrue();
+
+    final ArgumentCaptor<Collection<Transaction>> broadcast = forClass(Collection.class);
+    verify(transactionBroadcaster).onTransactionsAdded(broadcast.capture());
+    final Transaction broadcastTx = broadcast.getValue().iterator().next();
+
+    final Transaction pooledTx =
+        transactionPool.getTransactionByHash(transactionWithBlobs.getHash()).orElseThrow();
+    assertThat(pooledTx.getBlobsWithCommitments().orElseThrow().getBlobType())
+        .isEqualTo(BlobType.KZG_CELL_PROOFS);
+
+    // the broadcast transaction must be the pooled one, so that the announced size matches what we
+    // will serve
+    assertThat(broadcastTx.getBlobsWithCommitments().orElseThrow().getBlobType())
+        .isEqualTo(BlobType.KZG_CELL_PROOFS);
+    assertThat(broadcastTx.getSizeForAnnouncement())
+        .isEqualTo(pooledTx.getSizeForAnnouncement())
+        .isNotEqualTo(transactionWithBlobs.getSizeForAnnouncement());
   }
 }

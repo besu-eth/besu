@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -284,14 +285,14 @@ public class EthEstimateGasTest {
     final JsonRpcRequestContext request =
         ethEstimateGasRequest(defaultLegacyTransactionCallParameter(Wei.ZERO));
     mockTransientProcessorResultTxInvalidReason(
-        TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE,
-        "transaction up-front cost 10 exceeds transaction sender account balance 5",
+        TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE,
+        "transaction up-front gas cost 10 exceeds transaction sender account balance 5",
         pendingBlockHeader);
 
     final ValidationResult<TransactionInvalidReason> validationResult =
         ValidationResult.invalid(
-            TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE,
-            "transaction up-front cost 10 exceeds transaction sender account balance 5");
+            TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE,
+            "transaction up-front gas cost 10 exceeds transaction sender account balance 5");
     final JsonRpcError rpcError = JsonRpcError.from(validationResult);
     final JsonRpcResponse expectedResponse = new JsonRpcErrorResponse(null, rpcError);
 
@@ -302,13 +303,13 @@ public class EthEstimateGasTest {
   public void shouldReturnErrorWhenEip1559TransactionProcessorReturnsTxInvalidReason() {
     final JsonRpcRequestContext request = ethEstimateGasRequest(eip1559TransactionCallParameter());
     mockTransientProcessorResultTxInvalidReason(
-        TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE,
-        "transaction up-front cost 10 exceeds transaction sender account balance 5",
+        TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE,
+        "transaction up-front gas cost 10 exceeds transaction sender account balance 5",
         pendingBlockHeader);
     final ValidationResult<TransactionInvalidReason> validationResult =
         ValidationResult.invalid(
-            TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE,
-            "transaction up-front cost 10 exceeds transaction sender account balance 5");
+            TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE,
+            "transaction up-front gas cost 10 exceeds transaction sender account balance 5");
     final JsonRpcError rpcError = JsonRpcError.from(validationResult);
     final JsonRpcResponse expectedResponse = new JsonRpcErrorResponse(null, rpcError);
 
@@ -534,6 +535,71 @@ public class EthEstimateGasTest {
             eq(TransactionValidationParams.transactionSimulatorAllowUnderpricedAndFutureNonce()),
             any(OperationTracer.class),
             eq(pendingBlockHeader));
+  }
+
+  @Test
+  public void shouldReturnExactGasForPlainTransferWhenMinTxCostSimulationFails() {
+    when(blockchainQueries.getMinimumTransactionCost(any())).thenReturn(12_000L);
+    mockSimulationAtGasLimit(12_000L, false, 0L);
+    mockSimulationAtGasLimit(BLOCK_GAS_LIMIT, true, 15_000L);
+    mockSimulationAtGasLimit(15_000L, true, 15_000L);
+
+    final JsonRpcRequestContext request =
+        ethEstimateGasRequest(defaultLegacyTransactionCallParameter(Wei.ZERO));
+
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcSuccessResponse(null, Quantity.create(15_000L));
+
+    assertThat(method.response(request)).usingRecursiveComparison().isEqualTo(expectedResponse);
+    verify(transactionSimulator, times(3)).processOnPending(any(), any(), any(), any(), any());
+  }
+
+  @Test
+  public void shouldFallBackToBinarySearchWhenExactGasSimulationFails() {
+    mockSimulationAtGasLimit(MIN_TX_GAS_COST, false, 0L);
+    mockSimulationAtGasLimit(BLOCK_GAS_LIMIT, true, 50_000L);
+    mockSimulationAtGasLimit(50_000L, false, 0L);
+    final long optimisticGasLimit = (long) ((50_000L + 2_300L) * (64D / 63D));
+    mockSimulationAtGasLimit(optimisticGasLimit, true, 50_000L);
+
+    final JsonRpcRequestContext request =
+        ethEstimateGasRequest(defaultLegacyTransactionCallParameter(Wei.ZERO));
+
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcSuccessResponse(null, Quantity.create(optimisticGasLimit));
+
+    assertThat(method.response(request)).usingRecursiveComparison().isEqualTo(expectedResponse);
+  }
+
+  @Test
+  public void shouldReturnMinTxCostForPlainTransferWithSingleSimulation() {
+    mockSimulationAtGasLimit(MIN_TX_GAS_COST, true, MIN_TX_GAS_COST);
+
+    final JsonRpcRequestContext request =
+        ethEstimateGasRequest(defaultLegacyTransactionCallParameter(Wei.ZERO));
+
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcSuccessResponse(null, Quantity.create(MIN_TX_GAS_COST));
+
+    assertThat(method.response(request)).usingRecursiveComparison().isEqualTo(expectedResponse);
+    verify(transactionSimulator, times(1)).processOnPending(any(), any(), any(), any(), any());
+  }
+
+  private void mockSimulationAtGasLimit(
+      final long gasLimit, final boolean isSuccessful, final long estimateGasUsed) {
+    final TransactionSimulatorResult mockTxSimResult = mock(TransactionSimulatorResult.class);
+    final TransactionProcessingResult mockResult = mock(TransactionProcessingResult.class);
+    when(mockResult.getEstimateGasUsedByTransaction()).thenReturn(estimateGasUsed);
+    when(mockResult.getRevertReason()).thenReturn(Optional.empty());
+    when(mockTxSimResult.result()).thenReturn(mockResult);
+    when(mockTxSimResult.isSuccessful()).thenReturn(isSuccessful);
+    when(transactionSimulator.processOnPending(
+            eq(modifiedLegacyTransactionCallParameter(gasLimit, Wei.ZERO, OptionalLong.empty())),
+            eq(Optional.empty()),
+            any(TransactionValidationParams.class),
+            any(OperationTracer.class),
+            eq(pendingBlockHeader)))
+        .thenReturn(Optional.of(mockTxSimResult));
   }
 
   private void failEstimationOnTxMinGas() {

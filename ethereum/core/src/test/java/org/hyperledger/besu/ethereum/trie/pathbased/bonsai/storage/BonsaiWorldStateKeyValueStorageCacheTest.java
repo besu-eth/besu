@@ -21,10 +21,10 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.cache.FlatDbCacheManager;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.cache.VersionedFlatDbCacheManager;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.FlatDbCacheManager;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.VersionedFlatDbCacheManager;
 import org.hyperledger.besu.ethereum.worldstate.ImmutableDataStorageConfiguration;
-import org.hyperledger.besu.ethereum.worldstate.ImmutablePathBasedExtraStorageConfiguration;
+import org.hyperledger.besu.ethereum.worldstate.ImmutableExtraStorageConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
@@ -63,10 +63,10 @@ public class BonsaiWorldStateKeyValueStorageCacheTest {
       final boolean crossBlockEnabled) {
     return ImmutableDataStorageConfiguration.builder()
         .dataStorageFormat(DataStorageFormat.BONSAI)
-        .pathBasedExtraStorageConfiguration(
-            ImmutablePathBasedExtraStorageConfiguration.builder()
+        .extraStorageConfiguration(
+            ImmutableExtraStorageConfiguration.builder()
                 .unstable(
-                    ImmutablePathBasedExtraStorageConfiguration.PathBasedUnstable.builder()
+                    ImmutableExtraStorageConfiguration.Unstable.builder()
                         .bonsaiCrossBlockCacheEnabled(crossBlockEnabled)
                         .build())
                 .build());
@@ -373,6 +373,60 @@ public class BonsaiWorldStateKeyValueStorageCacheTest {
               assertThat(cv.getValue()).isEqualTo(Bytes.of(3));
               assertThat(cv.isRemoval()).isFalse();
             });
+  }
+
+  @Test
+  void missDuringCommitCacheBypassDoesNotCacheAbsent() throws Exception {
+    newHead(true);
+    final Hash account = Hash.hash(Bytes.of(42));
+
+    head.getCacheManager().beginCommitCacheBypass();
+    assertThat(head.getAccount(account)).isEmpty();
+    assertThat(head.isCached(ACCOUNT_INFO_STATE, account.getBytes())).isFalse();
+    head.getCacheManager().endCommitCacheBypass();
+
+    assertThat(head.getAccount(account)).isEmpty();
+    assertThat(head.isCached(ACCOUNT_INFO_STATE, account.getBytes())).isTrue();
+    assertThat(head.getCachedValue(ACCOUNT_INFO_STATE, account.getBytes()))
+        .hasValueSatisfying(
+            cv -> {
+              assertThat(cv.isRemoval()).isTrue();
+              assertThat(cv.getVersion()).isZero();
+            });
+  }
+
+  @Test
+  void commitCacheBypassIgnoresExistingCacheHits() throws Exception {
+    newHead(true);
+    final Hash account = Hash.hash(Bytes.of(43));
+    final Bytes value = Bytes.of(1, 2, 3);
+    commitAccount(account, value);
+
+    // Install a wrong cache entry at the current version (clear first so put is not a no-op tie).
+    head.clearCrossBlockCache();
+    head.getCacheManager()
+        .putInCache(
+            ACCOUNT_INFO_STATE, account.getBytes(), Bytes.of(9, 9, 9), head.getCurrentVersion());
+
+    head.getCacheManager().beginCommitCacheBypass();
+    assertThat(head.getAccount(account)).contains(value);
+    head.getCacheManager().endCommitCacheBypass();
+  }
+
+  @Test
+  void clearCrossBlockCacheDropsEntriesButKeepsStorage() throws Exception {
+    newHead(true);
+    final Hash account = Hash.hash(Bytes.of(46));
+    final Bytes value = Bytes.of(7, 7, 7);
+    commitAccount(account, value);
+    assertThat(head.getCacheSize(ACCOUNT_INFO_STATE)).isEqualTo(1);
+
+    head.clearCrossBlockCache();
+
+    assertThat(head.getCacheSize(ACCOUNT_INFO_STATE)).isZero();
+    assertThat(head.isCached(ACCOUNT_INFO_STATE, account.getBytes())).isFalse();
+    assertThat(head.getAccount(account)).contains(value);
+    assertThat(head.isCached(ACCOUNT_INFO_STATE, account.getBytes())).isTrue();
   }
 
   private void commitAccount(final Hash accountHash, final Bytes value) {

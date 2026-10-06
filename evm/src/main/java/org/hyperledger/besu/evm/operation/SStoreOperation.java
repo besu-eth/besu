@@ -91,6 +91,17 @@ public class SStoreOperation extends AbstractOperation {
 
     final Address address = account.getAddress();
     final boolean slotIsWarm = frame.warmUpStorage(address, key);
+
+    // EIP-8038: the repriced access cost can exceed the EIP-2200 stipend, so the sentry above no
+    // longer guarantees the access is affordable. Check before the current-value read below, which
+    // would otherwise record the slot in the block access list (EIP-7928) for an unpaid access.
+    final long accessCost =
+        gasCalculator().getWarmStorageReadCost()
+            + (slotIsWarm ? 0L : gasCalculator().getSStoreColdAccessGasCost());
+    if (remainingGas < accessCost) {
+      return new OperationResult(accessCost, ExceptionalHaltReason.INSUFFICIENT_GAS);
+    }
+
     final Supplier<UInt256> currentValueSupplier =
         Suppliers.memoize(() -> getStorageValue(account, key, frame));
     final Supplier<UInt256> originalValueSupplier =
@@ -103,8 +114,8 @@ public class SStoreOperation extends AbstractOperation {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 
-    // EIP-8037: Deduct regular gas before charging state gas (ordering requirement).
-    // State gas draws from the reservoir first, then from gasRemaining; deducting regular
+    // EIP-8037: Deduct execution gas before charging state gas (ordering requirement).
+    // State gas draws from the reservoir first, then from gasRemaining; deducting execution
     // gas first ensures the reservoir/gasRemaining split is correct.
     frame.decrementRemainingGas(cost);
 
@@ -113,14 +124,16 @@ public class SStoreOperation extends AbstractOperation {
         gasCalculator()
             .calculateStorageRefundAmount(newValue, currentValueSupplier, originalValueSupplier));
 
-    LOG.trace(
-        "EIP-8037 REC_STORAGE depth={} addr={} key={} txEntryIsZero={} beforeIsZero={} afterIsZero={}",
-        frame.getDepth(),
-        address.toHexString(),
-        "0x" + key.toHexString().substring(2),
-        originalValueSupplier.get().isZero(),
-        currentValueSupplier.get().isZero(),
-        newValue.isZero());
+    if (LOG.isTraceEnabled()) {
+      LOG.trace(
+          "EIP-8037 REC_STORAGE depth={} addr={} key={} txEntryIsZero={} beforeIsZero={} afterIsZero={}",
+          frame.getDepth(),
+          address.toHexString(),
+          "0x" + key.toHexString().substring(2),
+          originalValueSupplier.get().isZero(),
+          currentValueSupplier.get().isZero(),
+          newValue.isZero());
+    }
 
     final StateGasCostCalculator stateGasCalc = gasCalculator().stateGasCostCalculator();
     final StorageTransition transition =
@@ -135,7 +148,7 @@ public class SStoreOperation extends AbstractOperation {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 
-    // Add regular gas back — the EVM loop will deduct it via the OperationResult.
+    // Add execution gas back — the EVM loop will deduct it via the OperationResult.
     frame.incrementRemainingGas(cost);
 
     account.setStorageValue(key, newValue);

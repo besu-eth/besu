@@ -19,6 +19,8 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.plugin.data.ProcessableBlockHeader;
 
+import java.util.Objects;
+
 import com.google.common.base.Stopwatch;
 import com.google.common.base.Supplier;
 
@@ -79,6 +81,6 @@ public class TransactionEvaluationContext
 
   @Override
   public boolean isCancelled() {
-    return isCancelledSupplier.get();
+    return Objects.requireNonNull(isCancelledSupplier.get());
   }
 }

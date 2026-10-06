@@ -15,11 +15,11 @@
 package org.hyperledger.besu.ethereum.eth.sync.state;
 
 import org.hyperledger.besu.consensus.merge.NewPayloadListener;
-import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.ChainHead;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.DefaultSyncStatus;
+import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.core.Synchronizer.InSyncListener;
 import org.hyperledger.besu.ethereum.eth.manager.ChainHeadEstimate;
@@ -44,6 +44,11 @@ public class SyncState implements NewPayloadListener {
   private final Blockchain blockchain;
   private final EthPeers ethPeers;
 
+  // Ensures checkInSync() re-evaluation gives a consistent view of sync status. A
+  // standalone lock is used instead of the object monitor to prevent checkInSync()
+  // causing a deadlock while synchronized on the object monitor.
+  private final Object inSyncLock = new Object();
+
   private final AtomicLong inSyncSubscriberId = new AtomicLong();
   private final Map<Long, InSyncTracker> inSyncTrackers = new ConcurrentHashMap<>();
   private final Subscribers<SyncStatusListener> syncStatusListeners = Subscribers.create();
@@ -64,8 +69,6 @@ public class SyncState implements NewPayloadListener {
 
   private volatile long lastPayloadBlockNumber = 0L;
   private volatile boolean payloadReceived = false;
-
-  private Optional<Address> maybeAccountToRepair = Optional.empty();
 
   public SyncState(final Blockchain blockchain, final EthPeers ethPeers) {
     this(blockchain, ethPeers, false, Optional.empty());
@@ -189,8 +192,9 @@ public class SyncState implements NewPayloadListener {
   }
 
   public boolean isInSync(final long syncTolerance) {
+    final ChainHead localChain = getLocalChainHead();
     return isInSync(
-        getLocalChainHead(), getSyncTargetChainHead(), getBestPeerChainHead(), syncTolerance);
+        localChain, getSyncTargetChainHead(), getBestKnownChainHead(localChain), syncTolerance);
   }
 
   public void setReachedTerminalDifficulty(final boolean stoppedAtTerminalDifficulty) {
@@ -208,14 +212,14 @@ public class SyncState implements NewPayloadListener {
   private boolean isInSync(
       final ChainHead localChain,
       final Optional<ChainHeadEstimate> syncTargetChain,
-      final Optional<ChainHeadEstimate> bestPeerChain,
+      final Optional<ChainHeadEstimate> bestKnownChain,
       final long syncTolerance) {
     return isInitialSyncPhaseDone
         && reachedTerminalDifficulty.orElse(true)
         // Sync target may be temporarily empty while we switch sync targets during a sync, so
-        // check both the sync target and our best peer to determine if we're in sync or not
+        // check both the sync target and the best known chain to determine if we're in sync or not
         && isInSync(localChain, syncTargetChain, syncTolerance)
-        && isInSync(localChain, bestPeerChain, syncTolerance);
+        && isInSync(localChain, bestKnownChain, syncTolerance);
   }
 
   private boolean isInSync(
@@ -237,6 +241,19 @@ public class SyncState implements NewPayloadListener {
 
   public Optional<ChainHeadEstimate> getBestPeerChainHead() {
     return ethPeers.bestPeerWithHeightEstimate().map(EthPeer::chainStateSnapshot);
+  }
+
+  /**
+   * The chain head the local chain is measured against to decide whether this node is in sync. Once
+   * a consensus client drives the node the latest payload is the reference, because peers can
+   * follow a different chain and still report a higher head.
+   */
+  private Optional<ChainHeadEstimate> getBestKnownChainHead(final ChainHead localChain) {
+    if (payloadReceived) {
+      return Optional.of(
+          new PayloadChainHead(lastPayloadBlockNumber, localChain.getTotalDifficulty()));
+    }
+    return getBestPeerChainHead();
   }
 
   public void disconnectSyncTarget(final DisconnectReason reason) {
@@ -295,7 +312,7 @@ public class SyncState implements NewPayloadListener {
   /**
    * Notified for each {@code engine_newPayload} received from the consensus layer. Once the first
    * payload arrives this node is being driven by a CL, so the payload head becomes the
-   * authoritative best chain height.
+   * authoritative best chain height and the reference for the in sync status.
    *
    * @param header the header reconstructed from the payload
    */
@@ -303,6 +320,7 @@ public class SyncState implements NewPayloadListener {
   public void onNewPayload(final BlockHeader header) {
     lastPayloadBlockNumber = header.getNumber();
     payloadReceived = true;
+    checkInSync();
   }
 
   public long bestChainHeight() {
@@ -324,22 +342,39 @@ public class SyncState implements NewPayloadListener {
             .orElse(localChainHeight));
   }
 
-  private synchronized void checkInSync() {
-    final ChainHead localChain = getLocalChainHead();
-    final Optional<ChainHeadEstimate> syncTargetChain = getSyncTargetChainHead();
-    final Optional<ChainHeadEstimate> bestPeerChain = getBestPeerChainHead();
+  /** Evaluates whether this node is in sync and notifies any tracker whose verdict changed. */
+  private void checkInSync() {
+    synchronized (inSyncLock) {
+      final ChainHead localChain = getLocalChainHead();
+      final Optional<ChainHeadEstimate> syncTargetChain = getSyncTargetChainHead();
+      final Optional<ChainHeadEstimate> bestKnownChain = getBestKnownChainHead(localChain);
 
-    // Remove listener when we've found a peer.
-    newPeerListenerId.ifPresent(
-        listenerId -> {
-          ethPeers.unsubscribeConnect(listenerId);
-          newPeerListenerId = Optional.empty();
-        });
+      // Remove listener when we've found a peer.
+      newPeerListenerId.ifPresent(
+          listenerId -> {
+            ethPeers.unsubscribeConnect(listenerId);
+            newPeerListenerId = Optional.empty();
+          });
 
-    inSyncTrackers
-        .values()
-        .forEach(
-            (syncTracker) -> syncTracker.checkState(localChain, syncTargetChain, bestPeerChain));
+      inSyncTrackers
+          .values()
+          .forEach(
+              (syncTracker) -> syncTracker.checkState(localChain, syncTargetChain, bestKnownChain));
+    }
+  }
+
+  private record PayloadChainHead(long height, Difficulty totalDifficulty)
+      implements ChainHeadEstimate {
+
+    @Override
+    public Difficulty getEstimatedTotalDifficulty() {
+      return totalDifficulty;
+    }
+
+    @Override
+    public long getEstimatedHeight() {
+      return height;
+    }
   }
 
   public Optional<Checkpoint> getCheckpoint() {
@@ -362,14 +397,6 @@ public class SyncState implements NewPayloadListener {
 
   public void markResyncNeeded() {
     isResyncNeeded = true;
-  }
-
-  public Optional<Address> getAccountToRepair() {
-    return maybeAccountToRepair;
-  }
-
-  public void markAccountToRepair(final Optional<Address> address) {
-    maybeAccountToRepair = address;
   }
 
   public void markInitialSyncRestart() {

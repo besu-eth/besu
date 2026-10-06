@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngin
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineCallListener;
 import org.hyperledger.besu.ethereum.api.jsonrpc.methods.ExecutionEngineJsonRpcMethods.VersionScheduler;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
@@ -52,6 +53,8 @@ class VersionSchedulerTest {
           .mergeCoordinator(mock(MergeMiningCoordinator.class))
           .ethPeers(mock(EthPeers.class))
           .metricsSystem(new NoOpMetricsSystem())
+          .transactionPool(mock(TransactionPool.class))
+          .maxRequestBlocks(0)
           .build();
 
   private final RecordingFactory v1 = new RecordingFactory();
@@ -73,25 +76,28 @@ class VersionSchedulerTest {
   }
 
   @Test
-  void skipsVersionsStartingAtUnscheduledForks() {
+  void buildsVersionsStartingAtUnscheduledForks() {
     when(protocolSchedule.milestoneFor(CANCUN)).thenReturn(Optional.of(0L));
     when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.empty());
 
     final var builtMethods = schedule();
 
-    assertThat(builtMethods).containsExactly(v1.instance, v2.instance, v3.instance);
-    assertThat(v4.invocations).isZero();
+    assertThat(builtMethods).containsExactly(v1.instance, v2.instance, v3.instance, v4.instance);
+    v3.assertForkWindow(CANCUN, AMSTERDAM);
+    v4.assertForkWindow(AMSTERDAM, null);
   }
 
   @Test
-  void alwaysBuildsVersionsActiveFromTheBeginning() {
+  void buildsEveryVersionWhenNoMilestoneIsScheduled() {
     when(protocolSchedule.milestoneFor(any())).thenReturn(Optional.empty());
 
     final var builtMethods = schedule();
 
-    assertThat(builtMethods).containsExactly(v1.instance, v2.instance);
-    assertThat(v3.invocations).isZero();
-    assertThat(v4.invocations).isZero();
+    assertThat(builtMethods).containsExactly(v1.instance, v2.instance, v3.instance, v4.instance);
+    v1.assertForkWindow(null, SHANGHAI);
+    v2.assertForkWindow(null, CANCUN);
+    v3.assertForkWindow(CANCUN, AMSTERDAM);
+    v4.assertForkWindow(AMSTERDAM, null);
   }
 
   @Test
@@ -122,6 +128,71 @@ class VersionSchedulerTest {
         .containsExactly(v1.instance, v3.instance, alsoFromCancun.instance, v4.instance);
     v3.assertForkWindow(CANCUN, AMSTERDAM);
     alsoFromCancun.assertForkWindow(CANCUN, AMSTERDAM);
+  }
+
+  @Test
+  void alwaysActiveVersionsAreBuiltRegardlessOfScheduledMilestones() {
+    when(protocolSchedule.milestoneFor(any())).thenReturn(Optional.empty());
+
+    final List<ExecutionEngineJsonRpcMethod> builtMethods =
+        List.copyOf(VersionScheduler.alwaysActive(v1, v2).build(constructorArguments));
+
+    assertThat(builtMethods).containsExactly(v1.instance, v2.instance);
+    v1.assertForkWindow(null, null);
+    v2.assertForkWindow(null, null);
+  }
+
+  @Test
+  void alwaysActivePassesBuildArgumentsToEveryFactory() {
+    when(protocolSchedule.milestoneFor(any())).thenReturn(Optional.of(0L));
+
+    VersionScheduler.alwaysActive(v1, v2).build(constructorArguments);
+
+    for (final RecordingFactory factory : List.of(v1, v2)) {
+      assertThat(factory.invocations).isOne();
+      assertThat(factory.constructorArguments).isSameAs(constructorArguments);
+    }
+  }
+
+  @Test
+  void startsFromBuildsTheVersionGatedOnItsOwnFork() {
+    when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.of(0L));
+
+    final List<ExecutionEngineJsonRpcMethod> builtMethods =
+        List.copyOf(VersionScheduler.startsFrom(AMSTERDAM, v1).build(constructorArguments));
+
+    assertThat(builtMethods).containsExactly(v1.instance);
+    assertThat(v1.invocations).isOne();
+    assertThat(v1.constructorArguments).isSameAs(constructorArguments);
+    v1.assertForkWindow(AMSTERDAM, null);
+  }
+
+  @Test
+  void startsFromBuildsTheVersionWhenItsForkIsNotScheduled() {
+    when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.empty());
+
+    final List<ExecutionEngineJsonRpcMethod> builtMethods =
+        List.copyOf(VersionScheduler.startsFrom(AMSTERDAM, v1).build(constructorArguments));
+
+    assertThat(builtMethods).containsExactly(v1.instance);
+    assertThat(v1.invocations).isOne();
+    v1.assertForkWindow(AMSTERDAM, null);
+  }
+
+  @Test
+  void alwaysActiveCanBeExtendedWithAForkGatedVersion() {
+    when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.empty());
+
+    final List<ExecutionEngineJsonRpcMethod> builtMethods =
+        List.copyOf(
+            VersionScheduler.alwaysActive(v1, v2)
+                .thenFrom(AMSTERDAM, v3)
+                .build(constructorArguments));
+
+    assertThat(builtMethods).containsExactly(v1.instance, v2.instance, v3.instance);
+    v1.assertForkWindow(null, null);
+    v2.assertForkWindow(null, null);
+    v3.assertForkWindow(AMSTERDAM, null);
   }
 
   private List<ExecutionEngineJsonRpcMethod> schedule() {

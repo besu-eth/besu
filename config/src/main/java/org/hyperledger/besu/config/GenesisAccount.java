@@ -22,6 +22,7 @@ import java.util.Map;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Genesis account
@@ -37,6 +38,6 @@ public record GenesisAccount(
     Address address,
     long nonce,
     Wei balance,
-    Bytes code,
+    @Nullable Bytes code,
     Map<UInt256, UInt256> storage,
-    Bytes32 privateKey) {}
+    @Nullable Bytes32 privateKey) {}

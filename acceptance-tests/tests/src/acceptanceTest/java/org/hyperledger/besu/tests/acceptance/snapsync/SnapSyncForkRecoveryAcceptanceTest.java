@@ -44,6 +44,7 @@ import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.web3j.crypto.Credentials;
 import org.web3j.crypto.RawTransaction;
@@ -87,6 +88,7 @@ import org.web3j.utils.Numeric;
  * CI agent this balance may need retuning (increase the heavy-block weighting, or lower the check
  * interval further) if the test becomes flaky.
  */
+@Disabled("Flaky see https://github.com/besu-eth/besu/issues/10910")
 public class SnapSyncForkRecoveryAcceptanceTest extends AcceptanceTestBase {
 
   private static final MediaType MEDIA_TYPE_JSON =

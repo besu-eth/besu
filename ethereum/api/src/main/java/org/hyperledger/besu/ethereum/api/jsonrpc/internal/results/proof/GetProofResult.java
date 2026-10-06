@@ -67,37 +67,38 @@ public class GetProofResult {
 
     final Optional<PmtStateTrieAccountValue> maybeStateTrieAccountValue =
         worldStateProof.getStateTrieAccountValue();
+    final List<StorageEntryProof> storageEntries = new ArrayList<>();
+    worldStateProof
+        .getStorageKeys()
+        .forEach(
+            key ->
+                storageEntries.add(
+                    new StorageEntryProof(
+                        key,
+                        worldStateProof.getStorageValue(key),
+                        worldStateProof.getStorageProof(key))));
+
     return maybeStateTrieAccountValue
         .map(
-            pmtStateTrieAccountValue -> {
-              final List<StorageEntryProof> storageEntries = new ArrayList<>();
-              worldStateProof
-                  .getStorageKeys()
-                  .forEach(
-                      key ->
-                          storageEntries.add(
-                              new StorageEntryProof(
-                                  key,
-                                  worldStateProof.getStorageValue(key),
-                                  worldStateProof.getStorageProof(key))));
-              return new GetProofResult(
-                  address,
-                  pmtStateTrieAccountValue.getBalance(),
-                  Bytes32.wrap(pmtStateTrieAccountValue.getCodeHash().getBytes()),
-                  pmtStateTrieAccountValue.getNonce(),
-                  Bytes32.wrap(pmtStateTrieAccountValue.getStorageRoot().getBytes()),
-                  worldStateProof.getAccountProof(),
-                  storageEntries);
-            })
-        .orElse(
-            new GetProofResult(
-                address,
-                Wei.ZERO,
-                Bytes32.wrap(Hash.EMPTY.getBytes()),
-                0L,
-                Bytes32.wrap(Hash.EMPTY_TRIE_HASH.getBytes()),
-                worldStateProof.getAccountProof(),
-                new ArrayList<>()));
+            pmtStateTrieAccountValue ->
+                new GetProofResult(
+                    address,
+                    pmtStateTrieAccountValue.getBalance(),
+                    Bytes32.wrap(pmtStateTrieAccountValue.getCodeHash().getBytes()),
+                    pmtStateTrieAccountValue.getNonce(),
+                    Bytes32.wrap(pmtStateTrieAccountValue.getStorageRoot().getBytes()),
+                    worldStateProof.getAccountProof(),
+                    storageEntries))
+        .orElseGet(
+            () ->
+                new GetProofResult(
+                    address,
+                    Wei.ZERO,
+                    Bytes32.wrap(Hash.EMPTY.getBytes()),
+                    0L,
+                    Bytes32.wrap(Hash.EMPTY_TRIE_HASH.getBytes()),
+                    worldStateProof.getAccountProof(),
+                    storageEntries));
   }
 
   @JsonGetter(value = "address")

@@ -196,6 +196,40 @@ public class BesuControllerTest {
   }
 
   @Test
+  public void hoodiSnapSyncUsesMergeControllerBuilder() {
+    // Hoodi is post-merge at genesis (difficulty 0x01, TTD 0) and has no pre-merge blocks, so the
+    // transition machinery must be skipped entirely.
+    final GenesisConfig hoodi = GenesisConfig.fromResource("/hoodi.json");
+
+    final BesuControllerBuilder besuControllerBuilder =
+        new BesuController.Builder().fromGenesisFile(hoodi, SyncMode.SNAP);
+
+    assertThat(besuControllerBuilder).isInstanceOf(MergeBesuControllerBuilder.class);
+  }
+
+  @Test
+  public void hoodiFullSyncUsesMergeControllerBuilder() {
+    // Unlike the checkpoint early-out, this must not depend on the sync mode.
+    final GenesisConfig hoodi = GenesisConfig.fromResource("/hoodi.json");
+
+    final BesuControllerBuilder besuControllerBuilder =
+        new BesuController.Builder().fromGenesisFile(hoodi, SyncMode.FULL);
+
+    assertThat(besuControllerBuilder).isInstanceOf(MergeBesuControllerBuilder.class);
+  }
+
+  @Test
+  public void sepoliaFullSyncUsesTransitionControllerBuilder() {
+    // Sepolia has real proof-of-work history, so it keeps the transition builder.
+    final GenesisConfig sepolia = GenesisConfig.fromResource("/sepolia.json");
+
+    final BesuControllerBuilder besuControllerBuilder =
+        new BesuController.Builder().fromGenesisFile(sepolia, SyncMode.FULL);
+
+    assertThat(besuControllerBuilder).isInstanceOf(TransitionBesuControllerBuilder.class);
+  }
+
+  @Test
   public void explicitPostMergeCheckpointOnPreMergeGenesisUsesMergeControllerBuilder() {
     // Genesis has a pre-merge checkpoint (TD < TTD), which alone selects the transition builder. An
     // explicitly provided post-merge checkpoint (TD > TTD = 58750000000000000000000) is used in

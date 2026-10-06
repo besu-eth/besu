@@ -30,6 +30,7 @@ import org.hyperledger.besu.ethereum.eth.core.Utils;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -52,7 +53,8 @@ public class ImportSyncBlocksStepTest {
     when(protocolContext.getBlockchain()).thenReturn(blockchain);
 
     importSyncBlocksStep =
-        new ImportSyncBlocksStep(protocolContext, null, syncState, 0L, 10L, false);
+        new ImportSyncBlocksStep(
+            protocolContext, null, syncState, 0L, 10L, false, Optional.empty());
   }
 
   @Test

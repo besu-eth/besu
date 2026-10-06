@@ -73,12 +73,15 @@ public class RoundChangePayload extends IbftPayload {
   }
 
   /**
-   * Read from rlp input and return round change payload.
+   * Read from rlp input and return round change payload limiting decoding to supplied decode
+   * budget.
    *
    * @param rlpInput the rlp input
+   * @param decodeBudget the per-message decode budget
    * @return the round change payload
    */
-  public static RoundChangePayload readFrom(final RLPInput rlpInput) {
+  public static RoundChangePayload readFrom(
+      final RLPInput rlpInput, final DecodeBudget decodeBudget) {
     rlpInput.enterList();
     final ConsensusRoundIdentifier roundIdentifier = ConsensusRoundIdentifier.readFrom(rlpInput);
 
@@ -88,7 +91,7 @@ public class RoundChangePayload extends IbftPayload {
       rlpInput.skipNext();
       preparedCertificate = Optional.empty();
     } else {
-      preparedCertificate = Optional.of(PreparedCertificate.readFrom(rlpInput));
+      preparedCertificate = Optional.of(PreparedCertificate.readFrom(rlpInput, decodeBudget));
     }
     rlpInput.leaveList();
 

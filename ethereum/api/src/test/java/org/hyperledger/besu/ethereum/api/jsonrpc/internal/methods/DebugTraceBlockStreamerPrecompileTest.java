@@ -95,7 +95,7 @@ public class DebugTraceBlockStreamerPrecompileTest {
             block, TraceOptions.DEFAULT, fixture.getProtocolSchedule(), blockchainQueries);
 
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    streamer.streamTo(out, mapper);
+    streamer.streamTo(out, mapper, () -> true);
 
     final JsonNode structLogs = getStructLogs(out);
     assertThat(structLogs.isArray()).isTrue();
@@ -116,11 +116,11 @@ public class DebugTraceBlockStreamerPrecompileTest {
 
     // streaming path
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    streamer.streamTo(out, mapper);
+    streamer.streamTo(out, mapper, () -> true);
     final JsonNode streamedRoot = mapper.readTree(out.toByteArray());
 
     // accumulating path
-    final List<Object> accumulated = streamer.accumulateAll();
+    final List<Object> accumulated = streamer.accumulateAll(() -> true);
     final JsonNode accRoot = mapper.readTree(mapper.writeValueAsBytes(accumulated));
 
     assertThat(streamedRoot)

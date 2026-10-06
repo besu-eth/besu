@@ -50,25 +50,12 @@ import picocli.CommandLine.ParameterException;
 /** The Mining CLI options. */
 public class MiningOptions implements CLIOptions<MiningConfiguration> {
 
-  private static final String DEPRECATION_PREFIX =
-      "Deprecated. PoW consensus is deprecated. See CHANGELOG for alternative options. ";
-
   @Option(
       names = {"--miner-extra-data"},
       description =
           "A hex string representing the (32) bytes to be included in the extra data "
               + "field of a mined block (default: ${DEFAULT-VALUE})")
   private Bytes extraData = DEFAULT_EXTRA_DATA;
-
-  @Option(
-      names = {"--min-block-occupancy-ratio"},
-      hidden = true,
-      description =
-          DEPRECATION_PREFIX
-              + "Minimum occupancy ratio for a mined block (default: ${DEFAULT-VALUE})")
-  @SuppressWarnings("UnusedVariable")
-  @Deprecated
-  private Double minBlockOccupancyRatio = null;
 
   @Option(
       names = {"--min-gas-price"},

@@ -14,10 +14,13 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
+import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.transaction.CallParameter;
 
 import java.util.Arrays;
@@ -39,7 +42,8 @@ public class CallParameterUtil {
           "Invalid call parameters (index 0)", RpcErrorType.INVALID_CALL_PARAMS);
     }
 
-    if (callParams.getGasPrice().isPresent()
+    if (LOG.isDebugEnabled()
+        && callParams.getGasPrice().isPresent()
         && (callParams.getMaxFeePerGas().isPresent()
             || callParams.getMaxPriorityFeePerGas().isPresent())) {
       try {
@@ -52,5 +56,46 @@ public class CallParameterUtil {
       }
     }
     return callParams;
+  }
+
+  public static boolean isAllowExceedingBalance(
+      final BlockHeader header, final CallParameter callParams) {
+    if (callParams.getStrict().isPresent()) {
+      return !callParams.getStrict().get();
+    }
+
+    final boolean isZeroGasPrice = callParams.getGasPrice().map(Wei.ZERO::equals).orElse(true);
+
+    if (header.getBaseFee().isPresent()) {
+      if (callParams.getBlobVersionedHashes().isPresent()
+          && (callParams.getMaxFeePerBlobGas().isEmpty()
+              || callParams.getMaxFeePerBlobGas().get().equals(Wei.ZERO))) {
+        return true;
+      }
+      final boolean isZeroMaxFeePerGas =
+          callParams.getMaxFeePerGas().orElse(Wei.ZERO).equals(Wei.ZERO);
+      final boolean isZeroMaxPriorityFeePerGas =
+          callParams.getMaxPriorityFeePerGas().orElse(Wei.ZERO).equals(Wei.ZERO);
+      return isZeroGasPrice && isZeroMaxFeePerGas && isZeroMaxPriorityFeePerGas;
+    }
+
+    return isZeroGasPrice;
+  }
+
+  /**
+   * Returns the validation parameters eth_call uses for a call. When {@link
+   * #isAllowExceedingBalance} holds, the call runs with a zero gas price and base fee and without
+   * execution gas fees; otherwise it is validated against the block's base fee and the sender's
+   * balance and pays for its gas.
+   *
+   * @param header the header of the block the call runs on
+   * @param callParams the call parameters
+   * @return the transaction validation parameters for the call
+   */
+  public static TransactionValidationParams getTransactionValidationParams(
+      final BlockHeader header, final CallParameter callParams) {
+    return isAllowExceedingBalance(header, callParams)
+        ? TransactionValidationParams.transactionSimulatorAllowExceedingBalanceAndFutureNonce()
+        : TransactionValidationParams.transactionSimulatorAllowFutureNonce();
   }
 }

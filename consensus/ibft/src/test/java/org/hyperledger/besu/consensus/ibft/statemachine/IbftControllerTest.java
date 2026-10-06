@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.util.Lists.newArrayList;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.lenient;
@@ -53,6 +54,7 @@ import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.DefaultMessage;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Message;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 
 import java.util.Collections;
 import java.util.List;
@@ -115,7 +117,7 @@ public class IbftControllerTest {
     lenient().when(nextBlock.getNumber()).thenReturn(5L);
 
     lenient().when(bftFinalState.isLocalNodeValidator()).thenReturn(true);
-    lenient().when(messageTracker.hasSeenMessage(any())).thenReturn(false);
+    lenient().when(messageTracker.hasSeenMessage(any(MessageData.class))).thenReturn(false);
   }
 
   private void constructIbftController() {
@@ -450,7 +452,7 @@ public class IbftControllerTest {
     lenient().when(proposal.getAuthor()).thenReturn(validator);
     lenient().when(proposal.getRoundIdentifier()).thenReturn(roundIdentifier);
     lenient().when(proposalMessageData.getCode()).thenReturn(IbftV2.PROPOSAL);
-    lenient().when(proposalMessageData.decode()).thenReturn(proposal);
+    lenient().when(proposalMessageData.decode(anyInt())).thenReturn(proposal);
     proposalMessage = new DefaultMessage(null, proposalMessageData);
   }
 

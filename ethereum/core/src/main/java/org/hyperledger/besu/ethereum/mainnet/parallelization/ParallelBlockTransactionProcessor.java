@@ -22,7 +22,7 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
@@ -74,6 +74,23 @@ public abstract class ParallelBlockTransactionProcessor {
                       blockAccessListBuilder,
                       maybeParentHeader),
               executor);
+    }
+  }
+
+  /**
+   * Cancels every still-pending speculative future and nulls its slot. Already-consumed slots are
+   * null, so on the success path this is a no-op.
+   */
+  public void abort() {
+    if (futures == null) {
+      return;
+    }
+    for (int i = 0; i < futures.length; i++) {
+      final CompletableFuture<ParallelizedTransactionContext> future = futures[i];
+      if (future != null) {
+        future.cancel(true);
+        futures[i] = null;
+      }
     }
   }
 

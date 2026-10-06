@@ -26,8 +26,17 @@ import org.hyperledger.besu.ethereum.p2p.peers.DefaultPeer;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.p2p.peers.Peer;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions.Action;
+import org.hyperledger.besu.ethereum.permissioning.AllowlistPersistor;
+import org.hyperledger.besu.ethereum.permissioning.LocalPermissioningConfiguration;
+import org.hyperledger.besu.ethereum.permissioning.NodeLocalConfigPermissioningController;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+import org.hyperledger.besu.plugin.services.permissioning.NodeConnectionPermissioningProvider;
 
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
@@ -207,6 +216,66 @@ public class PeerPermissionsAdapterTest {
     blockchain.appendBlock(newBlock, gen.receipts(newBlock));
 
     assertThat(updateDispatched).isTrue();
+  }
+
+  /**
+   * Revoking permission for a connected peer must dispatch a permissions update immediately, not
+   * wait for the next block import. Deliberately appends no block: the block-added observer is the
+   * accidental trigger that masks this in a block-producing network.
+   */
+  @Test
+  public void subscribeUpdate_firesWhenNodeRemovedFromLocalAllowlist() {
+    final String allowedEnode =
+        "enode://6f8a80d14311c39f35f516fa664deaaaa13e85b2f7493f37f6144d86991ec012937307647bd3b9a82abe2974e1407241d54947bbb39763a4cac9f77166ad92a0@192.168.0.10:4567";
+    final NodeLocalConfigPermissioningController localConfigController =
+        localConfigController(allowedEnode);
+    final PeerPermissionsAdapter adapterUnderTest =
+        new PeerPermissionsAdapter(
+            new NodePermissioningController(
+                List.<NodeConnectionPermissioningProvider>of(localConfigController)),
+            blockchain);
+
+    final AtomicBoolean updateDispatched = new AtomicBoolean(false);
+    adapterUnderTest.subscribeUpdate((restricted, peers) -> updateDispatched.set(true));
+
+    localConfigController.removeNodes(List.of(allowedEnode));
+
+    assertThat(updateDispatched).isTrue();
+  }
+
+  @Test
+  public void subscribeUpdate_firesWhenNodeAddedToLocalAllowlist() {
+    final String newEnode =
+        "enode://5f8a80d14311c39f35f516fa664deaaaa13e85b2f7493f37f6144d86991ec012937307647bd3b9a82abe2974e1407241d54947bbb39763a4cac9f77166ad92a0@192.168.0.11:4567";
+    final NodeLocalConfigPermissioningController localConfigController =
+        localConfigController(
+            "enode://6f8a80d14311c39f35f516fa664deaaaa13e85b2f7493f37f6144d86991ec012937307647bd3b9a82abe2974e1407241d54947bbb39763a4cac9f77166ad92a0@192.168.0.10:4567");
+    final PeerPermissionsAdapter adapterUnderTest =
+        new PeerPermissionsAdapter(
+            new NodePermissioningController(
+                List.<NodeConnectionPermissioningProvider>of(localConfigController)),
+            blockchain);
+
+    final AtomicBoolean updateDispatched = new AtomicBoolean(false);
+    adapterUnderTest.subscribeUpdate((restricted, peers) -> updateDispatched.set(true));
+
+    localConfigController.addNodes(List.of(newEnode));
+
+    assertThat(updateDispatched).isTrue();
+  }
+
+  private NodeLocalConfigPermissioningController localConfigController(
+      final String... allowedNodes) {
+    final LocalPermissioningConfiguration config = LocalPermissioningConfiguration.createDefault();
+    config.setNodeAllowlist(
+        Arrays.stream(allowedNodes).map(EnodeURLImpl::fromString).collect(Collectors.toList()));
+
+    return new NodeLocalConfigPermissioningController(
+        config,
+        Collections.emptyList(),
+        localNode.getId(),
+        mock(AllowlistPersistor.class),
+        new NoOpMetricsSystem());
   }
 
   private void mockControllerPermissions(

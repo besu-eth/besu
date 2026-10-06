@@ -43,9 +43,9 @@ public class PrevRandaoContractIbft2AcceptanceTest extends AcceptanceTestBase {
 
   @BeforeEach
   public void setUp() throws Exception {
-    validator1 = besu.createIbft2Node("validator1", false, DataStorageFormat.FOREST);
-    validator2 = besu.createIbft2Node("validator2", false, DataStorageFormat.FOREST);
-    validator3 = besu.createIbft2Node("validator3", false, DataStorageFormat.FOREST);
+    validator1 = besu.createIbft2Node("validator1", DataStorageFormat.FOREST);
+    validator2 = besu.createIbft2Node("validator2", DataStorageFormat.FOREST);
+    validator3 = besu.createIbft2Node("validator3", DataStorageFormat.FOREST);
     cluster.start(validator1, validator2, validator3);
   }
 

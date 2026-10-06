@@ -109,21 +109,28 @@ public class MainnetTransactionValidator implements TransactionValidator {
           TransactionInvalidReason.NONCE_OVERFLOW, "Nonce must be less than 2^64-1");
     }
 
+    final long txGasLimitCap = gasLimitCalculator.transactionGasLimitCap();
     if (!transactionValidationParams.isAllowExceedingGasLimit()
-        && transaction.getGasLimit() > gasLimitCalculator.transactionGasLimitCap()) {
+        // Long.MAX_VALUE is the sentinel for "no cap" (pre-Osaka). Only apply unsigned
+        // comparison when a real cap is in effect; unsigned would incorrectly reject
+        // transactions with gas >= 2^63 on pre-Osaka forks where no cap applies.
+        && txGasLimitCap != Long.MAX_VALUE
+        && Long.compareUnsigned(transaction.getGasLimit(), txGasLimitCap) > 0) {
       return ValidationResult.invalid(
           TransactionInvalidReason.EXCEEDS_TRANSACTION_GAS_LIMIT,
-          "Transaction gas limit must be at most " + gasLimitCalculator.transactionGasLimitCap());
+          "Transaction gas limit must be at most " + txGasLimitCap);
     }
 
     if (transactionType.supportsBlob()) {
       final ValidationResult<TransactionInvalidReason> blobTransactionResult =
           blobsValidator.validate(transaction);
       if (!blobTransactionResult.isValid()) {
-        LOG.debug(
-            "Blob transaction {} validation failed: {}",
-            transaction.getHash().getBytes().toHexString(),
-            blobTransactionResult.getErrorMessage());
+        if (LOG.isDebugEnabled()) {
+          LOG.debug(
+              "Blob transaction {} validation failed: {}",
+              transaction.getHash().getBytes().toHexString(),
+              blobTransactionResult.getErrorMessage());
+        }
         return blobTransactionResult;
       }
     }
@@ -197,7 +204,7 @@ public class MainnetTransactionValidator implements TransactionValidator {
 
     if (maybeBaseFee.isPresent()) {
       final Wei price = feeMarket.getTransactionPriceCalculator().price(transaction, maybeBaseFee);
-      if (!transactionValidationParams.allowUnderpriced()
+      if (!transactionValidationParams.allowUnderpricedGas()
           && !transactionValidationParams.isAllowExceedingBalance()
           && price.compareTo(maybeBaseFee.orElseThrow()) < 0) {
         return ValidationResult.invalid(
@@ -232,7 +239,7 @@ public class MainnetTransactionValidator implements TransactionValidator {
         throw new IllegalArgumentException(
             "blob fee must be provided from blocks containing blobs");
         // tx.getMaxFeePerBlobGas can be empty for eth_call
-      } else if (!transactionValidationParams.allowUnderpriced()
+      } else if (!transactionValidationParams.allowUnderpricedGas()
           && maybeBlobFee.get().compareTo(transaction.getMaxFeePerBlobGas().get()) > 0) {
         return ValidationResult.invalid(
             TransactionInvalidReason.BLOB_GAS_PRICE_BELOW_CURRENT_BLOB_BASE_FEE,
@@ -253,7 +260,7 @@ public class MainnetTransactionValidator implements TransactionValidator {
             gasCalculator.transactionIntrinsicGasCost(transaction, baselineGas),
             gasCalculator.transactionFloorCost(transaction));
 
-    // EIP-8037: cap max(intrinsic_regular, calldata_floor) rather than tx.gas itself.
+    // EIP-8037: cap max(intrinsic_execution, calldata_floor) rather than tx.gas itself.
     final long intrinsicGasLimitCap = gasLimitCalculator.transactionIntrinsicGasLimitCap();
     if (!transactionValidationParams.isAllowExceedingGasLimit()
         && Long.compareUnsigned(intrinsicGasCostOrFloor, intrinsicGasLimitCap) > 0) {
@@ -297,16 +304,34 @@ public class MainnetTransactionValidator implements TransactionValidator {
       if (sender.getCodeHash() != null) codeHash = sender.getCodeHash();
     }
 
-    final Wei upfrontCost =
-        transaction.getUpfrontCost(gasCalculator.blobGasCost(transaction.getBlobCount()));
-    if (!validationParams.allowUnderpriced() && upfrontCost.compareTo(senderBalance) > 0) {
+    // check if the sender has enough balance to pay for the gas
+    final Wei maxUpfrontGasCost =
+        transaction.getMaxUpfrontGasCost(gasCalculator.blobGasCost(transaction.getBlobCount()));
+    if (!validationParams.allowUnderpricedGas() && maxUpfrontGasCost.compareTo(senderBalance) > 0) {
       return ValidationResult.invalid(
-          TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE,
+          TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE,
           String.format(
-              "transaction up-front cost %s exceeds transaction sender account balance %s for sender %s",
-              upfrontCost.toQuantityHexString(),
+              "transaction up-front gas cost %s exceeds transaction sender account balance %s for sender %s",
+              maxUpfrontGasCost.toQuantityHexString(),
               senderBalance.toQuantityHexString(),
               transaction.getSender()));
+    }
+
+    // then check if the sender has enough balance to pay to the value transfer if present
+    if (!transaction.getValue().isZero()) {
+      final Wei actualCompareBalance =
+          validationParams.allowUnderpricedGas()
+              ? senderBalance // ignore gas cost when underpriced gas is allowed
+              : senderBalance.subtract(maxUpfrontGasCost);
+      if (transaction.getValue().compareTo(actualCompareBalance) > 0) {
+        return ValidationResult.invalid(
+            TransactionInvalidReason.INSUFFICIENT_FUNDS_FOR_TRANSFER,
+            String.format(
+                "transfer value %s exceeds transaction sender account balance %s for sender %s",
+                transaction.getValue().toQuantityHexString(),
+                senderBalance.toQuantityHexString(),
+                transaction.getSender()));
+      }
     }
 
     if (Long.compareUnsigned(transaction.getNonce(), senderNonce) < 0) {

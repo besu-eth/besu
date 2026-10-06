@@ -14,39 +14,20 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
+import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineGetPayloadBodiesResultV2;
-import org.hyperledger.besu.ethereum.chain.Blockchain;
-import org.hyperledger.besu.ethereum.core.BlockBody;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.ExecutionPayloadBodiesV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.ExecutionPayloadBodiesV2;
 
-import java.util.Arrays;
-import java.util.List;
-import java.util.Optional;
-import java.util.stream.Collectors;
-
-import io.vertx.core.Vertx;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-public class EngineGetPayloadBodiesByHashV2 extends AbstractEngineGetPayloadBodies {
-  private static final Logger LOG = LoggerFactory.getLogger(EngineGetPayloadBodiesByHashV2.class);
+public final class EngineGetPayloadBodiesByHashV2<EPB extends ExecutionPayloadBodiesV2>
+    extends EngineGetPayloadBodiesByHashV1<EPB> {
 
   public EngineGetPayloadBodiesByHashV2(
-      final Vertx vertx,
-      final ProtocolContext protocolContext,
-      final BlockResultFactory blockResultFactory,
-      final EngineCallListener engineCallListener) {
-    super(vertx, protocolContext, blockResultFactory, engineCallListener);
+      final ConstructorArguments constructorArguments,
+      final HardforkId minSupportedFork,
+      final HardforkId firstUnsupportedFork) {
+    super(constructorArguments, minSupportedFork, firstUnsupportedFork);
   }
 
   @Override
@@ -55,45 +36,14 @@ public class EngineGetPayloadBodiesByHashV2 extends AbstractEngineGetPayloadBodi
   }
 
   @Override
-  public JsonRpcResponse syncResponse(final JsonRpcRequestContext request) {
-    engineCallListener.executionEngineCalled();
-
-    final Object reqId = request.getRequest().getId();
-
-    final Hash[] blockHashes;
-    try {
-      blockHashes = request.getRequiredParameter(0, Hash[].class);
-    } catch (JsonRpcParameterException e) {
-      throw new InvalidJsonRpcParameters(
-          "Invalid block hash parameters (index 0)", RpcErrorType.INVALID_BLOCK_HASH_PARAMS, e);
+  @SuppressWarnings("unchecked")
+  protected EPB fetchExecutionPayloadBody(final Hash blockHash) {
+    final ExecutionPayloadBodiesV1 epbv1 = super.fetchExecutionPayloadBody(blockHash);
+    if (epbv1 != null) {
+      return (EPB)
+          new ExecutionPayloadBodiesV2(
+              epbv1, blockchain.getBlockAccessList(blockHash).orElse(null));
     }
-
-    LOG.atTrace()
-        .setMessage("{} parameters: blockHashes {}")
-        .addArgument(this::getName)
-        .addArgument(blockHashes)
-        .log();
-
-    if (blockHashes.length > getMaxRequestBlocks()) {
-      return new JsonRpcErrorResponse(reqId, RpcErrorType.INVALID_RANGE_REQUEST_TOO_LARGE);
-    }
-
-    final Blockchain blockchain = protocolContext.getBlockchain();
-
-    final List<BlockBodyWithAccessList> results =
-        Arrays.stream(blockHashes)
-            .parallel()
-            .map(hash -> getBlockBodyWithAccessList(blockchain, hash))
-            .collect(Collectors.toList());
-
-    final List<Optional<BlockBody>> blockBodies =
-        results.stream().map(BlockBodyWithAccessList::body).collect(Collectors.toList());
-    final List<Optional<String>> blockAccessLists =
-        results.stream().map(BlockBodyWithAccessList::accessList).collect(Collectors.toList());
-
-    final EngineGetPayloadBodiesResultV2 engineGetPayloadBodiesResultV2 =
-        blockResultFactory.payloadBodiesCompleteV2(blockBodies, blockAccessLists);
-
-    return new JsonRpcSuccessResponse(reqId, engineGetPayloadBodiesResultV2);
+    return null;
   }
 }

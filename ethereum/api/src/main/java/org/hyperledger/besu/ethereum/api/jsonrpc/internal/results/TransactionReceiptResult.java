@@ -95,7 +95,8 @@ public abstract class TransactionReceiptResult {
             receiptWithMetadata.getBlockHash(),
             receiptWithMetadata.getBlockTimestamp(),
             receiptWithMetadata.getTransactionIndex(),
-            receiptWithMetadata.getLogIndexOffset());
+            receiptWithMetadata.getLogIndexOffset(),
+            receiptWithMetadata.isRemoved());
     this.logsBloom = receipt.getBloomFilter().toString();
     this.to = txn.getTo().map(BytesHolder::getBytes).map(Bytes::toHexString).orElse(null);
     this.transactionHash = txn.getHash().toString();
@@ -197,7 +198,8 @@ public abstract class TransactionReceiptResult {
       final Hash blockHash,
       final long blockTimestamp,
       final int transactionIndex,
-      final int logIndexOffset) {
+      final int logIndexOffset,
+      final boolean removed) {
     final List<TransactionReceiptLogResult> logResults = new ArrayList<>(logs.size());
 
     for (int i = 0; i < logs.size(); i++) {
@@ -210,7 +212,8 @@ public abstract class TransactionReceiptResult {
               blockHash,
               blockTimestamp,
               transactionIndex,
-              i + logIndexOffset));
+              i + logIndexOffset,
+              removed));
     }
 
     return logResults;

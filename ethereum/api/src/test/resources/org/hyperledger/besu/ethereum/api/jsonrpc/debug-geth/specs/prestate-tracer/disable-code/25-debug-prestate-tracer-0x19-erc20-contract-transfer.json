@@ -1,0 +1,57 @@
+{
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "debug_traceBlockByNumber",
+    "params": [
+      "0x19",
+      {
+        "tracer": "prestateTracer",
+        "tracerConfig": {
+          "diffMode": false,
+          "disableCode": true
+        }
+      }
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": [
+      {
+        "txHash": "0xbff48524cc47abf4a733299f32733cc1c3105741f8466fce973d3f9b6cd052ed",
+        "result": {
+          "0x627306090abab3a6e1400e9345bc60c78a8bef57": {
+            "balance": "0xefffffffffffffffff1c40e52",
+            "nonce": 19
+          },
+          "0x71562b71999873db5b286df957af199ec94617f7": {
+            "balance": "0x3c8cf9ea9"
+          }
+        }
+      },
+      {
+        "txHash": "0x56cb286da4ca53b1cef0361d8224ccfd1f8a9d8b85c97f693b83f70cae4a6e0e",
+        "result": {
+          "0x627306090abab3a6e1400e9345bc60c78a8bef57": {
+            "balance": "0xeffffffffffffffffde8432b2",
+            "nonce": 20
+          },
+          "0x71562b71999873db5b286df957af199ec94617f7": {
+            "balance": "0x3dbfadbe9"
+          },
+          "0xbaaa2a3237035a2c7fa2a33c76b44a8c6fe18e87": {
+            "balance": "0x0",
+            "codeHash": "0xa1b62b5dd40a9c7b0f0a91ffd2578f7b1b22ca6d312846a0b88b3ae8339201c6",
+            "nonce": 1,
+            "storage": {
+              "0x47dfe2af6b00a2aac81c542b40f5676fc0072fa1ce62e1ef260aade0f4b29643": "0x0000000000000000000000000000000000000000000000000000000000000000",
+              "0xa9312db2f5fb32846f141a1d722f773c1064b8a16a8469d25062d3455a375b5d": "0x000000000000000000000000000000000000000000a56fa5b99019a5c8000000"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "statusCode": 200
+}

@@ -138,11 +138,7 @@ public class DebugStorageRangeAt implements JsonRpcMethod {
                         mutableWorldState,
                         blockHash,
                         maybeTransactionIndex.get().getTransaction().getHash(),
-                        (transaction,
-                            blockHeader,
-                            blockchain,
-                            transactionProcessor,
-                            protocolSpec) ->
+                        (tx, txIndex, blk, chain, processor, gasPrice) ->
                             extractStorageAt(
                                 requestContext,
                                 accountAddress,

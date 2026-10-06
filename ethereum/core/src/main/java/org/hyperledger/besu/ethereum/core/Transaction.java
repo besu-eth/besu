@@ -40,6 +40,7 @@ import org.hyperledger.besu.ethereum.core.encoding.TransactionDecoder;
 import org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder;
 import org.hyperledger.besu.ethereum.core.kzg.Blob;
 import org.hyperledger.besu.ethereum.core.kzg.BlobsWithCommitments;
+import org.hyperledger.besu.ethereum.core.kzg.CKZG4844Helper;
 import org.hyperledger.besu.ethereum.core.kzg.KZGCommitment;
 import org.hyperledger.besu.ethereum.core.kzg.KZGProof;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
@@ -55,6 +56,7 @@ import java.util.Optional;
 
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
+import com.google.common.collect.Lists;
 import com.google.common.primitives.Longs;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -62,6 +64,9 @@ import org.apache.tuweni.units.bigints.UInt256;
 import org.apache.tuweni.units.bigints.UInt256s;
 
 /** An operation submitted by an external actor to be applied to the system. */
+// implements the deprecated plugin.data.UnsignedPrivateMarkerTransaction until the next breaking
+// release
+@SuppressWarnings("removal")
 public class Transaction
     implements org.hyperledger.besu.datatypes.Transaction,
         org.hyperledger.besu.plugin.data.UnsignedPrivateMarkerTransaction {
@@ -80,7 +85,10 @@ public class Transaction
   public static final BigInteger TWO = BigInteger.valueOf(2);
 
   private static final Cache<Hash, Address> senderCache =
-      CacheBuilder.newBuilder().recordStats().maximumSize(100_000L).build();
+      CacheBuilder.newBuilder()
+          .concurrencyLevel(Runtime.getRuntime().availableProcessors())
+          .maximumSize(100_000L)
+          .build();
 
   private final long nonce;
 
@@ -463,8 +471,14 @@ public class Transaction
   @Override
   public Address getSender() {
     if (sender == null) {
-      Optional<Address> cachedSender = Optional.ofNullable(senderCache.getIfPresent(getHash()));
-      sender = cachedSender.orElseGet(this::computeSender);
+      // Per-instance lock: stops duplicate signature recovery on this transaction.
+      // Two different transactions can still recover their senders in parallel.
+      synchronized (this) {
+        if (sender == null) {
+          final Address cachedSender = senderCache.getIfPresent(getHash());
+          sender = cachedSender != null ? cachedSender : computeSender();
+        }
+      }
     }
     return sender;
   }
@@ -649,7 +663,7 @@ public class Transaction
    *
    * @return the max up-front cost for the gas the transaction can use.
    */
-  private Wei getMaxUpfrontGasCost(final long blobGasPerBlock) {
+  public Wei getMaxUpfrontGasCost(final long blobGasPerBlock) {
     return getUpfrontGasCost(
         getMaxGasPrice(), getMaxFeePerBlobGas().orElse(Wei.ZERO), blobGasPerBlock);
   }
@@ -1301,12 +1315,37 @@ public class Transaction
         blobsWithCommitments.getKzgProofs().stream()
             .map(proof -> new KZGProof(proof.getData().copy()))
             .toList();
-    return new BlobsWithCommitments(
+    return blobsWithCommitmentsOf(
         blobsWithCommitments.getBlobType(),
         detachedCommitments,
         detachedBlobs,
         detachedProofs,
         versionedHashes);
+  }
+
+  /**
+   * Builds a sidecar from a flat proof list, which is the shape it has on the wire and here: one
+   * proof per blob for {@link BlobType#KZG_PROOF}, and every blob's cell proofs one blob after
+   * another for {@link BlobType#KZG_CELL_PROOFS}.
+   */
+  private static BlobsWithCommitments blobsWithCommitmentsOf(
+      final BlobType blobType,
+      final List<KZGCommitment> kzgCommitments,
+      final List<Blob> blobs,
+      final List<KZGProof> kzgProofs,
+      final List<VersionedHash> versionedHashes) {
+    return switch (blobType) {
+      case KZG_PROOF ->
+          BlobsWithCommitments.createFromBlobsType0(
+              kzgCommitments, blobs, kzgProofs, versionedHashes);
+      case KZG_CELL_PROOFS ->
+          BlobsWithCommitments.createFromBlobsType1(
+              kzgCommitments,
+              blobs,
+              // partition takes the size of each group, not the number of groups
+              Lists.partition(kzgProofs, CKZG4844Helper.CELL_PROOFS_PER_BLOB),
+              versionedHashes);
+    };
   }
 
   public static class Builder {
@@ -1554,7 +1593,7 @@ public class Transaction
         final List<Blob> blobs,
         final List<KZGProof> kzgProofs) {
       this.blobsWithCommitments =
-          new BlobsWithCommitments(blobType, kzgCommitments, blobs, kzgProofs, versionedHashes);
+          blobsWithCommitmentsOf(blobType, kzgCommitments, blobs, kzgProofs, versionedHashes);
       return this;
     }
 

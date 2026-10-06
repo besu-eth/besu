@@ -22,6 +22,8 @@ import java.util.stream.Stream;
 import picocli.CommandLine;
 
 /** The Version provider used by PicoCli to report Besu version on Cli. */
+// PluginVersionsProvider is deprecated for removal from the plugin API
+@SuppressWarnings("removal")
 public class VersionProvider implements CommandLine.IVersionProvider {
   private final PluginVersionsProvider pluginVersionsProvider;
 

@@ -113,7 +113,8 @@ public class JsonRpcMethodsFactory {
                   transactionPool,
                   synchronizer,
                   dataDir,
-                  transactionSimulator),
+                  transactionSimulator,
+                  apiConfiguration),
               new ExecutionEngineJsonRpcMethods(
                   miningCoordinator,
                   protocolSchedule,

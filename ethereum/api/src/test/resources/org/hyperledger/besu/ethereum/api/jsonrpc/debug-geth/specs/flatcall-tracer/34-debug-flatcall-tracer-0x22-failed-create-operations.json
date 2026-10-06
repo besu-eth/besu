@@ -1,0 +1,159 @@
+{
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "debug_traceBlockByNumber",
+    "params": [
+      "0x22",
+      {
+        "tracer": "flatCallTracer"
+      }
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": [
+      {
+        "txHash": "0x62126fb145c9fea474ea42e64ab7d6a19297a11b2f2c85d0c9c8baba5c2cd6f3",
+        "result": [
+          {
+            "action": {
+              "callType": "call",
+              "from": "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+              "gas": "0x989680",
+              "input": "0x00124a12",
+              "to": "0x0190000000000000000000000000000000000000",
+              "value": "0x0"
+            },
+            "blockHash": "0x4d4b55ed7d1a479398159289cccab6d9658b89ca677bd05ef50efbae5c139af8",
+            "blockNumber": 34,
+            "result": {
+              "gasUsed": "0xd63b",
+              "output": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "subtraces": 1,
+            "traceAddress": [],
+            "transactionHash": "0x62126fb145c9fea474ea42e64ab7d6a19297a11b2f2c85d0c9c8baba5c2cd6f3",
+            "transactionPosition": 0,
+            "type": "call"
+          },
+          {
+            "action": {
+              "creationMethod": "create",
+              "from": "0x0190000000000000000000000000000000000000",
+              "gas": "0x9566e9",
+              "init": "0x6080604052602a5f553480156012575f5ffd5b5060aa80601e5f395ff3fe6080604052348015600e575f5ffd5b50600436106030575f3560e01c80633fa4f2451460345780635524107714604d575b5f5ffd5b603b5f5481565b60405190815260200160405180910390f35b605c6058366004605e565b5f55565b005b5f60208284031215606d575f5ffd5b503591905056fea2646970667358221220d9907f533993604503fc13859a2b465f74014d593288d40c1319b7e30a5e902164736f6c634300081c0033",
+              "value": "0x4e20"
+            },
+            "blockHash": "0x4d4b55ed7d1a479398159289cccab6d9658b89ca677bd05ef50efbae5c139af8",
+            "blockNumber": 34,
+            "error": "insufficient balance for transfer",
+            "subtraces": 0,
+            "traceAddress": [
+              0
+            ],
+            "transactionHash": "0x62126fb145c9fea474ea42e64ab7d6a19297a11b2f2c85d0c9c8baba5c2cd6f3",
+            "transactionPosition": 0,
+            "type": "create"
+          }
+        ]
+      },
+      {
+        "txHash": "0x7a6595fa686f38fa416c48a1c1720e0ba03d228e90b0fc815e5198c25d8f2d72",
+        "result": [
+          {
+            "action": {
+              "callType": "call",
+              "from": "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+              "gas": "0x989680",
+              "input": "0xcd05cb07",
+              "to": "0x0190000000000000000000000000000000000000",
+              "value": "0x0"
+            },
+            "blockHash": "0x4d4b55ed7d1a479398159289cccab6d9658b89ca677bd05ef50efbae5c139af8",
+            "blockNumber": 34,
+            "result": {
+              "gasUsed": "0xd6d1",
+              "output": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "subtraces": 1,
+            "traceAddress": [],
+            "transactionHash": "0x7a6595fa686f38fa416c48a1c1720e0ba03d228e90b0fc815e5198c25d8f2d72",
+            "transactionPosition": 1,
+            "type": "call"
+          },
+          {
+            "action": {
+              "creationMethod": "create",
+              "from": "0x0190000000000000000000000000000000000000",
+              "gas": "0x956705",
+              "init": "0x6080604052348015600e575f5ffd5b5060405162461bcd60e51b815260206004820152601a60248201527f436f6e7374727563746f7220616c776179732072657665727473000000000000604482015260640160405180910390fdfe",
+              "value": "0x0"
+            },
+            "blockHash": "0x4d4b55ed7d1a479398159289cccab6d9658b89ca677bd05ef50efbae5c139af8",
+            "blockNumber": 34,
+            "error": "execution reverted",
+            "result": {
+              "code": "0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000001a436f6e7374727563746f7220616c776179732072657665727473000000000000",
+              "gasUsed": "0x93"
+            },
+            "subtraces": 0,
+            "traceAddress": [
+              0
+            ],
+            "transactionHash": "0x7a6595fa686f38fa416c48a1c1720e0ba03d228e90b0fc815e5198c25d8f2d72",
+            "transactionPosition": 1,
+            "type": "create"
+          }
+        ]
+      },
+      {
+        "txHash": "0x2a81d3fd16a528770fcca41315017b0d40265099a0850b9e74d6c4530f3074a1",
+        "result": [
+          {
+            "action": {
+              "callType": "call",
+              "from": "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+              "gas": "0x989680",
+              "input": "0xb4de1e58",
+              "to": "0x0190000000000000000000000000000000000000",
+              "value": "0x0"
+            },
+            "blockHash": "0x4d4b55ed7d1a479398159289cccab6d9658b89ca677bd05ef50efbae5c139af8",
+            "blockNumber": 34,
+            "result": {
+              "gasUsed": "0xd629",
+              "output": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "subtraces": 1,
+            "traceAddress": [],
+            "transactionHash": "0x2a81d3fd16a528770fcca41315017b0d40265099a0850b9e74d6c4530f3074a1",
+            "transactionPosition": 2,
+            "type": "call"
+          },
+          {
+            "action": {
+              "creationMethod": "create",
+              "from": "0x0190000000000000000000000000000000000000",
+              "gas": "0x95671f",
+              "init": "0x6080604052670de0b6b3a764000034101560505760405162461bcd60e51b815260206004820152600e60248201526d0a4cae2ead2e4cae64062408aa8960931b604482015260640160405180910390fd5b603e80605b5f395ff3fe60806040525f5ffdfea264697066735822122098e25d2a8a11254471562027cff9c4923fdfdb056053d6da99116913d3826bbd64736f6c634300081c0033",
+              "value": "0xde0b6b3a7640000"
+            },
+            "blockHash": "0x4d4b55ed7d1a479398159289cccab6d9658b89ca677bd05ef50efbae5c139af8",
+            "blockNumber": 34,
+            "error": "insufficient balance for transfer",
+            "subtraces": 0,
+            "traceAddress": [
+              0
+            ],
+            "transactionHash": "0x2a81d3fd16a528770fcca41315017b0d40265099a0850b9e74d6c4530f3074a1",
+            "transactionPosition": 2,
+            "type": "create"
+          }
+        ]
+      }
+    ]
+  },
+  "statusCode": 200
+}

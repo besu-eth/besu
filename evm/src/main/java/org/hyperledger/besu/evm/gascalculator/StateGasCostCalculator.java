@@ -14,18 +14,14 @@
  */
 package org.hyperledger.besu.evm.gascalculator;
 
-import static org.hyperledger.besu.evm.internal.Words.clampedAdd;
-import static org.hyperledger.besu.evm.internal.Words.clampedMultiply;
-
-import org.hyperledger.besu.datatypes.Transaction;
-
 /**
  * Strategy interface for EIP-8037 state-creation gas cost calculations.
  *
- * <p>EIP-8037 introduces multidimensional gas metering, splitting gas into regular gas and state
+ * <p>EIP-8037 introduces multidimensional gas metering, splitting gas into execution gas and state
  * gas. State-creation operations (CREATE, SSTORE 0→nonzero, CALL to new accounts, code deposits,
- * EIP-7702 delegations) have their costs split into a regular gas portion and a state gas portion,
- * where state gas depends on a fixed {@code cost_per_state_byte} (cpsb) for the active fork.
+ * EIP-7702 delegations) have their costs split into an execution gas portion and a state gas
+ * portion, where state gas depends on a fixed {@code cost_per_state_byte} (cpsb) for the active
+ * fork.
  *
  * <p>This interface is intentionally a pure cost calculator: it returns gas amounts only. Charging
  * (and refunding) is the responsibility of the operation or transaction processor that issues the
@@ -42,8 +38,8 @@ public interface StateGasCostCalculator {
   long costPerStateByte();
 
   /**
-   * Returns the state gas for creating a new contract account (112 * cpsb). Charged for the
-   * CREATE/CREATE2 opcodes and for the intrinsic charge of a contract-creation transaction.
+   * Returns the state gas for creating a new contract account (120 * cpsb). Charged for the
+   * CREATE/CREATE2 opcodes and at the top frame of a contract-creation transaction.
    *
    * @return the state gas for a new contract
    */
@@ -58,22 +54,22 @@ public interface StateGasCostCalculator {
   long codeDepositStateGas(int codeSize);
 
   /**
-   * Returns the regular gas for code deposit hashing (6 * ceil(codeSize/32)).
+   * Returns the execution gas for code deposit hashing (6 * ceil(codeSize/32)).
    *
    * @param codeSize the size of the code in bytes
-   * @return the regular gas for code deposit hashing
+   * @return the execution gas for code deposit hashing
    */
   long codeDepositHashGas(int codeSize);
 
   /**
-   * Returns the state gas for creating a new account (112 * cpsb).
+   * Returns the state gas for creating a new account (120 * cpsb).
    *
    * @return the state gas for new account creation
    */
   long newAccountStateGas();
 
   /**
-   * Returns the state gas for storage set 0→nonzero (32 * cpsb).
+   * Returns the state gas for storage set 0→nonzero (64 * cpsb).
    *
    * @return the state gas for storage set
    */
@@ -87,27 +83,27 @@ public interface StateGasCostCalculator {
   long authBaseStateGas();
 
   /**
-   * Returns the regular gas for EIP-7702 auth base.
+   * Returns the execution gas for EIP-7702 auth base.
    *
-   * @return the regular gas for auth base
+   * @return the execution gas for auth base
    */
-  long authBaseRegularGas();
+  long authBaseExecutionGas();
 
   /**
-   * Returns the state gas for empty account delegation (112 * cpsb).
+   * Returns the state gas for empty account delegation (120 * cpsb).
    *
    * @return the state gas for empty account delegation
    */
   long emptyAccountDelegationStateGas();
 
   /**
-   * Returns the maximum regular gas allowed per transaction (TX_MAX_GAS_LIMIT from EIP-7825).
-   * EIP-8037 changes this from a validation condition to a runtime revert condition on regular gas
-   * only. Returns {@code Long.MAX_VALUE} when state gas metering is not active.
+   * Returns the maximum execution gas allowed per transaction (TX_MAX_GAS_LIMIT from EIP-7825).
+   * EIP-8037 changes this from a validation condition to a runtime revert condition on execution
+   * gas only. Returns {@code Long.MAX_VALUE} when state gas metering is not active.
    *
-   * @return the maximum regular gas per transaction
+   * @return the maximum execution gas per transaction
    */
-  long transactionRegularGasLimit();
+  long transactionExecutionGasLimit();
 
   /**
    * Returns whether multidimensional gas metering (EIP-8037) is active.
@@ -116,25 +112,6 @@ public interface StateGasCostCalculator {
    */
   default boolean isActive() {
     return false;
-  }
-
-  /**
-   * Computes the intrinsic state gas for a transaction. This is the worst-case state gas charged
-   * upfront (assuming all delegation targets are new accounts). Existing-account refunds are
-   * applied later during processing.
-   *
-   * @param transaction the transaction
-   * @return the intrinsic state gas
-   */
-  default long transactionIntrinsicStateGas(final Transaction transaction) {
-    long stateGas = transaction.isContractCreation() ? newContractStateGas() : 0L;
-    final long codeDelegationCount = transaction.codeDelegationListSize();
-    if (codeDelegationCount > 0) {
-      // Worst case: all delegators are new accounts → (112 + 23) * cpsb each
-      final long perDelegation = clampedAdd(emptyAccountDelegationStateGas(), authBaseStateGas());
-      stateGas = clampedAdd(stateGas, clampedMultiply(perDelegation, codeDelegationCount));
-    }
-    return stateGas;
   }
 
   /** A no-op implementation that returns 0 for all state gas costs. */
@@ -176,7 +153,7 @@ public interface StateGasCostCalculator {
         }
 
         @Override
-        public long authBaseRegularGas() {
+        public long authBaseExecutionGas() {
           return 0L;
         }
 
@@ -186,7 +163,7 @@ public interface StateGasCostCalculator {
         }
 
         @Override
-        public long transactionRegularGasLimit() {
+        public long transactionExecutionGasLimit() {
           return Long.MAX_VALUE;
         }
       };

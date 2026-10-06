@@ -66,6 +66,8 @@ public class EngineNewPayloadV2Test extends EngineNewPayloadV1Test {
             .mergeCoordinator(mergeCoordinator)
             .ethPeers(ethPeers)
             .metricsSystem(new NoOpMetricsSystem())
+            .transactionPool(transactionPool)
+            .maxRequestBlocks(0)
             .build(),
         null,
         CANCUN);
@@ -163,7 +165,8 @@ public class EngineNewPayloadV2Test extends EngineNewPayloadV1Test {
   protected void setDefaultExecutionPayloadFields(
       final Map<String, Object> payload, final BlockHeader header, final List<String> txs) {
     super.setDefaultExecutionPayloadFields(payload, header, txs);
-    if (header.getTimestamp() >= shanghaiHardfork.milestone()) {
+    // unsigned: a uint64 timestamp above Long.MAX_VALUE is carried as a negative long
+    if (Long.compareUnsigned(header.getTimestamp(), shanghaiHardfork.milestone()) >= 0) {
       payload.put("withdrawals", List.of());
     }
   }
@@ -200,7 +203,8 @@ public class EngineNewPayloadV2Test extends EngineNewPayloadV1Test {
   @Override
   protected BlockHeaderTestFixture versionSpecificBlockHeaderFixture(final long timestamp) {
     BlockHeaderTestFixture baseFixture = super.versionSpecificBlockHeaderFixture(timestamp);
-    if (timestamp >= shanghaiHardfork.milestone()) {
+    // unsigned: a uint64 timestamp above Long.MAX_VALUE is carried as a negative long
+    if (Long.compareUnsigned(timestamp, shanghaiHardfork.milestone()) >= 0) {
       baseFixture.withdrawalsRoot(BodyValidation.withdrawalsRoot(List.of()));
       when(protocolSpec.getWithdrawalsValidator())
           .thenReturn(new WithdrawalsValidator.AllowedWithdrawals());

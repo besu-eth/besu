@@ -37,26 +37,28 @@ import org.openjdk.jmh.infra.Blackhole;
 @Measurement(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
 @BenchmarkMode(Mode.AverageTime)
 public abstract class UnaryOperationBenchmark {
-
-  protected static final int SAMPLE_SIZE = 30_000;
-  protected Bytes[] valuePool;
+  protected Bytes[] aPool;
   protected int index;
   protected MessageFrame frame;
 
   @Setup()
-  public void setUp() {
+  public void setUp() throws Exception {
     frame = BenchmarkHelper.createMessageCallFrame();
-    valuePool = new Bytes[SAMPLE_SIZE];
-    BenchmarkHelper.fillPool(valuePool);
+    aPool = new Bytes[getSampleSize()];
+    BenchmarkHelper.fillPool(aPool);
     index = 0;
   }
 
   @Benchmark
   public void executeOperation(final Blackhole blackhole) {
-    frame.pushStackItem(valuePool[index]);
+    frame.pushStackItem(aPool[index]);
     blackhole.consume(invoke(frame));
     frame.popStackItem();
-    index = (index + 1) % SAMPLE_SIZE;
+    index = (index + 1) % getSampleSize();
+  }
+
+  protected int getSampleSize() {
+    return 30_000;
   }
 
   protected abstract Operation.OperationResult invoke(MessageFrame frame);

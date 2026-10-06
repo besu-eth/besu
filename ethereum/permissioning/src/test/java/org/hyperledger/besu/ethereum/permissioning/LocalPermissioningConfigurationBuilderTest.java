@@ -157,6 +157,28 @@ public class LocalPermissioningConfigurationBuilderTest {
   }
 
   @Test
+  public void enabledNodePermissioningRequiresAConfigFilePath() {
+    assertThatThrownBy(
+            () ->
+                PermissioningConfigurationBuilder.permissioningConfiguration(
+                    true, dnsDisabled(), null, false, null))
+        .isInstanceOf(NullPointerException.class)
+        .hasMessage(
+            "Node permissioning config file path is required when node permissioning is enabled");
+  }
+
+  @Test
+  public void enabledAccountPermissioningRequiresAConfigFilePath() {
+    assertThatThrownBy(
+            () ->
+                PermissioningConfigurationBuilder.permissioningConfiguration(
+                    false, dnsDisabled(), null, true, null))
+        .isInstanceOf(NullPointerException.class)
+        .hasMessage(
+            "Account permissioning config file path is required when account permissioning is enabled");
+  }
+
+  @Test
   public void permissioningConfigWithInvalidAccount() throws Exception {
     final URL configFile = this.getClass().getResource(PERMISSIONING_CONFIG_INVALID_ACCOUNT);
     final Path toml = createTempFile("toml", Resources.toByteArray(configFile));

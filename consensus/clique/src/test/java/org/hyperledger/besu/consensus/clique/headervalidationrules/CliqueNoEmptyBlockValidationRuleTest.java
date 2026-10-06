@@ -37,7 +37,8 @@ class CliqueNoEmptyBlockValidationRuleTest {
 
     final CliqueNoEmptyBlockValidationRule noEmptyBlockRule =
         new CliqueNoEmptyBlockValidationRule();
-    assertThat(noEmptyBlockRule.validate(blockHeader, null)).isFalse();
+    assertThat(noEmptyBlockRule.validate(blockHeader, new BlockHeaderTestFixture().buildHeader()))
+        .isFalse();
   }
 
   @Test
@@ -51,6 +52,7 @@ class CliqueNoEmptyBlockValidationRuleTest {
 
     final CliqueNoEmptyBlockValidationRule noEmptyBlockRule =
         new CliqueNoEmptyBlockValidationRule();
-    assertThat(noEmptyBlockRule.validate(blockHeader, null)).isTrue();
+    assertThat(noEmptyBlockRule.validate(blockHeader, new BlockHeaderTestFixture().buildHeader()))
+        .isTrue();
   }
 }

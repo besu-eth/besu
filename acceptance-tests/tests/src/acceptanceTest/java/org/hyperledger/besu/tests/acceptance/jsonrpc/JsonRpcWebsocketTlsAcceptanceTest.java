@@ -167,7 +167,7 @@ public class JsonRpcWebsocketTlsAcceptanceTest extends AcceptanceTestBase {
               .setSsl(true)
               .setTrustAll(true)
               .setVerifyHost(false)
-              .setKeyStoreOptions(
+              .setKeyCertOptions(
                   new JksOptions().setPath(clientKeyStore.toString()).setPassword(PASSWORD));
       final WebSocketClient webSocketClient = vertx.createWebSocketClient(clientOptions);
 

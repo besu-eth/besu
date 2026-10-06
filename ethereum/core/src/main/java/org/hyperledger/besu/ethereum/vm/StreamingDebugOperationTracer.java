@@ -49,6 +49,7 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
 
   private final FrameWriter frameWriter;
   private boolean hasEmittedFrame = false;
+  private int stepCount = 0;
 
   /**
    * Creates a streaming operation tracer.
@@ -67,12 +68,25 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
   }
 
   @Override
+  protected void capturePreExecutionState(final MessageFrame frame) {
+    if (options.limit() > 0 && stepCount >= options.limit()) {
+      traceOpcode = false;
+      return;
+    }
+    stepCount++;
+  }
+
+  @Override
   public void tracePostExecution(final MessageFrame frame, final OperationResult operationResult) {
     if (!traceOpcode) {
       return;
     }
     final Operation currentOperation = frame.getCurrentOperation();
     final String opcode = currentOperation.getName();
+    if (isSyntheticEmptyCodeStop(
+        currentOperation.isVirtualOperation(), opcode, frame.getCode().getSize())) {
+      return;
+    }
     final long thisGasCost = computeGasCost(currentOperation, operationResult, frame);
 
     final ExceptionalHaltReason haltReason =

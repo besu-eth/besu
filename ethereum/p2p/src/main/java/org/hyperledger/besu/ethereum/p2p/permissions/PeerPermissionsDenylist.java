@@ -24,8 +24,8 @@ import java.util.Collections;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
-import io.vertx.core.impl.ConcurrentHashSet;
 import org.apache.tuweni.bytes.Bytes;
 
 public class PeerPermissionsDenylist extends PeerPermissions {
@@ -38,7 +38,7 @@ public class PeerPermissionsDenylist extends PeerPermissions {
       denylist =
           LimitedSet.create(initialCapacity, maxSize.getAsInt(), Mode.DROP_LEAST_RECENTLY_ACCESSED);
     } else {
-      denylist = new ConcurrentHashSet<>(initialCapacity);
+      denylist = ConcurrentHashMap.newKeySet(initialCapacity);
     }
   }
 

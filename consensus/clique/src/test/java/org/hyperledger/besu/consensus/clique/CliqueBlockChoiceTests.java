@@ -171,7 +171,7 @@ public class CliqueBlockChoiceTests {
 
     final BlockHeader betterHeader;
     final BlockHeader worseHeader;
-    if (firstBlock.getHash().compareTo(secondBlock.getHash()) > 0) {
+    if (firstBlock.getHash().getBytes().compareTo(secondBlock.getHash().getBytes()) > 0) {
       worseHeader = firstBlock.getHeader();
       betterHeader = secondBlock.getHeader();
     } else {

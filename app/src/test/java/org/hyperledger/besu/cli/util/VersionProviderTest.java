@@ -29,6 +29,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
+@SuppressWarnings("removal")
 public class VersionProviderTest {
 
   @Mock private PluginVersionsProvider pluginVersionsProvider;

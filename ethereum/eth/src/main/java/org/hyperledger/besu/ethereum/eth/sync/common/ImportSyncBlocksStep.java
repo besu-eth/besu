@@ -17,11 +17,13 @@ package org.hyperledger.besu.ethereum.eth.sync.common;
 import static org.hyperledger.besu.util.log.LogUtil.throttledLog;
 
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.chain.ChainDataPruner;
 import org.hyperledger.besu.ethereum.core.SyncBlockWithReceipts;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
@@ -38,6 +40,7 @@ public class ImportSyncBlocksStep implements Consumer<List<SyncBlockWithReceipts
   private final SyncState syncState;
   private final long startBlock;
   private final boolean transactionIndexingEnabled;
+  private final Optional<ChainDataPruner> chainDataPruner;
   private final AtomicBoolean isTimeToUpdate = new AtomicBoolean(true);
   private final long pivotHeaderNumber;
 
@@ -47,13 +50,15 @@ public class ImportSyncBlocksStep implements Consumer<List<SyncBlockWithReceipts
       final SyncState syncState,
       final long startBlock,
       final long pivotHeaderNumber,
-      final boolean transactionIndexingEnabled) {
+      final boolean transactionIndexingEnabled,
+      final Optional<ChainDataPruner> chainDataPruner) {
     this.protocolContext = protocolContext;
     this.ethContext = ethContext;
     this.syncState = syncState;
     this.startBlock = startBlock;
     this.pivotHeaderNumber = pivotHeaderNumber;
     this.transactionIndexingEnabled = transactionIndexingEnabled;
+    this.chainDataPruner = chainDataPruner;
   }
 
   @Override
@@ -62,6 +67,11 @@ public class ImportSyncBlocksStep implements Consumer<List<SyncBlockWithReceipts
         .getBlockchain()
         .unsafeImportSyncBodiesAndReceipts(blocksWithReceipts, transactionIndexingEnabled);
     final long lastBlock = blocksWithReceipts.getLast().getNumber();
+
+    // The unsafe snap-sync import path bypasses BlockAddedEvent observers, so drive catch-up
+    // chain/BAL pruning explicitly after each batch commits.
+    chainDataPruner.ifPresent(
+        pruner -> pruner.pruneForSyncedHead(blocksWithReceipts.getLast().getBlock().getHeader()));
 
     syncState.setSyncProgress(startBlock, lastBlock, pivotHeaderNumber);
 

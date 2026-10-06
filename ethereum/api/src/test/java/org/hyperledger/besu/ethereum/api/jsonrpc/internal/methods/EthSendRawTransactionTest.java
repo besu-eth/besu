@@ -185,8 +185,8 @@ public class EthSendRawTransactionTest {
   @Test
   public void transactionWithUpfrontGasExceedingAccountBalanceIsRejected() {
     verifyErrorForInvalidTransaction(
-        TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE,
-        RpcErrorType.TRANSACTION_UPFRONT_COST_EXCEEDS_BALANCE);
+        TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE,
+        RpcErrorType.TRANSACTION_UPFRONT_GAS_COST_EXCEEDS_BALANCE);
   }
 
   @Test
@@ -211,6 +211,12 @@ public class EthSendRawTransactionTest {
   public void transactionWithFeeCapExceededIsRejected() {
     verifyErrorForInvalidTransaction(
         TransactionInvalidReason.TX_FEECAP_EXCEEDED, RpcErrorType.TX_FEECAP_EXCEEDED);
+  }
+
+  @Test
+  public void transactionTooBigIsRejected() {
+    verifyErrorForInvalidTransaction(
+        TransactionInvalidReason.EXCEEDS_MAX_TX_BYTES, RpcErrorType.EXCEEDS_MAX_TX_BYTES);
   }
 
   private void verifyErrorForInvalidTransaction(

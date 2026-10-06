@@ -16,53 +16,65 @@ package org.hyperledger.besu.ethereum.mainnet;
 
 import org.hyperledger.besu.datatypes.Address;
 
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
+/**
+ * What a transaction's EIP-7702 authorizations accessed and owe. Under EIP-2780 each authorization
+ * is charged at the top frame against the authority's pre-transaction state, with no refund.
+ */
 public class CodeDelegationResult {
-  private final Set<Address> accessedDelegatorAddresses = new HashSet<>(Address.SIZE);
-  private long alreadyExistingDelegators = 0L;
-  private long authBaseRefundCount = 0L;
-  private long invalidAuthorizations = 0L;
 
-  public void addAccessedDelegatorAddress(final Address address) {
-    accessedDelegatorAddresses.add(address);
+  /**
+   * One authorization's top-frame access, in transaction order. Recorded for every authorization
+   * whose signature recovered, so the authority reaches the EIP-7928 block access list whether or
+   * not it goes on to be charged; one that failed the nonce/code check carries all-false flags. The
+   * charges are applied in the order the flags are declared.
+   *
+   * @param authority the recovered authority address
+   * @param newAccount whether the authority's account leaf had to be created
+   * @param accountWrite whether this is the transaction's first write to the authority's leaf
+   * @param authBase whether a net-new delegation indicator is written for the authority
+   */
+  public record AuthorityAccess(
+      Address authority, boolean newAccount, boolean accountWrite, boolean authBase) {
+
+    /** An authorization that was touched during validation but failed it, so is never charged. */
+    public static AuthorityAccess touchOnly(final Address authority) {
+      return new AuthorityAccess(authority, false, false, false);
+    }
+  }
+
+  private final List<AuthorityAccess> authorityAccesses = new ArrayList<>();
+  // Pre-Amsterdam only: feeds the EIP-7702 PER_EMPTY_ACCOUNT - PER_AUTH_BASE refund.
+  private long alreadyExistingDelegators = 0L;
+
+  /** Records one authorization's top-frame access. */
+  public void addAuthorityAccess(final AuthorityAccess access) {
+    authorityAccesses.add(access);
+  }
+
+  /** Authorization accesses in the order the runtime charge has to replay them. */
+  public List<AuthorityAccess> authorityAccesses() {
+    return authorityAccesses;
   }
 
   public void incrementAlreadyExistingDelegators() {
     alreadyExistingDelegators += 1;
   }
 
-  public void incrementAuthBaseRefundCount() {
-    authBaseRefundCount += 1;
-  }
-
-  public Set<Address> accessedDelegatorAddresses() {
-    return accessedDelegatorAddresses;
-  }
-
+  /** Pre-Amsterdam refund model: count of authorities whose account leaf already existed. */
   public long alreadyExistingDelegators() {
     return alreadyExistingDelegators;
   }
 
-  /**
-   * Returns the count of authorizations that don't write new delegation-indicator bytes — either
-   * the authority already had a delegation designator (overwritten in place) or {@code
-   * auth.address} is zero (no indicator written). The AUTH_BASE state gas is refunded for these.
-   */
-  public long authBaseRefundCount() {
-    return authBaseRefundCount;
-  }
-
-  public void incrementInvalidAuthorization() {
-    invalidAuthorizations += 1;
-  }
-
-  /**
-   * Invalid authorizations grow no state, so each refunds its full worst-case intrinsic charge:
-   * NEW_ACCOUNT + AUTH_BASE state gas plus the regular ACCOUNT_WRITE.
-   */
-  public long invalidAuthorizations() {
-    return invalidAuthorizations;
+  /** The authorities EIP-2929 warms: every one whose signature recovered, applied or not. */
+  public Set<Address> accessedDelegatorAddresses() {
+    return authorityAccesses.stream()
+        .map(AuthorityAccess::authority)
+        .collect(Collectors.toCollection(() -> new HashSet<>(Address.SIZE)));
   }
 }

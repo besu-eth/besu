@@ -20,8 +20,17 @@ REPORT_STRIP_SUFFIX="$3"
 SPLIT_COUNT=$4
 SPLIT_INDEX=$5
 
-# extract tests time from Junit XML reports
-find "$REPORTS_DIR" -type f -name TEST-*.xml | xargs -I{} bash -c "xmlstarlet sel -t -v 'concat(sum(//testcase/@time), \" \", //testsuite/testcase[1]/@classname)' '{}'; echo '{}' | sed \"s#${REPORT_STRIP_PREFIX}/\(.*\)/${REPORT_STRIP_SUFFIX}.*# \1#\"" > tmp/timing.tsv
+# extract tests time from Junit XML reports. Each report must contribute exactly one row.
+# keep the pattern in a variable: inlined, $- expands to the shell option flags.
+timing_re='^[0-9][0-9.eE+-]*[ ][A-Za-z0-9._$-]+$'
+find "$REPORTS_DIR" -type f -name 'TEST-*.xml' -print0 \
+	| while IFS= read -r -d '' report
+	do
+		entry=$( xmlstarlet sel -t -v 'concat(sum(//testcase/@time), " ", //testsuite/testcase[1]/@classname)' "$report" ) || continue
+		[[ $entry =~ $timing_re ]] || continue
+		printf '%s' "$entry"
+		printf '%s\n' "$report" | sed "s#${REPORT_STRIP_PREFIX}/\(.*\)/${REPORT_STRIP_SUFFIX}.*# \1#"
+	done > tmp/timing.tsv
 
 # Sort times in descending order
 IFS=$'\n' sorted=($(sort -nr tmp/timing.tsv))
@@ -30,10 +39,12 @@ unset IFS
 sums=()
 tests=()
 
-# Initialize sums
+# Initialize sums. The search below uses a strict comparison, so equal sums always return group 0;
+# the one millisecond offset per group breaks that tie round-robin instead. Far too small to skew
+# a real split.
 for ((i=0; i<SPLIT_COUNT; i++))
 do
-	sums[$i]=0
+	sums[$i]=$i
 done
 
 echo -n '' > tmp/processedTests.list
@@ -41,19 +52,28 @@ echo -n '' > tmp/processedTests.list
 # add tests to groups trying to balance the sum of execution time of each group
 for line in "${sorted[@]}"; do
 	line_parts=( $line )
-	test_time=$( echo "${line_parts[0]} * 1000 / 1" | bc )  # convert to millis without decimals
+	test_time=$( echo "${line_parts[0]} * 1000 / 1" | bc 2>/dev/null )  # convert to millis without decimals
 	test_name=${line_parts[1]}
 	module_dir=${line_parts[2]}
 	test_with_module="$test_name $module_dir"
 
+	# A duration that is missing, non-numeric, zero or implausibly long tells us nothing about how
+	# to balance the test, so treat it as no history at all and let the round-robin pass below
+	# place it. The digit bound matters: bash arithmetic is signed 64-bit and wraps silently, so an
+	# unbounded digit string can evaluate negative and slip past the upper limit.
+	if ! [[ $test_time =~ ^[0-9]{1,7}$ ]] || (( test_time == 0 || test_time > 900000 ))
+	then
+		continue
+	fi
+
   # deduplication check to avoid executing a test multiple time
-  if grep -F -q --line-regexp "$test_with_module" tmp/processedTests.list
+  if grep -F -q --line-regexp -- "$test_with_module" tmp/processedTests.list
   then
     continue
   fi
 
   # Does the test still exists?
-  if grep -F -q --line-regexp "$test_with_module" tmp/currentTests.list
+  if grep -F -q --line-regexp -- "$test_with_module" tmp/currentTests.list
   then
     # Find index of min sum
     idx_min_sum=0
@@ -114,6 +134,13 @@ do
 	line_parts=( $line )
 	test_name=${line_parts[0]}
 	module_dir=${line_parts[1]}
+
+	# An entry missing either field yields an empty array subscript, which is fatal and
+	# would drop not just this entry but every remaining one in the group.
+	if [[ -z $test_name || -z $module_dir ]]
+	then
+		continue
+	fi
 
 	module_group=${group_by_module[$module_dir]}
 	group_by_module[$module_dir]="$module_group$test_name "
