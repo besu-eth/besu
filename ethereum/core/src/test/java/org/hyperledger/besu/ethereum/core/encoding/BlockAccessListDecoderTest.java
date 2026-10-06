@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
+import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -117,6 +118,29 @@ class BlockAccessListDecoderTest {
         .isEqualTo(VALUE);
     assertThat(account.storageReads().getFirst().slot().getSlotKey()).contains(READ);
     assertThat(account.balanceChanges().getFirst().postBalance().toUInt256()).isEqualTo(BALANCE);
+  }
+
+  @Test
+  void keepsItsOwnEncodingWhenReadFromALargerInput() {
+    final Bytes blockAccessList = encodeBlockAccessList(null);
+    // e.g. a consensus message carrying a block access list between other fields
+    final RLPInput message =
+        RLP.input(
+            RLP.encode(
+                out -> {
+                  out.startList();
+                  out.writeLongScalar(1);
+                  out.writeRaw(blockAccessList);
+                  out.writeLongScalar(2);
+                  out.endList();
+                }));
+    message.enterList();
+    message.skipNext();
+
+    final BlockAccessList decoded = BlockAccessListDecoder.decode(message);
+
+    assertThat(decoded.rawRlp()).contains(blockAccessList);
+    assertThat(message.readLongScalar()).isEqualTo(2);
   }
 
   @ParameterizedTest

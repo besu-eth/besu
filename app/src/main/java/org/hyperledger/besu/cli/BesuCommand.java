@@ -1930,6 +1930,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         || genesisConfigOptions.getBpo4Time().isPresent()
         || genesisConfigOptions.getBpo5Time().isPresent()
         || genesisConfigOptions.getAmsterdamTime().isPresent()
+        || genesisConfigOptions.getBogotaTime().isPresent()
         || genesisConfigOptions.getFutureEipsTime().isPresent();
   }
 
