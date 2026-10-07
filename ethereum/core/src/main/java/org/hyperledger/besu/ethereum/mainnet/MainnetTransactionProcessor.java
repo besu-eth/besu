@@ -88,6 +88,7 @@ public class MainnetTransactionProcessor {
   private final TransferLogEmitter transferLogEmitter;
 
   private final TopLevelTransactionSupport topLevelSupport;
+
   private final Optional<FrameTransactionProcessor> maybeFrameTransactionProcessor;
 
   private MainnetTransactionProcessor(
@@ -124,10 +125,10 @@ public class MainnetTransactionProcessor {
                     gasCalculator,
                     transactionValidatorFactory,
                     messageCallProcessor,
+                    topLevelSupport,
                     clearEmptyAccounts,
                     maxStackSize,
-                    feeMarket,
-                    coinbaseFeePriceCalculator))
+                    feeMarket))
             : Optional.empty();
   }
 
@@ -244,7 +245,8 @@ public class MainnetTransactionProcessor {
                 operationTracer,
                 blockHashLookup,
                 transactionValidationParams,
-                blobGasPrice);
+                blobGasPrice,
+                accessLocationTracker);
       }
 
       final var transactionValidator = transactionValidatorFactory.get();

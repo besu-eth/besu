@@ -65,15 +65,15 @@ public class FrameTransactionDecoder {
     builder
         .type(TransactionType.FRAME)
         .chainId(input.readBigIntegerScalar())
-        .nonce(input.readLongScalar())
+        .nonce(readBoundedLong(input, "nonce"))
         .sender(readAddress(input, "Frame transaction sender"))
         .frames(input.readList(FrameTransactionDecoder::decodeFrame))
         .frameSignatures(input.readList(FrameTransactionDecoder::decodeSignature));
     input.enterList();
     builder
-        .maxPriorityFeePerGas(Wei.of(input.readUInt256Scalar()))
-        .maxFeePerGas(Wei.of(input.readUInt256Scalar()))
-        .maxFeePerBlobGas(Wei.of(input.readUInt256Scalar()));
+        .maxPriorityFeePerGas(readBoundedWei(input, "max priority fee per gas"))
+        .maxFeePerGas(readBoundedWei(input, "max fee per gas"))
+        .maxFeePerBlobGas(readBoundedWei(input, "max fee per blob gas"));
     input.leaveList();
     builder.versionedHashes(
         input.readList(versionedHashes -> new VersionedHash(versionedHashes.readBytes32())));
@@ -86,6 +86,29 @@ public class FrameTransactionDecoder {
       throw new RLPException(description + " must be a 20-byte address");
     }
     return Address.wrap(bytes);
+  }
+
+  /**
+   * Reads a scalar the EIP bounds at {@code 2^64}, naming the field when it does not fit.
+   *
+   * <p>The width is checked before the read rather than catching what the reader throws: the
+   * reader's message names only the kind of scalar, and a caller walking to the root cause would
+   * see that generic text instead of the field. {@link RLPInput#readLongScalar()} still performs
+   * the minimal-encoding check for values that do fit.
+   */
+  private static long readBoundedLong(final RLPInput input, final String field) {
+    if (input.nextSize() > 8) {
+      throw new FrameFieldException(field + " exceeds 2^64-1");
+    }
+    return input.readLongScalar();
+  }
+
+  /** Reads a scalar the EIP bounds at {@code 2^256}, naming the field when it does not fit. */
+  private static Wei readBoundedWei(final RLPInput input, final String field) {
+    if (input.nextSize() > 32) {
+      throw new FrameFieldException(field + " exceeds 2^256-1");
+    }
+    return Wei.of(input.readUInt256Scalar());
   }
 
   private static Frame decodeFrame(final RLPInput input) {
@@ -102,10 +125,10 @@ public class FrameTransactionDecoder {
       throw new RLPException("Frame target must be empty or a 20-byte address");
     }
     input.enterList();
-    final long executionGasLimit = input.readLongScalar();
-    final long stateGasLimit = input.readLongScalar();
+    final long executionGasLimit = readBoundedLong(input, "frame execution gas limit");
+    final long stateGasLimit = readBoundedLong(input, "frame state gas limit");
     input.leaveList();
-    final Wei value = Wei.of(input.readUInt256Scalar());
+    final Wei value = readBoundedWei(input, "frame value");
     final Bytes data = input.readBytes();
     input.leaveList();
     return new Frame(mode, flags, target, executionGasLimit, stateGasLimit, value, data);
