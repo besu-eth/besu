@@ -111,7 +111,6 @@ public class MergeProtocolSchedule {
         .blockHeaderValidatorBuilder(MergeProtocolSchedule::getBlockHeaderValidator)
         .blockReward(Wei.ZERO)
         .difficultyCalculator((a, b) -> BigInteger.ZERO)
-        .skipZeroBlockRewards(true)
         .isPoS(true)
         .slotDuration(Duration.ofSeconds(miningConfiguration.getUnstable().getPosSlotDuration()))
         .hardforkId(PARIS);

@@ -28,6 +28,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -293,6 +294,7 @@ public class TransactionLogBloomCacher {
         stopBlock,
         cacheDir);
 
+    IOException firstFailure = null;
     for (long blockNum = startBlock; blockNum <= stopBlock; blockNum += BLOCKS_PER_BLOOM_CACHE) {
       try {
         final long segmentNumber = blockNum / BLOCKS_PER_BLOOM_CACHE;
@@ -309,16 +311,23 @@ public class TransactionLogBloomCacher {
               cacheFile.getName());
         }
       } catch (final IOException e) {
-        // TODO: partial failures still return true - see #11067 follow-up
         if (isDiskFull(e)) {
           LOG.error(e.getMessage());
           System.exit(DISK_FULL_EXIT_CODE);
         }
         LOG.error(
             String.format("Unhandled exception removing cache for block number %d", blockNum), e);
+        if (firstFailure == null) {
+          firstFailure = e;
+        } else {
+          firstFailure.addSuppressed(e);
+        }
       }
     }
 
+    if (firstFailure != null) {
+      throw new UncheckedIOException("Failed to remove all log bloom cache segments", firstFailure);
+    }
     return true;
   }
 

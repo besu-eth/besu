@@ -317,7 +317,6 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
               ommers,
               miningBeneficiary,
               newProtocolSpec.getBlockReward(),
-              newProtocolSpec.isSkipZeroBlockRewards(),
               newProtocolSpec)) {
         LOG.trace("Failed to apply mining reward, exiting.");
         throw new RuntimeException("Failed to apply mining reward.");
@@ -488,12 +487,11 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
       final List<BlockHeader> ommers,
       final Address miningBeneficiary,
       final Wei blockReward,
-      final boolean skipZeroBlockRewards,
       final ProtocolSpec protocolSpec) {
 
     // TODO(tmm): Added to make this work, should come from blockProcessor.
     final int MAX_GENERATION = 6;
-    if (skipZeroBlockRewards && blockReward.isZero()) {
+    if (blockReward.isZero()) {
       return true;
     }
 

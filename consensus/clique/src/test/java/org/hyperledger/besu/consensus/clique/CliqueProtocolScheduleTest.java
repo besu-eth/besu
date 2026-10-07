@@ -106,7 +106,6 @@ public class CliqueProtocolScheduleTest {
 
     assertThat(homestead.getHardforkId()).isEqualTo(FRONTIER);
     assertThat(homestead.getBlockReward()).isEqualTo(Wei.ZERO);
-    assertThat(homestead.isSkipZeroBlockRewards()).isEqualTo(true);
     assertThat(homestead.getDifficultyCalculator()).isInstanceOf(CliqueDifficultyCalculator.class);
   }
 

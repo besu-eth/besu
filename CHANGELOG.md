@@ -9,6 +9,7 @@
 
 - Chain data pruning now retains blocks and block access lists for the EIP-4444 history expiry window (`HISTORY_PRUNE_EPOCHS` = 14299 epochs) instead of the weak subjectivity period (3533 epochs), as required by EIP-7928. The default and minimum of `--Xchain-pruning-blocks-retained`, `--Xchain-pruning-bals-retained` and `--Xchain-pruning-retained-minimum` change from `113056` to `457568` blocks. [#11316](https://github.com/besu-eth/besu/issues/11316)
 - `trace_filter` now honours `blockHash` and traces exactly that block, as `eth_getLogs` does. Previously the member was parsed and ignored, so `{"blockHash": ...}` traced the latest block, and with `fromBlock` or `toBlock` the hash was dropped. A non-null `blockHash` combined with a non-null `fromBlock` or `toBlock` is now rejected with `Invalid filter params` (`-32602`). An unknown or noncanonical hash returns `Block not found` (`-32000`), a canonical block without a stored body, as after history pruning, returns `Pruned history unavailable` (`4444`), and a block that cannot be traced on its parent state returns `World state unavailable` (`-32000`), including with `count: 0`. A null `blockHash` is still ignored. [#11407](https://github.com/besu-eth/besu/pull/11407)
+- Bonsai databases storing code by its hash are upgraded on first start to store the jump destination analysis next to the code (Bonsai database version 4, archive version 3); the upgrade takes a few minutes on mainnet, after which the database cannot be opened by an older version of Besu. [#11327](https://github.com/besu-eth/besu/pull/11327)
 
 ### Upcoming Breaking Changes
 - Plugin API
@@ -27,6 +28,8 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
+- `admin_logsRemoveCache` now returns an error when any log bloom cache segment could not be deleted, instead of reporting `Cache Removed` after a partial deletion. [#11067](https://github.com/besu-eth/besu/issues/11067)
+- `txparse --corpus-file` now closes the corpus file stream after processing instead of leaking the underlying file descriptor (it previously suppressed the `StreamResourceLeak` warning rather than releasing the resource). [#11423](https://github.com/besu-eth/besu/pull/11423)
 - `eth_simulateV1` blocks after Amsterdam now carry `slotNumber` (the parent's plus one), a block access list that includes the system calls, and a header `gasUsed` that follows EIP-8037, as real blocks do. Previously `slotNumber` was missing, and the block hash differed from other clients. [#11394](https://github.com/besu-eth/besu/pull/11394)
 - `eth_simulateV1` now returns `-38014` when a call's value exceeds the sender balance. It returned `-32603`. [#11394](https://github.com/besu-eth/besu/pull/11394)
 - Publish the chain head only after sync block bodies and receipts are committed, so readers cannot observe a head absent from storage. [#10842](https://github.com/besu-eth/besu/pull/10842)
@@ -48,6 +51,7 @@
 - A failing EIP-4788 beacon roots or EIP-2935 history storage system call no longer invalidates the block. [#11415](https://github.com/besu-eth/besu/pull/11415)
 - Publish the jump destination analysis of a contract safely to other threads [#11403](https://github.com/besu-eth/besu/pull/11403)
 - Retry bootnodes while under-peered to avoid a node on a small network staying at zero peers. [#11368](https://github.com/besu-eth/besu/pull/11368)
+- The Bonsai code cache and the EVM jump destination cache refuse to store empty code under a non-empty code hash. [#11420](https://github.com/besu-eth/besu/pull/11420)
 
 ### Additions and Improvements
 - Update `Bouncycastle` to 1.85 to address CVEs `CVE-2026-8763` and `CVE-2026-13506`. [#11336](https://github.com/besu-eth/besu/pull/11336)
@@ -55,9 +59,12 @@
 - Update Jackson to 2.21.7 to address CVE `CVE-2026-91777` [#11503](https://github.com/besu-eth/besu/pull/11503)
 - `PoaQueryService` and `BftQueryService` are no longer deprecated. [#11376](https://github.com/besu-eth/besu/pull/11376)
 - Add `engine_newPayloadWithWitnessV5` whose VALID response also carries the EIP-8025 execution witness [#11181](https://github.com/besu-eth/besu/pull/11181)
+- Reference tests no longer keep a second copy of the execution-spec fixtures under `build/resources`, and the new Gradle property `besu.referenceTests.fixturesDir` lets all checkouts and worktrees share one unpacked copy of each fixture version. [#11413](https://github.com/besu-eth/besu/pull/11413)
 - Add `debug_getRawExecutionRequests`, which re-executes a block and returns the EIP-7685 execution requests it produced, in the Engine API `executionRequests` form (`null` before Prague). [#11481](https://github.com/besu-eth/besu/pull/11481)
 - Add `--include-bals` option to `besu blocks export`, writing a `<to>.bals` sidecar with BALs for each exported block. [#11042](https://github.com/besu-eth/besu/pull/11042)
 - `callTracer` now honours the `withLog` tracer option. Each call frame that emitted logs carries a `logs` array of `{address, topics, data, position, index}`, where `index` equals the receipt `logIndex` of the same log and `position` is the number of subcalls the frame had made when the log was emitted. Logs of reverted frames are omitted, as specified in [execution-apis#855](https://github.com/ethereum/execution-apis/pull/855). [#11342](https://github.com/besu-eth/besu/pull/11342)
+- Warn at startup when a PoA chain on Amsterdam leaves the EIP-8282 builder deposit or exit request contract address out of the genesis, since blocks are invalid from the fork unless a contract is deployed at the default address. [#NNNN](https://github.com/besu-eth/besu/pull/NNNN)
+- The jump destination analysis of contract code is computed once, when the code is stored, instead of on every code cache miss. [#11327](https://github.com/besu-eth/besu/pull/11327)
 
 ## 26.9.0
 

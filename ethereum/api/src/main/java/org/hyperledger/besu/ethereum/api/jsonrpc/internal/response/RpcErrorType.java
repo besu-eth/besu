@@ -222,6 +222,7 @@ public enum RpcErrorType implements RpcMethodError {
   // Log bloom cache errors
   CACHE_REMOVAL_IN_PROGRESS(
       -32000, "Cache removal is unavailable while log bloom caching is in progress"),
+  CACHE_REMOVAL_FAILED(-32000, "Unable to remove all log bloom cache segments"),
 
   // Debug failures
   BLOCK_NOT_FOUND(-32000, "Block not found"),
