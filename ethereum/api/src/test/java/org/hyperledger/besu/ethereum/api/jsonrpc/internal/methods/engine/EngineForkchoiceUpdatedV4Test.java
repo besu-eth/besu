@@ -237,6 +237,32 @@ public class EngineForkchoiceUpdatedV4Test extends EngineForkchoiceUpdatedV3Test
     assertThat(captor.getValue().targetGasLimit()).contains(targetGasLimitValue);
   }
 
+  @Test
+  public void shouldForwardMaxUint64TargetGasLimitClampedToPreparePayload() {
+    final BlockHeader mockHeader = setupValidForkchoiceUpdate();
+
+    final PayloadAttributesV4 attrs =
+        new PayloadAttributesV4(
+            Quantity.create(mockHeader.getTimestamp() + 1),
+            Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
+            Address.ECREC.toString(),
+            Collections.emptyList(),
+            Bytes32.ZERO.toHexString(),
+            "0x1",
+            "0xffffffffffffffff");
+
+    final JsonRpcResponse resp =
+        resp(
+            new ForkchoiceStateV1(mockHeader.getBlockHash(), Hash.ZERO, Hash.ZERO),
+            Optional.of(attrs));
+
+    assertThat(resp).isInstanceOf(JsonRpcSuccessResponse.class);
+    final ArgumentCaptor<MergeMiningCoordinator.PreparePayloadArgs> captor =
+        ArgumentCaptor.forClass(MergeMiningCoordinator.PreparePayloadArgs.class);
+    verify(mergeCoordinator).preparePayload(captor.capture());
+    assertThat(captor.getValue().targetGasLimit()).contains(Long.MAX_VALUE);
+  }
+
   // ---- custodyColumns (EIP-8070 Engine API) tests ----
 
   @Test

@@ -18,9 +18,13 @@ import org.hyperledger.besu.datatypes.BlobType;
 import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlobAndProofV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlobAndProofV2;
 import org.hyperledger.besu.ethereum.core.kzg.BlobProofBundle;
+import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 
 import java.util.List;
 
@@ -44,6 +48,14 @@ public sealed class EngineGetBlobsV2<BAP extends BlobAndProofV2> extends EngineG
   @Override
   protected List<BlobAndProofV1> getEmptyResult(final VersionedHash[] versionedHashes) {
     return null;
+  }
+
+  @Override
+  protected JsonRpcResponse unsupportedForkResponse(
+      final Object requestId, final ValidationResult<RpcErrorType> forkValidationResult) {
+    // from this version on there is no unsupported fork error, without cell proofs the method is
+    // unable to serve blob pool data
+    return new JsonRpcSuccessResponse(requestId, null);
   }
 
   @Override

@@ -51,6 +51,7 @@ import org.hyperledger.besu.ethereum.transaction.TransactionSimulatorResult;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 
@@ -329,6 +330,81 @@ public class EthEstimateGasTest {
     JsonRpcResponse theResponse = method.response(request);
 
     assertThat(theResponse).usingRecursiveComparison().isEqualTo(expectedResponse);
+  }
+
+  @Test
+  public void shouldReturnGasEstimateAtBlockHash() {
+    final Hash blockHash = Hash.fromHexStringLenient("0x1234");
+    when(blockchainQueries.getBlockHeaderByHash(blockHash))
+        .thenReturn(Optional.of(finalizedBlockHeader));
+    final JsonRpcRequestContext request =
+        ethEstimateGasRequest(eip1559TransactionCallParameter(), blockHash.toHexString());
+    mockTransientProcessorResultGasEstimate(MIN_TX_GAS_COST, true, false, finalizedBlockHeader);
+
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcSuccessResponse(null, Quantity.create(MIN_TX_GAS_COST));
+
+    assertThat(method.response(request)).usingRecursiveComparison().isEqualTo(expectedResponse);
+  }
+
+  @Test
+  public void shouldReturnGasEstimateAtCanonicalBlockHashWhenCanonicalRequired() {
+    final Hash blockHash = Hash.fromHexStringLenient("0x1234");
+    when(blockchainQueries.getBlockHeaderByHash(blockHash))
+        .thenReturn(Optional.of(finalizedBlockHeader));
+    when(blockchainQueries.blockIsOnCanonicalChain(blockHash)).thenReturn(true);
+    final JsonRpcRequestContext request =
+        ethEstimateGasRequest(
+            eip1559TransactionCallParameter(),
+            Map.of("blockHash", blockHash.toHexString(), "requireCanonical", true));
+    mockTransientProcessorResultGasEstimate(MIN_TX_GAS_COST, true, false, finalizedBlockHeader);
+
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcSuccessResponse(null, Quantity.create(MIN_TX_GAS_COST));
+
+    assertThat(method.response(request)).usingRecursiveComparison().isEqualTo(expectedResponse);
+  }
+
+  @Test
+  public void shouldReturnNotCanonicalErrorWhenCanonicalRequiredAndBlockHashIsNotCanonical() {
+    final Hash blockHash = Hash.fromHexStringLenient("0x1234");
+    when(blockchainQueries.getBlockHeaderByHash(blockHash))
+        .thenReturn(Optional.of(finalizedBlockHeader));
+    when(blockchainQueries.blockIsOnCanonicalChain(blockHash)).thenReturn(false);
+    final JsonRpcRequestContext request =
+        ethEstimateGasRequest(
+            eip1559TransactionCallParameter(),
+            Map.of("blockHash", blockHash.toHexString(), "requireCanonical", true));
+
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcErrorResponse(null, RpcErrorType.JSON_RPC_NOT_CANONICAL_ERROR);
+
+    assertThat(method.response(request)).usingRecursiveComparison().isEqualTo(expectedResponse);
+  }
+
+  @Test
+  public void shouldReturnBlockNotFoundForLargeBlockNumber() {
+    final JsonRpcRequestContext request =
+        ethEstimateGasRequest(eip1559TransactionCallParameter(), "0x100000000000000");
+
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcErrorResponse(null, RpcErrorType.BLOCK_NOT_FOUND);
+
+    assertThat(method.response(request)).usingRecursiveComparison().isEqualTo(expectedResponse);
+  }
+
+  @Test
+  public void shouldReturnErrorWhenBlockHashIsUnknown() {
+    final Hash blockHash = Hash.fromHexStringLenient("0x1234");
+    when(blockchainQueries.getBlockHeaderByHash(blockHash)).thenReturn(Optional.empty());
+    final JsonRpcRequestContext request =
+        ethEstimateGasRequest(
+            defaultLegacyTransactionCallParameter(Wei.ZERO), blockHash.toHexString());
+
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcErrorResponse(null, RpcErrorType.BLOCK_NOT_FOUND);
+
+    assertThat(method.response(request)).usingRecursiveComparison().isEqualTo(expectedResponse);
   }
 
   @Test
@@ -811,7 +887,7 @@ public class EthEstimateGasTest {
   }
 
   private JsonRpcRequestContext ethEstimateGasRequest(
-      final CallParameter callParameter, final String blockParam) {
+      final CallParameter callParameter, final Object blockParam) {
     return new JsonRpcRequestContext(
         new JsonRpcRequest("2.0", "eth_estimateGas", new Object[] {callParameter, blockParam}));
   }

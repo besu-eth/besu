@@ -1,0 +1,33 @@
+{
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "engine_forkchoiceUpdatedV4",
+    "params": [
+      {
+        "headBlockHash": "0xdb6d76ff4c50498f8c701172dbabbbd31650177de40d761caf5fb60a08bd013d",
+        "safeBlockHash": "0xdb6d76ff4c50498f8c701172dbabbbd31650177de40d761caf5fb60a08bd013d",
+        "finalizedBlockHash": "0xdb6d76ff4c50498f8c701172dbabbbd31650177de40d761caf5fb60a08bd013d"
+      },
+      {
+        "timestamp": "0x30",
+        "prevRandao": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "suggestedFeeRecipient": "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+        "withdrawals": [],
+        "parentBeaconBlockRoot": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "slotNumber": "0x1",
+        "targetGasLimit": "0x1c9c380"
+      }
+    ],
+    "id": 72
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 72,
+    "error": {
+      "code": -38005,
+      "message": "Unsupported fork",
+      "data": "AMSTERDAM not configured"
+    }
+  },
+  "statusCode": 200
+}

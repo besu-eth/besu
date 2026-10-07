@@ -39,7 +39,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcRespon
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadStatusV1;
-import org.hyperledger.besu.ethereum.chain.BadBlockManager;
+import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -52,8 +52,6 @@ import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
-import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
-import org.hyperledger.besu.plugin.services.exception.StorageException;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -177,15 +175,14 @@ public sealed class EngineNewPayloadV1<
     final Optional<BlockHeader> maybeParentHeader =
         protocolContext.getBlockchain().getBlockHeader(blockParam.getParentHash());
 
-    final BadBlockManager badBlockManager = protocolContext.getBadBlockManager();
     final Optional<String> maybeBadBlockError;
-    if (badBlockManager.isBadBlock(blockParam.getBlockHash())) {
+    if (mergeCoordinator.isBadBlock(blockParam.getBlockHash())) {
       maybeBadBlockError = Optional.of("Block is a known bad block.");
     } else if (maybeParentHeader.isEmpty()) {
       maybeBadBlockError =
-          badBlockManager
+          mergeCoordinator
               .checkAndMarkBadDescendant(newBlockHeader)
-              .map(badParent -> "Block descends from bad block " + badParent.toLogString());
+              .map(BadBlockCause::getDescription);
     } else {
       // a parent that made it onto the chain cannot be bad, a stale entry, e.g. left by a
       // transient local failure, must not condemn its descendants
@@ -212,7 +209,7 @@ public sealed class EngineNewPayloadV1<
           .setMessage("Parent of block {} is not present, append it to backward sync")
           .addArgument(unvalidatedBlock::toLogString)
           .log();
-      mergeCoordinator.appendNewPayloadToSync(unvalidatedBlock);
+      appendNewPayloadToSync(unvalidatedBlock, blockParam);
     }
 
     final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(newBlockHeader);
@@ -277,7 +274,7 @@ public sealed class EngineNewPayloadV1<
       lastExecutionTimeInNs = System.nanoTime() - startTimeNs;
       logImportedBlockInfo(
           block, lastExecutionTimeInNs, executionResult.getNbParallelizedTransactions());
-      return respondWith(reqId, blockParam, newBlockHeader.getHash(), VALID);
+      return respondWithValid(reqId, blockParam, newBlockHeader, executionResult);
     } else {
       logger().debug("New payload is invalid: {}", executionResult);
       if (executionResult.isWorldStateUnavailable()) {
@@ -286,11 +283,8 @@ public sealed class EngineNewPayloadV1<
         // finalized via forkchoiceUpdated.
         return respondWith(reqId, blockParam, null, SYNCING);
       }
-      if (executionResult.causedBy().isPresent()) {
-        Throwable causedBy = executionResult.causedBy().get();
-        if (causedBy instanceof StorageException || causedBy instanceof MerkleTrieException) {
-          return new JsonRpcErrorResponse(reqId, RpcErrorType.INTERNAL_ERROR);
-        }
+      if (executionResult.isLocalFailure()) {
+        return new JsonRpcErrorResponse(reqId, RpcErrorType.INTERNAL_ERROR);
       }
       protocolContext.getBadBlockManager().addLatestValidHash(block.getHash(), latestValidAncestor);
       return respondWithInvalid(
@@ -382,6 +376,28 @@ public sealed class EngineNewPayloadV1<
     }
   }
 
+  /**
+   * Responds to a payload that was just executed and imported. Overridable so variants can answer
+   * with data derived from block processing (e.g. the EIP-8025 execution witness), or with an error
+   * if they cannot produce it; the default responds with the standard VALID payload status.
+   *
+   * <p>Note this covers only the freshly-executed path: a payload whose block is already present
+   * returns VALID without passing through here.
+   *
+   * @param requestId the JSON-RPC request id
+   * @param param the execution payload parameter
+   * @param newBlockHeader the header of the imported block
+   * @param executionResult the result of processing the block
+   * @return the JSON-RPC response
+   */
+  protected JsonRpcResponse respondWithValid(
+      final Object requestId,
+      final ExecutionPayloadV1 param,
+      final BlockHeader newBlockHeader,
+      final BlockProcessingResult executionResult) {
+    return respondWith(requestId, param, newBlockHeader.getHash(), VALID);
+  }
+
   JsonRpcResponse respondWith(
       final Object requestId,
       final ExecutionPayloadV1 param,
@@ -391,6 +407,13 @@ public sealed class EngineNewPayloadV1<
       throw new IllegalArgumentException(
           "Don't call respondWith() with invalid status of " + status);
     }
+    logNewPayloadResponse(param, latestValidHash, status);
+    return new JsonRpcSuccessResponse(
+        requestId, new PayloadStatusV1(status, latestValidHash, Optional.empty()));
+  }
+
+  protected void logNewPayloadResponse(
+      final ExecutionPayloadV1 param, final Hash latestValidHash, final EngineStatus status) {
     logger()
         .atDebug()
         .setMessage(
@@ -402,8 +425,6 @@ public sealed class EngineNewPayloadV1<
             () -> latestValidHash == null ? null : latestValidHash.getBytes().toHexString())
         .addArgument(status::name)
         .log();
-    return new JsonRpcSuccessResponse(
-        requestId, new PayloadStatusV1(status, latestValidHash, Optional.empty()));
   }
 
   JsonRpcResponse respondWithInvalid(final Object requestId, final String validationError) {
@@ -498,6 +519,10 @@ public sealed class EngineNewPayloadV1<
 
   protected BlockProcessingResult rememberBlock(final Block block, final EP executionPayload) {
     return mergeCoordinator.rememberBlock(block, Optional.empty());
+  }
+
+  protected void appendNewPayloadToSync(final Block block, final EP executionPayload) {
+    mergeCoordinator.appendNewPayloadToSync(block, Optional.empty());
   }
 
   private void logImportedBlockInfo(

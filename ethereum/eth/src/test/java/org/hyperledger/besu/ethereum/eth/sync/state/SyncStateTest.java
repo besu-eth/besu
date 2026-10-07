@@ -546,6 +546,85 @@ public class SyncStateTest {
     assertThat(syncState.bestChainHeight()).isEqualTo(998L);
   }
 
+  @Test
+  public void isInSync_ignoresBetterPeerOnceDrivenByPayloads() {
+    updateChainState(otherPeer.getEthPeer(), TARGET_CHAIN_HEIGHT, TARGET_DIFFICULTY);
+    lenient()
+        .doReturn(Optional.of(otherPeer.getEthPeer()))
+        .when(ethPeers)
+        .bestPeerWithHeightEstimate();
+    assertThat(syncState.isInSync()).isFalse(); // Sanity check
+
+    syncState.onNewPayload(payloadHeader(OUR_CHAIN_HEAD_NUMBER + 1));
+
+    assertThat(syncState.isInSync()).isTrue();
+    assertThat(syncState.isInSync(1)).isTrue();
+    assertThat(syncState.isInSync(0)).isFalse();
+  }
+
+  @Test
+  public void isInSync_outOfSyncWhilePayloadsAreAheadOfLocalChain() {
+    otherPeer.disconnect(DisconnectReason.REQUESTED);
+    syncTargetPeer.disconnect(DisconnectReason.REQUESTED);
+
+    syncState.onNewPayload(payloadHeader(TARGET_CHAIN_HEIGHT));
+
+    assertThat(syncState.isInSync()).isFalse();
+    assertThat(syncState.isInSync(TARGET_CHAIN_DELTA - 1)).isFalse();
+    assertThat(syncState.isInSync(TARGET_CHAIN_DELTA)).isTrue();
+
+    advanceLocalChain(TARGET_CHAIN_HEIGHT);
+
+    assertThat(syncState.isInSync()).isTrue();
+    assertThat(syncState.isInSync(0)).isTrue();
+  }
+
+  @Test
+  public void isInSync_syncTargetStillCountsOnceDrivenByPayloads() {
+    otherPeer.disconnect(DisconnectReason.REQUESTED);
+    setupOutOfSyncState();
+
+    syncState.onNewPayload(payloadHeader(OUR_CHAIN_HEAD_NUMBER + 1));
+
+    assertThat(syncState.isInSync()).isFalse();
+  }
+
+  @Test
+  public void inSyncListener_notifiedInSyncWhenPayloadsReplaceBetterPeer() {
+    updateChainState(otherPeer.getEthPeer(), TARGET_CHAIN_HEIGHT, TARGET_DIFFICULTY);
+    lenient()
+        .doReturn(Optional.of(otherPeer.getEthPeer()))
+        .when(ethPeers)
+        .bestPeerWithHeightEstimate();
+    advanceLocalChain(OUR_CHAIN_HEAD_NUMBER + 1);
+    verify(inSyncListener).onInSyncStatusChange(false);
+
+    syncState.onNewPayload(payloadHeader(blockchain.getChainHeadBlockNumber() + 1));
+
+    verify(inSyncListener).onInSyncStatusChange(true);
+    verifyNoMoreInteractions(inSyncListener);
+  }
+
+  @Test
+  public void inSyncListener_notifiedOutOfSyncWhenPayloadIsAhead() {
+    otherPeer.disconnect(DisconnectReason.REQUESTED);
+    syncTargetPeer.disconnect(DisconnectReason.REQUESTED);
+    advanceLocalChain(OUR_CHAIN_HEAD_NUMBER + 1);
+    verify(inSyncListener).onInSyncStatusChange(true);
+
+    final long payloadHeight = blockchain.getChainHeadBlockNumber() + TARGET_CHAIN_DELTA;
+    syncState.onNewPayload(payloadHeader(payloadHeight));
+    verify(inSyncListener).onInSyncStatusChange(false);
+
+    advanceLocalChain(payloadHeight);
+    verify(inSyncListener, times(2)).onInSyncStatusChange(true);
+    verifyNoMoreInteractions(inSyncListener);
+  }
+
+  private BlockHeader payloadHeader(final long blockNumber) {
+    return new BlockHeaderTestFixture().number(blockNumber).buildHeader();
+  }
+
   private RespondingEthPeer createPeer(final long blockHeight) {
     return EthProtocolManagerTestUtil.createPeer(ethProtocolManager, blockHeight);
   }

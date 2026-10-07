@@ -15,14 +15,17 @@
 package org.hyperledger.besu.services.kvstore;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import org.apache.commons.lang3.tuple.Pair;
 import org.junit.jupiter.api.Test;
 
 public class SegmentedInMemoryKeyValueStorageTest {
@@ -91,6 +94,127 @@ public class SegmentedInMemoryKeyValueStorageTest {
         storage.multiget(TestSegment.FOO, List.of(bytesOf(1), bytesOf(2)));
     assertValue(currentValues.get(0), bytesOf(11));
     assertValue(currentValues.get(1), bytesOf(20));
+  }
+
+  @Test
+  public void rewriteReplacesDropsAndAddsEntries() {
+    final SegmentedInMemoryKeyValueStorage storage = new SegmentedInMemoryKeyValueStorage();
+    putOneTwoThree(storage);
+
+    storage.rewrite(
+        TestSegment.FOO,
+        (key, value) -> key[0] == 2 ? null : bytesOf(value[0], key[0]),
+        List.of(Pair.of(bytesOf(9), bytesOf(9, 9))));
+
+    assertValue(storage.get(TestSegment.FOO, bytesOf(1)), bytesOf(10, 1));
+    assertThat(storage.get(TestSegment.FOO, bytesOf(2))).isEmpty();
+    assertValue(storage.get(TestSegment.FOO, bytesOf(3)), bytesOf(30, 3));
+    assertValue(storage.get(TestSegment.FOO, bytesOf(9)), bytesOf(9, 9));
+    assertValue(storage.get(TestSegment.BAR, bytesOf(1)), bytesOf(100));
+  }
+
+  @Test
+  public void rewriteDroppingEveryEntryLeavesOnlyTheAdditions() {
+    final SegmentedInMemoryKeyValueStorage storage = new SegmentedInMemoryKeyValueStorage();
+    putOneTwoThree(storage);
+
+    storage.rewrite(
+        TestSegment.FOO, (key, value) -> null, List.of(Pair.of(bytesOf(9), bytesOf(9, 9))));
+
+    assertThat(storage.stream(TestSegment.FOO).map(Pair::getKey).toList())
+        .containsExactly(bytesOf(9));
+  }
+
+  @Test
+  public void rewriteThatFailsLeavesTheSegmentAlone() {
+    final SegmentedInMemoryKeyValueStorage storage = new SegmentedInMemoryKeyValueStorage();
+    putOneTwoThree(storage);
+
+    assertThatThrownBy(
+            () ->
+                storage.rewrite(
+                    TestSegment.FOO,
+                    (key, value) -> {
+                      if (key[0] == 3) {
+                        throw new IllegalStateException("no new value for this entry");
+                      }
+                      return bytesOf(0);
+                    },
+                    List.of(Pair.of(bytesOf(9), bytesOf(9, 9)))))
+        .isInstanceOf(IllegalStateException.class);
+
+    assertValue(storage.get(TestSegment.FOO, bytesOf(1)), bytesOf(10));
+    assertValue(storage.get(TestSegment.FOO, bytesOf(2)), bytesOf(20));
+    assertValue(storage.get(TestSegment.FOO, bytesOf(3)), bytesOf(30));
+    assertThat(storage.get(TestSegment.FOO, bytesOf(9))).isEmpty();
+  }
+
+  @Test
+  public void rewriteThatFailsRollsItsTransactionBack() {
+    final List<String> ended = new ArrayList<>();
+    final SegmentedInMemoryKeyValueStorage storage =
+        new SegmentedInMemoryKeyValueStorage() {
+          @Override
+          public SegmentedKeyValueStorageTransaction startTransaction() {
+            return new RecordingTransaction(super.startTransaction(), ended);
+          }
+        };
+    putOneTwoThree(storage);
+    ended.clear();
+
+    assertThatThrownBy(
+            () ->
+                storage.rewrite(
+                    TestSegment.FOO,
+                    (key, value) -> {
+                      throw new IllegalStateException("no new value for this entry");
+                    },
+                    List.of()))
+        .isInstanceOf(IllegalStateException.class);
+
+    assertThat(ended).containsExactly("rollback");
+  }
+
+  private record RecordingTransaction(
+      SegmentedKeyValueStorageTransaction delegate, List<String> ended)
+      implements SegmentedKeyValueStorageTransaction {
+
+    @Override
+    public void put(final SegmentIdentifier segment, final byte[] key, final byte[] value) {
+      delegate.put(segment, key, value);
+    }
+
+    @Override
+    public void remove(final SegmentIdentifier segment, final byte[] key) {
+      delegate.remove(segment, key);
+    }
+
+    @Override
+    public void commit() {
+      ended.add("commit");
+      delegate.commit();
+    }
+
+    @Override
+    public void rollback() {
+      ended.add("rollback");
+      delegate.rollback();
+    }
+
+    @Override
+    public void close() {
+      ended.add("close");
+      delegate.close();
+    }
+  }
+
+  private static void putOneTwoThree(final SegmentedInMemoryKeyValueStorage storage) {
+    final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
+    tx.put(TestSegment.FOO, bytesOf(1), bytesOf(10));
+    tx.put(TestSegment.FOO, bytesOf(2), bytesOf(20));
+    tx.put(TestSegment.FOO, bytesOf(3), bytesOf(30));
+    tx.put(TestSegment.BAR, bytesOf(1), bytesOf(100));
+    tx.commit();
   }
 
   private static void assertValue(final Optional<byte[]> actual, final byte[] expected) {

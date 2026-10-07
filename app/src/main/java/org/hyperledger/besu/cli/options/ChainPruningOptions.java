@@ -34,18 +34,16 @@ public class ChainPruningOptions implements CLIOptions<ChainPrunerConfiguration>
   private static final String CHAIN_PRUNING_FREQUENCY_FLAG = "--Xchain-pruning-frequency";
   private static final String PRE_MERGE_PRUNING_QUANTITY_FLAG = "--Xpre-merge-pruning-quantity";
 
-  private static final long WSP_EPOCHS_PER_WINDOW =
-      3533L; // 3533 epochs in the Weak Subjectivity Period time window
-  private static final long SLOTS_PER_EPOCH = 32L;
-
   /**
    * The "CHAIN_DATA_PRUNING_MIN_RETAINED_LIMIT" field sets the minimum retained limit for chain
-   * data pruning values. For most networks, the default value of this limit is the safest. Reducing
-   * this value requires careful consideration and understanding of the potential implications.
-   * Lowering this limit may have unintended side effects.
+   * data pruning values. It follows the EIP-4444 history expiry window, the period during which
+   * consensus clients rebuild blinded payloads from the execution client, so block bodies and block
+   * access lists must remain available for that long. Reducing this value requires careful
+   * consideration and understanding of the potential implications. Lowering this limit may have
+   * unintended side effects.
    */
   public static final long CHAIN_DATA_PRUNING_RETAINED_MINIMUM =
-      WSP_EPOCHS_PER_WINDOW * SLOTS_PER_EPOCH;
+      ChainPrunerConfiguration.HISTORY_PRUNE_BLOCKS;
 
   /** The constant DEFAULT_CHAIN_DATA_PRUNING_FREQUENCY. */
   public static final int DEFAULT_CHAIN_DATA_PRUNING_FREQUENCY = 256;

@@ -1,0 +1,20 @@
+{
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "engine_getPayloadV6",
+    "params": [
+      "0x7d7d1b7014afc8d0"
+    ],
+    "id": 73
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 73,
+    "error": {
+      "code": -38005,
+      "message": "Unsupported fork",
+      "data": "AMSTERDAM not configured"
+    }
+  },
+  "statusCode": 200
+}

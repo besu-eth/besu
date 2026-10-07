@@ -90,9 +90,9 @@ public class BlocksSubCommandTest extends CommandTestAbstract {
       """;
 
   private static final String EXPECTED_BLOCK_EXPORT_USAGE =
-      "Usage: besu blocks export [-hV] [--end-block=<LONG>] [--format=<format>]"
+      "Usage: besu blocks export [-hV] [--include-bals] [--end-block=<LONG>]"
           + System.lineSeparator()
-          + "                          [--start-block=<LONG>] --to=<FILE>"
+          + "                          [--format=<format>] [--start-block=<LONG>] --to=<FILE>"
           + System.lineSeparator()
           + "This command exports a specific block, or list of blocks from storage."
           + System.lineSeparator()
@@ -107,6 +107,12 @@ public class BlocksSubCommandTest extends CommandTestAbstract {
           + "                               ERA1 (default: RLP)."
           + System.lineSeparator()
           + "  -h, --help                 Show this help message and exit."
+          + System.lineSeparator()
+          + "      --include-bals         Write a sidecar file '<to>.bals' with the Block"
+          + System.lineSeparator()
+          + "                               Access List of each exported block (RLP format"
+          + System.lineSeparator()
+          + "                               only)."
           + System.lineSeparator()
           + "      --start-block=<LONG>   The starting index of the block, or block list to"
           + System.lineSeparator()
@@ -291,7 +297,7 @@ public class BlocksSubCommandTest extends CommandTestAbstract {
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8)).startsWith(expectedErrorOutputStart);
 
-    verify(rlpBlockExporter, never()).exportBlocks(any(), any(), any());
+    verify(rlpBlockExporter, never()).exportBlocks(any(), any(), any(), any());
   }
 
   @Test
@@ -311,7 +317,7 @@ public class BlocksSubCommandTest extends CommandTestAbstract {
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8)).startsWith(expectedErrorOutputStart);
 
-    verify(rlpBlockExporter, never()).exportBlocks(any(), any(), any());
+    verify(rlpBlockExporter, never()).exportBlocks(any(), any(), any(), any());
   }
 
   @Test
@@ -332,7 +338,7 @@ public class BlocksSubCommandTest extends CommandTestAbstract {
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8)).startsWith(expectedErrorOutputStart);
 
-    verify(rlpBlockExporter, never()).exportBlocks(any(), any(), any());
+    verify(rlpBlockExporter, never()).exportBlocks(any(), any(), any(), any());
   }
 
   @Test
@@ -348,7 +354,8 @@ public class BlocksSubCommandTest extends CommandTestAbstract {
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
 
-    verify(rlpBlockExporter, times(1)).exportBlocks(outputFile, Optional.empty(), Optional.empty());
+    verify(rlpBlockExporter, times(1))
+        .exportBlocks(outputFile, Optional.empty(), Optional.empty(), Optional.empty());
   }
 
   @Test
@@ -365,7 +372,8 @@ public class BlocksSubCommandTest extends CommandTestAbstract {
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
 
-    verify(rlpBlockExporter, times(1)).exportBlocks(outputFile, Optional.of(1L), Optional.empty());
+    verify(rlpBlockExporter, times(1))
+        .exportBlocks(outputFile, Optional.empty(), Optional.of(1L), Optional.empty());
   }
 
   @Test
@@ -382,7 +390,8 @@ public class BlocksSubCommandTest extends CommandTestAbstract {
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
 
-    verify(rlpBlockExporter, times(1)).exportBlocks(outputFile, Optional.empty(), Optional.of(10L));
+    verify(rlpBlockExporter, times(1))
+        .exportBlocks(outputFile, Optional.empty(), Optional.empty(), Optional.of(10L));
   }
 
   @Test
@@ -400,7 +409,49 @@ public class BlocksSubCommandTest extends CommandTestAbstract {
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
 
-    verify(rlpBlockExporter, times(1)).exportBlocks(outputFile, Optional.of(1L), Optional.of(10L));
+    verify(rlpBlockExporter, times(1))
+        .exportBlocks(outputFile, Optional.empty(), Optional.of(1L), Optional.of(10L));
+  }
+
+  @Test
+  public void blocksExport_withIncludeBals() throws IOException {
+    createDbDirectory(true);
+    final File outputFile = Files.createTempFile(folder, "blocks", "bin").toFile();
+    parseCommand(
+        "--data-path=" + folder,
+        BLOCK_SUBCOMMAND_NAME,
+        BLOCK_EXPORT_SUBCOMMAND_NAME,
+        "--to",
+        outputFile.getAbsolutePath(),
+        "--include-bals");
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+
+    verify(rlpBlockExporter, times(1))
+        .exportBlocks(
+            outputFile,
+            Optional.of(new File(outputFile.getAbsolutePath() + ".bals")),
+            Optional.empty(),
+            Optional.empty());
+  }
+
+  @Test
+  public void blocksExport_withIncludeBalsAndNonRlpFormatFails() throws IOException {
+    createDbDirectory(true);
+    final File outputFile = Files.createTempFile(folder, "blocks", "bin").toFile();
+    parseCommand(
+        "--data-path=" + folder,
+        BLOCK_SUBCOMMAND_NAME,
+        BLOCK_EXPORT_SUBCOMMAND_NAME,
+        "--to",
+        outputFile.getAbsolutePath(),
+        "--format=ERA1",
+        "--include-bals");
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains("--include-bals is only supported with --format=RLP");
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+
+    verify(rlpBlockExporter, never()).exportBlocks(any(), any(), any(), any());
   }
 
   @Test
@@ -419,7 +470,7 @@ public class BlocksSubCommandTest extends CommandTestAbstract {
         .contains("Parameter --end-block (1) must be greater start block (10)");
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
 
-    verify(rlpBlockExporter, never()).exportBlocks(any(), any(), any());
+    verify(rlpBlockExporter, never()).exportBlocks(any(), any(), any(), any());
   }
 
   @Test
@@ -438,7 +489,7 @@ public class BlocksSubCommandTest extends CommandTestAbstract {
         .contains("Parameter --end-block (10) must be greater start block (10)");
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
 
-    verify(rlpBlockExporter, never()).exportBlocks(any(), any(), any());
+    verify(rlpBlockExporter, never()).exportBlocks(any(), any(), any(), any());
   }
 
   @Test
@@ -456,7 +507,7 @@ public class BlocksSubCommandTest extends CommandTestAbstract {
         .contains("Parameter --start-block (-1) must be greater than or equal to zero");
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
 
-    verify(rlpBlockExporter, never()).exportBlocks(any(), any(), any());
+    verify(rlpBlockExporter, never()).exportBlocks(any(), any(), any(), any());
   }
 
   @Test
@@ -474,7 +525,7 @@ public class BlocksSubCommandTest extends CommandTestAbstract {
         .contains("Parameter --end-block (-1) must be greater than or equal to zero");
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
 
-    verify(rlpBlockExporter, never()).exportBlocks(any(), any(), any());
+    verify(rlpBlockExporter, never()).exportBlocks(any(), any(), any(), any());
   }
 
   @Test
