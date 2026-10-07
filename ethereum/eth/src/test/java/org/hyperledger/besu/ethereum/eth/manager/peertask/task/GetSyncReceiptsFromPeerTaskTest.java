@@ -490,6 +490,24 @@ public class GetSyncReceiptsFromPeerTaskTest {
   }
 
   @Test
+  public void validateResultAcceptsPartialReceiptAbove45MGasBoundWhenBlockGasLimitAllowsIt() {
+    // blockGasLimit=60M with no per-tx cap → per-receipt threshold = 7.5M bytes, so the receipt of
+    // a tx using more than 45M gas must be accepted
+    final MockedBlock block = mockBlockWithGasLimit(1, 1, 60_000_000L);
+    final GetSyncReceiptsFromPeerTask task =
+        createTask(
+            new Request(List.of(block.block), List.of()),
+            createProtocolScheduleWithTxGasLimitCap(Long.MAX_VALUE));
+
+    final SyncTransactionReceipt largeReceipt =
+        new SyncTransactionReceipt(Bytes.of(new byte[45_000_000 / 8 + 1]));
+
+    assertEquals(
+        PeerTaskValidationResponse.RESULTS_VALID_AND_GOOD,
+        task.validateResult(new Response(Map.of(), List.of(largeReceipt))));
+  }
+
+  @Test
   public void validateResultFailsWhenCumulativePartialReceiptSizeExceedsBlockGasLimitBound() {
     // blockGasLimit=800 → cumulative threshold = 100 bytes; two 60-byte receipts (total 120) must
     // be rejected even though each individually is within the per-receipt bound

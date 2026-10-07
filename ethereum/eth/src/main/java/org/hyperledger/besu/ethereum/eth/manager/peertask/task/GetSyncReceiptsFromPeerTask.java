@@ -252,15 +252,14 @@ public class GetSyncReceiptsFromPeerTask implements PeerTask<GetSyncReceiptsFrom
   }
 
   private long calculateTxGasLimitUpperBound(final SyncBlock lastBlockReceived) {
-    // to avoid having to deserialize the tx to get the actual gas limit we use an upper bound,
-    // for everything before Osaka we use the block gas limit of 45M and for Osaka onward
-    // we can use the max gas limit allowed per tx as specified by the protocol schedule
+    // to avoid having to deserialize the tx to get the actual gas limit we use an upper bound:
+    // no tx can use more gas than its block's gas limit or the protocol's per-tx cap
     return Math.min(
         protocolSchedule
             .getByBlockHeader(lastBlockReceived.getHeader())
             .getGasLimitCalculator()
             .transactionGasLimitCap(),
-        45_000_000L);
+        lastBlockReceived.getHeader().getGasLimit());
   }
 
   private boolean receiptsRootMatches(
