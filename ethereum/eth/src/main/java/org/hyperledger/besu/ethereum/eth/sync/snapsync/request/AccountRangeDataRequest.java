@@ -217,6 +217,12 @@ public class AccountRangeDataRequest extends SnapDataRequest {
 
     // find missing storages and code
     for (Map.Entry<Bytes32, Bytes> account : taskElement.keys().entrySet()) {
+      if (account.getKey().compareTo(endKeyHash) > 0) {
+        // A response can go past the end of the range by an account. That account belongs to the
+        // next range, which requests its storage itself: requested twice, perhaps for different
+        // pivot blocks, the older storage could be written over the newer.
+        break;
+      }
       final PmtStateTrieAccountValue accountValue =
           PmtStateTrieAccountValue.readFrom(RLP.input(account.getValue()));
       if (!accountValue.getStorageRoot().equals(Hash.EMPTY_TRIE_HASH)) {
