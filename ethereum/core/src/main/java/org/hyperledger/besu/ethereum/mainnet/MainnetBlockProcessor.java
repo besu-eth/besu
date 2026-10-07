@@ -36,7 +36,6 @@ public class MainnetBlockProcessor extends AbstractBlockProcessor {
       final AbstractBlockProcessor.TransactionReceiptFactory transactionReceiptFactory,
       final Wei blockReward,
       final MiningBeneficiaryCalculator miningBeneficiaryCalculator,
-      final boolean skipZeroBlockRewards,
       final ProtocolSchedule protocolSchedule,
       final BalConfiguration balConfiguration) {
     super(
@@ -44,7 +43,6 @@ public class MainnetBlockProcessor extends AbstractBlockProcessor {
         transactionReceiptFactory,
         blockReward,
         miningBeneficiaryCalculator,
-        skipZeroBlockRewards,
         protocolSchedule,
         balConfiguration);
   }
@@ -54,7 +52,6 @@ public class MainnetBlockProcessor extends AbstractBlockProcessor {
       final AbstractBlockProcessor.TransactionReceiptFactory transactionReceiptFactory,
       final Wei blockReward,
       final MiningBeneficiaryCalculator miningBeneficiaryCalculator,
-      final boolean skipZeroBlockRewards,
       final ProtocolSchedule protocolSchedule,
       final BalConfiguration balConfiguration,
       final MetricsSystem metricsSystem) {
@@ -63,7 +60,6 @@ public class MainnetBlockProcessor extends AbstractBlockProcessor {
         transactionReceiptFactory,
         blockReward,
         miningBeneficiaryCalculator,
-        skipZeroBlockRewards,
         protocolSchedule,
         balConfiguration,
         metricsSystem);
@@ -73,9 +69,8 @@ public class MainnetBlockProcessor extends AbstractBlockProcessor {
   protected boolean rewardCoinbase(
       final MutableWorldState worldState,
       final BlockHeader header,
-      final List<BlockHeader> ommers,
-      final boolean skipZeroBlockRewards) {
-    if (skipZeroBlockRewards && blockReward.isZero()) {
+      final List<BlockHeader> ommers) {
+    if (blockReward.isZero()) {
       return true;
     }
 
@@ -121,7 +116,6 @@ public class MainnetBlockProcessor extends AbstractBlockProcessor {
         final TransactionReceiptFactory transactionReceiptFactory,
         final Wei blockReward,
         final MiningBeneficiaryCalculator miningBeneficiaryCalculator,
-        final boolean skipZeroBlockRewards,
         final ProtocolSchedule protocolSchedule,
         final BalConfiguration balConfiguration) {
 
@@ -130,7 +124,6 @@ public class MainnetBlockProcessor extends AbstractBlockProcessor {
           transactionReceiptFactory,
           blockReward,
           miningBeneficiaryCalculator,
-          skipZeroBlockRewards,
           protocolSchedule,
           balConfiguration,
           metricsSystem);

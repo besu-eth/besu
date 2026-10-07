@@ -198,11 +198,12 @@ public class EngineGetBlobsV3Test extends AbstractScheduledApiTest {
   }
 
   @Test
-  void shouldFailWhenOsakaNotActive() {
+  void shouldReturnNullWhenOsakaNotActive() {
     when(blockHeader.getTimestamp()).thenReturn(osakaHardfork.milestone() - 1);
-    var response = method.syncResponse(buildRequestContext());
-    assertThat(fromErrorResp(response).getCode())
-        .isEqualTo(RpcErrorType.UNSUPPORTED_FORK.getCode());
+    BlobProofBundle bundle = createBundleWithBlobType(KZG_CELL_PROOFS);
+    JsonRpcSuccessResponse response =
+        getSuccessResponse(buildRequestContext(bundle.getVersionedHash()));
+    assertThat(response.getResult()).isNull();
   }
 
   @Test

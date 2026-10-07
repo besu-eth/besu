@@ -90,7 +90,6 @@ public class IbftProtocolSchedule {
         .blockImporterBuilder(MainnetBlockImporter::new)
         .difficultyCalculator((time, parent) -> BigInteger.ONE)
         .blockReward(Wei.ZERO)
-        .skipZeroBlockRewards(true)
         .blockHeaderFunctions(
             new BftBlockHeaderFunctions(
                 IbftBlockHashing::calculateHashOfIbftBlockOnchain, ibftExtraDataCodec));

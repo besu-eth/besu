@@ -133,8 +133,7 @@ class AbstractBlockProcessorIntegrationTest {
     blockchain = (DefaultBlockchain) contextTestFixture.getBlockchain();
   }
 
-  private static Stream<Arguments> blockProcessors(
-      final Wei coinbaseReward, final boolean skipRewards) {
+  private static Stream<Arguments> blockProcessors(final Wei coinbaseReward) {
     final ExecutionContextTestFixture contextTestFixture =
         ExecutionContextTestFixture.builder(GenesisConfig.fromResource(GENESIS_RESOURCE))
             .dataStorageFormat(DataStorageFormat.BONSAI)
@@ -153,7 +152,6 @@ class AbstractBlockProcessorIntegrationTest {
             receiptFactory,
             coinbaseReward,
             BlockHeader::getCoinbase,
-            skipRewards,
             protocolSchedule,
             BalConfiguration.DEFAULT);
 
@@ -163,7 +161,6 @@ class AbstractBlockProcessorIntegrationTest {
             receiptFactory,
             coinbaseReward,
             BlockHeader::getCoinbase,
-            skipRewards,
             protocolSchedule,
             BalConfiguration.DEFAULT,
             new NoOpMetricsSystem());
@@ -174,11 +171,11 @@ class AbstractBlockProcessorIntegrationTest {
   }
 
   private static Stream<Arguments> blockProcessorProvider() {
-    return blockProcessors(COINBASE_REWARD, false);
+    return blockProcessors(COINBASE_REWARD);
   }
 
   private static Stream<Arguments> blockProcessorProviderWithoutRewards() {
-    return blockProcessors(Wei.ZERO, true);
+    return blockProcessors(Wei.ZERO);
   }
 
   @ParameterizedTest(name = "{index}: {0}")
@@ -351,7 +348,6 @@ class AbstractBlockProcessorIntegrationTest {
             receiptFactory,
             Wei.ZERO,
             BlockHeader::getCoinbase,
-            true,
             protocolSchedule,
             BalConfiguration.DEFAULT);
 

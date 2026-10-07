@@ -18,7 +18,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.datatypes.BlobType.KZG_CELL_PROOFS;
 import static org.hyperledger.besu.datatypes.BlobType.KZG_PROOF;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.OSAKA;
-import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineTestSupport.fromErrorResp;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -169,11 +168,12 @@ public class EngineGetBlobsV2Test extends AbstractScheduledApiTest {
   }
 
   @Test
-  void shouldFailWhenOsakaNotActive() {
+  void shouldReturnNullWhenOsakaNotActive() {
     when(blockHeader.getTimestamp()).thenReturn(osakaHardfork.milestone() - 1);
-    var response = method.syncResponse(buildRequestContext());
-    assertThat(fromErrorResp(response).getCode())
-        .isEqualTo(RpcErrorType.UNSUPPORTED_FORK.getCode());
+    BlobProofBundle bundle = createBundleAndRegisterToPool();
+    JsonRpcSuccessResponse response =
+        getSuccessResponse(buildRequestContext(bundle.getVersionedHash()));
+    assertThat(response.getResult()).isNull();
   }
 
   @Test

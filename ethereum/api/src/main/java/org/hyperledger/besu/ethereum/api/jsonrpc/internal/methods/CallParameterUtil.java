@@ -20,6 +20,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonR
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.transaction.CallParameter;
 
 import java.util.Arrays;
@@ -79,5 +80,22 @@ public class CallParameterUtil {
     }
 
     return isZeroGasPrice;
+  }
+
+  /**
+   * Returns the validation parameters eth_call uses for a call. When {@link
+   * #isAllowExceedingBalance} holds, the call runs with a zero gas price and base fee and without
+   * execution gas fees; otherwise it is validated against the block's base fee and the sender's
+   * balance and pays for its gas.
+   *
+   * @param header the header of the block the call runs on
+   * @param callParams the call parameters
+   * @return the transaction validation parameters for the call
+   */
+  public static TransactionValidationParams getTransactionValidationParams(
+      final BlockHeader header, final CallParameter callParams) {
+    return isAllowExceedingBalance(header, callParams)
+        ? TransactionValidationParams.transactionSimulatorAllowExceedingBalanceAndFutureNonce()
+        : TransactionValidationParams.transactionSimulatorAllowFutureNonce();
   }
 }

@@ -98,11 +98,19 @@ public class BonsaiCodeCache implements org.hyperledger.besu.evm.internal.CodeCa
   /**
    * Put the code into the cache.
    *
+   * <p>Empty code under a non-empty hash is never cached. Empty bytes only hash to {@link
+   * Hash#EMPTY}, so such an entry means the code could not be read, e.g. by a block creation thread
+   * that kept executing after its world state was closed. The cache is shared by every world state,
+   * so caching it would make all later executions of that contract run empty code.
+   *
    * @param codeHash the code hash
    * @param code the code
    */
   @Override
   public void put(final Hash codeHash, final Code code) {
+    if (code.getSize() == 0 && !Hash.EMPTY.equals(codeHash)) {
+      return;
+    }
     cache.put(codeHash, code);
   }
 }

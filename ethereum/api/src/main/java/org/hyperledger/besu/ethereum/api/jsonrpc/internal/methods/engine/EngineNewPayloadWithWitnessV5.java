@@ -21,7 +21,6 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV4;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV3;
@@ -33,7 +32,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineExecutio
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EnginePayloadWithWitnessResult;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.PathBasedWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiExecutionWitnessBuilder;
 
 import java.util.Map;
@@ -52,6 +50,9 @@ import org.slf4j.LoggerFactory;
  * See {@link BonsaiExecutionWitnessBuilder} for the caveat this implies: {@code codes} is
  * over-approximated from the block access list's account changes rather than from instrumented
  * code-read tracking.
+ *
+ * <p>The witness can only be built from a path-based (Bonsai) world state, so the method is only
+ * registered on a node that has one.
  */
 public final class EngineNewPayloadWithWitnessV5<
         EP extends ExecutionPayloadV4, NPRP extends NewPayloadRequestParametersV3<? extends EP>>
@@ -59,28 +60,11 @@ public final class EngineNewPayloadWithWitnessV5<
 
   private static final Logger LOG = LoggerFactory.getLogger(EngineNewPayloadWithWitnessV5.class);
 
-  private final boolean witnessSupported;
-
   public EngineNewPayloadWithWitnessV5(
       final ConstructorArguments constructorArguments,
       final HardforkId minSupportedFork,
       final HardforkId firstUnsupportedFork) {
     super(constructorArguments, minSupportedFork, firstUnsupportedFork);
-    this.witnessSupported =
-        protocolContext.getWorldStateArchive() instanceof PathBasedWorldStateProvider;
-  }
-
-  /**
-   * The witness can only be built from a path-based (Bonsai) world state. Otherwise the request is
-   * refused before the payload is imported, rather than importing it and then failing to answer.
-   */
-  @Override
-  public JsonRpcResponse syncResponse(final JsonRpcRequestContext requestContext) {
-    if (!witnessSupported) {
-      return new JsonRpcErrorResponse(
-          requestContext.getRequest().getId(), RpcErrorType.METHOD_NOT_ENABLED);
-    }
-    return super.syncResponse(requestContext);
   }
 
   @Override

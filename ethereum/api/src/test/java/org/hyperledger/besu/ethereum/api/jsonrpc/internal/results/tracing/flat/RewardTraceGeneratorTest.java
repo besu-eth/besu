@@ -88,7 +88,6 @@ public class RewardTraceGeneratorTest {
             transactionReceiptFactory,
             blockReward,
             BlockHeader::getCoinbase,
-            true,
             protocolSchedule,
             BalConfiguration.DEFAULT);
     when(protocolSpec.getBlockProcessor()).thenReturn(blockProcessor);
