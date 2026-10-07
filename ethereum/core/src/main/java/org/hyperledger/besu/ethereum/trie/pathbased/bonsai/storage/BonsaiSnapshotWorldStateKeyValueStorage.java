@@ -39,8 +39,36 @@ public class BonsaiSnapshotWorldStateKeyValueStorage extends BonsaiWorldStateKey
       LoggerFactory.getLogger(BonsaiSnapshotWorldStateKeyValueStorage.class);
   private final long subscribeParentId;
 
-  public BonsaiSnapshotWorldStateKeyValueStorage(
+  /**
+   * For layers: {@code segmentedWorldStateStorage} must be a live view of the parent, not a
+   * point-in-time snapshot, since the version is read here, after the view was created.
+   */
+  protected BonsaiSnapshotWorldStateKeyValueStorage(
       final BonsaiWorldStateKeyValueStorage parentWorldStateStorage,
+      final SnappedKeyValueStorage segmentedWorldStateStorage,
+      final KeyValueStorage trieLogStorage) {
+    this(
+        parentWorldStateStorage,
+        parentWorldStateStorage.getCurrentVersion(),
+        segmentedWorldStateStorage,
+        trieLogStorage);
+  }
+
+  public BonsaiSnapshotWorldStateKeyValueStorage(
+      final BonsaiWorldStateKeyValueStorage worldStateStorageKeyValueStorage) {
+    // the cache version is read before the storage snapshot is taken (arguments are evaluated left
+    // to right): pinning an older version than the data is safe, a newer one is not
+    this(
+        worldStateStorageKeyValueStorage,
+        worldStateStorageKeyValueStorage.getCurrentVersion(),
+        ((SnappableKeyValueStorage) worldStateStorageKeyValueStorage.getComposedWorldStateStorage())
+            .takeSnapshot(),
+        worldStateStorageKeyValueStorage.getTrieLogStorage());
+  }
+
+  private BonsaiSnapshotWorldStateKeyValueStorage(
+      final BonsaiWorldStateKeyValueStorage parentWorldStateStorage,
+      final long pinnedCacheVersion,
       final SnappedKeyValueStorage segmentedWorldStateStorage,
       final KeyValueStorage trieLogStorage) {
     super(
@@ -48,20 +76,11 @@ public class BonsaiSnapshotWorldStateKeyValueStorage extends BonsaiWorldStateKey
         segmentedWorldStateStorage,
         trieLogStorage,
         parentWorldStateStorage.getCacheManager(),
-        parentWorldStateStorage.getCurrentVersion(),
+        pinnedCacheVersion,
         parentWorldStateStorage.getTrieNodeStrategy());
 
     this.parentWorldStateStorage = parentWorldStateStorage;
     this.subscribeParentId = parentWorldStateStorage.subscribe(this);
-  }
-
-  public BonsaiSnapshotWorldStateKeyValueStorage(
-      final BonsaiWorldStateKeyValueStorage worldStateStorageKeyValueStorage) {
-    this(
-        worldStateStorageKeyValueStorage,
-        ((SnappableKeyValueStorage) worldStateStorageKeyValueStorage.getComposedWorldStateStorage())
-            .takeSnapshot(),
-        worldStateStorageKeyValueStorage.getTrieLogStorage());
   }
 
   protected boolean isClosedGet() {

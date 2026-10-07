@@ -27,6 +27,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
@@ -35,7 +36,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
+import java.util.function.LongConsumer;
 import java.util.function.Supplier;
 
 import com.github.benmanes.caffeine.cache.Cache;
@@ -59,6 +63,20 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
 
   /** Nested commit-bypass count; when readers ignore the cache entirely. */
   private final AtomicInteger commitCacheBypassCount = new AtomicInteger(0);
+
+  /**
+   * Disabled commits hold it shared, so sync pipelines never wait for each other. Enabled commits,
+   * clears and mode switches hold it exclusively: enabled commits are serialized (version order
+   * matches storage commit order) and the mode never changes mid-commit. Fair, so mode switches
+   * apply in call order.
+   */
+  private final ReentrantReadWriteLock commitLock = new ReentrantReadWriteLock(true);
+
+  private final Lock sharedCommit = commitLock.readLock();
+  private final Lock exclusiveCommit = commitLock.writeLock();
+
+  /** {@code false} during the initial sync: the cache is bypassed entirely. */
+  private volatile boolean enabled = true;
 
   private final Cache<CacheKey, VersionedValue> accountCache;
   private final Cache<CacheKey, VersionedValue> storageCache;
@@ -266,6 +284,109 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
   }
 
   @Override
+  public long commitAndPublish(final Runnable storageCommit, final LongConsumer publisher) {
+    // bypass first: a read that inserted before this commit did so while enabled
+    beginCommitCacheBypass();
+    try {
+      if (!enabled) {
+        final OptionalLong version = commitIfStillDisabled(storageCommit);
+        if (version.isPresent()) {
+          return version.getAsLong();
+        }
+      }
+      return commitExclusively(storageCommit, publisher);
+    } finally {
+      endCommitCacheBypass();
+    }
+  }
+
+  /** Shared lock, so disabled commits never wait for each other; empty if enabled meanwhile. */
+  private OptionalLong commitIfStillDisabled(final Runnable storageCommit) {
+    sharedCommit.lock();
+    try {
+      if (enabled) {
+        return OptionalLong.empty();
+      }
+      // never published; the version still advances to reject overlapping reads
+      storageCommit.run();
+      return OptionalLong.of(incrementAndGetVersion());
+    } finally {
+      sharedCommit.unlock();
+    }
+  }
+
+  /** Exclusive: the mode cannot change; publishes only if the cache is enabled. */
+  private long commitExclusively(final Runnable storageCommit, final LongConsumer publisher) {
+    exclusiveCommit.lock();
+    try {
+      storageCommit.run();
+      final long version = incrementAndGetVersion();
+      if (enabled) {
+        publisher.accept(version);
+      }
+      return version;
+    } finally {
+      exclusiveCommit.unlock();
+    }
+  }
+
+  @Override
+  public void enable() {
+    switchMode(true);
+    LOG.info("Bonsai cross-block cache enabled");
+  }
+
+  @Override
+  public void disable() {
+    switchMode(false);
+    LOG.info("Bonsai cross-block cache disabled");
+  }
+
+  /** Waits until no commit is in flight, then empties the cache and switches the mode. */
+  private void switchMode(final boolean enable) {
+    if (commitLock.getReadHoldCount() > 0 || commitLock.isWriteLockedByCurrentThread()) {
+      throw new IllegalStateException("Cannot enable or disable the cache from inside a commit");
+    }
+    exclusiveCommit.lock();
+    try {
+      // nothing can be inserted while disabled: clear before enabling, disable before clearing
+      if (enable) {
+        invalidateBothCaches();
+        enabled = true;
+      } else {
+        enabled = false;
+        invalidateBothCaches();
+      }
+    } finally {
+      exclusiveCommit.unlock();
+    }
+  }
+
+  private void invalidateBothCaches() {
+    accountCache.invalidateAll();
+    storageCache.invalidateAll();
+  }
+
+  @Override
+  public boolean isEnabled() {
+    return enabled;
+  }
+
+  @Override
+  public void invalidateAll(final LongConsumer onNewVersion) {
+    // bypass: readers at the new version must not hit entries that are about to be dropped
+    beginCommitCacheBypass();
+    exclusiveCommit.lock();
+    try {
+      onNewVersion.accept(incrementAndGetVersion());
+      invalidateBothCaches();
+    } finally {
+      exclusiveCommit.unlock();
+      endCommitCacheBypass();
+    }
+  }
+
+  @Override
   public void clear(final SegmentIdentifier segment) {
     final Cache<CacheKey, VersionedValue> cache = cacheForSegment(segment);
     if (cache != null) {
@@ -279,6 +400,10 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
       final Bytes key,
       final long version,
       final Supplier<Optional<Bytes>> storageGetter) {
+
+    if (!enabled) {
+      return storageGetter.get();
+    }
 
     cacheRequestCounter.inc();
 
@@ -307,23 +432,37 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
     final Optional<Bytes> result = storageGetter.get();
 
     if (version == globalVersion.get()) {
-      cacheInsertCounter.inc();
-      final Bytes valueToCache = result.orElse(null);
-      final boolean isRemoval = result.isEmpty();
-
-      cache
-          .asMap()
-          .compute(
-              cacheKey,
-              (k, existingValue) -> {
-                if (existingValue == null || existingValue.version < version) {
-                  return new VersionedValue(valueToCache, version, isRemoval);
-                }
-                return existingValue;
-              });
+      insertReadResult(cache, cacheKey, result, version);
     }
 
     return result;
+  }
+
+  /**
+   * Caches a read result. The checks are repeated under the key lock: the reader may have been
+   * delayed past a commit since it read storage.
+   */
+  private void insertReadResult(
+      final Cache<CacheKey, VersionedValue> cache,
+      final CacheKey cacheKey,
+      final Optional<Bytes> result,
+      final long version) {
+    final Bytes valueToCache = result.orElse(null);
+    final boolean isRemoval = result.isEmpty();
+    cache
+        .asMap()
+        .compute(
+            cacheKey,
+            (k, existingValue) -> {
+              if (!enabled || isCommitCacheBypassActive() || version != globalVersion.get()) {
+                return existingValue;
+              }
+              if (existingValue == null || existingValue.version < version) {
+                cacheInsertCounter.inc();
+                return new VersionedValue(valueToCache, version, isRemoval);
+              }
+              return existingValue;
+            });
   }
 
   @Override
@@ -332,6 +471,11 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
       final List<Bytes> keys,
       final long version,
       final Function<List<Bytes>, List<Optional<Bytes>>> batchFetcher) {
+
+    if (!enabled) {
+      return FlatDbCacheManager.super.getMultipleFromCacheOrStorage(
+          segment, keys, version, batchFetcher);
+    }
 
     if (isCommitCacheBypassActive()) {
       keys.forEach(
@@ -392,21 +536,7 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
         results.set(resultIndex, fetchedValue);
 
         if (shouldUpdateCache && fetchedValue != null) {
-          cacheInsertCounter.inc();
-          final CacheKey cacheKey = CacheKey.of(key);
-          final Bytes valueToCache = fetchedValue.orElse(null);
-          final boolean isRemoval = fetchedValue.isEmpty();
-
-          cache
-              .asMap()
-              .compute(
-                  cacheKey,
-                  (k, existingValue) -> {
-                    if (existingValue == null || existingValue.version < version) {
-                      return new VersionedValue(valueToCache, version, isRemoval);
-                    }
-                    return existingValue;
-                  });
+          insertReadResult(cache, CacheKey.of(key), fetchedValue, version);
         }
       }
     }
@@ -418,7 +548,7 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
   public void putInCache(
       final SegmentIdentifier segment, final Bytes key, final Bytes value, final long version) {
     final Cache<CacheKey, VersionedValue> cache = cacheForSegment(segment);
-    if (cache != null) {
+    if (cache != null && enabled) {
       final CacheKey cacheKey = CacheKey.of(key);
       cache
           .asMap()
@@ -438,7 +568,7 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
   public void removeFromCache(
       final SegmentIdentifier segment, final Bytes key, final long version) {
     final Cache<CacheKey, VersionedValue> cache = cacheForSegment(segment);
-    if (cache != null) {
+    if (cache != null && enabled) {
       final CacheKey cacheKey = CacheKey.of(key);
       cache
           .asMap()

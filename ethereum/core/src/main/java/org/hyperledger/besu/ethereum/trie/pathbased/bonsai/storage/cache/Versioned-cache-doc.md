@@ -120,6 +120,37 @@ Other segments (e.g. code, trie branches) are not covered by this versioned cach
 
 ---
 
+## Commit publish and concurrency
+
+`CachedUpdater.commit()` goes through `FlatDbCacheManager.commitAndPublish()`: readers bypass the cache, storage is committed, a new version is allocated and, if the cache is enabled, the staged writes are published at that version.
+
+A single fair read/write lock (`commitLock`) coordinates commits, clears and mode switches:
+
+| Operation | Lock side |
+|---|---|
+| commit, cache disabled | shared: sync pipelines never wait for each other |
+| commit, cache enabled | exclusive: version order matches storage commit order |
+| `invalidateAll()` | exclusive |
+| `enable()` / `disable()` | exclusive: the mode never changes mid-commit; fairness applies switches in call order |
+
+- **Head version**: the storage only moves its `cacheVersion` forward.
+- **Snapshots** read the head version before taking the storage snapshot, so they are never pinned to a version newer than their data.
+- **Read inserts** are re-checked inside `compute`, so a read delayed past a commit cannot insert a stale value.
+- **Clear**: `invalidateAll()` runs under the bypass and advances the version. While enabled, an insert already racing the clear may survive it, so storage wipes (`clear()`, `clearFlatDatabase()`) only happen while the cache is disabled (they are all part of the snap sync).
+
+---
+
+## Disabled during the initial sync
+
+The cache is disabled while the initial sync runs. On each sync event, `BesuControllerBuilder` reads the current sync state and enables or disables the cache accordingly. While disabled, reads go to storage, nothing is cached and commits never publish. `enable()` empties the cache before turning it on.
+
+---
+
 ## Operational note
 
-Cache maintenance (Caffeine cleanup) is triggered asynchronously via `ThresholdDrainExecutor` and `scheduleAsyncMaintenance()` to reduce work on the hot path; see `VersionedCacheManager` for details.
+Caffeine cleanup (evictions) runs on a background thread (`scheduleAsyncMaintenance()`), triggered:
+
+- after each published commit;
+- when `ThresholdDrainExecutor` has queued 1000 cleanup tasks, which can happen while a block is processed.
+
+If a block inserts more new keys than Caffeine's write buffer holds (`128 × NCPU`, rounded up to a power of two), the inserting thread runs the cleanup itself.

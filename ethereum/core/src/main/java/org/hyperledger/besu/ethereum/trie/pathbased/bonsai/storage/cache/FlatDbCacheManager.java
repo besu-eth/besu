@@ -21,6 +21,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
+import java.util.function.LongConsumer;
 import java.util.function.Supplier;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -58,6 +59,47 @@ public interface FlatDbCacheManager {
     return false;
   }
 
+  /**
+   * Commits storage, allocates a new version and, if the cache is enabled, publishes at that
+   * version. Enabled commits are serialized; disabled ones are not and never publish.
+   *
+   * @param storageCommit commits the underlying storage transaction
+   * @param publisher publishes the committed writes at the given version
+   * @return the version allocated for this commit
+   */
+  default long commitAndPublish(final Runnable storageCommit, final LongConsumer publisher) {
+    storageCommit.run();
+    return getCurrentVersion();
+  }
+
+  /**
+   * Enables the cache once no commit is in flight, starting from an empty cache. Not callable from
+   * inside a commit.
+   */
+  default void enable() {
+    // No-op
+  }
+
+  /** Disables the cache once no commit is in flight. Not callable from inside a commit. */
+  default void disable() {
+    // No-op
+  }
+
+  default boolean isEnabled() {
+    return false;
+  }
+
+  /**
+   * Drops every entry, advancing the version first so in-flight reads cannot repopulate the cache.
+   * While enabled, an insert already racing the clear may survive it: storage wipes must happen
+   * while the cache is disabled.
+   *
+   * @param onNewVersion receives the new version
+   */
+  default void invalidateAll(final LongConsumer onNewVersion) {
+    // No-op
+  }
+
   default void clear(final SegmentIdentifier segment) {
     // No-op
   }
@@ -75,6 +117,10 @@ public interface FlatDbCacheManager {
     return storageGetter.get();
   }
 
+  /**
+   * Batch read through the cache, aligned with {@code keys}. A {@code null} element means unknown,
+   * {@code Optional.empty()} means absent.
+   */
   default List<Optional<Bytes>> getMultipleFromCacheOrStorage(
       final SegmentIdentifier segment,
       final List<Bytes> keys,

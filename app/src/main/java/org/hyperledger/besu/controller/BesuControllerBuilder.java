@@ -95,6 +95,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.Arch
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.FlatDbCacheManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.CodeHashCodeStorageStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogPruner;
@@ -107,6 +108,7 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.ObservableMetricsSystem;
 import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.services.BesuEvents;
 import org.hyperledger.besu.plugin.services.permissioning.NodeMessagePermissioningProvider;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
@@ -130,6 +132,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -810,6 +813,10 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
     final boolean hasInitialSyncPhase = fullSyncDisabled && p2pEnabled;
     final SyncState syncState =
         new SyncState(blockchain, ethPeers, hasInitialSyncPhase, checkpoint);
+    if (worldStateStorageCoordinator.worldStateKeyValueStorage()
+        instanceof final BonsaiWorldStateKeyValueStorage bonsaiWorldStateStorage) {
+      bindCrossBlockCacheToInitialSync(bonsaiWorldStateStorage.getCacheManager(), syncState);
+    }
 
     protocolContext
         .safeConsensusContext(MergeContext.class)
@@ -1076,6 +1083,46 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             () ->
                 GenesisState.fromConfig(
                     dataStorageConfiguration, genesisConfig, protocolSchedule, codeCache));
+  }
+
+  /** Disables the cross-block cache during the initial sync and enables it once it completes. */
+  @VisibleForTesting
+  static void bindCrossBlockCacheToInitialSync(
+      final FlatDbCacheManager cacheManager, final SyncState syncState) {
+    if (cacheManager == FlatDbCacheManager.NO_OP_CACHE) {
+      return;
+    }
+    final CrossBlockCacheSyncBinding binding =
+        new CrossBlockCacheSyncBinding(cacheManager, syncState);
+    syncState.subscribeCompletionReached(binding);
+    // applied after registering, so no event can be missed in between
+    binding.apply();
+  }
+
+  /**
+   * Applies the current sync state on every event, one at a time: events may arrive out of order on
+   * different threads.
+   */
+  private record CrossBlockCacheSyncBinding(FlatDbCacheManager cacheManager, SyncState syncState)
+      implements BesuEvents.InitialSyncCompletionListener {
+
+    synchronized void apply() {
+      if (syncState.isInitialSyncPhaseDone()) {
+        cacheManager.enable();
+      } else {
+        cacheManager.disable();
+      }
+    }
+
+    @Override
+    public void onInitialSyncCompleted() {
+      apply();
+    }
+
+    @Override
+    public void onInitialSyncRestart() {
+      apply();
+    }
   }
 
   private TrieLogPruner createTrieLogPruner(

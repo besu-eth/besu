@@ -53,6 +53,7 @@ import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
@@ -83,7 +84,10 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
 
   protected final BonsaiFlatDbStrategyProvider flatDbStrategyProvider;
   protected final FlatDbCacheManager cacheManager;
-  private volatile long cacheVersion;
+
+  /** Only moves forward: versions of unserialized commits (cache disabled) can arrive reordered. */
+  private final AtomicLong cacheVersion;
+
   protected volatile TrieNodeStrategy trieNodeStrategy;
 
   public BonsaiWorldStateKeyValueStorage(
@@ -113,7 +117,7 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
     flatDbStrategyProvider.loadFlatDbStrategy(composedWorldStateStorage);
 
     this.cacheManager = cacheManager;
-    this.cacheVersion = cacheManager.getCurrentVersion();
+    this.cacheVersion = new AtomicLong(cacheManager.getCurrentVersion());
     this.trieNodeStrategy = new BonsaiTrieNodeStrategy();
   }
 
@@ -143,7 +147,7 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
     this.trieLogStorage = trieLogStorage;
     this.flatDbStrategyProvider = flatDbStrategyProvider;
     this.cacheManager = cacheManager;
-    this.cacheVersion = cacheVersion;
+    this.cacheVersion = new AtomicLong(cacheVersion);
     this.trieNodeStrategy = trieNodeStrategy;
   }
 
@@ -153,7 +157,7 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
         composedWorldStateStorage,
         trieLogStorage,
         cacheManager,
-        cacheVersion,
+        cacheVersion.get(),
         strategy);
   }
 
@@ -424,8 +428,7 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
 
   public void upgradeToFullFlatDbMode() {
     flatDbStrategyProvider.upgradeToFullFlatDbMode(composedWorldStateStorage);
-    cacheManager.clear(ACCOUNT_INFO_STATE);
-    cacheManager.clear(ACCOUNT_STORAGE_STORAGE);
+    clearCrossBlockCache();
   }
 
   public void upgradeToArchiveFlatDbMode() {
@@ -461,8 +464,7 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
 
   /** Drops all cross-block flat-db cache entries without touching RocksDB. */
   public void clearCrossBlockCache() {
-    cacheManager.clear(ACCOUNT_INFO_STATE);
-    cacheManager.clear(ACCOUNT_STORAGE_STORAGE);
+    cacheManager.invalidateAll(this::advanceCacheVersion);
   }
 
   public BonsaiFlatDbStrategy getFlatDbStrategy() {
@@ -498,7 +500,11 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
   }
 
   public long getCurrentVersion() {
-    return cacheVersion;
+    return cacheVersion.get();
+  }
+
+  private void advanceCacheVersion(final long newVersion) {
+    cacheVersion.accumulateAndGet(newVersion, Math::max);
   }
 
   public BonsaiFlatDbStrategyProvider getFlatDbStrategyProvider() {
@@ -667,8 +673,8 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
 
   /**
    * Cached updater that stages changes and refreshes the cache only after a successful storage
-   * commit ({@code updateCache()} is not run if {@code super.commit()} fails). Used only by base
-   * storage (not snapshots or layers).
+   * commit ({@code updateCache(long)} is not run if {@code super.commit()} fails). Used only by
+   * base storage (not snapshots or layers).
    */
   public class CachedUpdater extends Updater {
 
@@ -739,39 +745,25 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
       pending.clear();
     }
 
-    protected void incrementCacheVersion() {
-      cacheVersion = cacheManager.incrementAndGetVersion();
-    }
-
-    protected void updateCache() {
+    /** Publishes the staged writes at the version allocated for this commit. */
+    protected void updateCache(final long publishVersion) {
       pending.forEach(
           (segment, updates) ->
               updates.forEach(
                   (key, value) -> {
                     if (value == null) {
-                      cacheManager.removeFromCache(segment, key, cacheVersion);
+                      cacheManager.removeFromCache(segment, key, publishVersion);
                     } else {
-                      cacheManager.putInCache(segment, key, value, cacheVersion);
+                      cacheManager.putInCache(segment, key, value, publishVersion);
                     }
                   }));
-      clearStaged();
       cacheManager.scheduleAsyncMaintenance();
     }
 
-    /**
-     * Write storage first, then publish the new cache version. While publishing, readers bypass the
-     * cross-block cache entirely so they neither hit stale entries nor insert (including negative)
-     * results that could race {@link #updateCache()}.
-     */
+    /** Commits storage, then publishes the staged writes if the cache is enabled. */
     private void commitAndPublishCache(final Runnable storageCommit) {
-      cacheManager.beginCommitCacheBypass();
-      try {
-        storageCommit.run();
-        incrementCacheVersion();
-        updateCache();
-      } finally {
-        cacheManager.endCommitCacheBypass();
-      }
+      advanceCacheVersion(cacheManager.commitAndPublish(storageCommit, this::updateCache));
+      clearStaged();
     }
 
     @Override
