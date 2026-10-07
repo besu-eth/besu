@@ -136,7 +136,7 @@ public class BonsaiExecutionWitnessBuilder {
     try (final BonsaiWorldState witnessWorldState =
         new BonsaiWorldState(
             witnessStorage,
-            new NoOpBonsaiCachedMerkleTrieLoader(),
+            NoOpBonsaiCachedMerkleTrieLoader.INSTANCE,
             new NoOpBonsaiWorldStateCacheManager(
                 witnessStorage, EvmConfiguration.DEFAULT, codeCache),
             new NoOpTrieLogManager(),

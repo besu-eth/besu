@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BiFunction;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 
@@ -209,6 +210,51 @@ public interface SegmentedKeyValueStorage extends Closeable {
    * @param segmentIdentifier the segment identifier
    */
   void clear(SegmentIdentifier segmentIdentifier);
+
+  /**
+   * Replaces the whole content of a segment. Every entry is handed to the function and replaced by
+   * the value it returns, or dropped when that is null, and the given entries are added on top.
+   *
+   * <p>The function may be called from several threads at once and in any order of the keys, so it
+   * has to be thread safe and must not depend on the entries it was called with before.
+   *
+   * <p>The rewrite needs the segment to itself. Nothing else may read or write the segment until
+   * the call returns: a reader could find it empty or partly filled.
+   *
+   * <p>The segment ends up with either its previous content or all of the new one, also when the
+   * process stops half way, in which case the implementation finishes the rewrite when the storage
+   * is opened again. After a call that throws, the segment must not be used before the call was
+   * repeated or the storage reopened. Both finish a rewrite that had begun to replace the segment
+   * instead of starting another, so the function is never applied to an entry twice.
+   *
+   * @param segmentIdentifier the segment identifier
+   * @param transform maps the key and value of an entry to its new value, or to null to drop it
+   * @param additions entries put after the existing ones have been rewritten
+   */
+  default void rewrite(
+      final SegmentIdentifier segmentIdentifier,
+      final BiFunction<byte[], byte[], byte[]> transform,
+      final List<Pair<byte[], byte[]>> additions) {
+    final SegmentedKeyValueStorageTransaction transaction = startTransaction();
+    try (final Stream<Pair<byte[], byte[]>> entries = stream(segmentIdentifier)) {
+      entries.forEach(
+          entry -> {
+            final byte[] value = transform.apply(entry.getKey(), entry.getValue());
+            if (value == null) {
+              transaction.remove(segmentIdentifier, entry.getKey());
+            } else {
+              transaction.put(segmentIdentifier, entry.getKey(), value);
+            }
+          });
+      additions.forEach(
+          entry -> transaction.put(segmentIdentifier, entry.getKey(), entry.getValue()));
+    } catch (final RuntimeException e) {
+      // a transaction that is never committed keeps what the implementation holds for it
+      transaction.rollback();
+      throw e;
+    }
+    transaction.commit();
+  }
 
   /**
    * Whether the underlying storage is closed.

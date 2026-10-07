@@ -21,6 +21,8 @@ import java.util.Collection;
 import java.util.List;
 import java.util.function.Function;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * The Batching read pipe.
  *
@@ -75,7 +77,7 @@ public class BatchingReadPipe<T> implements ReadPipe<List<T>> {
   }
 
   @Override
-  public List<T> get() {
+  public @Nullable List<T> get() {
     final T firstItem = input.get();
     if (firstItem == null) {
       // Contract of get is to explicitly return null when no more items are available.
@@ -98,7 +100,7 @@ public class BatchingReadPipe<T> implements ReadPipe<List<T>> {
   }
 
   @Override
-  public List<T> poll() {
+  public @Nullable List<T> poll() {
     final List<T> batch = new ArrayList<>();
     Integer remainingData = stopBatchCondition.apply(batch);
     while (remainingData > 0

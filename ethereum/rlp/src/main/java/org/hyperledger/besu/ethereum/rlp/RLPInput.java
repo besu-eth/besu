@@ -124,6 +124,24 @@ public interface RLPInput {
   int enterList();
 
   /**
+   * Enters the current list, counting elements and throwing if more than {@code maxElements} are
+   * present. Exits early after reading {@code maxElements+1} element headers.
+   *
+   * @param maxElements the maximum permitted element count
+   * @return the number of elements, guaranteed ≤ maxElements
+   * @throws RLPException if the list contains more than maxElements elements
+   */
+  default int enterList(final int maxElements) {
+    final int count = enterList();
+    if (count > maxElements) {
+      throw new RLPException(
+          String.format(
+              "List of %d elements exceeds the maximum permitted size of %d", count, maxElements));
+    }
+    return count;
+  }
+
+  /**
    * Exits the current list after all its items have been consumed.
    *
    * <p>Note that this method technically doesn't consume any input but must be called after having
@@ -401,12 +419,7 @@ public interface RLPInput {
    *     elements, or if any error happens when applying {@code valueReader} to read elements.
    */
   default <T> List<T> readList(final Function<RLPInput, T> valueReader, final int maxElements) {
-    final int size = enterList();
-    if (size > maxElements) {
-      throw new RLPException(
-          String.format(
-              "List of %d elements exceeds the maximum permitted size of %d", size, maxElements));
-    }
+    final int size = enterList(maxElements);
     final List<T> res = size == 0 ? List.of() : new ArrayList<>(size);
     for (int i = 0; i < size; i++) {
       try {

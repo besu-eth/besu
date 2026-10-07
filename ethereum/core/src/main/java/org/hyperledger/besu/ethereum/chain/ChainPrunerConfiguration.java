@@ -24,12 +24,24 @@ public record ChainPrunerConfiguration(
     long chainPruningFrequency,
     int preMergePruningBlocksQuantity) {
 
+  /**
+   * The history expiry window of EIP-4444, matching the consensus layer block retention window.
+   * EIP-7928 requires block access lists to stay available for at least this many epochs.
+   */
+  public static final long HISTORY_PRUNE_EPOCHS = 14299L;
+
+  /** The number of slots per epoch on the consensus layer. */
+  public static final long SLOTS_PER_EPOCH = 32L;
+
+  /** The history expiry window converted to blocks. */
+  public static final long HISTORY_PRUNE_BLOCKS = HISTORY_PRUNE_EPOCHS * SLOTS_PER_EPOCH;
+
   public static final ChainPrunerConfiguration DEFAULT =
       new ChainPrunerConfiguration(
           ChainPruningStrategy.NONE,
-          113056 /*WSP_EPOCHS_PER_WINDOW * SLOTS_PER_EPOCH */,
-          113056,
-          113056,
+          HISTORY_PRUNE_BLOCKS,
+          HISTORY_PRUNE_BLOCKS,
+          HISTORY_PRUNE_BLOCKS,
           256,
           1000);
 

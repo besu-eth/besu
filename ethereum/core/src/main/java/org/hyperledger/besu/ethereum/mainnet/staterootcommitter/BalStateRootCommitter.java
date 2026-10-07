@@ -27,6 +27,7 @@ import org.hyperledger.besu.ethereum.mainnet.parallelization.BlockProcessingExec
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
+import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
@@ -106,7 +107,7 @@ public final class BalStateRootCommitter implements StateRootCommitter {
    * and returns the {@link StateRootComputation} carrying the root hash and deferred KV writes.
    *
    * <p>The BAL-computed root is the authoritative source. If it does not match the block header
-   * state root, an {@link IllegalStateException} is thrown.
+   * state root, a {@link StateRootMismatchException} is thrown.
    */
   @Override
   public StateRootComputation compute(
@@ -129,11 +130,7 @@ public final class BalStateRootCommitter implements StateRootCommitter {
             });
 
     if (blockHeader != null && !result.root().equals(blockHeader.getStateRoot())) {
-      throw new IllegalStateException(
-          "BAL-computed root does not match block header state root: expected "
-              + blockHeader.getStateRoot()
-              + " but BAL computed "
-              + result.root());
+      throw new StateRootMismatchException(blockHeader.getStateRoot(), result.root());
     }
     return StateRootComputations.pathBased(result.root(), result.writes());
   }
@@ -150,14 +147,15 @@ public final class BalStateRootCommitter implements StateRootCommitter {
 
   private BackgroundResult awaitBackgroundComputation(
       final CompletableFuture<BackgroundResult> future) {
+    // a cancelled computation says nothing about the block, the type keeps it from being recorded
+    // as bad
+    final BackgroundResult result;
     try {
-      final BackgroundResult result = future.get();
-      if (cancelled.get()) {
-        throw new IllegalStateException("Background BAL state root computation was cancelled");
-      }
-      return result;
+      result = future.get();
     } catch (final CancellationException e) {
-      throw new IllegalStateException("Background BAL state root computation was cancelled", e);
+      throw (CancellationException)
+          new CancellationException("Background BAL state root computation was cancelled")
+              .initCause(e);
     } catch (final ExecutionException e) {
       final Throwable cause = e.getCause() != null ? e.getCause() : e;
       throw new IllegalStateException("Background BAL state root computation failed", cause);
@@ -166,6 +164,10 @@ public final class BalStateRootCommitter implements StateRootCommitter {
       throw new IllegalStateException(
           "Interrupted while waiting for background BAL state root computation", e);
     }
+    if (cancelled.get()) {
+      throw new CancellationException("Background BAL state root computation was cancelled");
+    }
+    return result;
   }
 
   private BonsaiWorldState openParentWorldState(

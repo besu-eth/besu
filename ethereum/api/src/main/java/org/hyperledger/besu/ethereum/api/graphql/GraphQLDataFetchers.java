@@ -36,11 +36,12 @@ import org.hyperledger.besu.ethereum.api.query.TransactionWithMetadata;
 import org.hyperledger.besu.ethereum.core.LogWithMetadata;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
+import org.hyperledger.besu.ethereum.core.encoding.TransactionDecoder;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
-import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.evm.account.Account;
@@ -152,7 +153,8 @@ public class GraphQLDataFetchers {
             dataFetchingEnvironment.getGraphQlContext().get(GraphQLContextType.TRANSACTION_POOL);
         final Bytes rawTran = dataFetchingEnvironment.getArgument("data");
 
-        final Transaction transaction = Transaction.readFrom(RLP.input(rawTran));
+        final Transaction transaction =
+            TransactionDecoder.decodeOpaqueBytes(rawTran, EncodingContext.POOLED_TRANSACTION);
         final ValidationResult<TransactionInvalidReason> validationResult =
             transactionPool.addTransactionViaApi(transaction);
         if (validationResult.isValid()) {

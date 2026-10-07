@@ -24,6 +24,7 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
@@ -36,6 +37,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSucces
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.OpCodeLoggerTracerResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.StructLog;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.calltrace.CallTracer;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.api.query.TransactionWithMetadata;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -45,6 +47,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
 import org.hyperledger.besu.evm.precompile.PrecompileContractRegistry;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.tracing.TraceFrame;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
@@ -61,6 +64,7 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Answers;
+import org.mockito.ArgumentCaptor;
 
 public class DebugTraceTransactionTest {
 
@@ -199,6 +203,159 @@ public class DebugTraceTransactionTest {
   }
 
   @Test
+  public void serverStepLimitClampsUnlimitedCallerRequest() {
+    final ApiConfiguration apiConfig = mock(ApiConfiguration.class);
+    when(apiConfig.getDebugTraceStepLimit()).thenReturn(500L);
+    final DebugTraceTransaction method =
+        new DebugTraceTransaction(
+            blockchainQueries, transactionTracer, protocolSchedule, apiConfig);
+
+    final TransactionWithMetadata txWithMeta =
+        new TransactionWithMetadata(transaction, 12L, Optional.empty(), blockHash, 2, 0L);
+    when(blockchainQueries.transactionByHash(transactionHash)).thenReturn(Optional.of(txWithMeta));
+    when(transaction.getHash()).thenReturn(transactionHash);
+    when(transaction.getGasLimit()).thenReturn(100L);
+
+    final ArgumentCaptor<DebugOperationTracer> tracerCaptor =
+        ArgumentCaptor.forClass(DebugOperationTracer.class);
+    final TransactionProcessingResult result = mock(TransactionProcessingResult.class);
+    when(result.getGasRemaining()).thenReturn(0L);
+    when(result.getOutput()).thenReturn(Bytes.EMPTY);
+    when(transactionTracer.traceTransaction(
+            any(Tracer.TraceableState.class),
+            eq(blockHash),
+            eq(transactionHash),
+            tracerCaptor.capture()))
+        .thenReturn(Optional.of(new TransactionTrace(transaction, result, List.of())));
+
+    // caller sends no limit (== 0 == unlimited)
+    final Object[] params = new Object[] {transactionHash};
+    method.response(
+        new JsonRpcRequestContext(new JsonRpcRequest("2.0", "debug_traceTransaction", params)));
+
+    assertThat(tracerCaptor.getValue().getConfig().limit())
+        .as("server step limit must clamp an unlimited caller request")
+        .isEqualTo(500);
+  }
+
+  @Test
+  public void serverStepLimitClampsCallerRequestAboveServerCeiling() {
+    final ApiConfiguration apiConfig = mock(ApiConfiguration.class);
+    when(apiConfig.getDebugTraceStepLimit()).thenReturn(500L);
+    final DebugTraceTransaction method =
+        new DebugTraceTransaction(
+            blockchainQueries, transactionTracer, protocolSchedule, apiConfig);
+
+    final TransactionWithMetadata txWithMeta =
+        new TransactionWithMetadata(transaction, 12L, Optional.empty(), blockHash, 2, 0L);
+    when(blockchainQueries.transactionByHash(transactionHash)).thenReturn(Optional.of(txWithMeta));
+    when(transaction.getHash()).thenReturn(transactionHash);
+    when(transaction.getGasLimit()).thenReturn(100L);
+
+    final ArgumentCaptor<DebugOperationTracer> tracerCaptor =
+        ArgumentCaptor.forClass(DebugOperationTracer.class);
+    final TransactionProcessingResult result = mock(TransactionProcessingResult.class);
+    when(result.getGasRemaining()).thenReturn(0L);
+    when(result.getOutput()).thenReturn(Bytes.EMPTY);
+    when(transactionTracer.traceTransaction(
+            any(Tracer.TraceableState.class),
+            eq(blockHash),
+            eq(transactionHash),
+            tracerCaptor.capture()))
+        .thenReturn(Optional.of(new TransactionTrace(transaction, result, List.of())));
+
+    // caller requests 2000 steps, server ceiling is 500
+    final Map<String, Object> traceParams = Map.of("limit", 2000);
+    final Object[] params = new Object[] {transactionHash, traceParams};
+    method.response(
+        new JsonRpcRequestContext(new JsonRpcRequest("2.0", "debug_traceTransaction", params)));
+
+    assertThat(tracerCaptor.getValue().getConfig().limit())
+        .as("server step limit must clamp a caller request above the server ceiling")
+        .isEqualTo(500);
+  }
+
+  @Test
+  public void callerLimitBelowServerCeilingIsHonoured() {
+    final ApiConfiguration apiConfig = mock(ApiConfiguration.class);
+    when(apiConfig.getDebugTraceStepLimit()).thenReturn(500L);
+    final DebugTraceTransaction method =
+        new DebugTraceTransaction(
+            blockchainQueries, transactionTracer, protocolSchedule, apiConfig);
+
+    final TransactionWithMetadata txWithMeta =
+        new TransactionWithMetadata(transaction, 12L, Optional.empty(), blockHash, 2, 0L);
+    when(blockchainQueries.transactionByHash(transactionHash)).thenReturn(Optional.of(txWithMeta));
+    when(transaction.getHash()).thenReturn(transactionHash);
+    when(transaction.getGasLimit()).thenReturn(100L);
+
+    final ArgumentCaptor<DebugOperationTracer> tracerCaptor =
+        ArgumentCaptor.forClass(DebugOperationTracer.class);
+    final TransactionProcessingResult result = mock(TransactionProcessingResult.class);
+    when(result.getGasRemaining()).thenReturn(0L);
+    when(result.getOutput()).thenReturn(Bytes.EMPTY);
+    when(transactionTracer.traceTransaction(
+            any(Tracer.TraceableState.class),
+            eq(blockHash),
+            eq(transactionHash),
+            tracerCaptor.capture()))
+        .thenReturn(Optional.of(new TransactionTrace(transaction, result, List.of())));
+
+    // caller requests 100 steps, server ceiling is 500 — caller's lower value wins
+    final Map<String, Object> traceParams = Map.of("limit", 100);
+    final Object[] params = new Object[] {transactionHash, traceParams};
+    method.response(
+        new JsonRpcRequestContext(new JsonRpcRequest("2.0", "debug_traceTransaction", params)));
+
+    assertThat(tracerCaptor.getValue().getConfig().limit())
+        .as("caller limit below server ceiling must be honoured")
+        .isEqualTo(100);
+  }
+
+  @Test
+  public void nonDefaultTracerMustDriveExecution() {
+    final ApiConfiguration apiConfig = mock(ApiConfiguration.class);
+    when(apiConfig.getDebugTraceStepLimit()).thenReturn(500L);
+    final DebugTraceTransaction method =
+        new DebugTraceTransaction(
+            blockchainQueries, transactionTracer, protocolSchedule, apiConfig);
+
+    final TransactionWithMetadata txWithMeta =
+        new TransactionWithMetadata(transaction, 12L, Optional.empty(), blockHash, 2, 0L);
+    when(blockchainQueries.transactionByHash(transactionHash)).thenReturn(Optional.of(txWithMeta));
+    when(transaction.getHash()).thenReturn(transactionHash);
+    when(transaction.getGasLimit()).thenReturn(100L);
+
+    final ArgumentCaptor<OperationTracer> tracerCaptor =
+        ArgumentCaptor.forClass(OperationTracer.class);
+    final TransactionProcessingResult result = mock(TransactionProcessingResult.class);
+    when(result.getGasRemaining()).thenReturn(0L);
+    when(result.getOutput()).thenReturn(Bytes.EMPTY);
+    when(transactionTracer.traceTransaction(
+            any(Tracer.TraceableState.class),
+            eq(blockHash),
+            eq(transactionHash),
+            tracerCaptor.capture()))
+        .thenReturn(Optional.of(new TransactionTrace(transaction, result, List.of())));
+
+    final Map<String, Object> traceParams = Map.of("tracer", "callTracer");
+    final Object[] params = new Object[] {transactionHash, traceParams};
+    try {
+      method.response(
+          new JsonRpcRequestContext(new JsonRpcRequest("2.0", "debug_traceTransaction", params)));
+    } catch (final RuntimeException ignored) {
+      // Building a callTracer result from this synthetic empty trace is not what is under test;
+      // the assertion below is on which tracer execution was handed. The captor fails the test if
+      // traceTransaction was never reached.
+    }
+
+    assertThat(tracerCaptor.getValue())
+        .as(
+            "the tracer the result is built from must be the one that drove execution, "
+                + "otherwise callTracer and friends receive no callbacks")
+        .isInstanceOf(CallTracer.class);
+  }
+
   public void shouldRejectPrestateDiffModeWithIncludeEmptyAsInvalidParams() {
     final TransactionWithMetadata transactionWithMetadata =
         new TransactionWithMetadata(transaction, 12L, Optional.empty(), blockHash, 2, 0L);

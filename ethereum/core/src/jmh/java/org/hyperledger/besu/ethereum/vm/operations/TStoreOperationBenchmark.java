@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.vm.operations;
 
+import static org.hyperledger.besu.ethereum.vm.operations.BenchmarkHelper.fillPool;
 import static org.hyperledger.besu.ethereum.vm.operations.BenchmarkHelper.fillPoolWithCollidingHashes;
 import static org.hyperledger.besu.ethereum.vm.operations.BenchmarkHelper.fillPoolWithDistinctHashes;
 import static org.mockito.Mockito.mock;
@@ -46,14 +47,14 @@ public class TStoreOperationBenchmark extends BinaryOperationNoPushBenchmark
     implements GasCostBenchmark {
   TStoreOperation operation;
 
-  @Param({"DISTINCT_KEYS", "COLLIDING_KEYS"})
+  @Param({"DISTINCT_KEYS", "COLLIDING_KEYS", "RANDOM_KEYS"})
   protected String scenario;
 
   @Param({"1000", "10000", "150000"})
   int slotCount;
 
   @Override
-  public void setUp() {
+  public void setUp() throws Exception {
     operation = new TStoreOperation(new CancunGasCalculator());
     frame = buildFrame();
     aPool = new Bytes[getSampleSize()];
@@ -61,8 +62,9 @@ public class TStoreOperationBenchmark extends BinaryOperationNoPushBenchmark
 
     BenchmarkHelper.fillPool(bPool);
     switch (scenario) {
-      case "DISTINCT_KEYS" -> fillPoolWithDistinctHashes(aPool, 0);
-      case "COLLIDING_KEYS" -> fillPoolWithCollidingHashes(aPool, 0);
+      case "RANDOM_KEYS" -> fillPool(aPool);
+      case "DISTINCT_KEYS" -> fillPoolWithDistinctHashes(aPool, frame.getRecipientAddress(), 0);
+      case "COLLIDING_KEYS" -> fillPoolWithCollidingHashes(aPool, frame.getRecipientAddress(), 0);
     }
     index = 0;
   }
@@ -87,13 +89,16 @@ public class TStoreOperationBenchmark extends BinaryOperationNoPushBenchmark
     private Bytes[] keysPool;
 
     @Override
-    public void setUp() {
+    public void setUp() throws Exception {
       super.setUp();
       keysPool = new Bytes[getSampleSize()];
       switch (scenario) {
         // Need to fill with offset to make sure slots are not the same
-        case "DISTINCT_KEYS" -> fillPoolWithDistinctHashes(keysPool, getSampleSize());
-        case "COLLIDING_KEYS" -> fillPoolWithCollidingHashes(keysPool, getSampleSize());
+        case "RANDOM_KEYS" -> fillPool(keysPool);
+        case "DISTINCT_KEYS" ->
+            fillPoolWithDistinctHashes(keysPool, frame.getRecipientAddress(), getSampleSize());
+        case "COLLIDING_KEYS" ->
+            fillPoolWithCollidingHashes(keysPool, frame.getRecipientAddress(), getSampleSize());
       }
     }
 

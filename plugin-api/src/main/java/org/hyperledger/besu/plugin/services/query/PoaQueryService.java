@@ -20,13 +20,7 @@ import org.hyperledger.besu.plugin.services.BesuService;
 
 import java.util.Collection;
 
-/**
- * Provides methods to query the status of a Proof of Authority (PoA) network.
- *
- * @deprecated This service is scheduled for removal in a future release, with no replacement, as it
- *     has no known usage.
- */
-@Deprecated(forRemoval = true)
+/** Provides methods to query the status of a Proof of Authority (PoA) network. */
 public interface PoaQueryService extends BesuService {
 
   /**

@@ -21,7 +21,6 @@ import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.datatypes.BlobType;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.VersionedHash;
@@ -327,8 +326,7 @@ public class TransactionSizeAndHashTest {
         .maxFeePerBlobGas(Wei.of(250L))
         .versionedHashes(List.of(versionedHash))
         .blobsWithCommitments(
-            new BlobsWithCommitments(
-                BlobType.KZG_PROOF,
+            BlobsWithCommitments.createFromBlobsType0(
                 List.of(commitment),
                 List.of(new Blob(Bytes.fromHexString("0x0987"))),
                 List.of(new KZGProof(Bytes48.fromHexStringLenient("0x1234"))),

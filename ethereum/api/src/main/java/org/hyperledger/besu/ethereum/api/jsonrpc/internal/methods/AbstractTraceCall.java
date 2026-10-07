@@ -62,17 +62,6 @@ public abstract class AbstractTraceCall extends AbstractTraceByBlock {
   @Override
   protected Object resultByBlockNumber(
       final JsonRpcRequestContext requestContext, final long blockNumber) {
-    final CallParameter callParams = CallParameterUtil.validateAndGetCallParams(requestContext);
-    final TraceOptions traceOptions = getTraceOptions(requestContext);
-    final String blockNumberString = String.valueOf(blockNumber);
-    LOG.atTrace()
-        .setMessage("Received RPC rpcName={} callParams={} block={} traceTypes={}")
-        .addArgument(this::getName)
-        .addArgument(callParams)
-        .addArgument(blockNumberString)
-        .addArgument(traceOptions)
-        .log();
-
     final Optional<BlockHeader> maybeBlockHeader =
         blockchainQueriesSupplier.get().getBlockHeaderByNumber(blockNumber);
 
@@ -80,7 +69,22 @@ public abstract class AbstractTraceCall extends AbstractTraceByBlock {
       return new JsonRpcErrorResponse(requestContext.getRequest().getId(), BLOCK_NOT_FOUND);
     }
 
-    final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(maybeBlockHeader.get());
+    return resultByBlockHeader(requestContext, maybeBlockHeader.get());
+  }
+
+  protected Object resultByBlockHeader(
+      final JsonRpcRequestContext requestContext, final BlockHeader blockHeader) {
+    final CallParameter callParams = CallParameterUtil.validateAndGetCallParams(requestContext);
+    final TraceOptions traceOptions = getTraceOptions(requestContext);
+    LOG.atTrace()
+        .setMessage("Received RPC rpcName={} callParams={} block={} traceTypes={}")
+        .addArgument(this::getName)
+        .addArgument(callParams)
+        .addArgument(blockHeader::getNumber)
+        .addArgument(traceOptions)
+        .log();
+
+    final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(blockHeader);
 
     final TraceOptions effectiveTraceOptions = applyServerStepLimit(traceOptions);
     final TraceExecution execution =
@@ -89,10 +93,10 @@ public abstract class AbstractTraceCall extends AbstractTraceByBlock {
         .process(
             callParams,
             Optional.ofNullable(effectiveTraceOptions.stateOverrides()),
-            buildTransactionValidationParams(maybeBlockHeader.get(), callParams),
+            buildTransactionValidationParams(blockHeader, callParams),
             execution.tracer(),
             execution.resultHandler(),
-            maybeBlockHeader.get())
+            blockHeader)
         .orElseGet(
             () -> new JsonRpcErrorResponse(requestContext.getRequest().getId(), INTERNAL_ERROR));
   }
@@ -127,7 +131,7 @@ public abstract class AbstractTraceCall extends AbstractTraceByBlock {
 
   protected TransactionValidationParams buildTransactionValidationParams(
       final BlockHeader header, final CallParameter callParams) {
-    return buildTransactionValidationParams();
+    return CallParameterUtil.getTransactionValidationParams(header, callParams);
   }
 
   protected abstract TraceOptions getTraceOptions(final JsonRpcRequestContext requestContext);

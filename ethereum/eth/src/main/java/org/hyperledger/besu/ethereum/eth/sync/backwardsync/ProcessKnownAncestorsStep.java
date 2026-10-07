@@ -30,11 +30,21 @@ public class ProcessKnownAncestorsStep {
 
   private final BackwardSyncContext context;
   private final BackwardChain backwardChain;
+  private final BackwardSyncBalImporter balImporter;
 
   public ProcessKnownAncestorsStep(
       final BackwardSyncContext backwardSyncContext, final BackwardChain backwardChain) {
+    this(backwardSyncContext, backwardChain, new BackwardSyncBalImporter(backwardSyncContext));
+  }
+
+  @VisibleForTesting
+  ProcessKnownAncestorsStep(
+      final BackwardSyncContext backwardSyncContext,
+      final BackwardChain backwardChain,
+      final BackwardSyncBalImporter balImporter) {
     this.context = backwardSyncContext;
     this.backwardChain = backwardChain;
+    this.balImporter = balImporter;
   }
 
   public CompletableFuture<Void> executeAsync() {
@@ -64,7 +74,12 @@ public class ProcessKnownAncestorsStep {
                 : context.getProtocolContext().getBlockchain().getBlockByHash(header.getHash());
         if (block.isPresent()) {
           LOG.atDebug().setMessage("Importing block {}").addArgument(header::toLogString).log();
-          context.saveBlock(block.get());
+          // a trusted block may carry the BAL received with its newPayload
+          context.saveBlock(
+              block.get(),
+              backwardChain
+                  .getTrustedBlockAccessList(header.getHash())
+                  .or(() -> balImporter.lookupStoredBal(header)));
           if (isTrustedBlock) {
             backwardChain.dropFirstHeader();
             isFirstUnProcessedHeader = false;

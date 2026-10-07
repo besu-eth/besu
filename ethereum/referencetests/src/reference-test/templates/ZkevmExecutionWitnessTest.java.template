@@ -1,0 +1,35 @@
+package %%PACKAGE_NAME%%;
+
+import static org.hyperledger.besu.ethereum.vm.ZkevmWitnessReferenceTestTools.executeTest;
+import static org.hyperledger.besu.ethereum.vm.ZkevmWitnessReferenceTestTools.generateTestParametersForConfig;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
+
+import org.hyperledger.besu.ethereum.referencetests.BlockchainReferenceTestCaseSpec;
+
+import java.util.stream.Stream;
+
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+
+/** zkEVM EIP-8025 execution witness reference tests. Local/manual suite. */
+public class %%TESTS_NAME%% {
+
+  private static final String[] TEST_CONFIG_FILE_DIR_PATH =
+      new String[] {
+        %%TESTS_FILE%%
+      };
+
+  public static Stream<Arguments> getTestParametersForConfig() {
+    return generateTestParametersForConfig(TEST_CONFIG_FILE_DIR_PATH).stream()
+        .map(params -> Arguments.of(params[0], params[1], params[2]));
+  }
+
+  @ParameterizedTest(name = "Name: {0}")
+  @MethodSource("getTestParametersForConfig")
+  public void execution(
+      final String name, final BlockchainReferenceTestCaseSpec spec, final boolean runTest) {
+    assumeTrue(runTest, "Test " + name + " was ignored");
+    executeTest(name, spec);
+  }
+}

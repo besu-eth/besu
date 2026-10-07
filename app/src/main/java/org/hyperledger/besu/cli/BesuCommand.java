@@ -134,6 +134,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfigurati
 import org.hyperledger.besu.ethereum.eth.transactions.pluginadapter.TransactionPoolValidatorServiceImpl;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.pluginadapter.TransactionValidatorServiceImpl;
+import org.hyperledger.besu.ethereum.mainnet.requests.RequestContractAddresses;
 import org.hyperledger.besu.ethereum.p2p.config.DiscoveryConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.DiscoveryMode;
 import org.hyperledger.besu.ethereum.p2p.config.DiscoveryModeResolver;
@@ -1898,13 +1899,16 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
     // Add withdrawalRequestContractAddress if missing (EIP-7002)
     if (!config.has("withdrawalRequestContractAddress")) {
-      config.put("withdrawalRequestContractAddress", "0x00000961ef480eb55e80d19ad83579a64c007002");
+      config.put(
+          "withdrawalRequestContractAddress",
+          RequestContractAddresses.DEFAULT_WITHDRAWAL_REQUEST_CONTRACT_ADDRESS.toHexString());
     }
 
     // Add consolidationRequestContractAddress if missing (EIP-7251)
     if (!config.has("consolidationRequestContractAddress")) {
       config.put(
-          "consolidationRequestContractAddress", "0x0000bbddc7ce488642fb579f8b00f3a590007251");
+          "consolidationRequestContractAddress",
+          RequestContractAddresses.DEFAULT_CONSOLIDATION_REQUEST_CONTRACT_ADDRESS.toHexString());
     }
   }
 
@@ -1926,6 +1930,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         || genesisConfigOptions.getBpo4Time().isPresent()
         || genesisConfigOptions.getBpo5Time().isPresent()
         || genesisConfigOptions.getAmsterdamTime().isPresent()
+        || genesisConfigOptions.getBogotaTime().isPresent()
         || genesisConfigOptions.getFutureEipsTime().isPresent();
   }
 

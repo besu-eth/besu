@@ -24,18 +24,28 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.AccountChanges;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.SlotChanges;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.SlotRead;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.StorageChange;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.SystemCallNoCodeAtAddressException;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.SystemCallProcessor;
 import org.hyperledger.besu.evm.Code;
+import org.hyperledger.besu.evm.MainnetEVMs;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
+import org.hyperledger.besu.evm.internal.EvmConfiguration;
+import org.hyperledger.besu.evm.precompile.PrecompileContractRegistry;
 import org.hyperledger.besu.evm.processor.AbstractMessageProcessor;
 import org.hyperledger.besu.evm.processor.MessageCallProcessor;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
@@ -43,11 +53,15 @@ import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
+import java.util.List;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 
 public class MainnetBlockContextProcessorTest {
@@ -128,7 +142,8 @@ public class MainnetBlockContextProcessorTest {
     final MutableWorldState worldState = InMemoryKeyValueStorageProvider.createInMemoryWorldState();
     var exception =
         assertThrows(SystemCallNoCodeAtAddressException.class, () -> processSystemCall(worldState));
-    assertThat(exception.getMessage()).isEqualTo("Invalid system call address: " + CALL_ADDRESS);
+    assertThat(exception.getMessage())
+        .isEqualTo("Invalid system call, no code at address " + CALL_ADDRESS);
   }
 
   @Test
@@ -170,6 +185,102 @@ public class MainnetBlockContextProcessorTest {
     ArgumentCaptor<OperationTracer> tracerCaptor = ArgumentCaptor.forClass(OperationTracer.class);
     verify(mockMessageCallProcessor).process(any(), tracerCaptor.capture());
     assertThat(tracerCaptor.getValue()).isSameAs(tracer);
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        // PUSH1 1 PUSH1 0 SSTORE INVALID
+        "0x6001600055fe",
+        // PUSH1 1 PUSH1 0 SSTORE PUSH1 0 PUSH1 0 REVERT
+        "0x600160005560006000fd"
+      })
+  void uncheckedSystemCallFailureDropsWritesButKeepsReads(final String code) {
+    useRealMessageCallProcessor();
+    final MutableWorldState worldState = createWorldState(CALL_ADDRESS, Bytes.fromHexString(code));
+    final BlockAccessListBuilder balBuilder = BlockAccessList.builder();
+
+    processUncheckedSystemCall(worldState, balBuilder);
+
+    assertThat(worldState.get(CALL_ADDRESS).getStorageValue(UInt256.ZERO)).isEqualTo(UInt256.ZERO);
+    final AccountChanges accountChanges = accountChanges(balBuilder);
+    assertThat(accountChanges.storageChanges()).isEmpty();
+    assertThat(accountChanges.storageReads())
+        .containsExactly(new SlotRead(new StorageSlotKey(UInt256.ZERO)));
+  }
+
+  @Test
+  void uncheckedSystemCallSuccessCommitsWrites() {
+    useRealMessageCallProcessor();
+    // PUSH1 1 PUSH1 0 SSTORE STOP
+    final MutableWorldState worldState =
+        createWorldState(CALL_ADDRESS, Bytes.fromHexString("0x600160005500"));
+    final BlockAccessListBuilder balBuilder = BlockAccessList.builder();
+
+    processUncheckedSystemCall(worldState, balBuilder);
+
+    assertThat(worldState.get(CALL_ADDRESS).getStorageValue(UInt256.ZERO)).isEqualTo(UInt256.ONE);
+    final AccountChanges accountChanges = accountChanges(balBuilder);
+    assertThat(accountChanges.storageReads()).isEmpty();
+    assertThat(accountChanges.storageChanges())
+        .containsExactly(
+            new SlotChanges(
+                new StorageSlotKey(UInt256.ZERO), List.of(new StorageChange(0, UInt256.ONE))));
+  }
+
+  @Test
+  void uncheckedSystemCallWithoutCodeStillTouchesAccount() {
+    final MutableWorldState worldState = InMemoryKeyValueStorageProvider.createInMemoryWorldState();
+    final BlockAccessListBuilder balBuilder = BlockAccessList.builder();
+
+    processUncheckedSystemCall(worldState, balBuilder);
+
+    final AccountChanges accountChanges = accountChanges(balBuilder);
+    assertThat(accountChanges.hasAnyChange()).isFalse();
+    assertThat(accountChanges.storageReads()).isEmpty();
+  }
+
+  @Test
+  void checkedSystemCallFailureStillThrows() {
+    useRealMessageCallProcessor();
+    // PUSH1 1 PUSH1 0 SSTORE INVALID
+    final MutableWorldState worldState =
+        createWorldState(CALL_ADDRESS, Bytes.fromHexString("0x6001600055fe"));
+
+    assertThrows(RuntimeException.class, () -> processSystemCall(worldState));
+    assertThat(worldState.get(CALL_ADDRESS).getStorageValue(UInt256.ZERO)).isEqualTo(UInt256.ZERO);
+  }
+
+  private void useRealMessageCallProcessor() {
+    when(mockTransactionProcessor.getMessageProcessor(any()))
+        .thenReturn(
+            new MessageCallProcessor(
+                MainnetEVMs.prague(EvmConfiguration.DEFAULT), new PrecompileContractRegistry()));
+  }
+
+  private void processUncheckedSystemCall(
+      final MutableWorldState worldState, final BlockAccessListBuilder balBuilder) {
+    final BlockProcessingContext blockProcessingContext =
+        new BlockProcessingContext(
+            mockBlockHeader,
+            worldState,
+            mock(ProtocolSpec.class),
+            mockBlockHashLookup,
+            BlockAwareOperationTracer.NO_TRACING,
+            Optional.of(balBuilder));
+    new SystemCallProcessor(mockTransactionProcessor)
+        .processUnchecked(
+            CALL_ADDRESS,
+            blockProcessingContext,
+            Bytes.EMPTY,
+            Optional.of(BlockAccessListBuilder.createPreExecutionAccessLocationTracker()));
+  }
+
+  private static AccountChanges accountChanges(final BlockAccessListBuilder balBuilder) {
+    final List<AccountChanges> accountChanges = balBuilder.build().accountChanges();
+    assertThat(accountChanges).hasSize(1);
+    assertThat(accountChanges.getFirst().address()).isEqualTo(CALL_ADDRESS);
+    return accountChanges.getFirst();
   }
 
   private void successfulProcess() {
