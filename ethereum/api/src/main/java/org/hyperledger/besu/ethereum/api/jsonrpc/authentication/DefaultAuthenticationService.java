@@ -266,7 +266,9 @@ public class DefaultAuthenticationService implements AuthenticationService {
                             }
                           });
                 } else {
-                  LOG.debug("Invalid JWT token {}", r.cause().toString());
+                  if (LOG.isDebugEnabled()) {
+                    LOG.debug("Invalid JWT token {}", r.cause().toString());
+                  }
                   handler.handle(Optional.empty());
                 }
               });
@@ -294,8 +296,10 @@ public class DefaultAuthenticationService implements AuthenticationService {
           // Create a permission-based authorization for the required permission
           PermissionBasedAuthorization authorization = PermissionBasedAuthorization.create(perm);
           if (authorization.match(user)) {
-            LOG.trace(
-                "user {} authorized : {} via permission {}", user, jsonRpcMethod.getName(), perm);
+            if (LOG.isTraceEnabled()) {
+              LOG.trace(
+                  "user {} authorized : {} via permission {}", user, jsonRpcMethod.getName(), perm);
+            }
             // exit if a matching permission was found, no need to keep checking
             return true;
           }
@@ -305,7 +309,9 @@ public class DefaultAuthenticationService implements AuthenticationService {
       }
     }
 
-    LOG.trace("user NOT authorized : {}", jsonRpcMethod.getName());
+    if (LOG.isTraceEnabled()) {
+      LOG.trace("user NOT authorized : {}", jsonRpcMethod.getName());
+    }
     return false;
   }
 

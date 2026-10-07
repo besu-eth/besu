@@ -56,7 +56,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
         with:
-          cache-disabled: true
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
       - name: Set up QEMU
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
       - name: Set up Docker Buildx

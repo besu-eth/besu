@@ -136,7 +136,7 @@ public class BonsaiExecutionWitnessBuilder {
     try (final BonsaiWorldState witnessWorldState =
         new BonsaiWorldState(
             witnessStorage,
-            new NoOpBonsaiCachedMerkleTrieLoader(),
+            NoOpBonsaiCachedMerkleTrieLoader.INSTANCE,
             new NoOpBonsaiWorldStateCacheManager(
                 witnessStorage, EvmConfiguration.DEFAULT, codeCache),
             new NoOpTrieLogManager(),
@@ -188,7 +188,7 @@ public class BonsaiExecutionWitnessBuilder {
       if (account != null && !account.getCodeHash().equals(Hash.EMPTY)) {
         worldView
             .getCode(address, account.getCodeHash())
-            .ifPresent(bytes -> resultSet.add(bytes.toHexString()));
+            .ifPresent(code -> resultSet.add(code.getBytes().toHexString()));
       }
     }
     return resultSet.stream().sorted().toList();

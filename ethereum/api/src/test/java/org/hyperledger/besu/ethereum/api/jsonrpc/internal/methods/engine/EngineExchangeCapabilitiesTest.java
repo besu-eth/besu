@@ -45,6 +45,13 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 public class EngineExchangeCapabilitiesTest {
+  private static final List<String> REGISTERED_METHODS =
+      List.of(
+          "engine_newPayloadV4",
+          "engine_forkchoiceUpdatedV3",
+          ENGINE_EXCHANGE_CAPABILITIES.getMethodName(),
+          "engine_getClientVersionV1");
+
   private EngineExchangeCapabilities method;
   private static final Vertx vertx = Vertx.vertx();
 
@@ -70,7 +77,8 @@ public class EngineExchangeCapabilitiesTest {
                 .metricsSystem(new NoOpMetricsSystem())
                 .transactionPool(transactionPool)
                 .maxRequestBlocks(0)
-                .build());
+                .build(),
+            REGISTERED_METHODS);
   }
 
   @Test
@@ -79,11 +87,13 @@ public class EngineExchangeCapabilitiesTest {
   }
 
   @Test
-  public void shouldReturnAllSupportedEngineApiRpcNames() {
+  public void shouldReturnTheRegisteredEngineApiRpcNames() {
     var response = resp(List.of("engine_newPayloadV1", "engine_newPayloadV2", "nonsense"));
 
     var result = fromSuccessResp(response);
-    assertThat(result).allMatch(name -> name.startsWith("engine_"));
+    assertThat(result)
+        .containsExactly(
+            "engine_newPayloadV4", "engine_forkchoiceUpdatedV3", "engine_getClientVersionV1");
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 

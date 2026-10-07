@@ -70,8 +70,9 @@ public class ForkIdsNetworkConfigTest {
               new ForkId(Bytes.ofUnsignedInt(0xed88b5fdL), 1760427360L),
               new ForkId(Bytes.ofUnsignedInt(0xe2ae4999L), 1761017184L),
               new ForkId(Bytes.ofUnsignedInt(0x56078a1eL), 1761607008L),
-              new ForkId(Bytes.ofUnsignedInt(0x268956b6L), 0L),
-              new ForkId(Bytes.ofUnsignedInt(0x268956b6L), 0L))
+              new ForkId(Bytes.ofUnsignedInt(0x268956b6L), 1791294816L),
+              new ForkId(Bytes.ofUnsignedInt(0x6c1d9423L), 0L),
+              new ForkId(Bytes.ofUnsignedInt(0x6c1d9423L), 0L))
         },
         new Object[] {
           NetworkDefinition.HOODI,

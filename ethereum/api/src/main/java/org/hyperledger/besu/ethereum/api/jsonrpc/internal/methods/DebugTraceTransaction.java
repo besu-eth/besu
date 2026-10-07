@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
@@ -28,8 +29,10 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSucces
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.DebugTraceTransactionResult;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
+import org.hyperledger.besu.ethereum.api.query.TransactionReceiptWithMetadata;
 import org.hyperledger.besu.ethereum.api.query.TransactionWithMetadata;
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
+import org.hyperledger.besu.ethereum.debug.TracerType;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 
 import java.util.Optional;
@@ -39,14 +42,25 @@ public class DebugTraceTransaction implements JsonRpcMethod {
   private final TransactionTracer transactionTracer;
   private final BlockchainQueries blockchain;
   private final ProtocolSchedule protocolSchedule;
+  private final long serverStepLimit;
 
   public DebugTraceTransaction(
       final BlockchainQueries blockchain,
       final TransactionTracer transactionTracer,
       final ProtocolSchedule protocolSchedule) {
+    this(blockchain, transactionTracer, protocolSchedule, null);
+  }
+
+  public DebugTraceTransaction(
+      final BlockchainQueries blockchain,
+      final TransactionTracer transactionTracer,
+      final ProtocolSchedule protocolSchedule,
+      final ApiConfiguration apiConfiguration) {
     this.blockchain = blockchain;
     this.transactionTracer = transactionTracer;
     this.protocolSchedule = protocolSchedule;
+    this.serverStepLimit =
+        apiConfiguration != null ? apiConfiguration.getDebugTraceStepLimit() : 0L;
   }
 
   @Override
@@ -101,6 +115,21 @@ public class DebugTraceTransaction implements JsonRpcMethod {
       final TransactionWithMetadata transactionWithMetadata,
       final TraceOptions traceOptions) {
     final Hash blockHash = transactionWithMetadata.getBlockHash().get();
+
+    // Clamp before the step is built: the step owns the tracer that its result builder reads back,
+    // so the same instance must both drive execution and produce the result. Substituting a
+    // separately-built tracer leaves callTracer/prestateTracer/4byteTracer/flatCallTracer with no
+    // callbacks at all.
+    final TraceOptions clampedOptions = TraceStepLimit.clamp(traceOptions, serverStepLimit);
+
+    final int logIndexOffset =
+        clampedOptions.tracerType() == TracerType.CALL_TRACER
+                && clampedOptions.tracerConfigFlag("withLog")
+            ? blockchain
+                .transactionReceiptByTransactionHash(txHash, protocolSchedule)
+                .map(TransactionReceiptWithMetadata::getLogIndexOffset)
+                .orElse(0)
+            : 0;
     return blockchain
         .getBlockchain()
         .getBlockHeader(blockHash)
@@ -108,7 +137,7 @@ public class DebugTraceTransaction implements JsonRpcMethod {
         .flatMap(
             protocolSpec -> {
               final DebugTraceTransactionStep step =
-                  DebugTraceTransactionStep.of(traceOptions, protocolSpec);
+                  DebugTraceTransactionStep.of(clampedOptions, protocolSpec, logIndexOffset);
               return Tracer.processTracing(
                   blockchain,
                   blockHash,

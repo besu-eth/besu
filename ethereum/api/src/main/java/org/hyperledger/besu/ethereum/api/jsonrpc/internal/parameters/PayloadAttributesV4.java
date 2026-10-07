@@ -38,7 +38,7 @@ public final class PayloadAttributesV4 extends PayloadAttributesV3 {
       @JsonProperty("targetGasLimit") final String targetGasLimit) {
     super(timestamp, prevRandao, suggestedFeeRecipient, withdrawals, parentBeaconBlockRoot);
     this.slotNumber = parseSlotNumber(slotNumber);
-    this.targetGasLimit = targetGasLimit != null ? Long.decode(targetGasLimit) : null;
+    this.targetGasLimit = parseTargetGasLimit(targetGasLimit);
   }
 
   /**
@@ -55,6 +55,19 @@ public final class PayloadAttributesV4 extends PayloadAttributesV3 {
     } catch (final IllegalArgumentException e) {
       return null;
     }
+  }
+
+  /**
+   * The whole uint64 range is legal, but gas limits are compared as signed longs. Every target
+   * above {@link Long#MAX_VALUE} is beyond the highest buildable gas limit, so clamping keeps them
+   * all moving the gas limit upwards instead of wrapping to a negative target.
+   */
+  static Long parseTargetGasLimit(final String targetGasLimit) {
+    if (targetGasLimit == null) {
+      return null;
+    }
+    final UInt64 value = UInt64.fromHexString(targetGasLimit);
+    return value.fitsLong() ? value.toLong() : Long.MAX_VALUE;
   }
 
   public Long getSlotNumber() {

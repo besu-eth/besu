@@ -51,6 +51,7 @@ import java.util.Set;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -98,13 +99,13 @@ public class GetBodiesFromPeerTaskTest {
 
     Assertions.assertEquals(EthProtocolMessages.GET_BLOCK_BODIES, getBlockBodiesMessage.getCode());
     Iterable<Hash> hashesInMessage = getBlockBodiesMessage.hashes();
-    List<Hash> expectedHashes =
+    List<Bytes32> expectedHashes =
         List.of(
-            Hash.fromHexString(StringUtils.repeat("00", 31) + "11"),
-            Hash.fromHexString(StringUtils.repeat("00", 31) + "21"),
-            Hash.fromHexString(StringUtils.repeat("00", 31) + "31"));
-    List<Hash> actualHashes = new ArrayList<>();
-    hashesInMessage.forEach(actualHashes::add);
+            Bytes32.fromHexString(StringUtils.repeat("00", 31) + "11"),
+            Bytes32.fromHexString(StringUtils.repeat("00", 31) + "21"),
+            Bytes32.fromHexString(StringUtils.repeat("00", 31) + "31"));
+    List<Bytes> actualHashes = new ArrayList<>();
+    hashesInMessage.forEach(h -> actualHashes.add(h.getBytes()));
 
     Assertions.assertEquals(3, actualHashes.size());
     Assertions.assertEquals(

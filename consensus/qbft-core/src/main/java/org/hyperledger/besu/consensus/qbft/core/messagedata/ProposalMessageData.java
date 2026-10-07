@@ -52,6 +52,17 @@ public class ProposalMessageData extends AbstractBftMessageData {
   }
 
   /**
+   * Decode with an explicit cap on the certificate lists.
+   *
+   * @param blockEncoder the qbft block encoder
+   * @param maxCertEntries maximum permitted entries in each certificate list
+   * @return the proposal
+   */
+  public Proposal decode(final QbftBlockCodec blockEncoder, final int maxCertEntries) {
+    return Proposal.decode(data, blockEncoder, maxCertEntries);
+  }
+
+  /**
    * Create proposal message data.
    *
    * @param proposal the proposal

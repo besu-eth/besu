@@ -14,25 +14,28 @@
  */
 package org.hyperledger.besu.plugin.services.storage.rocksdb.configuration;
 
+import static java.util.Objects.requireNonNull;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_BACKGROUND_THREAD_COUNT;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_CACHE_CAPACITY;
-import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_ENABLE_READ_CACHE_FOR_SNAPSHOTS;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_IS_HIGH_SPEC;
+import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_IS_TABLE_CACHE_WARMUP_ENABLED;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_MAX_OPEN_FILES;
 
 import java.nio.file.Path;
 import java.util.Optional;
 
+import org.jspecify.annotations.Nullable;
+
 /** The RocksDb configuration builder. */
 public class RocksDBConfigurationBuilder {
 
-  private Path databaseDir;
+  private @Nullable Path databaseDir;
   private String label = "blockchain";
   private int maxOpenFiles = DEFAULT_MAX_OPEN_FILES;
   private long cacheCapacity = DEFAULT_CACHE_CAPACITY;
   private int backgroundThreadCount = DEFAULT_BACKGROUND_THREAD_COUNT;
   private boolean isHighSpec = DEFAULT_IS_HIGH_SPEC;
-  private boolean enableReadCacheForSnapshots = DEFAULT_ENABLE_READ_CACHE_FOR_SNAPSHOTS;
+  private boolean isTableCacheWarmupEnabled = DEFAULT_IS_TABLE_CACHE_WARMUP_ENABLED;
   private boolean isBlockchainGarbageCollectionEnabled = false;
   private Optional<Double> blobGarbageCollectionAgeCutoff = Optional.empty();
   private Optional<Double> blobGarbageCollectionForceThreshold = Optional.empty();
@@ -107,14 +110,14 @@ public class RocksDBConfigurationBuilder {
   }
 
   /**
-   * Enables or disables read caching for snapshot access.
+   * Enables or disables the startup table cache warm-up.
    *
-   * @param enableReadCacheForSnapshots whether read caching should be enabled for snapshots
+   * @param isTableCacheWarmupEnabled whether the startup table cache warm-up is enabled
    * @return the RocksDB configuration builder
    */
-  public RocksDBConfigurationBuilder enableReadCacheForSnapshots(
-      final boolean enableReadCacheForSnapshots) {
-    this.enableReadCacheForSnapshots = enableReadCacheForSnapshots;
+  public RocksDBConfigurationBuilder isTableCacheWarmupEnabled(
+      final boolean isTableCacheWarmupEnabled) {
+    this.isTableCacheWarmupEnabled = isTableCacheWarmupEnabled;
     return this;
   }
 
@@ -166,7 +169,7 @@ public class RocksDBConfigurationBuilder {
         .cacheCapacity(configuration.getCacheCapacity())
         .maxOpenFiles(configuration.getMaxOpenFiles())
         .isHighSpec(configuration.isHighSpec())
-        .enableReadCacheForSnapshots(configuration.isReadCacheEnabledForSnapshots())
+        .isTableCacheWarmupEnabled(configuration.isTableCacheWarmupEnabled())
         .isBlockchainGarbageCollectionEnabled(configuration.isBlockchainGarbageCollectionEnabled())
         .blobGarbageCollectionAgeCutoff(configuration.getBlobGarbageCollectionAgeCutoff())
         .blobGarbageCollectionForceThreshold(
@@ -180,13 +183,13 @@ public class RocksDBConfigurationBuilder {
    */
   public RocksDBConfiguration build() {
     return new RocksDBConfiguration(
-        databaseDir,
+        requireNonNull(databaseDir, "RocksDB database directory is required"),
         maxOpenFiles,
         backgroundThreadCount,
         cacheCapacity,
         label,
         isHighSpec,
-        enableReadCacheForSnapshots,
+        isTableCacheWarmupEnabled,
         isBlockchainGarbageCollectionEnabled,
         blobGarbageCollectionAgeCutoff,
         blobGarbageCollectionForceThreshold);

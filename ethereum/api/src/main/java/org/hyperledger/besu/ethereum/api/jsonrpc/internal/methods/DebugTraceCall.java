@@ -16,11 +16,13 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.INTERNAL_ERROR;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameter;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameterOrBlockHash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.TransactionTraceParams;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTrace;
@@ -28,12 +30,9 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
-import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
-import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
-import org.hyperledger.besu.ethereum.transaction.CallParameter;
 import org.hyperledger.besu.ethereum.transaction.PreCloseStateHandler;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 
@@ -81,6 +80,34 @@ public class DebugTraceCall extends AbstractTraceCall {
   }
 
   @Override
+  protected Object findResultByParamType(final JsonRpcRequestContext request) {
+    return blockHashParameter(request)
+        .map(blockHash -> resultByBlockHash(request, blockHash))
+        .orElseGet(() -> super.findResultByParamType(request));
+  }
+
+  private Optional<Hash> blockHashParameter(final JsonRpcRequestContext request) {
+    try {
+      return request
+          .getOptionalParameter(1, BlockParameterOrBlockHash.class)
+          .flatMap(BlockParameterOrBlockHash::getHash);
+    } catch (JsonRpcParameterException e) {
+      // Not a hash. blockParameter() parses the value again and reports any error.
+      return Optional.empty();
+    }
+  }
+
+  private Object resultByBlockHash(final JsonRpcRequestContext request, final Hash blockHash) {
+    return getBlockchainQueries()
+        .getBlockHeaderByHash(blockHash)
+        .<Object>map(blockHeader -> resultByBlockHeader(request, blockHeader))
+        .orElseGet(
+            () ->
+                new JsonRpcErrorResponse(
+                    request.getRequest().getId(), RpcErrorType.BLOCK_NOT_FOUND));
+  }
+
+  @Override
   protected BlockParameter blockParameter(final JsonRpcRequestContext request) {
     final Optional<BlockParameter> maybeBlockParameter;
     try {
@@ -118,13 +145,5 @@ public class DebugTraceCall extends AbstractTraceCall {
                   return step.buildResult(transactionTrace).getResult();
                 });
     return new TraceExecution(step.getOperationTracer(), handler);
-  }
-
-  @Override
-  protected TransactionValidationParams buildTransactionValidationParams(
-      final BlockHeader header, final CallParameter callParams) {
-    return CallParameterUtil.isAllowExceedingBalance(header, callParams)
-        ? TransactionValidationParams.transactionSimulatorAllowExceedingBalanceAndFutureNonce()
-        : TransactionValidationParams.transactionSimulatorAllowFutureNonce();
   }
 }

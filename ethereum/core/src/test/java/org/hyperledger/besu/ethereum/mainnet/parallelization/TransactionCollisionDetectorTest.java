@@ -265,6 +265,169 @@ class TransactionCollisionDetectorTest {
   }
 
   @Test
+  void testNoCollisionWhenTransactionTouchesAddressButNoStorage() {
+    // Plain transfer to a contract whose storage was heavily written earlier in the block:
+    // account details match excluding storage, tx storage is empty → no collision.
+    final Address address = Address.fromHexString("0x1");
+    final Address sender = Address.fromHexString("0x2");
+    final BonsaiAccount priorAccountValue = createAccount(address);
+    final BonsaiAccount nextAccountValue = new BonsaiAccount(priorAccountValue, worldState, true);
+    nextAccountValue.setStorageRoot(Hash.EMPTY);
+
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(address, new BonsaiValue<>(priorAccountValue, nextAccountValue));
+    final StorageConsumingMap<StorageSlotKey, BonsaiValue<UInt256>> blockStorage =
+        bonsaiUpdater
+            .getStorageToUpdate()
+            .computeIfAbsent(
+                address,
+                __ ->
+                    new StorageConsumingMap<>(
+                        address, new ConcurrentHashMap<>(), (___, ____) -> {}));
+    for (int i = 0; i < 100; i++) {
+      blockStorage.put(
+          new StorageSlotKey(UInt256.valueOf(i)),
+          new BonsaiValue<>(UInt256.ONE, UInt256.valueOf(i + 1)));
+    }
+
+    final Transaction transaction = createTransaction(sender, address);
+
+    boolean hasCollision =
+        collisionDetector.hasCollision(
+            transaction,
+            Address.ZERO,
+            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+            bonsaiUpdater);
+
+    assertFalse(hasCollision, "Expected no collision for a transfer that touches no storage slots");
+  }
+
+  @Test
+  void testCollisionFindsOverlappingSlotAmongManyBlockSlots() {
+    final Address address = Address.fromHexString("0x1");
+    final BonsaiAccount priorAccountValue = createAccount(address);
+    final BonsaiAccount nextAccountValue = new BonsaiAccount(priorAccountValue, worldState, true);
+    nextAccountValue.setStorageRoot(Hash.EMPTY);
+    final StorageSlotKey overlappingSlot = new StorageSlotKey(UInt256.valueOf(50));
+
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(address, new BonsaiValue<>(priorAccountValue, nextAccountValue));
+    final StorageConsumingMap<StorageSlotKey, BonsaiValue<UInt256>> blockStorage =
+        bonsaiUpdater
+            .getStorageToUpdate()
+            .computeIfAbsent(
+                address,
+                __ ->
+                    new StorageConsumingMap<>(
+                        address, new ConcurrentHashMap<>(), (___, ____) -> {}));
+    for (int i = 0; i < 100; i++) {
+      blockStorage.put(
+          new StorageSlotKey(UInt256.valueOf(i)),
+          new BonsaiValue<>(UInt256.ONE, UInt256.valueOf(i + 1)));
+    }
+
+    final Transaction transaction = createTransaction(address, address);
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(address, new BonsaiValue<>(priorAccountValue, priorAccountValue));
+    trxUpdater
+        .getStorageToUpdate()
+        .computeIfAbsent(
+            address,
+            __ -> new StorageConsumingMap<>(address, new ConcurrentHashMap<>(), (___, ____) -> {}))
+        .put(overlappingSlot, new BonsaiValue<>(UInt256.ONE, UInt256.ONE));
+
+    boolean hasCollision =
+        collisionDetector.hasCollision(
+            transaction,
+            Address.ZERO,
+            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+            bonsaiUpdater);
+
+    assertTrue(hasCollision, "Expected collision when one of many block slots overlaps");
+  }
+
+  @Test
+  void testNoCollisionWhenBlockSlotIsUnchanged() {
+    final Address address = Address.fromHexString("0x1");
+    final BonsaiAccount priorAccountValue = createAccount(address);
+    final StorageSlotKey slot = new StorageSlotKey(UInt256.ONE);
+
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(address, new BonsaiValue<>(priorAccountValue, priorAccountValue));
+    bonsaiUpdater
+        .getStorageToUpdate()
+        .computeIfAbsent(
+            address,
+            __ -> new StorageConsumingMap<>(address, new ConcurrentHashMap<>(), (___, ____) -> {}))
+        .put(slot, new BonsaiValue<>(UInt256.ONE, UInt256.ONE));
+
+    final Transaction transaction = createTransaction(address, address);
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(address, new BonsaiValue<>(priorAccountValue, priorAccountValue));
+    trxUpdater
+        .getStorageToUpdate()
+        .computeIfAbsent(
+            address,
+            __ -> new StorageConsumingMap<>(address, new ConcurrentHashMap<>(), (___, ____) -> {}))
+        .put(slot, new BonsaiValue<>(UInt256.ONE, UInt256.ONE));
+
+    boolean hasCollision =
+        collisionDetector.hasCollision(
+            transaction,
+            Address.ZERO,
+            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+            bonsaiUpdater);
+
+    assertFalse(
+        hasCollision, "Expected no collision when the block only read the overlapping slot");
+  }
+
+  @Test
+  void testCollisionWhenTransactionReadsSlotModifiedByBlock() {
+    // Stale read: tx only read a slot (unchanged in its accumulator) but the block
+    // already modified that slot — must still detect a collision.
+    final Address address = Address.fromHexString("0x1");
+    final BonsaiAccount priorAccountValue = createAccount(address);
+    final StorageSlotKey slot = new StorageSlotKey(UInt256.ONE);
+
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(address, new BonsaiValue<>(priorAccountValue, priorAccountValue));
+    bonsaiUpdater
+        .getStorageToUpdate()
+        .computeIfAbsent(
+            address,
+            __ -> new StorageConsumingMap<>(address, new ConcurrentHashMap<>(), (___, ____) -> {}))
+        .put(slot, new BonsaiValue<>(UInt256.ONE, UInt256.ZERO));
+
+    final Transaction transaction = createTransaction(address, address);
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(address, new BonsaiValue<>(priorAccountValue, priorAccountValue));
+    trxUpdater
+        .getStorageToUpdate()
+        .computeIfAbsent(
+            address,
+            __ -> new StorageConsumingMap<>(address, new ConcurrentHashMap<>(), (___, ____) -> {}))
+        .put(slot, new BonsaiValue<>(UInt256.ONE, UInt256.ONE));
+
+    boolean hasCollision =
+        collisionDetector.hasCollision(
+            transaction,
+            Address.ZERO,
+            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+            bonsaiUpdater);
+
+    assertTrue(
+        hasCollision, "Expected collision when tx read a slot that the block already modified");
+  }
+
+  @Test
   void testCollisionWithMiningBeneficiaryAddress() {
     final Address miningBeneficiary = Address.ZERO;
     final Address address = Address.fromHexString("0x1");

@@ -14,9 +14,14 @@
  */
 package org.hyperledger.besu.ethereum.eth.transactions.pluginadapter;
 
+import static org.hyperledger.besu.ethereum.core.plugins.Subscriptions.unsubscribeOnClose;
+
 import org.hyperledger.besu.datatypes.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
+import org.hyperledger.besu.plugin.services.Subscription;
 import org.hyperledger.besu.plugin.services.transactionpool.TransactionPoolService;
+import org.hyperledger.besu.plugin.services.transactionpool.spi.TransactionAddedListener;
+import org.hyperledger.besu.plugin.services.transactionpool.spi.TransactionDroppedListener;
 
 import java.util.Collection;
 
@@ -52,5 +57,19 @@ public class TransactionPoolServiceImpl implements TransactionPoolService {
   @Override
   public Collection<? extends PendingTransaction> getPendingTransactions() {
     return transactionPool.getPendingTransactions();
+  }
+
+  @Override
+  public Subscription subscribeTransactionAdded(final TransactionAddedListener listener) {
+    final long id = transactionPool.subscribePendingTransactions(listener::onTransactionAdded);
+    return unsubscribeOnClose(() -> transactionPool.unsubscribePendingTransactions(id));
+  }
+
+  @Override
+  public Subscription subscribeTransactionDropped(final TransactionDroppedListener listener) {
+    final long id =
+        transactionPool.subscribeDroppedTransactions(
+            (transaction, reason) -> listener.onTransactionDropped(transaction, reason.label()));
+    return unsubscribeOnClose(() -> transactionPool.unsubscribeDroppedTransactions(id));
   }
 }

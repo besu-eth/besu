@@ -34,6 +34,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.Bons
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeStrategy;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
+import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.account.AccountStorageEntry;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
@@ -46,11 +47,14 @@ import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 import org.hyperledger.besu.util.Subscribers;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -371,11 +375,32 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
                     composedWorldStateStorage));
   }
 
-  public Optional<Bytes> getCode(final Hash codeHash, final Hash accountHash) {
+  public List<Optional<Bytes>> getMultipleFlat(
+      final SegmentIdentifier segmentIdentifier, final List<byte[]> keys) {
+    final List<Bytes> bytesKeys = new ArrayList<>(keys.size());
+    for (final byte[] key : keys) {
+      bytesKeys.add(Bytes.wrap(key));
+    }
+    return cacheManager.getMultipleFromCacheOrStorage(
+        segmentIdentifier,
+        bytesKeys,
+        getCurrentVersion(),
+        keysToFetch ->
+            getFlatDbStrategy()
+                .getMultipleFlat(segmentIdentifier, keysToFetch, composedWorldStateStorage));
+  }
+
+  /** The code, with its jump destination analysis when the storage holds it. */
+  public Optional<Code> getCode(final Hash codeHash, final Hash accountHash) {
     if (codeHash.equals(Hash.EMPTY)) {
-      return Optional.of(Bytes.EMPTY);
+      return Optional.of(Code.EMPTY_CODE);
     }
     return getFlatDbStrategy().getFlatCode(codeHash, accountHash, composedWorldStateStorage);
+  }
+
+  /** The bytes of the code alone, for the readers that have no use for its analysis. */
+  public Optional<Bytes> getCodeBytes(final Hash codeHash, final Hash accountHash) {
+    return getFlatDbStrategy().getFlatCodeBytes(codeHash, accountHash, composedWorldStateStorage);
   }
 
   public Optional<Bytes> getAccountStateTrieNode(final Bytes location, final Bytes32 nodeHash) {
@@ -433,14 +458,18 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
     getFlatDbStrategy().clearAll(composedWorldStateStorage);
     composedWorldStateStorage.clear(TRIE_BRANCH_STORAGE);
     trieLogStorage.clear();
-    cacheManager.clear(ACCOUNT_INFO_STATE);
-    cacheManager.clear(ACCOUNT_STORAGE_STORAGE);
+    clearCrossBlockCache();
     flatDbStrategyProvider.loadFlatDbStrategy(composedWorldStateStorage);
   }
 
   public void clearFlatDatabase() {
     subscribers.forEach(StorageSubscriber::onClearFlatDatabaseStorage);
     getFlatDbStrategy().resetOnResync(composedWorldStateStorage);
+    clearCrossBlockCache();
+  }
+
+  /** Drops all cross-block flat-db cache entries without touching RocksDB. */
+  public void clearCrossBlockCache() {
     cacheManager.clear(ACCOUNT_INFO_STATE);
     cacheManager.clear(ACCOUNT_STORAGE_STORAGE);
   }
@@ -501,6 +530,8 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
     protected final FlatDbStrategy flatDbStrategy;
     protected final SegmentedKeyValueStorage worldStorage;
     protected final TrieNodeStrategy trieNodeStrategy;
+    // code keyed by its hash is shared by every account holding it, so it is written only once
+    private final Set<Hash> writtenCodeHashes = ConcurrentHashMap.newKeySet();
 
     public Updater(
         final SegmentedKeyValueStorageTransaction composedWorldStateTransaction,
@@ -528,7 +559,8 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
     }
 
     public Updater putCode(final Hash accountHash, final Hash codeHash, final Bytes code) {
-      if (code.isEmpty()) {
+      if (code.isEmpty()
+          || (flatDbStrategy.isCodeByCodeHash() && !writtenCodeHashes.add(codeHash))) {
         return this;
       }
       flatDbStrategy.putFlatCode(
@@ -609,21 +641,37 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
 
     @Override
     public void commit() {
+      // onBeforeCommit can throw; rollback to avoid leaking open transactions
+      try {
+        trieNodeStrategy.onBeforeCommit(worldStorage, composedWorldStateTransaction);
+      } catch (final Exception e) {
+        rollback();
+        throw e;
+      }
       trieLogStorageTransaction.commit();
       composedWorldStateTransaction.commit();
     }
 
     public void commitTrieLogOnly() {
+      trieNodeStrategy.onRollback(composedWorldStateTransaction);
       trieLogStorageTransaction.commit();
       composedWorldStateTransaction.close();
     }
 
     public void commitComposedOnly() {
+      // onBeforeCommit can throw; rollback to avoid leaking open transactions
+      try {
+        trieNodeStrategy.onBeforeCommit(worldStorage, composedWorldStateTransaction);
+      } catch (final Exception e) {
+        rollback();
+        throw e;
+      }
       composedWorldStateTransaction.commit();
       trieLogStorageTransaction.close();
     }
 
     public void rollback() {
+      trieNodeStrategy.onRollback(composedWorldStateTransaction);
       composedWorldStateTransaction.rollback();
       trieLogStorageTransaction.rollback();
     }
@@ -722,11 +770,25 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
       cacheManager.scheduleAsyncMaintenance();
     }
 
+    /**
+     * Write storage first, then publish the new cache version. While publishing, readers bypass the
+     * cross-block cache entirely so they neither hit stale entries nor insert (including negative)
+     * results that could race {@link #updateCache()}.
+     */
+    private void commitAndPublishCache(final Runnable storageCommit) {
+      cacheManager.beginCommitCacheBypass();
+      try {
+        storageCommit.run();
+        incrementCacheVersion();
+        updateCache();
+      } finally {
+        cacheManager.endCommitCacheBypass();
+      }
+    }
+
     @Override
     public void commit() {
-      incrementCacheVersion();
-      super.commit();
-      updateCache();
+      commitAndPublishCache(super::commit);
     }
 
     @Override
@@ -737,9 +799,7 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
 
     @Override
     public void commitComposedOnly() {
-      incrementCacheVersion();
-      super.commitComposedOnly();
-      updateCache();
+      commitAndPublishCache(super::commitComposedOnly);
     }
 
     @Override

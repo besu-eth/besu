@@ -31,7 +31,6 @@ import java.util.Collections;
 import org.apache.tuweni.bytes.Bytes32;
 
 /** The Bft query service. */
-@SuppressWarnings("removal")
 public class BftQueryServiceImpl extends PoaQueryServiceImpl implements BftQueryService {
 
   private final ValidatorProvider validatorProvider;

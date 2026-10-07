@@ -16,6 +16,9 @@ package org.hyperledger.besu.plugin.services.transactionpool;
 
 import org.hyperledger.besu.datatypes.PendingTransaction;
 import org.hyperledger.besu.plugin.services.BesuService;
+import org.hyperledger.besu.plugin.services.Subscription;
+import org.hyperledger.besu.plugin.services.transactionpool.spi.TransactionAddedListener;
+import org.hyperledger.besu.plugin.services.transactionpool.spi.TransactionDroppedListener;
 
 import java.util.Collection;
 
@@ -43,4 +46,20 @@ public interface TransactionPoolService extends BesuService {
    * @return a collection of pending transactions
    */
   Collection<? extends PendingTransaction> getPendingTransactions();
+
+  /**
+   * Subscribes to transactions added to the pool.
+   *
+   * @param listener the listener that receives each added transaction
+   * @return the subscription; close it to stop receiving events
+   */
+  Subscription subscribeTransactionAdded(TransactionAddedListener listener);
+
+  /**
+   * Subscribes to transactions dropped from the pool.
+   *
+   * @param listener the listener that receives each dropped transaction and the reason
+   * @return the subscription; close it to stop receiving events
+   */
+  Subscription subscribeTransactionDropped(TransactionDroppedListener listener);
 }

@@ -221,7 +221,10 @@ public class WorldStateProofProvider {
         // check if there is not missing element
         // a missing node will throw an exception while it is loading
         // @see org.hyperledger.besu.ethereum.trie.StoredNode#load()
-        trie.entriesFrom(startKeyHash, Integer.MAX_VALUE);
+        final var found = trie.entriesFrom(startKeyHash, Integer.MAX_VALUE);
+        if (!found.isEmpty()) {
+          return false;
+        }
       } catch (MerkleTrieException e) {
         return false;
       }

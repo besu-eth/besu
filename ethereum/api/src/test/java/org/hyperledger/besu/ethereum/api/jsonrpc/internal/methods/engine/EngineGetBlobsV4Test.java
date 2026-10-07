@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.hyperledger.besu.datatypes.BlobType.KZG_CELL_PROOFS;
 import static org.hyperledger.besu.datatypes.BlobType.KZG_PROOF;
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.OSAKA;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineTestSupport.fromErrorResp;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -105,7 +105,7 @@ public class EngineGetBlobsV4Test extends AbstractScheduledApiTest {
     when(mergeContext.isSyncing()).thenReturn(false);
     when(protocolContext.safeConsensusContext(any())).thenReturn(Optional.ofNullable(mergeContext));
     when(protocolContext.getBlockchain()).thenReturn(blockchain);
-    when(blockHeader.getTimestamp()).thenReturn(amsterdamHardfork.milestone());
+    when(blockHeader.getTimestamp()).thenReturn(osakaHardfork.milestone());
     when(blockchain.getChainHeadHeader()).thenReturn(blockHeader);
 
     when(metricsSystem.createLabelledCounter(
@@ -158,7 +158,7 @@ public class EngineGetBlobsV4Test extends AbstractScheduledApiTest {
                 .metricsSystem(metricsSystem)
                 .maxRequestBlocks(0)
                 .build(),
-            AMSTERDAM,
+            OSAKA,
             null);
   }
 
@@ -288,12 +288,34 @@ public class EngineGetBlobsV4Test extends AbstractScheduledApiTest {
   }
 
   @Test
-  void shouldFailWhenAmsterdamNotActive() {
+  void shouldReturnNullWhenOsakaNotActive() {
+    when(blockHeader.getTimestamp()).thenReturn(osakaHardfork.milestone() - 1);
+    BlobProofBundle bundle = createBundleWithBlobType(KZG_CELL_PROOFS);
+
+    JsonRpcSuccessResponse response =
+        getSuccessResponse(buildRequestContext(FULL_BITARRAY, bundle.getVersionedHash()));
+
+    assertThat(response.getResult()).isNull();
+    verifyNoInteractions(
+        requestedCounter,
+        availableCounter,
+        missingCounter,
+        partialResponseCounter,
+        fullResponseCounter);
+  }
+
+  @Test
+  void shouldServeCellsBeforeAmsterdam() {
     when(blockHeader.getTimestamp()).thenReturn(amsterdamHardfork.milestone() - 1);
-    JsonRpcResponse response =
-        method.syncResponse(buildRequestContext(FULL_BITARRAY, new VersionedHash[0]));
-    assertThat(fromErrorResp(response).getCode())
-        .isEqualTo(RpcErrorType.UNSUPPORTED_FORK.getCode());
+    BlobProofBundle bundle = createBundleWithBlobType(KZG_CELL_PROOFS);
+
+    JsonRpcSuccessResponse response =
+        getSuccessResponse(buildRequestContext(FULL_BITARRAY, bundle.getVersionedHash()));
+
+    @SuppressWarnings("unchecked")
+    List<BlobCellsAndProofsV1> result = (List<BlobCellsAndProofsV1>) response.getResult();
+    assertThat(result).hasSize(1);
+    assertThat(result.getFirst().getBlobCells()).hasSize(CKZG4844Helper.CELL_PROOFS_PER_BLOB);
   }
 
   @Test

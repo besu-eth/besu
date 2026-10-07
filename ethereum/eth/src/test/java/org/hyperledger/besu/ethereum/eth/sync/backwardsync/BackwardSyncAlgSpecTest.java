@@ -19,6 +19,7 @@ import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createInMemoryBlockchain;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
@@ -37,6 +38,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import jakarta.validation.constraints.NotNull;
 import org.apache.tuweni.bytes.Bytes;
@@ -122,8 +124,8 @@ public class BackwardSyncAlgSpecTest {
     ttdCaptor.getValue().onTTDReached(true);
     completionCaptor.getValue().onInitialSyncCompleted();
 
-    Thread.sleep(100);
-
+    // async readiness check plus both listener callbacks
+    verify(context, timeout(1000).times(3)).isReady();
     assertThat(voidCompletableFuture).isNotCompleted();
   }
 
@@ -146,7 +148,9 @@ public class BackwardSyncAlgSpecTest {
 
   @Test
   public void shouldAwokeWhenTTDReachedAndReady() throws Exception {
-    doReturn(false).when(context).isReady();
+    // re-stubbing isReady() would race with the async readiness check invoking the mock
+    final AtomicBoolean ready = new AtomicBoolean(false);
+    doAnswer(invocation -> ready.get()).when(context).isReady();
 
     when(context.getSyncState().subscribeTTDReached(any())).thenReturn(88L);
     when(context.getSyncState().subscribeCompletionReached(any())).thenReturn(99L);
@@ -154,12 +158,12 @@ public class BackwardSyncAlgSpecTest {
 
     final CompletableFuture<Void> voidCompletableFuture = algorithm.waitForReady();
 
-    Thread.sleep(50);
+    // ensure the async readiness check has seen not ready before flipping the flag
+    verify(context, timeout(1000)).isReady();
     assertThat(voidCompletableFuture).isNotCompleted();
     verify(context.getSyncState()).subscribeTTDReached(ttdCaptor.capture());
 
-    doReturn(true).when(context).isReady();
-    Thread.sleep(50);
+    ready.set(true);
     assertThat(voidCompletableFuture).isNotCompleted();
 
     ttdCaptor.getValue().onTTDReached(true);
@@ -173,7 +177,9 @@ public class BackwardSyncAlgSpecTest {
 
   @Test
   public void shouldAwokeWhenPeerConnectsAfterTTDReached() throws Exception {
-    doReturn(false).when(context).isReady();
+    // re-stubbing isReady() would race with the async readiness check invoking the mock
+    final AtomicBoolean ready = new AtomicBoolean(false);
+    doAnswer(invocation -> ready.get()).when(context).isReady();
     when(context.getSyncState().subscribeTTDReached(any())).thenReturn(88L);
     when(context.getSyncState().subscribeCompletionReached(any())).thenReturn(99L);
     final CompletableFuture<EthPeer> peerConnection = new CompletableFuture<>();
@@ -185,7 +191,7 @@ public class BackwardSyncAlgSpecTest {
     ttdCaptor.getValue().onTTDReached(true);
     assertThat(voidCompletableFuture).isNotCompleted();
 
-    doReturn(true).when(context).isReady();
+    ready.set(true);
     peerConnection.complete(Mockito.mock(EthPeer.class));
 
     voidCompletableFuture.get(1, TimeUnit.SECONDS);
@@ -197,20 +203,22 @@ public class BackwardSyncAlgSpecTest {
 
   @Test
   public void shouldAwokeWhenConditionReachedAndReady() throws Exception {
-    doReturn(false).when(context).isReady();
+    // re-stubbing isReady() would race with the async readiness check invoking the mock
+    final AtomicBoolean ready = new AtomicBoolean(false);
+    doAnswer(invocation -> ready.get()).when(context).isReady();
 
     when(context.getSyncState().subscribeTTDReached(any())).thenReturn(88L);
     when(context.getSyncState().subscribeCompletionReached(any())).thenReturn(99L);
     when(context.getEthContext().getEthPeers().peerCount()).thenReturn(1);
 
     final CompletableFuture<Void> voidCompletableFuture = algorithm.waitForReady();
-    Thread.sleep(50);
+    // ensure the async readiness check has seen not ready before flipping the flag
+    verify(context, timeout(1000)).isReady();
 
     verify(context.getSyncState()).subscribeCompletionReached(completionCaptor.capture());
     assertThat(voidCompletableFuture).isNotCompleted();
 
-    doReturn(true).when(context).isReady();
-    Thread.sleep(50);
+    ready.set(true);
     assertThat(voidCompletableFuture).isNotCompleted();
 
     completionCaptor.getValue().onInitialSyncCompleted();

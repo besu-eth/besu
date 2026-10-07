@@ -26,7 +26,7 @@ javaPlatform {
 }
 
 dependencies {
-  api platform('com.fasterxml.jackson:jackson-bom:2.21.5')
+  api platform('com.fasterxml.jackson:jackson-bom:2.21.7')
   api platform('io.grpc:grpc-bom:1.79.0')
   api platform('io.netty:netty-bom:4.2.17.Final')
   api platform('io.opentelemetry:opentelemetry-bom:1.62.0')
@@ -162,8 +162,8 @@ dependencies {
 
     api 'org.awaitility:awaitility:4.3.0'
 
-    api 'org.bouncycastle:bcpkix-jdk18on:1.84'
-    api 'org.bouncycastle:bcprov-jdk18on:1.84'
+    api 'org.bouncycastle:bcpkix-jdk18on:1.85'
+    api 'org.bouncycastle:bcprov-jdk18on:1.85'
 
     api 'org.fusesource.jansi:jansi:2.4.2'
 

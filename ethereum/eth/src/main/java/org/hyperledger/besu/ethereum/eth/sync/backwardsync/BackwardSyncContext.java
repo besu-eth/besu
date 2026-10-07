@@ -28,6 +28,7 @@ import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.util.Subscribers;
 
@@ -41,6 +42,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.event.Level;
 
 public class BackwardSyncContext {
   private static final Logger LOG = LoggerFactory.getLogger(BackwardSyncContext.class);
@@ -48,7 +50,7 @@ public class BackwardSyncContext {
   private static final int DEFAULT_MAX_RETRIES = 2;
   private static final long MILLIS_DELAY_BETWEEN_PROGRESS_LOG = 10_000L;
   private static final long DEFAULT_MILLIS_BETWEEN_RETRIES = 5000;
-  private static final int DEFAULT_MAX_CHAIN_EVENT_ENTRIES = BadBlockManager.MAX_BAD_BLOCKS_SIZE;
+  private static final int DEFAULT_MAX_CHAIN_EVENT_ENTRIES = BadBlockManager.MAX_BAD_CHAIN_SIZE;
 
   protected final ProtocolContext protocolContext;
   private final ProtocolSchedule protocolSchedule;
@@ -64,6 +66,7 @@ public class BackwardSyncContext {
   private final int maxBadChainEventEntries;
   private final long millisBetweenRetries = DEFAULT_MILLIS_BETWEEN_RETRIES;
   private final Subscribers<BadChainListener> badChainListeners = Subscribers.create();
+  private final AtomicReference<Hash> lastBlockWithUnavailableWorldState = new AtomicReference<>();
 
   public BackwardSyncContext(
       final ProtocolContext protocolContext,
@@ -157,8 +160,13 @@ public class BackwardSyncContext {
   }
 
   public synchronized CompletableFuture<Void> syncBackwardsUntil(final Block newPivot) {
+    return syncBackwardsUntil(newPivot, Optional.empty());
+  }
+
+  public synchronized CompletableFuture<Void> syncBackwardsUntil(
+      final Block newPivot, final Optional<BlockAccessList> blockAccessList) {
     if (!isTrusted(newPivot.getHash())) {
-      backwardChain.appendTrustedBlock(newPivot);
+      backwardChain.appendTrustedBlock(newPivot, blockAccessList);
     }
 
     final Status status = getOrStartSyncSession();
@@ -317,7 +325,8 @@ public class BackwardSyncContext {
     this.batchSize = BATCH_SIZE;
   }
 
-  protected Void saveBlock(final Block block) {
+  protected Void saveBlock(final Block block, final Optional<BlockAccessList> blockAccessList) {
+    failIfBadBlock(block.getHeader());
     LOG.atTrace().setMessage("Going to validate block {}").addArgument(block::toLogString).log();
     var optResult =
         this.getBlockValidatorForBlock(block)
@@ -325,7 +334,9 @@ public class BackwardSyncContext {
                 this.getProtocolContext(),
                 block,
                 HeaderValidationMode.FULL,
-                HeaderValidationMode.NONE);
+                HeaderValidationMode.NONE,
+                blockAccessList,
+                true);
     if (optResult.isSuccessful()) {
       LOG.atTrace()
           .setMessage("Block {} was validated, going to move the head")
@@ -338,21 +349,31 @@ public class BackwardSyncContext {
               optResult.getYield().get().getReceipts(),
               optResult.getYield().get().getBlockAccessList());
       possiblyMoveHead(block);
+      logImportedBlockParallelization(
+          block, optResult.getNbParallelizedTransactions(), blockAccessList.isPresent());
       logBlockImportProgress(block.getHeader().getNumber());
     } else {
       if (optResult.isWorldStateUnavailable()) {
-        LOG.warn(
-            "Backward sync halted: parent world state is unavailable while validating block {}. "
-                + "This may indicate snap sync completed with an incomplete world state. "
-                + "Call debug_resyncWorldState to repair the world state and resume syncing.",
-            block.toLogString());
+        // every new sync session hits the same block again, warn once per block
+        final boolean firstAttemptAtBlock =
+            !block.getHash().equals(lastBlockWithUnavailableWorldState.getAndSet(block.getHash()));
+        LOG.atLevel(firstAttemptAtBlock ? Level.WARN : Level.DEBUG)
+            .setMessage(
+                "Backward sync halted: parent world state is unavailable while validating block {}. "
+                    + "This may indicate snap sync completed with an incomplete world state. "
+                    + "Call debug_resyncWorldState to repair the world state and resume syncing.")
+            .addArgument(block::toLogString)
+            .log();
         throw new BackwardSyncException(
             "Parent world state unavailable for block "
                 + block.toLogString()
                 + " backward sync halted. Run debug_resyncWorldState to recover.",
             false);
       }
-      emitBadChainEvent(block);
+      // the validator records the block only when the failure condemns the block itself
+      if (getProtocolContext().getBadBlockManager().isBadBlock(block.getHash())) {
+        emitBadChainEvent(block.getHeader());
+      }
       throw new BackwardSyncException(
           "Cannot save block "
               + block.toLogString()
@@ -361,6 +382,28 @@ public class BackwardSyncContext {
     }
 
     return null;
+  }
+
+  /**
+   * Fail the session on a block that is already known as bad, whichever way the session was
+   * started: executing it again can only repeat the failure that recorded it. The descendants the
+   * backward chain holds for it are marked, so the consensus client is told on its next call.
+   *
+   * @param header the header of the block about to be linked or executed
+   */
+  protected void failIfBadBlock(final BlockHeader header) {
+    final BadBlockManager badBlockManager = getProtocolContext().getBadBlockManager();
+    if (!badBlockManager.isBadBlock(header.getHash())) {
+      return;
+    }
+    // a block that made it onto the chain cannot be bad, the entry is stale
+    if (getProtocolContext().getBlockchain().contains(header.getHash())) {
+      badBlockManager.removeBadBlock(header.getHash());
+      return;
+    }
+    emitBadChainEvent(header);
+    throw new BackwardSyncException(
+        "Cannot save block " + header.toLogString() + " because it is a known bad block");
   }
 
   @VisibleForTesting
@@ -394,27 +437,72 @@ public class BackwardSyncContext {
     return currentBackwardSyncStatus.get();
   }
 
-  private void emitBadChainEvent(final Block badBlock) {
+  private void emitBadChainEvent(final BlockHeader badBlock) {
+    final BadBlockManager badBlockManager = getProtocolContext().getBadBlockManager();
     final List<Block> badBlockDescendants = new ArrayList<>();
     final List<BlockHeader> badBlockHeaderDescendants = new ArrayList<>();
 
     Optional<Hash> descendant = backwardChain.getDescendant(badBlock.getHash());
 
+    // descendants that are already marked do not count against the cap, so the marking of a chain
+    // longer than the cap makes progress on every session
     while (descendant.isPresent()
-        && badBlockDescendants.size() < maxBadChainEventEntries
-        && badBlockHeaderDescendants.size() < maxBadChainEventEntries) {
-      final Optional<Block> block = backwardChain.getBlock(descendant.get());
-      if (block.isPresent()) {
-        badBlockDescendants.add(block.get());
-      } else {
-        backwardChain.getHeader(descendant.get()).ifPresent(badBlockHeaderDescendants::add);
+        && badBlockDescendants.size() + badBlockHeaderDescendants.size()
+            < maxBadChainEventEntries) {
+      final Hash descendantHash = descendant.get();
+      if (!badBlockManager.isBadBlock(descendantHash)) {
+        // the bad block manager keeps no more descendant bodies than this, the rest of a long chain
+        // is collected as headers so its bodies are never loaded
+        final Optional<Block> block =
+            badBlockDescendants.size() < BadBlockManager.MAX_BAD_DESCENDANT_BODIES
+                ? backwardChain.getBlock(descendantHash)
+                : Optional.empty();
+        if (block.isPresent()) {
+          badBlockDescendants.add(block.get());
+        } else {
+          backwardChain.getHeader(descendantHash).ifPresent(badBlockHeaderDescendants::add);
+        }
       }
 
-      descendant = backwardChain.getDescendant(descendant.get());
+      descendant = backwardChain.getDescendant(descendantHash);
     }
 
     badChainListeners.forEach(
         listener -> listener.onBadChain(badBlock, badBlockDescendants, badBlockHeaderDescendants));
+  }
+
+  private void logImportedBlockParallelization(
+      final Block block,
+      final Optional<Integer> nbParallelizedTransactions,
+      final boolean balProvided) {
+    if (!LOG.isDebugEnabled()) {
+      return;
+    }
+    final int nbTransactions = block.getBody().getTransactions().size();
+    final String balSuffix =
+        block.getHeader().getBalHash().isPresent()
+            ? (balProvided ? " | BAL provided" : " | BAL reconstructed")
+            : "";
+    if (nbParallelizedTransactions.isPresent() && nbTransactions > 0) {
+      final double parallelizedTxPercentage =
+          (double) (nbParallelizedTransactions.get() * 100) / nbTransactions;
+      LOG.debug(
+          String.format(
+              "Backward sync imported #%,d (%s)| %4d tx (%5.1f%% parallel)%s",
+              block.getHeader().getNumber(),
+              block.getHash().toShortLogString(),
+              nbTransactions,
+              parallelizedTxPercentage,
+              balSuffix));
+    } else {
+      LOG.debug(
+          String.format(
+              "Backward sync imported #%,d (%s)| %4d tx%s",
+              block.getHeader().getNumber(),
+              block.getHash().toShortLogString(),
+              nbTransactions,
+              balSuffix));
+    }
   }
 
   private void logBlockImportProgress(final long currImportedHeight) {
