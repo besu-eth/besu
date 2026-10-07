@@ -85,7 +85,7 @@ public class OptimisticRocksDBColumnarKeyValueStorage extends RocksDBColumnarKey
     writeOptions.setIgnoreMissingColumnFamilies(true);
     return new SegmentedKeyValueStorageTransactionValidatorDecorator(
         new RocksDBTransaction(
-            this::safeColumnHandle, db.beginTransaction(writeOptions), writeOptions, this.metrics),
+            this::safeColumnHandle, db.beginTransaction(writeOptions), writeOptions, getMetrics()),
         this.closed::get);
   }
 
@@ -97,7 +97,7 @@ public class OptimisticRocksDBColumnarKeyValueStorage extends RocksDBColumnarKey
     writeOptions.setLowPri(true);
     return new SegmentedKeyValueStorageTransactionValidatorDecorator(
         new RocksDBTransaction(
-            this::safeColumnHandle, db.beginTransaction(writeOptions), writeOptions, this.metrics),
+            this::safeColumnHandle, db.beginTransaction(writeOptions), writeOptions, getMetrics()),
         this.closed::get);
   }
 
@@ -110,6 +110,6 @@ public class OptimisticRocksDBColumnarKeyValueStorage extends RocksDBColumnarKey
   @Override
   public RocksDBColumnarKeyValueSnapshot takeSnapshot() throws StorageException {
     throwIfClosed();
-    return new RocksDBColumnarKeyValueSnapshot(db, this::safeColumnHandle, metrics);
+    return new RocksDBColumnarKeyValueSnapshot(db, this::safeColumnHandle, getMetrics());
   }
 }

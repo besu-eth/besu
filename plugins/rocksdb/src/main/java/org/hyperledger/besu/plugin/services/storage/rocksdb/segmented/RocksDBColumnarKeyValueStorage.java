@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.plugin.services.storage.rocksdb.segmented;
 
+import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toUnmodifiableSet;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.BLOCKCHAIN;
 
@@ -53,6 +54,7 @@ import com.google.common.base.Splitter;
 import com.google.common.collect.Streams;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.tuweni.bytes.Bytes;
+import org.jspecify.annotations.Nullable;
 import org.rocksdb.AbstractRocksIterator;
 import org.rocksdb.BlockBasedTableConfig;
 import org.rocksdb.BloomFilter;
@@ -120,7 +122,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   protected final RocksDBConfiguration configuration;
 
   /** RocksDB DB options */
-  protected DBOptions options;
+  protected final DBOptions options;
 
   /** RocksDb transactionDB options */
   protected TransactionDBOptions txOptions;
@@ -132,10 +134,11 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   protected final Statistics stats = new Statistics();
 
   /** RocksDB metrics */
-  protected RocksDBMetrics metrics;
+  protected @Nullable RocksDBMetrics metrics;
 
   /** Map of the columns handles by name */
-  protected Map<SegmentIdentifier, RocksDbSegmentIdentifier> columnHandlesBySegmentIdentifier;
+  protected @Nullable Map<SegmentIdentifier, RocksDbSegmentIdentifier>
+      columnHandlesBySegmentIdentifier;
 
   /** Column descriptors */
   protected List<ColumnFamilyDescriptor> columnDescriptors;
@@ -184,7 +187,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
               .map(segment -> createColumnDescriptor(segment, configuration))
               .collect(Collectors.toList());
 
-      setGlobalOptions(configuration, stats);
+      options = createGlobalOptions(configuration, stats);
 
       txOptions = new TransactionDBOptions();
       columnHandles = new ArrayList<>(columnDescriptors.size());
@@ -321,9 +324,10 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
    * @param configuration RocksDB configuration
    * @param stats The statistics object
    */
-  private void setGlobalOptions(final RocksDBConfiguration configuration, final Statistics stats) {
-    options = new DBOptions();
-    options
+  private static DBOptions createGlobalOptions(
+      final RocksDBConfiguration configuration, final Statistics stats) {
+    final DBOptions options = new DBOptions();
+    return options
         .setCreateIfMissing(true)
         .setMaxOpenFiles(configuration.getMaxOpenFiles())
         .setStatistics(stats)
@@ -357,7 +361,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
 
     // parse out unprintable segment names for a more useful exception:
     String columnExceptionMessagePrefix = "Column families not opened: ";
-    if (message.contains(columnExceptionMessagePrefix)) {
+    if (message != null && message.contains(columnExceptionMessagePrefix)) {
       String substring = message.substring(message.indexOf(": ") + 2);
 
       List<String> unHandledSegments = new ArrayList<>();
@@ -524,13 +528,26 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   }
 
   /**
+   * Returns the metrics initialized after the database is opened.
+   *
+   * @return the initialized RocksDB metrics
+   */
+  protected RocksDBMetrics getMetrics() {
+    return requireNonNull(metrics);
+  }
+
+  Map<SegmentIdentifier, RocksDbSegmentIdentifier> getColumnHandlesBySegmentIdentifier() {
+    return requireNonNull(columnHandlesBySegmentIdentifier);
+  }
+
+  /**
    * Safe method to map segment identifier to column handle.
    *
    * @param segment segment identifier
    * @return column handle
    */
   protected ColumnFamilyHandle safeColumnHandle(final SegmentIdentifier segment) {
-    RocksDbSegmentIdentifier safeRef = columnHandlesBySegmentIdentifier.get(segment);
+    RocksDbSegmentIdentifier safeRef = getColumnHandlesBySegmentIdentifier().get(segment);
     if (safeRef == null) {
       throw new RuntimeException("Column handle not found for segment " + segment.getName());
     }
@@ -542,7 +559,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
       throws StorageException {
     throwIfClosed();
 
-    try (final OperationTimer.TimingContext ignored = metrics.getReadLatency().startTimer()) {
+    try (final OperationTimer.TimingContext ignored = getMetrics().getReadLatency().startTimer()) {
       return Optional.ofNullable(getDB().get(safeColumnHandle(segment), readOptions, key));
     } catch (final RocksDBException e) {
       throw new StorageException(e);
@@ -557,7 +574,8 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
       return List.of();
     }
     final ColumnFamilyHandle columnHandle = safeColumnHandle(segment);
-    try (final OperationTimer.TimingContext ignored = metrics.getMultiReadLatency().startTimer()) {
+    try (final OperationTimer.TimingContext ignored =
+        getMetrics().getMultiReadLatency().startTimer()) {
       final List<byte[]> rawResult =
           getDB().multiGetAsList(readOptions, Collections.nCopies(keys.size(), columnHandle), keys);
       if (rawResult == null) {
@@ -666,7 +684,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
 
   @Override
   public void clear(final SegmentIdentifier segmentIdentifier) {
-    Optional.ofNullable(columnHandlesBySegmentIdentifier.get(segmentIdentifier))
+    Optional.ofNullable(getColumnHandlesBySegmentIdentifier().get(segmentIdentifier))
         .ifPresent(RocksDbSegmentIdentifier::reset);
   }
 
@@ -684,7 +702,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
     if (closed.compareAndSet(false, true)) {
       txOptions.close();
       tryDeleteOptions.close();
-      columnHandlesBySegmentIdentifier.values().stream()
+      getColumnHandlesBySegmentIdentifier().values().stream()
           .map(RocksDbSegmentIdentifier::get)
           .forEach(ColumnFamilyHandle::close);
       getDB().close();
