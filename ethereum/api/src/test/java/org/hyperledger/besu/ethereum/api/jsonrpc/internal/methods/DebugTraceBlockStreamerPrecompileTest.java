@@ -62,6 +62,11 @@ public class DebugTraceBlockStreamerPrecompileTest {
   // IDENTITY precompile — returns its input unchanged; no EVM opcodes are executed
   private static final Address IDENTITY_PRECOMPILE =
       Address.fromHexString("0x0000000000000000000000000000000000000004");
+  // BN128_ADD precompile — rejects the input below because (0x2a, 0) is not on the curve
+  private static final Address BN128_ADD_PRECOMPILE =
+      Address.fromHexString("0x0000000000000000000000000000000000000006");
+  private static final Bytes INVALID_BN128_ADD_INPUT =
+      Bytes.concatenate(Bytes32.leftPad(Bytes.of(0x2a)), Bytes.wrap(new byte[96]));
 
   private ExecutionContextTestFixture fixture;
   private BlockchainQueries blockchainQueries;
@@ -89,7 +94,7 @@ public class DebugTraceBlockStreamerPrecompileTest {
    */
   @Test
   public void streamingPathEmitsSyntheticFrameForDirectPrecompileCall() throws Exception {
-    final Block block = buildPrecompileBlock(0);
+    final Block block = buildPrecompileBlock(IDENTITY_PRECOMPILE, Bytes.of(1, 2, 3, 4));
     final DebugTraceBlockStreamer streamer =
         new DebugTraceBlockStreamer(
             block, TraceOptions.DEFAULT, fixture.getProtocolSchedule(), blockchainQueries);
@@ -109,7 +114,27 @@ public class DebugTraceBlockStreamerPrecompileTest {
    */
   @Test
   public void streamingAndAccumulatingPathsMatchForPrecompileCall() throws Exception {
-    final Block block = buildPrecompileBlock(0);
+    assertStreamingMatchesAccumulating(
+        buildPrecompileBlock(IDENTITY_PRECOMPILE, Bytes.of(1, 2, 3, 4)));
+  }
+
+  /**
+   * A failing root precompile must report its halt reason as the struct log {@code error} on both
+   * the streaming and accumulating paths.
+   */
+  @Test
+  public void streamingAndAccumulatingPathsMatchForFailedPrecompileCall() throws Exception {
+    final Block block = buildPrecompileBlock(BN128_ADD_PRECOMPILE, INVALID_BN128_ADD_INPUT);
+    final JsonNode streamedRoot = assertStreamingMatchesAccumulating(block);
+
+    final JsonNode structLogs = streamedRoot.get(0).get("result").get("structLogs");
+    assertThat(structLogs.size()).isEqualTo(1);
+    assertThat(structLogs.get(0).get("error").asText()).isEqualTo("PRECOMPILE_ERROR");
+  }
+
+  // ── helpers ──────────────────────────────────────────────────────────────
+
+  private JsonNode assertStreamingMatchesAccumulating(final Block block) throws Exception {
     final DebugTraceBlockStreamer streamer =
         new DebugTraceBlockStreamer(
             block, TraceOptions.DEFAULT, fixture.getProtocolSchedule(), blockchainQueries);
@@ -126,21 +151,20 @@ public class DebugTraceBlockStreamerPrecompileTest {
     assertThat(streamedRoot)
         .as("streaming and accumulating paths must produce identical JSON")
         .isEqualTo(accRoot);
+    return streamedRoot;
   }
 
-  // ── helpers ──────────────────────────────────────────────────────────────
-
-  private Block buildPrecompileBlock(final int nonce) {
+  private Block buildPrecompileBlock(final Address precompile, final Bytes payload) {
     final Transaction tx =
         Transaction.builder()
             .type(TransactionType.EIP1559)
-            .nonce(nonce)
+            .nonce(0)
             .maxPriorityFeePerGas(Wei.of(5))
             .maxFeePerGas(Wei.of(7))
             .gasLimit(100_000L)
-            .to(IDENTITY_PRECOMPILE)
+            .to(precompile)
             .value(Wei.ZERO)
-            .payload(Bytes.of(1, 2, 3, 4))
+            .payload(payload)
             .chainId(BigInteger.valueOf(42))
             .signAndBuild(KEY_PAIR);
 
