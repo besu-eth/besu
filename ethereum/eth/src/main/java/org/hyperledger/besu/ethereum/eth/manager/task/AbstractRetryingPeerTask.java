@@ -177,6 +177,10 @@ public abstract class AbstractRetryingPeerTask<T> extends AbstractEthTask<T> {
     return retryCount;
   }
 
+  protected void resetRetryCount() {
+    retryCount = 0;
+  }
+
   public int getMaxRetries() {
     return maxRetries;
   }

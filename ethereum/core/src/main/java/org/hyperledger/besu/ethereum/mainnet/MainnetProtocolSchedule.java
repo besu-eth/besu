@@ -26,8 +26,13 @@ import java.math.BigInteger;
 import java.util.Optional;
 import java.util.function.Function;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /** Provides {@link ProtocolSpec} lookups for mainnet hard forks. */
 public class MainnetProtocolSchedule {
+
+  private static final Logger LOG = LoggerFactory.getLogger(MainnetProtocolSchedule.class);
 
   public static final BigInteger DEFAULT_CHAIN_ID = BigInteger.ONE;
 
@@ -55,6 +60,9 @@ public class MainnetProtocolSchedule {
       final BalConfiguration balConfiguration,
       final MetricsSystem metricsSystem) {
     if (FixedDifficultyCalculators.isFixedDifficultyInConfig(config)) {
+      LOG.warn(
+          "Genesis config contains ethash.fixedDifficulty. "
+              + "This option is deprecated and will be removed in a future release.");
       return FixedDifficultyProtocolSchedule.create(
           config,
           isRevertReasonEnabled.orElse(false),

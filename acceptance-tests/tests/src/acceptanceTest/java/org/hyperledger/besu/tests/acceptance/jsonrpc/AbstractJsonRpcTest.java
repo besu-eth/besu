@@ -55,10 +55,16 @@ abstract class AbstractJsonRpcTest {
     final ObjectMapper mapper;
 
     public JsonRpcTestsContext(final String genesisFile) throws IOException {
+      this(genesisFile, true);
+    }
+
+    public JsonRpcTestsContext(final String genesisFile, final boolean p2pEnabled)
+        throws IOException {
       cluster = new Cluster(new NetConditions(new NetTransactions()));
 
       besuNode =
-          new BesuNodeFactory().createExecutionEngineGenesisNode("executionEngine", genesisFile);
+          new BesuNodeFactory()
+              .createExecutionEngineGenesisNode("executionEngine", genesisFile, p2pEnabled);
       cluster.start(besuNode);
       httpClient = new OkHttpClient();
 

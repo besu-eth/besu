@@ -24,7 +24,6 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.BlockchainSetupUtil;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogLayer;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.trielogs.TrieLog;
 import org.hyperledger.besu.plugin.services.trielogs.TrieLogFactory;
@@ -65,7 +64,7 @@ public class TrieLogFactoryTests {
   @Test
   public void testSerializeDeserializeAreEqual() {
 
-    TrieLogFactory factory = new TrieLogFactoryImpl();
+    TrieLogFactory factory = new BonsaiTrieLogFactory();
     byte[] rlp = factory.serialize(trieLogFixture);
 
     TrieLog layer = factory.deserialize(rlp);

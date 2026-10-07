@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.controller;
 
+import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.consensus.merge.MergeContext;
 import org.hyperledger.besu.consensus.merge.MergeProtocolSchedule;
 import org.hyperledger.besu.consensus.merge.PostMergeContext;
@@ -23,6 +24,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.chain.GenesisState;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
@@ -107,9 +109,14 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
 
     var mergeContext = protocolContext.getConsensusContext(MergeContext.class);
 
+    // Default an absent TTD to ZERO, matching createConsensusContext. With TTD=0 the comparator
+    // degenerates to "longest chain wins", which is correct for a pure PoS-from-genesis chain.
     var mergeBestPeerComparator =
         new TransitionBestPeerComparator(
-            genesisConfigOptions.getTerminalTotalDifficulty().map(Difficulty::of).orElseThrow());
+            genesisConfigOptions
+                .getTerminalTotalDifficulty()
+                .map(Difficulty::of)
+                .orElse(Difficulty.ZERO));
     ethPeers.setBestPeerComparator(mergeBestPeerComparator);
     mergeContext.observeNewIsPostMergeState(mergeBestPeerComparator);
 
@@ -183,6 +190,27 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
         evmConfiguration);
   }
 
+  /**
+   * Whether the chain described by this genesis config is post-merge at genesis, meaning it has no
+   * pre-merge blocks at all.
+   *
+   * <p>The genesis block's total difficulty is simply its own difficulty, so a genesis difficulty
+   * at or above the terminal total difficulty means the terminal condition is already satisfied at
+   * block zero. Hoodi is the motivating case: it sets {@code difficulty: 0x01} alongside {@code
+   * terminalTotalDifficulty: 0}, which a zero-difficulty check misreads as a transition chain.
+   *
+   * @param genesisConfig the genesis config
+   * @return true if genesis already satisfies the terminal total difficulty
+   */
+  static boolean isPostMergeAtGenesis(final GenesisConfig genesisConfig) {
+    return genesisConfig
+        .getConfigOptions()
+        .getTerminalTotalDifficulty()
+        .map(Difficulty::of)
+        .map(ttd -> GenesisState.parseDifficulty(genesisConfig).greaterOrEqualThan(ttd))
+        .orElse(false);
+  }
+
   @Override
   protected MergeContext createConsensusContext(
       final Blockchain blockchain,
@@ -191,10 +219,7 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
 
     final OptionalLong terminalBlockNumber = genesisConfigOptions.getTerminalBlockNumber();
     final Optional<Hash> terminalBlockHash = genesisConfigOptions.getTerminalBlockHash();
-    final boolean isPostMergeAtGenesis =
-        genesisConfigOptions.getTerminalTotalDifficulty().isPresent()
-            && genesisConfigOptions.getTerminalTotalDifficulty().get().isZero()
-            && blockchain.getGenesisBlockHeader().getDifficulty().isZero();
+    final boolean isPostMergeAtGenesis = isPostMergeAtGenesis(genesisConfig);
 
     final MergeContext mergeContext =
         postMergeContext
@@ -259,6 +284,9 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
   public BesuController build() {
     final BesuController controller = super.build();
     postMergeContext.setSyncState(syncState.get());
+    if (!p2pEnabled) {
+      syncState.get().setReachedTerminalDifficulty(true);
+    }
     return controller;
   }
 

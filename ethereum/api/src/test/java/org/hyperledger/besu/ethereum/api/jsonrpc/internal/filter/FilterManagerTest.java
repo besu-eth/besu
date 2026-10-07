@@ -15,6 +15,9 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.filter;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hyperledger.besu.ethereum.api.ApiConfiguration.DEFAULT_FILTER_TIMEOUT;
+import static org.hyperledger.besu.ethereum.api.ApiConfiguration.DEFAULT_MAX_FILTER_COUNT;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -25,6 +28,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameter;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.api.query.LogsQuery;
@@ -57,7 +61,8 @@ public class FilterManagerTest {
   @Mock private Blockchain blockchain;
   @Mock private BlockchainQueries blockchainQueries;
   @Mock private TransactionPool transactionPool;
-  @Spy final FilterRepository filterRepository = new FilterRepository();
+
+  @Spy final FilterRepository filterRepository = new FilterRepository(DEFAULT_MAX_FILTER_COUNT);
 
   @BeforeEach
   public void setupTest() {
@@ -211,7 +216,7 @@ public class FilterManagerTest {
 
   @Test
   public void getBlockChangesShouldResetFilterExpireDate() {
-    final BlockFilter filter = spy(new BlockFilter("foo"));
+    final BlockFilter filter = spy(new BlockFilter("foo", DEFAULT_FILTER_TIMEOUT));
     doReturn(Optional.of(filter))
         .when(filterRepository)
         .getFilter(eq("foo"), eq(BlockFilter.class));
@@ -223,7 +228,8 @@ public class FilterManagerTest {
 
   @Test
   public void getPendingTransactionsChangesShouldResetFilterExpireDate() {
-    final PendingTransactionFilter filter = spy(new PendingTransactionFilter("foo"));
+    final PendingTransactionFilter filter =
+        spy(new PendingTransactionFilter("foo", DEFAULT_FILTER_TIMEOUT));
     doReturn(Optional.of(filter))
         .when(filterRepository)
         .getFilter(eq("foo"), eq(PendingTransactionFilter.class));
@@ -242,16 +248,48 @@ public class FilterManagerTest {
     final LogsQuery logsQuery = new LogsQuery.Builder().build();
     final String filterId = "latest-latest";
     filterRepository.save(
-        new LogFilter(filterId, BlockParameter.LATEST, BlockParameter.LATEST, logsQuery));
+        new LogFilter(
+            filterId,
+            BlockParameter.LATEST,
+            BlockParameter.LATEST,
+            logsQuery,
+            DEFAULT_FILTER_TIMEOUT));
 
     when(blockchainQueries.headBlockNumber()).thenReturn(100L, 101L);
     when(blockchainQueries.matchingLogs(anyLong(), anyLong(), any(LogsQuery.class), any()))
         .thenReturn(Collections.emptyList());
 
-    filterManager.logs(filterId);
+    filterManager.logs(filterId, () -> true);
 
     verify(blockchainQueries, times(1)).headBlockNumber();
     verify(blockchainQueries).matchingLogs(eq(100L), eq(100L), eq(logsQuery), any());
+  }
+
+  // A filter installed within the range limit must be rejected by logs() if the head has
+  // advanced far enough that the range now exceeds maxLogRange (LATEST resolves at query time,
+  // not at install time).
+  @Test
+  public void logsThrowsWhenRangeExceedsLimitAfterHeadAdvances() {
+    final long maxLogRange = 5L;
+    final FilterManager rangedFilterManager =
+        new FilterManagerBuilder()
+            .blockchainQueries(blockchainQueries)
+            .transactionPool(transactionPool)
+            .filterRepository(new FilterRepository(DEFAULT_MAX_FILTER_COUNT))
+            .maxLogRange(maxLogRange)
+            .build();
+
+    // fromBlock = 100 (explicit), toBlock = LATEST — no range check at install time
+    final String filterId =
+        rangedFilterManager.installLogFilter(
+            new BlockParameter(100L), BlockParameter.LATEST, new LogsQuery.Builder().build());
+
+    // Head has advanced to 106: range = 106 - 100 = 6, which exceeds maxLogRange (5)
+    when(blockchainQueries.headBlockNumber()).thenReturn(106L);
+
+    assertThatThrownBy(() -> rangedFilterManager.logs(filterId, () -> true))
+        .isInstanceOf(InvalidJsonRpcParameters.class)
+        .hasMessageContaining("Requested range exceeds maximum range limit");
   }
 
   private Hash appendBlockToBlockchain() {

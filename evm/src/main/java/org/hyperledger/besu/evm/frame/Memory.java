@@ -98,13 +98,16 @@ public class Memory {
       return activeWords;
     }
 
-    try {
-      final long byteSize = Words.clampedAdd(Words.clampedAdd(location, numBytes), 31);
-      long wordSize = byteSize / 32;
-      return Math.max(wordSize, activeWords);
-    } catch (ArithmeticException ae) {
+    // Words.clampedAdd is total, so the prior try/catch was dead code. Compute the
+    // saturated byte size directly and short-circuit when it exceeds the backing
+    // store's addressable range, so the caller's gas accounting clamps to
+    // Long.MAX_VALUE via memoryCost() instead of producing an intermediate word
+    // count that downstream code would have to truncate to an int.
+    final long byteSize = Words.clampedAdd(Words.clampedAdd(location, numBytes), 31);
+    if (byteSize > MAX_BYTES) {
       return Long.MAX_VALUE >> 5;
     }
+    return Math.max(byteSize / 32, activeWords);
   }
 
   /**
@@ -152,9 +155,9 @@ public class Memory {
   public boolean equals(final Object other) {
     if (other == null) return false;
     if (other == this) return true;
-    if (!(other instanceof Memory)) return false;
+    if (!(other instanceof Memory that)) return false;
 
-    return Arrays.equals(memBytes, ((Memory) other).memBytes);
+    return Arrays.equals(memBytes, that.memBytes);
   }
 
   @Override

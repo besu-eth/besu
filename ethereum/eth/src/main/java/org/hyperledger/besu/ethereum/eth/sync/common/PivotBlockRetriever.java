@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.eth.sync.common;
 
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.util.ExceptionUtils;
 
@@ -55,7 +56,7 @@ public class PivotBlockRetriever {
   // The current pivot block number, gets pushed back if peers disagree on the pivot block
   AtomicLong pivotBlockNumber;
 
-  private final CompletableFuture<PivotSyncState> result = new CompletableFuture<>();
+  private final CompletableFuture<SnapSyncProcessState> result = new CompletableFuture<>();
   private final Map<Long, PivotBlockConfirmer> confirmationTasks = new ConcurrentHashMap<>();
 
   private final AtomicBoolean isStarted = new AtomicBoolean(false);
@@ -90,7 +91,7 @@ public class PivotBlockRetriever {
         DEFAULT_MAX_PIVOT_BLOCK_RESETS);
   }
 
-  public CompletableFuture<PivotSyncState> downloadPivotBlockHeader() {
+  public CompletableFuture<SnapSyncProcessState> downloadPivotBlockHeader() {
     if (isStarted.compareAndSet(false, true)) {
       LOG.info("Retrieve a pivot block that can be confirmed by at least {} peers.", peersToQuery);
       confirmBlock(pivotBlockNumber.get());
@@ -112,7 +113,8 @@ public class PivotBlockRetriever {
     pivotBlockConfirmationTask.confirmPivotBlock().whenComplete(this::handleConfirmationResult);
   }
 
-  private void handleConfirmationResult(final PivotSyncState fastSyncState, final Throwable error) {
+  private void handleConfirmationResult(
+      final SnapSyncProcessState fastSyncState, final Throwable error) {
     if (error != null) {
       final Throwable rootCause = ExceptionUtils.rootCause(error);
       if (rootCause instanceof PivotBlockConfirmer.ContestedPivotBlockException) {

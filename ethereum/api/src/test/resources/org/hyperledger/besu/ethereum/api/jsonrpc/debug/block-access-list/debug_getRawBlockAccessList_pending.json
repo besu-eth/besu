@@ -1,0 +1,16 @@
+{
+  "request": {
+    "id": 12,
+    "jsonrpc": "2.0",
+    "method": "debug_getRawBlockAccessList",
+    "params": [
+      "pending"
+    ]
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 12,
+    "result": null
+  },
+  "statusCode": 200
+}

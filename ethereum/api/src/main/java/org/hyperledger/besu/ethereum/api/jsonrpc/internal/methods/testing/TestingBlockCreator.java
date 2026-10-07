@@ -69,6 +69,7 @@ class TestingBlockCreator extends AbstractBlockCreator {
       final Optional<List<Withdrawal>> withdrawals,
       final Optional<Bytes32> parentBeaconBlockRoot,
       final Optional<Long> slotNumber,
+      final Optional<Long> targetGasLimit,
       final BlockHeader parentHeader) {
 
     return createBlock(
@@ -78,6 +79,7 @@ class TestingBlockCreator extends AbstractBlockCreator {
         Optional.of(random),
         parentBeaconBlockRoot,
         slotNumber,
+        targetGasLimit,
         timestamp,
         false,
         parentHeader);

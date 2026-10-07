@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 
+import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcObjectMapperFactory;
 import org.hyperledger.besu.ethereum.transaction.CallParameter;
 
 import java.io.IOException;
@@ -25,7 +26,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
-import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 
 public class TraceCallManyParameter {
   TraceCallParameterTuple params;
@@ -43,7 +43,7 @@ public class TraceCallManyParameter {
 }
 
 class TraceCallParameterDeserializer extends StdDeserializer<TraceCallParameterTuple> {
-  private static final ObjectMapper mapper = new ObjectMapper().registerModule(new Jdk8Module());
+  private static final ObjectMapper mapper = JsonRpcObjectMapperFactory.getParameterMapper();
 
   public TraceCallParameterDeserializer(final Class<?> vc) {
     super(vc);

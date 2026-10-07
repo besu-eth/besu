@@ -21,6 +21,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
+import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
@@ -50,6 +51,7 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
    * @param withdrawals the withdrawals, if present
    * @param parentBeaconBlockRoot the parent beacon block root, if present
    * @param slotNumber the consensus-layer slot number, if present
+   * @param targetGasLimit the CL-supplied target gas limit, if present
    */
   @Value.Builder
   record PreparePayloadArgs(
@@ -59,7 +61,8 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
       Address feeRecipient,
       Optional<List<Withdrawal>> withdrawals,
       Optional<Bytes32> parentBeaconBlockRoot,
-      Optional<Long> slotNumber) {}
+      Optional<Long> slotNumber,
+      Optional<Long> targetGasLimit) {}
 
   /**
    * Prepare payload identifier.
@@ -101,17 +104,6 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
   BlockProcessingResult validateBlock(final Block block);
 
   /**
-   * Update fork choice.
-   *
-   * @param newHead the new head
-   * @param finalizedBlockHash the finalized block hash
-   * @param safeBlockHash the safe block hash
-   * @return the forkchoice result
-   */
-  ForkchoiceResult updateForkChoice(
-      final BlockHeader newHead, final Hash finalizedBlockHash, final Hash safeBlockHash);
-
-  /**
    * Update fork choice without applying the legacy "ignore update to old head" optimization that
    * skips when the new head is an ancestor of the canonical chain head. Used by the post
    * execution-apis #786 forkchoiceUpdated flow, where the narrowed skip (ancestor of finalized) is
@@ -122,19 +114,19 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
    * @param safeBlockHash the safe block hash
    * @return the forkchoice result
    */
-  ForkchoiceResult updateForkChoiceWithoutLegacySkip(
+  ForkchoiceResult updateForkChoice(
       final BlockHeader newHead, final Hash finalizedBlockHash, final Hash safeBlockHash);
 
   /**
-   * Returns true if the given block hash is a strict ancestor of the currently finalized block
+   * Returns true if the given block header is a strict ancestor of the currently finalized block
    * (i.e. an older block on the same chain, not finalized itself). Returns false when no finalized
    * block is known, when the candidate hash cannot be located, or when the candidate IS the
    * finalized block
    *
-   * @param candidateHeadHash the candidate head hash
+   * @param candidateHeadBlockHeader the candidate block header
    * @return whether the candidate is a strict ancestor of the latest known finalized block
    */
-  boolean isAncestorOfFinalized(Hash candidateHeadHash);
+  boolean isAncestorOfFinalized(BlockHeader candidateHeadBlockHeader);
 
   /**
    * Computes the reorg depth that would result from switching the canonical head to {@code
@@ -184,16 +176,18 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
    * Append new payload to sync.
    *
    * @param newPayload the new payload
+   * @param blockAccessList the block access list received with the payload, if any
    * @return the completable future
    */
-  CompletableFuture<Void> appendNewPayloadToSync(Block newPayload);
+  CompletableFuture<Void> appendNewPayloadToSync(
+      Block newPayload, Optional<BlockAccessList> blockAccessList);
 
   /**
    * Gets or sync head by hash.
    *
    * @param headHash the head hash
    * @param finalizedHash the finalized hash
-   * @return the or sync head by hash
+   * @return the block header or empty if not present
    */
   Optional<BlockHeader> getOrSyncHeadByHash(Hash headHash, Hash finalizedHash);
 
@@ -211,6 +205,27 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
    * @return the boolean
    */
   boolean isBadBlock(Hash blockHash);
+
+  /**
+   * Check whether a block that has not been imported yet descends from a bad block, recording it as
+   * bad if it does. Only the direct parent is checked, so a deeper bad ancestor is detected as long
+   * as every block in between was checked too. A parent that is on the chain is never bad.
+   *
+   * @param header the header of the block
+   * @return the cause the block is bad for, empty if the parent is not known as bad
+   */
+  Optional<BadBlockCause> checkAndMarkBadDescendant(BlockHeader header);
+
+  /**
+   * Best-effort variant of {@link #checkAndMarkBadDescendant(BlockHeader)} for a block only known
+   * by hash. The check needs the block's header to find its parent, so it only covers a block whose
+   * header a previous sync attempt already fetched. {@code false} means the block was not detected
+   * as a bad descendant, not that it is none.
+   *
+   * @param blockHash the block hash
+   * @return true if the block was detected to descend from a bad block
+   */
+  boolean checkAndMarkBadDescendant(Hash blockHash);
 
   /**
    * Gets latest valid hash of bad block.
@@ -256,7 +271,9 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
       /** Invalid payload attributes status. */
       INVALID_PAYLOAD_ATTRIBUTES,
       /** Ignore update to old head status. */
-      IGNORE_UPDATE_TO_OLD_HEAD
+      IGNORE_UPDATE_TO_OLD_HEAD,
+      /** The head could not be set because of a local failure, the head itself may be valid. */
+      INTERNAL_ERROR
     }
 
     private final Status status;

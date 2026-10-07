@@ -88,8 +88,8 @@ public abstract class BftExtraDataCodec {
    */
   public BftExtraData decode(final BlockHeader blockHeader) {
     final Object inputExtraData = blockHeader.getParsedExtraData();
-    if (inputExtraData instanceof BftExtraData) {
-      return (BftExtraData) inputExtraData;
+    if (inputExtraData instanceof BftExtraData bftExtraData) {
+      return bftExtraData;
     }
     LOG.warn(
         "Expected a BftExtraData instance but got {}. Reparsing required.",

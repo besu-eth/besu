@@ -16,13 +16,11 @@ package org.hyperledger.besu.chainimport;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
 import org.hyperledger.besu.cli.config.EthNetworkConfig;
 import org.hyperledger.besu.components.BesuComponent;
 import org.hyperledger.besu.config.GenesisConfig;
-import org.hyperledger.besu.config.MergeConfiguration;
 import org.hyperledger.besu.config.NetworkDefinition;
 import org.hyperledger.besu.controller.BesuController;
 import org.hyperledger.besu.cryptoservices.NodeKeyUtils;
@@ -44,7 +42,6 @@ import java.math.BigInteger;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.concurrent.CompletionException;
 
 import com.google.common.io.Resources;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -89,69 +86,6 @@ public final class RlpBlockImporterTest {
     // Don't count the Genesis block
     assertThat(result.count).isEqualTo(999);
     assertThat(result.td).isEqualTo(UInt256.valueOf(21991996248790L));
-  }
-
-  @Test
-  public void blockImportRejectsBadPow() throws IOException {
-    // set merge flag to false, otherwise this test can fail if a merge test runs first
-    MergeConfiguration.setMergeEnabled(false);
-
-    final Path source = dataDir.resolve("badpow.blocks");
-    BlockTestUtil.writeBadPowBlocks(source);
-    final BesuController targetController =
-        new BesuController.Builder()
-            .fromEthNetworkConfig(
-                EthNetworkConfig.getNetworkConfig(NetworkDefinition.MAINNET), SyncMode.FULL)
-            .synchronizerConfiguration(SynchronizerConfiguration.builder().build())
-            .ethProtocolConfiguration(EthProtocolConfiguration.DEFAULT)
-            .storageProvider(new InMemoryKeyValueStorageProvider())
-            .networkId(BigInteger.ONE)
-            .miningParameters(MiningConfiguration.newDefault())
-            .nodeKey(NodeKeyUtils.generate())
-            .metricsSystem(new NoOpMetricsSystem())
-            .dataDirectory(dataDir)
-            .clock(TestClock.fixed())
-            .transactionPoolConfiguration(TransactionPoolConfiguration.DEFAULT)
-            .evmConfiguration(EvmConfiguration.DEFAULT)
-            .networkConfiguration(NetworkingConfiguration.DEFAULT)
-            .besuComponent(mock(BesuComponent.class))
-            .apiConfiguration(ImmutableApiConfiguration.builder().build())
-            .build();
-
-    assertThatThrownBy(
-        () -> rlpBlockImporter.importBlockchain(source, targetController, false),
-        "Invalid header at block number 2.",
-        CompletionException.class);
-  }
-
-  @Test
-  public void blockImportCanSkipPow() throws IOException {
-    final Path source = dataDir.resolve("badpow.blocks");
-    BlockTestUtil.writeBadPowBlocks(source);
-    final BesuController targetController =
-        new BesuController.Builder()
-            .fromEthNetworkConfig(
-                EthNetworkConfig.getNetworkConfig(NetworkDefinition.MAINNET), SyncMode.FULL)
-            .synchronizerConfiguration(SynchronizerConfiguration.builder().build())
-            .ethProtocolConfiguration(EthProtocolConfiguration.DEFAULT)
-            .storageProvider(new InMemoryKeyValueStorageProvider())
-            .networkId(BigInteger.ONE)
-            .miningParameters(MiningConfiguration.newDefault())
-            .nodeKey(NodeKeyUtils.generate())
-            .metricsSystem(new NoOpMetricsSystem())
-            .dataDirectory(dataDir)
-            .clock(TestClock.fixed())
-            .transactionPoolConfiguration(TransactionPoolConfiguration.DEFAULT)
-            .evmConfiguration(EvmConfiguration.DEFAULT)
-            .networkConfiguration(NetworkingConfiguration.DEFAULT)
-            .besuComponent(mock(BesuComponent.class))
-            .apiConfiguration(ImmutableApiConfiguration.builder().build())
-            .build();
-
-    final RlpBlockImporter.ImportResult result =
-        rlpBlockImporter.importBlockchain(source, targetController, true);
-    assertThat(result.count).isEqualTo(1);
-    assertThat(result.td).isEqualTo(UInt256.valueOf(34351349760L));
   }
 
   @Test

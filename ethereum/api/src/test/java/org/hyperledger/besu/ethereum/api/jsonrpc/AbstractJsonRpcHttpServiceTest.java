@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static org.hyperledger.besu.ethereum.api.ApiConfiguration.DEFAULT_MAX_FILTER_COUNT;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
@@ -183,7 +184,7 @@ public abstract class AbstractJsonRpcHttpServiceTest {
             blockchainSetupUtil.getWorldArchive(),
             miningConfiguration);
     final FilterIdGenerator filterIdGenerator = mock(FilterIdGenerator.class);
-    final FilterRepository filterRepository = new FilterRepository();
+    final FilterRepository filterRepository = new FilterRepository(DEFAULT_MAX_FILTER_COUNT);
     when(filterIdGenerator.nextId()).thenReturn("0x1");
     filterManager =
         new FilterManagerBuilder()

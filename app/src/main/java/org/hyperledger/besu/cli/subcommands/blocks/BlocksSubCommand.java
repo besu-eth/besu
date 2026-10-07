@@ -32,7 +32,6 @@ import org.hyperledger.besu.controller.BesuController;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.blockcreation.IncrementingNonceGenerator;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration;
 import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration.MutableInitValues;
@@ -286,7 +285,6 @@ public class BlocksSubCommand implements Runnable {
       return ImmutableMiningConfiguration.builder()
           .mutableInitValues(
               MutableInitValues.builder()
-                  .nonceGenerator(new IncrementingNonceGenerator(0))
                   .extraData(extraData)
                   .minTransactionGasPrice(minTransactionGasPrice)
                   .coinbase(coinbase)
@@ -356,6 +354,12 @@ public class BlocksSubCommand implements Runnable {
         arity = "1..1")
     private final BlockExportFormat format = BlockExportFormat.RLP;
 
+    @Option(
+        names = "--include-bals",
+        description =
+            "Write a sidecar file '<to>.bals' with the Block Access List of each exported block (RLP format only).")
+    private final Boolean includeBals = false;
+
     @NotBlank
     @Option(
         names = "--to",
@@ -376,6 +380,11 @@ public class BlocksSubCommand implements Runnable {
       LOG.info("Export {} block data to file {}", format, blocksExportFile.toPath());
 
       checkCommand(this, startBlock, endBlock);
+      if (includeBals && format != BlockExportFormat.RLP) {
+        throw new ParameterException(
+            spec.commandLine(),
+            "--include-bals is only supported with --format=RLP (got " + format + ").");
+      }
       final Optional<MetricsService> metricsService = initMetrics(parentCommand);
 
       final BesuController controller = createBesuController();
@@ -407,7 +416,11 @@ public class BlocksSubCommand implements Runnable {
       final ProtocolContext context = controller.getProtocolContext();
       final RlpBlockExporter exporter =
           parentCommand.rlpBlockExporterFactory.apply(context.getBlockchain());
-      exporter.exportBlocks(blocksExportFile, getStartBlock(), getEndBlock());
+      final Optional<File> balsOutputFile =
+          includeBals
+              ? Optional.of(new File(blocksExportFile.getAbsolutePath() + ".bals"))
+              : Optional.empty();
+      exporter.exportBlocks(blocksExportFile, balsOutputFile, getStartBlock(), getEndBlock());
     }
 
     private void exportEra1Format(final BesuController controller) {

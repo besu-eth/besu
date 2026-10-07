@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.filter.FilterCountExceededException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.filter.FilterManager;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.FilterParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
@@ -24,13 +25,24 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorR
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
+import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 
 public class EthNewFilter implements JsonRpcMethod {
 
   private final FilterManager filterManager;
+  private final BlockchainQueries blockchainQueries;
+  private final long maxLogRange;
+  private final int maxFilterAddresses;
 
-  public EthNewFilter(final FilterManager filterManager) {
+  public EthNewFilter(
+      final FilterManager filterManager,
+      final BlockchainQueries blockchainQueries,
+      final long maxLogRange,
+      final int maxFilterAddresses) {
     this.filterManager = filterManager;
+    this.blockchainQueries = blockchainQueries;
+    this.maxLogRange = maxLogRange;
+    this.maxFilterAddresses = maxFilterAddresses;
   }
 
   @Override
@@ -53,9 +65,33 @@ public class EthNewFilter implements JsonRpcMethod {
           requestContext.getRequest().getId(), RpcErrorType.INVALID_FILTER_PARAMS);
     }
 
-    final String logFilterId =
-        filterManager.installLogFilter(
-            filter.getFromBlock(), filter.getToBlock(), filter.getLogsQuery());
+    if (maxFilterAddresses > 0 && filter.getAddresses().size() > maxFilterAddresses) {
+      return new JsonRpcErrorResponse(
+          requestContext.getRequest().getId(), RpcErrorType.EXCEEDS_RPC_MAX_FILTER_ADDRESSES);
+    }
+
+    if (maxLogRange > 0) {
+      final long headBlockNumber = blockchainQueries.headBlockNumber();
+      final long fromBlockNumber =
+          filter.getFromBlock().getBlockNumber(blockchainQueries).orElse(headBlockNumber);
+      final long toBlockNumber =
+          filter.getToBlock().getBlockNumber(blockchainQueries).orElse(headBlockNumber);
+      FilterParameter.validateBlockRange(fromBlockNumber, toBlockNumber, headBlockNumber);
+      if (toBlockNumber - fromBlockNumber > maxLogRange) {
+        return new JsonRpcErrorResponse(
+            requestContext.getRequest().getId(), RpcErrorType.EXCEEDS_RPC_MAX_BLOCK_RANGE);
+      }
+    }
+
+    final String logFilterId;
+    try {
+      logFilterId =
+          filterManager.installLogFilter(
+              filter.getFromBlock(), filter.getToBlock(), filter.getLogsQuery());
+    } catch (final FilterCountExceededException e) {
+      return new JsonRpcErrorResponse(
+          requestContext.getRequest().getId(), RpcErrorType.EXCEEDS_RPC_MAX_ACTIVE_FILTERS);
+    }
 
     return new JsonRpcSuccessResponse(requestContext.getRequest().getId(), logFilterId);
   }

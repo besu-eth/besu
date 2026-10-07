@@ -1,8 +1,6 @@
 {
     "config": {
         "chainId": 1,
-        "ethash": {
-        },
         "londonBlock": 33,
         "shanghaiTime": 1444660030,
         "cancunTime": 1444660040

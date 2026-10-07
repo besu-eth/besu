@@ -25,6 +25,7 @@ import org.apache.tuweni.bytes.MutableBytes;
 import org.bouncycastle.crypto.params.ECDomainParameters;
 import org.bouncycastle.math.ec.ECPoint;
 import org.bouncycastle.math.ec.FixedPointCombMultiplier;
+import org.jspecify.annotations.Nullable;
 
 /** The Secp public key. */
 public class SECPPublicKey implements java.security.PublicKey {
@@ -125,11 +126,10 @@ public class SECPPublicKey implements java.security.PublicKey {
 
   @Override
   public boolean equals(final Object other) {
-    if (!(other instanceof SECPPublicKey)) {
+    if (!(other instanceof SECPPublicKey that)) {
       return false;
     }
 
-    final SECPPublicKey that = (SECPPublicKey) other;
     return this.encoded.equals(that.encoded) && this.algorithm.equals(that.algorithm);
   }
 
@@ -153,7 +153,7 @@ public class SECPPublicKey implements java.security.PublicKey {
   }
 
   @Override
-  public String getFormat() {
+  public @Nullable String getFormat() {
     return null;
   }
 

@@ -38,7 +38,10 @@ public final class BlockAccessListDecoder {
 
   private BlockAccessListDecoder() {}
 
-  public static BlockAccessList decode(final RLPInput in) {
+  public static BlockAccessList decode(final RLPInput input) {
+    // read on its own: its raw encoding must not be the whole input when it is part of a larger
+    // one, e.g. a consensus message
+    final RLPInput in = input.readAsRlp();
     final List<AccountChanges> accounts = new ArrayList<>();
 
     in.enterList();
@@ -52,29 +55,32 @@ public final class BlockAccessListDecoder {
           acctIn.readList(
               scIn -> {
                 scIn.enterList();
-                StorageSlotKey slot = new StorageSlotKey(UInt256.fromBytes(scIn.readBytes()));
+                StorageSlotKey slot = new StorageSlotKey(scIn.readUInt256Scalar());
                 List<StorageChange> changes =
                     scIn.readList(
                         changeIn -> {
                           changeIn.enterList();
                           long txIndex = changeIn.readUnsignedIntScalar();
-                          UInt256 newVal = UInt256.fromBytes(changeIn.readBytes());
+                          UInt256 newVal = changeIn.readUInt256Scalar();
                           changeIn.leaveList();
                           return new StorageChange(txIndex, newVal);
                         });
+                // An empty change list is well-formed RLP. The EIP-7928 "at least one storage
+                // change" rule is left to MainnetBlockAccessListValidator, so the block comes back
+                // INVALID instead of engine_newPayload failing on invalid params.
                 scIn.leaveList();
                 return new SlotChanges(slot, changes);
               });
 
       List<SlotRead> reads =
-          acctIn.readList(r -> new SlotRead(new StorageSlotKey(UInt256.fromBytes(r.readBytes()))));
+          acctIn.readList(r -> new SlotRead(new StorageSlotKey(r.readUInt256Scalar())));
 
       List<BalanceChange> balances =
           acctIn.readList(
               bcIn -> {
                 bcIn.enterList();
                 long txIndex = bcIn.readUnsignedIntScalar();
-                Wei postBalance = Wei.of(UInt256.fromBytes(bcIn.readBytes()));
+                Wei postBalance = Wei.of(bcIn.readUInt256Scalar());
                 bcIn.leaveList();
                 return new BalanceChange(txIndex, postBalance);
               });

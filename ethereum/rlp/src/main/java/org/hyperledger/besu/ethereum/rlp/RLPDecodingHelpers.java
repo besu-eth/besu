@@ -46,13 +46,10 @@ class RLPDecodingHelpers {
     }
 
     boolean isList() {
-      switch (this) {
-        case SHORT_LIST:
-        case LONG_LIST:
-          return true;
-        default:
-          return false;
-      }
+      return switch (this) {
+        case SHORT_LIST, LONG_LIST -> true;
+        default -> false;
+      };
     }
   }
 
@@ -104,32 +101,34 @@ class RLPDecodingHelpers {
       final LongUnaryOperator byteGetter, final long size, final long elementStart) {
     final int prefix = Math.toIntExact(byteGetter.applyAsLong(elementStart)) & 0xFF;
     final Kind kind = Kind.of(prefix);
-    long payloadStart = 0;
-    int payloadSize = 0;
+
+    final long payloadStart;
+    final int payloadSize;
 
     switch (kind) {
-      case BYTE_ELEMENT:
+      case BYTE_ELEMENT -> {
         payloadStart = elementStart;
         payloadSize = 1;
-        break;
-      case SHORT_ELEMENT:
+      }
+      case SHORT_ELEMENT -> {
         payloadStart = elementStart + 1;
         payloadSize = prefix - 0x80;
-        break;
-      case LONG_ELEMENT:
-        final int sizeLengthElt = prefix - 0xb7;
-        payloadStart = elementStart + 1 + sizeLengthElt;
-        payloadSize = readLongSize(byteGetter, size, elementStart, sizeLengthElt);
-        break;
-      case SHORT_LIST:
+      }
+      case LONG_ELEMENT -> {
+        final int sizeLength = prefix - 0xb7;
+        payloadStart = elementStart + 1 + sizeLength;
+        payloadSize = readLongSize(byteGetter, size, elementStart, sizeLength);
+      }
+      case SHORT_LIST -> {
         payloadStart = elementStart + 1;
         payloadSize = prefix - 0xc0;
-        break;
-      case LONG_LIST:
-        final int sizeLengthList = prefix - 0xf7;
-        payloadStart = elementStart + 1 + sizeLengthList;
-        payloadSize = readLongSize(byteGetter, size, elementStart, sizeLengthList);
-        break;
+      }
+      case LONG_LIST -> {
+        final int sizeLength = prefix - 0xf7;
+        payloadStart = elementStart + 1 + sizeLength;
+        payloadSize = readLongSize(byteGetter, size, elementStart, sizeLength);
+      }
+      default -> throw new IllegalStateException("Unexpected RLP kind: " + kind);
     }
 
     return new RLPElementMetadata(kind, elementStart, payloadStart, payloadSize);

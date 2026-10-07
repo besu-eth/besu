@@ -54,8 +54,8 @@ public class NewPooledTransactionHashesMessage extends AbstractMessageData {
   public static NewPooledTransactionHashesMessage readFrom(
       final MessageData message, final Capability capability) {
 
-    if (message instanceof NewPooledTransactionHashesMessage) {
-      return (NewPooledTransactionHashesMessage) message;
+    if (message instanceof NewPooledTransactionHashesMessage newPooledTransactionHashesMessage) {
+      return newPooledTransactionHashesMessage;
     }
     final int code = message.getCode();
     if (code != MESSAGE_CODE) {

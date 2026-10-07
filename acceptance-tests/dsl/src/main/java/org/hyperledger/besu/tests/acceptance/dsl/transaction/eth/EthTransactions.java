@@ -60,6 +60,10 @@ public class EthTransactions {
     return new EthGetTransactionReceiptTransaction(transactionHash);
   }
 
+  public EthGetTransactionByHashTransaction getTransactionByHash(final String transactionHash) {
+    return new EthGetTransactionByHashTransaction(transactionHash);
+  }
+
   public EthSendRawTransactionTransaction sendRawTransaction(final String transactionData) {
     return new EthSendRawTransactionTransaction(transactionData);
   }
@@ -81,10 +85,6 @@ public class EthTransactions {
    */
   public EthGetBlockWithSlotNumber getBlockWithSlotNumber(final String blockNumber) {
     return new EthGetBlockWithSlotNumber(blockNumber);
-  }
-
-  public EthMiningTransaction mining() {
-    return new EthMiningTransaction();
   }
 
   public EthSyncingTransaction syncing() {

@@ -45,7 +45,7 @@ public class ECRECPrecompiledContract extends AbstractPrecompiledContract {
   private static final int SEMANTIC_INPUT_LENGTH = 128;
   final SignatureAlgorithm signatureAlgorithm;
   private static final String PRECOMPILE_NAME = "ECREC";
-  private static final Cache<Integer, PrecompileInputResultTuple> ecrecCache =
+  private static final Cache<Bytes, PrecompileInputResultTuple> ecrecCache =
       AbstractPrecompiledContract.resultCacheBuilder().build();
 
   /**
@@ -90,7 +90,7 @@ public class ECRECPrecompiledContract extends AbstractPrecompiledContract {
     }
 
     PrecompileInputResultTuple res;
-    Integer cacheKey = null;
+    Bytes cacheKey = null;
     final Bytes cachedInput =
         input.size() > SEMANTIC_INPUT_LENGTH ? input.slice(0, SEMANTIC_INPUT_LENGTH) : input;
     if (enableResultCaching) {
@@ -102,12 +102,14 @@ public class ECRECPrecompiledContract extends AbstractPrecompiledContract {
           cacheEventConsumer.accept(new CacheEvent(PRECOMPILE_NAME, CacheMetric.HIT));
           return res.cachedResult();
         } else {
-          LOG.debug(
-              "false positive ecrecover {}, cache key {}, cached input: {}, input: {}",
-              input.getClass().getSimpleName(),
-              cacheKey,
-              res.cachedInput().toHexString(),
-              cachedInput.toHexString());
+          if (LOG.isDebugEnabled()) {
+            LOG.debug(
+                "false positive ecrecover {}, cache key {}, cached input: {}, input: {}",
+                input.getClass().getSimpleName(),
+                cacheKey,
+                res.cachedInput().toHexString(),
+                cachedInput.toHexString());
+          }
           cacheEventConsumer.accept(new CacheEvent(PRECOMPILE_NAME, CacheMetric.FALSE_POSITIVE));
         }
       } else {

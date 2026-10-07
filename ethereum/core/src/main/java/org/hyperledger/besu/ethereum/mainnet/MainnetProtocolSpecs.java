@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.mainnet;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.ARROW_GLACIER;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BERLIN;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BOGOTA;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BPO1;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BPO2;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BPO3;
@@ -42,12 +43,12 @@ import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PRAGUE
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SHANGHAI;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SPURIOUS_DRAGON;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.TANGERINE_WHISTLE;
+import static org.hyperledger.besu.ethereum.mainnet.requests.MainnetRequestsProcessor.amsterdamRequestsProcessors;
 import static org.hyperledger.besu.ethereum.mainnet.requests.MainnetRequestsProcessor.pragueRequestsProcessors;
 
 import org.hyperledger.besu.config.BlobSchedule;
 import org.hyperledger.besu.config.BlobScheduleOptions;
 import org.hyperledger.besu.config.GenesisConfigOptions;
-import org.hyperledger.besu.config.PowAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
@@ -77,7 +78,7 @@ import org.hyperledger.besu.ethereum.mainnet.parallelization.MainnetParallelBloc
 import org.hyperledger.besu.ethereum.mainnet.requests.MainnetRequestsValidator;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestContractAddresses;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
-import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.BalStateRootCommitterFactory;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitterFactory;
 import org.hyperledger.besu.ethereum.mainnet.transactionpool.OsakaTransactionPoolPreProcessor;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.evm.MainnetEVMs;
@@ -242,13 +243,6 @@ public abstract class MainnetProtocolSpecs {
     // We also get here if we are in PoS mode, but the right value for PoS slot duration will
     // override this value.
     return Duration.ofSeconds(POW_SLOT_TIME_ESTIMATION);
-  }
-
-  public static PoWHasher powHasher(final PowAlgorithm powAlgorithm) {
-    if (powAlgorithm == null) {
-      return PoWHasher.UNSUPPORTED;
-    }
-    return powAlgorithm == PowAlgorithm.ETHASH ? PoWHasher.ETHASH_LIGHT : PoWHasher.UNSUPPORTED;
   }
 
   public static ProtocolSpecBuilder homesteadDefinition(
@@ -976,6 +970,9 @@ public abstract class MainnetProtocolSpecs {
                         .build())
             // EIP-2935 Blockhash processor
             .preExecutionProcessor(getPraguePreExecutionProcessor(genesisConfigOptions))
+            // EIP-7685: requestsHash header field is mandatory from Prague onwards
+            .blockHeaderValidatorBuilder(
+                MainnetBlockHeaderValidator::requestsAwareBlockHeaderValidator)
             .hardforkId(PRAGUE);
     if (isPoAConsensus(genesisConfigOptions) && !hasSystemContractAddresses(genesisConfigOptions)) {
       LOG.warn(
@@ -989,7 +986,7 @@ public abstract class MainnetProtocolSpecs {
         pragueSpecBuilder.requestProcessorCoordinator(
             pragueRequestsProcessors(requestContractAddresses));
       } catch (NoSuchElementException nsee) {
-        LOG.warn("Prague definitions require system contract addresses in genesis");
+        LOG.warn("Prague definitions require depositContractAddress in genesis");
         throw nsee;
       }
     }
@@ -1003,6 +1000,10 @@ public abstract class MainnetProtocolSpecs {
         || genesisConfigOptions.isQbft();
   }
 
+  // Deliberately stricter than RequestContractAddresses.fromGenesis, which defaults the
+  // withdrawal and consolidation addresses: PoA chains opt in to system calls by configuring all
+  // three, and treating a deposit-only PoA genesis as opted in would change how existing chains
+  // execute their blocks.
   private static boolean hasSystemContractAddresses(
       final GenesisConfigOptions genesisConfigOptions) {
     return genesisConfigOptions.getDepositContractAddress().isPresent()
@@ -1211,7 +1212,129 @@ public abstract class MainnetProtocolSpecs {
       final boolean isParallelTxProcessingEnabled,
       final BalConfiguration balConfiguration,
       final MetricsSystem metricsSystem) {
-    return bpo5Definition(
+    final ProtocolSpecBuilder amsterdamSpecBuilder =
+        bpo5Definition(
+                chainId,
+                enableRevertReason,
+                genesisConfigOptions,
+                evmConfiguration,
+                miningConfiguration,
+                isParallelTxProcessingEnabled,
+                balConfiguration,
+                metricsSystem)
+            .gasCalculator(AmsterdamGasCalculator::new)
+            // EIP-7708: Override evmBuilder to use Amsterdam EVM with transfer logging
+            .evmBuilder(
+                (gasCalculator, __) ->
+                    MainnetEVMs.amsterdam(
+                        gasCalculator, chainId.orElse(BigInteger.ZERO), evmConfiguration))
+            // EIP-7708: ContractCreationProcessor with transfer log emission enabled
+            .contractCreationProcessorBuilder(
+                evm ->
+                    new ContractCreationProcessor(
+                        evm,
+                        true,
+                        List.of(MaxCodeSizeRule.from(evm), PrefixCodeRule.of()),
+                        1,
+                        SPURIOUS_DRAGON_FORCE_DELETE_WHEN_EMPTY_ADDRESSES,
+                        EIP7708TransferLogEmitter.INSTANCE))
+            // EIP-7708: MessageCallProcessor with transfer log emission enabled
+            .messageCallProcessorBuilder(
+                (evm, precompileContractRegistry) ->
+                    new MessageCallProcessor(
+                        evm,
+                        precompileContractRegistry,
+                        SPURIOUS_DRAGON_FORCE_DELETE_WHEN_EMPTY_ADDRESSES,
+                        EIP7708TransferLogEmitter.INSTANCE))
+            // EIP-7708: TransactionProcessor configured for Amsterdam with transfer log emission
+            .transactionProcessorBuilder(
+                (gasCalculator,
+                    feeMarket,
+                    transactionValidator,
+                    contractCreationProcessor,
+                    messageCallProcessor) ->
+                    MainnetTransactionProcessor.builder()
+                        .gasCalculator(gasCalculator)
+                        .transactionValidatorFactory(transactionValidator)
+                        .contractCreationProcessor(contractCreationProcessor)
+                        .messageCallProcessor(messageCallProcessor)
+                        .clearEmptyAccounts(true)
+                        .warmCoinbase(true)
+                        .maxStackSize(evmConfiguration.evmStackSize())
+                        .feeMarket(feeMarket)
+                        .coinbaseFeePriceCalculator(CoinbaseFeePriceCalculator.eip1559())
+                        .codeDelegationProcessor(
+                            new CodeDelegationProcessor(
+                                chainId,
+                                SIGNATURE_ALGORITHM.getHalfCurveOrder(),
+                                new CodeDelegationService()))
+                        .transferLogEmitter(EIP7708TransferLogEmitter.INSTANCE)
+                        .build())
+            .blockAccessListFactory(new BlockAccessListFactory())
+            .blockAccessListValidatorBuilder(MainnetBlockAccessListValidator::create)
+            .stateRootCommitterFactory(new StateRootCommitterFactory(balConfiguration))
+            // EIP-8037: Disable validation-time TX_MAX_GAS_LIMIT cap (enforced at runtime on
+            // execution gas)
+            .gasLimitCalculatorBuilder(
+                (feeMarket, gasCalculator, blobSchedule) -> {
+                  final long londonForkBlock =
+                      genesisConfigOptions.getLondonBlockNumber().orElse(0L);
+                  return new AmsterdamTargetingGasLimitCalculator(
+                      londonForkBlock,
+                      (BaseFeeMarket) feeMarket,
+                      gasCalculator,
+                      blobSchedule.getMax(),
+                      blobSchedule.getTarget(),
+                      miningConfiguration.getMaxBlobsPerTransaction(),
+                      miningConfiguration.getMaxBlobsPerBlock());
+                })
+            // EIP-8037: Amsterdam gas calculator with state gas cost support
+            .gasCalculator(AmsterdamGasCalculator::new)
+            // Amsterdam (EIP-7778 + EIP-8037): Pre-refund 2D gas accounting
+            .blockGasAccountingStrategy(BlockGasAccountingStrategy.AMSTERDAM)
+            // Amsterdam: Validator uses pre-refund gas_metered = max(execution, state) from
+            // processing
+            .blockGasUsedValidator(BlockGasUsedValidator.AMSTERDAM)
+            // EIP-7843: slotNumber is the last header field, so a header omitting it still
+            // decodes cleanly - only this rule rejects it.
+            .blockHeaderValidatorBuilder(
+                MainnetBlockHeaderValidator::slotNumberAwareBlockHeaderValidator)
+            .slotNumberRequired(true)
+            .hardforkId(AMSTERDAM);
+
+    // EIP-8282 introduces the builder deposit (0x03) and builder exit (0x04) system-contract
+    // requests. PoA dev/test chains without system contract addresses cannot run the system calls,
+    // so they keep the no-op coordinator inherited from Prague; every other chain replaces the
+    // inherited Prague coordinator with the Amsterdam one that also collects the builder requests.
+    if (isPoAConsensus(genesisConfigOptions) && !hasSystemContractAddresses(genesisConfigOptions)) {
+      LOG.warn(
+          "Skipping system contract request processors for PoA consensus (clique/ibft/qbft) without system contract addresses.");
+    } else {
+      try {
+        amsterdamSpecBuilder.requestProcessorCoordinator(
+            amsterdamRequestsProcessors(
+                RequestContractAddresses.fromGenesis(genesisConfigOptions)));
+      } catch (NoSuchElementException nsee) {
+        // Surface the missing-address cause explicitly: without it the bare NoSuchElementException
+        // gives no hint that the genesis file is what needs the deposit contract address.
+        LOG.warn("Amsterdam definitions require depositContractAddress in genesis");
+        throw nsee;
+      }
+    }
+
+    return amsterdamSpecBuilder;
+  }
+
+  static ProtocolSpecBuilder bogotaDefinition(
+      final Optional<BigInteger> chainId,
+      final boolean enableRevertReason,
+      final GenesisConfigOptions genesisConfigOptions,
+      final EvmConfiguration evmConfiguration,
+      final MiningConfiguration miningConfiguration,
+      final boolean isParallelTxProcessingEnabled,
+      final BalConfiguration balConfiguration,
+      final MetricsSystem metricsSystem) {
+    return amsterdamDefinition(
             chainId,
             enableRevertReason,
             genesisConfigOptions,
@@ -1220,78 +1343,11 @@ public abstract class MainnetProtocolSpecs {
             isParallelTxProcessingEnabled,
             balConfiguration,
             metricsSystem)
-        .gasCalculator(AmsterdamGasCalculator::new)
-        // EIP-7708: Override evmBuilder to use Amsterdam EVM with transfer logging
         .evmBuilder(
             (gasCalculator, __) ->
-                MainnetEVMs.amsterdam(
+                MainnetEVMs.bogota(
                     gasCalculator, chainId.orElse(BigInteger.ZERO), evmConfiguration))
-        // EIP-7708: ContractCreationProcessor with transfer log emission enabled
-        .contractCreationProcessorBuilder(
-            evm ->
-                new ContractCreationProcessor(
-                    evm,
-                    true,
-                    List.of(MaxCodeSizeRule.from(evm), PrefixCodeRule.of()),
-                    1,
-                    SPURIOUS_DRAGON_FORCE_DELETE_WHEN_EMPTY_ADDRESSES,
-                    EIP7708TransferLogEmitter.INSTANCE))
-        // EIP-7708: MessageCallProcessor with transfer log emission enabled
-        .messageCallProcessorBuilder(
-            (evm, precompileContractRegistry) ->
-                new MessageCallProcessor(
-                    evm,
-                    precompileContractRegistry,
-                    SPURIOUS_DRAGON_FORCE_DELETE_WHEN_EMPTY_ADDRESSES,
-                    EIP7708TransferLogEmitter.INSTANCE))
-        // EIP-7708: TransactionProcessor configured for Amsterdam with transfer log emission
-        .transactionProcessorBuilder(
-            (gasCalculator,
-                feeMarket,
-                transactionValidator,
-                contractCreationProcessor,
-                messageCallProcessor) ->
-                MainnetTransactionProcessor.builder()
-                    .gasCalculator(gasCalculator)
-                    .transactionValidatorFactory(transactionValidator)
-                    .contractCreationProcessor(contractCreationProcessor)
-                    .messageCallProcessor(messageCallProcessor)
-                    .clearEmptyAccounts(true)
-                    .warmCoinbase(true)
-                    .maxStackSize(evmConfiguration.evmStackSize())
-                    .feeMarket(feeMarket)
-                    .coinbaseFeePriceCalculator(CoinbaseFeePriceCalculator.eip1559())
-                    .codeDelegationProcessor(
-                        new CodeDelegationProcessor(
-                            chainId,
-                            SIGNATURE_ALGORITHM.getHalfCurveOrder(),
-                            new CodeDelegationService()))
-                    .transferLogEmitter(EIP7708TransferLogEmitter.INSTANCE)
-                    .build())
-        .blockAccessListFactory(new BlockAccessListFactory())
-        .blockAccessListValidatorBuilder(MainnetBlockAccessListValidator::create)
-        .stateRootCommitterFactory(new BalStateRootCommitterFactory(balConfiguration))
-        // EIP-8037: Disable validation-time TX_MAX_GAS_LIMIT cap (enforced at runtime on regular
-        // gas)
-        .gasLimitCalculatorBuilder(
-            (feeMarket, gasCalculator, blobSchedule) -> {
-              final long londonForkBlock = genesisConfigOptions.getLondonBlockNumber().orElse(0L);
-              return new AmsterdamTargetingGasLimitCalculator(
-                  londonForkBlock,
-                  (BaseFeeMarket) feeMarket,
-                  gasCalculator,
-                  blobSchedule.getMax(),
-                  blobSchedule.getTarget(),
-                  miningConfiguration.getMaxBlobsPerTransaction(),
-                  miningConfiguration.getMaxBlobsPerBlock());
-            })
-        // EIP-8037: Amsterdam gas calculator with state gas cost support
-        .gasCalculator(AmsterdamGasCalculator::new)
-        // Amsterdam (EIP-7778 + EIP-8037): Pre-refund 2D gas accounting
-        .blockGasAccountingStrategy(BlockGasAccountingStrategy.AMSTERDAM)
-        // Amsterdam: Validator uses pre-refund gas_metered = max(regular, state) from processing
-        .blockGasUsedValidator(BlockGasUsedValidator.AMSTERDAM)
-        .hardforkId(AMSTERDAM);
+        .hardforkId(BOGOTA);
   }
 
   private static ProtocolSpecBuilder applyBlobSchedule(
@@ -1321,7 +1377,7 @@ public abstract class MainnetProtocolSpecs {
       final boolean isParallelTxProcessingEnabled,
       final BalConfiguration balConfiguration,
       final MetricsSystem metricsSystem) {
-    return amsterdamDefinition(
+    return bogotaDefinition(
             chainId,
             enableRevertReason,
             genesisConfigOptions,

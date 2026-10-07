@@ -112,6 +112,14 @@ class TransactionsMessageProcessor {
             ex);
         peer.disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
       }
+    } catch (final RuntimeException ex) {
+      // Per-transaction validation errors are caught inside addRemoteTransactions; an exception
+      // reaching here means something failed at the message-processing level (e.g. tracker, stream
+      // setup). Disconnect as a last resort.
+      LOG.warn("Unexpected error processing transaction message, disconnecting: {}", peer, ex);
+      if (peer != null) {
+        peer.disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+      }
     }
   }
 }

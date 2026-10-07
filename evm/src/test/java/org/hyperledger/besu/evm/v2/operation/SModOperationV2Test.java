@@ -16,17 +16,14 @@ package org.hyperledger.besu.evm.v2.operation;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.evm.v2.testutils.TestMessageFrameBuilderV2.getV2StackItem;
-import static org.mockito.Mockito.mock;
 
 import org.hyperledger.besu.evm.UInt256;
-import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
-import org.hyperledger.besu.evm.gascalculator.GasCalculator;
+import org.hyperledger.besu.evm.gascalculator.FrontierGasCalculator;
 import org.hyperledger.besu.evm.operation.Operation.OperationResult;
 import org.hyperledger.besu.evm.v2.testutils.TestMessageFrameBuilderV2;
 
 import java.util.List;
-import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.Test;
@@ -34,8 +31,11 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
-class SModOperationV2Test {
-  private final SModOperationV2 operation = new SModOperationV2(mock(GasCalculator.class));
+class SModOperationV2Test extends BinaryOperationV2Test {
+
+  public SModOperationV2Test() {
+    super(new SModOperationV2(new FrontierGasCalculator()));
+  }
 
   static Iterable<Arguments> data() {
     return List.of(
@@ -80,43 +80,6 @@ class SModOperationV2Test {
     final UInt256 expected =
         UInt256.fromBytesBE(Bytes32.fromHexString(expectedResult).toArrayUnsafe());
     assertThat(getV2StackItem(frame, 0)).isEqualTo(expected);
-  }
-
-  private static Stream<List<String>> operandStacks() {
-    return Stream.of(List.of(), List.of("0x01"));
-  }
-
-  @ParameterizedTest(name = "stack {0}")
-  @MethodSource("operandStacks")
-  void stackUnderflowNoItems(final List<String> stackItems) {
-    final TestMessageFrameBuilderV2 frameBuilder = new TestMessageFrameBuilderV2();
-    for (String stackItem : stackItems) {
-      frameBuilder.pushStackItem(Bytes32.fromHexString(stackItem));
-    }
-    final MessageFrame frame = frameBuilder.build();
-
-    final OperationResult result = operation.execute(frame, null);
-
-    assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
-  }
-
-  @Test
-  void preservesDeeperStackItems() {
-    final Bytes32 untouched =
-        Bytes32.fromHexString("0xdeadbeefdeadbeefcafebabecafebabe0123456789abcdeff1e2d3c4b5a69788");
-    final MessageFrame frame =
-        new TestMessageFrameBuilderV2()
-            .pushStackItem(untouched)
-            .pushStackItem(Bytes32.fromHexString("0x02"))
-            .pushStackItem(Bytes32.fromHexString("0x09"))
-            .build();
-    assertThat(frame.stackTopV2()).isEqualTo(3);
-
-    operation.execute(frame, null);
-
-    assertThat(frame.stackTopV2()).isEqualTo(2);
-    assertThat(getV2StackItem(frame, 0)).isEqualTo(UInt256.fromInt(1));
-    assertThat(getV2StackItem(frame, 1)).isEqualTo(UInt256.fromBytesBE(untouched.toArrayUnsafe()));
   }
 
   @Test

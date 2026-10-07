@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.consensus.ibft.payload;
 
+import org.hyperledger.besu.consensus.common.bft.messagewrappers.BftMessage;
 import org.hyperledger.besu.consensus.common.bft.payload.SignedData;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPOutput;
@@ -42,18 +43,23 @@ public class PreparedCertificate {
   }
 
   /**
-   * Read from rlp input.
+   * Read from rlp input limited to supplied decode budget.
    *
    * @param rlpInput the rlp input
+   * @param decodeBudget the per-message decode budget
    * @return the prepared certificate
    */
-  public static PreparedCertificate readFrom(final RLPInput rlpInput) {
+  public static PreparedCertificate readFrom(
+      final RLPInput rlpInput, final DecodeBudget decodeBudget) {
     final SignedData<ProposalPayload> proposalMessage;
     final List<SignedData<PreparePayload>> prepareMessages;
 
     rlpInput.enterList();
-    proposalMessage = PayloadDeserializers.readSignedProposalPayloadFrom(rlpInput);
-    prepareMessages = rlpInput.readList(PayloadDeserializers::readSignedPreparePayloadFrom);
+    proposalMessage = PayloadDeserializers.readSignedProposalPayloadFrom(rlpInput, decodeBudget);
+    prepareMessages =
+        rlpInput.readList(
+            r -> PayloadDeserializers.readSignedPreparePayloadFrom(r, decodeBudget),
+            BftMessage.MAX_LIST_ENTRIES);
     rlpInput.leaveList();
 
     return new PreparedCertificate(proposalMessage, prepareMessages);

@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContex
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.StorageRangeDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.AccountFlatDatabaseHealingRangeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.StorageFlatDatabaseHealingRangeRequest;
+import org.hyperledger.besu.ethereum.eth.sync.worldstate.StalledDownloadException;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldDownloadState;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
@@ -159,7 +160,12 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest>
 
   @Override
   protected synchronized void markAsStalled(final int maxNodeRequestRetries) {
-    // TODO retry when mark as stalled
+    final String message =
+        "Snap sync world state download stalled — peers stopped serving data after "
+            + maxNodeRequestRetries
+            + " requests without progress.";
+    LOG.warn(message);
+    internalFuture.completeExceptionally(new StalledDownloadException(message));
   }
 
   @Override
@@ -218,6 +224,8 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest>
                     Bytes32.wrap(header.getStateRoot().getBytes()), rootNodeData);
               });
           updater.commit();
+
+          worldStateStorageCoordinator.clearCrossBlockCache();
 
           // Remove the blockchain observer
           blockchain.removeObserver(blockObserverId);
@@ -302,8 +310,8 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest>
     if (!internalFuture.isDone()) {
       if (request instanceof BytecodeRequest) {
         pendingCodeRequests.add(request);
-      } else if (request instanceof StorageRangeDataRequest) {
-        if (!((StorageRangeDataRequest) request).getStartKeyHash().equals(RangeManager.MIN_RANGE)) {
+      } else if (request instanceof StorageRangeDataRequest storageRangeDataRequest) {
+        if (!storageRangeDataRequest.getStartKeyHash().equals(RangeManager.MIN_RANGE)) {
           pendingLargeStorageRequests.add(request);
         } else {
           pendingStorageRequests.add(request);
@@ -472,6 +480,7 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest>
                   pivotBlockSelector.check(
                       (____, isNewPivotBlock) -> {
                         if (isNewPivotBlock) {
+                          resetProgressTracking();
                           foundNewPivotBlock.set(true);
                         }
                       });

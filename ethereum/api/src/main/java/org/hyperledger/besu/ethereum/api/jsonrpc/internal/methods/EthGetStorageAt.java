@@ -40,12 +40,7 @@ public class EthGetStorageAt extends AbstractBlockParameterOrBlockHashMethod {
   @Override
   protected BlockParameterOrBlockHash blockParameterOrBlockHash(
       final JsonRpcRequestContext request) {
-    try {
-      return request.getRequiredParameter(2, BlockParameterOrBlockHash.class);
-    } catch (JsonRpcParameterException e) {
-      throw new InvalidJsonRpcParameters(
-          "Invalid block or block hash parameter (index 2)", RpcErrorType.INVALID_BLOCK_PARAMS, e);
-    }
+    return blockParameterOrBlockHashWithLatestDefault(request, 2);
   }
 
   @Override

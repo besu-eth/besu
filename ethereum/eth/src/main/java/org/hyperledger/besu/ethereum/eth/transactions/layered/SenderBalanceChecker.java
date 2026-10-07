@@ -24,8 +24,8 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.worldstate.WorldState;
 
@@ -103,14 +103,6 @@ public interface SenderBalanceChecker {
       final var sender = tx.getSender();
 
       final var senderBalance = senderBalancesCache.computeIfAbsent(sender, this::getSenderBalance);
-
-      if (senderBalance.equals(Wei.ZERO)) {
-        LOG.atTrace()
-            .setMessage("Sender has zero balance for transaction {}")
-            .addArgument(pendingTransaction::toTraceLog)
-            .log();
-        return false;
-      }
 
       final var gasCalculator =
           protocolSchedule.getByBlockHeader(blockchain.getChainHeadHeader()).getGasCalculator();

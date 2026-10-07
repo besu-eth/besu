@@ -24,31 +24,26 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.S
 
 import java.util.List;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import org.apache.tuweni.units.bigints.UInt256;
 
-public class BlockAccessListResult {
+public final class BlockAccessListResult {
 
-  private final List<AccountChangesResult> accountChanges;
+  private BlockAccessListResult() {}
 
-  @JsonCreator
-  public BlockAccessListResult(
-      @JsonProperty("accountChanges") final List<AccountChangesResult> accountChanges) {
-    this.accountChanges = accountChanges;
+  public static List<AccountChangesResult> fromBlockAccessList(final BlockAccessList list) {
+    return list.accountChanges().stream().map(AccountChangesResult::new).toList();
   }
 
-  public static BlockAccessListResult fromBlockAccessList(final BlockAccessList list) {
-    return new BlockAccessListResult(
-        list.accountChanges().stream().map(AccountChangesResult::new).toList());
-  }
-
-  public List<AccountChangesResult> getAccountChanges() {
-    return accountChanges;
-  }
-
-  @JsonInclude(JsonInclude.Include.NON_EMPTY)
+  @JsonPropertyOrder({
+    "address",
+    "storageChanges",
+    "storageReads",
+    "balanceChanges",
+    "nonceChanges",
+    "codeChanges"
+  })
   public static class AccountChangesResult {
     public final String address;
     public final List<SlotChangeResult> storageChanges;
@@ -71,58 +66,59 @@ public class BlockAccessListResult {
     }
   }
 
-  @JsonInclude(JsonInclude.Include.NON_EMPTY)
+  @JsonPropertyOrder({"key", "changes"})
   public static class SlotChangeResult {
-    public final String slot;
+    @JsonProperty("key")
+    public final String key;
+
     public final List<StorageChangeResult> changes;
 
     public SlotChangeResult(final SlotChanges changes) {
-      this.slot = changes.slot().getSlotKey().map(UInt256::toHexString).orElse("null");
+      this.key = changes.slot().getSlotKey().map(UInt256::toHexString).orElse("null");
       this.changes = changes.changes().stream().map(StorageChangeResult::new).toList();
     }
   }
 
-  @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public static class StorageChangeResult {
-    public final long txIndex;
-    public final String newValue;
+    public final String index;
+    public final String value;
 
     public StorageChangeResult(final StorageChange change) {
-      this.txIndex = change.txIndex();
-      this.newValue = change.newValue().toHexString();
+      this.index = Quantity.create(change.txIndex());
+      this.value = change.newValue().toHexString();
     }
   }
 
-  @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public static class BalanceChangeResult {
-    public final long txIndex;
-    public final String postBalance;
+    public final String index;
+    public final String value;
 
     public BalanceChangeResult(final BalanceChange change) {
-      this.txIndex = change.txIndex();
-      this.postBalance = change.postBalance().toHexString();
+      this.index = Quantity.create(change.txIndex());
+      this.value = change.postBalance().toShortHexString();
     }
   }
 
-  @JsonInclude(JsonInclude.Include.NON_EMPTY)
   public static class NonceChangeResult {
-    public final long txIndex;
-    public final long newNonce;
+    public final String index;
+    public final String value;
 
     public NonceChangeResult(final NonceChange change) {
-      this.txIndex = change.txIndex();
-      this.newNonce = change.newNonce();
+      this.index = Quantity.create(change.txIndex());
+      this.value = Quantity.create(change.newNonce());
     }
   }
 
-  @JsonInclude(JsonInclude.Include.NON_EMPTY)
+  @JsonPropertyOrder({"index", "code"})
   public static class CodeChangeResult {
-    public final long txIndex;
-    public final String newCode;
+    public final String index;
+
+    @JsonProperty("code")
+    public final String code;
 
     public CodeChangeResult(final CodeChange change) {
-      this.txIndex = change.txIndex();
-      this.newCode = change.newCode().toBase64String();
+      this.index = Quantity.create(change.txIndex());
+      this.code = change.newCode().toHexString();
     }
   }
 }

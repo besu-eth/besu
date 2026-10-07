@@ -24,13 +24,16 @@ import org.hyperledger.besu.crypto.SECPPrivateKey;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
@@ -70,8 +73,10 @@ public class DebugTraceBlockByHashTest {
                   SignatureAlgorithm.ALGORITHM));
   private static final Address CONTRACT_ADDRESS =
       Address.fromHexString("0x0030000000000000000000000000000000000000");
+  private static final Hash UNKNOWN_BLOCK_HASH = Hash.hash(Bytes.of(1));
 
   private DebugTraceBlockByHash debugTraceBlockByHash;
+  private Hash genesisBlockHash;
   private Block testBlock;
   private Transaction testTransaction;
   private final ObjectMapper mapper = new ObjectMapper().registerModule(new Jdk8Module());
@@ -110,6 +115,7 @@ public class DebugTraceBlockByHashTest {
 
     // Build a block whose parent is the genesis block and store it in the blockchain
     final BlockHeader genesis = fixture.getBlockchain().getChainHeadHeader();
+    genesisBlockHash = genesis.getHash();
     final BlockHeader blockHeader =
         new BlockHeaderTestFixture()
             .number(genesis.getNumber() + 1L)
@@ -208,6 +214,49 @@ public class DebugTraceBlockByHashTest {
   }
 
   @Test
+  public void shouldReturnBlockNotFoundErrorWhenBlockHashDoesNotExist() {
+    final JsonRpcResponse jsonRpcResponse =
+        debugTraceBlockByHash.response(requestForBlockHash(UNKNOWN_BLOCK_HASH));
+
+    assertThat(jsonRpcResponse).isInstanceOf(JsonRpcErrorResponse.class);
+    final JsonRpcErrorResponse errorResponse = (JsonRpcErrorResponse) jsonRpcResponse;
+    assertThat(errorResponse.getErrorType()).isEqualByComparingTo(RpcErrorType.BLOCK_NOT_FOUND);
+  }
+
+  @Test
+  public void shouldStreamBlockNotFoundErrorWhenBlockHashDoesNotExist() throws IOException {
+    final JsonNode response = streamResponseForBlockHash(UNKNOWN_BLOCK_HASH);
+
+    assertThat(response.has("error")).isTrue();
+    assertThat(response.get("error").get("code").asInt())
+        .isEqualTo(RpcErrorType.BLOCK_NOT_FOUND.getCode());
+    assertThat(response.get("error").get("message").asText())
+        .isEqualTo(RpcErrorType.BLOCK_NOT_FOUND.getMessage());
+  }
+
+  @Test
+  public void shouldReturnErrorForGenesisBlockHash() {
+    final JsonRpcResponse jsonRpcResponse =
+        debugTraceBlockByHash.response(requestForBlockHash(genesisBlockHash));
+
+    assertThat(jsonRpcResponse).isInstanceOf(JsonRpcErrorResponse.class);
+    final JsonRpcErrorResponse errorResponse = (JsonRpcErrorResponse) jsonRpcResponse;
+    assertThat(errorResponse.getErrorType())
+        .isEqualByComparingTo(RpcErrorType.GENESIS_BLOCK_NOT_TRACEABLE);
+  }
+
+  @Test
+  public void shouldStreamErrorForGenesisBlockHash() throws IOException {
+    final JsonNode response = streamResponseForBlockHash(genesisBlockHash);
+
+    assertThat(response.has("error")).isTrue();
+    assertThat(response.get("error").get("code").asInt())
+        .isEqualTo(RpcErrorType.GENESIS_BLOCK_NOT_TRACEABLE.getCode());
+    assertThat(response.get("error").get("message").asText())
+        .isEqualTo(RpcErrorType.GENESIS_BLOCK_NOT_TRACEABLE.getMessage());
+  }
+
+  @Test
   public void shouldHandleInvalidParametersGracefully() {
     final Object[] invalidParams = new Object[] {"aaaa"};
     final JsonRpcRequestContext request =
@@ -219,5 +268,17 @@ public class DebugTraceBlockByHashTest {
                 debugTraceBlockByHash.streamResponse(request, new ByteArrayOutputStream(), mapper))
         .isInstanceOf(InvalidJsonRpcParameters.class)
         .hasMessageContaining("Invalid block hash parameter");
+  }
+
+  private JsonRpcRequestContext requestForBlockHash(final Hash blockHash) {
+    return new JsonRpcRequestContext(
+        new JsonRpcRequest(
+            "2.0", "debug_traceBlockByHash", new Object[] {blockHash.toHexString()}));
+  }
+
+  private JsonNode streamResponseForBlockHash(final Hash blockHash) throws IOException {
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    debugTraceBlockByHash.streamResponse(requestForBlockHash(blockHash), out, mapper);
+    return mapper.readTree(out.toByteArray());
   }
 }

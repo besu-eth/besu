@@ -19,6 +19,7 @@ import static org.assertj.core.api.Assertions.fail;
 import org.hyperledger.besu.tests.acceptance.dsl.condition.Condition;
 import org.hyperledger.besu.tests.acceptance.dsl.node.Node;
 import org.hyperledger.besu.tests.acceptance.dsl.node.RunnableNode;
+import org.hyperledger.besu.tests.acceptance.dsl.transaction.admin.AdminNodeInfoTransaction;
 import org.hyperledger.besu.tests.acceptance.dsl.transaction.admin.AdminTransactions;
 
 import java.net.URI;
@@ -41,6 +42,10 @@ public class AdminConditions {
 
   public Condition doesNotHavePeer(final Node peer) {
     return new ExpectNotHavePeer(nodeId(peer), admin.listPeers());
+  }
+
+  public AdminNodeInfoTransaction nodeInfo() {
+    return admin.nodeInfo();
   }
 
   private URI enodeUrl(final Node node) {

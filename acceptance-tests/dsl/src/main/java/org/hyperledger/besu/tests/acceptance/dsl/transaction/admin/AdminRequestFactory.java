@@ -16,6 +16,7 @@ package org.hyperledger.besu.tests.acceptance.dsl.transaction.admin;
 
 import java.net.URI;
 import java.util.Collections;
+import java.util.Map;
 
 import org.web3j.protocol.Web3jService;
 import org.web3j.protocol.core.Request;
@@ -24,6 +25,8 @@ import org.web3j.protocol.core.Response;
 public class AdminRequestFactory {
 
   public static class AdminAddPeerResponse extends Response<Boolean> {}
+
+  public static class AdminNodeInfoResponse extends Response<Map<String, Object>> {}
 
   private final Web3jService web3jService;
 
@@ -37,5 +40,10 @@ public class AdminRequestFactory {
         Collections.singletonList(enodeAddress.toASCIIString()),
         web3jService,
         AdminAddPeerResponse.class);
+  }
+
+  public Request<?, AdminNodeInfoResponse> adminNodeInfo() {
+    return new Request<>(
+        "admin_nodeInfo", Collections.emptyList(), web3jService, AdminNodeInfoResponse.class);
   }
 }

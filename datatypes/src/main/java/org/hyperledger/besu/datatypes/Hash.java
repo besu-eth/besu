@@ -86,6 +86,7 @@ public class Hash extends BytesHolder {
    * @param bytes the bytes
    * @return the hash
    */
+  @JsonCreator
   public static Hash wrap(final Bytes32 bytes) {
     return new Hash(bytes);
   }
@@ -100,7 +101,6 @@ public class Hash extends BytesHolder {
    * @throws IllegalArgumentException if the string is either not hexadecimal, or not the valid
    *     representation of a hash (not 32 bytes).
    */
-  @JsonCreator
   public static Hash fromHexString(final String str) {
     return new Hash(Bytes32.fromHexStringStrict(str));
   }

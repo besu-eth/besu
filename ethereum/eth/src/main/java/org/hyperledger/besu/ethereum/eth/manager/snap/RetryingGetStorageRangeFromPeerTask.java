@@ -19,7 +19,6 @@ import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
 import org.hyperledger.besu.ethereum.eth.manager.task.AbstractRetryingSwitchingPeerTask;
-import org.hyperledger.besu.ethereum.eth.manager.task.EthTask;
 import org.hyperledger.besu.ethereum.eth.messages.snap.StorageRangeMessage;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
@@ -60,7 +59,7 @@ public class RetryingGetStorageRangeFromPeerTask
     this.metricsSystem = metricsSystem;
   }
 
-  public static EthTask<StorageRangeMessage.SlotRangeData> forStorageRange(
+  public static RetryingGetStorageRangeFromPeerTask forStorageRange(
       final EthContext ethContext,
       final List<Bytes32> accountHashes,
       final Bytes32 startKeyHash,

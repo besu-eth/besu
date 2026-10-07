@@ -27,6 +27,8 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguratio
 import org.hyperledger.besu.ethereum.core.AddressHelpers;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.plugins.PluginConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
+import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.permissioning.LocalPermissioningConfiguration;
 import org.hyperledger.besu.ethereum.permissioning.PermissioningConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
@@ -43,6 +45,7 @@ import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.UnaryOperator;
 
@@ -122,6 +125,35 @@ public class BesuNodeFactory {
             .jsonRpcConfiguration(node.createJsonRpcWithRpcApiEnabledConfig(enableRpcApis));
 
     return create(configModifier.apply(builder).build());
+  }
+
+  /**
+   * Creates a Bonsai node configured for SNAP sync, intended to join an existing chain mid-test. It
+   * is consensus-agnostic: the caller must set the genesis config to match the running chain (e.g.
+   * by copying a validator's genesis) before adding it to the cluster.
+   *
+   * <p>SNAP sync requires Bonsai, and a low sync-min-peers so it can start against a small cluster.
+   * Transaction indexing is enabled so historic {@code eth_getTransactionByHash} / {@code
+   * eth_getTransactionReceipt} queries resolve for blocks imported during the snap sync.
+   *
+   * @param name the node name
+   * @return a Bonsai SNAP-sync node
+   * @throws IOException if node creation fails
+   */
+  public BesuNode createSnapSyncNode(final String name) throws IOException {
+    final SynchronizerConfiguration snapSyncConfig =
+        SynchronizerConfiguration.builder().syncMode(SyncMode.SNAP).syncMinimumPeerCount(1).build();
+    return create(
+        new BesuNodeConfigurationBuilder()
+            .name(name)
+            .jsonRpcConfiguration(node.createJsonRpcWithRpcApiEnabledConfig(ADMIN.name()))
+            .webSocketConfiguration(node.createWebSocketEnabledConfig())
+            .devMode(false)
+            .synchronizerConfiguration(snapSyncConfig)
+            .dataStorageConfiguration(DataStorageConfiguration.DEFAULT_BONSAI_CONFIG)
+            .extraCLIOptions(List.of("--snapsync-synchronizer-transaction-indexing-enabled=true"))
+            .bootnodeEligible(false)
+            .build());
   }
 
   public Node createQbftNodeThatMustNotBeTheBootnode(final String name) throws IOException {
@@ -358,18 +390,26 @@ public class BesuNodeFactory {
             .build());
   }
 
-  public BesuNode createIbft2Node(
-      final String name, final boolean fixedPort, final DataStorageFormat storageFormat)
+  public BesuNode createIbft2Node(final String name, final DataStorageFormat storageFormat)
+      throws IOException {
+    return createIbft2Node(name, storageFormat, false);
+  }
+
+  public BesuNode createIbft2NodeFixedPort(final String name, final DataStorageFormat storageFormat)
+      throws IOException {
+    return createIbft2Node(name, storageFormat, true);
+  }
+
+  private BesuNode createIbft2Node(
+      final String name, final DataStorageFormat storageFormat, final boolean fixedPort)
       throws IOException {
     JsonRpcConfiguration rpcConfig = node.createJsonRpcWithIbft2EnabledConfig(false);
     rpcConfig.addRpcApi("ADMIN,TXPOOL");
     if (fixedPort) {
-      rpcConfig.setPort(
-          Math.abs(name.hashCode() % 60000)
-              + 1024); // Generate a consistent port for p2p based on node name
+      rpcConfig.setPort(fixedRpcPort(name));
     }
 
-    BesuNodeConfigurationBuilder builder =
+    final BesuNodeConfigurationBuilder builder =
         new BesuNodeConfigurationBuilder()
             .name(name)
             .miningEnabled()
@@ -382,27 +422,54 @@ public class BesuNodeFactory {
                     : DataStorageConfiguration.DEFAULT_BONSAI_CONFIG)
             .genesisConfigProvider(GenesisConfigurationFactory::createIbft2GenesisConfig);
     if (fixedPort) {
-      builder.p2pPort(
-          Math.abs(name.hashCode() % 60000)
-              + 1024
-              + 500); // Generate a consistent port for p2p based on node name (+ 500 to avoid
-      // clashing with RPC port or other nodes with a similar name)
+      builder.p2pPort(fixedP2pPort(name));
     }
     return create(builder.build());
   }
 
+  // Deterministic per-node ports derived from the node name, so a node that is stopped and
+  // restarted rebinds the *same* address. Only the BFT soak test uses the *FixedPort factory
+  // methods: it restarts nodes (including the discovery bootnode) and relies on stable ports for
+  // re-peering. All other BFT acceptance tests use ephemeral ports (#11020) to avoid intermittent
+  // port-already-in-use failures when parallel test cases hash to the same port.
+  private static int fixedRpcPort(final String name) {
+    return Math.abs(name.hashCode() % 60000) + 1024;
+  }
+
+  private static int fixedP2pPort(final String name) {
+    // +500 to avoid clashing with the RPC port of a node whose name hashes nearby.
+    return Math.abs(name.hashCode() % 60000) + 1024 + 500;
+  }
+
+  public BesuNode createQbftNode(final String name, final DataStorageFormat storageFormat)
+      throws IOException {
+    return createQbftNode(name, storageFormat, false);
+  }
+
+  public BesuNode createQbftNodeFixedPort(final String name, final DataStorageFormat storageFormat)
+      throws IOException {
+    return createQbftNode(name, storageFormat, true);
+  }
+
+  private BesuNode createQbftNode(
+      final String name, final DataStorageFormat storageFormat, final boolean fixedPort)
+      throws IOException {
+    return createQbftNode(name, storageFormat, fixedPort, Map.of());
+  }
+
   public BesuNode createQbftNode(
-      final String name, final boolean fixedPort, final DataStorageFormat storageFormat)
+      final String name,
+      final DataStorageFormat storageFormat,
+      final boolean fixedPort,
+      final Map<String, String> environment)
       throws IOException {
     JsonRpcConfiguration rpcConfig = node.createJsonRpcWithQbftEnabledConfig(false);
     rpcConfig.addRpcApi("ADMIN,TXPOOL");
     if (fixedPort) {
-      rpcConfig.setPort(
-          Math.abs(name.hashCode() % 60000)
-              + 1024); // Generate a consistent port for p2p based on node name
+      rpcConfig.setPort(fixedRpcPort(name));
     }
 
-    BesuNodeConfigurationBuilder builder =
+    final BesuNodeConfigurationBuilder builder =
         new BesuNodeConfigurationBuilder()
             .name(name)
             .miningEnabled()
@@ -415,13 +482,10 @@ public class BesuNodeFactory {
                     : storageFormat == DataStorageFormat.BONSAI
                         ? DataStorageConfiguration.DEFAULT_BONSAI_CONFIG
                         : DataStorageConfiguration.DEFAULT_BONSAI_ARCHIVE_CONFIG)
-            .genesisConfigProvider(GenesisConfigurationFactory::createQbftGenesisConfig);
+            .genesisConfigProvider(GenesisConfigurationFactory::createQbftGenesisConfig)
+            .environment(environment);
     if (fixedPort) {
-      builder.p2pPort(
-          Math.abs(name.hashCode() % 60000)
-              + 1024
-              + 500); // Generate a consistent port for p2p based on node name (+ 500 to avoid
-      // clashing with RPC port or other nodes with a similar name)
+      builder.p2pPort(fixedP2pPort(name));
     }
     return create(builder.build());
   }
@@ -453,18 +517,12 @@ public class BesuNodeFactory {
             .build());
   }
 
-  public BesuNode createQbftMigrationNode(
-      final String name, final boolean fixedPort, final DataStorageFormat storageFormat)
+  public BesuNode createQbftMigrationNode(final String name, final DataStorageFormat storageFormat)
       throws IOException {
     JsonRpcConfiguration rpcConfig = node.createJsonRpcWithQbftEnabledConfig(false);
     rpcConfig.addRpcApi("ADMIN,TXPOOL");
-    if (fixedPort) {
-      rpcConfig.setPort(
-          Math.abs(name.hashCode() % 60000)
-              + 1024); // Generate a consistent port for p2p based on node name
-    }
 
-    BesuNodeConfigurationBuilder builder =
+    return create(
         new BesuNodeConfigurationBuilder()
             .name(name)
             .miningEnabled()
@@ -475,15 +533,8 @@ public class BesuNodeFactory {
                 storageFormat == DataStorageFormat.FOREST
                     ? DataStorageConfiguration.DEFAULT_FOREST_CONFIG
                     : DataStorageConfiguration.DEFAULT_BONSAI_CONFIG)
-            .genesisConfigProvider(GenesisConfigurationFactory::createQbftMigrationGenesisConfig);
-    if (fixedPort) {
-      builder.p2pPort(
-          Math.abs(name.hashCode() % 60000)
-              + 1024
-              + 500); // Generate a consistent port for p2p based on node name (+ 500 to avoid
-      // clashing with RPC port or other nodes with a similar name)
-    }
-    return create(builder.build());
+            .genesisConfigProvider(GenesisConfigurationFactory::createQbftMigrationGenesisConfig)
+            .build());
   }
 
   public BesuNode createCustomGenesisNode(
@@ -516,6 +567,11 @@ public class BesuNodeFactory {
 
   public BesuNode createExecutionEngineGenesisNode(final String name, final String genesisPath)
       throws IOException {
+    return createExecutionEngineGenesisNode(name, genesisPath, true);
+  }
+
+  public BesuNode createExecutionEngineGenesisNode(
+      final String name, final String genesisPath, final boolean p2pEnabled) throws IOException {
     final String genesisFile = GenesisConfigurationFactory.readGenesisFile(genesisPath);
 
     return create(
@@ -524,6 +580,7 @@ public class BesuNodeFactory {
             .genesisConfigProvider((a) -> Optional.of(genesisFile))
             .devMode(false)
             .bootnodeEligible(false)
+            .p2pEnabled(p2pEnabled)
             .miningConfiguration(
                 MiningConfiguration.newDefault()
                     .setCoinbase(AddressHelpers.ofValue(1))

@@ -15,12 +15,15 @@
 package org.hyperledger.besu.ethereum.vm.operations;
 
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.operation.AddModOperationOptimized;
 import org.hyperledger.besu.evm.operation.Operation;
 
 import org.openjdk.jmh.annotations.Param;
+import org.openjdk.jmh.infra.BenchmarkParams;
 
-public class AddModOperationBenchmark extends TernaryArithmeticOperationBenchmark {
+public class AddModOperationBenchmark extends TernaryArithmeticOperationBenchmark
+    implements GasCostBenchmark {
 
   // Cases for (a + b) % c
   // Format "ADDMOD_a_b_c" - where a, b and c are the size in bits
@@ -48,6 +51,8 @@ public class AddModOperationBenchmark extends TernaryArithmeticOperationBenchmar
     "ADDMOD_256_32_32",
     "ADDMOD_256_64_32",
     "ADDMOD_256_64_64",
+    "ADDMOD_256_64_128",
+    "ADDMOD_256_64_192",
     "ADDMOD_256_128_32",
     "ADDMOD_256_128_64",
     "ADDMOD_256_128_128",
@@ -63,7 +68,11 @@ public class AddModOperationBenchmark extends TernaryArithmeticOperationBenchmar
     "ADDMOD_64_64_128",
     "ADDMOD_192_192_256",
     "ADDMOD_128_256_0",
-    "ADDMOD_RANDOM_RANDOM_RANDOM"
+    "ADDMOD_RANDOM_RANDOM_RANDOM",
+    "ADDMOD_256_256_POW2_1_63",
+    "ADDMOD_256_256_POW2_1_255",
+    "ADDMOD_256_256_POW2_100_200",
+    "ADDMOD_256_256_POW2_100_255"
   })
   private String caseName;
 
@@ -80,5 +89,10 @@ public class AddModOperationBenchmark extends TernaryArithmeticOperationBenchmar
   @Override
   protected String caseName() {
     return caseName;
+  }
+
+  @Override
+  public long getGasCost(final BenchmarkParams params, final GasCalculator calc) {
+    return new AddModOperationOptimized(calc).getGasCost();
   }
 }

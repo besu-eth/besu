@@ -53,31 +53,20 @@ public class IbftSubProtocol implements SubProtocol {
 
   @Override
   public boolean isValidMessageCode(final int protocolVersion, final int code) {
-    switch (code) {
-      case IbftV2.PROPOSAL:
-      case IbftV2.PREPARE:
-      case IbftV2.COMMIT:
-      case IbftV2.ROUND_CHANGE:
-        return true;
-
-      default:
-        return false;
-    }
+    return switch (code) {
+      case IbftV2.PROPOSAL, IbftV2.PREPARE, IbftV2.COMMIT, IbftV2.ROUND_CHANGE -> true;
+      default -> false;
+    };
   }
 
   @Override
   public String messageName(final int protocolVersion, final int code) {
-    switch (code) {
-      case IbftV2.PROPOSAL:
-        return "Proposal";
-      case IbftV2.PREPARE:
-        return "Prepare";
-      case IbftV2.COMMIT:
-        return "Commit";
-      case IbftV2.ROUND_CHANGE:
-        return "RoundChange";
-      default:
-        return INVALID_MESSAGE_NAME;
-    }
+    return switch (code) {
+      case IbftV2.PROPOSAL -> "Proposal";
+      case IbftV2.PREPARE -> "Prepare";
+      case IbftV2.COMMIT -> "Commit";
+      case IbftV2.ROUND_CHANGE -> "RoundChange";
+      default -> INVALID_MESSAGE_NAME;
+    };
   }
 }

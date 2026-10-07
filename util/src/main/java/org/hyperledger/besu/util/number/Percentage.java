@@ -77,10 +77,9 @@ public class Percentage {
     if (o == this) {
       return true;
     }
-    if (!(o instanceof Percentage)) {
+    if (!(o instanceof Percentage that)) {
       return false;
     }
-    final Percentage that = (Percentage) o;
     return value == that.value;
   }
 

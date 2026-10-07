@@ -32,19 +32,6 @@ public class BalConfigurationOptions {
   boolean balPerfectParallelizationEnabled = true;
 
   @CommandLine.Option(
-      names = {"--Xbal-lenient-on-state-root-mismatch"},
-      hidden = true,
-      description =
-          "Log an error instead of throwing when the BAL-computed state root does not match the synchronously computed root.")
-  boolean balLenientOnStateRootMismatch = true;
-
-  @CommandLine.Option(
-      names = {"--Xbal-trust-state-root"},
-      hidden = true,
-      description = "Trust the BAL-computed state root without verification.")
-  boolean balTrustStateRoot = false;
-
-  @CommandLine.Option(
       names = {"--Xbal-state-root-enabled"},
       hidden = true,
       negatable = true,
@@ -58,6 +45,30 @@ public class BalConfigurationOptions {
       description = "Log the constructed and block's BAL when they differ.")
   boolean balLogBalsOnMismatch = false;
 
+  @CommandLine.Option(
+      names = {"--Xbal-prefetch-reading-enabled"},
+      hidden = true,
+      arity = "1",
+      description =
+          "Enable prefetching of state data based on BAL read operations (default: ${DEFAULT-VALUE}).")
+  boolean balPreFetchReadingEnabled = BalConfiguration.DEFAULT.isBalPreFetchReadingEnabled();
+
+  @CommandLine.Option(
+      names = {"--Xbal-prefetch-batch-size"},
+      hidden = true,
+      paramLabel = "<INT>",
+      description =
+          "Keys per BAL prefetch MultiGet (0 = one MultiGet per segment; default: ${DEFAULT-VALUE}).")
+  int balPreFetchBatchSize = BalConfiguration.DEFAULT.getBalPreFetchBatchSize();
+
+  @CommandLine.Option(
+      names = {"--Xbal-prefetch-sorting-enabled"},
+      hidden = true,
+      arity = "1",
+      description =
+          "Enable sorting of storage state data based on BAL (default: ${DEFAULT-VALUE}).")
+  boolean balPreFetchSortingEnabled = BalConfiguration.DEFAULT.isBalPreFetchSortingEnabled();
+
   /**
    * Builds the immutable {@link BalConfiguration} corresponding to the parsed CLI options.
    *
@@ -67,9 +78,10 @@ public class BalConfigurationOptions {
     return ImmutableBalConfiguration.builder()
         .isPerfectParallelizationEnabled(balPerfectParallelizationEnabled)
         .shouldLogBalsOnMismatch(balLogBalsOnMismatch)
-        .isBalLenientOnStateRootMismatch(balLenientOnStateRootMismatch)
-        .isBalStateRootTrusted(balTrustStateRoot)
         .isBalStateRootEnabled(balStateRootEnabled)
+        .isBalPreFetchReadingEnabled(balPreFetchReadingEnabled)
+        .isBalPreFetchSortingEnabled(balPreFetchSortingEnabled)
+        .balPreFetchBatchSize(balPreFetchBatchSize)
         .build();
   }
 }

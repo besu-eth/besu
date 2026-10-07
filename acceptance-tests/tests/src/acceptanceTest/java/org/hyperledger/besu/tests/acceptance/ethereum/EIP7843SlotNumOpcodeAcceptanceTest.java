@@ -179,7 +179,7 @@ public class EIP7843SlotNumOpcodeAcceptanceTest extends AcceptanceTestBase {
         .nonce(nonce)
         .maxPriorityFeePerGas(Wei.of(1_000_000_000))
         .maxFeePerGas(Wei.fromHexString("0x02540BE400"))
-        .gasLimit(100_000)
+        .gasLimit(200_000)
         .to(SLOTNUM_CONTRACT_ADDRESS)
         .value(Wei.ZERO)
         .payload(Bytes.EMPTY)

@@ -30,6 +30,7 @@ import org.hyperledger.besu.consensus.common.ForksSchedule;
 import org.hyperledger.besu.consensus.common.bft.BaseBftProtocolScheduleBuilder;
 import org.hyperledger.besu.consensus.common.bft.BftBlockHashing;
 import org.hyperledger.besu.consensus.common.bft.BftExtraData;
+import org.hyperledger.besu.consensus.common.bft.BftHelpers;
 import org.hyperledger.besu.consensus.common.bft.blockcreation.BftBlockCreator;
 import org.hyperledger.besu.consensus.ibft.IbftBlockHeaderValidationRulesetFactory;
 import org.hyperledger.besu.consensus.ibft.IbftExtraDataCodec;
@@ -218,6 +219,7 @@ public class BftBlockCreatorTest {
         .isEqualTo(
             new BftBlockHashing(bftExtraDataEncoder)
                 .calculateDataHashForCommittedSeal(header, extraData));
+    assertThat(header.getMixHash()).isEqualTo(BftHelpers.EXPECTED_MIX_HASH);
   }
 
   @Test

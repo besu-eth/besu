@@ -23,17 +23,12 @@ public final class WireMessageCodes {
   private WireMessageCodes() {}
 
   public static String messageName(final int code) {
-    switch (code) {
-      case HELLO:
-        return "Hello";
-      case DISCONNECT:
-        return "Disconnect";
-      case PING:
-        return "Ping";
-      case PONG:
-        return "Pong";
-      default:
-        return "invalid";
-    }
+    return switch (code) {
+      case HELLO -> "Hello";
+      case DISCONNECT -> "Disconnect";
+      case PING -> "Ping";
+      case PONG -> "Pong";
+      default -> "invalid";
+    };
   }
 }

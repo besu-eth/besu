@@ -34,8 +34,8 @@ public class AdaptorUtil {
    * @return the Besu block
    */
   public static Block toBesuBlock(final QbftBlock block) {
-    if (block instanceof QbftBlockAdaptor) {
-      return ((QbftBlockAdaptor) block).getBesuBlock();
+    if (block instanceof QbftBlockAdaptor qbftBlockAdaptor) {
+      return qbftBlockAdaptor.getBesuBlock();
     } else {
       throw new IllegalArgumentException("Unsupported block type");
     }
@@ -48,8 +48,8 @@ public class AdaptorUtil {
    * @return the Besu block header
    */
   public static BlockHeader toBesuBlockHeader(final QbftBlockHeader header) {
-    if (header instanceof QbftBlockHeaderAdaptor) {
-      return ((QbftBlockHeaderAdaptor) header).getBesuBlockHeader();
+    if (header instanceof QbftBlockHeaderAdaptor qbftBlockHeaderAdaptor) {
+      return qbftBlockHeaderAdaptor.getBesuBlockHeader();
     } else {
       throw new IllegalArgumentException("Unsupported block header type");
     }
@@ -62,8 +62,8 @@ public class AdaptorUtil {
    * @return the Besu message
    */
   public static Message toBesuMessage(final QbftMessage message) {
-    if (message instanceof QbftMessageAdaptor) {
-      return ((QbftMessageAdaptor) message).getBesuMessage();
+    if (message instanceof QbftMessageAdaptor qbftMessageAdaptor) {
+      return qbftMessageAdaptor.getBesuMessage();
     } else {
       throw new IllegalArgumentException("Unsupported message type");
     }

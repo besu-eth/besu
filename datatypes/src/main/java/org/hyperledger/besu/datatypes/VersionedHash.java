@@ -44,7 +44,8 @@ public class VersionedHash extends BytesHolder {
                 Bytes.of(SHA256_VERSION_ID),
                 hash.getBytes().slice(1, hash.getBytes().size() - 1))));
     if (versionId != SHA256_VERSION_ID) {
-      throw new IllegalArgumentException("Only supported hash version is 0x01, sha256 hash.");
+      throw new IllegalArgumentException(
+          "Invalid versionedHash: only supported hash version is 0x01, sha256 hash.");
     }
   }
 
@@ -53,11 +54,13 @@ public class VersionedHash extends BytesHolder {
    *
    * @param typedHash raw versioned hash bytes to parse.
    */
+  @JsonCreator
   public VersionedHash(final Bytes32 typedHash) {
     super(typedHash);
     byte versionId = getBytes().get(0);
     if (versionId != SHA256_VERSION_ID) {
-      throw new IllegalArgumentException("Only supported hash version is 0x01, sha256 hash.");
+      throw new IllegalArgumentException(
+          "Invalid versionedHash: only supported hash version is 0x01, sha256 hash.");
     }
   }
 
@@ -71,7 +74,6 @@ public class VersionedHash extends BytesHolder {
    * @throws IllegalArgumentException if the string is either not hexadecimal, or not the valid
    *     representation of a versioned hash (not 32 bytes or bad version).
    */
-  @JsonCreator
   public static VersionedHash fromHexString(final String str) {
     return new VersionedHash(Bytes32.fromHexString(str));
   }

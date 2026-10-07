@@ -227,11 +227,11 @@ public class UpnpNatManager extends AbstractNatManager {
               GetExternalIP callback =
                   new GetExternalIP(service) {
 
-                    /**
+                    /*
                      * Override the success(ActionInvocation) version of success so that we can take
                      * a peek at the network interface that we discovered this on.
                      *
-                     * <p>Because the underlying jupnp library omits generics info in this method
+                     * Because the underlying jupnp library omits generics info in this method
                      * signature, we must too when we override it.
                      */
                     @Override
@@ -258,7 +258,7 @@ public class UpnpNatManager extends AbstractNatManager {
                       externalIpQueryFuture.complete(result);
                     }
 
-                    /**
+                    /*
                      * Because the underlying jupnp library omits generics info in this method
                      * signature, we must too when we override it.
                      */
@@ -335,7 +335,7 @@ public class UpnpNatManager extends AbstractNatManager {
           // our query, which will be handled asynchronously by the jupnp library
           PortMappingAdd callback =
               new PortMappingAdd(service, portMapping) {
-                /**
+                /*
                  * Because the underlying jupnp library omits generics info in this method
                  * signature, we must too when we override it.
                  */
@@ -365,7 +365,7 @@ public class UpnpNatManager extends AbstractNatManager {
                   upnpQueryFuture.complete(null);
                 }
 
-                /**
+                /*
                  * Because the underlying jupnp library omits generics info in this method
                  * signature, we must too when we override it.
                  */
@@ -447,7 +447,7 @@ public class UpnpNatManager extends AbstractNatManager {
 
       PortMappingDelete callback =
           new PortMappingDelete(service, toJupnpPortMapping(portMapping)) {
-            /**
+            /*
              * Because the underlying jupnp library omits generics info in this method signature, we
              * must too when we override it.
              */
@@ -463,7 +463,7 @@ public class UpnpNatManager extends AbstractNatManager {
               future.complete(null);
             }
 
-            /**
+            /*
              * Because the underlying jupnp library omits generics info in this method signature, we
              * must too when we override it.
              */
@@ -524,13 +524,10 @@ public class UpnpNatManager extends AbstractNatManager {
   }
 
   private PortMapping.Protocol toJupnpProtocol(final NetworkProtocol protocol) {
-    switch (protocol) {
-      case UDP:
-        return PortMapping.Protocol.UDP;
-      case TCP:
-        return PortMapping.Protocol.TCP;
-    }
-    throw new IllegalStateException("Unsupported network protocol: " + protocol);
+    return switch (protocol) {
+      case UDP -> PortMapping.Protocol.UDP;
+      case TCP -> PortMapping.Protocol.TCP;
+    };
   }
 
   private PortMapping toJupnpPortMapping(final NatPortMapping natPortMapping) {

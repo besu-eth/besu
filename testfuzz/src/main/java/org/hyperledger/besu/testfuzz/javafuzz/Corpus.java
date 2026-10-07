@@ -28,6 +28,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * Ported from <a
  * href="https://gitlab.com/gitlab-org/security-products/analyzers/fuzzers/javafuzz">...</a> because
@@ -70,15 +72,15 @@ public class Corpus {
     100,
     127
   };
-  private String corpusPath;
+  private @Nullable String corpusPath;
   private int seedLength;
 
   /**
    * Create a corpus
    *
-   * @param dirs The directory to store the corpus files
+   * @param dirs The directory to store the corpus files, or {@code null} for an in-memory corpus
    */
-  public Corpus(final String dirs) {
+  public Corpus(final @Nullable String dirs) {
     this.maxInputSize = 0xc001; // 48k+1
     this.corpusPath = null;
     this.inputs = new ArrayList<>();

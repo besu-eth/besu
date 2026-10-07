@@ -17,6 +17,7 @@ package org.hyperledger.besu.datatypes;
 import java.util.Arrays;
 import java.util.Objects;
 
+import com.fasterxml.jackson.annotation.JsonValue;
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes;
 
@@ -34,7 +35,7 @@ import org.apache.tuweni.bytes.Bytes;
  * of these annotated methods, all implementations of `Bytes` get channelled through these single
  * places and that makes it harder for the JIT profiler to inline code from implementations.
  */
-public class BytesHolder implements Comparable<BytesHolder> {
+public class BytesHolder {
   private final Bytes value;
 
   /**
@@ -52,6 +53,7 @@ public class BytesHolder implements Comparable<BytesHolder> {
    *
    * @return the bytes value held by this instance
    */
+  @JsonValue
   public final Bytes getBytes() {
     return value;
   }
@@ -127,22 +129,5 @@ public class BytesHolder implements Comparable<BytesHolder> {
   @Deprecated
   public final String toString() {
     return value.toString();
-  }
-
-  /**
-   * Compares this BytesHolder with another for ordering.
-   *
-   * <p>The comparison is performed lexicographically on the underlying byte sequences.
-   *
-   * @param bytesHolder the BytesHolder to compare with
-   * @return a negative integer, zero, or a positive integer as this BytesHolder is less than, equal
-   *     to, or greater than the specified BytesHolder
-   * @throws NullPointerException if bytesHolder is null
-   */
-  @Override
-  @Deprecated
-  public final int compareTo(final BytesHolder bytesHolder) {
-    Objects.requireNonNull(bytesHolder, "bytesHolder cannot be null");
-    return value.compareTo(bytesHolder.value);
   }
 }

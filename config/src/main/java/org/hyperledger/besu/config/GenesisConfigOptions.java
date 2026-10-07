@@ -315,6 +315,13 @@ public interface GenesisConfigOptions {
   OptionalLong getAmsterdamTime();
 
   /**
+   * Gets Bogota time.
+   *
+   * @return the Bogota time
+   */
+  OptionalLong getBogotaTime();
+
+  /**
    * Gets future eips time.
    *
    * @return the future eips time
@@ -406,13 +413,6 @@ public interface GenesisConfigOptions {
   TransitionsConfigOptions getTransitions();
 
   /**
-   * The PoW algorithm associated with the genesis file.
-   *
-   * @return the PoW algorithm in use.
-   */
-  PowAlgorithm getPowAlgorithm();
-
-  /**
    * The elliptic curve which should be used in SignatureAlgorithm.
    *
    * @return the name of the elliptic curve.
@@ -455,6 +455,26 @@ public interface GenesisConfigOptions {
    * @return the consolidation request contract address
    */
   Optional<Address> getConsolidationRequestContractAddress();
+
+  /**
+   * The EIP-8282 builder deposit request contract address. Defaults to the spec-fixed address when
+   * not configured.
+   *
+   * @return the builder deposit request contract address
+   */
+  default Optional<Address> getBuilderDepositRequestContractAddress() {
+    return Optional.empty();
+  }
+
+  /**
+   * The EIP-8282 builder exit request contract address. Defaults to the spec-fixed address when not
+   * configured.
+   *
+   * @return the builder exit request contract address
+   */
+  default Optional<Address> getBuilderExitRequestContractAddress() {
+    return Optional.empty();
+  }
 
   /**
    * The blob schedule is a list of hardfork names and their associated target and max blob values.

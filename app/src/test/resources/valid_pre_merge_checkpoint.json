@@ -14,8 +14,6 @@
     "arrowGlacierBlock": 13773000,
     "grayGlacierBlock": 15050000,
     "terminalTotalDifficulty": 58750000000000000000000,
-    "ethash": {
-    },
     "checkpoint": {
       "hash": "0x44bca881b07a6a09f83b130798072441705d9a665c5ac8bdf2f39a3cdf3bee29",
       "number": 11052984,

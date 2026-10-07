@@ -15,20 +15,20 @@
 package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.chain.ChainDataPruner;
+import org.hyperledger.besu.ethereum.chain.DefaultBlockchain;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.SyncTransactionReceiptEncoder;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.sync.DownloadSyncBodiesStep;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
-import org.hyperledger.besu.ethereum.eth.sync.common.BackwardBlockNumberSource;
+import org.hyperledger.besu.ethereum.eth.sync.common.BackwardHeaderDriver;
 import org.hyperledger.besu.ethereum.eth.sync.common.BlockHeaderSource;
 import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.common.DownloadBackwardHeadersStep;
 import org.hyperledger.besu.ethereum.eth.sync.common.DownloadSyncReceiptsStep;
-import org.hyperledger.besu.ethereum.eth.sync.common.ImportHeadersStep;
 import org.hyperledger.besu.ethereum.eth.sync.common.ImportSyncBlocksStep;
-import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.rlp.SimpleNoCopyRlpEncoder;
@@ -39,14 +39,14 @@ import org.hyperledger.besu.services.pipeline.PipelineBuilder;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class SnapSyncChainDownloadPipelineFactory {
 
-  record BackwardHeaderPipelineResult(
-      Pipeline<Long> pipeline, ImportHeadersStep importHeadersStep) {}
+  record BackwardHeaderPipelineResult(Pipeline<Long> pipeline, BackwardHeaderDriver driver) {}
 
   private static final Logger LOG =
       LoggerFactory.getLogger(SnapSyncChainDownloadPipelineFactory.class);
@@ -55,22 +55,25 @@ public class SnapSyncChainDownloadPipelineFactory {
   protected final ProtocolSchedule protocolSchedule;
   protected final ProtocolContext protocolContext;
   protected final EthContext ethContext;
-  protected final PivotSyncState fastSyncState;
+  protected final SnapSyncProcessState fastSyncState;
   protected final MetricsSystem metricsSystem;
+  protected final Optional<ChainDataPruner> chainDataPruner;
 
   public SnapSyncChainDownloadPipelineFactory(
       final SynchronizerConfiguration syncConfig,
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
       final EthContext ethContext,
-      final PivotSyncState fastSyncState,
-      final MetricsSystem metricsSystem) {
+      final SnapSyncProcessState fastSyncState,
+      final MetricsSystem metricsSystem,
+      final Optional<ChainDataPruner> chainDataPruner) {
     this.syncConfig = syncConfig;
     this.protocolSchedule = protocolSchedule;
     this.protocolContext = protocolContext;
     this.ethContext = ethContext;
     this.fastSyncState = fastSyncState;
     this.metricsSystem = metricsSystem;
+    this.chainDataPruner = chainDataPruner;
   }
 
   /**
@@ -88,16 +91,9 @@ public class SnapSyncChainDownloadPipelineFactory {
     final int headerRequestSize = syncConfig.getDownloaderHeaderRequestSize();
 
     // Lower anchor: the floor block (already in DB, lowest downloaded header must connect to it)
-    final BlockHeader lowerAnchor =
-        chainState.headerDownloadAnchor() != null
-            ? chainState.headerDownloadAnchor()
-            : chainState.blockDownloadAnchor();
+    final BlockHeader lowerAnchor = chainState.headerDownloadAnchor();
 
-    // Upper bound: if we have progress, resume below it; otherwise start from pivot
-    final BlockHeader upperBound =
-        chainState.headerDownloadProgress() != null
-            ? chainState.headerDownloadProgress()
-            : chainState.pivotBlockHeader();
+    final BlockHeader upperBound = chainState.pivotBlockHeader();
 
     LOG.info(
         "Creating backward header download pipeline from upper={} down to lower={}, parallelism={}, batchSize={}, peers={}",
@@ -107,9 +103,13 @@ public class SnapSyncChainDownloadPipelineFactory {
         headerRequestSize,
         ethContext.getEthPeers().peerCount());
 
-    final BackwardBlockNumberSource headerSource =
-        new BackwardBlockNumberSource(
-            headerRequestSize, lowerAnchor.getNumber() + 1L, upperBound.getNumber() - 1L);
+    final BackwardHeaderDriver backwardHeaderDriver =
+        new BackwardHeaderDriver(
+            headerRequestSize,
+            lowerAnchor,
+            upperBound,
+            chainState.bodyCheckpoint(),
+            protocolContext.getBlockchain());
 
     final DownloadBackwardHeadersStep downloadStep =
         new DownloadBackwardHeadersStep(
@@ -117,15 +117,13 @@ public class SnapSyncChainDownloadPipelineFactory {
             ethContext,
             headerRequestSize,
             lowerAnchor.getNumber(),
+            chainState.bodyCheckpoint().getNumber(),
             Duration.ofMillis(syncConfig.getBackwardHeadersDownloadStepTimeoutMillis()));
-
-    final ImportHeadersStep importHeadersStep =
-        new ImportHeadersStep(protocolContext.getBlockchain(), lowerAnchor, upperBound);
 
     final Pipeline<Long> pipeline =
         PipelineBuilder.createPipelineFrom(
                 "backwardHeaderSource",
-                headerSource,
+                backwardHeaderDriver,
                 downloaderParallelism,
                 metricsSystem.createLabelledCounter(
                     BesuMetricCategory.SYNCHRONIZER,
@@ -139,9 +137,9 @@ public class SnapSyncChainDownloadPipelineFactory {
                 "downloadBackwardHeaders",
                 downloadStep,
                 downloaderParallelism * headerDownloadParallelismFactor)
-            .andFinishWith("importHeadersStep", importHeadersStep);
+            .andFinishWith("importHeadersStep", backwardHeaderDriver);
 
-    return new BackwardHeaderPipelineResult(pipeline, importHeadersStep);
+    return new BackwardHeaderPipelineResult(pipeline, backwardHeaderDriver);
   }
 
   /**
@@ -193,7 +191,8 @@ public class SnapSyncChainDownloadPipelineFactory {
             syncState,
             anchorBlock,
             pivotHeader.getNumber(),
-            syncConfig.getSnapSyncConfiguration().isSnapSyncTransactionIndexingEnabled());
+            syncConfig.getSnapSyncConfiguration().isSnapSyncTransactionIndexingEnabled(),
+            chainDataPruner);
 
     return PipelineBuilder.createPipelineFrom(
             "forwardHeaderSource",
@@ -210,5 +209,67 @@ public class SnapSyncChainDownloadPipelineFactory {
         .thenProcessAsyncOrdered("downloadBodies", downloadBodiesStep, downloaderParallelism)
         .thenProcessAsyncOrdered("downloadReceipts", downloadReceiptsStep, downloaderParallelism)
         .andFinishWith("importBlocks", importBlocksStep);
+  }
+
+  /**
+   * Forward block-access-list (BAL) download from start block to end block. Used for snap/2 to
+   * download BALs after headers are available.
+   *
+   * @param anchorBlock the block to start from
+   * @param pivotHeader the block to end at
+   * @return the forward BAL download pipeline
+   */
+  public Pipeline<List<BlockHeader>> createBlockAccessListDownloadPipeline(
+      final long anchorBlock, final BlockHeader pivotHeader) {
+
+    long pivotHeaderNumber = pivotHeader.getNumber();
+
+    final int downloaderParallelism = syncConfig.getDownloaderParallelism();
+    final int bodiesRequestSize = syncConfig.getDownloaderBodiesRequestSize();
+
+    final MutableBlockchain blockchain = protocolContext.getBlockchain();
+
+    LOG.trace(
+        "Creating forward BAL download pipeline: anchorBlock={}, pivotHeaderNumber={}, parallelism={}, batchSize={}",
+        anchorBlock,
+        pivotHeaderNumber,
+        downloaderParallelism,
+        bodiesRequestSize);
+
+    final BlockHeaderSource headerSource =
+        new BlockHeaderSource(blockchain, anchorBlock, pivotHeaderNumber, bodiesRequestSize);
+
+    final DownloadAndPersistBlockAccessListsStep downloadBlockAccessListsStep =
+        new DownloadAndPersistBlockAccessListsStep(
+            ethContext,
+            metricsSystem,
+            (DefaultBlockchain) blockchain,
+            Duration.ofMillis(syncConfig.getForwardDownloadStepTimeoutMillis()));
+
+    return PipelineBuilder.createPipelineFrom(
+            "forwardHeaderSource",
+            headerSource,
+            downloaderParallelism,
+            metricsSystem.createLabelledCounter(
+                BesuMetricCategory.SYNCHRONIZER,
+                "forward_bal_pipeline_processed_total",
+                "Number of entries processed by each forward BAL pipeline stage",
+                "step",
+                "action"),
+            true,
+            "forwardBal")
+        .thenProcess(
+            "filterBalEnabledHeaders",
+            headers ->
+                headers.stream()
+                    .filter(h -> protocolSchedule.getByBlockHeader(h).isBlockAccessListEnabled())
+                    .toList())
+        .thenProcessAsyncOrdered(
+            "downloadBlockAccessLists", downloadBlockAccessListsStep, downloaderParallelism)
+        .andFinishWith("finishBal", headers -> {});
+  }
+
+  public boolean isSnap2Enabled() {
+    return Boolean.TRUE.equals(syncConfig.getSnapSyncConfiguration().isSnap2Enabled());
   }
 }

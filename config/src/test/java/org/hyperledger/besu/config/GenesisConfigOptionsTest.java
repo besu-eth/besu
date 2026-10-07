@@ -243,6 +243,12 @@ class GenesisConfigOptionsTest {
   }
 
   @Test
+  void shouldGetBogotaTime() {
+    final GenesisConfigOptions config = fromConfigOptions(singletonMap("bogotaTime", 1670470144));
+    assertThat(config.getBogotaTime()).hasValue(1670470144);
+  }
+
+  @Test
   void shouldGetFutureEipsTime() {
     final GenesisConfigOptions config = fromConfigOptions(singletonMap("futureEipsTime", 1337));
     assertThat(config.getFutureEipsTime()).hasValue(1337);
@@ -282,6 +288,7 @@ class GenesisConfigOptionsTest {
     assertThat(config.getBpo4Time()).isEmpty();
     assertThat(config.getBpo5Time()).isEmpty();
     assertThat(config.getAmsterdamTime()).isEmpty();
+    assertThat(config.getBogotaTime()).isEmpty();
     assertThat(config.getFutureEipsTime()).isEmpty();
     assertThat(config.getExperimentalEipsTime()).isEmpty();
   }
@@ -296,7 +303,6 @@ class GenesisConfigOptionsTest {
   @Test
   void shouldSupportEmptyGenesisConfig() {
     final GenesisConfigOptions config = GenesisConfig.fromConfig("{}").getConfigOptions();
-    assertThat(config.isEthHash()).isFalse();
     assertThat(config.isClique()).isFalse();
     assertThat(config.isPoa()).isFalse();
     assertThat(config.getHomesteadBlockNumber()).isEmpty();
@@ -364,6 +370,13 @@ class GenesisConfigOptionsTest {
     final GenesisConfigOptions config = fromConfigOptions(Map.of("fixedbasefee", true));
 
     assertThat(config.asMap()).containsOnlyKeys("fixedBaseFee").containsValue(true);
+  }
+
+  @Test
+  void asMapIncludesBogotaTime() {
+    final GenesisConfigOptions config = fromConfigOptions(Map.of("bogotaTime", 1670470145));
+
+    assertThat(config.asMap()).containsOnlyKeys("bogotaTime").containsValue(1670470145L);
   }
 
   @Test

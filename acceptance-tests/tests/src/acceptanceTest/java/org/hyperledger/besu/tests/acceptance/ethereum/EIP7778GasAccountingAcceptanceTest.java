@@ -23,7 +23,6 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.tests.acceptance.dsl.AcceptanceTestBase;
 import org.hyperledger.besu.tests.acceptance.dsl.WaitUtils;
-import org.hyperledger.besu.tests.acceptance.dsl.account.Account;
 import org.hyperledger.besu.tests.acceptance.dsl.node.BesuNode;
 
 import java.io.IOException;
@@ -59,7 +58,11 @@ public class EIP7778GasAccountingAcceptanceTest extends AcceptanceTestBase {
   public static final Bytes SENDER_PRIVATE_KEY =
       Bytes.fromHexString("3a4ff6d22d7502ef2452368165422861c01a0f72f851793b372b87888dc3c453");
 
-  private final Account recipient = accounts.createAccount("recipient");
+  // Pre-existing, funded EOA from the Amsterdam genesis. Sending value to an account that already
+  // exists avoids the EIP-2780/EIP-8038 new-account state-gas charge, keeping a plain transfer at
+  // the canonical 21,000 gas so this test's exact gas-accounting assertions still hold.
+  private static final Address RECIPIENT =
+      Address.fromHexStringStrict("0xa4664C40AACeBD82A2Db79f0ea36C06Bc6A19Adb");
 
   private BesuNode besuNode;
   private AmsterdamAcceptanceTestHelper testHelper;
@@ -90,7 +93,7 @@ public class EIP7778GasAccountingAcceptanceTest extends AcceptanceTestBase {
             .maxPriorityFeePerGas(Wei.of(1_000_000_000))
             .maxFeePerGas(Wei.fromHexString("0x02540BE400"))
             .gasLimit(21_000)
-            .to(Address.fromHexStringStrict(recipient.getAddress()))
+            .to(RECIPIENT)
             .value(transferAmount)
             .payload(Bytes.EMPTY)
             .signAndBuild(
@@ -179,7 +182,7 @@ public class EIP7778GasAccountingAcceptanceTest extends AcceptanceTestBase {
             .maxPriorityFeePerGas(Wei.of(1_000_000_000))
             .maxFeePerGas(Wei.fromHexString("0x02540BE400"))
             .gasLimit(21_000)
-            .to(Address.fromHexStringStrict(recipient.getAddress()))
+            .to(RECIPIENT)
             .value(Wei.of(1000))
             .payload(Bytes.EMPTY)
             .signAndBuild(
@@ -195,7 +198,7 @@ public class EIP7778GasAccountingAcceptanceTest extends AcceptanceTestBase {
             .maxPriorityFeePerGas(Wei.of(1_000_000_000))
             .maxFeePerGas(Wei.fromHexString("0x02540BE400"))
             .gasLimit(21_000)
-            .to(Address.fromHexStringStrict(recipient.getAddress()))
+            .to(RECIPIENT)
             .value(Wei.of(2000))
             .payload(Bytes.EMPTY)
             .signAndBuild(

@@ -71,8 +71,8 @@ public class BlockRangeUpdateMessage extends AbstractMessageData {
   }
 
   public static BlockRangeUpdateMessage readFrom(final MessageData message) {
-    if (message instanceof BlockRangeUpdateMessage) {
-      return (BlockRangeUpdateMessage) message;
+    if (message instanceof BlockRangeUpdateMessage blockRangeUpdateMessage) {
+      return blockRangeUpdateMessage;
     }
     final int code = message.getCode();
     if (code != BlockRangeUpdateMessage.MESSAGE_CODE) {

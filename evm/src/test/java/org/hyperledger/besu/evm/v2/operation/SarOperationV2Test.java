@@ -19,7 +19,6 @@ import static org.hyperledger.besu.evm.v2.testutils.TestMessageFrameBuilderV2.ge
 
 import org.hyperledger.besu.evm.UInt256;
 import org.hyperledger.besu.evm.frame.MessageFrame;
-import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.gascalculator.SpuriousDragonGasCalculator;
 import org.hyperledger.besu.evm.v2.testutils.TestMessageFrameBuilderV2;
 
@@ -31,10 +30,11 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
-class SarOperationV2Test {
+class SarOperationV2Test extends BinaryOperationV2Test {
 
-  private final GasCalculator gasCalculator = new SpuriousDragonGasCalculator();
-  private final SarOperationV2 operation = new SarOperationV2(gasCalculator);
+  public SarOperationV2Test() {
+    super(new SarOperationV2(new SpuriousDragonGasCalculator()));
+  }
 
   static Iterable<Arguments> data() {
     return List.of(

@@ -47,12 +47,14 @@ public class BaseJsonRpcProcessor implements JsonRpcProcessor {
     try {
       return method.response(request);
     } catch (final InvalidJsonRpcParameters e) {
-      LOG.debug(
-          "Invalid Params {} for method: {}, error: {}",
-          Arrays.toString(request.getRequest().getParams()),
-          method.getName(),
-          e.getRpcErrorType().getMessage(),
-          e);
+      if (LOG.isDebugEnabled()) {
+        LOG.debug(
+            "Invalid Params {} for method: {}, error: {}",
+            Arrays.toString(request.getRequest().getParams()),
+            method.getName(),
+            e.getRpcErrorType().getMessage(),
+            e);
+      }
       return new JsonRpcErrorResponse(id, e.getRpcErrorType());
     } catch (final RuntimeException e) {
       final JsonArray params = JsonObject.mapFrom(request.getRequest()).getJsonArray("params");

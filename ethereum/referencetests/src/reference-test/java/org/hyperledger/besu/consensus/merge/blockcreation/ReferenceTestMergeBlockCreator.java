@@ -66,6 +66,7 @@ public final class ReferenceTestMergeBlockCreator {
             Optional.of(random),
             parentBeaconBlockRoot,
             slotNumber,
+            Optional.empty(),
             timestamp,
             true,
             parentHeader)

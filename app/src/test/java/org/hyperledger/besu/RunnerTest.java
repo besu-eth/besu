@@ -20,7 +20,6 @@ import static org.hyperledger.besu.config.NetworkDefinition.DEV;
 import static org.hyperledger.besu.config.NetworkDefinition.MAINNET;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_BACKGROUND_THREAD_COUNT;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_CACHE_CAPACITY;
-import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_ENABLE_READ_CACHE_FOR_SNAPSHOTS;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_IS_HIGH_SPEC;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_MAX_OPEN_FILES;
 import static org.mockito.Mockito.mock;
@@ -42,6 +41,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.ImmutableInProcessRpcConfigurat
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.ipc.JsonRpcIpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration;
+import org.hyperledger.besu.ethereum.api.pluginadapter.RpcEndpointServiceImpl;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockImporter;
 import org.hyperledger.besu.ethereum.core.BlockSyncTestUtils;
@@ -55,9 +55,11 @@ import org.hyperledger.besu.ethereum.mainnet.BlockImportResult;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.mainnet.pluginadapter.TransactionValidatorServiceImpl;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
 import org.hyperledger.besu.ethereum.p2p.discovery.NodeIdentifier;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
+import org.hyperledger.besu.ethereum.permissioning.pluginadapter.PermissioningServiceImpl;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStorageProviderBuilder;
@@ -71,9 +73,6 @@ import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBMetricsFactor
 import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBFactoryConfiguration;
 import org.hyperledger.besu.services.BesuConfigurationImpl;
 import org.hyperledger.besu.services.BesuPluginContextImpl;
-import org.hyperledger.besu.services.PermissioningServiceImpl;
-import org.hyperledger.besu.services.RpcEndpointServiceImpl;
-import org.hyperledger.besu.services.TransactionValidatorServiceImpl;
 import org.hyperledger.besu.testutil.TestClock;
 
 import java.io.IOException;
@@ -94,7 +93,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
-import io.vertx.core.http.HttpClient;
+import io.vertx.core.http.WebSocketClient;
 import io.vertx.core.json.Json;
 import io.vertx.core.json.JsonObject;
 import okhttp3.MediaType;
@@ -325,27 +324,29 @@ public final class RunnerTest {
                 }
               });
       final Promise<String> promise = Promise.promise();
-      final HttpClient httpClient = vertx.createHttpClient();
-      httpClient.webSocket(
-          runnerBehind.getWebSocketPort().get(),
-          WebSocketConfiguration.DEFAULT_WEBSOCKET_HOST,
-          "/",
-          ws -> {
-            ws.result()
-                .writeTextMessage(
-                    "{\"id\": 1, \"method\": \"eth_subscribe\", \"params\": [\"syncing\"]}");
-            ws.result()
-                .textMessageHandler(
-                    payload -> {
-                      final boolean matches =
-                          payload.equals("{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":\"0x0\"}");
-                      if (matches) {
-                        promise.complete(payload);
-                      } else {
-                        promise.fail("Unexpected result: " + payload);
-                      }
-                    });
-          });
+      final WebSocketClient webSocketClient = vertx.createWebSocketClient();
+      webSocketClient
+          .connect(
+              runnerBehind.getWebSocketPort().get(),
+              WebSocketConfiguration.DEFAULT_WEBSOCKET_HOST,
+              "/")
+          .onComplete(
+              ws -> {
+                ws.result()
+                    .writeTextMessage(
+                        "{\"id\": 1, \"method\": \"eth_subscribe\", \"params\": [\"syncing\"]}");
+                ws.result()
+                    .textMessageHandler(
+                        payload -> {
+                          final boolean matches =
+                              payload.equals("{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":\"0x0\"}");
+                          if (matches) {
+                            promise.complete(payload);
+                          } else {
+                            promise.fail("Unexpected result: " + payload);
+                          }
+                        });
+              });
       final Future<String> future = promise.future();
       Awaitility.await()
           .catchUncaughtExceptions()
@@ -407,7 +408,7 @@ public final class RunnerTest {
                         DEFAULT_BACKGROUND_THREAD_COUNT,
                         DEFAULT_CACHE_CAPACITY,
                         DEFAULT_IS_HIGH_SPEC,
-                        DEFAULT_ENABLE_READ_CACHE_FOR_SNAPSHOTS,
+                        false,
                         false,
                         Optional.empty(),
                         Optional.empty()),

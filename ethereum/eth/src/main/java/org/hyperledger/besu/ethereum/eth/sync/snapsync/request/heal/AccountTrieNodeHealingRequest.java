@@ -20,7 +20,6 @@ import static org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordina
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
-import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapWorldDownloadState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContext;
 import org.hyperledger.besu.ethereum.rlp.RLP;
@@ -64,7 +63,7 @@ public class AccountTrieNodeHealingRequest extends TrieNodeHealingRequest {
       final SnapSyncProcessState snapSyncState,
       final SnapSyncConfiguration snapSyncConfiguration) {
     if (isRoot()) {
-      ((SnapWorldDownloadState) downloadState).setRootNodeData(data);
+      downloadState.setRootNodeData(data);
     }
     applyForStrategy(
         updater,

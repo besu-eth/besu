@@ -63,12 +63,14 @@ public class EthCapabilities implements JsonRpcMethod {
             .getWorldStateArchive()
             .isWorldStateAvailable(genesisHeader.getStateRoot(), genesisHeader.getHash());
 
-    addResource(result, "state", stateDisabled, Optional.empty());
+    addResource(
+        result, "state", stateDisabled, stateDisabled ? Optional.empty() : maybeOldestBlock);
     addResource(result, "tx", false, maybeOldestBlock);
     addResource(result, "logs", false, maybeOldestBlock);
     addResource(result, "receipts", false, maybeOldestBlock);
     addResource(result, "blocks", false, maybeOldestBlock);
-    addResource(result, "stateproofs", stateDisabled, Optional.empty());
+    addResource(
+        result, "stateproofs", stateDisabled, stateDisabled ? Optional.empty() : maybeOldestBlock);
 
     return new JsonRpcSuccessResponse(requestContext.getRequest().getId(), result);
   }

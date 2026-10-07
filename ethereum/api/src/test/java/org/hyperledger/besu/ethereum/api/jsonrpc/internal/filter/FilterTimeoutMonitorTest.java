@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.filter;
 
+import static org.hyperledger.besu.ethereum.api.ApiConfiguration.DEFAULT_FILTER_TIMEOUT;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
@@ -43,7 +44,7 @@ public class FilterTimeoutMonitorTest {
 
   @Test
   public void expiredFilterShouldBeDeleted() {
-    final Filter filter = spy(new BlockFilter("foo"));
+    final Filter filter = spy(new BlockFilter("foo", DEFAULT_FILTER_TIMEOUT));
     when(filter.isExpired()).thenReturn(true);
     when(filterRepository.getFilters()).thenReturn(Lists.newArrayList(filter));
 

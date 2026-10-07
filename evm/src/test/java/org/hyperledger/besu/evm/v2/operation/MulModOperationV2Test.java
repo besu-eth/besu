@@ -18,25 +18,23 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.evm.v2.testutils.TestMessageFrameBuilderV2.getV2StackItem;
 
 import org.hyperledger.besu.evm.UInt256;
-import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.FrontierGasCalculator;
-import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.v2.testutils.TestMessageFrameBuilderV2;
 
 import java.util.List;
 
 import org.apache.tuweni.bytes.Bytes32;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
-class MulModOperationV2Test {
+class MulModOperationV2Test extends TernaryOperationV2Test {
 
-  private final GasCalculator gasCalculator = new FrontierGasCalculator();
-  private final MulModOperationV2 operation = new MulModOperationV2(gasCalculator);
+  public MulModOperationV2Test() {
+    super(new MulModOperationV2(new FrontierGasCalculator()));
+  }
 
   /**
    * Test data for mulmod(a, b, m) = expected.
@@ -90,47 +88,5 @@ class MulModOperationV2Test {
             ? UInt256.ZERO
             : UInt256.fromBytesBE(Bytes32.fromHexStringLenient(expectedResult).toArrayUnsafe());
     assertThat(getV2StackItem(frame, 0)).isEqualTo(expected);
-  }
-
-  @Test
-  void shouldUnderflowNoItemsEvenWhenOOG() {
-    final MessageFrame frame = new TestMessageFrameBuilderV2().initialGas(1).build();
-    assertThat(frame.stackTopV2()).isEqualTo(0);
-
-    final Operation.OperationResult result = MulModOperationV2.staticOperation(frame);
-
-    assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
-    assertThat(frame.stackTopV2()).isEqualTo(0);
-  }
-
-  @Test
-  void shouldUnderflowOnlyTwoItems() {
-    final MessageFrame frame =
-        new TestMessageFrameBuilderV2()
-            .pushStackItem(Bytes32.fromHexStringLenient("0x1")) // deepest (top-3)
-            .pushStackItem(Bytes32.fromHexStringLenient("0x2")) // top-2, missing top-1
-            .build();
-    assertThat(frame.stackTopV2()).isEqualTo(2);
-
-    final Operation.OperationResult result = MulModOperationV2.staticOperation(frame);
-
-    assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
-    assertThat(frame.stackTopV2()).isEqualTo(2);
-  }
-
-  @Test
-  void shouldHaltOnInsufficientGas() {
-    final MessageFrame frame =
-        new TestMessageFrameBuilderV2()
-            .pushStackItem(Bytes32.ZERO)
-            .pushStackItem(Bytes32.ZERO)
-            .initialGas(1L)
-            .build();
-    assertThat(frame.stackTopV2()).isEqualTo(2);
-
-    final Operation.OperationResult result = operation.execute(frame, null);
-
-    assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_GAS);
-    assertThat(frame.stackTopV2()).isEqualTo(2);
   }
 }

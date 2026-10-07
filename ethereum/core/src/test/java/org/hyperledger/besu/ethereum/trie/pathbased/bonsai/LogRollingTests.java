@@ -15,7 +15,7 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig.createStatefulConfigWithTrie;
+import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateConfig.createStatefulConfigWithTrie;
 import static org.mockito.Mockito.mock;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -29,12 +29,13 @@ import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogFactoryImpl;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.BonsaiTrieLogFactory;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogLayer;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldStateUpdateAccumulator;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogLayer;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
@@ -171,7 +172,7 @@ class LogRollingTests {
                 provider, new NoOpMetricsSystem(), DataStorageConfiguration.DEFAULT_BONSAI_CONFIG),
             EvmConfiguration.DEFAULT,
             createStatefulConfigWithTrie(),
-            new CodeCache());
+            new BonsaiCodeCache());
     final WorldUpdater updater = worldState.updater();
 
     final MutableAccount mutableAccount = updater.createAccount(addressOne, 1, Wei.of(1L));
@@ -189,7 +190,7 @@ class LogRollingTests {
                 DataStorageConfiguration.DEFAULT_BONSAI_CONFIG),
             EvmConfiguration.DEFAULT,
             createStatefulConfigWithTrie(),
-            new CodeCache());
+            new BonsaiCodeCache());
     final BonsaiWorldStateUpdateAccumulator secondUpdater =
         (BonsaiWorldStateUpdateAccumulator) secondWorldState.updater();
 
@@ -197,7 +198,7 @@ class LogRollingTests {
         trieLogStorage.get(headerOne.getHash().getBytes().toArrayUnsafe());
 
     final TrieLogLayer layer =
-        TrieLogFactoryImpl.readFrom(new BytesValueRLPInput(Bytes.wrap(value.get()), false));
+        BonsaiTrieLogFactory.readFrom(new BytesValueRLPInput(Bytes.wrap(value.get()), false));
 
     secondUpdater.rollForward(layer);
     secondUpdater.commit();
@@ -212,7 +213,8 @@ class LogRollingTests {
     assertKeyValueStorageEqual(trieBranchStorage, secondTrieBranchStorage);
     // trie logs won't be the same, we shouldn't generate logs on rolls.
     assertKeyValueSubset(trieLogStorage, secondTrieLogStorage);
-    assertThat(secondWorldState.rootHash()).isEqualByComparingTo(worldState.rootHash());
+    assertThat(secondWorldState.rootHash().getBytes())
+        .isEqualByComparingTo(worldState.rootHash().getBytes());
   }
 
   @Test
@@ -224,7 +226,7 @@ class LogRollingTests {
                 provider, new NoOpMetricsSystem(), DataStorageConfiguration.DEFAULT_BONSAI_CONFIG),
             EvmConfiguration.DEFAULT,
             createStatefulConfigWithTrie(),
-            new CodeCache());
+            new BonsaiCodeCache());
 
     final WorldUpdater updater = worldState.updater();
     final MutableAccount mutableAccount = updater.createAccount(addressOne, 1, Wei.of(1L));
@@ -250,7 +252,7 @@ class LogRollingTests {
                 DataStorageConfiguration.DEFAULT_BONSAI_CONFIG),
             EvmConfiguration.DEFAULT,
             createStatefulConfigWithTrie(),
-            new CodeCache());
+            new BonsaiCodeCache());
     final BonsaiWorldStateUpdateAccumulator secondUpdater =
         (BonsaiWorldStateUpdateAccumulator) secondWorldState.updater();
 
@@ -273,7 +275,8 @@ class LogRollingTests {
     assertKeyValueStorageEqual(trieBranchStorage, secondTrieBranchStorage);
     // trie logs won't be the same, we shouldn't generate logs on rolls.
     assertKeyValueSubset(trieLogStorage, secondTrieLogStorage);
-    assertThat(secondWorldState.rootHash()).isEqualByComparingTo(worldState.rootHash());
+    assertThat(secondWorldState.rootHash().getBytes())
+        .isEqualByComparingTo(worldState.rootHash().getBytes());
   }
 
   @Test
@@ -285,7 +288,7 @@ class LogRollingTests {
                 provider, new NoOpMetricsSystem(), DataStorageConfiguration.DEFAULT_BONSAI_CONFIG),
             EvmConfiguration.DEFAULT,
             createStatefulConfigWithTrie(),
-            new CodeCache());
+            new BonsaiCodeCache());
 
     final WorldUpdater updater = worldState.updater();
     final MutableAccount mutableAccount = updater.createAccount(addressOne, 1, Wei.of(1L));
@@ -318,7 +321,7 @@ class LogRollingTests {
                 DataStorageConfiguration.DEFAULT_BONSAI_CONFIG),
             EvmConfiguration.DEFAULT,
             createStatefulConfigWithTrie(),
-            new CodeCache());
+            new BonsaiCodeCache());
 
     final WorldUpdater secondUpdater = secondWorldState.updater();
     final MutableAccount secondMutableAccount =
@@ -338,13 +341,16 @@ class LogRollingTests {
     assertKeyValueStorageEqual(trieBranchStorage, secondTrieBranchStorage);
     // trie logs won't be the same, we don't delete the roll back log
     assertKeyValueSubset(trieLogStorage, secondTrieLogStorage);
-    assertThat(secondWorldState.rootHash()).isEqualByComparingTo(worldState.rootHash());
+    assertThat(secondWorldState.rootHash().getBytes())
+        .isEqualByComparingTo(worldState.rootHash().getBytes());
   }
 
   private TrieLogLayer getTrieLogLayer(final KeyValueStorage storage, final Hash key) {
     return storage
         .get(key.getBytes().toArrayUnsafe())
-        .map(bytes -> TrieLogFactoryImpl.readFrom(new BytesValueRLPInput(Bytes.wrap(bytes), false)))
+        .map(
+            bytes ->
+                BonsaiTrieLogFactory.readFrom(new BytesValueRLPInput(Bytes.wrap(bytes), false)))
         .get();
   }
 

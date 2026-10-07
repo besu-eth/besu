@@ -19,6 +19,8 @@ import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 
 import java.util.Objects;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonValue;
 import org.apache.tuweni.bytes.Bytes;
 
 /** Arbitrary data for use in the KZG scheme. */
@@ -31,6 +33,7 @@ public class Blob implements org.hyperledger.besu.datatypes.Blob {
    *
    * @param data that represents the blob.
    */
+  @JsonCreator
   public Blob(final Bytes data) {
     this.data = data;
   }
@@ -61,6 +64,7 @@ public class Blob implements org.hyperledger.besu.datatypes.Blob {
    * @return the data.
    */
   @Override
+  @JsonValue
   public Bytes getData() {
     return data;
   }

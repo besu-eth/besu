@@ -1,0 +1,58 @@
+{
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "debug_traceBlockByNumber",
+    "params": [
+      "0x12",
+      {
+        "tracer": "prestateTracer",
+        "tracerConfig": {
+          "diffMode": false,
+          "disableStorage": true
+        }
+      }
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": [
+      {
+        "txHash": "0x9fe9e841f8f2450168f9daf25e79a0d23a0297d257f57cbf4f5a1293ab4ed7b2",
+        "result": {
+          "0x0100000000000000000000000000000000000000": {
+            "balance": "0x0",
+            "code": "0x7f3940be4289e4c3587d88c1856cc95352461992db0a584c281226faefe560b3016000527f14c4d2c102bdeb2354bfc3dc96a95e4512cf3a8461e0560e2272dbf884ef3905601052600851",
+            "codeHash": "0xee732124be41d07787ebc1600f058a43e260fee77d09996dc64be13ea7613653"
+          },
+          "0x71562b71999873db5b286df957af199ec94617f7": {
+            "balance": "0x2d5704721"
+          },
+          "0xfe3b557e8fb62b89f4916b721be55ceb828dbd73": {
+            "balance": "0xffffffffffffffffffffffffffffffffd2c65d85f",
+            "nonce": 19
+          }
+        }
+      },
+      {
+        "txHash": "0xd7077263a86965efdf3073ac0d48b4fabe4d0728e7a20fb54aac54601d336805",
+        "result": {
+          "0x0110000000000000000000000000000000000000": {
+            "balance": "0x0",
+            "code": "0x7f3940be4289e4c3587d88c1856cc95352461992db0a584c281226faefe560b3016000527f14c4d2c102bdeb2354bfc3dc96a95e4512cf3a8461e0560e2272dbf884ef390560105260086008fd",
+            "codeHash": "0x6ec14e2b06f4e97bbbeafe0fb4d17d6017301fb16baad6c08cd306eb33f1f2fd"
+          },
+          "0x71562b71999873db5b286df957af199ec94617f7": {
+            "balance": "0x2d5bca675"
+          },
+          "0xfe3b557e8fb62b89f4916b721be55ceb828dbd73": {
+            "balance": "0xffffffffffffffffffffffffffffffffd2c1926e5",
+            "nonce": 20
+          }
+        }
+      }
+    ]
+  },
+  "statusCode": 200
+}

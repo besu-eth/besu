@@ -18,25 +18,24 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import org.hyperledger.besu.consensus.merge.ForkchoiceEvent;
 import org.hyperledger.besu.consensus.merge.UnverifiedForkchoiceListener;
-import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.chain.ChainDataPruner;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.eth.manager.ChainHeadEstimate;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutor;
 import org.hyperledger.besu.ethereum.eth.sync.common.NoSyncRequiredState;
-import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.fullsync.FullSyncDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.fullsync.SyncTerminationCondition;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapDownloaderFactory;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncController;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.context.SnapSyncStatePersistenceManager;
 import org.hyperledger.besu.ethereum.eth.sync.state.PendingBlocksManager;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.metrics.SyncDurationMetrics;
@@ -44,20 +43,14 @@ import org.hyperledger.besu.plugin.data.SyncStatus;
 import org.hyperledger.besu.plugin.services.BesuEvents;
 import org.hyperledger.besu.plugin.services.BesuEvents.SyncStatusListener;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
-import org.hyperledger.besu.util.log.FramedLogMessage;
 
-import java.io.PrintWriter;
-import java.io.StringWriter;
 import java.nio.file.Path;
 import java.time.Clock;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
-import org.apache.tuweni.bytes.Bytes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -90,7 +83,8 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
       final Clock clock,
       final MetricsSystem metricsSystem,
       final SyncTerminationCondition terminationCondition,
-      final PivotBlockSelector pivotBlockSelector) {
+      final PivotBlockSelector pivotBlockSelector,
+      final Optional<ChainDataPruner> chainDataPruner) {
     this.syncState = syncState;
     this.pivotBlockSelector = pivotBlockSelector;
     this.protocolContext = protocolContext;
@@ -153,7 +147,8 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
                       worldStateStorageCoordinator,
                       syncState,
                       clock,
-                      syncDurationMetrics);
+                      syncDurationMetrics,
+                      chainDataPruner);
           default -> () -> Optional.empty();
         };
 
@@ -226,7 +221,7 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
   @Override
   public void awaitStop() {}
 
-  private CompletableFuture<Void> handleSyncResult(final PivotSyncState result) {
+  private CompletableFuture<Void> handleSyncResult(final SnapSyncProcessState result) {
     if (!running.get()) {
       // We've been shutdown which will have triggered the fast sync future to complete
       return CompletableFuture.completedFuture(null);
@@ -321,47 +316,6 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
     // recreate fast sync with resync and start
     this.syncState.markInitialSyncRestart();
     this.syncState.markResyncNeeded();
-    this.fastSyncDownloader = this.fastSyncFactory.get();
-    start();
-    return true;
-  }
-
-  @Override
-  public boolean healWorldState(
-      final Optional<Address> maybeAccountToRepair, final Bytes location) {
-    // recreate fast sync with resync and start
-    if (fastSyncDownloader.isPresent() && running.get()) {
-      stop();
-      fastSyncDownloader.get().deletePivotSyncState();
-    }
-
-    LOG.atDebug()
-        .setMessage("heal stacktrace: \n{}")
-        .addArgument(
-            () -> {
-              var sw = new StringWriter();
-              new Exception().printStackTrace(new PrintWriter(sw, true));
-              return sw.toString();
-            })
-        .log();
-
-    final List<String> lines = new ArrayList<>();
-    lines.add("Besu has identified a problem with its worldstate database.");
-    lines.add("Your node will fetch the correct data from peers to repair the problem.");
-    lines.add("Starting the sync pipeline...");
-    LOG.atInfo().setMessage(FramedLogMessage.generate(lines)).log();
-
-    this.syncState.markInitialSyncRestart();
-    this.syncState.markResyncNeeded();
-    maybeAccountToRepair.ifPresent(
-        address -> {
-          if (this.protocolContext.getWorldStateArchive() instanceof BonsaiWorldStateProvider) {
-            ((BonsaiWorldStateProvider) this.protocolContext.getWorldStateArchive())
-                .prepareStateHealing(
-                    org.hyperledger.besu.datatypes.Address.wrap(address.getBytes()), location);
-          }
-          this.syncState.markAccountToRepair(maybeAccountToRepair);
-        });
     this.fastSyncDownloader = this.fastSyncFactory.get();
     start();
     return true;

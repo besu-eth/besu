@@ -18,7 +18,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.evm.v2.testutils.TestMessageFrameBuilderV2.getV2StackItem;
 
 import org.hyperledger.besu.evm.UInt256;
-import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.BerlinGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
@@ -30,10 +29,13 @@ import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 
-class GasLimitOperationV2Test {
+class GasLimitOperationV2Test extends NullaryOperationV2Test {
 
   private final GasCalculator gasCalculator = new BerlinGasCalculator();
-  private final GasLimitOperationV2 operation = new GasLimitOperationV2(gasCalculator);
+
+  public GasLimitOperationV2Test() {
+    super(new GasLimitOperationV2(new BerlinGasCalculator()));
+  }
 
   @Test
   void shouldPushGasLimitToStack() {
@@ -64,29 +66,6 @@ class GasLimitOperationV2Test {
     final MessageFrame frame = createFrame(Long.MAX_VALUE, 60_000_000L);
     final OperationResult result = operation.execute(frame, null);
     assertThat(result.getGasCost()).isEqualTo(gasCalculator.getBaseTierGasCost());
-  }
-
-  @Test
-  void shouldHaltOnInsufficientGas() {
-    final MessageFrame frame = createFrame(1L, 60_000_000L);
-    final OperationResult result = operation.execute(frame, null);
-    assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_GAS);
-  }
-
-  @Test
-  void shouldHaltOnStackOverflow() {
-    final MessageFrame frame = createFrame(Long.MAX_VALUE, 60_000_000L);
-    frame.setTopV2(MessageFrame.DEFAULT_MAX_STACK_SIZE);
-    final OperationResult result = operation.execute(frame, null);
-    assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.TOO_MANY_STACK_ITEMS);
-  }
-
-  @Test
-  void shouldHaltOnInsufficientGasEvenStackOverflow() {
-    final MessageFrame frame = createFrame(1, 60_000_000L);
-    frame.setTopV2(MessageFrame.DEFAULT_MAX_STACK_SIZE);
-    final OperationResult result = operation.execute(frame, null);
-    assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_GAS);
   }
 
   private MessageFrame createFrame(final long initialGas, final long gasLimit) {

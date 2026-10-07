@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.core.kzg;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
+import static org.hyperledger.besu.datatypes.BlobType.KZG_CELL_PROOFS;
 import static org.hyperledger.besu.datatypes.BlobType.KZG_PROOF;
 import static org.hyperledger.besu.ethereum.core.kzg.CKZG4844Helper.CELL_PROOFS_PER_BLOB;
 
@@ -36,85 +37,142 @@ public class BlobsWithCommitments implements org.hyperledger.besu.datatypes.Blob
   private final List<BlobProofBundle> blobProofBundles;
 
   /**
-   * Constructs a {@link BlobsWithCommitments} instance from a list of {@link BlobProofBundle}.
+   * Private: instances are built through the static factories, each of which validates what its own
+   * inputs can get wrong. However it was built, an instance holds at least one bundle and every
+   * bundle carries the declared {@link BlobType}.
    *
-   * @param blobProofBundles the list of blob proof bundles to be attached to the transaction.
+   * @param blobType the blob type every bundle declares
+   * @param blobProofBundles the bundles, one per blob
    */
-  public BlobsWithCommitments(final List<BlobProofBundle> blobProofBundles) {
-    checkArgument(!blobProofBundles.isEmpty(), "BlobProofBundles list cannot be empty");
-    BlobType blobType = blobProofBundles.getFirst().getBlobType();
-    checkArgument(
-        blobProofBundles.stream().allMatch(bundle -> bundle.getBlobType() == blobType),
-        "BlobProofBundles must have the same BlobType");
-    this.blobProofBundles = blobProofBundles;
+  private BlobsWithCommitments(
+      final BlobType blobType, final List<BlobProofBundle> blobProofBundles) {
     this.blobType = blobType;
+    this.blobProofBundles = blobProofBundles;
   }
 
   /**
-   * Constructs a {@link BlobsWithCommitments} instance.
+   * Assembles an instance from ready-made bundles, whose origin this class cannot see, so the
+   * invariants have to be checked here rather than following from how the bundles were built.
    *
-   * @param blobType blobType for the sidecar.
-   * @param kzgCommitments commitments for the blobs.
-   * @param blobs list of blobs to be committed to.
-   * @param kzgProofs proofs for the commitments.
-   * @param versionedHashes hashes of the commitments.
-   * @throws InvalidParameterException if the input parameters are invalid.
+   * @param blobProofBundles the bundles, one per blob
+   * @return the assembled instance
    */
-  public BlobsWithCommitments(
-      final BlobType blobType,
+  public static BlobsWithCommitments createFromBundles(
+      final List<BlobProofBundle> blobProofBundles) {
+    checkArgument(!blobProofBundles.isEmpty(), "BlobProofBundles list cannot be empty");
+    checkArgument(
+        blobProofBundles.stream().noneMatch(Objects::isNull),
+        "BlobProofBundles must all be non null");
+    final BlobType blobType = blobProofBundles.getFirst().getBlobType();
+    checkArgument(
+        blobProofBundles.stream().allMatch(bundle -> bundle.getBlobType() == blobType),
+        "BlobProofBundles must have the same BlobType");
+    return new BlobsWithCommitments(blobType, blobProofBundles);
+  }
+
+  /**
+   * Constructs an instance of {@link BlobType#KZG_PROOF}, which carries one proof per blob.
+   *
+   * @param kzgCommitments commitments for the blobs
+   * @param blobs list of blobs to be committed to
+   * @param kzgProofs one proof per blob
+   * @param versionedHashes hashes of the commitments
+   * @return the instance
+   * @throws InvalidParameterException if the input parameters are invalid
+   */
+  public static BlobsWithCommitments createFromBlobsType0(
       final List<KZGCommitment> kzgCommitments,
       final List<Blob> blobs,
       final List<KZGProof> kzgProofs,
       final List<VersionedHash> versionedHashes) {
-    validateInputParameters(blobType, kzgCommitments, blobs, kzgProofs, versionedHashes);
-    this.blobProofBundles =
-        buildBlobProofBundles(blobType, kzgCommitments, blobs, kzgProofs, versionedHashes);
-    this.blobType = blobType;
+    final int blobCount = validateBlobsAndCommitments(kzgCommitments, blobs, versionedHashes);
+    checkArgument(
+        kzgProofs.size() == blobCount,
+        "Invalid number of proofs (%s), expected %s, got %s",
+        KZG_PROOF,
+        blobCount,
+        kzgProofs.size());
+
+    return new BlobsWithCommitments(
+        KZG_PROOF,
+        IntStream.range(0, blobCount)
+            .mapToObj(
+                index ->
+                    new BlobProofBundle(
+                        KZG_PROOF,
+                        blobs.get(index),
+                        kzgCommitments.get(index),
+                        List.of(kzgProofs.get(index)),
+                        versionedHashes.get(index)))
+            .toList());
   }
 
-  private static List<BlobProofBundle> buildBlobProofBundles(
-      final BlobType blobType,
+  /**
+   * Constructs an instance of {@link BlobType#KZG_CELL_PROOFS}, which carries {@link
+   * CKZG4844Helper#CELL_PROOFS_PER_BLOB} proofs per blob.
+   *
+   * @param kzgCommitments commitments for the blobs
+   * @param blobs list of blobs to be committed to
+   * @param kzgProofs the proofs of each blob, one group per blob and in blob order
+   * @param versionedHashes hashes of the commitments
+   * @return the instance
+   * @throws InvalidParameterException if the input parameters are invalid
+   */
+  public static BlobsWithCommitments createFromBlobsType1(
       final List<KZGCommitment> kzgCommitments,
       final List<Blob> blobs,
-      final List<KZGProof> kzgProofs,
+      final List<List<KZGProof>> kzgProofs,
       final List<VersionedHash> versionedHashes) {
-    return IntStream.range(0, blobs.size())
-        .mapToObj(
-            index -> {
-              List<KZGProof> kzgProofsForBlob = extractProofsForBlob(blobType, kzgProofs, index);
-              return new BlobProofBundle(
-                  blobType,
-                  blobs.get(index),
-                  kzgCommitments.get(index),
-                  kzgProofsForBlob,
-                  versionedHashes.get(index));
-            })
-        .toList();
+    final int blobCount = validateBlobsAndCommitments(kzgCommitments, blobs, versionedHashes);
+    checkArgument(
+        kzgProofs.size() == blobCount,
+        "Invalid number of proof groups (%s), expected %s, got %s",
+        KZG_CELL_PROOFS,
+        blobCount,
+        kzgProofs.size());
+    // A group per blob is not enough: each has to hold that blob's full set of cell proofs
+    kzgProofs.forEach(
+        proofsForBlob -> {
+          checkArgument(
+              proofsForBlob != null, "Proof groups (%s) must all be non null", KZG_CELL_PROOFS);
+          checkArgument(
+              proofsForBlob.size() == CELL_PROOFS_PER_BLOB,
+              "Invalid number of proofs (%s), expected %s, got %s",
+              KZG_CELL_PROOFS,
+              CELL_PROOFS_PER_BLOB,
+              proofsForBlob.size());
+        });
+
+    return new BlobsWithCommitments(
+        KZG_CELL_PROOFS,
+        IntStream.range(0, blobCount)
+            .mapToObj(
+                index ->
+                    new BlobProofBundle(
+                        KZG_CELL_PROOFS,
+                        blobs.get(index),
+                        kzgCommitments.get(index),
+                        kzgProofs.get(index),
+                        versionedHashes.get(index)))
+            .toList());
   }
 
-  private static List<KZGProof> extractProofsForBlob(
-      final BlobType blobType, final List<KZGProof> kzgProofs, final int index) {
-    return switch (blobType) {
-      case KZG_PROOF -> List.of(kzgProofs.get(index)); // Single proof per blob
-      case KZG_CELL_PROOFS ->
-          kzgProofs.subList(
-              index * CELL_PROOFS_PER_BLOB,
-              (index + 1) * CELL_PROOFS_PER_BLOB); // 128 cell proofs per blob
-    };
-  }
-
-  private static void validateInputParameters(
-      final BlobType blobType,
+  /**
+   * Checks what every blob-carrying factory needs, anchored on the blobs: they are the payload
+   * being described, so every other list is counted against them.
+   *
+   * @return the number of blobs
+   */
+  private static int validateBlobsAndCommitments(
       final List<KZGCommitment> kzgCommitments,
       final List<Blob> blobs,
-      final List<KZGProof> kzgProofs,
       final List<VersionedHash> versionedHashes) {
     checkNotNull(versionedHashes, "versionedHashes must be set before calling kzgBlobs()");
-    int blobCount = blobs.size();
-    int expectedProofs = blobType == KZG_PROOF ? blobCount : CELL_PROOFS_PER_BLOB * blobCount;
+    final int blobCount = blobs.size();
     checkArgument(
         blobCount > 0,
         "There needs to be a minimum of one blob in a blob transaction with commitments");
+    checkArgument(blobs.stream().noneMatch(Objects::isNull), "Blobs must all be non null");
     checkArgument(
         blobCount == kzgCommitments.size(),
         "Invalid number of kzgCommitments, expected %s, got %s",
@@ -125,12 +183,7 @@ public class BlobsWithCommitments implements org.hyperledger.besu.datatypes.Blob
         "Invalid number of versionedHashes, expected %s, got %s",
         blobCount,
         versionedHashes.size());
-    checkArgument(
-        kzgProofs.size() == expectedProofs,
-        "Invalid number of proofs (%s), expected %s, got %s",
-        blobType,
-        expectedProofs,
-        kzgProofs.size());
+    return blobCount;
   }
 
   /**

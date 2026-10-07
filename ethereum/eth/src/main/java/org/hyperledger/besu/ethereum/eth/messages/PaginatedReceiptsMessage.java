@@ -29,8 +29,8 @@ public final class PaginatedReceiptsMessage extends ReceiptsMessage {
   }
 
   public static PaginatedReceiptsMessage readFrom(final MessageData message) {
-    if (message instanceof PaginatedReceiptsMessage) {
-      return (PaginatedReceiptsMessage) message;
+    if (message instanceof PaginatedReceiptsMessage paginatedReceiptsMessage) {
+      return paginatedReceiptsMessage;
     }
     final int code = message.getCode();
     if (code != EthProtocolMessages.RECEIPTS) {

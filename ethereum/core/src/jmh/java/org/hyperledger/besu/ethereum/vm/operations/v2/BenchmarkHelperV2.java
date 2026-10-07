@@ -20,6 +20,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.Code;
+import org.hyperledger.besu.evm.UInt256;
 import org.hyperledger.besu.evm.frame.BlockValues;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
@@ -65,7 +66,7 @@ public class BenchmarkHelperV2 {
    *
    * @param pool the destination array
    */
-  public static void fillUInt256Pool(final org.hyperledger.besu.evm.UInt256[] pool) {
+  public static void fillUInt256Pool(final UInt256[] pool) {
     final Random random = new Random();
     for (int i = 0; i < pool.length; i++) {
       final byte[] a = new byte[1 + random.nextInt(32)];
@@ -80,10 +81,10 @@ public class BenchmarkHelperV2 {
    * @param bytes the byte array
    * @return the UInt256 value
    */
-  static org.hyperledger.besu.evm.UInt256 bytesToUInt256(final byte[] bytes) {
+  static UInt256 bytesToUInt256(final byte[] bytes) {
     final byte[] padded = new byte[32];
     System.arraycopy(bytes, 0, padded, 32 - bytes.length, bytes.length);
-    return org.hyperledger.besu.evm.UInt256.fromBytesBE(padded);
+    return UInt256.fromBytesBE(padded);
   }
 
   /**
@@ -92,7 +93,7 @@ public class BenchmarkHelperV2 {
    * @param frame the message frame
    * @param value the UInt256 value to push
    */
-  static void pushUInt256(final MessageFrame frame, final org.hyperledger.besu.evm.UInt256 value) {
+  static void pushUInt256(final MessageFrame frame, final UInt256 value) {
     final long[] s = frame.stackDataV2();
     final int top = frame.stackTopV2();
     final int dst = top << 2;
@@ -109,10 +110,10 @@ public class BenchmarkHelperV2 {
    * @param random thread-local random source
    * @return random UInt256 value
    */
-  static org.hyperledger.besu.evm.UInt256 randomUInt256Value(final ThreadLocalRandom random) {
+  static UInt256 randomUInt256Value(final ThreadLocalRandom random) {
     final byte[] value = new byte[32];
     random.nextBytes(value);
-    return org.hyperledger.besu.evm.UInt256.fromBytesBE(value);
+    return UInt256.fromBytesBE(value);
   }
 
   /**
@@ -121,12 +122,11 @@ public class BenchmarkHelperV2 {
    * @param random thread-local random source
    * @return random positive UInt256 value
    */
-  static org.hyperledger.besu.evm.UInt256 randomPositiveUInt256Value(
-      final ThreadLocalRandom random) {
+  static UInt256 randomPositiveUInt256Value(final ThreadLocalRandom random) {
     final byte[] value = new byte[32];
     random.nextBytes(value);
     value[0] = (byte) (value[0] & 0x7F);
-    return org.hyperledger.besu.evm.UInt256.fromBytesBE(value);
+    return UInt256.fromBytesBE(value);
   }
 
   /**
@@ -135,11 +135,18 @@ public class BenchmarkHelperV2 {
    * @param random thread-local random source
    * @return random negative UInt256 value
    */
-  static org.hyperledger.besu.evm.UInt256 randomNegativeUInt256Value(
-      final ThreadLocalRandom random) {
+  static UInt256 randomNegativeUInt256Value(final ThreadLocalRandom random) {
     final byte[] value = new byte[32];
     random.nextBytes(value);
     value[0] = (byte) (value[0] | 0x80);
-    return org.hyperledger.besu.evm.UInt256.fromBytesBE(value);
+    return UInt256.fromBytesBE(value);
+  }
+
+  static UInt256 pow2(final int n) {
+    final byte[] bytes = new byte[32];
+    int nBytes = Integer.divideUnsigned(n, 8);
+    int nBits = Integer.remainderUnsigned(n, 8);
+    bytes[31 - nBytes] = (byte) (1 << nBits);
+    return bytesToUInt256(bytes);
   }
 }

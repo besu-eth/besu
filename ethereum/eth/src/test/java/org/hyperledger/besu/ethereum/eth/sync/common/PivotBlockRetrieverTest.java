@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutor;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResponseCode;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResult;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetHeadersFromPeerTask;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
@@ -92,7 +93,7 @@ public class PivotBlockRetrieverTest {
 
   private PivotBlockRetriever createPivotBlockRetriever(
       final int peersToQuery, final long pivotBlockDelta, final int maxRetries) {
-    return pivotBlockRetriever =
+    pivotBlockRetriever =
         Mockito.spy(
             new PivotBlockRetriever(
                 protocolSchedule,
@@ -101,6 +102,7 @@ public class PivotBlockRetrieverTest {
                 peersToQuery,
                 pivotBlockDelta,
                 maxRetries));
+    return pivotBlockRetriever;
   }
 
   @ParameterizedTest
@@ -139,7 +141,8 @@ public class PivotBlockRetrieverTest {
                 PeerTaskExecutorResponseCode.SUCCESS,
                 List.of(peerC)));
 
-    final CompletableFuture<PivotSyncState> future = pivotBlockRetriever.downloadPivotBlockHeader();
+    final CompletableFuture<SnapSyncProcessState> future =
+        pivotBlockRetriever.downloadPivotBlockHeader();
 
     waitUntilComplete(future);
 
@@ -152,7 +155,7 @@ public class PivotBlockRetrieverTest {
 
     assertThat(future)
         .isCompletedWithValue(
-            new PivotSyncState(blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER).get(), false));
+            new SnapSyncProcessState(blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER).get()));
   }
 
   @ParameterizedTest
@@ -188,7 +191,8 @@ public class PivotBlockRetrieverTest {
                 PeerTaskExecutorResponseCode.SUCCESS,
                 List.of(peerC)));
 
-    final CompletableFuture<PivotSyncState> future = pivotBlockRetriever.downloadPivotBlockHeader();
+    final CompletableFuture<SnapSyncProcessState> future =
+        pivotBlockRetriever.downloadPivotBlockHeader();
 
     waitUntilComplete(future);
 
@@ -201,7 +205,7 @@ public class PivotBlockRetrieverTest {
 
     assertThat(future)
         .isCompletedWithValue(
-            new PivotSyncState(blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER).get(), false));
+            new SnapSyncProcessState(blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER).get()));
   }
 
   @ParameterizedTest
@@ -247,7 +251,8 @@ public class PivotBlockRetrieverTest {
                 PeerTaskExecutorResponseCode.SUCCESS,
                 List.of(peerC)));
 
-    final CompletableFuture<PivotSyncState> future = pivotBlockRetriever.downloadPivotBlockHeader();
+    final CompletableFuture<SnapSyncProcessState> future =
+        pivotBlockRetriever.downloadPivotBlockHeader();
 
     waitUntilComplete(future);
 
@@ -260,7 +265,7 @@ public class PivotBlockRetrieverTest {
 
     assertThat(future)
         .isCompletedWithValue(
-            new PivotSyncState(blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER).get(), false));
+            new SnapSyncProcessState(blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER).get()));
   }
 
   @ParameterizedTest
@@ -308,7 +313,8 @@ public class PivotBlockRetrieverTest {
                 PeerTaskExecutorResponseCode.SUCCESS,
                 List.of(peerB)));
     // Execute task and wait for response
-    final CompletableFuture<PivotSyncState> future = pivotBlockRetriever.downloadPivotBlockHeader();
+    final CompletableFuture<SnapSyncProcessState> future =
+        pivotBlockRetriever.downloadPivotBlockHeader();
 
     waitUntilComplete(future);
 
@@ -319,7 +325,7 @@ public class PivotBlockRetrieverTest {
 
     assertThat(future)
         .isCompletedWithValue(
-            new PivotSyncState(blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER - 1).get(), false));
+            new SnapSyncProcessState(blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER - 1).get()));
   }
 
   @ParameterizedTest
@@ -373,7 +379,8 @@ public class PivotBlockRetrieverTest {
                 List.of(peerB)));
 
     // Execute task and wait for response
-    final CompletableFuture<PivotSyncState> future = pivotBlockRetriever.downloadPivotBlockHeader();
+    final CompletableFuture<SnapSyncProcessState> future =
+        pivotBlockRetriever.downloadPivotBlockHeader();
 
     waitUntilComplete(future);
 
@@ -425,7 +432,8 @@ public class PivotBlockRetrieverTest {
                 List.of(peerB)));
 
     // Execute task and wait for response
-    final CompletableFuture<PivotSyncState> future = pivotBlockRetriever.downloadPivotBlockHeader();
+    final CompletableFuture<SnapSyncProcessState> future =
+        pivotBlockRetriever.downloadPivotBlockHeader();
 
     waitUntilComplete(future);
 

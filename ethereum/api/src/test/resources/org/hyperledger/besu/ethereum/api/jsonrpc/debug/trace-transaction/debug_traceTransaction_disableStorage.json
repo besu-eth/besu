@@ -16,7 +16,7 @@
     "result": {
       "gas" : 23705,
       "failed" : false,
-      "returnValue" : "",
+      "returnValue" : "0x",
       "structLogs" : [ {
         "pc" : 0,
         "op" : "PUSH1",

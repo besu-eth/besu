@@ -25,6 +25,8 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 public class EthStatsConnectOptionsTest {
 
+  private static final Path TEST_CA_CERT = Path.of("./unused-ca-cert.pem");
+
   private final String VALID_NETSTATS_URL = "Dev-Node-1:secret-with-dashes@127.0.0.1:3001";
 
   private final String CONTACT = "contact@mail.fr";
@@ -50,7 +52,8 @@ public class EthStatsConnectOptionsTest {
   @ValueSource(strings = {"url-test.test.com", "url.test.com", "test.com", "10.10.10.15"})
   public void buildWithValidHost(final String host) {
     final EthStatsConnectOptions ethStatsConnectOptions =
-        EthStatsConnectOptions.fromParams("Dev-Node-1:secret@" + host + ":3001", CONTACT, null);
+        EthStatsConnectOptions.fromParams(
+            "Dev-Node-1:secret@" + host + ":3001", CONTACT, TEST_CA_CERT);
     assertThat(ethStatsConnectOptions.getScheme()).isNull();
     assertThat(ethStatsConnectOptions.getHost()).isEqualTo(host);
     assertThat(ethStatsConnectOptions.getPort()).isEqualTo(3001);
@@ -60,7 +63,7 @@ public class EthStatsConnectOptionsTest {
   @ValueSource(strings = {"url-test.test.com", "url.test.com", "test.com", "10.10.10.15"})
   public void buildWithValidHostWithoutPort(final String host) {
     final EthStatsConnectOptions ethStatsConnectOptions =
-        EthStatsConnectOptions.fromParams("Dev-Node-1:secret@" + host, CONTACT, null);
+        EthStatsConnectOptions.fromParams("Dev-Node-1:secret@" + host, CONTACT, TEST_CA_CERT);
     assertThat(ethStatsConnectOptions.getScheme()).isNull();
     assertThat(ethStatsConnectOptions.getHost()).isEqualTo(host);
     assertThat(ethStatsConnectOptions.getPort()).isEqualTo(-1);
@@ -71,7 +74,7 @@ public class EthStatsConnectOptionsTest {
   public void buildWithValidScheme(final String scheme) {
     final EthStatsConnectOptions ethStatsConnectOptions =
         EthStatsConnectOptions.fromParams(
-            scheme + "://Dev-Node-1:secret@url-test.test.com:3001", CONTACT, null);
+            scheme + "://Dev-Node-1:secret@url-test.test.com:3001", CONTACT, TEST_CA_CERT);
     assertThat(ethStatsConnectOptions.getScheme()).isEqualTo(scheme);
     assertThat(ethStatsConnectOptions.getHost()).isEqualTo("url-test.test.com");
     assertThat(ethStatsConnectOptions.getPort()).isEqualTo(3001);
@@ -84,14 +87,14 @@ public class EthStatsConnectOptionsTest {
     assertThatThrownBy(
             () ->
                 EthStatsConnectOptions.fromParams(
-                    scheme + "://Dev-Node-1:secret@url-test.test.com:3001", CONTACT, null))
+                    scheme + "://Dev-Node-1:secret@url-test.test.com:3001", CONTACT, TEST_CA_CERT))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageEndingWith(ERROR_MESSAGE);
   }
 
   @Test
   public void shouldDetectEmptyParams() {
-    assertThatThrownBy(() -> EthStatsConnectOptions.fromParams("", CONTACT, null))
+    assertThatThrownBy(() -> EthStatsConnectOptions.fromParams("", CONTACT, TEST_CA_CERT))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageEndingWith(ERROR_MESSAGE);
   }
@@ -100,18 +103,19 @@ public class EthStatsConnectOptionsTest {
   public void shouldDetectMissingParams() {
     // missing node name
     assertThatThrownBy(
-            () -> EthStatsConnectOptions.fromParams("secret@127.0.0.1:3001", CONTACT, null))
+            () -> EthStatsConnectOptions.fromParams("secret@127.0.0.1:3001", CONTACT, TEST_CA_CERT))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageEndingWith(ERROR_MESSAGE);
 
     // missing host
-    assertThatThrownBy(() -> EthStatsConnectOptions.fromParams("Dev-Node-1:secret@", CONTACT, null))
+    assertThatThrownBy(
+            () -> EthStatsConnectOptions.fromParams("Dev-Node-1:secret@", CONTACT, TEST_CA_CERT))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageEndingWith(ERROR_MESSAGE);
 
     // missing port in URL should default to -1
     EthStatsConnectOptions ethStatsConnectOptions =
-        EthStatsConnectOptions.fromParams("Dev-Node-1:secret@127.0.0.1:", CONTACT, null);
+        EthStatsConnectOptions.fromParams("Dev-Node-1:secret@127.0.0.1:", CONTACT, TEST_CA_CERT);
     assertThat(ethStatsConnectOptions.getPort()).isEqualTo(-1);
   }
 
@@ -121,7 +125,7 @@ public class EthStatsConnectOptionsTest {
     assertThatThrownBy(
             () ->
                 EthStatsConnectOptions.fromParams(
-                    "Dev-Node-1:secret@127.0@0.1:3001", CONTACT, null))
+                    "Dev-Node-1:secret@127.0@0.1:3001", CONTACT, TEST_CA_CERT))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageEndingWith(ERROR_MESSAGE);
 
@@ -129,7 +133,7 @@ public class EthStatsConnectOptionsTest {
     assertThatThrownBy(
             () ->
                 EthStatsConnectOptions.fromParams(
-                    "Dev-Node-1:secret@127.0.0.1:A001", CONTACT, null))
+                    "Dev-Node-1:secret@127.0.0.1:A001", CONTACT, TEST_CA_CERT))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageEndingWith(ERROR_MESSAGE);
   }

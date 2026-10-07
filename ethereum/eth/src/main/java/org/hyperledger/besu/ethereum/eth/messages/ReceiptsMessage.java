@@ -41,8 +41,8 @@ public class ReceiptsMessage extends AbstractMessageData {
   }
 
   public static ReceiptsMessage readFrom(final MessageData message) {
-    if (message instanceof ReceiptsMessage) {
-      return (ReceiptsMessage) message;
+    if (message instanceof ReceiptsMessage receiptsMessage) {
+      return receiptsMessage;
     }
     final int code = message.getCode();
     if (code != EthProtocolMessages.RECEIPTS) {

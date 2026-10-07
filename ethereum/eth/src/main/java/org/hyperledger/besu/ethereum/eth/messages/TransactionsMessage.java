@@ -30,8 +30,8 @@ import org.apache.tuweni.bytes.Bytes;
 public class TransactionsMessage extends AbstractMessageData {
 
   public static TransactionsMessage readFrom(final MessageData message) {
-    if (message instanceof TransactionsMessage) {
-      return (TransactionsMessage) message;
+    if (message instanceof TransactionsMessage transactionsMessage) {
+      return transactionsMessage;
     }
     final int code = message.getCode();
     if (code != EthProtocolMessages.TRANSACTIONS) {

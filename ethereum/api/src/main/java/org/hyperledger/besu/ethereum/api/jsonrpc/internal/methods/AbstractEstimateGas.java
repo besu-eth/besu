@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcRequestException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameter;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameterOrBlockHash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
@@ -65,6 +66,35 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
     }
   }
 
+  @Override
+  protected Object findResultByParamType(final JsonRpcRequestContext requestContext) {
+    final Optional<BlockParameterOrBlockHash> maybeBlockParameter;
+    try {
+      maybeBlockParameter = requestContext.getOptionalParameter(1, BlockParameterOrBlockHash.class);
+    } catch (JsonRpcParameter.JsonRpcParameterException e) {
+      // BlockParameterOrBlockHash rejects some numbers that BlockParameter accepts, so a
+      // value that is not a hash keeps the BlockParameter handling.
+      return super.findResultByParamType(requestContext);
+    }
+    final Optional<Hash> maybeBlockHash =
+        maybeBlockParameter.flatMap(BlockParameterOrBlockHash::getHash);
+    if (maybeBlockHash.isEmpty()) {
+      return super.findResultByParamType(requestContext);
+    }
+    final CallParameter callParameter = validateAndGetCallParams(requestContext);
+    final Optional<BlockHeader> maybeBlockHeader =
+        getBlockchainQueries().getBlockHeaderByHash(maybeBlockHash.get());
+    final Optional<RpcErrorType> jsonRpcError = validateBlockHeader(maybeBlockHeader);
+    if (jsonRpcError.isPresent()) {
+      return errorResponse(requestContext, jsonRpcError.get());
+    }
+    if (maybeBlockParameter.get().getRequireCanonical()
+        && !getBlockchainQueries().blockIsOnCanonicalChain(maybeBlockHash.get())) {
+      return errorResponse(requestContext, RpcErrorType.JSON_RPC_NOT_CANONICAL_ERROR);
+    }
+    return resultByBlockHeader(requestContext, callParameter, maybeBlockHeader.get());
+  }
+
   protected abstract Object simulate(
       final JsonRpcRequestContext requestContext,
       final CallParameter callParams,
@@ -82,7 +112,8 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
     final var minTxCost = getBlockchainQueries().getMinimumTransactionCost(pendingBlockHeader);
     final var gasLimitUpperBound = calculateGasLimitUpperBound(callParameter, pendingBlockHeader);
     if (gasLimitUpperBound < minTxCost) {
-      return errorResponse(requestContext, RpcErrorType.TRANSACTION_UPFRONT_COST_EXCEEDS_BALANCE);
+      return errorResponse(
+          requestContext, RpcErrorType.TRANSACTION_UPFRONT_GAS_COST_EXCEEDS_BALANCE);
     }
     final TransactionSimulationFunction simulationFunction =
         (cp, op) ->
@@ -118,7 +149,8 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
     final var minTxCost = getBlockchainQueries().getMinimumTransactionCost(blockHeader);
     final var gasLimitUpperBound = calculateGasLimitUpperBound(callParameter, blockHeader);
     if (gasLimitUpperBound < minTxCost) {
-      return errorResponse(requestContext, RpcErrorType.TRANSACTION_UPFRONT_COST_EXCEEDS_BALANCE);
+      return errorResponse(
+          requestContext, RpcErrorType.TRANSACTION_UPFRONT_GAS_COST_EXCEEDS_BALANCE);
     }
     final TransactionSimulationFunction simulationFunction =
         (cp, op) ->
@@ -214,6 +246,10 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
     }
   }
 
+  protected static boolean isPlainValueTransfer(final CallParameter callParams) {
+    return callParams.getPayload().isEmpty() || callParams.getPayload().get().equals(Bytes.EMPTY);
+  }
+
   protected boolean attemptOptimisticSimulationWithMinimumBlockGasUsed(
       final long minTxCost,
       final CallParameter callParams,
@@ -221,7 +257,7 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
       final OperationTracer operationTracer) {
 
     // If the transaction is a plain value transfer, try minTxCost. It is likely to succeed.
-    if (callParams.getPayload().isEmpty() || callParams.getPayload().get().equals(Bytes.EMPTY)) {
+    if (isPlainValueTransfer(callParams)) {
       var maybeSimpleTransferResult =
           simulationFunction.simulate(overrideGasLimit(callParams, minTxCost), operationTracer);
       return maybeSimpleTransferResult.isPresent()

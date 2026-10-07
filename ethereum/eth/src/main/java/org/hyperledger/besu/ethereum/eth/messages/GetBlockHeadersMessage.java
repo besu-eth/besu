@@ -36,8 +36,8 @@ public final class GetBlockHeadersMessage extends AbstractMessageData {
   private GetBlockHeadersData getBlockHeadersData = null;
 
   public static GetBlockHeadersMessage readFrom(final MessageData message) {
-    if (message instanceof GetBlockHeadersMessage) {
-      return (GetBlockHeadersMessage) message;
+    if (message instanceof GetBlockHeadersMessage getBlockHeadersMessage) {
+      return getBlockHeadersMessage;
     }
     final int code = message.getCode();
     if (code != EthProtocolMessages.GET_BLOCK_HEADERS) {

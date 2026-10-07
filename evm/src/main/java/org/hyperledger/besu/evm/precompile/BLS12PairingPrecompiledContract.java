@@ -25,7 +25,7 @@ import org.apache.tuweni.bytes.Bytes;
 public class BLS12PairingPrecompiledContract extends AbstractBLS12PrecompiledContract {
 
   private static final int PARAMETER_LENGTH = 384;
-  private static final Cache<Integer, PrecompileInputResultTuple> pairingCache =
+  private static final Cache<Bytes, PrecompileInputResultTuple> pairingCache =
       AbstractPrecompiledContract.resultCacheBuilder()
           .expireAfterWrite(15, TimeUnit.MINUTES) // Evict 15 minutes after each entry is written
           .build();
@@ -45,7 +45,7 @@ public class BLS12PairingPrecompiledContract extends AbstractBLS12PrecompiledCon
   }
 
   @Override
-  protected Cache<Integer, PrecompileInputResultTuple> getCache() {
+  protected Cache<Bytes, PrecompileInputResultTuple> getCache() {
     return pairingCache;
   }
 }

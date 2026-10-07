@@ -1,0 +1,46 @@
+{
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "debug_traceBlockByNumber",
+    "params": [
+      "0x1e",
+      {
+        "tracer": "prestateTracer",
+        "tracerConfig": {
+          "diffMode": false,
+          "disableStorage": true
+        }
+      }
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": [
+      {
+        "txHash": "0x4d08d89203f62c78b1f5484f6593efd5b1b3fa73c093c5cbed3c950f4db46f04",
+        "result": {
+          "0x0160000000000000000000000000000000000000": {
+            "balance": "0xde0b6b3a7640000",
+            "code": "0x60006000600060006000730170000000000000000000000000000000000000600035f160005560006000600060006000730170000000000000000000000000000000000000600035f100",
+            "codeHash": "0x661a1e536f0415d1ca0e1bb5624fef50150444cfb896c725ce60a4ee5b2f9f63"
+          },
+          "0x0170000000000000000000000000000000000000": {
+            "balance": "0xde0b6b3a7640000",
+            "code": "0x73095e7baea6a6c7c4c2dfeb977efac326af552d87ff00",
+            "codeHash": "0x469b95cf3da7a94714c926a6cc4b7c66c126b00186c713e0db0a9001a4d44ed1"
+          },
+          "0x71562b71999873db5b286df957af199ec94617f7": {
+            "balance": "0x1c93b004769f5"
+          },
+          "0xfe3b557e8fb62b89f4916b721be55ceb828dbd73": {
+            "balance": "0xffffffffffffffffffffffffffffffffc4278884f",
+            "nonce": 27
+          }
+        }
+      }
+    ]
+  },
+  "statusCode": 200
+}

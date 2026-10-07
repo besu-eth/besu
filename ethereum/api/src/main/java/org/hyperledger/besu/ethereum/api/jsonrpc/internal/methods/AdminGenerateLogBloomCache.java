@@ -25,6 +25,9 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 
 import java.util.Optional;
+import java.util.function.Supplier;
+
+import com.google.common.base.Suppliers;
 
 public class AdminGenerateLogBloomCache implements JsonRpcMethod {
 
@@ -48,16 +51,6 @@ public class AdminGenerateLogBloomCache implements JsonRpcMethod {
       throw new InvalidJsonRpcParameters(
           "Invalid start block parameter (index 0)", RpcErrorType.INVALID_BLOCK_PARAMS, e);
     }
-    final long startBlock;
-    if (startBlockParam.isEmpty() || startBlockParam.get().isEarliest()) {
-      startBlock = 0;
-    } else if (startBlockParam.get().getNumber().isPresent()) {
-      startBlock = startBlockParam.get().getNumber().get();
-    } else {
-      // latest, pending
-      startBlock = Long.MAX_VALUE;
-    }
-
     final Optional<BlockParameter> stopBlockParam;
     try {
       stopBlockParam = requestContext.getOptionalParameter(1, BlockParameter.class);
@@ -65,20 +58,44 @@ public class AdminGenerateLogBloomCache implements JsonRpcMethod {
       throw new InvalidJsonRpcParameters(
           "Invalid stop block parameter (index 1)", RpcErrorType.INVALID_BLOCK_PARAMS, e);
     }
+
+    // Both bounds are clamped to the chain head. Caching a segment beyond the head can never
+    // produce anything useful, since there are no headers to read.
+    // The stop bound is EXCLUSIVE -- generateLogBloomCache walks
+    // `for (blockNum = start; blockNum < stop; blockNum += BLOCKS_PER_BLOOM_CACHE)` -- so the
+    // ceiling is head + 1. Clamping to the head itself would drop the segment that starts at the
+    // head whenever the head sits on a BLOCKS_PER_BLOOM_CACHE boundary.
+
+    // Memoized so that a request whose bounds are already constant -- notably the no-argument form,
+    // which resolves to a rejected (0, -1) -- does not query the chain head at all.
+    final Supplier<Long> headBlock = Suppliers.memoize(blockchainQueries::headBlockNumber);
+
+    final long startBlock;
+    if (startBlockParam.isEmpty() || startBlockParam.get().isEarliest()) {
+      startBlock = 0;
+    } else if (startBlockParam.get().getNumber().isPresent()) {
+      startBlock = Math.min(startBlockParam.get().getNumber().get(), headBlock.get());
+    } else {
+      // latest, pending
+      startBlock = headBlock.get();
+    }
+
     final long stopBlock;
     if (stopBlockParam.isEmpty()) {
       if (startBlockParam.isEmpty()) {
+        // No arguments at all: leave the bounds crossed so requestCaching rejects the request,
+        // which is the long-standing behaviour of this method.
         stopBlock = -1L;
       } else {
-        stopBlock = Long.MAX_VALUE;
+        stopBlock = headBlock.get() + 1;
       }
     } else if (stopBlockParam.get().isEarliest()) {
       stopBlock = 0;
     } else if (stopBlockParam.get().getNumber().isPresent()) {
-      stopBlock = stopBlockParam.get().getNumber().get();
+      stopBlock = Math.min(stopBlockParam.get().getNumber().get(), headBlock.get() + 1);
     } else {
       // latest, pending
-      stopBlock = Long.MAX_VALUE;
+      stopBlock = headBlock.get() + 1;
     }
 
     return new JsonRpcSuccessResponse(

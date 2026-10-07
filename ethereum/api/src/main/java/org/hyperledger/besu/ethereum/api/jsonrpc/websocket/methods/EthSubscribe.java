@@ -16,21 +16,29 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.websocket.methods;
 
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.FilterParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
+import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.MaxSubscriptionsExceededException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.SubscriptionManager;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.request.InvalidSubscriptionRequestException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.request.SubscribeRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.request.SubscriptionRequestMapper;
+import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.request.SubscriptionType;
 
 public class EthSubscribe extends AbstractSubscriptionMethod {
 
+  private final int maxFilterAddresses;
+
   EthSubscribe(
-      final SubscriptionManager subscriptionManager, final SubscriptionRequestMapper mapper) {
+      final SubscriptionManager subscriptionManager,
+      final SubscriptionRequestMapper mapper,
+      final int maxFilterAddresses) {
     super(subscriptionManager, mapper);
+    this.maxFilterAddresses = maxFilterAddresses;
   }
 
   @Override
@@ -42,6 +50,16 @@ public class EthSubscribe extends AbstractSubscriptionMethod {
   public JsonRpcResponse response(final JsonRpcRequestContext requestContext) {
     try {
       final SubscribeRequest subscribeRequest = getMapper().mapSubscribeRequest(requestContext);
+
+      if (maxFilterAddresses > 0
+          && subscribeRequest.getSubscriptionType() == SubscriptionType.LOGS) {
+        final FilterParameter fp = subscribeRequest.getFilterParameter();
+        if (fp != null && fp.getAddresses().size() > maxFilterAddresses) {
+          return new JsonRpcErrorResponse(
+              requestContext.getRequest().getId(), RpcErrorType.EXCEEDS_RPC_MAX_FILTER_ADDRESSES);
+        }
+      }
+
       final Long subscriptionId = subscriptionManager().subscribe(subscribeRequest);
 
       return new JsonRpcSuccessResponse(
@@ -49,6 +67,9 @@ public class EthSubscribe extends AbstractSubscriptionMethod {
     } catch (final InvalidSubscriptionRequestException isEx) {
       return new JsonRpcErrorResponse(
           requestContext.getRequest().getId(), RpcErrorType.INVALID_REQUEST);
+    } catch (final MaxSubscriptionsExceededException e) {
+      return new JsonRpcErrorResponse(
+          requestContext.getRequest().getId(), RpcErrorType.EXCEEDS_RPC_MAX_ACTIVE_SUBSCRIPTIONS);
     } catch (final Exception e) {
       return new JsonRpcErrorResponse(
           requestContext.getRequest().getId(), RpcErrorType.INTERNAL_ERROR);

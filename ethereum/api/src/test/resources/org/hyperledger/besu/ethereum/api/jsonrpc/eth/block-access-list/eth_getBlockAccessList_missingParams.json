@@ -1,0 +1,17 @@
+{
+  "request": {
+    "id": 16,
+    "jsonrpc": "2.0",
+    "method": "eth_getBlockAccessList",
+    "params": []
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 16,
+    "error": {
+      "code": -32602,
+      "message": "Invalid block param (block not found)"
+    }
+  },
+  "statusCode": 200
+}

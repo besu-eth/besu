@@ -38,9 +38,11 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.FrontierPreExecutionProcessor;
-import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.DefaultStateRootCommitterFactory;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitterFactory;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestBlockchain;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestWorldState;
+import org.hyperledger.besu.evm.gascalculator.GasCalculator;
+import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.List;
@@ -75,7 +77,7 @@ abstract class AbstractBlockProcessorTest {
         .thenReturn(new FrontierPreExecutionProcessor());
     lenient()
         .when(protocolSpec.getStateRootCommitterFactory())
-        .thenReturn(new DefaultStateRootCommitterFactory());
+        .thenReturn(new StateRootCommitterFactory(BalConfiguration.DISABLED));
     blockProcessor =
         new TestBlockProcessor(
             transactionProcessor,
@@ -127,32 +129,36 @@ abstract class AbstractBlockProcessorTest {
   @Test
   void hasAvailableBlockBudget_delegates2DCheckToStrategy() {
     // EIP-8037: hasAvailableBlockBudget must delegate to
-    // BlockGasAccountingStrategy.hasBlockCapacity
-    // so that block import uses the same 2D headroom logic as block building.
+    // BlockGasAccountingStrategy.hasBlockCapacity so that block import uses the same 2D headroom
+    // logic as block building.
     final long blockGasLimit = 100_000L;
     final BlockHeader header = new BlockHeaderTestFixture().gasLimit(blockGasLimit).buildHeader();
     final Transaction tx = mock(Transaction.class);
     when(tx.getGasLimit()).thenReturn(50_000L);
     when(tx.getHash()).thenReturn(Hash.fromHexStringLenient("0x1234"));
 
-    // Regular=60k, State=40k. Per-dimension: min(100k-60k, 100k-40k) = min(40k, 60k) = 40k.
-    // txGasLimit=50k > 40k → should fail with AMSTERDAM (exceeds tighter dimension).
-    assertThat(
-            blockProcessor.hasAvailableBlockBudget(
-                header, tx, 60_000L, 40_000L, BlockGasAccountingStrategy.AMSTERDAM))
+    final GasCalculator gasCalculator = mock(GasCalculator.class);
+    final StateGasCostCalculator stateGasCalc = mock(StateGasCostCalculator.class);
+    when(gasCalculator.stateGasCostCalculator()).thenReturn(stateGasCalc);
+    when(stateGasCalc.transactionExecutionGasLimit()).thenReturn(Long.MAX_VALUE);
+    when(protocolSpec.getGasCalculator()).thenReturn(gasCalculator);
+
+    // Execution=60k, State=40k. Per-dimension: worstCaseExecution = min(MAX, 50k) = 50k.
+    // executionAvailable = 100k - 60k = 40k. 50k > 40k → fails AMSTERDAM per-dimension check.
+    when(protocolSpec.getBlockGasAccountingStrategy())
+        .thenReturn(BlockGasAccountingStrategy.AMSTERDAM);
+    assertThat(blockProcessor.hasAvailableBlockBudget(header, tx, 60_000L, 40_000L, protocolSpec))
         .isFalse();
 
-    // txGasLimit=40k fits: min(40k, 60k) = 40k >= 40k
+    // txGasLimit=40k: worstCaseExecution=40k <= 40k, worstCaseState=40k <= 60k → passes AMSTERDAM.
     when(tx.getGasLimit()).thenReturn(40_000L);
-    assertThat(
-            blockProcessor.hasAvailableBlockBudget(
-                header, tx, 60_000L, 40_000L, BlockGasAccountingStrategy.AMSTERDAM))
+    assertThat(blockProcessor.hasAvailableBlockBudget(header, tx, 60_000L, 40_000L, protocolSpec))
         .isTrue();
 
-    // Same scenario with FRONTIER (1D check, only regular): 40k <= 100k-60k=40k → passes
-    assertThat(
-            blockProcessor.hasAvailableBlockBudget(
-                header, tx, 60_000L, 40_000L, BlockGasAccountingStrategy.FRONTIER))
+    // Same scenario with FRONTIER (1D check, only execution): 40k <= 100k-60k=40k → passes
+    when(protocolSpec.getBlockGasAccountingStrategy())
+        .thenReturn(BlockGasAccountingStrategy.FRONTIER);
+    assertThat(blockProcessor.hasAvailableBlockBudget(header, tx, 60_000L, 40_000L, protocolSpec))
         .isTrue();
   }
 

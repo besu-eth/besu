@@ -101,7 +101,7 @@ public class UpdateTrackingAccount<A extends Account> implements MutableAccount 
     this.addressHash =
         (account instanceof UpdateTrackingAccount)
             ? ((UpdateTrackingAccount<?>) account).addressHash
-            : this.address.addressHash();
+            : account.getAddressHash();
     this.account = account;
 
     this.nonce = account.getNonce();
@@ -327,18 +327,6 @@ public class UpdateTrackingAccount<A extends Account> implements MutableAccount 
     }
     storageWasCleared = true;
     updatedStorage.clear();
-  }
-
-  /**
-   * Does this account have any storage slots that are set to non-zero values?
-   *
-   * @return true if the account has no storage values set to non-zero values. False if any storage
-   *     is set.
-   */
-  @Override
-  public boolean isStorageEmpty() {
-    return updatedStorage.isEmpty()
-        && (storageWasCleared || account == null || account.isStorageEmpty());
   }
 
   @Override

@@ -172,7 +172,6 @@ class AbstractCreateOperationTest {
     when(worldUpdater.getSenderAccount(any())).thenReturn(account);
     when(worldUpdater.getOrCreate(any())).thenReturn(newAccount);
     when(newAccount.getCode()).thenReturn(Bytes.EMPTY);
-    when(newAccount.isStorageEmpty()).thenReturn(true);
     when(worldUpdater.updater()).thenReturn(worldUpdater);
 
     operation.execute(messageFrame, evm);
@@ -217,7 +216,7 @@ class AbstractCreateOperationTest {
     final FakeCreateOperation amsterdamOp = new FakeCreateOperation(amsterdamCalc);
 
     // State gas for CREATE at 36M = 112 * 150 = 16,800
-    final long stateGas = new Eip8037StateGasCostCalculator().createStateGas(blockGasLimit);
+    final long stateGas = new Eip8037StateGasCostCalculator().newContractStateGas();
 
     final UInt256 memoryOffset = UInt256.fromHexString("0xFF");
     final MessageFrame frame =
@@ -260,7 +259,9 @@ class AbstractCreateOperationTest {
     when(worldUpdater.getSenderAccount(any())).thenReturn(account);
     when(worldUpdater.getOrCreate(any())).thenReturn(newAccount);
     when(newAccount.getCode()).thenReturn(Bytes.EMPTY);
-    when(newAccount.isStorageEmpty()).thenReturn(true);
+    // EIP-8037: the target has to read as empty, or no NEW_ACCOUNT is charged and the
+    // spill-below-cost scenario under test never arises.
+    when(account.isEmpty()).thenReturn(true);
     when(worldUpdater.updater()).thenReturn(worldUpdater);
 
     // Compute the operation cost so we can set initialGas to trigger the underflow scenario
@@ -331,7 +332,6 @@ class AbstractCreateOperationTest {
     when(worldUpdater.getSenderAccount(any())).thenReturn(account);
     when(worldUpdater.getOrCreate(any())).thenReturn(newAccount);
     when(newAccount.getCode()).thenReturn(Bytes.EMPTY);
-    when(newAccount.isStorageEmpty()).thenReturn(true);
     when(worldUpdater.updater()).thenReturn(worldUpdater);
 
     final long stateGasBefore = frame.getStateGasReservoir();

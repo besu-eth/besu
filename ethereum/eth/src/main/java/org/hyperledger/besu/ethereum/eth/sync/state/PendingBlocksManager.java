@@ -19,6 +19,7 @@ import static java.util.Collections.newSetFromMap;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.state.cache.ImmutablePendingBlock;
 import org.hyperledger.besu.ethereum.eth.sync.state.cache.PendingBlockCache;
@@ -32,8 +33,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
-
-import org.apache.tuweni.bytes.Bytes;
 
 public class PendingBlocksManager {
 
@@ -53,14 +52,15 @@ public class PendingBlocksManager {
    * Track the given block.
    *
    * @param block the block to track
-   * @param nodeId node that sent the block
+   * @param peer node that sent the block
    * @return true if the block was added (was not previously present)
    */
-  public boolean registerPendingBlock(final Block block, final Bytes nodeId) {
+  public boolean registerPendingBlock(final Block block, final EthPeer peer) {
 
     final ImmutablePendingBlock previousValue =
         this.pendingBlocks.putIfAbsent(
-            block.getHash(), ImmutablePendingBlock.builder().block(block).nodeId(nodeId).build());
+            block.getHash(),
+            ImmutablePendingBlock.builder().block(block).nodeId(peer.nodeId()).build());
     if (previousValue != null) {
       return false;
     }

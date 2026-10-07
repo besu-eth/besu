@@ -256,4 +256,53 @@ public class EthSchedulerTest {
 
     assertThat(processedStrings).containsExactlyElementsOf(expectedStrings);
   }
+
+  @Test
+  public void scheduleBlockCreationTask_restoresThreadNameOnSuccessAndFailure() throws Exception {
+    final EthScheduler realEthScheduler = new EthScheduler(1, 1, 1, new NoOpMetricsSystem());
+    try {
+      // Test success case
+      final java.util.concurrent.atomic.AtomicReference<Thread> threadRef =
+          new java.util.concurrent.atomic.AtomicReference<>();
+      final java.util.concurrent.atomic.AtomicReference<String> threadNameDuringTask =
+          new java.util.concurrent.atomic.AtomicReference<>();
+
+      realEthScheduler
+          .scheduleBlockCreationTask(
+              123L,
+              () -> {
+                threadRef.set(Thread.currentThread());
+                threadNameDuringTask.set(Thread.currentThread().getName());
+              })
+          .get();
+
+      assertThat(threadNameDuringTask.get()).endsWith("-123");
+      assertThat(threadRef.get().getName()).doesNotEndWith("-123");
+
+      // Test exception case
+      final java.util.concurrent.atomic.AtomicReference<Thread> exceptionThreadRef =
+          new java.util.concurrent.atomic.AtomicReference<>();
+      final java.util.concurrent.atomic.AtomicReference<String> exceptionThreadNameDuringTask =
+          new java.util.concurrent.atomic.AtomicReference<>();
+
+      assertThatThrownBy(
+              () ->
+                  realEthScheduler
+                      .scheduleBlockCreationTask(
+                          789L,
+                          () -> {
+                            exceptionThreadRef.set(Thread.currentThread());
+                            exceptionThreadNameDuringTask.set(Thread.currentThread().getName());
+                            throw new RuntimeException("test exception");
+                          })
+                      .get())
+          .hasCauseInstanceOf(RuntimeException.class)
+          .hasMessageContaining("test exception");
+
+      assertThat(exceptionThreadNameDuringTask.get()).endsWith("-789");
+      assertThat(exceptionThreadRef.get().getName()).doesNotEndWith("-789");
+    } finally {
+      realEthScheduler.stop();
+    }
+  }
 }

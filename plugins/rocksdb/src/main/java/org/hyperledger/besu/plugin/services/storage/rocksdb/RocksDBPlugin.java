@@ -29,6 +29,7 @@ import java.util.Optional;
 
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,8 +41,8 @@ public class RocksDBPlugin implements BesuPlugin {
 
   private final RocksDBCLIOptions options;
   private final List<SegmentIdentifier> ignorableSegments = new ArrayList<>();
-  private ServiceManager context;
-  private RocksDBKeyValueStorageFactory factory;
+  private @Nullable ServiceManager context;
+  private @Nullable RocksDBKeyValueStorageFactory factory;
 
   /** Instantiates a newRocksDb plugin. */
   public RocksDBPlugin() {
@@ -79,7 +80,9 @@ public class RocksDBPlugin implements BesuPlugin {
   public void start() {
     LOG.debug("Starting plugin.");
     if (factory == null) {
-      LOG.trace("Applied configuration: {}", options.toString());
+      if (LOG.isTraceEnabled()) {
+        LOG.trace("Applied configuration: {}", options.toString());
+      }
       createFactoriesAndRegisterWithStorageService();
     }
   }
@@ -123,6 +126,25 @@ public class RocksDBPlugin implements BesuPlugin {
     return options.getBlobDBSettings();
   }
 
+  /**
+   * Returns the max open files value that will be used, either explicitly set or derived from
+   * available memory.
+   *
+   * @return the resolved max open files value
+   */
+  public int getResolvedMaxOpenFiles() {
+    return options.getResolvedMaxOpenFiles();
+  }
+
+  /**
+   * Returns whether max open files was explicitly set via CLI.
+   *
+   * @return true if max open files was set via CLI, false if derived from available memory
+   */
+  public boolean isMaxOpenFilesExplicitlySet() {
+    return options.isMaxOpenFilesExplicitlySet();
+  }
+
   private void createAndRegister(final StorageService service) {
     final List<SegmentIdentifier> segments = service.getAllSegmentIdentifiers();
 
@@ -139,7 +161,11 @@ public class RocksDBPlugin implements BesuPlugin {
   }
 
   private void createFactoriesAndRegisterWithStorageService() {
-    context
+    final ServiceManager serviceManager = context;
+    if (serviceManager == null) {
+      throw new IllegalStateException("RocksDB plugin must be registered before it can be started");
+    }
+    serviceManager
         .getService(StorageService.class)
         .ifPresentOrElse(
             this::createAndRegister,

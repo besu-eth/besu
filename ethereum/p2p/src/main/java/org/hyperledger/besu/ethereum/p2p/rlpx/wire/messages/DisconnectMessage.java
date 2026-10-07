@@ -43,8 +43,8 @@ public final class DisconnectMessage extends AbstractMessageData {
   }
 
   public static DisconnectMessage readFrom(final MessageData message) {
-    if (message instanceof DisconnectMessage) {
-      return (DisconnectMessage) message;
+    if (message instanceof DisconnectMessage disconnectMessage) {
+      return disconnectMessage;
     }
     final int code = message.getCode();
     if (code != WireMessageCodes.DISCONNECT) {

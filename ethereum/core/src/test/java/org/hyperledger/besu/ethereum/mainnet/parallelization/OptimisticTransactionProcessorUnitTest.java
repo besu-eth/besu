@@ -14,7 +14,10 @@
  */
 package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
-import static org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig.createStatefulConfigWithTrie;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateConfig.createStatefulConfigWithTrie;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -38,15 +41,15 @@ import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.NoOpBonsaiCachedWorldStorageManager;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.NoopBonsaiCachedMerkleTrieLoader;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.NoOpTrieLogManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.NoOpTrieLogManager;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.NoOpBonsaiCachedMerkleTrieLoader;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.cache.NoOpBonsaiWorldStateCacheManager;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
@@ -57,6 +60,7 @@ import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -99,13 +103,13 @@ class OptimisticTransactionProcessorUnitTest {
   @Mock private MainnetTransactionProcessor transactionProcessor;
   @Mock private TransactionCollisionDetector collisionDetector;
 
-  private ParallelizedConcurrentTransactionProcessor processor;
+  private OptimisticConcurrentTransactionProcessor processor;
   private TestEnvironment env;
 
   @BeforeEach
   void setUp() {
     processor =
-        new ParallelizedConcurrentTransactionProcessor(transactionProcessor, collisionDetector);
+        new OptimisticConcurrentTransactionProcessor(transactionProcessor, collisionDetector);
     env = createTestEnvironment();
   }
 
@@ -125,12 +129,13 @@ class OptimisticTransactionProcessorUnitTest {
 
     return new BonsaiWorldState(
         storage,
-        new NoopBonsaiCachedMerkleTrieLoader(),
-        new NoOpBonsaiCachedWorldStorageManager(storage, EvmConfiguration.DEFAULT, new CodeCache()),
+        new NoOpBonsaiCachedMerkleTrieLoader(),
+        new NoOpBonsaiWorldStateCacheManager(
+            storage, EvmConfiguration.DEFAULT, new BonsaiCodeCache()),
         new NoOpTrieLogManager(),
         EvmConfiguration.DEFAULT,
         createStatefulConfigWithTrie(),
-        new CodeCache());
+        new BonsaiCodeCache());
   }
 
   private TestEnvironment createTestEnvironment() {
@@ -510,6 +515,7 @@ class OptimisticTransactionProcessorUnitTest {
 
       assertTrue(result.isPresent(), "Expected result when no collision");
       assertTrue(result.get().isSuccessful(), "Expected successful result");
+      assertNull(processor.futures[0], "Expected consumed future reference to be cleared");
     }
 
     @Test
@@ -617,6 +623,137 @@ class OptimisticTransactionProcessorUnitTest {
       assertTrue(
           maybeResult.get().getPartialBlockAccessView().isPresent(),
           "Expected BAL view to be present");
+    }
+  }
+
+  @Nested
+  @DisplayName("EIP-158 empty fee-recipient cleanup")
+  class EmptyMiningBeneficiaryTests {
+
+    /**
+     * The serial path calls {@code getOrCreate(miningBeneficiary)}, credits the tip, then runs
+     * {@code clearAccountsThatAreEmpty()}. When the tip is zero and EIP-158 cleanup is active the
+     * net effect is that the fee recipient is left absent. The parallel merge must reach the same
+     * state, otherwise a block whose fee recipient was deleted by an earlier transaction and whose
+     * later transaction pays a zero tip yields a different account set, and so a different state
+     * root, than every other client.
+     */
+    @Test
+    @DisplayName("Zero reward with EIP-158 active does not materialize the fee recipient")
+    void zeroRewardDoesNotMaterializeEmptyMiningBeneficiary() {
+      final Transaction transaction = mockTransaction();
+      stubSuccessfulTransaction(Optional.empty());
+      when(collisionDetector.hasCollision(any(), any(), any(), any())).thenReturn(false);
+      when(transactionProcessor.getClearEmptyAccounts()).thenReturn(true);
+
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          Collections.singletonList(transaction),
+          MINING_BENEFICIARY,
+          EMPTY_BLOCK_HASH_LOOKUP,
+          BLOB_GAS_PRICE,
+          sameThreadExecutor,
+          Optional.empty(),
+          env.maybeParentHeader());
+
+      final Optional<TransactionProcessingResult> result =
+          processor.getProcessingResult(
+              env.worldState(),
+              MINING_BENEFICIARY,
+              transaction,
+              0,
+              Optional.empty(),
+              Optional.empty());
+
+      assertTrue(result.isPresent(), "Expected result to be applied");
+      assertNull(
+          env.worldState().updater().get(MINING_BENEFICIARY),
+          "an unrewarded fee recipient must not be left behind as an empty account");
+    }
+
+    /**
+     * The mirror case: before EIP-158 empty accounts are legitimate, and the serial path leaves the
+     * zero-tip fee recipient in place. The parallel path must keep doing so.
+     */
+    @Test
+    @DisplayName("Zero reward without EIP-158 still materializes the fee recipient")
+    void zeroRewardStillMaterializesBeneficiaryWhenEmptyAccountsAreKept() {
+      final Transaction transaction = mockTransaction();
+      stubSuccessfulTransaction(Optional.empty());
+      when(collisionDetector.hasCollision(any(), any(), any(), any())).thenReturn(false);
+      when(transactionProcessor.getClearEmptyAccounts()).thenReturn(false);
+
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          Collections.singletonList(transaction),
+          MINING_BENEFICIARY,
+          EMPTY_BLOCK_HASH_LOOKUP,
+          BLOB_GAS_PRICE,
+          sameThreadExecutor,
+          Optional.empty(),
+          env.maybeParentHeader());
+
+      processor.getProcessingResult(
+          env.worldState(), MINING_BENEFICIARY, transaction, 0, Optional.empty(), Optional.empty());
+
+      assertNotNull(
+          env.worldState().updater().get(MINING_BENEFICIARY),
+          "pre-EIP-158 the zero-tip fee recipient is still created, matching the serial path");
+    }
+  }
+
+  @Nested
+  @DisplayName("abort() cleanup of speculative futures")
+  @MockitoSettings(strictness = Strictness.LENIENT)
+  class AbortTests {
+
+    @Test
+    @DisplayName("abort() before runAsyncBlock is a no-op")
+    void abortBeforeRunIsNoOp() {
+      processor.abort();
+      processor.abort();
+      assertThat(processor.futures).isNull();
+    }
+
+    @Test
+    @DisplayName("abort() cancels and nulls all pending futures")
+    void abortCancelsAndNullsFutures() {
+      final Transaction tx1 = mockTransaction();
+      final Transaction tx2 = mockTransaction();
+      stubSuccessfulTransaction(Optional.empty());
+
+      // An executor that never runs submitted tasks, so the futures stay pending and abort()'s
+      // cancel(true) is observable (cancel on an already-completed future is a no-op).
+      final Executor noOpExecutor = runnable -> {};
+
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          List.of(tx1, tx2),
+          MINING_BENEFICIARY,
+          EMPTY_BLOCK_HASH_LOOKUP,
+          BLOB_GAS_PRICE,
+          noOpExecutor,
+          Optional.empty(),
+          env.maybeParentHeader());
+
+      // Capture the futures before abort() nulls the slots, then verify they were actually
+      // cancelled
+      final CompletableFuture<ParallelizedTransactionContext> future0 = processor.futures[0];
+      final CompletableFuture<ParallelizedTransactionContext> future1 = processor.futures[1];
+      assertThat(future0).isNotNull().isNotDone();
+      assertThat(future1).isNotNull().isNotDone();
+
+      processor.abort();
+
+      assertThat(processor.futures[0]).isNull();
+      assertThat(processor.futures[1]).isNull();
+      assertThat(future0).isCancelled();
+      assertThat(future1).isCancelled();
+
+      processor.abort();
     }
   }
 }

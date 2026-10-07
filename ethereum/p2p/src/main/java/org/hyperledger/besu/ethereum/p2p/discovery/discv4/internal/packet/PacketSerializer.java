@@ -31,7 +31,6 @@ import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 
-import io.vertx.core.buffer.Buffer;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.MutableBytes;
 
@@ -62,7 +61,8 @@ public class PacketSerializer {
     this.enrResponsePacketDataRlpWriter = enrResponsePacketDataRlpWriter;
   }
 
-  public Buffer encode(final Packet packet) {
+  public Bytes encode(final Packet packet) {
+    final Bytes hash = packet.getHash();
     final Bytes encodedSignature = packetSignatureEncoder.encodeSignature(packet.getSignature());
     final BytesValueRLPOutput encodedData = new BytesValueRLPOutput();
     switch (packet.getType()) {
@@ -86,26 +86,15 @@ public class PacketSerializer {
               packet.getPacketData(EnrResponsePacketData.class).orElseThrow(), encodedData);
     }
 
-    final Buffer buffer =
-        Buffer.buffer(
-            packet.getHash().size() + encodedSignature.size() + 1 + encodedData.encodedSize());
-    packet.getHash().appendTo(buffer);
-    encodedSignature.appendTo(buffer);
-    buffer.appendByte(packet.getType().getValue());
-    appendEncoded(encodedData, buffer);
-    return buffer;
-  }
-
-  private void appendEncoded(final BytesValueRLPOutput encoded, final Buffer buffer) {
-    final int size = encoded.encodedSize();
-    if (size == 0) {
-      return;
-    }
-
-    // We want to append to the buffer, and Buffer always grows to accommodate anything writing,
-    // so we write the last byte we know we'll need to make it resize accordingly.
-    final int start = buffer.length();
-    buffer.setByte(start + size - 1, (byte) 0);
-    encoded.writeEncoded(MutableBytes.wrapBuffer(buffer, start, size));
+    // Write directly into one pre-sized buffer rather than allocating encodedData's own buffer
+    // via encoded() and then copying that into a second, concatenated buffer.
+    final int headerSize = hash.size() + encodedSignature.size() + 1;
+    final int rlpSize = encodedData.encodedSize();
+    final MutableBytes result = MutableBytes.create(headerSize + rlpSize);
+    hash.copyTo(result, 0);
+    encodedSignature.copyTo(result, hash.size());
+    result.set(hash.size() + encodedSignature.size(), packet.getType().getValue());
+    encodedData.writeEncoded(result.mutableSlice(headerSize, rlpSize));
+    return result;
   }
 }

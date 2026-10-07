@@ -113,6 +113,16 @@ public interface MutableBlockchain extends Blockchain {
    */
   void storeBlockHeaders(List<BlockHeader> blockHeaders);
 
+  /**
+   * Removes the canonical blockNumber→blockHash index entries for the given block number range,
+   * without otherwise altering stored headers or chain state.
+   *
+   * @param lowerExclusive blocks at or below this number are not touched
+   * @param upperInclusive blocks up to and including this number have their canonical index entry
+   *     removed
+   */
+  void unsafeRemoveCanonicalIndexRange(long lowerExclusive, long upperInclusive);
+
   Difficulty calculateTotalDifficulty(final BlockHeader blockHeader);
 
   /**

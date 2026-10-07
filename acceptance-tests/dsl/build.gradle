@@ -52,6 +52,8 @@ dependencies {
   implementation 'org.assertj:assertj-core'
   implementation 'org.awaitility:awaitility'
   implementation 'org.java-websocket:Java-WebSocket'
+  implementation 'com.fasterxml.jackson.core:jackson-annotations'
+  implementation 'com.fasterxml.jackson.core:jackson-databind'
   implementation 'org.web3j:abi'
   implementation 'org.web3j:besu'
   implementation 'org.web3j:crypto'

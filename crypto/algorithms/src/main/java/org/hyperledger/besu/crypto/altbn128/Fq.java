@@ -188,11 +188,10 @@ public class Fq implements FieldElement<Fq> {
     if (this == obj) {
       return true;
     }
-    if (!(obj instanceof Fq)) {
+    if (!(obj instanceof Fq other)) {
       return false;
     }
 
-    final Fq other = (Fq) obj;
     return n.compareTo(other.n) == 0;
   }
 }

@@ -16,6 +16,7 @@ package org.hyperledger.besu.datatypes;
 
 import java.math.BigInteger;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.BaseUInt64Value;
@@ -110,6 +111,7 @@ public final class BlobGas extends BaseUInt64Value<BlobGas> implements Quantity 
    * @param str the str
    * @return the blob gas
    */
+  @JsonCreator
   public static BlobGas fromHexString(final String str) {
     return new BlobGas(str);
   }
@@ -119,13 +121,13 @@ public final class BlobGas extends BaseUInt64Value<BlobGas> implements Quantity 
     return toBigInteger();
   }
 
-  @JsonValue
   @Override
   public String toHexString() {
     return super.toHexString();
   }
 
   @Override
+  @JsonValue
   public String toShortHexString() {
     return super.isZero() ? "0x0" : super.toShortHexString();
   }

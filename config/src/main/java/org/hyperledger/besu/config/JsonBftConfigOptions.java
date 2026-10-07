@@ -20,18 +20,14 @@ import java.math.BigInteger;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.OptionalLong;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableMap;
 import org.apache.tuweni.bytes.Bytes;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /** The Json Bft config options. */
 public class JsonBftConfigOptions implements BftConfigOptions {
-
-  private static final Logger LOG = LoggerFactory.getLogger(JsonBftConfigOptions.class);
 
   /** The constant DEFAULT. */
   public static final JsonBftConfigOptions DEFAULT =
@@ -39,13 +35,6 @@ public class JsonBftConfigOptions implements BftConfigOptions {
 
   /** The constant EMPTY_BLOCK_PERIOD_SECONDS_KEY. */
   public static final String EMPTY_BLOCK_PERIOD_SECONDS_KEY = "emptyblockperiodseconds";
-
-  /**
-   * The deprecated config key for the empty block period (replaced by {@link
-   * #EMPTY_BLOCK_PERIOD_SECONDS_KEY}).
-   */
-  @Deprecated
-  public static final String X_EMPTY_BLOCK_PERIOD_SECONDS_KEY = "xemptyblockperiodseconds";
 
   private static final long DEFAULT_EPOCH_LENGTH = 30_000;
   private static final int DEFAULT_BLOCK_PERIOD_SECONDS = 1;
@@ -61,12 +50,11 @@ public class JsonBftConfigOptions implements BftConfigOptions {
   private static final int DEFAULT_FUTURE_MESSAGES_LIMIT = 1000;
   private static final int DEFAULT_FUTURE_MESSAGES_MAX_DISTANCE = 10;
 
+  /** The constant TRANSACTION_GAS_LIMIT. */
+  public static final String TRANSACTION_GAS_LIMIT = "pertxgaslimit";
+
   /** The Bft config root. */
   protected final ObjectNode bftConfigRoot;
-
-  // Ensures the deprecation warning for xemptyblockperiodseconds is emitted at most once
-  // per JsonBftConfigOptions instance.
-  private final AtomicBoolean emptyBlockPeriodDeprecationWarned = new AtomicBoolean(false);
 
   /**
    * Instantiates a new Json bft config options.
@@ -90,37 +78,8 @@ public class JsonBftConfigOptions implements BftConfigOptions {
 
   @Override
   public int getEmptyBlockPeriodSeconds() {
-    final boolean hasNewKey = bftConfigRoot.has(EMPTY_BLOCK_PERIOD_SECONDS_KEY);
-    final boolean hasDeprecatedKey = bftConfigRoot.has(X_EMPTY_BLOCK_PERIOD_SECONDS_KEY);
-    if (hasDeprecatedKey) {
-      maybeLogEmptyBlockPeriodDeprecationWarning(hasNewKey);
-    }
-    if (hasNewKey) {
-      return JsonUtil.getInt(
-          bftConfigRoot, EMPTY_BLOCK_PERIOD_SECONDS_KEY, DEFAULT_EMPTY_BLOCK_PERIOD_SECONDS);
-    }
     return JsonUtil.getInt(
-        bftConfigRoot, X_EMPTY_BLOCK_PERIOD_SECONDS_KEY, DEFAULT_EMPTY_BLOCK_PERIOD_SECONDS);
-  }
-
-  private void maybeLogEmptyBlockPeriodDeprecationWarning(final boolean newKeyAlsoSet) {
-    if (!emptyBlockPeriodDeprecationWarned.compareAndSet(false, true)) {
-      return;
-    }
-    if (newKeyAlsoSet) {
-      LOG.warn(
-          "Genesis BFT config specifies both '{}' (deprecated) and '{}'. "
-              + "The deprecated '{}' is being ignored; please remove it from the genesis file.",
-          X_EMPTY_BLOCK_PERIOD_SECONDS_KEY,
-          EMPTY_BLOCK_PERIOD_SECONDS_KEY,
-          X_EMPTY_BLOCK_PERIOD_SECONDS_KEY);
-    } else {
-      LOG.warn(
-          "Genesis BFT config uses deprecated option '{}'. "
-              + "Please rename it to '{}'. The deprecated name will be removed in a future release.",
-          X_EMPTY_BLOCK_PERIOD_SECONDS_KEY,
-          EMPTY_BLOCK_PERIOD_SECONDS_KEY);
-    }
+        bftConfigRoot, EMPTY_BLOCK_PERIOD_SECONDS_KEY, DEFAULT_EMPTY_BLOCK_PERIOD_SECONDS);
   }
 
   @Override
@@ -174,6 +133,11 @@ public class JsonBftConfigOptions implements BftConfigOptions {
   }
 
   @Override
+  public OptionalLong getTransactionGasLimit() {
+    return JsonUtil.getHexOrDecimalLong(bftConfigRoot, TRANSACTION_GAS_LIMIT);
+  }
+
+  @Override
   public BigInteger getBlockRewardWei() {
     final Optional<String> configFileContent = JsonUtil.getString(bftConfigRoot, "blockreward");
 
@@ -216,6 +180,9 @@ public class JsonBftConfigOptions implements BftConfigOptions {
     }
     if (bftConfigRoot.has("futuremessagesmaxdistance")) {
       builder.put("futureMessagesMaxDistance", getFutureMessagesMaxDistance());
+    }
+    if (bftConfigRoot.has(TRANSACTION_GAS_LIMIT)) {
+      builder.put("transactionGasLimit", getTransactionGasLimit().getAsLong());
     }
     return builder.build();
   }

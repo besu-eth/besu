@@ -72,7 +72,10 @@ public class ForksSchedule<C> {
       }
     }
 
-    return forks.first();
+    // forks is sorted in descending block order (see the TreeSet comparator above), so the
+    // fork with the smallest block/timestamp is last(), not first(). Falling back to first()
+    // incorrectly returned the largest fork here.
+    return forks.last();
   }
 
   /**

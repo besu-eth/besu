@@ -43,8 +43,8 @@ public final class GetPooledTransactionsMessage extends AbstractMessageData {
   }
 
   public static GetPooledTransactionsMessage readFrom(final MessageData message) {
-    if (message instanceof GetPooledTransactionsMessage) {
-      return (GetPooledTransactionsMessage) message;
+    if (message instanceof GetPooledTransactionsMessage getPooledTransactionsMessage) {
+      return getPooledTransactionsMessage;
     }
     final int code = message.getCode();
     if (code != MESSAGE_CODE) {

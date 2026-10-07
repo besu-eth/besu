@@ -29,12 +29,10 @@ import org.hyperledger.besu.ethereum.rlp.RLP;
 
 import java.util.List;
 
-import com.google.common.base.Suppliers;
-
 public class DebugGetRawReceipts extends AbstractBlockParameterOrBlockHashMethod {
 
   public DebugGetRawReceipts(final BlockchainQueries blockchain) {
-    super(Suppliers.ofInstance(blockchain));
+    super(blockchain);
   }
 
   @Override
@@ -55,12 +53,14 @@ public class DebugGetRawReceipts extends AbstractBlockParameterOrBlockHashMethod
 
   @Override
   protected Object resultByBlockHash(final JsonRpcRequestContext request, final Hash blockHash) {
-    return blockchainQueries
-        .get()
+    if (Hash.EMPTY.getBytes().equals(blockHash.getBytes())) {
+      return null;
+    }
+    return getBlockchainQueries()
         .getBlockchain()
         .getTxReceipts(blockHash)
         .map(this::toRLP)
-        .orElseGet(() -> new String[0]);
+        .orElse(null);
   }
 
   private String[] toRLP(final List<TransactionReceipt> receipts) {
@@ -70,7 +70,14 @@ public class DebugGetRawReceipts extends AbstractBlockParameterOrBlockHashMethod
                 RLP.encode(
                         output ->
                             TransactionReceiptEncoder.writeTo(
-                                receipt, output, TransactionReceiptEncodingConfiguration.DEFAULT))
+                                receipt,
+                                output,
+                                // TRIE_ROOT has withOpaqueBytes=false: writeLegacyReceipt writes
+                                // the type byte inline, so typed receipts encode as
+                                // type||rlp(payload)
+                                // rather than the double-wrapped rlp(type||rlp(payload)) from
+                                // DEFAULT.
+                                TransactionReceiptEncodingConfiguration.TRIE_ROOT))
                     .toHexString())
         .toArray(String[]::new);
   }

@@ -77,6 +77,11 @@ public class TransitionContext implements MergeContext {
   }
 
   @Override
+  public boolean isInitialSyncDone() {
+    return postMergeContext.isInitialSyncDone();
+  }
+
+  @Override
   public void observeNewIsPostMergeState(final MergeStateHandler mergeStateHandler) {
     postMergeContext.observeNewIsPostMergeState(mergeStateHandler);
   }
@@ -97,6 +102,21 @@ public class TransitionContext implements MergeContext {
       final Hash headBlockHash, final Hash safeBlockHash, final Hash finalizedBlockHash) {
     postMergeContext.fireNewUnverifiedForkchoiceEvent(
         headBlockHash, safeBlockHash, finalizedBlockHash);
+  }
+
+  @Override
+  public long addNewPayloadListener(final NewPayloadListener newPayloadListener) {
+    return postMergeContext.addNewPayloadListener(newPayloadListener);
+  }
+
+  @Override
+  public void removeNewPayloadListener(final long subscriberId) {
+    postMergeContext.removeNewPayloadListener(subscriberId);
+  }
+
+  @Override
+  public void fireNewPayloadEvent(final BlockHeader header) {
+    postMergeContext.fireNewPayloadEvent(header);
   }
 
   @Override

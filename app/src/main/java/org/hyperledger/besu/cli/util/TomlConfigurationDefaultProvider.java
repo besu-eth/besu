@@ -212,8 +212,8 @@ public class TomlConfigurationDefaultProvider implements IDefaultValueProvider {
     return tomlArrayElements.stream()
         .map(
             tomlObject -> {
-              if (tomlObject instanceof TomlArray) {
-                return "[".concat(decodeTomlArray(((TomlArray) tomlObject).toList())).concat("]");
+              if (tomlObject instanceof TomlArray tomlArray) {
+                return "[".concat(decodeTomlArray(tomlArray.toList())).concat("]");
               } else {
                 return tomlObject.toString();
               }

@@ -22,6 +22,8 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * The InMemory task queue.
  *
@@ -42,7 +44,7 @@ public class InMemoryTaskQueue<T> implements TaskCollection<T> {
   }
 
   @Override
-  public synchronized Task<T> remove() {
+  public synchronized @Nullable Task<T> remove() {
     assertNotClosed();
     T data = internalQueue.poll();
     if (data == null) {
@@ -82,6 +84,16 @@ public class InMemoryTaskQueue<T> implements TaskCollection<T> {
   public synchronized boolean allTasksCompleted() {
     assertNotClosed();
     return isEmpty() && unfinishedOutstandingTasks.size() == 0;
+  }
+
+  /**
+   * Returns the number of tasks which are currently being processed.
+   *
+   * @return number of tasks which are currently being processed
+   */
+  public synchronized long outstandingTaskCount() {
+    assertNotClosed();
+    return unfinishedOutstandingTasks.size();
   }
 
   @Override

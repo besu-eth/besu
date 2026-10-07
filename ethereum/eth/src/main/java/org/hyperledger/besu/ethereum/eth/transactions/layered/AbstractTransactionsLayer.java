@@ -720,13 +720,13 @@ public abstract class AbstractTransactionsLayer implements TransactionsLayer {
 
     internalConsistencyCheck(prevLayerTxsBySender);
 
-    if (nextLayer instanceof AbstractTransactionsLayer) {
+    if (nextLayer instanceof AbstractTransactionsLayer abstractTransactionsLayer) {
       txsBySender.forEach(
           (sender, txsByNonce) ->
               prevLayerTxsBySender
                   .computeIfAbsent(sender, s -> new TreeMap<>())
                   .putAll(txsByNonce));
-      return ((AbstractTransactionsLayer) nextLayer).consistencyCheck(prevLayerTxsBySender);
+      return abstractTransactionsLayer.consistencyCheck(prevLayerTxsBySender);
     }
     return true;
   }

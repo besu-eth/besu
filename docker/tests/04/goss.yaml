@@ -1,0 +1,6 @@
+---
+# Verify Besu version matches expected VERSION env var
+command:
+  check-besu-version:
+    exec: "sh -c '[ -n \"${EXPECTED_VERSION}\" ] && /opt/besu/bin/besu --version 2>&1 | grep -q \"${EXPECTED_VERSION}\"'"
+    exit-status: 0

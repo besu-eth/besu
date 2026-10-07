@@ -45,10 +45,9 @@ public class SyncBlock {
     if (obj == this) {
       return true;
     }
-    if (!(obj instanceof SyncBlock)) {
+    if (!(obj instanceof SyncBlock other)) {
       return false;
     }
-    final SyncBlock other = (SyncBlock) obj;
     return header.equals(other.header) && body.equals(other.body);
   }
 

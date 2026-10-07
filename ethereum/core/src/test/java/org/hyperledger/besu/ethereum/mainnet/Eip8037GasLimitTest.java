@@ -17,6 +17,8 @@ package org.hyperledger.besu.ethereum.mainnet;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -110,16 +112,16 @@ class Eip8037GasLimitTest {
   void exceptionalHaltPreservesStateGasReservoirForRefund() {
     // EIP-8037: On exceptional halt of the initial frame, the state_gas_reservoir must be
     // preserved for transaction-level refund. This test simulates a child frame having refunded
-    // state gas to the parent's reservoir before the parent runs out of regular gas. The
+    // state gas to the parent's reservoir before the parent runs out of execution gas. The
     // refunded reservoir must not be lost: the total gas used should be
     // txGasLimit - preserved_reservoir, not the full txGasLimit.
     setupCommonMocks(20_000_000L);
 
     // txGasLimit=20M, intrinsic≈21k → gasAvailable≈19,979,000.
-    // regularBudget = TX_MAX_GAS_LIMIT (16,777,216) - intrinsic ≈ 16,756,216.
+    // executionBudget = TX_MAX_GAS_LIMIT (16,777,216) - intrinsic ≈ 16,756,216.
     // gas_left initial = 16,756,216; reservoir initial = 19,979,000 - 16,756,216 = 3,222,784.
     // We simulate: child SSTORE spilled 37,568 into child gas_left, then child halted and the
-    // spill was restored to the reservoir. The initial frame then runs out of regular gas.
+    // spill was restored to the reservoir. The initial frame then runs out of execution gas.
     final long childRefund = 37_568L;
 
     doAnswer(
@@ -127,7 +129,7 @@ class Eip8037GasLimitTest {
               final MessageFrame frame = invocation.getArgument(0);
               // Simulate a child frame halt having added state gas back to the reservoir.
               frame.incrementStateGasReservoir(childRefund);
-              // Now simulate the initial frame running out of regular gas.
+              // Now simulate the initial frame running out of execution gas.
               frame.setExceptionalHaltReason(Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
               frame.setGasRemaining(0);
               frame.getMessageFrameStack().pop();
@@ -157,7 +159,7 @@ class Eip8037GasLimitTest {
   }
 
   @Test
-  void regularGasWithinTxMaxGasLimitSucceeds() {
+  void executionGasWithinTxMaxGasLimitSucceeds() {
     setupCommonMocks(20_000_000L);
 
     doAnswer(
@@ -165,7 +167,7 @@ class Eip8037GasLimitTest {
               final MessageFrame frame = invocation.getArgument(0);
               frame.setState(MessageFrame.State.COMPLETED_SUCCESS);
               // totalConsumed = 20M - 5M = 15M
-              // regularConsumed = 15M - 0 = 15M < TX_MAX_GAS_LIMIT (16,777,216) -> passes
+              // executionConsumed = 15M - 0 = 15M < TX_MAX_GAS_LIMIT (16,777,216) -> passes
               frame.setGasRemaining(5_000_000L);
               frame.getMessageFrameStack().pop();
               return null;
@@ -188,19 +190,24 @@ class Eip8037GasLimitTest {
   }
 
   @Test
-  void stateGasCanPushTotalBeyondTxMaxGasLimitWithoutRevert() {
-    // Total gas > TX_MAX_GAS_LIMIT but regular gas portion is within limit
+  void exceptionalHaltShouldNotDeleteAccountsViaSelfDestructs() {
+    // Regression test: a failed transaction once deleted the accounts its selfdestruct markers
+    // named, wiping pre-existing accounts from world state. EXCEPTIONAL_HALT is the cheapest way
+    // to reach that failure branch — driving execution gas past TX_MAX_GAS_LIMIT reaches the same
+    // one.
     setupCommonMocks(20_000_000L);
+
+    final Address childAddress =
+        Address.fromHexString("0xf0e10967a8e01280baa0880522da22e9e4bbb9b3");
 
     doAnswer(
             invocation -> {
               final MessageFrame frame = invocation.getArgument(0);
-              frame.setState(MessageFrame.State.COMPLETED_SUCCESS);
-              // totalConsumed = 20M - 1M = 19M (exceeds TX_MAX_GAS_LIMIT)
-              // stateGas = 5M
-              // regularConsumed = 19M - 5M = 14M < TX_MAX_GAS_LIMIT -> passes
-              frame.setGasRemaining(1_000_000L);
-              frame.incrementStateGasUsed(5_000_000L);
+              // Simulate a successful CREATE2→SELFDESTRUCT child: add markers to the frame.
+              frame.addCreate(childAddress);
+              frame.addSelfDestruct(childAddress);
+              frame.setExceptionalHaltReason(Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
+              frame.setGasRemaining(0L);
               frame.getMessageFrameStack().pop();
               return null;
             })
@@ -218,7 +225,46 @@ class Eip8037GasLimitTest {
                 ImmutableTransactionValidationParams.builder().build(),
                 Wei.ZERO);
 
-    // Total gas exceeds TX_MAX_GAS_LIMIT but only regular gas is checked
+    assertThat(result.isSuccessful()).isFalse();
+    // The pre-existing child account must NOT be deleted even though it was in selfDestructs.
+    verify(worldState, never()).deleteAccount(childAddress);
+  }
+
+  @Test
+  void stateGasCanPushTotalBeyondTxMaxGasLimitWithoutRevert() {
+    // Total gas > TX_MAX_GAS_LIMIT but execution gas portion is within limit
+    setupCommonMocks(20_000_000L);
+
+    doAnswer(
+            invocation -> {
+              final MessageFrame frame = invocation.getArgument(0);
+              frame.setState(MessageFrame.State.COMPLETED_SUCCESS);
+              // totalConsumed = 20M - 1M = 19M (exceeds TX_MAX_GAS_LIMIT)
+              // stateGas = 5M
+              // executionConsumed = 19M - 5M = 14M < TX_MAX_GAS_LIMIT -> passes
+              frame.setGasRemaining(1_000_000L);
+              // Simulate 5M of state gas consumed: seed the reservoir and draw it down so
+              // stateGasUsed reaches 5M without touching the 1M of execution gas left.
+              frame.setStateGasReservoir(5_000_000L);
+              frame.consumeStateGas(5_000_000L);
+              frame.getMessageFrameStack().pop();
+              return null;
+            })
+        .when(messageCallProcessor)
+        .process(any(), any());
+
+    final TransactionProcessingResult result =
+        createProcessor()
+            .processTransaction(
+                worldState,
+                blockHeader,
+                transaction,
+                Address.fromHexString("0x4242424242424242424242424242424242424242"),
+                blockHashLookup,
+                ImmutableTransactionValidationParams.builder().build(),
+                Wei.ZERO);
+
+    // Total gas exceeds TX_MAX_GAS_LIMIT but only execution gas is checked
     assertThat(result.isSuccessful()).isTrue();
     assertThat(result.getStateGasUsed()).isEqualTo(5_000_000L);
   }

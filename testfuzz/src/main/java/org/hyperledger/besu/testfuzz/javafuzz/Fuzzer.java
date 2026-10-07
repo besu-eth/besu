@@ -43,6 +43,7 @@ import org.jacoco.core.data.ExecutionDataReader;
 import org.jacoco.core.data.IExecutionDataVisitor;
 import org.jacoco.core.data.ISessionInfoVisitor;
 import org.jacoco.core.data.SessionInfo;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Ported from <a
@@ -55,8 +56,8 @@ public class Fuzzer {
   private final Corpus corpus;
   private final Object agent;
   private final Method getExecutionDataMethod;
-  private final Pattern guidanceRegexp;
-  private final File newCorpusDir;
+  private final @Nullable Pattern guidanceRegexp;
+  private final @Nullable File newCorpusDir;
   private long executionsInSample;
   private long lastSampleTime;
   private long totalExecutions;
@@ -70,8 +71,10 @@ public class Fuzzer {
    * @param target The target to fuzz
    * @param dirs the list of corpus dirs and files, comma separated.
    * @param fuzzStats additional fuzzing data from the client
-   * @param guidanceRegexp Regexp of (slash delimited) class names to check for guidance.
-   * @param newCorpusDir Direcroty to dump hex encoded versions of guidance discovered tests.
+   * @param guidanceRegexp Regexp of (slash delimited) class names to check for guidance, or {@code
+   *     null} to disable coverage guidance.
+   * @param newCorpusDir Directory to dump hex encoded versions of guidance discovered tests, or
+   *     {@code null} to disable output.
    * @throws ClassNotFoundException If Jacoco RT is not found (because jacocoagent.jar is not
    *     loaded)
    * @throws NoSuchMethodException If the wrong version of Jacoco is loaded
@@ -83,8 +86,8 @@ public class Fuzzer {
       final FuzzTarget target,
       final String dirs,
       final Supplier<String> fuzzStats,
-      final String guidanceRegexp,
-      final File newCorpusDir)
+      final @Nullable String guidanceRegexp,
+      final @Nullable File newCorpusDir)
       throws ClassNotFoundException,
           NoSuchMethodException,
           InvocationTargetException,

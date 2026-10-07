@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration level="WARN" xmlns:xi="http://www.w3.org/2001/XInclude">
+    <xi:include href="log4j2-besu-properties.xml"/>
+
+    <Appenders>
+        <Console name="Console" target="SYSTEM_OUT">
+            <JsonTemplateLayout eventTemplateUri="classpath:GelfLayout.json" />
+        </Console>
+        <xi:include href="log4j2-besu-splunk-appender.xml"/>
+    </Appenders>
+
+    <xi:include href="log4j2-besu-loggers.xml"/>
+</Configuration>

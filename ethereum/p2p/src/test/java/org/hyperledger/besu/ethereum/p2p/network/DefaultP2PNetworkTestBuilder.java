@@ -63,7 +63,6 @@ public final class DefaultP2PNetworkTestBuilder {
 
     final PeerDiscoveryAgentFactory peerDiscoveryAgentFactory =
         DefaultPeerDiscoveryAgentFactory.builder()
-            .vertx(vertx)
             .nodeKey(nodeKey)
             .config(config)
             .peerPermissions(peerPermissions)

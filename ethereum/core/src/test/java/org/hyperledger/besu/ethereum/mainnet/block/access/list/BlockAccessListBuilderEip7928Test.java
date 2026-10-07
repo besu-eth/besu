@@ -18,6 +18,8 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 
+import java.util.List;
+
 import org.apache.tuweni.units.bigints.UInt256;
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -69,12 +71,62 @@ class BlockAccessListBuilderEip7928Test {
         .isEqualTo(4L);
   }
 
+  /** A slot written back to where a shared index found it ends up as a read. */
+  @Test
+  void laterViewAtSameIndexReplacesEarlierOne() {
+    final PartialBlockAccessView.PartialBlockAccessViewBuilder first =
+        new PartialBlockAccessView.PartialBlockAccessViewBuilder()
+            .withTxIndex(1)
+            .withSharedIndex(true);
+    first
+        .getOrCreateAccountBuilder(ADDR_1)
+        .withPostBalance(Wei.of(5))
+        .withNonceChange(2L)
+        .addStorageChange(SLOT_1, UInt256.ZERO, UInt256.ONE);
+
+    final PartialBlockAccessView.PartialBlockAccessViewBuilder second =
+        new PartialBlockAccessView.PartialBlockAccessViewBuilder()
+            .withTxIndex(1)
+            .withSharedIndex(true);
+    second.getOrCreateAccountBuilder(ADDR_1).withNonceChange(3L).addStorageRead(SLOT_1);
+
+    final BlockAccessList.BlockAccessListBuilder builder = BlockAccessList.builder();
+    builder.apply(first.build());
+    builder.apply(second.build());
+    final BlockAccessList.AccountChanges account = builder.build().accountChanges().getFirst();
+
+    Assertions.assertThat(account.storageChanges()).isEmpty();
+    Assertions.assertThat(account.storageReads())
+        .containsExactly(new BlockAccessList.SlotRead(SLOT_1));
+    Assertions.assertThat(account.balanceChanges()).isEmpty();
+    Assertions.assertThat(account.nonceChanges())
+        .containsExactly(new BlockAccessList.NonceChange(1, 3L));
+  }
+
+  @Test
+  void mergeFromRejectsStorageSlotWithEmptyChanges() {
+    final BlockAccessList invalid =
+        new BlockAccessList(
+            List.of(
+                new BlockAccessList.AccountChanges(
+                    ADDR_1,
+                    List.of(new BlockAccessList.SlotChanges(SLOT_1, List.of())),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of())));
+
+    Assertions.assertThatThrownBy(() -> BlockAccessList.builder().mergeFrom(invalid))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("at least one storage change");
+  }
+
   private static PartialBlockAccessView partialWithOneAccountAndStorageWrite(final int txIndex) {
     final Address addr = Address.fromHexString(String.format("0x%040x", txIndex + 100L));
     final PartialBlockAccessView.PartialBlockAccessViewBuilder b =
         new PartialBlockAccessView.PartialBlockAccessViewBuilder().withTxIndex(txIndex);
     b.getOrCreateAccountBuilder(addr)
-        .addStorageChange(new StorageSlotKey(UInt256.ONE), UInt256.ZERO);
+        .addStorageChange(new StorageSlotKey(UInt256.ONE), null, UInt256.ZERO);
     return b.build();
   }
 }

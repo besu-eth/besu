@@ -75,6 +75,20 @@ public class AccountTransactions {
     return createFrontierBuilder(sender, recipient, Amount.ether(amount)).nonce(nonce).build();
   }
 
+  public TransferTransaction createTransferWithGasLimit(
+      final Account sender, final int amount, final long gasLimit) {
+    return createFrontierBuilder(accounts.getPrimaryBenefactor(), sender, Amount.ether(amount))
+        .gasLimit(gasLimit)
+        .build();
+  }
+
+  public TransferTransaction createTransferWithGasLimit(
+      final Account sender, final Account recipient, final int amount, final long gasLimit) {
+    return createFrontierBuilder(sender, recipient, Amount.ether(amount))
+        .gasLimit(gasLimit)
+        .build();
+  }
+
   public TransferTransaction createTransfer(
       final Account sender, final Account recipient, final Amount amount, final BigInteger nonce) {
     return createFrontierBuilder(sender, recipient, amount).nonce(nonce).build();

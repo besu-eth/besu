@@ -194,9 +194,16 @@ public class QbftBlockHeightManager implements BaseQbftBlockHeightManager {
 
     if (!isProposer) {
       final long currentTimeInMillis = finalState.getClock().millis();
-      if (!finalState
-          .getBlockTimer()
-          .checkEmptyBlockExpired(parentHeader::getTimestamp, currentTimeInMillis)) {
+      final boolean withinEmptyBlockPeriod =
+          !finalState
+              .getBlockTimer()
+              .checkEmptyBlockExpired(parentHeader::getTimestamp, currentTimeInMillis);
+      // Only stay idle while the chain is genuinely quiet. If a transaction has arrived after the
+      // block period but before the emptyblock period, the block this height would produce is now
+      // non-empty. Usually the proposer would receive the transaction over P2P and break out of its
+      // empty block timer, but if the proposer crashes during the empty block period the chain is
+      // stalled until the full empty block period expires (possibly many minutes or hours).
+      if (withinEmptyBlockPeriod && wouldCreateEmptyBlock(qbftRound)) {
         // Mirror the proposer: reset timer, kill round timer, go idle
         finalState
             .getBlockTimer()
@@ -245,6 +252,18 @@ public class QbftBlockHeightManager implements BaseQbftBlockHeightManager {
         currentRound = Optional.empty();
       }
     }
+  }
+
+  /**
+   * Determines whether the block this node would create for the given round right now would be
+   * empty (i.e. contains no pending transactions).
+   *
+   * @param qbftRound the round to build a candidate block for
+   * @return true if the candidate block would be empty
+   */
+  private boolean wouldCreateEmptyBlock(final QbftRound qbftRound) {
+    final long headerTimeStampSeconds = Math.round(clock.millis() / 1000D);
+    return qbftRound.createBlock(headerTimeStampSeconds).block().isEmpty();
   }
 
   /**

@@ -347,10 +347,9 @@ public class AbstractPeerConnectionTest {
       if (o == this) {
         return true;
       }
-      if (!(o instanceof SentMessage)) {
+      if (!(o instanceof SentMessage that)) {
         return false;
       }
-      final SentMessage that = (SentMessage) o;
       return Objects.equals(capability, that.capability)
           && Objects.equals(messageData, that.messageData);
     }

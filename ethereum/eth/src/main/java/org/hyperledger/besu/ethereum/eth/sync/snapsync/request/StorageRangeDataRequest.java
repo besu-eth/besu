@@ -116,7 +116,7 @@ public class StorageRangeDataRequest extends SnapDataRequest {
                           accountHash, Hash.wrap(key), Bytes32.leftPad(RLP.decodeValue(value))));
         });
 
-    stackTrie.commit(flatDatabaseUpdater.get(), nodeUpdater);
+    stackTrie.commit(flatDatabaseUpdater.get(), nodeUpdater, false);
 
     downloadState.getMetricsManager().notifySlotsDownloaded(stackTrie.getElementsCount().get());
 
@@ -180,7 +180,8 @@ public class StorageRangeDataRequest extends SnapDataRequest {
       return Stream.empty();
     }
 
-    findNewBeginElementInRange(storageRoot, taskElement.proofs(), taskElement.keys(), endKeyHash)
+    findNewBeginElementInRange(
+            storageRoot, taskElement.proofs(), taskElement.keys(), startKeyHash, endKeyHash)
         .ifPresent(
             missingRightElement -> {
               final int nbRanges = getRangeCount(startKeyHash, endKeyHash, taskElement.keys());

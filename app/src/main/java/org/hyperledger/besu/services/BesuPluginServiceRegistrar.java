@@ -16,11 +16,19 @@ package org.hyperledger.besu.services;
 
 import org.hyperledger.besu.Runner;
 import org.hyperledger.besu.controller.BesuController;
+import org.hyperledger.besu.ethereum.api.pluginadapter.HealthCheckServiceImpl;
+import org.hyperledger.besu.ethereum.api.pluginadapter.TraceServiceImpl;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
+import org.hyperledger.besu.ethereum.blockcreation.pluginadapter.MiningServiceImpl;
+import org.hyperledger.besu.ethereum.chain.pluginadapter.RlpConverterServiceImpl;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
+import org.hyperledger.besu.ethereum.eth.transactions.pluginadapter.TransactionPoolServiceImpl;
+import org.hyperledger.besu.ethereum.transaction.pluginadapter.BlockSimulatorServiceImpl;
+import org.hyperledger.besu.ethereum.worldstate.pluginadapter.WorldStateServiceImpl;
 import org.hyperledger.besu.plugin.services.BesuEvents;
 import org.hyperledger.besu.plugin.services.BlockSimulationService;
 import org.hyperledger.besu.plugin.services.BlockchainService;
+import org.hyperledger.besu.plugin.services.HealthCheckService;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.PermissioningService;
 import org.hyperledger.besu.plugin.services.RpcEndpointService;
@@ -108,6 +116,8 @@ public final class BesuPluginServiceRegistrar {
     pluginContext.addService(TransactionSimulationService.class, transactionSimulationService);
     pluginContext.addService(BlockchainService.class, blockchainService);
     pluginContext.addService(TransactionValidatorService.class, transactionValidatorService);
+
+    pluginContext.addService(HealthCheckService.class, new HealthCheckServiceImpl());
   }
 
   /**
@@ -204,8 +214,7 @@ public final class BesuPluginServiceRegistrar {
                 miningConfiguration),
             besuController.getProtocolSchedule()));
 
-    pluginContext.addService(
-        MiningService.class, new MiningServiceImpl(besuController.getMiningCoordinator()));
+    registerMiningService(pluginContext, besuController);
 
     pluginContext.addService(
         BlockSimulationService.class,
@@ -217,5 +226,12 @@ public final class BesuPluginServiceRegistrar {
             besuController.getProtocolContext().getBlockchain()));
 
     besuController.getAdditionalPluginServices().appendPluginServices(pluginContext);
+  }
+
+  @SuppressWarnings("removal") // MiningService is deprecated for removal; drop this with it
+  private static void registerMiningService(
+      final BesuPluginContextImpl pluginContext, final BesuController besuController) {
+    pluginContext.addService(
+        MiningService.class, new MiningServiceImpl(besuController.getMiningCoordinator()));
   }
 }

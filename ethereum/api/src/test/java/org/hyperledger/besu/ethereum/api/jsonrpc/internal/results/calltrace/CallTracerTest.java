@@ -1,0 +1,571 @@
+/*
+ * Copyright contributors to Besu.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.calltrace;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Log;
+import org.hyperledger.besu.datatypes.LogTopic;
+import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.CallTracerResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.CallTracerResult.CallLog;
+import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.debug.TraceOptions;
+import org.hyperledger.besu.ethereum.debug.TracerType;
+import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
+import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
+import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.operation.Operation;
+import org.hyperledger.besu.evm.operation.Operation.OperationResult;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+@DisplayName("CallTracer")
+class CallTracerTest {
+
+  @Test
+  @DisplayName("reports a nested precompile's exact entry gas, not an approximation")
+  void precompileCallReportsExactEntryGas() {
+    final CallTracer tracer = new CallTracer(callTracerOptions(false));
+    final Address sender = Address.fromHexString("0x00");
+    final Address rootContract = Address.fromHexString("0x01");
+    final MessageFrame root = frame(sender, rootContract);
+
+    final Transaction tx = mockTransaction();
+    tracer.traceStartTransaction(null, tx);
+    tracer.traceContextEnter(root);
+
+    // A CALL into a precompile: Besu still creates a real MessageFrame and fires
+    // traceContextEnter for it with its exact allocated gas before executePrecompile runs.
+    final Address precompileAddress = Address.fromHexString("0x04");
+    final MessageFrame precompileFrame = frame(sender, precompileAddress);
+    when(precompileFrame.getRemainingGas()).thenReturn(12_345L);
+    tracer.traceContextEnter(precompileFrame);
+
+    tracer.tracePrecompileCall(precompileFrame, 3_000L, Bytes.fromHexString("0xabcd"));
+    tracer.traceContextExit(precompileFrame);
+    tracer.traceContextExit(root);
+
+    final CallTracerResult result = tracer.buildResult(tx, mockResult(21_000L, true));
+    final CallTracerResult precompileNode = result.getCalls().get(0);
+    assertThat(precompileNode.getGas()).isEqualTo("0x3039"); // 12345 in hex, not an approximation
+    assertThat(precompileNode.getGasUsed()).isEqualTo("0xbb8"); // 3000
+  }
+
+  @Test
+  @DisplayName("reports a reverting precompile as failed")
+  void precompileRevertReportsFailure() {
+    final CallTracer tracer = new CallTracer(callTracerOptions(false));
+    final MessageFrame root = frame(Address.fromHexString("0x00"), Address.fromHexString("0x01"));
+    final Transaction tx = mockTransaction();
+    tracer.traceStartTransaction(null, tx);
+    tracer.traceContextEnter(root);
+
+    final Bytes revertData =
+        Bytes.fromHexString(
+            "0x08c379a0"
+                + "0000000000000000000000000000000000000000000000000000000000000020"
+                + "0000000000000000000000000000000000000000000000000000000000000006"
+                + "726561736f6e0000000000000000000000000000000000000000000000000000");
+    final MessageFrame precompileFrame =
+        frame(Address.fromHexString("0x00"), Address.fromHexString("0x04"));
+    when(precompileFrame.getRemainingGas()).thenReturn(12_345L, 12_345L, 9_345L);
+    when(precompileFrame.getState()).thenReturn(MessageFrame.State.COMPLETED_FAILED);
+    when(precompileFrame.getRevertReason()).thenReturn(Optional.of(revertData));
+
+    tracer.traceContextEnter(precompileFrame);
+    tracer.tracePrecompileCall(precompileFrame, 3_000L, revertData);
+    tracer.traceContextExit(precompileFrame);
+    tracer.traceContextExit(root);
+
+    final CallTracerResult result = tracer.buildResult(tx, mockResult(21_000L, true));
+    final CallTracerResult precompileNode = result.getCalls().get(0);
+    assertThat(precompileNode.getError()).isEqualTo("execution reverted");
+    assertThat(precompileNode.getOutput()).isEqualTo(revertData.toHexString());
+    assertThat(precompileNode.getRevertReason()).isEqualTo("reason");
+  }
+
+  private static MessageFrame frame(final Address sender, final Address ownAddress) {
+    final MessageFrame frame = mock(MessageFrame.class);
+    when(frame.getDepth()).thenReturn(0);
+    when(frame.getSenderAddress()).thenReturn(sender);
+    when(frame.getContractAddress()).thenReturn(ownAddress);
+    when(frame.getRecipientAddress()).thenReturn(ownAddress);
+    when(frame.getValue()).thenReturn(Wei.ZERO);
+    when(frame.getApparentValue()).thenReturn(Wei.ZERO);
+    when(frame.getInputData()).thenReturn(Bytes.EMPTY);
+    when(frame.getOutputData()).thenReturn(Bytes.EMPTY);
+    when(frame.getRemainingGas()).thenReturn(21_000L);
+    when(frame.getState()).thenReturn(MessageFrame.State.COMPLETED_SUCCESS);
+    when(frame.getExceptionalHaltReason()).thenReturn(Optional.<ExceptionalHaltReason>empty());
+    when(frame.getRevertReason()).thenReturn(Optional.<Bytes>empty());
+    when(frame.getType()).thenReturn(MessageFrame.Type.MESSAGE_CALL);
+    return frame;
+  }
+
+  private static Transaction mockTransaction() {
+    final Transaction tx = mock(Transaction.class);
+    when(tx.isContractCreation()).thenReturn(false);
+    when(tx.getGasLimit()).thenReturn(21_000L);
+    return tx;
+  }
+
+  @Test
+  @DisplayName("clamps a failed CALL's input read to already-expanded memory instead of throwing")
+  void doesNotReadBeyondExpandedMemory() {
+    final CallTracer tracer = new CallTracer(callTracerOptions(false));
+    final Address sender = Address.fromHexString("0x00");
+    final Address contract = Address.fromHexString("0x01");
+    final MessageFrame parent = frame(sender, contract);
+
+    final Transaction tx = mockTransaction();
+    tracer.traceStartTransaction(null, tx);
+    tracer.traceContextEnter(parent);
+
+    // A CALL whose stack declares an astronomically large argsOffset/argsLength - exactly what
+    // Words.clampedToLong produces for a crafted stack value, and exactly the shape that used to
+    // reach frame.readMemory(offset, length) unclamped and blow up once length >= 2^31. The call
+    // never spawns a child frame (state stays COMPLETED_SUCCESS, not CODE_SUSPENDED), mirroring an
+    // INSUFFICIENT_GAS halt that fires before memory is ever expanded.
+    final Operation call = mock(Operation.class);
+    when(call.getName()).thenReturn("CALL");
+    when(call.getStackItemsConsumed()).thenReturn(7);
+    when(parent.getCurrentOperation()).thenReturn(call);
+    when(parent.stackSize()).thenReturn(7);
+    when(parent.getStackItem(1)).thenReturn(bytes32Address(Address.fromHexString("0x02")));
+    when(parent.getStackItem(2)).thenReturn(Bytes.repeat((byte) 0, 32));
+    when(parent.getStackItem(3)).thenReturn(Bytes.repeat((byte) 0xff, 32));
+    when(parent.getStackItem(4)).thenReturn(Bytes.repeat((byte) 0xff, 32));
+    when(parent.memoryByteSize()).thenReturn(0L);
+
+    final OperationResult haltResult =
+        new OperationResult(0L, ExceptionalHaltReason.INSUFFICIENT_GAS);
+
+    assertThatCode(
+            () -> {
+              tracer.tracePreExecution(parent);
+              tracer.tracePostExecution(parent, haltResult);
+            })
+        .doesNotThrowAnyException();
+    verify(parent, never()).readMemory(anyLong(), anyLong());
+
+    tracer.traceContextExit(parent);
+    final CallTracerResult result = tracer.buildResult(tx, mockResult(21_000L, true));
+    assertThat(result.getCalls()).hasSize(1);
+    assertThat(result.getCalls().get(0).getInput()).isEqualTo("0x");
+  }
+
+  @Test
+  @DisplayName("reads a memory range clamped to what is actually expanded, not the raw stack value")
+  void clampsToAvailableMemoryWhenPartiallyExpanded() {
+    final CallTracer tracer = new CallTracer(callTracerOptions(false));
+    final Address sender = Address.fromHexString("0x00");
+    final Address contract = Address.fromHexString("0x01");
+    final MessageFrame parent = frame(sender, contract);
+
+    final Transaction tx = mockTransaction();
+    tracer.traceStartTransaction(null, tx);
+    tracer.traceContextEnter(parent);
+
+    final Operation call = mock(Operation.class);
+    when(call.getName()).thenReturn("CALL");
+    when(call.getStackItemsConsumed()).thenReturn(7);
+    when(parent.getCurrentOperation()).thenReturn(call);
+    when(parent.stackSize()).thenReturn(7);
+    when(parent.getStackItem(1)).thenReturn(bytes32Address(Address.fromHexString("0x02")));
+    when(parent.getStackItem(2)).thenReturn(Bytes.repeat((byte) 0, 32));
+    when(parent.getStackItem(3)).thenReturn(bytes32Long(32L)); // argsOffset = 32
+    when(parent.getStackItem(4)).thenReturn(Bytes.repeat((byte) 0xff, 32)); // argsLength huge
+    when(parent.memoryByteSize()).thenReturn(64L); // only 64 bytes actually expanded
+    when(parent.readMemory(32L, 32L)).thenReturn(Bytes.fromHexString("0x" + "aa".repeat(32)));
+
+    tracer.tracePreExecution(parent);
+    tracer.tracePostExecution(
+        parent, new OperationResult(0L, ExceptionalHaltReason.INSUFFICIENT_GAS));
+
+    verify(parent).readMemory(32L, 32L);
+    tracer.traceContextExit(parent);
+    final CallTracerResult result = tracer.buildResult(tx, mockResult(21_000L, true));
+    assertThat(result.getCalls().get(0).getInput()).isEqualTo("0x" + "aa".repeat(32));
+  }
+
+  @Test
+  @DisplayName("reports the delegating account, not the code address, as `from` for nested calls")
+  void nestedCallInsideDelegateCallReportsRecipientAddress() {
+    final CallTracer tracer = new CallTracer(callTracerOptions(false));
+    final Address sender = Address.fromHexString("0x00");
+    final Address rootContract = Address.fromHexString("0x01");
+    final MessageFrame root = frame(sender, rootContract);
+
+    final Transaction tx = mockTransaction();
+    tracer.traceStartTransaction(null, tx);
+    tracer.traceContextEnter(root);
+
+    final Address delegatingAccount = Address.fromHexString("0x0a");
+    final Address codeAddress = Address.fromHexString("0x0c");
+    final MessageFrame delegateFrame = mock(MessageFrame.class);
+    when(delegateFrame.getDepth()).thenReturn(1);
+    when(delegateFrame.getContractAddress()).thenReturn(codeAddress);
+    when(delegateFrame.getRecipientAddress()).thenReturn(delegatingAccount);
+    when(delegateFrame.getApparentValue()).thenReturn(Wei.ZERO);
+    when(delegateFrame.getInputData()).thenReturn(Bytes.EMPTY);
+    when(delegateFrame.getOutputData()).thenReturn(Bytes.EMPTY);
+    when(delegateFrame.getRemainingGas()).thenReturn(20_000L);
+    when(delegateFrame.getState()).thenReturn(MessageFrame.State.COMPLETED_SUCCESS);
+    when(delegateFrame.getExceptionalHaltReason())
+        .thenReturn(Optional.<ExceptionalHaltReason>empty());
+    when(delegateFrame.getRevertReason()).thenReturn(Optional.<Bytes>empty());
+    when(delegateFrame.getType()).thenReturn(MessageFrame.Type.MESSAGE_CALL);
+
+    final Operation delegatecall = mock(Operation.class);
+    when(delegatecall.getName()).thenReturn("DELEGATECALL");
+    when(delegatecall.getStackItemsConsumed()).thenReturn(6);
+    when(root.getCurrentOperation()).thenReturn(delegatecall);
+    when(root.stackSize()).thenReturn(6);
+    when(root.getStackItem(1)).thenReturn(bytes32Address(codeAddress));
+    when(root.getStackItem(2)).thenReturn(bytes32Long(0L));
+    when(root.getStackItem(3)).thenReturn(bytes32Long(0L));
+    tracer.tracePreExecution(root);
+    tracer.traceContextEnter(delegateFrame);
+
+    // A CALL made from inside the delegatecall frame that fails without spawning a child: its
+    // `from` must be the delegating account (getRecipientAddress()), not the executing code's own
+    // address (getContractAddress()).
+    final Operation call = mock(Operation.class);
+    when(call.getName()).thenReturn("CALL");
+    when(call.getStackItemsConsumed()).thenReturn(7);
+    when(delegateFrame.getCurrentOperation()).thenReturn(call);
+    when(delegateFrame.stackSize()).thenReturn(7);
+    when(delegateFrame.getStackItem(1)).thenReturn(bytes32Address(Address.fromHexString("0x03")));
+    when(delegateFrame.getStackItem(2)).thenReturn(Bytes.repeat((byte) 0, 32));
+    when(delegateFrame.getStackItem(3)).thenReturn(Bytes.repeat((byte) 0, 32));
+    when(delegateFrame.getStackItem(4)).thenReturn(Bytes.repeat((byte) 0, 32));
+    when(delegateFrame.memoryByteSize()).thenReturn(0L);
+    tracer.tracePreExecution(delegateFrame);
+    tracer.tracePostExecution(
+        delegateFrame, new OperationResult(0L, ExceptionalHaltReason.INSUFFICIENT_GAS));
+
+    tracer.traceContextExit(delegateFrame);
+    tracer.traceContextExit(root);
+    final CallTracerResult result = tracer.buildResult(tx, mockResult(21_000L, true));
+
+    final CallTracerResult delegateNode = result.getCalls().get(0);
+    assertThat(delegateNode.getCalls()).hasSize(1);
+    assertThat(delegateNode.getCalls().get(0).getFrom())
+        .isEqualTo(delegatingAccount.getBytes().toHexString());
+  }
+
+  @Test
+  @DisplayName("reports the parent frame's inherited value for DELEGATECALL, not 0x0")
+  void delegateCallReportsInheritedValue() {
+    final CallTracer tracer = new CallTracer(callTracerOptions(false));
+    final Address sender = Address.fromHexString("0x00");
+    final Address rootContract = Address.fromHexString("0x01");
+    final MessageFrame root = frame(sender, rootContract);
+
+    final Transaction tx = mockTransaction();
+    tracer.traceStartTransaction(null, tx);
+    tracer.traceContextEnter(root);
+
+    final Wei inheritedValue = Wei.of(500);
+    final MessageFrame delegateFrame = mock(MessageFrame.class);
+    when(delegateFrame.getDepth()).thenReturn(1);
+    when(delegateFrame.getContractAddress()).thenReturn(Address.fromHexString("0x0c"));
+    when(delegateFrame.getRecipientAddress()).thenReturn(Address.fromHexString("0x0a"));
+    when(delegateFrame.getApparentValue()).thenReturn(inheritedValue);
+    when(delegateFrame.getInputData()).thenReturn(Bytes.EMPTY);
+    when(delegateFrame.getOutputData()).thenReturn(Bytes.EMPTY);
+    when(delegateFrame.getRemainingGas()).thenReturn(20_000L);
+    when(delegateFrame.getState()).thenReturn(MessageFrame.State.COMPLETED_SUCCESS);
+    when(delegateFrame.getExceptionalHaltReason())
+        .thenReturn(Optional.<ExceptionalHaltReason>empty());
+    when(delegateFrame.getRevertReason()).thenReturn(Optional.<Bytes>empty());
+    when(delegateFrame.getType()).thenReturn(MessageFrame.Type.MESSAGE_CALL);
+
+    final Address codeAddress = Address.fromHexString("0x0c");
+    final Operation delegatecall = mock(Operation.class);
+    when(delegatecall.getName()).thenReturn("DELEGATECALL");
+    when(delegatecall.getStackItemsConsumed()).thenReturn(6);
+    when(root.getCurrentOperation()).thenReturn(delegatecall);
+    when(root.stackSize()).thenReturn(6);
+    when(root.getStackItem(1)).thenReturn(bytes32Address(codeAddress));
+    when(root.getStackItem(2)).thenReturn(bytes32Long(0L));
+    when(root.getStackItem(3)).thenReturn(bytes32Long(0L));
+    when(root.getApparentValue()).thenReturn(inheritedValue);
+    tracer.tracePreExecution(root);
+    tracer.traceContextEnter(delegateFrame);
+    tracer.traceContextExit(delegateFrame);
+    tracer.traceContextExit(root);
+
+    final CallTracerResult result = tracer.buildResult(tx, mockResult(21_000L, true));
+    assertThat(result.getCalls().get(0).getValue()).isEqualTo(inheritedValue.toShortHexString());
+  }
+
+  @Test
+  @DisplayName("synthesizes a root call from the transaction when it never entered the EVM")
+  void buildResultSynthesizesRootForUnexecutedTransaction() {
+    final CallTracer tracer = new CallTracer(callTracerOptions(false));
+    final Address sender = Address.fromHexString("0x00");
+    final Address to = Address.fromHexString("0x02");
+
+    final Transaction tx = mock(Transaction.class);
+    when(tx.isContractCreation()).thenReturn(false);
+    when(tx.getSender()).thenReturn(sender);
+    when(tx.getTo()).thenReturn(Optional.<Address>of(to));
+    when(tx.getValue()).thenReturn(Wei.of(7));
+    when(tx.getGasLimit()).thenReturn(21_000L);
+    when(tx.getPayload()).thenReturn(Bytes.fromHexString("0x1234"));
+
+    // traceStartTransaction only - no traceContextEnter, as when validation fails before the
+    // transaction ever reaches the EVM (e.g. debug_traceBlock replaying an invalid transaction).
+    tracer.traceStartTransaction(null, tx);
+
+    final TransactionProcessingResult result = mockResult(0L, false);
+    when(result.getExceptionalHaltReason())
+        .thenReturn(Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
+    when(result.getRevertReason()).thenReturn(Optional.<Bytes>empty());
+
+    final CallTracerResult callResult = tracer.buildResult(tx, result);
+
+    assertThat(callResult).isNotNull();
+    assertThat(callResult.getType()).isEqualTo("CALL");
+    assertThat(callResult.getFrom()).isEqualTo(sender.getBytes().toHexString());
+    assertThat(callResult.getTo()).isEqualTo(to.getBytes().toHexString());
+    assertThat(callResult.getGasUsed()).isEqualTo("0x5208");
+    assertThat(callResult.getError())
+        .isEqualTo(ExceptionalHaltReason.INSUFFICIENT_GAS.getDescription());
+  }
+
+  private static TransactionProcessingResult mockResult(
+      final long gasRemaining, final boolean successful) {
+    final TransactionProcessingResult result = mock(TransactionProcessingResult.class);
+    when(result.getGasRemaining()).thenReturn(gasRemaining);
+    when(result.isSuccessful()).thenReturn(successful);
+    when(result.getOutput()).thenReturn(Bytes.EMPTY);
+    when(result.getExceptionalHaltReason()).thenReturn(Optional.<ExceptionalHaltReason>empty());
+    when(result.getRevertReason()).thenReturn(Optional.<Bytes>empty());
+    return result;
+  }
+
+  private static Bytes bytes32Address(final Address address) {
+    return Bytes.concatenate(Bytes.repeat((byte) 0, 12), address.getBytes());
+  }
+
+  private static Bytes bytes32Long(final long value) {
+    return Bytes.concatenate(Bytes.repeat((byte) 0, 24), Bytes.ofUnsignedLong(value));
+  }
+
+  @Test
+  @DisplayName("withLog reports each frame's own logs with the receipt logIndex and call position")
+  void withLogReportsBlockIndexAndPosition() {
+    final CallTracer tracer = new CallTracer(withLogOptions(false), 3);
+    final MessageFrame root = frame(Address.fromHexString("0x00"), Address.fromHexString("0x01"));
+    final MessageFrame child = frame(Address.fromHexString("0x01"), Address.fromHexString("0x02"));
+    when(child.getDepth()).thenReturn(1);
+    final Transaction tx = mockTransaction();
+    tracer.traceStartTransaction(null, tx);
+    tracer.traceContextEnter(root);
+    final Log first = emitLog(tracer, root, 0xa);
+    tracer.traceContextEnter(child);
+    // An EIP-7708 transfer log lands in the frame without any opcode; it is only seen at exit.
+    final Log nested = addLog(child, 0xb);
+    tracer.traceContextExit(child);
+    when(root.getLogs()).thenReturn(List.of(first, nested));
+    tracer.traceContextReEnter(root);
+    final Log last = emitLog(tracer, root, 0xc);
+    tracer.traceContextExit(root);
+
+    final TransactionProcessingResult result = mockResult(21_000L, true);
+    when(result.getLogs()).thenReturn(List.of(first, nested, last));
+    final CallTracerResult callResult = tracer.buildResult(tx, result);
+
+    assertThat(callResult.getLogs()).extracting(CallLog::getIndex).containsExactly("0x3", "0x5");
+    assertThat(callResult.getLogs()).extracting(CallLog::getPosition).containsExactly("0x0", "0x1");
+    final CallLog firstLog = callResult.getLogs().get(0);
+    assertThat(firstLog.getAddress()).isEqualTo(Address.fromHexString("0x01").toString());
+    assertThat(firstLog.getTopics()).containsExactly(Bytes32.leftPad(Bytes.of(0xa)).toString());
+    assertThat(firstLog.getData()).isEqualTo("0x0a");
+    final CallTracerResult childResult = callResult.getCalls().get(0);
+    assertThat(childResult.getLogs()).extracting(CallLog::getIndex).containsExactly("0x4");
+    assertThat(childResult.getLogs()).extracting(CallLog::getPosition).containsExactly("0x0");
+  }
+
+  @Test
+  @DisplayName("withLog drops the logs of a reverted frame and does not give them an index")
+  void withLogDropsRevertedFrameLogs() {
+    final CallTracer tracer = new CallTracer(withLogOptions(false), 0);
+    final MessageFrame root = frame(Address.fromHexString("0x00"), Address.fromHexString("0x01"));
+    final MessageFrame child = frame(Address.fromHexString("0x01"), Address.fromHexString("0x02"));
+    when(child.getDepth()).thenReturn(1);
+    when(child.getState()).thenReturn(MessageFrame.State.COMPLETED_FAILED);
+    final Transaction tx = mockTransaction();
+    tracer.traceStartTransaction(null, tx);
+    tracer.traceContextEnter(root);
+    tracer.traceContextEnter(child);
+    emitLog(tracer, child, 0xb);
+    tracer.traceContextExit(child);
+    final Log last = emitLog(tracer, root, 0xc);
+    tracer.traceContextExit(root);
+
+    final TransactionProcessingResult result = mockResult(21_000L, true);
+    when(result.getLogs()).thenReturn(List.of(last));
+    final CallTracerResult callResult = tracer.buildResult(tx, result);
+
+    assertThat(callResult.getLogs()).extracting(CallLog::getIndex).containsExactly("0x0");
+    assertThat(callResult.getLogs()).extracting(CallLog::getPosition).containsExactly("0x1");
+    assertThat(callResult.getCalls().get(0).getError()).isEqualTo("execution reverted");
+    assertThat(callResult.getCalls().get(0).getLogs()).isNullOrEmpty();
+  }
+
+  @Test
+  @DisplayName("onlyTopCall with withLog keeps the receipt logIndex and reports position 0")
+  void onlyTopCallWithLogKeepsReceiptIndex() {
+    final CallTracer tracer = new CallTracer(withLogOptions(true), 0);
+    final MessageFrame root = frame(Address.fromHexString("0x00"), Address.fromHexString("0x01"));
+    final MessageFrame child = frame(Address.fromHexString("0x01"), Address.fromHexString("0x02"));
+    when(child.getDepth()).thenReturn(1);
+    final Transaction tx = mockTransaction();
+    tracer.traceStartTransaction(null, tx);
+    tracer.traceContextEnter(root);
+    tracer.traceContextEnter(child);
+    final Log nested = emitLog(tracer, child, 0xb);
+    tracer.traceContextExit(child);
+    when(root.getLogs()).thenReturn(List.of(nested));
+    tracer.traceContextReEnter(root);
+    final Log last = emitLog(tracer, root, 0xc);
+    tracer.traceContextExit(root);
+
+    final TransactionProcessingResult result = mockResult(21_000L, true);
+    when(result.getLogs()).thenReturn(List.of(nested, last));
+    final CallTracerResult callResult = tracer.buildResult(tx, result);
+
+    assertThat(callResult.getCalls()).isNull();
+    assertThat(callResult.getLogs()).extracting(CallLog::getIndex).containsExactly("0x1");
+    assertThat(callResult.getLogs()).extracting(CallLog::getPosition).containsExactly("0x0");
+  }
+
+  @Test
+  @DisplayName("withLog attributes logs added after the root frame exits to the root frame")
+  void withLogAttributesClosureLogsToRoot() {
+    final CallTracer tracer = new CallTracer(withLogOptions(false), 2);
+    final MessageFrame root = frame(Address.fromHexString("0x00"), Address.fromHexString("0x01"));
+    final MessageFrame child = frame(Address.fromHexString("0x01"), Address.fromHexString("0x02"));
+    when(child.getDepth()).thenReturn(1);
+    final Transaction tx = mockTransaction();
+    tracer.traceStartTransaction(null, tx);
+    tracer.traceContextEnter(root);
+    final Log first = emitLog(tracer, root, 0xa);
+    tracer.traceContextEnter(child);
+    tracer.traceContextExit(child);
+    tracer.traceContextReEnter(root);
+    tracer.traceContextExit(root);
+    // EIP-7708 closure log, added to the initial frame after its execution ended
+    final Log closure = addLog(root, 0xd);
+
+    final TransactionProcessingResult result = mockResult(21_000L, true);
+    when(result.getLogs()).thenReturn(List.of(first, closure));
+    final CallTracerResult callResult = tracer.buildResult(tx, result);
+
+    assertThat(callResult.getLogs()).extracting(CallLog::getIndex).containsExactly("0x2", "0x3");
+    assertThat(callResult.getLogs()).extracting(CallLog::getPosition).containsExactly("0x0", "0x1");
+    assertThat(callResult.getCalls().get(0).getLogs()).isNullOrEmpty();
+  }
+
+  @Test
+  @DisplayName("onlyTopCall with withLog attributes closure logs to the root at position 0")
+  void onlyTopCallWithLogAttributesClosureLogsToRoot() {
+    final CallTracer tracer = new CallTracer(withLogOptions(true), 0);
+    final MessageFrame root = frame(Address.fromHexString("0x00"), Address.fromHexString("0x01"));
+    final MessageFrame child = frame(Address.fromHexString("0x01"), Address.fromHexString("0x02"));
+    when(child.getDepth()).thenReturn(1);
+    final Transaction tx = mockTransaction();
+    tracer.traceStartTransaction(null, tx);
+    tracer.traceContextEnter(root);
+    tracer.traceContextEnter(child);
+    final Log nested = emitLog(tracer, child, 0xb);
+    tracer.traceContextExit(child);
+    when(root.getLogs()).thenReturn(List.of(nested));
+    tracer.traceContextReEnter(root);
+    tracer.traceContextExit(root);
+    final Log closure = addLog(root, 0xd);
+
+    final TransactionProcessingResult result = mockResult(21_000L, true);
+    when(result.getLogs()).thenReturn(List.of(nested, closure));
+    final CallTracerResult callResult = tracer.buildResult(tx, result);
+
+    assertThat(callResult.getLogs()).extracting(CallLog::getIndex).containsExactly("0x1");
+    assertThat(callResult.getLogs()).extracting(CallLog::getPosition).containsExactly("0x0");
+    assertThat(callResult.getLogs().get(0).getData()).isEqualTo("0x0d");
+  }
+
+  @Test
+  @DisplayName("omits logs when withLog is not set")
+  void omitsLogsWithoutWithLog() {
+    final CallTracer tracer = new CallTracer(callTracerOptions(false));
+    final MessageFrame root = frame(Address.fromHexString("0x00"), Address.fromHexString("0x01"));
+    final Transaction tx = mockTransaction();
+    tracer.traceStartTransaction(null, tx);
+    tracer.traceContextEnter(root);
+    final Log log = emitLog(tracer, root, 0xa);
+    tracer.traceContextExit(root);
+
+    final TransactionProcessingResult result = mockResult(21_000L, true);
+    when(result.getLogs()).thenReturn(List.of(log));
+
+    assertThat(tracer.buildResult(tx, result).getLogs()).isNull();
+  }
+
+  private static Log addLog(final MessageFrame frame, final int tag) {
+    final Log log =
+        new Log(
+            frame.getRecipientAddress(),
+            Bytes.of(tag),
+            List.of(LogTopic.of(Bytes32.leftPad(Bytes.of(tag)))));
+    final List<Log> logs = new ArrayList<>(frame.getLogs());
+    logs.add(log);
+    when(frame.getLogs()).thenReturn(logs);
+    return log;
+  }
+
+  private static Log emitLog(final CallTracer tracer, final MessageFrame frame, final int tag) {
+    final Log log = addLog(frame, tag);
+    tracer.tracePostExecution(frame, new OperationResult(375L, null));
+    return log;
+  }
+
+  private static TraceOptions callTracerOptions(final boolean onlyTopCall) {
+    return new TraceOptions(TracerType.CALL_TRACER, null, Map.of("onlyTopCall", onlyTopCall));
+  }
+
+  private static TraceOptions withLogOptions(final boolean onlyTopCall) {
+    return new TraceOptions(
+        TracerType.CALL_TRACER, null, Map.of("onlyTopCall", onlyTopCall, "withLog", true));
+  }
+}

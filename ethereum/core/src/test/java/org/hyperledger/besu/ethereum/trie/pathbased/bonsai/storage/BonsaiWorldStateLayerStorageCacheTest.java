@@ -21,10 +21,10 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.CacheManager;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.VersionedCacheManager;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.FlatDbCacheManager;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.VersionedFlatDbCacheManager;
 import org.hyperledger.besu.ethereum.worldstate.ImmutableDataStorageConfiguration;
-import org.hyperledger.besu.ethereum.worldstate.ImmutablePathBasedExtraStorageConfiguration;
+import org.hyperledger.besu.ethereum.worldstate.ImmutableExtraStorageConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
@@ -36,11 +36,11 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * {@link BonsaiWorldStateLayerStorage} shares the head's {@link VersionedCacheManager} but pins the
- * parent's {@link BonsaiWorldStateKeyValueStorage#getCurrentVersion()} at layer construction. Reads
- * use {@code getFromCacheOrStorage} with that pin so cache hits apply only when the cached writer
- * version is not ahead of the layer's epoch; local layer writes override via {@link
- * org.hyperledger.besu.services.kvstore.LayeredKeyValueStorage}.
+ * {@link BonsaiWorldStateLayerStorage} shares the head's {@link VersionedFlatDbCacheManager} but
+ * pins the parent's {@link BonsaiWorldStateKeyValueStorage#getCurrentVersion()} at layer
+ * construction. Reads use {@code getFromCacheOrStorage} with that pin so cache hits apply only when
+ * the cached writer version is not ahead of the layer's epoch; local layer writes override via
+ * {@link org.hyperledger.besu.services.kvstore.LayeredKeyValueStorage}.
  */
 public class BonsaiWorldStateLayerStorageCacheTest {
 
@@ -69,10 +69,10 @@ public class BonsaiWorldStateLayerStorageCacheTest {
             new NoOpMetricsSystem(),
             ImmutableDataStorageConfiguration.builder()
                 .dataStorageFormat(DataStorageFormat.BONSAI)
-                .pathBasedExtraStorageConfiguration(
-                    ImmutablePathBasedExtraStorageConfiguration.builder()
+                .extraStorageConfiguration(
+                    ImmutableExtraStorageConfiguration.builder()
                         .unstable(
-                            ImmutablePathBasedExtraStorageConfiguration.PathBasedUnstable.builder()
+                            ImmutableExtraStorageConfiguration.Unstable.builder()
                                 .bonsaiCrossBlockCacheEnabled(true)
                                 .build())
                         .build())
@@ -264,11 +264,11 @@ public class BonsaiWorldStateLayerStorageCacheTest {
   }
 
   /**
-   * After {@link CacheManager#clear}, a read miss on {@link BonsaiWorldStateLayerStorage} may
+   * After {@link FlatDbCacheManager#clear}, a read miss on {@link BonsaiWorldStateLayerStorage} may
    * repopulate the shared versioned cache only when the layer's pinned reader version still equals
-   * {@link VersionedCacheManager#getCurrentVersion()} (global epoch). If the head advanced, the
-   * layer pin is behind global and read-path inserts are skipped (see {@code
-   * VersionedCacheManager#getFromCacheOrStorage}).
+   * {@link VersionedFlatDbCacheManager#getCurrentVersion()} (global epoch). If the head advanced,
+   * the layer pin is behind global and read-path inserts are skipped (see {@code
+   * VersionedFlatDbCacheManager#getFromCacheOrStorage}).
    */
   @Test
   void layerReadAfterCacheClearRepopulatesOnlyWhenPinMatchesGlobalVersion() throws Exception {

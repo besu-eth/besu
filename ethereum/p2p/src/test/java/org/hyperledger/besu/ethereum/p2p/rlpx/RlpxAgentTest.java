@@ -34,6 +34,8 @@ import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.cryptoservices.NodeKeyUtils;
 import org.hyperledger.besu.ethereum.p2p.config.RlpxConfiguration;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.DiscoveryPeerV4;
+import org.hyperledger.besu.ethereum.p2p.network.exceptions.IncompatiblePeerException;
+import org.hyperledger.besu.ethereum.p2p.network.exceptions.PeerDisconnectedException;
 import org.hyperledger.besu.ethereum.p2p.peers.DefaultPeer;
 import org.hyperledger.besu.ethereum.p2p.peers.MutableLocalNode;
 import org.hyperledger.besu.ethereum.p2p.peers.Peer;
@@ -48,15 +50,23 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnectionEvents;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.PingMessage;
+import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
+import org.hyperledger.besu.plugin.services.metrics.Counter;
+import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 
+import java.net.ConnectException;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -82,6 +92,9 @@ public class RlpxAgentTest {
   private final Supplier<Stream<PeerConnection>> allConnectionsSupplier = this::streamConnections;
   private final Supplier<Stream<PeerConnection>> allActiveConnectionsSupplier = Stream::empty;
   private RlpxAgent agent = agent();
+
+  private final Map<String, AtomicLong> attemptCounts = new ConcurrentHashMap<>();
+  private final Map<String, AtomicLong> outcomeCounts = new ConcurrentHashMap<>();
 
   @BeforeEach
   public void setup() {
@@ -167,6 +180,101 @@ public class RlpxAgentTest {
     connection.completeExceptionally(new RuntimeException());
 
     agent.getMapOfCompletableFutures().get(peer.getId()).isCompletedExceptionally();
+  }
+
+  @Test
+  public void connectWithSource_incrementsAttemptCounterForSource() {
+    final RlpxAgent sourceAwareAgent = agentWithCapturingMetrics();
+    sourceAwareAgent.start();
+    localNode.setEnode(enodeBuilder().build());
+
+    sourceAwareAgent.connect(createPeer(), ConnectSource.DISCV5);
+    sourceAwareAgent.connect(createPeer(), ConnectSource.DISCV5);
+    sourceAwareAgent.connect(createPeer(), ConnectSource.MAINTAIN);
+
+    assertThat(attemptCounts.get(ConnectSource.DISCV5.label()).get()).isEqualTo(2);
+    assertThat(attemptCounts.get(ConnectSource.MAINTAIN.label()).get()).isEqualTo(1);
+    assertThat(attemptCounts.getOrDefault(ConnectSource.DISCV4.label(), new AtomicLong()).get())
+        .isZero();
+  }
+
+  @Test
+  public void connectWithSource_coalescedDuplicateConnectDoesNotDoubleCount() {
+    connectionInitializer.setAutocompleteConnections(false);
+    final RlpxAgent sourceAwareAgent = agentWithCapturingMetrics();
+    sourceAwareAgent.start();
+    localNode.setEnode(enodeBuilder().build());
+
+    final Peer peer = createPeer();
+    sourceAwareAgent.connect(peer, ConnectSource.DISCV5);
+    sourceAwareAgent.connect(peer, ConnectSource.DISCV5);
+
+    assertThat(attemptCounts.get(ConnectSource.DISCV5.label()).get()).isEqualTo(1);
+  }
+
+  @Test
+  public void connectWithSource_rejectedBeforeAttemptDoesNotIncrementCounter() {
+    final RlpxAgent sourceAwareAgent = agentWithCapturingMetrics();
+    sourceAwareAgent.start();
+    localNode.setEnode(enodeBuilder().build());
+
+    final Peer notListeningPeer =
+        DefaultPeer.fromEnodeURL(enodeBuilder().disableListening().build());
+    sourceAwareAgent.connect(notListeningPeer, ConnectSource.DISCV5);
+
+    assertThat(attemptCounts.getOrDefault(ConnectSource.DISCV5.label(), new AtomicLong()).get())
+        .isZero();
+  }
+
+  @Test
+  public void connect_success_recordsSuccessOutcome() {
+    final RlpxAgent outcomeAwareAgent = agentWithCapturingMetrics();
+    outcomeAwareAgent.start();
+    localNode.setEnode(enodeBuilder().build());
+
+    outcomeAwareAgent.connect(createPeer());
+
+    assertThat(outcomeCounts.get("success").get()).isEqualTo(1);
+  }
+
+  @Test
+  public void connect_timeoutException_recordsTimeoutOutcome() {
+    assertOutcomeForException(new TimeoutException("timed out"), "timeout");
+  }
+
+  @Test
+  public void connect_connectException_recordsConnectionErrorOutcome() {
+    assertOutcomeForException(new ConnectException("refused"), "connection_error");
+  }
+
+  @Test
+  public void connect_incompatiblePeerException_recordsIncompatibleCapabilitiesOutcome() {
+    assertOutcomeForException(
+        new IncompatiblePeerException("no shared capabilities"), "incompatible_capabilities");
+  }
+
+  @Test
+  public void connect_peerDisconnectedException_recordsPeerDisconnectedOutcome() {
+    assertOutcomeForException(
+        new PeerDisconnectedException(DisconnectReason.TOO_MANY_PEERS), "peer_disconnected");
+  }
+
+  @Test
+  public void connect_otherException_recordsOtherOutcome() {
+    assertOutcomeForException(new RuntimeException("boom"), "other");
+  }
+
+  private void assertOutcomeForException(final Throwable throwable, final String expectedOutcome) {
+    connectionInitializer.setAutocompleteConnections(false);
+    final RlpxAgent outcomeAwareAgent = agentWithCapturingMetrics();
+    outcomeAwareAgent.start();
+    localNode.setEnode(enodeBuilder().build());
+
+    final Peer peer = createPeer();
+    outcomeAwareAgent.connect(peer);
+    connectionInitializer.completeExceptionally(peer, throwable);
+
+    assertThat(outcomeCounts.get(expectedOutcome).get()).isEqualTo(1);
   }
 
   @Test
@@ -601,6 +709,38 @@ public class RlpxAgentTest {
                 .allConnectionsSupplier(allConnectionsSupplier)
                 .allActiveConnectionsSupplier(allActiveConnectionsSupplier))
         .build();
+  }
+
+  private RlpxAgent agentWithCapturingMetrics() {
+    final MetricsSystem capturingMetrics = mock(MetricsSystem.class);
+    when(capturingMetrics.createLabelledCounter(
+            eq(BesuMetricCategory.NETWORK),
+            eq("rlpx_outbound_connect_attempts_total"),
+            any(),
+            eq("source")))
+        .thenReturn(labelledCounterBackedBy(attemptCounts));
+    when(capturingMetrics.createLabelledCounter(
+            eq(BesuMetricCategory.NETWORK), eq("rlpx_connect_outcome_total"), any(), eq("result")))
+        .thenReturn(labelledCounterBackedBy(outcomeCounts));
+    return agent(builder -> builder.metricsSystem(capturingMetrics), __ -> {});
+  }
+
+  private static LabelledMetric<Counter> labelledCounterBackedBy(
+      final Map<String, AtomicLong> counts) {
+    return labels ->
+        new Counter() {
+          private final AtomicLong count = counts.computeIfAbsent(labels[0], k -> new AtomicLong());
+
+          @Override
+          public void inc() {
+            count.incrementAndGet();
+          }
+
+          @Override
+          public void inc(final long amount) {
+            count.addAndGet(amount);
+          }
+        };
   }
 
   private MockPeerConnection connection(final Peer peer, final boolean inboundInitiated) {

@@ -36,8 +36,8 @@ public final class HelloMessage extends AbstractMessageData {
   }
 
   public static HelloMessage readFrom(final MessageData message) {
-    if (message instanceof HelloMessage) {
-      return (HelloMessage) message;
+    if (message instanceof HelloMessage helloMessage) {
+      return helloMessage;
     }
     final int code = message.getCode();
     if (code != WireMessageCodes.HELLO) {

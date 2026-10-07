@@ -36,8 +36,8 @@ public final class StorageRangeMessage extends AbstractSnapMessageData {
   }
 
   public static StorageRangeMessage readFrom(final MessageData message) {
-    if (message instanceof StorageRangeMessage) {
-      return (StorageRangeMessage) message;
+    if (message instanceof StorageRangeMessage storageRangeMessage) {
+      return storageRangeMessage;
     }
     final int code = message.getCode();
     if (code != SnapV1.STORAGE_RANGE) {

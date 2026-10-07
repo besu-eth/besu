@@ -19,6 +19,7 @@ import org.hyperledger.besu.datatypes.Address;
 import java.math.BigInteger;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 /** The interface Bft config options. */
 public interface BftConfigOptions {
@@ -106,6 +107,15 @@ public interface BftConfigOptions {
    * @return the block reward wei
    */
   BigInteger getBlockRewardWei();
+
+  /**
+   * Gets the per-transaction gas limit override.
+   *
+   * @return the per-transaction gas limit override, or empty if not configured
+   */
+  default OptionalLong getTransactionGasLimit() {
+    return OptionalLong.empty();
+  }
 
   /**
    * As map.

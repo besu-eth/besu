@@ -177,7 +177,9 @@ public class NetworkUtility {
       serverSocket.close();
       return false;
     } catch (IOException ex) {
-      LOG.trace(String.format("Failed to open port %d for TCP", port), ex);
+      if (LOG.isTraceEnabled()) {
+        LOG.trace(String.format("Failed to open port %d for TCP", port), ex);
+      }
     }
     return true;
   }
@@ -195,7 +197,9 @@ public class NetworkUtility {
       datagramSocket.close();
       return false;
     } catch (IOException ex) {
-      LOG.trace(String.format("failed to open port %d for UDP", port), ex);
+      if (LOG.isTraceEnabled()) {
+        LOG.trace(String.format("failed to open port %d for UDP", port), ex);
+      }
     }
     return true;
   }
@@ -226,5 +230,25 @@ public class NetworkUtility {
     } catch (final IllegalArgumentException e) {
       return false;
     }
+  }
+
+  /**
+   * Returns whether an IPv4 and IPv6 bind (host, port) pair should be served by a single dual-stack
+   * socket rather than two independent per-family sockets: true only when both are the wildcard
+   * address for their family and use the same port.
+   *
+   * <p>Two independent per-family sockets on the same port reliably {@code BindException} on Linux
+   * regardless of bind order, so this case must bind one dual-stack IPv6 socket instead - verified
+   * to correctly attribute both IPv4 and IPv6 traffic.
+   *
+   * @param ipv4Host the IPv4 bind host
+   * @param ipv4Port the IPv4 bind port
+   * @param ipv6Host the IPv6 bind host
+   * @param ipv6Port the IPv6 bind port
+   * @return true if both should be served by a single dual-stack socket
+   */
+  public static boolean isMergeableDualStackBind(
+      final String ipv4Host, final int ipv4Port, final String ipv6Host, final int ipv6Port) {
+    return ipv4Port == ipv6Port && isUnspecifiedAddress(ipv4Host) && isUnspecifiedAddress(ipv6Host);
   }
 }

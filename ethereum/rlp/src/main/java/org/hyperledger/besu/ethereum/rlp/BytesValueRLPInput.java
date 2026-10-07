@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.rlp;
 
 import static com.google.common.base.Preconditions.checkState;
+import static java.util.Objects.requireNonNull;
 
 import java.math.BigInteger;
 import java.net.InetAddress;
@@ -29,6 +30,7 @@ import org.apache.tuweni.bytes.MutableBytes;
 import org.apache.tuweni.bytes.MutableBytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.apache.tuweni.units.bigints.UInt64;
+import org.jspecify.annotations.Nullable;
 
 /** An {@link RLPInput} that reads RLP encoded data from a {@link Bytes}. */
 public class BytesValueRLPInput implements RLPInput {
@@ -44,7 +46,7 @@ public class BytesValueRLPInput implements RLPInput {
   // Information on the item the input currently is at (next thing to read).
   private long
       currentItem; // Offset in value to the beginning of the item (or value.size() if done)
-  private RLPDecodingHelpers.Kind currentKind; // Kind of the item.
+  private RLPDecodingHelpers.@Nullable Kind currentKind; // Kind of the item.
   private long currentPayloadOffset; // Offset to the beginning of the current item payload.
   private int currentPayloadSize; // Size of the current item payload.
   private int currentRlpSize; // Size of the current item.
@@ -78,7 +80,7 @@ public class BytesValueRLPInput implements RLPInput {
     // sooner).
     size = inputSize;
     prepareCurrentItem();
-    if (currentKind.isList()) {
+    if (requireNonNull(currentKind).isList()) {
       size = nextItem();
     }
 
@@ -275,7 +277,7 @@ public class BytesValueRLPInput implements RLPInput {
     if (isEndOfCurrentList()) {
       throw error("Cannot read a %s, reached end of current list", what);
     }
-    if (currentKind.isList()) {
+    if (requireNonNull(currentKind).isList()) {
       throw error("Cannot read a %s, current item is a list", what);
     }
   }
@@ -507,10 +509,26 @@ public class BytesValueRLPInput implements RLPInput {
    * @return -1 if skipCount==true, otherwise, the number of item of the entered list.
    */
   public int enterList(final boolean skipCount) {
+    return enterList(skipCount, Integer.MAX_VALUE);
+  }
+
+  @Override
+  public int enterList(final int maxElements) {
+    return enterList(false, maxElements);
+  }
+
+  /**
+   * Core implementation of enterList with optional element count limit for early-exit.
+   *
+   * @param skipCount true if the element count is not required.
+   * @param maxElements maximum permitted element count; throws after reading maxElements+1 headers.
+   * @return -1 if skipCount==true, otherwise, the number of items (guaranteed ≤ maxElements).
+   */
+  public int enterList(final boolean skipCount, final int maxElements) {
     if (currentItem >= size) {
       throw error("Cannot enter a lists, input is fully consumed");
     }
-    if (!currentKind.isList()) {
+    if (!requireNonNull(currentKind).isList()) {
       throw error("Expected current item to be a list, but it is: " + currentKind);
     }
 
@@ -538,11 +556,15 @@ public class BytesValueRLPInput implements RLPInput {
     int count = -1;
 
     if (!skipCount) {
-      // Count list elements from first one.
       count = 0;
       setTo(listStart);
       while (currentItem < listEnd) {
-        ++count;
+        if (++count > maxElements) {
+          throw new RLPException(
+              String.format(
+                  "List of %d elements exceeds the maximum permitted size of %d",
+                  count, maxElements));
+        }
         setTo(nextItem());
       }
     }
@@ -618,7 +640,7 @@ public class BytesValueRLPInput implements RLPInput {
     if (currentItem >= size) {
       throw error("Cannot read list, input is fully consumed");
     }
-    if (!currentKind.isList()) {
+    if (!requireNonNull(currentKind).isList()) {
       throw error("Cannot read list, current item is not a list list");
     }
 

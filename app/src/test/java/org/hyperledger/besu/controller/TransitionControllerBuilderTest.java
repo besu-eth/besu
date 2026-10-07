@@ -45,7 +45,6 @@ import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.BlockHeaderValidator;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
-import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderValidator;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
@@ -214,14 +213,6 @@ public class TransitionControllerBuilderTest {
                 5L, true, new EpochManager(5L), Optional.of(FeeMarket.london(1L)), true)
             .build();
     assertDetachedRulesForPostMergeBlocks(cliqueValidator);
-  }
-
-  @Test
-  public void assertPoWDetachedHeaderValidationPreMerge() {
-    BlockHeaderValidator powValidator =
-        MainnetBlockHeaderValidator.createBaseFeeMarketValidator(FeeMarket.london(1L), true)
-            .build();
-    assertDetachedRulesForPostMergeBlocks(powValidator);
   }
 
   void assertDetachedRulesForPostMergeBlocks(final BlockHeaderValidator validator) {

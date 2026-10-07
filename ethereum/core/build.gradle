@@ -30,7 +30,6 @@ jar {
 
 dependencies {
   api 'org.slf4j:slf4j-api'
-  api 'org.web3j:core'
 
   compileOnly 'org.jspecify:jspecify'
 
@@ -79,6 +78,7 @@ dependencies {
   testImplementation project(path: ':ethereum:eth')
   testImplementation project(':testutil')
   testImplementation project(path: ':plugins:rocksdb')
+  testImplementation sourceSets.jmh.output
 
   testImplementation 'org.apache.logging.log4j:log4j-core'
   testImplementation 'io.consensys.tuweni:tuweni-bytes'
@@ -90,6 +90,7 @@ dependencies {
   testImplementation 'org.mockito:mockito-core'
   testImplementation 'org.mockito:mockito-junit-jupiter'
   testImplementation 'org.awaitility:awaitility'
+  testImplementation 'org.web3j:abi'
 
   integrationTestImplementation project(path: ':config', configuration: 'testSupportArtifacts')
   integrationTestImplementation project(':testutil')
@@ -124,6 +125,13 @@ dependencies {
   jmhImplementation project(':util')
 
   jmhImplementation 'com.google.guava:guava'
+  jmhImplementation 'org.mockito:mockito-core'
+}
+
+// The jmh plugin adds the test source set to the jmh classpath by default. Setting this flag to true adds a circular
+// dependency, so it needs to be overwritten to false
+jmh {
+  includeTests = false
 }
 
 configurations { testArtifacts }

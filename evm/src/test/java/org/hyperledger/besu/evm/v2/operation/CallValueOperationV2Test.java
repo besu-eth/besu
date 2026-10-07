@@ -19,7 +19,6 @@ import static org.hyperledger.besu.evm.v2.testutils.TestMessageFrameBuilderV2.ge
 
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.UInt256;
-import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.BerlinGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
@@ -28,10 +27,13 @@ import org.hyperledger.besu.evm.v2.testutils.TestMessageFrameBuilderV2;
 
 import org.junit.jupiter.api.Test;
 
-class CallValueOperationV2Test {
+class CallValueOperationV2Test extends NullaryOperationV2Test {
 
   private final GasCalculator gasCalculator = new BerlinGasCalculator();
-  private final CallValueOperationV2 operation = new CallValueOperationV2(gasCalculator);
+
+  public CallValueOperationV2Test() {
+    super(new CallValueOperationV2(new BerlinGasCalculator()));
+  }
 
   @Test
   void shouldPushCallValueToStack() {
@@ -70,21 +72,5 @@ class CallValueOperationV2Test {
     final MessageFrame frame = new TestMessageFrameBuilderV2().value(Wei.of(1L)).build();
     final OperationResult result = operation.execute(frame, null);
     assertThat(result.getGasCost()).isEqualTo(gasCalculator.getBaseTierGasCost());
-  }
-
-  @Test
-  void shouldHaltOnInsufficientGas() {
-    final MessageFrame frame =
-        new TestMessageFrameBuilderV2().initialGas(0).value(Wei.of(1L)).build();
-    final OperationResult result = operation.execute(frame, null);
-    assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_GAS);
-  }
-
-  @Test
-  void shouldHaltOnStackOverflow() {
-    final MessageFrame frame = new TestMessageFrameBuilderV2().value(Wei.of(1L)).build();
-    frame.setTopV2(MessageFrame.DEFAULT_MAX_STACK_SIZE);
-    final OperationResult result = operation.execute(frame, null);
-    assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.TOO_MANY_STACK_ITEMS);
   }
 }

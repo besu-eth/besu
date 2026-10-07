@@ -27,6 +27,7 @@ import org.hyperledger.besu.ethereum.ConsensusContext;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.chain.ChainDataPruner;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
@@ -232,7 +233,8 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
       final PeerTaskExecutor peerTaskExecutor,
       final SyncState syncState,
       final EthProtocolManager ethProtocolManager,
-      final PivotBlockSelector pivotBlockSelector) {
+      final PivotBlockSelector pivotBlockSelector,
+      final Optional<ChainDataPruner> chainDataPruner) {
 
     DefaultSynchronizer sync =
         super.createSynchronizer(
@@ -243,7 +245,8 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
             peerTaskExecutor,
             syncState,
             ethProtocolManager,
-            pivotBlockSelector);
+            pivotBlockSelector,
+            chainDataPruner);
 
     if (genesisConfigOptions.getTerminalTotalDifficulty().isPresent()) {
       LOG.info(
@@ -265,6 +268,8 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
         (isPoS, priorState, difficultyStoppedAt) -> {
           if (isPoS) {
             // if we transitioned to post-merge, stop and disable any mining
+            // Note: this callback can run on the BFT event thread itself (during import of the
+            // terminal block), so stop() must remain safe to call from that thread.
             composedCoordinator.getPreMergeObject().disable();
             composedCoordinator.getPreMergeObject().stop();
             // set the blockchoiceRule to never reorg, rely on forkchoiceUpdated instead
@@ -296,6 +301,9 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
   public BesuController build() {
     final BesuController controller = super.build();
     mergeBesuControllerBuilder.getPostMergeContext().setSyncState(controller.getSyncState());
+    if (!p2pEnabled) {
+      controller.getSyncState().setReachedTerminalDifficulty(true);
+    }
     return controller;
   }
 

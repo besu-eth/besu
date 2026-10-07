@@ -59,4 +59,19 @@ public class LoggingLevelOptionTest {
     assertThatThrownBy(() -> levelOption.setLogLevel("unknown"))
         .isInstanceOf(ParameterException.class);
   }
+
+  @Test
+  public void defaultLoggingFormatIsPlain() {
+    assertThat(levelOption.getLoggingFormat()).isEqualTo(LoggingFormat.PLAIN);
+  }
+
+  @Test
+  public void setsExpectedLoggingFormats() {
+    Arrays.stream(LoggingFormat.values())
+        .forEach(
+            format -> {
+              levelOption.setLoggingFormat(format);
+              assertThat(levelOption.getLoggingFormat()).isEqualTo(format);
+            });
+  }
 }

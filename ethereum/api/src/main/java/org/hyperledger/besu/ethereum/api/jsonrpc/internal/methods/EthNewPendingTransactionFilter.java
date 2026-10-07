@@ -16,9 +16,12 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.filter.FilterCountExceededException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.filter.FilterManager;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 
 public class EthNewPendingTransactionFilter implements JsonRpcMethod {
 
@@ -35,7 +38,12 @@ public class EthNewPendingTransactionFilter implements JsonRpcMethod {
 
   @Override
   public JsonRpcResponse response(final JsonRpcRequestContext requestContext) {
-    return new JsonRpcSuccessResponse(
-        requestContext.getRequest().getId(), filterManager.installPendingTransactionFilter());
+    try {
+      return new JsonRpcSuccessResponse(
+          requestContext.getRequest().getId(), filterManager.installPendingTransactionFilter());
+    } catch (final FilterCountExceededException e) {
+      return new JsonRpcErrorResponse(
+          requestContext.getRequest().getId(), RpcErrorType.EXCEEDS_RPC_MAX_ACTIVE_FILTERS);
+    }
   }
 }

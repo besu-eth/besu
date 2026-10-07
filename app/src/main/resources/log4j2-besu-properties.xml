@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Properties>
+    <Property name="root.log.level">${env:LOG_LEVEL:-INFO}</Property>
+    <Property name="root.log.logger">${env:LOGGER:-Console}</Property>
+    <Property name="host">${env:HOST:-${docker:containerId:-${hostName:-localhost}}}</Property>
+    <Property name="splunk.url">${env:SPLUNK_URL}</Property>
+    <Property name="splunk.token">${env:SPLUNK_TOKEN}</Property>
+    <Property name="splunk.index">${env:SPLUNK_INDEX}</Property>
+    <Property name="splunk.source">${env:SPLUNK_SOURCE:-besu}</Property>
+    <Property name="splunk.sourcetype">${env:SPLUNK_SOURCETYPE:-besu}</Property>
+    <Property name="splunk.batch_size_bytes">${env:SPLUNK_BATCH_SIZE_BYTES:-65536}</Property>
+    <Property name="splunk.batch_size_count">${env:SPLUNK_BATCH_SIZE_COUNT:-1000}</Property>
+    <Property name="splunk.batch_interval">${env:SPLUNK_BATCH_INTERVAL:-500}</Property>
+    <Property name="splunk.disableCertificateValidation">${env:SPLUNK_SKIPTLSVERIFY:-false}</Property>
+</Properties>

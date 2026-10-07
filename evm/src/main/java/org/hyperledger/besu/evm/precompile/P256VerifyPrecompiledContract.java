@@ -90,7 +90,7 @@ public class P256VerifyPrecompiledContract extends AbstractPrecompiledContract {
   private final GasCalculator gasCalculator;
   private final SignatureAlgorithm signatureAlgorithm;
 
-  private static final Cache<Integer, PrecompileInputResultTuple> p256VerifyCache =
+  private static final Cache<Bytes, PrecompileInputResultTuple> p256VerifyCache =
       AbstractPrecompiledContract.resultCacheBuilder().build();
 
   /**
@@ -131,7 +131,7 @@ public class P256VerifyPrecompiledContract extends AbstractPrecompiledContract {
       return PrecompileContractResult.success(INVALID);
     }
     PrecompileInputResultTuple res = null;
-    Integer cacheKey = null;
+    Bytes cacheKey = null;
     if (enableResultCaching) {
       cacheKey = getCacheKey(input, SECP256R1_INPUT_LENGTH);
       res = p256VerifyCache.getIfPresent(cacheKey);
@@ -141,12 +141,14 @@ public class P256VerifyPrecompiledContract extends AbstractPrecompiledContract {
           cacheEventConsumer.accept(new CacheEvent(PRECOMPILE_NAME, CacheMetric.HIT));
           return res.cachedResult();
         } else {
-          LOG.debug(
-              "false positive p256verify {}, cache key {}, cached input: {}, input: {}",
-              input.getClass().getSimpleName(),
-              cacheKey,
-              res.cachedInput().toHexString(),
-              input.toHexString());
+          if (LOG.isDebugEnabled()) {
+            LOG.debug(
+                "false positive p256verify {}, cache key {}, cached input: {}, input: {}",
+                input.getClass().getSimpleName(),
+                cacheKey,
+                res.cachedInput().toHexString(),
+                input.toHexString());
+          }
           cacheEventConsumer.accept(new CacheEvent(PRECOMPILE_NAME, CacheMetric.FALSE_POSITIVE));
         }
       } else {
@@ -168,7 +170,6 @@ public class P256VerifyPrecompiledContract extends AbstractPrecompiledContract {
 
     } catch (Exception e) {
       LOG.warn("P256VERIFY verification failed: {}", e.getMessage());
-      System.err.println("P256VERIFY verification failed: " + e.getMessage());
       return PrecompileContractResult.success(INVALID);
     }
   }

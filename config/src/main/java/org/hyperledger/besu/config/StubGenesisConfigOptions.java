@@ -56,6 +56,7 @@ public class StubGenesisConfigOptions implements GenesisConfigOptions, Cloneable
   private OptionalLong bpo4Time = OptionalLong.empty();
   private OptionalLong bpo5Time = OptionalLong.empty();
   private OptionalLong amsterdamTime = OptionalLong.empty();
+  private OptionalLong bogotaTime = OptionalLong.empty();
 
   private OptionalLong futureEipsTime = OptionalLong.empty();
   private OptionalLong experimentalEipsTime = OptionalLong.empty();
@@ -74,6 +75,8 @@ public class StubGenesisConfigOptions implements GenesisConfigOptions, Cloneable
   private static final DiscoveryOptions DISCOVERY_OPTIONS = DiscoveryOptions.DEFAULT;
   private boolean zeroBaseFee = false;
   private boolean fixedBaseFee = false;
+
+  private Optional<BlobScheduleOptions> blobScheduleOptions = Optional.empty();
 
   /** Default constructor. */
   public StubGenesisConfigOptions() {
@@ -285,6 +288,11 @@ public class StubGenesisConfigOptions implements GenesisConfigOptions, Cloneable
   }
 
   @Override
+  public OptionalLong getBogotaTime() {
+    return bogotaTime;
+  }
+
+  @Override
   public OptionalLong getFutureEipsTime() {
     return futureEipsTime;
   }
@@ -359,6 +367,7 @@ public class StubGenesisConfigOptions implements GenesisConfigOptions, Cloneable
     getBpo4Time().ifPresent(l -> builder.put("bpo4Time", l));
     getBpo5Time().ifPresent(l -> builder.put("bpo5Time", l));
     getAmsterdamTime().ifPresent(l -> builder.put("amsterdamTime", l));
+    getBogotaTime().ifPresent(l -> builder.put("bogotaTime", l));
     getFutureEipsTime().ifPresent(l -> builder.put("futureEipsTime", l));
     getExperimentalEipsTime().ifPresent(l -> builder.put("experimentalEipsTime", l));
     getTerminalBlockNumber().ifPresent(l -> builder.put("terminalBlockNumber", l));
@@ -371,8 +380,6 @@ public class StubGenesisConfigOptions implements GenesisConfigOptions, Cloneable
       builder.put("clique", getCliqueConfigOptions().asMap());
     }
     if (isEthHash()) {
-      // Output under "ethash" for backwards compatibility; genesis files may use either
-      // "ethash" or "fixeddifficulty" as the config key.
       builder.put("ethash", getFixedDifficultyConfigOptions().asMap());
     }
     if (isIbftLegacy()) {
@@ -387,11 +394,6 @@ public class StubGenesisConfigOptions implements GenesisConfigOptions, Cloneable
   @Override
   public TransitionsConfigOptions getTransitions() {
     return transitions;
-  }
-
-  @Override
-  public PowAlgorithm getPowAlgorithm() {
-    return isEthHash() ? PowAlgorithm.ETHASH : PowAlgorithm.UNSUPPORTED;
   }
 
   @Override
@@ -436,7 +438,19 @@ public class StubGenesisConfigOptions implements GenesisConfigOptions, Cloneable
 
   @Override
   public Optional<BlobScheduleOptions> getBlobScheduleOptions() {
-    return Optional.empty();
+    return blobScheduleOptions;
+  }
+
+  /**
+   * Blob schedule stub genesis config options.
+   *
+   * @param blobScheduleOptions the blob schedule options
+   * @return the stub genesis config options
+   */
+  public StubGenesisConfigOptions blobScheduleOptions(
+      final BlobScheduleOptions blobScheduleOptions) {
+    this.blobScheduleOptions = Optional.of(blobScheduleOptions);
+    return this;
   }
 
   /**
@@ -700,6 +714,17 @@ public class StubGenesisConfigOptions implements GenesisConfigOptions, Cloneable
    */
   public StubGenesisConfigOptions amsterdamTime(final long timestamp) {
     amsterdamTime = OptionalLong.of(timestamp);
+    return this;
+  }
+
+  /**
+   * Bogota time.
+   *
+   * @param timestamp the timestamp
+   * @return the stub genesis config options
+   */
+  public StubGenesisConfigOptions bogotaTime(final long timestamp) {
+    bogotaTime = OptionalLong.of(timestamp);
     return this;
   }
 

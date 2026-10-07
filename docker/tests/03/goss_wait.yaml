@@ -1,0 +1,5 @@
+---
+# Wait for Besu liveness endpoint to confirm main loop is up
+http:
+  http://localhost:8545/liveness:
+    status: 200

@@ -41,10 +41,9 @@ public class SyncBlockAccessList {
     if (obj == this) {
       return true;
     }
-    if (!(obj instanceof SyncBlockAccessList)) {
+    if (!(obj instanceof SyncBlockAccessList other)) {
       return false;
     }
-    final SyncBlockAccessList other = (SyncBlockAccessList) obj;
     return rlp.equals(other.rlp);
   }
 

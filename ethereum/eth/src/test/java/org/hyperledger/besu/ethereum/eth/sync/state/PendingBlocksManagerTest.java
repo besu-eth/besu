@@ -15,9 +15,12 @@
 package org.hyperledger.besu.ethereum.eth.sync.state;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
+import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 
 import java.util.ArrayDeque;
@@ -33,8 +36,14 @@ import org.junit.jupiter.api.Test;
 
 public class PendingBlocksManagerTest {
 
-  private static final Bytes NODE_ID_1 = Bytes.fromHexString("0x00");
-  private static final Bytes NODE_ID_2 = Bytes.fromHexString("0x01");
+  private static final EthPeer PEER_1 = peerWithNodeId(Bytes.fromHexString("0x00"));
+  private static final EthPeer PEER_2 = peerWithNodeId(Bytes.fromHexString("0x01"));
+
+  private static EthPeer peerWithNodeId(final Bytes nodeId) {
+    final EthPeer peer = mock(EthPeer.class);
+    when(peer.nodeId()).thenReturn(nodeId);
+    return peer;
+  }
 
   private PendingBlocksManager pendingBlocksManager;
   private BlockDataGenerator gen;
@@ -54,7 +63,7 @@ public class PendingBlocksManagerTest {
     // Sanity check
     assertThat(pendingBlocksManager.contains(block.getHash())).isFalse();
 
-    pendingBlocksManager.registerPendingBlock(block, NODE_ID_1);
+    pendingBlocksManager.registerPendingBlock(block, PEER_1);
 
     assertThat(pendingBlocksManager.contains(block.getHash())).isTrue();
     final List<Block> pendingBlocksForParent =
@@ -65,7 +74,7 @@ public class PendingBlocksManagerTest {
   @Test
   public void deregisterPendingBlock() {
     final Block block = gen.block();
-    pendingBlocksManager.registerPendingBlock(block, NODE_ID_1);
+    pendingBlocksManager.registerPendingBlock(block, PEER_1);
     pendingBlocksManager.deregisterPendingBlock(block.getHeader());
 
     assertThat(pendingBlocksManager.contains(block.getHash())).isFalse();
@@ -82,8 +91,8 @@ public class PendingBlocksManagerTest {
     final Block childBlock2 = gen.nextBlock(parentBlock);
     final List<Block> children = Arrays.asList(childBlock, childBlock2);
 
-    pendingBlocksManager.registerPendingBlock(childBlock, NODE_ID_1);
-    pendingBlocksManager.registerPendingBlock(childBlock2, NODE_ID_1);
+    pendingBlocksManager.registerPendingBlock(childBlock, PEER_1);
+    pendingBlocksManager.registerPendingBlock(childBlock2, PEER_1);
 
     assertThat(pendingBlocksManager.contains(childBlock.getHash())).isTrue();
     assertThat(pendingBlocksManager.contains(childBlock2.getHash())).isTrue();
@@ -101,8 +110,8 @@ public class PendingBlocksManagerTest {
     final Block childBlock = gen.nextBlock(parentBlock);
     final Block childBlock2 = gen.nextBlock(parentBlock);
 
-    pendingBlocksManager.registerPendingBlock(childBlock, NODE_ID_1);
-    pendingBlocksManager.registerPendingBlock(childBlock2, NODE_ID_1);
+    pendingBlocksManager.registerPendingBlock(childBlock, PEER_1);
+    pendingBlocksManager.registerPendingBlock(childBlock2, PEER_1);
     pendingBlocksManager.deregisterPendingBlock(childBlock.getHeader());
 
     assertThat(pendingBlocksManager.contains(childBlock.getHash())).isFalse();
@@ -121,7 +130,7 @@ public class PendingBlocksManagerTest {
     final List<Block> blocks = gen.blockSequence(10);
 
     for (final Block block : blocks) {
-      pendingBlocksManager.registerPendingBlock(block, NODE_ID_1);
+      pendingBlocksManager.registerPendingBlock(block, PEER_1);
       assertThat(pendingBlocksManager.contains(block.getHash())).isTrue();
     }
 
@@ -156,12 +165,12 @@ public class PendingBlocksManagerTest {
       final Block generatedBlock =
           gen.block(gen.nextBlockOptions(parentBlock).setTimestamp((long) i));
       childBlockFromNodeOne.add(generatedBlock);
-      pendingBlocksManager.registerPendingBlock(generatedBlock, NODE_ID_1);
+      pendingBlocksManager.registerPendingBlock(generatedBlock, PEER_1);
     }
 
     // add new block from node 2
     final Block childBlockFromNodeTwo = gen.nextBlock(parentBlock);
-    pendingBlocksManager.registerPendingBlock(childBlockFromNodeTwo, NODE_ID_2);
+    pendingBlocksManager.registerPendingBlock(childBlockFromNodeTwo, PEER_2);
 
     // check blocks from node 1 in the cache (node 1 should replace the lowest priority block)
     final List<Block> pendingBlocksForParent =
@@ -194,7 +203,7 @@ public class PendingBlocksManagerTest {
     // block 0
     childBlockFromNodeOne.add(
         gen.block(new BlockDataGenerator.BlockOptions().setBlockNumber(0).setTimestamp(0L)));
-    pendingBlocksManager.registerPendingBlock(childBlockFromNodeOne.getLast(), NODE_ID_1);
+    pendingBlocksManager.registerPendingBlock(childBlockFromNodeOne.getLast(), PEER_1);
 
     // block 1
     childBlockFromNodeOne.add(
@@ -202,7 +211,7 @@ public class PendingBlocksManagerTest {
             gen.nextBlockOptions(childBlockFromNodeOne.element())
                 .setBlockNumber(1)
                 .setTimestamp(1L)));
-    pendingBlocksManager.registerPendingBlock(childBlockFromNodeOne.getLast(), NODE_ID_1);
+    pendingBlocksManager.registerPendingBlock(childBlockFromNodeOne.getLast(), PEER_1);
 
     // block 1 reorg
     final Block reorgBlock =
@@ -211,7 +220,7 @@ public class PendingBlocksManagerTest {
                 .setBlockNumber(1)
                 .setTimestamp(3L));
     childBlockFromNodeOne.add(reorgBlock);
-    pendingBlocksManager.registerPendingBlock(reorgBlock, NODE_ID_1);
+    pendingBlocksManager.registerPendingBlock(reorgBlock, PEER_1);
 
     // block 2
     childBlockFromNodeOne.add(
@@ -219,21 +228,21 @@ public class PendingBlocksManagerTest {
             gen.nextBlockOptions(childBlockFromNodeOne.element())
                 .setBlockNumber(2)
                 .setTimestamp(2L)));
-    pendingBlocksManager.registerPendingBlock(childBlockFromNodeOne.getLast(), NODE_ID_1);
+    pendingBlocksManager.registerPendingBlock(childBlockFromNodeOne.getLast(), PEER_1);
 
     assertThat(pendingBlocksManager.contains(reorgBlock.getHash())).isTrue();
 
     // try to add a new block (not added because low priority : block number too high)
     final Block lowPriorityBlock =
         gen.block(BlockDataGenerator.BlockOptions.create().setBlockNumber(10));
-    pendingBlocksManager.registerPendingBlock(lowPriorityBlock, NODE_ID_1);
+    pendingBlocksManager.registerPendingBlock(lowPriorityBlock, PEER_1);
     assertThat(pendingBlocksManager.contains(lowPriorityBlock.getHash())).isFalse();
 
     // try to add a new block (added because high priority : low block number and high timestamp)
     final Block highPriorityBlock =
         gen.block(
             gen.nextBlockOptions(childBlockFromNodeOne.getFirst()).setTimestamp(Long.MAX_VALUE));
-    pendingBlocksManager.registerPendingBlock(highPriorityBlock, NODE_ID_1);
+    pendingBlocksManager.registerPendingBlock(highPriorityBlock, PEER_1);
     assertThat(pendingBlocksManager.contains(highPriorityBlock.getHash())).isTrue();
 
     // check blocks in the cache
@@ -255,9 +264,9 @@ public class PendingBlocksManagerTest {
     final Block childBlock = gen.nextBlock(parentBlock);
     final Block childBlock2 = gen.nextBlock(parentBlock);
 
-    pendingBlocksManager.registerPendingBlock(parentBlock, NODE_ID_1);
-    pendingBlocksManager.registerPendingBlock(childBlock, NODE_ID_1);
-    pendingBlocksManager.registerPendingBlock(childBlock2, NODE_ID_1);
+    pendingBlocksManager.registerPendingBlock(parentBlock, PEER_1);
+    pendingBlocksManager.registerPendingBlock(childBlock, PEER_1);
+    pendingBlocksManager.registerPendingBlock(childBlock2, PEER_1);
 
     assertThat(pendingBlocksManager.lowestAnnouncedBlock()).contains(parentBlock.getHeader());
   }
@@ -274,12 +283,12 @@ public class PendingBlocksManagerTest {
     final Block forkChild = gen.nextBlock(forkBlock);
 
     // register chain with one missing block
-    pendingBlocksManager.registerPendingBlock(block, NODE_ID_1);
-    pendingBlocksManager.registerPendingBlock(child, NODE_ID_1);
+    pendingBlocksManager.registerPendingBlock(block, PEER_1);
+    pendingBlocksManager.registerPendingBlock(child, PEER_1);
 
     // Register fork with one missing parent
-    pendingBlocksManager.registerPendingBlock(forkBlock, NODE_ID_1);
-    pendingBlocksManager.registerPendingBlock(forkChild, NODE_ID_1);
+    pendingBlocksManager.registerPendingBlock(forkBlock, PEER_1);
+    pendingBlocksManager.registerPendingBlock(forkChild, PEER_1);
 
     // assert it is able to follow the chain
     final Optional<Block> blockAncestor = pendingBlocksManager.pendingAncestorBlockOf(child);
@@ -298,7 +307,7 @@ public class PendingBlocksManagerTest {
   public void shouldReturnLowestAncestorPendingBlock_sameBlock() {
     final BlockDataGenerator gen = new BlockDataGenerator();
     final Block block = gen.block();
-    pendingBlocksManager.registerPendingBlock(block, NODE_ID_1);
+    pendingBlocksManager.registerPendingBlock(block, PEER_1);
     final Optional<Block> b = pendingBlocksManager.pendingAncestorBlockOf(block);
     assertThat(b).contains(block);
   }

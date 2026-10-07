@@ -14,7 +14,10 @@
  */
 package org.hyperledger.besu.ethereum.eth.sync.snapsync.request;
 
+import org.hyperledger.besu.ethereum.eth.manager.task.EthTask;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncMetricsManager;
+
+import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
 
@@ -22,6 +25,14 @@ import org.apache.tuweni.bytes.Bytes;
 public interface SnapRequestContext {
 
   void enqueueRequest(SnapDataRequest request);
+
+  void enqueueRequests(Stream<SnapDataRequest> requests);
+
+  void addOutstandingTask(EthTask<?> task);
+
+  void removeOutstandingTask(EthTask<?> task);
+
+  void setRootNodeData(Bytes rootNodeData);
 
   SnapSyncMetricsManager getMetricsManager();
 

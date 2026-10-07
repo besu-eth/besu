@@ -99,7 +99,7 @@ The following steps must occur for a contributor to be "upgraded" as a maintaine
 - No veto raised by another maintainer within the voting timeframe.
   - All vetoes must be accompanied by a public explanation as a comment on the
     proposal PR.
-  - The explanation of the veto must be reasonable and follow the [Besu code of conduct](https://wiki.hyperledger.org/display/BESU/Code+of+Conduct).
+  - The explanation of the veto must be reasonable and follow the [Besu code of conduct](CODE_OF_CONDUCT.md).
   - A veto can be retracted, in that case, the voting timeframe is reset, and all approvals are removed.
   - It is bad form to veto, retract, and veto again.
   

@@ -67,8 +67,8 @@ public class Era1Reader {
     int blockIndex = 0;
     BufferedInputStream bufferedInputStream =
         inputStreamFactory.wrapInBufferedInputStream(inputStream);
-    byte[] typeBytes;
-    while ((typeBytes = bufferedInputStream.readNBytes(TYPE_LENGTH)).length != 0) {
+    byte[] typeBytes = bufferedInputStream.readNBytes(TYPE_LENGTH);
+    while (typeBytes.length != 0) {
       Era1Type type = Era1Type.getForTypeCode(typeBytes);
       int length =
           (int) convertLittleEndianBytesToLong(bufferedInputStream.readNBytes(LENGTH_LENGTH));
@@ -135,6 +135,7 @@ public class Era1Reader {
           listener.handleBlockIndex(new Era1BlockIndex(startingBlockIndex, indexes));
         }
       }
+      typeBytes = bufferedInputStream.readNBytes(TYPE_LENGTH);
     }
     bufferedInputStream.close();
   }

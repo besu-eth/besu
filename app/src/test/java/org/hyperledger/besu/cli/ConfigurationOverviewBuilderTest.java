@@ -224,9 +224,9 @@ class ConfigurationOverviewBuilderTest {
 
   @Test
   void setProfile() {
-    builder.setProfile(InternalProfileName.DEV.name());
+    builder.setProfile(InternalProfileName.STAKER.name());
     final String profileSelected = builder.build();
-    assertThat(profileSelected).contains("Profile: DEV");
+    assertThat(profileSelected).contains("Profile: STAKER");
   }
 
   @Test
@@ -344,5 +344,20 @@ class ConfigurationOverviewBuilderTest {
         .contains("BAL pruning enabled (retained BALs: 50000)")
         .doesNotContain("blocks:")
         .doesNotContain(";");
+  }
+
+  @Test
+  void setRocksDbMaxOpenFilesDerived() {
+    builder.setRocksDbMaxOpenFiles(4096, false);
+    final String overview = builder.build();
+    assertThat(overview)
+        .contains("RocksDB max open files: 4096 (derived from available resources)");
+  }
+
+  @Test
+  void setRocksDbMaxOpenFilesSet() {
+    builder.setRocksDbMaxOpenFiles(2048, true);
+    final String overview = builder.build();
+    assertThat(overview).contains("RocksDB max open files: 2048 (set)");
   }
 }

@@ -20,9 +20,9 @@ import org.hyperledger.besu.datatypes.CodeDelegation;
 import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.core.json.ChainIdDeserializer;
-import org.hyperledger.besu.ethereum.core.json.HexStringDeserializer;
-import org.hyperledger.besu.ethereum.core.json.OptionalUnsignedLongDeserializer;
+import org.hyperledger.besu.ethereum.core.json.BytesJson;
+import org.hyperledger.besu.ethereum.core.json.ChainIdJson;
+import org.hyperledger.besu.ethereum.core.json.QuantityJson;
 
 import java.math.BigInteger;
 import java.util.List;
@@ -41,7 +41,7 @@ import org.immutables.value.Value;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public abstract class CallParameter implements org.hyperledger.besu.datatypes.CallParameter {
   @Override
-  @JsonDeserialize(contentUsing = ChainIdDeserializer.class)
+  @JsonDeserialize(contentUsing = ChainIdJson.Deserializer.class)
   public abstract Optional<BigInteger> getChainId();
 
   @Override
@@ -52,7 +52,7 @@ public abstract class CallParameter implements org.hyperledger.besu.datatypes.Ca
   public abstract Optional<Address> getTo();
 
   @Override
-  @JsonDeserialize(using = OptionalUnsignedLongDeserializer.class)
+  @JsonDeserialize(using = QuantityJson.OptionalLongDeserializer.class)
   public abstract OptionalLong getGas();
 
   @Override
@@ -82,7 +82,7 @@ public abstract class CallParameter implements org.hyperledger.besu.datatypes.Ca
   public abstract List<CodeDelegation> getCodeDelegationAuthorizations();
 
   @Override
-  @JsonDeserialize(using = OptionalUnsignedLongDeserializer.class)
+  @JsonDeserialize(using = QuantityJson.OptionalLongDeserializer.class)
   public abstract OptionalLong getNonce();
 
   @Override
@@ -92,14 +92,14 @@ public abstract class CallParameter implements org.hyperledger.besu.datatypes.Ca
    * 'input' is mutually exclusive with 'data', so it needs special handling. This method is only
    * used to deserialize the 'input' field, always use getPayload() to get the value.
    */
-  @JsonDeserialize(contentUsing = HexStringDeserializer.class)
+  @JsonDeserialize(contentUsing = BytesJson.Deserializer.class)
   protected abstract Optional<Bytes> getInput();
 
   /**
    * 'data' is mutually exclusive with 'input', so it needs special handling. This method is only
    * used to deserialize the 'data' field, always use getPayload() to get the value.
    */
-  @JsonDeserialize(contentUsing = HexStringDeserializer.class)
+  @JsonDeserialize(contentUsing = BytesJson.Deserializer.class)
   protected abstract Optional<Bytes> getData();
 
   @Value.Check

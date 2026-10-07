@@ -14,8 +14,6 @@
     "arrowGlacierBlock": 0,
     "grayGlacierBlock": 0,
     "terminalTotalDifficulty": 0,
-    "ethash": {
-    },
     "checkpoint": {
       "hash": "0x186642d6084eb7799cb01c7eb69c1a7f3b2c32cd141e62d309f30081a1ea3c91",
       "number": 1,

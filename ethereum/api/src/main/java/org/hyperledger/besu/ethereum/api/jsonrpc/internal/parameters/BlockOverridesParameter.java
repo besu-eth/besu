@@ -18,8 +18,9 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.datatypes.parameters.UnsignedLongParameter;
-import org.hyperledger.besu.ethereum.core.json.HexStringDeserializer;
-import org.hyperledger.besu.ethereum.core.json.OptionalUnsignedLongDeserializer;
+import org.hyperledger.besu.ethereum.core.json.Bytes32Json;
+import org.hyperledger.besu.ethereum.core.json.BytesJson;
+import org.hyperledger.besu.ethereum.core.json.QuantityJson;
 import org.hyperledger.besu.plugin.data.BlockOverrides;
 
 import java.math.BigInteger;
@@ -79,25 +80,25 @@ public class BlockOverridesParameter extends BlockOverrides {
   }
 
   @Override
-  @JsonDeserialize(using = OptionalUnsignedLongDeserializer.class)
+  @JsonDeserialize(using = QuantityJson.OptionalLongDeserializer.class)
   public Optional<Long> getTimestamp() {
     return super.getTimestamp();
   }
 
   @Override
-  @JsonDeserialize(using = OptionalUnsignedLongDeserializer.class)
+  @JsonDeserialize(using = QuantityJson.OptionalLongDeserializer.class)
   public Optional<Long> getBlockNumber() {
     return super.getBlockNumber();
   }
 
   @Override
-  @JsonDeserialize(contentUsing = HexStringDeserializer.class)
+  @JsonDeserialize(contentUsing = Bytes32Json.Deserializer.class)
   public Optional<Bytes32> getMixHashOrPrevRandao() {
     return super.getMixHashOrPrevRandao();
   }
 
   @Override
-  @JsonDeserialize(contentUsing = HexStringDeserializer.class)
+  @JsonDeserialize(contentUsing = BytesJson.Deserializer.class)
   public Optional<Bytes> getExtraData() {
     return super.getExtraData();
   }

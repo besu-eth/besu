@@ -70,8 +70,6 @@ public class SynchronizerOptionsTest
             ImmutableSnapSyncConfiguration.builder()
                 .pivotBlockWindowValidity(
                     SnapSyncConfiguration.DEFAULT_PIVOT_BLOCK_WINDOW_VALIDITY + 2)
-                .pivotBlockDistanceBeforeCaching(
-                    SnapSyncConfiguration.DEFAULT_PIVOT_BLOCK_DISTANCE_BEFORE_CACHING - 2)
                 .trienodeCountPerRequest(
                     SnapSyncConfiguration.DEFAULT_TRIENODE_COUNT_PER_REQUEST + 2)
                 .storageCountPerRequest(SnapSyncConfiguration.DEFAULT_STORAGE_COUNT_PER_REQUEST + 2)
@@ -83,6 +81,8 @@ public class SynchronizerOptionsTest
                 .build())
         .snapSyncSavePreCheckpointHeadersOnlyEnabled(
             SnapSyncConfiguration.DEFAULT_SNAP_SYNC_SAVE_PRE_MERGE_HEADERS_ONLY_ENABLED)
+        .snapSyncHeadersToCheckpointOnly(
+            !SynchronizerConfiguration.DEFAULT_SNAP_SYNC_HEADERS_TO_CHECKPOINT_ONLY)
         .era1ImportPrepipelineEnabled(true)
         .era1DataUri(URI.create("sepolia.era1.nimbus.team/"));
   }

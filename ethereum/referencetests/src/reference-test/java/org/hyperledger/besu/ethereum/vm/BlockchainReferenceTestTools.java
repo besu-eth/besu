@@ -51,11 +51,13 @@ import org.hyperledger.besu.ethereum.referencetests.BlockchainReferenceTestCaseS
 import org.hyperledger.besu.ethereum.referencetests.BlockExceptionMatcher;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestProtocolSchedules;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.EvmSpecVersion;
 import org.hyperledger.besu.evm.account.AccountState;
+import org.hyperledger.besu.config.StubGenesisConfigOptions;
+import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.internal.EvmConfiguration.WorldUpdaterMode;
 import org.hyperledger.besu.testutil.JsonTestParameters;
 
@@ -101,13 +103,6 @@ public class BlockchainReferenceTestTools {
             params.ignoreAll();
         }
 
-        // Consumes a huge amount of memory
-        params.ignore("static_Call1MB1024Calldepth");
-        params.ignore("ShanghaiLove_");
-
-        // Absurd amount of gas, doesn't run in parallel
-        params.ignore("randomStatetest94_\\w+");
-
         // Don't do time-consuming tests
         params.ignore("CALLBlake2f_MaxRounds");
         params.ignore("loopMul_");
@@ -120,6 +115,16 @@ public class BlockchainReferenceTestTools {
 
         // These are for the older reference tests but EIP-2537 is covered by eip2537_bls_12_381_precompiles in the execution-spec-tests
         params.ignore("/stEIP2537/");
+
+        // EIP-7610 (revert creation when the destination address has non-empty storage) was never
+        // part of the spec and has been dropped retroactively for every fork, see
+        // https://github.com/ethereum/execution-specs/pull/3417. Upstream has deleted these tests
+        // from ethereum/tests, but the submodule is still pinned to a revision that contains them.
+        params.ignore("create2collisionStorageParis");
+        params.ignore("dynamicAccountOverwriteEmpty_Paris");
+        params.ignore("InitCollisionParis");
+        params.ignore("RevertInCreateInInitCreate2Paris");
+        params.ignore("RevertInCreateInInit_Paris");
     }
 
     private BlockchainReferenceTestTools() {
@@ -141,7 +146,15 @@ public class BlockchainReferenceTestTools {
                         .getWorldState(WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(genesisBlockHeader))
                         .orElseThrow();
 
-        final ProtocolSchedule schedule = PROTOCOL_SCHEDULES.getByName(spec.getNetwork());
+        final ReferenceTestProtocolSchedules protocolSchedules =
+            spec.getBlobScheduleOptions()
+                .map(
+                    bso ->
+                        ReferenceTestProtocolSchedules.create(
+                            new StubGenesisConfigOptions().blobScheduleOptions(bso),
+                            EvmConfiguration.DEFAULT))
+                .orElse(PROTOCOL_SCHEDULES);
+        final ProtocolSchedule schedule = protocolSchedules.getByName(spec.getNetwork());
 
         try (BlockCreationFixture blockCreation =
                      BlockCreationFixture.create(schedule, protocolContext, blockchain)) {
@@ -215,9 +228,10 @@ public class BlockchainReferenceTestTools {
                             final String actualError = processingResult.errorMessage.orElse("");
                             assertThat(BlockExceptionMatcher.matches(expectedExceptionKey, actualError))
                                     .as(
-                                            "Block rejected for wrong reason.\n"
-                                                    + "  Expected exception : %s (%s)\n"
-                                                    + "  Actual error       : %s",
+                                            """
+                                            Block rejected for wrong reason.
+                                              Expected exception : %s (%s)
+                                              Actual error       : %s""",
                                             expectedExceptionKey,
                                             BlockExceptionMatcher.describeExpected(expectedExceptionKey).orElse("unknown key"),
                                             actualError)

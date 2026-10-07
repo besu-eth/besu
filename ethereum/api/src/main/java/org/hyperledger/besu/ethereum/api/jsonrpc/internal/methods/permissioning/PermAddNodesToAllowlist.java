@@ -63,28 +63,27 @@ public class PermAddNodesToAllowlist implements JsonRpcMethod {
           final NodesAllowlistResult nodesAllowlistResult =
               nodeAllowlistPermissioningController.get().addNodes(enodeURLs);
 
-          switch (nodesAllowlistResult.result()) {
-            case SUCCESS:
-              return new JsonRpcSuccessResponse(requestContext.getRequest().getId());
-            case ERROR_EMPTY_ENTRY:
-              return new JsonRpcErrorResponse(
-                  requestContext.getRequest().getId(), RpcErrorType.NODE_ALLOWLIST_EMPTY_ENTRY);
-            case ERROR_EXISTING_ENTRY:
-              return new JsonRpcErrorResponse(
-                  requestContext.getRequest().getId(), RpcErrorType.NODE_ALLOWLIST_EXISTING_ENTRY);
-            case ERROR_DUPLICATED_ENTRY:
-              return new JsonRpcErrorResponse(
-                  requestContext.getRequest().getId(),
-                  RpcErrorType.NODE_ALLOWLIST_DUPLICATED_ENTRY);
-            case ERROR_ALLOWLIST_PERSIST_FAIL:
-              return new JsonRpcErrorResponse(
-                  requestContext.getRequest().getId(), RpcErrorType.ALLOWLIST_PERSIST_FAILURE);
-            case ERROR_ALLOWLIST_FILE_SYNC:
-              return new JsonRpcErrorResponse(
-                  requestContext.getRequest().getId(), RpcErrorType.ALLOWLIST_FILE_SYNC);
-            default:
-              throw new Exception();
-          }
+          return switch (nodesAllowlistResult.result()) {
+            case SUCCESS -> new JsonRpcSuccessResponse(requestContext.getRequest().getId());
+            case ERROR_EMPTY_ENTRY ->
+                new JsonRpcErrorResponse(
+                    requestContext.getRequest().getId(), RpcErrorType.NODE_ALLOWLIST_EMPTY_ENTRY);
+            case ERROR_EXISTING_ENTRY ->
+                new JsonRpcErrorResponse(
+                    requestContext.getRequest().getId(),
+                    RpcErrorType.NODE_ALLOWLIST_EXISTING_ENTRY);
+            case ERROR_DUPLICATED_ENTRY ->
+                new JsonRpcErrorResponse(
+                    requestContext.getRequest().getId(),
+                    RpcErrorType.NODE_ALLOWLIST_DUPLICATED_ENTRY);
+            case ERROR_ALLOWLIST_PERSIST_FAIL ->
+                new JsonRpcErrorResponse(
+                    requestContext.getRequest().getId(), RpcErrorType.ALLOWLIST_PERSIST_FAILURE);
+            case ERROR_ALLOWLIST_FILE_SYNC ->
+                new JsonRpcErrorResponse(
+                    requestContext.getRequest().getId(), RpcErrorType.ALLOWLIST_FILE_SYNC);
+            default -> throw new Exception();
+          };
         } catch (IllegalArgumentException e) {
           return new JsonRpcErrorResponse(
               requestContext.getRequest().getId(), RpcErrorType.NODE_ALLOWLIST_INVALID_ENTRY);

@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.evmtool.t8n;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.BlockAddedObserver;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
@@ -127,6 +128,11 @@ public class T8nBlockchain implements Blockchain {
 
   @Override
   public Optional<TransactionLocation> getTransactionLocation(final Hash transactionHash) {
+    throw new NonDeterministicOperationException("Transaction location may be different on forks");
+  }
+
+  @Override
+  public Optional<Hash> getTransactionHashBySenderAndNonce(final Address sender, final long nonce) {
     throw new NonDeterministicOperationException("Transaction location may be different on forks");
   }
 

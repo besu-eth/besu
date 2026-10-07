@@ -16,13 +16,11 @@ package org.hyperledger.besu.consensus.merge.blockcreation;
 
 import org.hyperledger.besu.consensus.merge.PostMergeContext;
 import org.hyperledger.besu.consensus.merge.TransitionUtils;
-import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
-import org.hyperledger.besu.ethereum.blockcreation.PoWMiningCoordinator;
-import org.hyperledger.besu.ethereum.chain.PoWObserver;
+import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -109,11 +107,6 @@ public class TransitionCoordinator extends TransitionUtils<MiningCoordinator>
   }
 
   @Override
-  public Optional<Address> getCoinbase() {
-    return dispatchFunctionAccordingToMergeState(MiningCoordinator::getCoinbase);
-  }
-
-  @Override
   public Optional<Block> createBlock(
       final BlockHeader parentHeader,
       final List<Transaction> transactions,
@@ -127,13 +120,6 @@ public class TransitionCoordinator extends TransitionUtils<MiningCoordinator>
   public Optional<Block> createBlock(final BlockHeader parentHeader, final long timestamp) {
     return dispatchFunctionAccordingToMergeState(
         (MiningCoordinator coordinator) -> coordinator.createBlock(parentHeader, timestamp));
-  }
-
-  @Override
-  public void addEthHashObserver(final PoWObserver observer) {
-    if (this.miningCoordinator instanceof PoWMiningCoordinator) {
-      miningCoordinator.addEthHashObserver(observer);
-    }
   }
 
   @Override
@@ -170,15 +156,8 @@ public class TransitionCoordinator extends TransitionUtils<MiningCoordinator>
   }
 
   @Override
-  public ForkchoiceResult updateForkChoiceWithoutLegacySkip(
-      final BlockHeader newHead, final Hash finalizedBlockHash, final Hash safeBlockHash) {
-    return mergeCoordinator.updateForkChoiceWithoutLegacySkip(
-        newHead, finalizedBlockHash, safeBlockHash);
-  }
-
-  @Override
-  public boolean isAncestorOfFinalized(final Hash candidateHeadHash) {
-    return mergeCoordinator.isAncestorOfFinalized(candidateHeadHash);
+  public boolean isAncestorOfFinalized(final BlockHeader candidateHeadBlockHeader) {
+    return mergeCoordinator.isAncestorOfFinalized(candidateHeadBlockHeader);
   }
 
   @Override
@@ -202,8 +181,9 @@ public class TransitionCoordinator extends TransitionUtils<MiningCoordinator>
   }
 
   @Override
-  public CompletableFuture<Void> appendNewPayloadToSync(final Block newPayload) {
-    return mergeCoordinator.appendNewPayloadToSync(newPayload);
+  public CompletableFuture<Void> appendNewPayloadToSync(
+      final Block newPayload, final Optional<BlockAccessList> blockAccessList) {
+    return mergeCoordinator.appendNewPayloadToSync(newPayload, blockAccessList);
   }
 
   @Override
@@ -224,6 +204,16 @@ public class TransitionCoordinator extends TransitionUtils<MiningCoordinator>
   @Override
   public boolean isBadBlock(final Hash blockHash) {
     return mergeCoordinator.isBadBlock(blockHash);
+  }
+
+  @Override
+  public Optional<BadBlockCause> checkAndMarkBadDescendant(final BlockHeader header) {
+    return mergeCoordinator.checkAndMarkBadDescendant(header);
+  }
+
+  @Override
+  public boolean checkAndMarkBadDescendant(final Hash blockHash) {
+    return mergeCoordinator.checkAndMarkBadDescendant(blockHash);
   }
 
   @Override

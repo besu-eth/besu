@@ -43,6 +43,7 @@ dependencies {
 
   implementation 'com.github.ben-manes.caffeine:caffeine'
   implementation 'com.google.guava:guava'
+  compileOnly 'com.google.errorprone:error_prone_annotations'
   implementation 'com.google.dagger:dagger'
   implementation 'net.java.dev.jna:jna'
   implementation 'io.consensys.tuweni:tuweni-bytes'

@@ -16,6 +16,8 @@ package org.hyperledger.besu.ethereum.referencetests;
 
 import static org.hyperledger.besu.evm.internal.Words.decodeUnsignedLong;
 
+import org.hyperledger.besu.config.BlobScheduleOptions;
+import org.hyperledger.besu.config.JsonUtil;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BlobGas;
 import org.hyperledger.besu.datatypes.Hash;
@@ -38,12 +40,12 @@ import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiWorldStateProvider;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.NoopBonsaiCachedMerkleTrieLoader;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.NoOpBonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
-import org.hyperledger.besu.ethereum.worldstate.ImmutablePathBasedExtraStorageConfiguration;
+import org.hyperledger.besu.ethereum.worldstate.ImmutableExtraStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
@@ -52,6 +54,7 @@ import org.hyperledger.besu.plugin.services.BesuService;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
@@ -61,6 +64,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
@@ -68,6 +72,8 @@ import org.apache.tuweni.bytes.Bytes32;
 public class BlockchainReferenceTestCaseSpec {
 
   private final String network;
+
+  private final SpecConfig specConfig;
 
   private final CandidateBlock[] candidateBlocks;
 
@@ -90,10 +96,10 @@ public class BlockchainReferenceTestCaseSpec {
             (BonsaiWorldStateKeyValueStorage)
                 inMemoryKeyValueStorageProvider.createWorldStateStorage(storageConfiguration),
             blockchain,
-            ImmutablePathBasedExtraStorageConfiguration.copyOf(
-                    storageConfiguration.getPathBasedExtraStorageConfiguration())
+            ImmutableExtraStorageConfiguration.copyOf(
+                    storageConfiguration.getExtraStorageConfiguration())
                 .withMaxLayersToLoad(cacheSize),
-            new NoopBonsaiCachedMerkleTrieLoader(),
+            new NoOpBonsaiCachedMerkleTrieLoader(),
             new ServiceManager() {
               @Override
               public <T extends BesuService> void addService(
@@ -105,8 +111,7 @@ public class BlockchainReferenceTestCaseSpec {
               }
             },
             EvmConfiguration.DEFAULT,
-            () -> (__, ___) -> {},
-            new CodeCache());
+            new BonsaiCodeCache());
 
     final MutableWorldState worldState = worldStateArchive.getWorldState();
     final WorldUpdater updater = worldState.updater();
@@ -136,8 +141,10 @@ public class BlockchainReferenceTestCaseSpec {
       @SuppressWarnings("unused") @JsonProperty("genesisRLP") final String genesisRLP,
       @JsonProperty("pre") final Map<String, ReferenceTestWorldState.AccountMock> accounts,
       @JsonProperty("lastblockhash") final String lastBlockHash,
-      @JsonProperty("sealEngine") final String sealEngine) {
+      @JsonProperty("sealEngine") final String sealEngine,
+      @JsonProperty("config") final SpecConfig specConfig) {
     this.network = network;
+    this.specConfig = specConfig;
     this.candidateBlocks = candidateBlocks;
     this.genesisBlockHeader = genesisBlockHeader;
     this.accounts = accounts;
@@ -147,6 +154,10 @@ public class BlockchainReferenceTestCaseSpec {
 
   public String getNetwork() {
     return network;
+  }
+
+  public Optional<BlobScheduleOptions> getBlobScheduleOptions() {
+    return specConfig != null ? specConfig.getBlobScheduleOptions() : Optional.empty();
   }
 
   public CandidateBlock[] getCandidateBlocks() {
@@ -263,7 +274,10 @@ public class BlockchainReferenceTestCaseSpec {
     "expectExceptionHomestead",
     "hasBigInt",
     "rlp_decoded",
-    "receipts"
+    "receipts",
+    // zkevm (EIP-8025) fixtures: stateless-verifier payloads Besu does not consume
+    "statelessInputBytes",
+    "statelessOutputBytes"
   })
   public static class CandidateBlock {
 
@@ -274,6 +288,7 @@ public class BlockchainReferenceTestCaseSpec {
     private final BlockAccessList blockAccessList;
     private final String expectException;
     private final String expectExceptionALL;
+    private final FixtureExecutionWitness executionWitness;
 
     @JsonCreator
     public CandidateBlock(
@@ -291,7 +306,8 @@ public class BlockchainReferenceTestCaseSpec {
             @JsonAlias("rlp_decoded")
             final BlockAccessList blockAccessList,
         @JsonProperty("expectException") final String expectException,
-        @JsonProperty("expectExceptionALL") final String expectExceptionALL) {
+        @JsonProperty("expectExceptionALL") final String expectExceptionALL,
+        @JsonProperty("executionWitness") final FixtureExecutionWitness executionWitness) {
       boolean blockValid = true;
       Bytes rlpAttempt = null;
       try {
@@ -317,6 +333,7 @@ public class BlockchainReferenceTestCaseSpec {
       this.blockAccessList = blockAccessList;
       this.expectException = expectException;
       this.expectExceptionALL = expectExceptionALL;
+      this.executionWitness = executionWitness;
     }
 
     public boolean isValid() {
@@ -361,6 +378,39 @@ public class BlockchainReferenceTestCaseSpec {
 
     public Optional<BlockAccessList> getBlockAccessList() {
       return Optional.ofNullable(blockAccessList);
+    }
+
+    /** EIP-8025 execution witness from zkevm fixtures; empty for all other fixture flavours. */
+    public Optional<FixtureExecutionWitness> getExpectedWitness() {
+      return Optional.ofNullable(executionWitness);
+    }
+  }
+
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  public static class SpecConfig {
+    private final Optional<BlobScheduleOptions> blobScheduleOptions;
+
+    @JsonCreator
+    public SpecConfig(
+        @JsonProperty("blobSchedule") final Map<String, Map<String, String>> blobSchedule) {
+      if (blobSchedule == null || blobSchedule.isEmpty()) {
+        this.blobScheduleOptions = Optional.empty();
+      } else {
+        final ObjectNode root = JsonUtil.createEmptyObjectNode();
+        blobSchedule.forEach(
+            (fork, params) -> {
+              final ObjectNode forkNode = root.putObject(fork.toLowerCase(Locale.ROOT));
+              params.forEach(
+                  (key, hexValue) ->
+                      forkNode.put(
+                          key.toLowerCase(Locale.ROOT), Math.toIntExact(Long.decode(hexValue))));
+            });
+        this.blobScheduleOptions = Optional.of(new BlobScheduleOptions(root));
+      }
+    }
+
+    public Optional<BlobScheduleOptions> getBlobScheduleOptions() {
+      return blobScheduleOptions;
     }
   }
 }

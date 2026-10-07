@@ -45,7 +45,7 @@ public class AltBN128MulPrecompiledContract extends AbstractAltBnPrecompiledCont
 
   private static final Bytes POINT_AT_INFINITY = Bytes.repeat((byte) 0, 64);
   private final long gasCost;
-  private static final Cache<Integer, PrecompileInputResultTuple> bnMulCache =
+  private static final Cache<Bytes, PrecompileInputResultTuple> bnMulCache =
       AbstractPrecompiledContract.resultCacheBuilder().build();
 
   AltBN128MulPrecompiledContract(final GasCalculator gasCalculator, final long gasCost) {
@@ -74,7 +74,7 @@ public class AltBN128MulPrecompiledContract extends AbstractAltBnPrecompiledCont
     }
 
     PrecompileInputResultTuple res;
-    Integer cacheKey = null;
+    Bytes cacheKey = null;
     final Bytes cachedInput =
         input.size() > PARAMETER_LENGTH ? input.slice(0, PARAMETER_LENGTH) : input;
     if (enableResultCaching) {
@@ -85,12 +85,14 @@ public class AltBN128MulPrecompiledContract extends AbstractAltBnPrecompiledCont
           cacheEventConsumer.accept(new CacheEvent(PRECOMPILE_NAME, CacheMetric.HIT));
           return res.cachedResult();
         } else {
-          LOG.debug(
-              "false positive altbn128Mul {}, cache key {}, cached input: {}, input: {}",
-              input.getClass().getSimpleName(),
-              cacheKey,
-              res.cachedInput().toHexString(),
-              cachedInput.toHexString());
+          if (LOG.isDebugEnabled()) {
+            LOG.debug(
+                "false positive altbn128Mul {}, cache key {}, cached input: {}, input: {}",
+                input.getClass().getSimpleName(),
+                cacheKey,
+                res.cachedInput().toHexString(),
+                cachedInput.toHexString());
+          }
 
           cacheEventConsumer.accept(new CacheEvent(PRECOMPILE_NAME, CacheMetric.FALSE_POSITIVE));
         }

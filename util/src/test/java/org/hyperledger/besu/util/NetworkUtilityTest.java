@@ -77,4 +77,27 @@ public class NetworkUtilityTest {
     assertThat(NetworkUtility.isIpV6Address("2001:db8:3333:4444:5555:6666:7777:8888")).isTrue();
     assertThat(NetworkUtility.isIpV6Address("00:00::00:00::00:00")).isFalse();
   }
+
+  @Test
+  public void isMergeableDualStackBind_trueOnlyWhenSamePortAndBothWildcard() {
+    assertThat(NetworkUtility.isMergeableDualStackBind("0.0.0.0", 30303, "::", 30303)).isTrue();
+    // Alternate wildcard spellings recognized by isUnspecifiedAddress.
+    assertThat(NetworkUtility.isMergeableDualStackBind("0.0.0.0", 30303, "0:0:0:0:0:0:0:0", 30303))
+        .isTrue();
+  }
+
+  @Test
+  public void isMergeableDualStackBind_falseWhenPortsDiffer() {
+    assertThat(NetworkUtility.isMergeableDualStackBind("0.0.0.0", 30303, "::", 30404)).isFalse();
+  }
+
+  @Test
+  public void isMergeableDualStackBind_falseWhenEitherHostIsNotWildcard() {
+    assertThat(NetworkUtility.isMergeableDualStackBind("172.28.0.10", 30303, "::", 30303))
+        .isFalse();
+    assertThat(NetworkUtility.isMergeableDualStackBind("0.0.0.0", 30303, "fd00::10", 30303))
+        .isFalse();
+    assertThat(NetworkUtility.isMergeableDualStackBind("172.28.0.10", 30303, "fd00::10", 30303))
+        .isFalse();
+  }
 }

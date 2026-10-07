@@ -49,8 +49,8 @@ public class DiscoveryPeerV4 extends DiscoveryPeer {
   }
 
   public static Optional<DiscoveryPeerV4> from(final Peer peer) {
-    if (peer instanceof DiscoveryPeerV4) {
-      return Optional.of((DiscoveryPeerV4) peer);
+    if (peer instanceof DiscoveryPeerV4 discoveryPeerV4) {
+      return Optional.of(discoveryPeerV4);
     }
 
     return Optional.of(peer)

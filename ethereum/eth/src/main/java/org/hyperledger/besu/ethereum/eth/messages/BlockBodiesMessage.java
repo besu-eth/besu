@@ -31,8 +31,8 @@ import org.apache.tuweni.bytes.Bytes;
 public final class BlockBodiesMessage extends AbstractMessageData {
 
   public static BlockBodiesMessage readFrom(final MessageData message) {
-    if (message instanceof BlockBodiesMessage) {
-      return (BlockBodiesMessage) message;
+    if (message instanceof BlockBodiesMessage blockBodiesMessage) {
+      return blockBodiesMessage;
     }
     final int code = message.getCode();
     if (code != EthProtocolMessages.BLOCK_BODIES) {

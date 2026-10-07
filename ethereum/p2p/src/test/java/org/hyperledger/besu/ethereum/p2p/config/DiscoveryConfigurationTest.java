@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.p2p.config;
 
+import static org.assertj.core.api.Java6Assertions.assertThat;
 import static org.assertj.core.api.Java6Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
@@ -58,5 +59,25 @@ public class DiscoveryConfigurationTest {
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("Invalid bootnodes")
         .hasMessageContaining("Bootnodes must have discovery enabled");
+  }
+
+  @Test
+  public void setEnodeBootnodes_withNull_normalizesToEmptyList() {
+    final DiscoveryConfiguration config = DiscoveryConfiguration.create();
+
+    config.setEnodeBootnodes(null);
+
+    assertThat(config.getEnodeBootnodes()).isEmpty();
+    assertThat(config.getBootnodeIdentifiers()).isEmpty();
+  }
+
+  @Test
+  public void setEnrBootnodes_withNull_normalizesToEmptyList() {
+    final DiscoveryConfiguration config = DiscoveryConfiguration.create();
+
+    config.setEnrBootnodes(null);
+
+    assertThat(config.getEnrBootnodes()).isEmpty();
+    assertThat(config.getBootnodeIdentifiers()).isEmpty();
   }
 }

@@ -48,6 +48,8 @@ public class PostMergeContext implements MergeContext {
       Subscribers.create();
   private final Subscribers<UnverifiedForkchoiceListener>
       newUnverifiedForkchoiceCallbackSubscribers = Subscribers.create();
+  private final Subscribers<NewPayloadListener> newPayloadCallbackSubscribers =
+      Subscribers.create();
 
   private final EvictingQueue<PayloadWrapper> blocksInProgress =
       EvictingQueue.create(MAX_BLOCKS_IN_PROGRESS);
@@ -124,12 +126,34 @@ public class PostMergeContext implements MergeContext {
 
   @Override
   public boolean isSyncing() {
-    return Optional.ofNullable(syncState.get()).map(s -> !s.isInSync()).orElse(Boolean.TRUE)
-        // this is necessary for when we do not have a sync target yet, like at startup.
-        // not being stopped at ttd implies we are syncing.
-        && Optional.ofNullable(syncState.get())
-            .map(s -> !(s.hasReachedTerminalDifficulty().orElse(Boolean.FALSE)))
-            .orElse(Boolean.TRUE);
+    final SyncState state = syncState.get();
+    if (state == null) {
+      return true;
+    }
+    // At startup assume we are syncing until initial sync is marked as done
+    if (!state.isInitialSyncPhaseDone()) {
+      return true;
+    }
+    // Pre-TTD: if terminal difficulty is known *not* to have been reached we're still in PoW sync.
+    // An empty Optional just means "not determined yet" (normal right after startup), so default to
+    // "reached" as SyncState.isInSync() does; a node genuinely mid-PoW-sync has peers ahead of it
+    // and is still caught by the isInSync() check below.
+    if (!state.hasReachedTerminalDifficulty().orElse(true)) {
+      return true;
+    }
+    // Post-TTD (post-merge): rely solely on peer sync state. This correctly handles full sync on
+    // post-merge networks where reachedTerminalDifficulty is always true, which previously caused
+    // this method to always return false even while the node was actively downloading the chain.
+    return !state.isInSync();
+  }
+
+  @Override
+  public boolean isInitialSyncDone() {
+    final SyncState state = syncState.get();
+    if (state == null) {
+      return false;
+    }
+    return state.isInitialSyncPhaseDone();
   }
 
   @Override
@@ -154,6 +178,21 @@ public class PostMergeContext implements MergeContext {
     final ForkchoiceEvent event =
         new ForkchoiceEvent(headBlockHash, safeBlockHash, finalizedBlockHash);
     newUnverifiedForkchoiceCallbackSubscribers.forEach(cb -> cb.onNewUnverifiedForkchoice(event));
+  }
+
+  @Override
+  public long addNewPayloadListener(final NewPayloadListener newPayloadListener) {
+    return newPayloadCallbackSubscribers.subscribe(newPayloadListener);
+  }
+
+  @Override
+  public void removeNewPayloadListener(final long subscriberId) {
+    newPayloadCallbackSubscribers.unsubscribe(subscriberId);
+  }
+
+  @Override
+  public void fireNewPayloadEvent(final BlockHeader header) {
+    newPayloadCallbackSubscribers.forEach(cb -> cb.onNewPayload(header));
   }
 
   @Override

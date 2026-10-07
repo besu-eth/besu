@@ -81,8 +81,8 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
 
   private static final String SNAP_PIVOT_BLOCK_WINDOW_VALIDITY_FLAG =
       "--Xsnapsync-synchronizer-pivot-block-window-validity";
-  private static final String SNAP_PIVOT_BLOCK_DISTANCE_BEFORE_CACHING_FLAG =
-      "--Xsnapsync-synchronizer-pivot-block-distance-before-caching";
+  private static final String SNAP_PIVOT_BLOCK_CHECK_INTERVAL_MILLIS_FLAG =
+      "--Xsnapsync-synchronizer-pivot-block-check-interval-millis";
   private static final String SNAP_STORAGE_COUNT_PER_REQUEST_FLAG =
       "--Xsnapsync-synchronizer-storage-count-per-request";
   private static final String SNAP_BYTECODE_COUNT_PER_REQUEST_FLAG =
@@ -98,10 +98,19 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
   private static final String SNAP_FLAT_STORAGE_HEALED_COUNT_PER_REQUEST_FLAG =
       "--Xsnapsync-synchronizer-flat-slot-healed-count-per-request";
 
+  private static final String SNAP_SERVER_MAX_CONCURRENT_REQUESTS_PER_PEER_FLAG =
+      "--Xsnapsync-server-max-concurrent-requests-per-peer";
+
+  private static final String SNAP_SERVER_MAX_CONCURRENT_REQUESTS_FLAG =
+      "--Xsnapsync-server-max-concurrent-requests";
+
   private static final String CHECKPOINT_POST_MERGE_FLAG = "--Xcheckpoint-post-merge-enabled";
 
   private static final String SNAP_SYNC_SAVE_PRE_CHECKPOINT_HEADERS_ONLY_FLAG =
       "--snapsync-synchronizer-pre-checkpoint-headers-only-enabled";
+
+  private static final String SNAP_SYNC_SKIP_PRE_CHECKPOINT_HEADERS_FLAG =
+      "--snapsync-synchronizer-skip-pre-checkpoint-headers-enabled";
 
   private static final String ERA1_IMPORT_PREPIPELINE_ENABLED_FLAG =
       "--era1-import-prepipeline-enabled";
@@ -297,18 +306,18 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
       hidden = true,
       paramLabel = "<INTEGER>",
       description =
-          "The size of the pivot block window before having to change it (default: ${DEFAULT-VALUE})")
+          "Maximum distance in blocks the pivot can lag behind the chain head before a new pivot is selected (default: ${DEFAULT-VALUE})")
   private int snapsyncPivotBlockWindowValidity =
       SnapSyncConfiguration.DEFAULT_PIVOT_BLOCK_WINDOW_VALIDITY;
 
   @CommandLine.Option(
-      names = SNAP_PIVOT_BLOCK_DISTANCE_BEFORE_CACHING_FLAG,
+      names = SNAP_PIVOT_BLOCK_CHECK_INTERVAL_MILLIS_FLAG,
       hidden = true,
-      paramLabel = "<INTEGER>",
+      paramLabel = "<LONG>",
       description =
-          "The distance from the head before loading a pivot block into the cache to have a ready pivot block when the window is finished (default: ${DEFAULT-VALUE})")
-  private int snapsyncPivotBlockDistanceBeforeCaching =
-      SnapSyncConfiguration.DEFAULT_PIVOT_BLOCK_DISTANCE_BEFORE_CACHING;
+          "How often, in milliseconds, snap sync re-evaluates whether to refresh the pivot block (default: ${DEFAULT-VALUE})")
+  private long snapsyncPivotBlockCheckIntervalMillis =
+      SnapSyncConfiguration.DEFAULT_PIVOT_CHECK_INTERVAL_MILLIS;
 
   @CommandLine.Option(
       names = SNAP_STORAGE_COUNT_PER_REQUEST_FLAG,
@@ -370,6 +379,24 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
           "Enable advertising the snap/2 protocol capability. (default: ${DEFAULT-VALUE})")
   private Boolean snap2Enabled = SnapSyncConfiguration.DEFAULT_SNAP2_ENABLED;
 
+  @CommandLine.Option(
+      names = SNAP_SERVER_MAX_CONCURRENT_REQUESTS_PER_PEER_FLAG,
+      hidden = true,
+      paramLabel = "<INTEGER>",
+      description =
+          "Maximum number of snap sync GET_* requests from a single peer that may be concurrently scheduled for processing. 0 specifies no limit (default: ${DEFAULT-VALUE})")
+  private int snapsyncServerMaxConcurrentRequestsPerPeer =
+      SnapSyncConfiguration.DEFAULT_MAX_CONCURRENT_SNAP_REQUESTS_PER_PEER;
+
+  @CommandLine.Option(
+      names = SNAP_SERVER_MAX_CONCURRENT_REQUESTS_FLAG,
+      hidden = true,
+      paramLabel = "<INTEGER>",
+      description =
+          "Maximum total number of snap sync GET_* requests, across all peers, that may be concurrently scheduled for processing. 0 specifies no limit (default: ${DEFAULT-VALUE})")
+  private int snapsyncServerMaxConcurrentRequests =
+      SnapSyncConfiguration.DEFAULT_MAX_CONCURRENT_SNAP_REQUESTS_GLOBAL;
+
   @SuppressWarnings("unused")
   @CommandLine.Option(
       names = {CHECKPOINT_POST_MERGE_FLAG},
@@ -394,14 +421,32 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
   private Boolean snapTransactionIndexingEnabled =
       SnapSyncConfiguration.DEFAULT_SNAP_SYNC_TRANSACTION_INDEXING_ENABLED;
 
+  /**
+   * @deprecated No longer used. Accepted for backwards compatibility. The flag will be removed in a
+   *     future release.
+   */
+  @Deprecated(forRemoval = true)
+  @SuppressWarnings("unused")
   @CommandLine.Option(
       names = {SNAP_SYNC_SAVE_PRE_CHECKPOINT_HEADERS_ONLY_FLAG},
+      hidden = true,
       paramLabel = "<Boolean>",
       arity = "0..1",
-      description =
-          "Enable snap sync downloader to save only headers (not block bodies) for blocks before the checkpoint. (default: ${DEFAULT-VALUE})")
+      description = "Deprecated, no-op.")
   private Boolean snapSyncSavePreCheckpointHeadersOnlyEnabled =
       DEFAULT_SNAP_SYNC_SAVE_PRE_MERGE_HEADERS_ONLY_ENABLED;
+
+  @CommandLine.Option(
+      names = {SNAP_SYNC_SKIP_PRE_CHECKPOINT_HEADERS_FLAG},
+      paramLabel = "<Boolean>",
+      arity = "0..1",
+      fallbackValue = "true",
+      description =
+          "During SNAP sync, download headers only back to the trusted checkpoint instead of all "
+              + "the way to genesis. Requires a checkpoint (from the genesis file or --checkpoint). "
+              + "Pre-checkpoint headers (before the checkpoint) will not be stored. (default: ${DEFAULT-VALUE})")
+  private Boolean snapSyncHeadersToCheckpointOnly =
+      SynchronizerConfiguration.DEFAULT_SNAP_SYNC_HEADERS_TO_CHECKPOINT_ONLY;
 
   @CommandLine.Option(
       names = ERA1_IMPORT_PREPIPELINE_ENABLED_FLAG,
@@ -438,6 +483,16 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
    */
   public boolean isSnapsyncServerEnabled() {
     return snapsyncServerEnabled;
+  }
+
+  /**
+   * Whether SNAP sync should download headers only down to the trusted checkpoint instead of
+   * genesis.
+   *
+   * @return true if pre-checkpoint headers are skipped
+   */
+  public boolean isSnapSyncHeadersToCheckpointOnly() {
+    return snapSyncHeadersToCheckpointOnly;
   }
 
   /**
@@ -478,8 +533,8 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
     options.worldStateTaskCacheSize = config.getWorldStateTaskCacheSize();
     options.snapsyncPivotBlockWindowValidity =
         config.getSnapSyncConfiguration().getPivotBlockWindowValidity();
-    options.snapsyncPivotBlockDistanceBeforeCaching =
-        config.getSnapSyncConfiguration().getPivotBlockDistanceBeforeCaching();
+    options.snapsyncPivotBlockCheckIntervalMillis =
+        config.getSnapSyncConfiguration().getPivotBlockCheckIntervalMillis();
     options.snapsyncStorageCountPerRequest =
         config.getSnapSyncConfiguration().getStorageCountPerRequest();
     options.snapsyncBytecodeCountPerRequest =
@@ -492,10 +547,12 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
         config.getSnapSyncConfiguration().getLocalFlatStorageCountToHealPerRequest();
     options.snapsyncServerEnabled = config.getSnapSyncConfiguration().isSnapServerEnabled();
     options.snap2Enabled = config.getSnapSyncConfiguration().isSnap2Enabled();
+    options.snapsyncServerMaxConcurrentRequestsPerPeer =
+        config.getSnapSyncConfiguration().getMaxConcurrentSnapRequestsPerPeer();
+    options.snapsyncServerMaxConcurrentRequests =
+        config.getSnapSyncConfiguration().getMaxConcurrentSnapRequestsGlobal();
     options.snapTransactionIndexingEnabled =
         config.getSnapSyncConfiguration().isSnapSyncTransactionIndexingEnabled();
-    options.snapSyncSavePreCheckpointHeadersOnlyEnabled =
-        config.isSnapSyncSavePreCheckpointHeadersOnlyEnabled();
     options.era1ImportPrepipelineEnabled = config.era1ImportPrepipelineEnabled();
     options.era1DataUri = config.era1DataUri();
     options.era1ImportPrepipelineConcurrency = config.era1ImportPrepipelineConcurrency();
@@ -503,6 +560,7 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
     options.backwardHeadersDownloadStepTimeoutMillis =
         config.getBackwardHeadersDownloadStepTimeoutMillis();
     options.bodiesDownloadStepTimeoutMillis = config.getBodiesDownloadStepTimeoutMillis();
+    options.snapSyncHeadersToCheckpointOnly = config.isSnapSyncHeadersToCheckpointOnly();
     return options;
   }
 
@@ -530,7 +588,7 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
     builder.snapSyncConfiguration(
         ImmutableSnapSyncConfiguration.builder()
             .pivotBlockWindowValidity(snapsyncPivotBlockWindowValidity)
-            .pivotBlockDistanceBeforeCaching(snapsyncPivotBlockDistanceBeforeCaching)
+            .pivotBlockCheckIntervalMillis(snapsyncPivotBlockCheckIntervalMillis)
             .storageCountPerRequest(snapsyncStorageCountPerRequest)
             .bytecodeCountPerRequest(snapsyncBytecodeCountPerRequest)
             .trienodeCountPerRequest(snapsyncTrieNodeCountPerRequest)
@@ -538,16 +596,17 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
             .localFlatStorageCountToHealPerRequest(snapsyncFlatStorageHealedCountPerRequest)
             .isSnapServerEnabled(snapsyncServerEnabled)
             .isSnap2Enabled(snap2Enabled)
+            .maxConcurrentSnapRequestsPerPeer(snapsyncServerMaxConcurrentRequestsPerPeer)
+            .maxConcurrentSnapRequestsGlobal(snapsyncServerMaxConcurrentRequests)
             .isSnapSyncTransactionIndexingEnabled(snapTransactionIndexingEnabled)
             .build());
-    builder.snapSyncSavePreCheckpointHeadersOnlyEnabled(
-        snapSyncSavePreCheckpointHeadersOnlyEnabled);
     builder.receiptsDownloadStepTimeoutMillis(receiptsDownloadStepTimeoutMillis);
     builder.backwardHeadersDownloadStepTimeoutMillis(backwardHeadersDownloadStepTimeoutMillis);
     builder.bodiesDownloadStepTimeoutMillis(bodiesDownloadStepTimeoutMillis);
     builder.era1ImportPrepipelineEnabled(era1ImportPrepipelineEnabled);
     builder.era1DataUri(era1DataUri);
     builder.era1ImportPrepipelineConcurrency(era1ImportPrepipelineConcurrency);
+    builder.snapSyncHeadersToCheckpointOnly(snapSyncHeadersToCheckpointOnly);
     return builder;
   }
 
@@ -597,8 +656,8 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
             OptionParser.format(bodiesDownloadStepTimeoutMillis),
             SNAP_PIVOT_BLOCK_WINDOW_VALIDITY_FLAG,
             OptionParser.format(snapsyncPivotBlockWindowValidity),
-            SNAP_PIVOT_BLOCK_DISTANCE_BEFORE_CACHING_FLAG,
-            OptionParser.format(snapsyncPivotBlockDistanceBeforeCaching),
+            SNAP_PIVOT_BLOCK_CHECK_INTERVAL_MILLIS_FLAG,
+            OptionParser.format(snapsyncPivotBlockCheckIntervalMillis),
             SNAP_STORAGE_COUNT_PER_REQUEST_FLAG,
             OptionParser.format(snapsyncStorageCountPerRequest),
             SNAP_BYTECODE_COUNT_PER_REQUEST_FLAG,
@@ -613,16 +672,20 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
             OptionParser.format(snapsyncServerEnabled),
             SNAP2_ENABLED_FLAG,
             OptionParser.format(snap2Enabled),
+            SNAP_SERVER_MAX_CONCURRENT_REQUESTS_PER_PEER_FLAG,
+            OptionParser.format(snapsyncServerMaxConcurrentRequestsPerPeer),
+            SNAP_SERVER_MAX_CONCURRENT_REQUESTS_FLAG,
+            OptionParser.format(snapsyncServerMaxConcurrentRequests),
             SNAP_TRANSACTION_INDEXING_ENABLED_FLAG,
             OptionParser.format(snapTransactionIndexingEnabled),
-            SNAP_SYNC_SAVE_PRE_CHECKPOINT_HEADERS_ONLY_FLAG,
-            OptionParser.format(snapSyncSavePreCheckpointHeadersOnlyEnabled),
             ERA1_IMPORT_PREPIPELINE_ENABLED_FLAG,
             OptionParser.format(era1ImportPrepipelineEnabled),
             ERA1_DATA_URI_FLAG,
             OptionParser.format(era1DataUri),
             ERA1_IMPORT_PREPIPELINE_CONCURRENCY_FLAG,
-            OptionParser.format(era1ImportPrepipelineConcurrency));
+            OptionParser.format(era1ImportPrepipelineConcurrency),
+            SNAP_SYNC_SKIP_PRE_CHECKPOINT_HEADERS_FLAG,
+            OptionParser.format(snapSyncHeadersToCheckpointOnly));
     return value;
   }
 }

@@ -14,15 +14,12 @@
  */
 package org.hyperledger.besu.evmtool;
 
-import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.ethereum.core.json.BesuJsonModule;
 
 import com.fasterxml.jackson.core.JsonParser.Feature;
 import com.fasterxml.jackson.core.util.DefaultIndenter;
 import com.fasterxml.jackson.core.util.DefaultPrettyPrinter;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.module.SimpleModule;
-import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
-import org.apache.tuweni.bytes.Bytes;
 
 /**
  * Utility class for JSON related operations. This class provides a method to create an ObjectMapper
@@ -52,11 +49,7 @@ public class JsonUtils {
     // When we stream stdin we cannot close the stream
     objectMapper.disable(Feature.AUTO_CLOSE_SOURCE);
 
-    // GraalVM has a hard time reflecting these classes for serialization
-    SimpleModule serializers = new SimpleModule("Serializers");
-    serializers.addSerializer(Address.class, ToStringSerializer.instance);
-    serializers.addSerializer(Bytes.class, ToStringSerializer.instance);
-    objectMapper.registerModule(serializers);
+    objectMapper.registerModule(new BesuJsonModule());
 
     return objectMapper;
   }

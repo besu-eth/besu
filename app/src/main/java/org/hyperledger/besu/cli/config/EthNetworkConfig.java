@@ -73,17 +73,19 @@ public record EthNetworkConfig(
     final DiscoveryOptions discoveryOptions =
         genesisConfig.getConfigOptions().getDiscoveryOptions();
 
+    // Genesis "bootnodes" now carries a mixed list of enode URLs and ENR strings.
+    // Partition by prefix: entries starting with "enr:" feed DiscV5; the rest feed DiscV4.
+    final List<String> allBootNodes = discoveryOptions.getBootNodes().orElse(List.of());
     final List<EnodeURLImpl> enodeBootNodes =
-        discoveryOptions
-            .getBootNodes()
-            .map(nodes -> nodes.stream().map(EnodeURLImpl::fromString).toList())
-            .orElse(List.of());
-
+        allBootNodes.stream()
+            .filter(s -> !s.startsWith("enr:"))
+            .map(EnodeURLImpl::fromString)
+            .toList();
     final List<EthereumNodeRecord> enrBootNodes =
-        discoveryOptions
-            .getV5BootNodes()
-            .map(nodes -> nodes.stream().map(EthereumNodeRecord::fromEnr).toList())
-            .orElse(List.of());
+        allBootNodes.stream()
+            .filter(s -> s.startsWith("enr:"))
+            .map(EthereumNodeRecord::fromEnr)
+            .toList();
 
     return new EthNetworkConfig(
         genesisConfig,

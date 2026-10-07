@@ -14,7 +14,14 @@
  */
 package org.hyperledger.besu.ethereum;
 
+import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
+import org.hyperledger.besu.plugin.services.exception.StorageException;
+
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.RejectedExecutionException;
+
+import com.google.common.base.Throwables;
 
 /**
  * Represents the result of a block validation. This class holds the success status, error message,
@@ -90,5 +97,49 @@ public class BlockValidationResult {
    */
   public Optional<Throwable> causedBy() {
     return cause;
+  }
+
+  /**
+   * Whether the failure lies with this node rather than with the block: a storage or trie fault, or
+   * processing that was interrupted, cancelled or rejected by a shut down executor, says nothing
+   * about the block's validity, any other failure does.
+   *
+   * @return true if the failure was caused by this node
+   */
+  public boolean isLocalFailure() {
+    return cause.map(BlockValidationResult::isLocalFailure).orElse(false);
+  }
+
+  /**
+   * Whether a throwable denotes a fault of this node rather than of the block being processed. A
+   * fault raised on a worker thread arrives wrapped, so the whole causal chain is inspected.
+   *
+   * @param throwable the throwable
+   * @return true for a storage or trie fault, an interruption, a cancellation or a rejected task
+   */
+  public static boolean isLocalFailure(final Throwable throwable) {
+    return Throwables.getCausalChain(throwable).stream()
+        .anyMatch(
+            cause ->
+                isStorageFault(cause)
+                    || cause instanceof InterruptedException
+                    || cause instanceof CancellationException
+                    || cause instanceof RejectedExecutionException);
+  }
+
+  /**
+   * Whether a throwable is caused by a storage or trie fault, which a retry can get past, unlike an
+   * interruption that would only be hit again.
+   *
+   * @param throwable the throwable
+   * @return true for a storage or trie fault anywhere in the causal chain
+   */
+  public static boolean isStorageFailure(final Throwable throwable) {
+    return Throwables.getCausalChain(throwable).stream()
+        .anyMatch(BlockValidationResult::isStorageFault);
+  }
+
+  private static boolean isStorageFault(final Throwable throwable) {
+    return throwable instanceof StorageException || throwable instanceof MerkleTrieException;
   }
 }

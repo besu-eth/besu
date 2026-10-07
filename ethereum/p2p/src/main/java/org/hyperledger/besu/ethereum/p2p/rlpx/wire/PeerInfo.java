@@ -145,10 +145,9 @@ public class PeerInfo
     if (o == this) {
       return true;
     }
-    if (!(o instanceof PeerInfo)) {
+    if (!(o instanceof PeerInfo peerInfo)) {
       return false;
     }
-    final PeerInfo peerInfo = (PeerInfo) o;
     return version == peerInfo.version
         && port == peerInfo.port
         && Objects.equals(clientId, peerInfo.clientId)

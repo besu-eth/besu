@@ -20,6 +20,7 @@ import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.BLOCK_
 import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.SELECTED;
 import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.TX_TOO_LARGE_FOR_REMAINING_GAS;
 import static org.mockito.Answers.RETURNS_DEEP_STUBS;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -77,6 +78,17 @@ class BlockSizeTransactionSelectorTest {
     // tests
     when(blockSelectionContext.protocolSpec().getBlockGasAccountingStrategy())
         .thenReturn(BlockGasAccountingStrategy.FRONTIER);
+    // EIP-8037: ensure the per-dimension check (ethereum/EIPs #11536) sees a meaningful
+    // TX_MAX_GAS_LIMIT so that worstCaseExecution = min(TX_MAX, tx.gas) is not clamped to 0 by
+    // RETURNS_DEEP_STUBS' primitive default. Lenient since tests using FRONTIER strategy never
+    // invoke the per-dimension check.
+    lenient()
+        .when(
+            blockSelectionContext
+                .gasCalculator()
+                .stateGasCostCalculator()
+                .transactionExecutionGasLimit())
+        .thenReturn(Long.MAX_VALUE);
 
     selectorsStateManager = new SelectorsStateManager();
     selector = new BlockSizeTransactionSelector(blockSelectionContext, selectorsStateManager);
@@ -92,7 +104,7 @@ class BlockSizeTransactionSelectorTest {
     selectorsStateManager.blockSelectionStarted();
     evaluateAndAssertSelected(txEvaluationContext, remainingGas(0));
 
-    assertThat(selector.getWorkingState().regularGas()).isEqualTo(TRANSFER_GAS_LIMIT);
+    assertThat(selector.getWorkingState().executionGas()).isEqualTo(TRANSFER_GAS_LIMIT);
     assertThat(selector.getWorkingState().stateGas()).isEqualTo(0);
   }
 
@@ -106,7 +118,7 @@ class BlockSizeTransactionSelectorTest {
     selectorsStateManager.blockSelectionStarted();
     evaluateAndAssertNotSelected(txEvaluationContext, TX_TOO_LARGE_FOR_REMAINING_GAS);
 
-    assertThat(selector.getWorkingState().regularGas()).isEqualTo(0);
+    assertThat(selector.getWorkingState().executionGas()).isEqualTo(0);
   }
 
   @Test
@@ -120,7 +132,7 @@ class BlockSizeTransactionSelectorTest {
     selectorsStateManager.blockSelectionStarted();
     evaluateAndAssertSelected(txEvaluationContext, remainingGas(remainingGas));
 
-    assertThat(selector.getWorkingState().regularGas())
+    assertThat(selector.getWorkingState().executionGas())
         .isEqualTo(TRANSFER_GAS_LIMIT * 2 - remainingGas);
   }
 
@@ -146,7 +158,7 @@ class BlockSizeTransactionSelectorTest {
               evaluateAndAssertSelected(txEvaluationContext, remainingGas(0));
             });
 
-    assertThat(selector.getWorkingState().regularGas()).isEqualTo(TRANSFER_GAS_LIMIT * txCount);
+    assertThat(selector.getWorkingState().executionGas()).isEqualTo(TRANSFER_GAS_LIMIT * txCount);
   }
 
   @Test
@@ -171,7 +183,7 @@ class BlockSizeTransactionSelectorTest {
               evaluateAndAssertSelected(txEvaluationContext, remainingGas(0));
             });
 
-    assertThat(selector.getWorkingState().regularGas()).isEqualTo(TRANSFER_GAS_LIMIT * txCount);
+    assertThat(selector.getWorkingState().executionGas()).isEqualTo(TRANSFER_GAS_LIMIT * txCount);
 
     // last tx is too big for the remaining gas
     final long tooBigGasLimit = BLOCK_GAS_LIMIT - (TRANSFER_GAS_LIMIT * txCount) + 1;
@@ -186,7 +198,7 @@ class BlockSizeTransactionSelectorTest {
             NEVER_CANCELLED);
     evaluateAndAssertNotSelected(bigTxEvaluationContext, TX_TOO_LARGE_FOR_REMAINING_GAS);
 
-    assertThat(selector.getWorkingState().regularGas()).isEqualTo(TRANSFER_GAS_LIMIT * txCount);
+    assertThat(selector.getWorkingState().executionGas()).isEqualTo(TRANSFER_GAS_LIMIT * txCount);
   }
 
   @Test
@@ -206,7 +218,7 @@ class BlockSizeTransactionSelectorTest {
             blockSelectionContext.pendingBlockHeader(), tx1, null, null, null, NEVER_CANCELLED);
     evaluateAndAssertSelected(txEvaluationContext1, remainingGas(0));
 
-    assertThat(selector.getWorkingState().regularGas()).isEqualTo(fillBlockGasLimit);
+    assertThat(selector.getWorkingState().executionGas()).isEqualTo(fillBlockGasLimit);
 
     final var tx2 = createPendingTransaction(TRANSFER_GAS_LIMIT);
 
@@ -215,7 +227,7 @@ class BlockSizeTransactionSelectorTest {
             blockSelectionContext.pendingBlockHeader(), tx2, null, null, null, NEVER_CANCELLED);
     evaluateAndAssertNotSelected(txEvaluationContext2, BLOCK_FULL);
 
-    assertThat(selector.getWorkingState().regularGas()).isEqualTo(fillBlockGasLimit);
+    assertThat(selector.getWorkingState().executionGas()).isEqualTo(fillBlockGasLimit);
   }
 
   /**
@@ -234,15 +246,13 @@ class BlockSizeTransactionSelectorTest {
     final long txGasLimit = 50_000L;
     final var tx = createPendingTransaction(txGasLimit);
 
-    // Simulate SSTORE refund scenario:
-    // - Pre-refund gas used: 40,000 (estimateGasUsedByTransaction)
-    // EIP-7778 uses only estimateGasUsedByTransaction, not gasRemaining
+    // An SSTORE refund makes gasRemaining larger than the gas actually consumed; EIP-7778 must
+    // account for the block on the unfloored execution gas instead.
     final long preRefundGasUsed = 40_000L;
 
     final var txProcessingResult = mock(TransactionProcessingResult.class);
-    when(txProcessingResult.getEstimateGasUsedByTransaction()).thenReturn(preRefundGasUsed);
     when(txProcessingResult.getStateGasUsed()).thenReturn(0L);
-
+    when(txProcessingResult.getExecutionGasUsedForBlock()).thenReturn(preRefundGasUsed);
     final var txEvaluationContext =
         new TransactionEvaluationContext(
             blockSelectionContext.pendingBlockHeader(), tx, null, null, null, NEVER_CANCELLED);
@@ -250,7 +260,7 @@ class BlockSizeTransactionSelectorTest {
     evaluateAndAssertSelected(txEvaluationContext, txProcessingResult);
 
     // EIP-7778: Should use pre-refund gas (40,000), NOT post-refund (30,000)
-    assertThat(selector.getWorkingState().regularGas())
+    assertThat(selector.getWorkingState().executionGas())
         .as("EIP-7778 should use pre-refund gas for block accounting")
         .isEqualTo(preRefundGasUsed);
   }
@@ -274,8 +284,7 @@ class BlockSizeTransactionSelectorTest {
 
     final var txProcessingResult = mock(TransactionProcessingResult.class);
     when(txProcessingResult.getGasRemaining()).thenReturn(postRefundGasRemaining);
-    when(txProcessingResult.getStateGasUsed()).thenReturn(0L);
-
+    lenient().when(txProcessingResult.getStateGasUsed()).thenReturn(0L);
     final var txEvaluationContext =
         new TransactionEvaluationContext(
             blockSelectionContext.pendingBlockHeader(), tx, null, null, null, NEVER_CANCELLED);
@@ -283,7 +292,7 @@ class BlockSizeTransactionSelectorTest {
     evaluateAndAssertSelected(txEvaluationContext, txProcessingResult);
 
     // FRONTIER: Should use post-refund gas (30,000)
-    assertThat(selector.getWorkingState().regularGas())
+    assertThat(selector.getWorkingState().executionGas())
         .as("FRONTIER should use post-refund gas for block accounting")
         .isEqualTo(expectedPostRefundUsed);
   }
@@ -291,8 +300,8 @@ class BlockSizeTransactionSelectorTest {
   /**
    * EIP-8037 2D gas: Pre-processing uses per-dimension capacity check.
    *
-   * <p>Scenario: block limit=30M, regular=25M used, state=5M used. The tighter dimension is regular
-   * with 5M remaining, so txGasLimit must be <= 5M to pass.
+   * <p>Scenario: block limit=30M, execution=25M used, state=5M used. The tighter dimension is
+   * execution with 5M remaining, so txGasLimit must be <= 5M to pass.
    */
   @Test
   void eip8037TwoDimensionalPreProcessingChecksPerDimension() {
@@ -302,12 +311,11 @@ class BlockSizeTransactionSelectorTest {
     selector = new BlockSizeTransactionSelector(blockSelectionContext, selectorsStateManager);
     selectorsStateManager.blockSelectionStarted();
 
-    // First tx: uses 25M regular, 5M state
+    // First tx: uses 25M execution, 5M state
     final var tx1 = createPendingTransaction(30_000_000L);
     final var result1 = mock(TransactionProcessingResult.class);
-    when(result1.getEstimateGasUsedByTransaction()).thenReturn(30_000_000L);
     when(result1.getStateGasUsed()).thenReturn(5_000_000L);
-    // calculateTransactionRegularGas returns 30M - 5M = 25M regular
+    when(result1.getExecutionGasUsedForBlock()).thenReturn(25_000_000L);
 
     final var ctx1 =
         new TransactionEvaluationContext(
@@ -315,18 +323,18 @@ class BlockSizeTransactionSelectorTest {
     assertThat(selector.evaluateTransactionPreProcessing(ctx1)).isEqualTo(SELECTED);
     assertThat(selector.evaluateTransactionPostProcessing(ctx1, result1)).isEqualTo(SELECTED);
 
-    // State: regular=25M, state=5M
-    assertThat(selector.getWorkingState().regularGas()).isEqualTo(25_000_000L);
+    // State: execution=25M, state=5M
+    assertThat(selector.getWorkingState().executionGas()).isEqualTo(25_000_000L);
     assertThat(selector.getWorkingState().stateGas()).isEqualTo(5_000_000L);
 
-    // tx with gasLimit=5M fits: remaining_regular = 30M - 25M = 5M >= 5M
+    // tx with gasLimit=5M fits: remaining_execution = 30M - 25M = 5M >= 5M
     final var tx2 = createPendingTransaction(5_000_000L);
     final var ctx2 =
         new TransactionEvaluationContext(
             blockSelectionContext.pendingBlockHeader(), tx2, null, null, null, NEVER_CANCELLED);
     assertThat(selector.evaluateTransactionPreProcessing(ctx2)).isEqualTo(SELECTED);
 
-    // tx with gasLimit=5M+1 doesn't fit: exceeds tighter (regular) dimension
+    // tx with gasLimit=5M+1 doesn't fit: exceeds tighter (execution) dimension
     final var tx3 = createPendingTransaction(5_000_001L);
     final var ctx3 =
         new TransactionEvaluationContext(
@@ -347,11 +355,11 @@ class BlockSizeTransactionSelectorTest {
     selector = new BlockSizeTransactionSelector(blockSelectionContext, selectorsStateManager);
     selectorsStateManager.blockSelectionStarted();
 
-    // First tx: gasLimit=30M, uses 20M regular + 10M state = 30M total
+    // First tx: gasLimit=30M, uses 20M execution + 10M state = 30M total
     final var tx1 = createPendingTransaction(30_000_000L);
     final var result1 = mock(TransactionProcessingResult.class);
-    when(result1.getEstimateGasUsedByTransaction()).thenReturn(30_000_000L);
     when(result1.getStateGasUsed()).thenReturn(10_000_000L);
+    when(result1.getExecutionGasUsedForBlock()).thenReturn(20_000_000L);
 
     final var ctx1 =
         new TransactionEvaluationContext(
@@ -359,18 +367,18 @@ class BlockSizeTransactionSelectorTest {
     assertThat(selector.evaluateTransactionPreProcessing(ctx1)).isEqualTo(SELECTED);
     assertThat(selector.evaluateTransactionPostProcessing(ctx1, result1)).isEqualTo(SELECTED);
 
-    // State: regular=20M, state=10M, gasMetered=max(20M,10M)=20M <= 30M ok
-    assertThat(selector.getWorkingState().regularGas()).isEqualTo(20_000_000L);
+    // State: execution=20M, state=10M, gasMetered=max(20M,10M)=20M <= 30M ok
+    assertThat(selector.getWorkingState().executionGas()).isEqualTo(20_000_000L);
     assertThat(selector.getWorkingState().stateGas()).isEqualTo(10_000_000L);
 
-    // Second tx with gasLimit=10M fits: remaining_regular = 30M - 20M = 10M >= 10M
+    // Second tx with gasLimit=10M fits: remaining_execution = 30M - 20M = 10M >= 10M
     final var tx2 = createPendingTransaction(10_000_000L);
     final var ctx2 =
         new TransactionEvaluationContext(
             blockSelectionContext.pendingBlockHeader(), tx2, null, null, null, NEVER_CANCELLED);
     assertThat(selector.evaluateTransactionPreProcessing(ctx2)).isEqualTo(SELECTED);
 
-    // Third tx with gasLimit=10M+1 doesn't fit: exceeds tighter (regular) dimension
+    // Third tx with gasLimit=10M+1 doesn't fit: exceeds tighter (execution) dimension
     final var tx3 = createPendingTransaction(10_000_001L);
     final var ctx3 =
         new TransactionEvaluationContext(
@@ -380,7 +388,7 @@ class BlockSizeTransactionSelectorTest {
   }
 
   /**
-   * EIP-8037 2D gas: effectiveGasUsed drives occupancy/blockFull checks using max(regular,state).
+   * EIP-8037 2D gas: effectiveGasUsed drives occupancy/blockFull checks using max(execution,state).
    * When the tighter dimension has less remaining than min tx cost, the block is full.
    */
   @Test
@@ -393,12 +401,11 @@ class BlockSizeTransactionSelectorTest {
     selector = new BlockSizeTransactionSelector(blockSelectionContext, selectorsStateManager);
     selectorsStateManager.blockSelectionStarted();
 
-    // Fill block with regular dimension nearly full: gasLimit=1M, uses 990K regular + 10K state
+    // Fill block with execution dimension nearly full: gasLimit=1M, uses 990K execution + 10K state
     final var tx1 = createPendingTransaction(1_000_000L);
     final var result1 = mock(TransactionProcessingResult.class);
-    when(result1.getEstimateGasUsedByTransaction()).thenReturn(1_000_000L);
     when(result1.getStateGasUsed()).thenReturn(10_000L);
-    // regular gas = 1_000_000 - 10_000 = 990_000
+    when(result1.getExecutionGasUsedForBlock()).thenReturn(990_000L);
 
     final var ctx1 =
         new TransactionEvaluationContext(
@@ -406,10 +413,10 @@ class BlockSizeTransactionSelectorTest {
     assertThat(selector.evaluateTransactionPreProcessing(ctx1)).isEqualTo(SELECTED);
     assertThat(selector.evaluateTransactionPostProcessing(ctx1, result1)).isEqualTo(SELECTED);
 
-    assertThat(selector.getWorkingState().regularGas()).isEqualTo(990_000L);
+    assertThat(selector.getWorkingState().executionGas()).isEqualTo(990_000L);
     assertThat(selector.getWorkingState().stateGas()).isEqualTo(10_000L);
 
-    // tx2 gasLimit=21K > remaining_regular = 1M - 990K = 10K
+    // tx2 gasLimit=21K > remaining_execution = 1M - 990K = 10K
     // transactionTooLargeForBlock=true; effectiveGasUsed=max(990K,10K)=990K, remaining=10K < 21K
     // result in blockFull
     final var tx2 = createPendingTransaction(TRANSFER_GAS_LIMIT);
@@ -458,7 +465,7 @@ class BlockSizeTransactionSelectorTest {
   private TransactionProcessingResult remainingGas(final long remainingGas) {
     final var txProcessingResult = mock(TransactionProcessingResult.class);
     when(txProcessingResult.getGasRemaining()).thenReturn(remainingGas);
-    when(txProcessingResult.getStateGasUsed()).thenReturn(0L);
+    lenient().when(txProcessingResult.getStateGasUsed()).thenReturn(0L);
     return txProcessingResult;
   }
 }

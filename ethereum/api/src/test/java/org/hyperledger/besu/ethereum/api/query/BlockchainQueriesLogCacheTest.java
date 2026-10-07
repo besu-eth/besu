@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.api.query;
 import static org.hyperledger.besu.ethereum.api.query.cache.TransactionLogBloomCacher.BLOCKS_PER_BLOOM_CACHE;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -139,6 +140,10 @@ public class BlockchainQueriesLogCacheTest {
             Optional.of(cacheDir),
             Optional.of(scheduler),
             MiningConfiguration.newDefault());
+    // The constructor registers a fee-oracle BlockAddedObserver on the blockchain; clear that
+    // construction-time interaction so the per-test verifyNoMoreInteractions checks only the
+    // log-cache query calls under test.
+    clearInvocations(blockchain);
   }
 
   /**

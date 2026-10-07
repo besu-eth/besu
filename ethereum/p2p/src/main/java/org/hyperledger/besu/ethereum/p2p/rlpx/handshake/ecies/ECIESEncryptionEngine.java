@@ -226,7 +226,7 @@ public class ECIESEncryptionEngine {
     int len;
 
     // Ensure that the length of the input is greater than the MAC in bytes
-    if (inLen <= (CIPHER_MAC_KEY_SIZE / 8)) {
+    if (inLen <= mac.getMacSize()) {
       throw new InvalidCipherTextException("Length of input must be greater than the MAC");
     }
 

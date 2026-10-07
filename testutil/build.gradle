@@ -50,5 +50,4 @@ dependencies {
   implementation 'io.consensys.tuweni:tuweni-toml'
   implementation 'org.assertj:assertj-core'
   implementation 'org.mockito:mockito-core'
-  implementation 'org.web3j:core'
 }

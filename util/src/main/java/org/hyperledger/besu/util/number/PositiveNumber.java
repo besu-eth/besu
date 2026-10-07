@@ -68,10 +68,9 @@ public class PositiveNumber {
     if (o == this) {
       return true;
     }
-    if (!(o instanceof PositiveNumber)) {
+    if (!(o instanceof PositiveNumber that)) {
       return false;
     }
-    final PositiveNumber that = (PositiveNumber) o;
     return value == that.value;
   }
 

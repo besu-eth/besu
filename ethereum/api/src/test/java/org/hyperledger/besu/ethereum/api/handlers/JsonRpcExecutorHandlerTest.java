@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.context.ContextKey;
 import org.hyperledger.besu.ethereum.api.jsonrpc.execution.JsonRpcExecutor;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 
 import java.util.HashMap;
@@ -45,6 +46,7 @@ import io.vertx.core.buffer.Buffer;
 import io.vertx.core.http.HttpServerRequest;
 import io.vertx.core.http.HttpServerResponse;
 import io.vertx.core.impl.future.SucceededFuture;
+import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.net.SocketAddress;
 import io.vertx.ext.web.RoutingContext;
@@ -79,7 +81,7 @@ class JsonRpcExecutorHandlerTest {
   }
 
   @Test
-  void testTimeoutHandling() {
+  void testTimeoutHandlingForJsonObjectRequest() {
     // Arrange
     Handler<RoutingContext> handler =
         JsonRpcExecutorHandler.handler(mockExecutor, mockTracer, mockConfig);
@@ -87,7 +89,58 @@ class JsonRpcExecutorHandlerTest {
     @SuppressWarnings("unchecked")
     ArgumentCaptor<Handler<Long>> timerHandlerCaptor = ArgumentCaptor.forClass(Handler.class);
 
-    when(mockContext.get(eq(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name()))).thenReturn("{}");
+    // Classify the request as a single JSON object, matching how JsonRpcParserHandler
+    // actually populates the context for a real single-request payload.
+    final JsonObject jsonRequest =
+        new JsonObject().put("jsonrpc", "2.0").put("id", 1).put("method", "eth_blockNumber");
+    final Map<String, Object> contextData = new HashMap<>();
+    contextData.put(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name(), jsonRequest);
+    when(mockContext.data()).thenReturn(contextData);
+    when(mockContext.get(eq(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name())))
+        .thenReturn(jsonRequest);
+    stubJsonResponseStreamer();
+    when(mockExecutor.execute(any(), any(), any(), any(), any(), any()))
+        .thenReturn(new JsonRpcSuccessResponse(1, "0x1"));
+
+    when(mockVertx.setTimer(delayCaptor.capture(), timerHandlerCaptor.capture())).thenReturn(1L);
+    when(mockContext.get("timerId")).thenReturn(1L);
+
+    // Act
+    handler.handle(mockContext);
+
+    // Assert
+    long timeoutMillis = timeoutSeconds * 1000;
+    verify(mockVertx).setTimer(eq(timeoutMillis), any());
+
+    // Simulate timeout
+    timerHandlerCaptor.getValue().handle(1L);
+
+    // Verify timeout handling
+    verify(mockResponse, times(1))
+        .setStatusCode(eq(HttpResponseStatus.REQUEST_TIMEOUT.code())); // Expect 408 Request Timeout
+    verify(mockResponse, times(1)).end(contains("Timeout expired"));
+    verify(mockVertx, times(1)).cancelTimer(1L);
+  }
+
+  @Test
+  void testTimeoutHandlingForJsonArrayRequest() {
+    // Arrange
+    Handler<RoutingContext> handler =
+        JsonRpcExecutorHandler.handler(mockExecutor, mockTracer, mockConfig);
+    ArgumentCaptor<Long> delayCaptor = ArgumentCaptor.forClass(Long.class);
+    @SuppressWarnings("unchecked")
+    ArgumentCaptor<Handler<Long>> timerHandlerCaptor = ArgumentCaptor.forClass(Handler.class);
+
+    // Classify the request as a JSON batch/array, matching how JsonRpcParserHandler actually
+    // populates the context for a real batch payload.
+    final JsonArray batchRequest = new JsonArray();
+    final Map<String, Object> contextData = new HashMap<>();
+    contextData.put(ContextKey.REQUEST_BODY_AS_JSON_ARRAY.name(), batchRequest);
+    when(mockContext.data()).thenReturn(contextData);
+    when(mockContext.get(eq(ContextKey.REQUEST_BODY_AS_JSON_ARRAY.name())))
+        .thenReturn(batchRequest);
+    stubJsonResponseStreamer();
+
     when(mockVertx.setTimer(delayCaptor.capture(), timerHandlerCaptor.capture())).thenReturn(1L);
     when(mockContext.get("timerId")).thenReturn(1L);
 
@@ -128,6 +181,25 @@ class JsonRpcExecutorHandlerTest {
   // --- Streaming error handling tests ---
 
   /**
+   * Stubs the HttpServerRequest/HttpServerResponse methods that {@link
+   * org.hyperledger.besu.ethereum.api.jsonrpc.JsonResponseStreamer} needs, regardless of which
+   * executor (object-streaming or array/batch) is driving it.
+   */
+  private void stubJsonResponseStreamer() {
+    final HttpServerRequest mockRequest = mock(HttpServerRequest.class);
+    when(mockContext.request()).thenReturn(mockRequest);
+    when(mockRequest.remoteAddress()).thenReturn(SocketAddress.domainSocketAddress("test"));
+
+    when(mockResponse.putHeader(any(CharSequence.class), any(CharSequence.class)))
+        .thenReturn(mockResponse);
+    when(mockResponse.setChunked(anyBoolean())).thenReturn(mockResponse);
+    when(mockResponse.exceptionHandler(any())).thenReturn(mockResponse);
+    when(mockResponse.write(any(Buffer.class))).thenReturn(new SucceededFuture<>(null, null));
+    when(mockResponse.headWritten()).thenReturn(false);
+    when(mockResponse.closed()).thenReturn(false);
+  }
+
+  /**
    * Set up the mock context so the handler creates a JsonRpcObjectExecutor for a streaming method.
    */
   private void setUpStreamingContext() {
@@ -146,19 +218,7 @@ class JsonRpcExecutorHandlerTest {
     // Make the method recognized as streaming
     when(mockExecutor.isStreamingMethod("debug_traceBlockByNumber")).thenReturn(true);
 
-    // Mock HttpServerRequest (needed by JsonResponseStreamer constructor)
-    final HttpServerRequest mockRequest = mock(HttpServerRequest.class);
-    when(mockContext.request()).thenReturn(mockRequest);
-    when(mockRequest.remoteAddress()).thenReturn(SocketAddress.domainSocketAddress("test"));
-
-    // Mock response methods used in the streaming path
-    when(mockResponse.putHeader(any(CharSequence.class), any(CharSequence.class)))
-        .thenReturn(mockResponse);
-    when(mockResponse.setChunked(anyBoolean())).thenReturn(mockResponse);
-    when(mockResponse.exceptionHandler(any())).thenReturn(mockResponse);
-    when(mockResponse.write(any(Buffer.class))).thenReturn(new SucceededFuture<>(null, null));
-    when(mockResponse.headWritten()).thenReturn(false);
-    when(mockResponse.closed()).thenReturn(false);
+    stubJsonResponseStreamer();
 
     // Timer setup (not the focus of these tests, but required by the handler)
     when(mockVertx.setTimer(anyLong(), any())).thenReturn(1L);

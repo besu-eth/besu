@@ -2,8 +2,6 @@
   "config": {
     "chainId": 2022,
     "futureEipsTime": 0,
-    "ethash": {
-    },
     "terminalTotalDifficulty": 0,
     "checkpoint": {
       "hash": "0x0000000000000000000000000000000000000000000000000000000000000000",

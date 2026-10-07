@@ -145,6 +145,8 @@ public class TransactionTracerTest {
     when(blockchain.getBlockBody(blockHash)).thenReturn(Optional.of(blockBody));
     final List<TraceFrame> traceFrames = Collections.singletonList(mock(TraceFrame.class));
     when(tracer.getTraceFrames()).thenReturn(traceFrames);
+    final WorldUpdater updater = mock(WorldUpdater.class);
+    when(mutableWorldState.updater()).thenReturn(updater);
 
     final Optional<TransactionTrace> transactionTrace =
         transactionTracer.traceTransaction(mutableWorldState, blockHash, transactionHash, tracer);
@@ -162,6 +164,8 @@ public class TransactionTracerTest {
     when(blockchain.getBlockBody(blockHash)).thenReturn(Optional.of(blockBody));
     final List<TraceFrame> traceFrames = Collections.singletonList(mock(TraceFrame.class));
     when(tracer.getTraceFrames()).thenReturn(traceFrames);
+    final WorldUpdater updater = mock(WorldUpdater.class);
+    when(mutableWorldState.updater()).thenReturn(updater);
 
     final Optional<TransactionTrace> transactionTrace =
         transactionTracer.traceTransaction(mutableWorldState, blockHash, transactionHash, tracer);

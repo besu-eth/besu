@@ -88,7 +88,7 @@ public class EthCapabilitiesTest {
         .isEqualTo("0x1111111111111111111111111111111111111111111111111111111111111111");
 
     assertThat(result.get("state").get("disabled").asBoolean()).isFalse();
-    assertThat(result.get("state").get("oldestBlock")).isNull();
+    assertThat(result.get("state").get("oldestBlock").asText()).isEqualTo("0xa");
 
     assertThat(result.get("tx").get("disabled").asBoolean()).isFalse();
     assertThat(result.get("tx").get("oldestBlock").asText()).isEqualTo("0xa");
@@ -103,7 +103,7 @@ public class EthCapabilitiesTest {
     assertThat(result.get("blocks").get("oldestBlock").asText()).isEqualTo("0xa");
 
     assertThat(result.get("stateproofs").get("disabled").asBoolean()).isFalse();
-    assertThat(result.get("stateproofs").get("oldestBlock")).isNull();
+    assertThat(result.get("stateproofs").get("oldestBlock").asText()).isEqualTo("0xa");
   }
 
   @Test

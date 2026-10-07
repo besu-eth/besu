@@ -22,7 +22,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.datatypes.Address;
 
-import java.util.HashMap;
 import java.util.Map;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -71,21 +70,6 @@ public class JsonBftConfigOptionsTest {
   }
 
   @Test
-  public void shouldGetEmptyBlockPeriodFromDeprecatedConfigKey() {
-    final BftConfigOptions config = fromConfigOptions(singletonMap("xemptyblockperiodseconds", 60));
-    assertThat(config.getEmptyBlockPeriodSeconds()).isEqualTo(60);
-  }
-
-  @Test
-  public void shouldPreferNewEmptyBlockPeriodOverDeprecatedWhenBothSet() {
-    final Map<String, Object> options = new HashMap<>();
-    options.put("emptyblockperiodseconds", 60);
-    options.put("xemptyblockperiodseconds", 30);
-    final BftConfigOptions config = fromConfigOptions(options);
-    assertThat(config.getEmptyBlockPeriodSeconds()).isEqualTo(60);
-  }
-
-  @Test
   public void shouldFallbackToDefaultBlockPeriod() {
     final BftConfigOptions config = fromConfigOptions(emptyMap());
     assertThat(config.getBlockPeriodSeconds()).isEqualTo(EXPECTED_DEFAULT_BLOCK_PERIOD);
@@ -121,13 +105,6 @@ public class JsonBftConfigOptionsTest {
   public void shouldNotThrowOnNonPositiveEmptyBlockPeriod() {
     // can be 0 to be compatible with older versions
     final BftConfigOptions config = fromConfigOptions(singletonMap("emptyblockperiodseconds", 0));
-    assertThatCode(() -> config.getEmptyBlockPeriodSeconds()).doesNotThrowAnyException();
-  }
-
-  @Test
-  public void shouldNotThrowOnNonPositiveEmptyBlockPeriodForDeprecatedKey() {
-    // can be 0 to be compatible with older versions
-    final BftConfigOptions config = fromConfigOptions(singletonMap("xemptyblockperiodseconds", 0));
     assertThatCode(() -> config.getEmptyBlockPeriodSeconds()).doesNotThrowAnyException();
   }
 
@@ -269,6 +246,40 @@ public class JsonBftConfigOptionsTest {
     assertThatThrownBy(config::getMiningBeneficiary)
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("Mining beneficiary in config is not a valid ethereum address");
+  }
+
+  @Test
+  public void getTransactionGasLimitAbsent() {
+    final BftConfigOptions config = fromConfigOptions(emptyMap());
+    assertThat(config.getTransactionGasLimit()).isEmpty();
+  }
+
+  @Test
+  public void getTransactionGasLimitDecimal() {
+    final BftConfigOptions config = fromConfigOptions(singletonMap("pertxgaslimit", 20_000_000));
+    assertThat(config.getTransactionGasLimit()).hasValue(20_000_000L);
+  }
+
+  @Test
+  public void getTransactionGasLimitHex() {
+    final BftConfigOptions config = fromConfigOptions(singletonMap("pertxgaslimit", "0x1312D00"));
+    assertThat(config.getTransactionGasLimit()).hasValue(20_000_000L);
+  }
+
+  @Test
+  public void getTransactionGasLimitHexZero() {
+    final BftConfigOptions config = fromConfigOptions(singletonMap("pertxgaslimit", "0x0"));
+    assertThat(config.getTransactionGasLimit()).hasValue(0L);
+  }
+
+  @Test
+  public void getTransactionGasLimitMalformed() {
+    final BftConfigOptions config =
+        fromConfigOptions(singletonMap("pertxgaslimit", "not-a-number"));
+    assertThatThrownBy(config::getTransactionGasLimit)
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("pertxgaslimit")
+        .hasMessageContaining("not-a-number");
   }
 
   private BftConfigOptions fromConfigOptions(final Map<String, Object> ibftConfigOptions) {

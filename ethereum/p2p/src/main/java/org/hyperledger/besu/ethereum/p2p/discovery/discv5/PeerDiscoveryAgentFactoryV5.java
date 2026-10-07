@@ -36,6 +36,7 @@ import org.hyperledger.besu.nat.NatService;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
 import java.net.InetSocketAddress;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -45,7 +46,9 @@ import org.ethereum.beacon.discovery.AddressAccessPolicy;
 import org.ethereum.beacon.discovery.DiscoverySystemBuilder;
 import org.ethereum.beacon.discovery.MutableDiscoverySystem;
 import org.ethereum.beacon.discovery.crypto.Signer;
+import org.ethereum.beacon.discovery.network.NettyDiscoveryServer;
 import org.ethereum.beacon.discovery.schema.NodeRecord;
+import org.ethereum.beacon.discovery.storage.NewAddressHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -70,6 +73,9 @@ public final class PeerDiscoveryAgentFactoryV5 implements PeerDiscoveryAgentFact
   private final PeerPermissions peerPermissions;
   private final ForkIdManager forkIdManager;
   private final MetricsSystem metricsSystem;
+
+  // Non-null when BOTH mode injects pre-bound discovery servers instead of calling builder.listen()
+  private final List<NettyDiscoveryServer> customDiscoveryServers;
 
   /**
    * Creates a new DiscV5 peer discovery agent factory.
@@ -108,6 +114,21 @@ public final class PeerDiscoveryAgentFactoryV5 implements PeerDiscoveryAgentFact
       final ForkIdManager forkIdManager,
       final MetricsSystem metricsSystem,
       final NodeRecordManager nodeRecordManager) {
+    this(config, nodeKey, peerPermissions, forkIdManager, metricsSystem, nodeRecordManager, null);
+  }
+
+  /**
+   * Package-private constructor for BOTH mode: injects pre-bound {@link NettyDiscoveryServer}
+   * instances instead of calling {@code builder.listen(...)}.
+   */
+  PeerDiscoveryAgentFactoryV5(
+      final NetworkingConfiguration config,
+      final NodeKey nodeKey,
+      final PeerPermissions peerPermissions,
+      final ForkIdManager forkIdManager,
+      final MetricsSystem metricsSystem,
+      final NodeRecordManager nodeRecordManager,
+      final List<NettyDiscoveryServer> customDiscoveryServers) {
     this.config = Objects.requireNonNull(config, "config must not be null");
     this.nodeKey = Objects.requireNonNull(nodeKey, "nodeKey must not be null");
     this.peerPermissions =
@@ -116,6 +137,7 @@ public final class PeerDiscoveryAgentFactoryV5 implements PeerDiscoveryAgentFact
     this.metricsSystem = Objects.requireNonNull(metricsSystem, "metricsSystem must not be null");
     this.nodeRecordManager =
         Objects.requireNonNull(nodeRecordManager, "nodeRecordManager must not be null");
+    this.customDiscoveryServers = customDiscoveryServers;
   }
 
   /**
@@ -141,7 +163,7 @@ public final class PeerDiscoveryAgentFactoryV5 implements PeerDiscoveryAgentFact
         buildDefaultDiscoverySystemFactory());
   }
 
-  /** Creates the default {@link PeerDiscoveryAgentV5.DiscoverySystemFactory}. */
+  /** Creates the {@link PeerDiscoveryAgentV5.DiscoverySystemFactory} for this factory. */
   private PeerDiscoveryAgentV5.DiscoverySystemFactory buildDefaultDiscoverySystemFactory() {
     final DiscoveryConfiguration discoveryConfig = config.discoveryConfiguration();
 
@@ -151,17 +173,26 @@ public final class PeerDiscoveryAgentFactoryV5 implements PeerDiscoveryAgentFact
               .signer(new NodeKeySigner(nodeKey))
               .localNodeRecord(localNodeRecord)
               .localNodeRecordListener(nodeRecordListener)
-              // Ignore peer-reported external addresses for now (always returns Optional.empty()).
-              // For IPv4 this is covered by NatService; future IPv6 auto-discovery may relax
-              // this: https://github.com/hyperledger/besu/issues/9874
-              .newAddressHandler((nodeRecord, newAddress) -> Optional.empty())
+              // The discovery library's default newAddressHandler auto-rewrites the local ENR
+              // from peer reports; we replace it explicitly. When --p2p-host-ipv6 is pinned we
+              // install NOOP to suppress that default. Otherwise we install IpV6NewAddressHandler
+              // to route validated IPv6 peer-consensus reports into NodeRecordManager for
+              // auto-discovery. IPv4 reports are always ignored here — NatService
+              // (UPnP/NAT-PMP/MANUAL) handles IPv4 external address resolution at startup.
+              .newAddressHandler(
+                  discoveryConfig.getAdvertisedHostIpv6().isPresent()
+                      ? NewAddressHandler.NOOP
+                      : new IpV6NewAddressHandler(nodeRecordManager))
               .addressAccessPolicy(createAddressAccessPolicy())
               .bootnodes(
                   discoveryConfig.getEnrBootnodes().stream()
                       .map(EthereumNodeRecord::nodeRecord)
                       .toList());
 
-      if (discoveryConfig.isDualStackEnabled()) {
+      if (customDiscoveryServers != null && !customDiscoveryServers.isEmpty()) {
+        // BOTH mode: use pre-bound shared channels instead of binding new sockets
+        builder.discoveryServers(customDiscoveryServers.toArray(new NettyDiscoveryServer[0]));
+      } else if (discoveryConfig.isDualStackEnabled()) {
         final InetSocketAddress ipv4 =
             new InetSocketAddress(discoveryConfig.getBindHost(), discoveryConfig.getBindPort());
         final InetSocketAddress ipv6 =
@@ -263,7 +294,7 @@ public final class PeerDiscoveryAgentFactoryV5 implements PeerDiscoveryAgentFact
           return peerPermissions.isPermitted(
               localNode, remotePeer, PeerPermissions.Action.DISCOVERY_ALLOW_IN_PEER_TABLE);
         } catch (final RuntimeException e) {
-          LOG.debug("DiscV5: Rejecting peer with malformed NodeRecord", e);
+          LOG.trace("DiscV5: Rejecting peer with malformed NodeRecord", e);
           return false;
         }
       }

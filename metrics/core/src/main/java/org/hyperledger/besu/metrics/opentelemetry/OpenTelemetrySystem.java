@@ -158,29 +158,17 @@ public class OpenTelemetrySystem implements ObservableMetricsSystem {
     if (category == null) {
       return Stream.empty();
     }
-    Collection<?> points;
-    switch (metricData.getType()) {
-      case DOUBLE_GAUGE:
-        points = metricData.getDoubleGaugeData().getPoints();
-        break;
-      case DOUBLE_SUM:
-        points = metricData.getDoubleSumData().getPoints();
-        break;
-      case SUMMARY:
-        points = metricData.getData().getPoints();
-        break;
-      case LONG_SUM:
-        points = metricData.getLongSumData().getPoints();
-        break;
-      case HISTOGRAM:
-        points = metricData.getData().getPoints();
-        break;
-      case LONG_GAUGE:
-        points = metricData.getLongGaugeData().getPoints();
-        break;
-      default:
-        throw new UnsupportedOperationException("Unsupported type " + metricData.getType().name());
-    }
+    Collection<?> points =
+        switch (metricData.getType()) {
+          case DOUBLE_GAUGE -> metricData.getDoubleGaugeData().getPoints();
+          case DOUBLE_SUM -> metricData.getDoubleSumData().getPoints();
+          case SUMMARY, HISTOGRAM -> metricData.getData().getPoints();
+          case LONG_SUM -> metricData.getLongSumData().getPoints();
+          case LONG_GAUGE -> metricData.getLongGaugeData().getPoints();
+          default ->
+              throw new UnsupportedOperationException(
+                  "Unsupported type " + metricData.getType().name());
+        };
 
     for (Object ptObj : points) {
       PointData point = (PointData) ptObj;
@@ -208,19 +196,13 @@ public class OpenTelemetrySystem implements ObservableMetricsSystem {
   }
 
   private Object extractValue(final MetricDataType type, final PointData point) {
-    switch (type) {
-      case LONG_GAUGE:
-      case LONG_SUM:
-        return ((LongPointData) point).getValue();
-      case DOUBLE_GAUGE:
-        return ((DoublePointData) point).getValue();
-      case SUMMARY:
-        return ((SummaryPointData) point).getValues();
-      case HISTOGRAM:
-        return ((HistogramPointData) point).getCounts();
-      default:
-        throw new UnsupportedOperationException("Unsupported type " + type);
-    }
+    return switch (type) {
+      case LONG_GAUGE, LONG_SUM -> ((LongPointData) point).getValue();
+      case DOUBLE_GAUGE -> ((DoublePointData) point).getValue();
+      case SUMMARY -> ((SummaryPointData) point).getValues();
+      case HISTOGRAM -> ((HistogramPointData) point).getCounts();
+      default -> throw new UnsupportedOperationException("Unsupported type " + type);
+    };
   }
 
   @Override

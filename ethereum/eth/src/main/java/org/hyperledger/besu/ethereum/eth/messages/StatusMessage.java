@@ -58,8 +58,8 @@ public final class StatusMessage extends AbstractMessageData {
   }
 
   public static StatusMessage readFrom(final MessageData message) {
-    if (message instanceof StatusMessage) {
-      return (StatusMessage) message;
+    if (message instanceof StatusMessage statusMessage) {
+      return statusMessage;
     }
     final int code = message.getCode();
     if (code != EthProtocolMessages.STATUS) {

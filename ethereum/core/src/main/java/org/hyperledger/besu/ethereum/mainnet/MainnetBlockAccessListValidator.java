@@ -246,6 +246,14 @@ public class MainnetBlockAccessListValidator implements BlockAccessListValidator
           return false;
         }
         prevStorageSlot = slot;
+        if (slotChanges.changes().isEmpty()) {
+          LOG.warn(
+              "Block access list storage_changes has empty change list for slot {} address {} block {}",
+              slot,
+              account.address(),
+              blockHeader.getBlockHash());
+          return false;
+        }
         changeSlots.add(slot);
 
         prevStorageTxIndex = -1L;

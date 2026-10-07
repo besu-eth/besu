@@ -115,6 +115,24 @@ public class ForksScheduleTest {
     assertThat(schedule.getFork(0, 400).getValue().getMiningBeneficiary()).isEmpty();
   }
 
+  @Test
+  public void fallbackReturnsSmallestForkNotLargest() {
+    // Regression test for https://github.com/besu-eth/besu/issues/10878.
+    //
+    // Before the fix, when no fork satisfied `blockValue >= f.getBlock()` (i.e. the queried
+    // value was below every configured fork), getFork() fell back to forks.first() - but since
+    // `forks` is a TreeSet sorted in *descending* block order, first() is the LARGEST fork, not
+    // the smallest/base one a sane fallback should return.
+    final ForkSpec<BftConfigOptions> forkSpec10 = createForkSpec(10, 10);
+    final ForkSpec<BftConfigOptions> forkSpec20 = createForkSpec(20, 20);
+
+    final ForksSchedule<BftConfigOptions> schedule =
+        new ForksSchedule<>(List.of(forkSpec20, forkSpec10));
+
+    assertThat(schedule.getFork(5, 5)).isEqualTo(forkSpec10);
+    assertThat(schedule.getFork(0, 0)).isEqualTo(forkSpec10);
+  }
+
   private ForkSpec<BftConfigOptions> createForkSpecWithMiningBeneficiary(
       final long block, final Optional<Address> beneficiary) {
     final MutableBftConfigOptions bftConfigOptions =

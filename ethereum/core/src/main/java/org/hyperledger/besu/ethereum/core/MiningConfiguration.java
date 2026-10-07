@@ -135,15 +135,6 @@ public abstract class MiningConfiguration {
     return OptionalInt.empty();
   }
 
-  public Optional<Iterable<Long>> getNonceGenerator() {
-    return getMutableRuntimeValues().nonceGenerator;
-  }
-
-  public MiningConfiguration setNonceGenerator(final Iterable<Long> nonceGenerator) {
-    getMutableRuntimeValues().nonceGenerator = Optional.of(nonceGenerator);
-    return this;
-  }
-
   public OptionalInt getBlockPeriodSeconds() {
     return getMutableRuntimeValues().blockPeriodSeconds;
   }
@@ -273,8 +264,6 @@ public abstract class MiningConfiguration {
     Optional<Address> getCoinbase();
 
     OptionalLong getTargetGasLimit();
-
-    Optional<Iterable<Long>> nonceGenerator();
   }
 
   static class MutableRuntimeValues {
@@ -284,7 +273,6 @@ public abstract class MiningConfiguration {
     private volatile Wei minPriorityFeePerGas;
     private volatile Optional<Address> coinbase;
     private volatile OptionalLong targetGasLimit;
-    private volatile Optional<Iterable<Long>> nonceGenerator;
     private volatile OptionalInt blockPeriodSeconds;
     private volatile OptionalInt emptyBlockPeriodSeconds;
 
@@ -295,7 +283,6 @@ public abstract class MiningConfiguration {
       minPriorityFeePerGas = initValues.getMinPriorityFeePerGas();
       coinbase = initValues.getCoinbase();
       targetGasLimit = initValues.getTargetGasLimit();
-      nonceGenerator = initValues.nonceGenerator();
       blockPeriodSeconds = initValues.getBlockPeriodSeconds();
       emptyBlockPeriodSeconds = initValues.getEmptyBlockPeriodSeconds();
     }
@@ -311,7 +298,6 @@ public abstract class MiningConfiguration {
           && Objects.equals(coinbase, that.coinbase)
           && Objects.equals(minPriorityFeePerGas, that.minPriorityFeePerGas)
           && Objects.equals(targetGasLimit, that.targetGasLimit)
-          && Objects.equals(nonceGenerator, that.nonceGenerator)
           && Objects.equals(blockPeriodSeconds, that.blockPeriodSeconds)
           && Objects.equals(emptyBlockPeriodSeconds, that.emptyBlockPeriodSeconds);
     }
@@ -325,7 +311,6 @@ public abstract class MiningConfiguration {
           minPriorityFeePerGas,
           coinbase,
           targetGasLimit,
-          nonceGenerator,
           blockPeriodSeconds);
     }
 
@@ -344,8 +329,6 @@ public abstract class MiningConfiguration {
           + coinbase
           + ", targetGasLimit="
           + targetGasLimit
-          + ", nonceGenerator="
-          + nonceGenerator
           + ", blockPeriodSeconds="
           + blockPeriodSeconds
           + '}';
@@ -354,9 +337,6 @@ public abstract class MiningConfiguration {
 
   @Value.Immutable
   public interface Unstable {
-    int DEFAULT_REMOTE_SEALERS_LIMIT = 1000;
-    long DEFAULT_REMOTE_SEALERS_TTL = Duration.ofMinutes(10).toMinutes();
-    long DEFAULT_POW_JOB_TTL = Duration.ofMinutes(5).toMillis();
     int DEFAULT_MAX_OMMERS_DEPTH = 8;
     long DEFAULT_POS_BLOCK_CREATION_MAX_TIME = Duration.ofSeconds(12).toMillis();
     long DEFAULT_POS_BLOCK_CREATION_REPETITION_MIN_DURATION = Duration.ofMillis(500).toMillis();
@@ -364,21 +344,6 @@ public abstract class MiningConfiguration {
     Integer DEFAULT_POS_SLOT_DURATION_SECS = 12;
 
     MiningConfiguration.Unstable DEFAULT = ImmutableMiningConfiguration.Unstable.builder().build();
-
-    @Value.Default
-    default int getRemoteSealersLimit() {
-      return DEFAULT_REMOTE_SEALERS_LIMIT;
-    }
-
-    @Value.Default
-    default long getRemoteSealersTimeToLive() {
-      return DEFAULT_REMOTE_SEALERS_TTL;
-    }
-
-    @Value.Default
-    default long getPowJobTimeToLive() {
-      return DEFAULT_POW_JOB_TTL;
-    }
 
     @Value.Default
     default int getMaxOmmerDepth() {

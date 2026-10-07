@@ -21,13 +21,13 @@ import com.google.common.annotations.VisibleForTesting;
 
 abstract class Filter {
 
-  private static final Duration DEFAULT_EXPIRE_DURATION = Duration.ofMinutes(10);
-
   private final String id;
+  private final Duration expireDuration;
   private Instant expireTime;
 
-  Filter(final String id) {
+  Filter(final String id, final Duration expireDuration) {
     this.id = id;
+    this.expireDuration = expireDuration;
     resetExpireTime();
   }
 
@@ -36,7 +36,7 @@ abstract class Filter {
   }
 
   void resetExpireTime() {
-    this.expireTime = Instant.now().plus(DEFAULT_EXPIRE_DURATION);
+    this.expireTime = Instant.now().plus(expireDuration);
   }
 
   boolean isExpired() {

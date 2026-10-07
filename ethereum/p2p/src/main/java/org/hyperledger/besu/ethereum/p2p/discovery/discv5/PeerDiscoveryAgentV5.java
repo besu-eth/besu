@@ -25,9 +25,13 @@ import org.hyperledger.besu.ethereum.p2p.discovery.PeerDiscoveryAgent;
 import org.hyperledger.besu.ethereum.p2p.peers.Peer;
 import org.hyperledger.besu.ethereum.p2p.peers.PeerId;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions;
+import org.hyperledger.besu.ethereum.p2p.rlpx.ConnectSource;
 import org.hyperledger.besu.ethereum.p2p.rlpx.RlpxAgent;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
+import org.hyperledger.besu.plugin.services.metrics.Counter;
+import org.hyperledger.besu.plugin.services.metrics.Histogram;
+import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 
 import java.net.InetSocketAddress;
 import java.util.Collection;
@@ -36,13 +40,16 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes;
 import org.ethereum.beacon.discovery.MutableDiscoverySystem;
 import org.ethereum.beacon.discovery.schema.NodeRecord;
@@ -60,8 +67,8 @@ import org.slf4j.LoggerFactory;
  * <p>Discovery cadence:
  *
  * <ul>
- *   <li>Fast (1 second) while the node is under-connected
- *   <li>Slow (30 seconds) once a sufficient number of peers has been reached
+ *   <li>Steady (configurable, default 30 seconds) once the minimum peer ratio is reached
+ *   <li>Fast (configurable, default 1 second) while the node is under-connected
  * </ul>
  *
  * <p>Discovered peers are filtered for readiness, fork compatibility, and reachability before
@@ -94,6 +101,8 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
   private final NodeRecordManager nodeRecordManager;
   private final RlpxAgent rlpxAgent;
   private final MetricsSystem metricsSystem;
+  private final Histogram discoveryRoundDurationHistogram;
+  private final LabelledMetric<Counter> discoveryRoundOutcomeCounter;
   private final boolean preferIpv6Outbound;
   private final DiscoverySystemFactory discoverySystemFactory;
 
@@ -107,6 +116,13 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
   private final AtomicBoolean stopped = new AtomicBoolean(false);
   // Indicates whether a discovery operation is currently in progress
   private final AtomicBoolean discoveryInProgress = new AtomicBoolean(false);
+
+  // Cadence state; accessed only from the single-threaded discovery scheduler and advanced only
+  // when a discovery round actually starts, so a skipped attempt does not consume a steady
+  // interval.
+  private boolean everSearched = false;
+  private long lastDiscoveryRoundNanos = 0L;
+  private boolean saturatedCadenceActive = false;
 
   /**
    * Creates a new DiscV5 peer discovery agent.
@@ -143,6 +159,18 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
         Objects.requireNonNull(nodeRecordManager, "nodeRecordManager must not be null");
     this.rlpxAgent = Objects.requireNonNull(rlpxAgent, "rlpxAgent must not be null");
     this.metricsSystem = Objects.requireNonNull(metricsSystem, "metricsSystem must not be null");
+    this.discoveryRoundDurationHistogram =
+        metricsSystem.createHistogram(
+            BesuMetricCategory.NETWORK,
+            "discv5_discovery_round_duration_seconds",
+            "Duration of DiscV5 discovery rounds",
+            new double[] {0.5, 1, 2, 5, 10, 20, 30, 45, 60, 90});
+    this.discoveryRoundOutcomeCounter =
+        metricsSystem.createLabelledCounter(
+            BesuMetricCategory.NETWORK,
+            "discv5_discovery_round_total",
+            "Total number of DiscV5 discovery rounds by outcome",
+            "outcome");
     this.preferIpv6Outbound = preferIpv6Outbound;
     this.discoverySystemFactory =
         Objects.requireNonNull(discoverySystemFactory, "discoverySystemFactory must not be null");
@@ -151,17 +179,17 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
   /**
    * Starts the DiscV5 discovery system and the adaptive discovery loop.
    *
-   * <p>The local node record (ENR) is initialized here using the supplied {@code tcpPort}, ensuring
-   * the {@code tcp} and {@code tcp6} ENR fields reflect the actual RLPx listening port rather than
-   * the discovery bind port.
+   * <p>The local node record (ENR) is initialized here using the supplied {@code rlpxTcpPort},
+   * ensuring the {@code tcp} and {@code tcp6} ENR fields reflect the actual RLPx listening port
+   * rather than the discovery bind port.
    *
-   * @param tcpPort the local RLPx TCP port used for inbound peer connections
+   * @param rlpxTcpPort the local RLPx TCP port used for inbound peer connections
    * @return a future completed with the UDP discovery port once discovery has started
    */
   @Override
-  public CompletableFuture<Integer> start(final int tcpPort) {
+  public CompletableFuture<Integer> start(final int rlpxTcpPort) {
     if (!isEnabled()) {
-      LOG.debug("DiscV5 peer discovery is disabled; not starting agent");
+      LOG.trace("DiscV5 peer discovery is disabled; not starting agent");
       return CompletableFuture.completedFuture(0);
     }
     if (stopped.get()) {
@@ -177,7 +205,7 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
 
     final MutableDiscoverySystem system;
     try {
-      final NodeRecord localNodeRecord = initializeLocalNodeRecord(tcpPort);
+      final NodeRecord localNodeRecord = initializeLocalNodeRecord(rlpxTcpPort);
       system = discoverySystemFactory.create(localNodeRecord, this::handleBoundPortResolved);
       discoverySystem.set(system);
       registerMetrics(system);
@@ -197,13 +225,13 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
                   scheduler.scheduleAtFixedRate(
                       this::discoveryTick,
                       0,
-                      discoveryConfig.getDiscV5DiscoveryIntervalSeconds(),
+                      discoveryConfig.getDiscV5FastDiscoveryIntervalSeconds(),
                       TimeUnit.SECONDS);
                 }
               } catch (final RejectedExecutionException e) {
                 // Benign: stop() shut down the scheduler between the stopped check and the
                 // schedule call. The agent is stopping so there is nothing to schedule.
-                LOG.debug("Scheduler already shut down; skipping discovery tick scheduling", e);
+                LOG.trace("Scheduler already shut down; skipping discovery tick scheduling", e);
               }
               if (stopped.get()) {
                 throw new IllegalStateException(
@@ -234,7 +262,7 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
                 try {
                   system.stop();
                 } catch (final Exception e) {
-                  LOG.debug("Error while stopping discovery system after failed start", e);
+                  LOG.trace("Error while stopping discovery system after failed start", e);
                 }
                 discoverySystem.set(null);
               }
@@ -409,48 +437,117 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
     return address.map(a -> a.getPort() == 0).orElse(true);
   }
 
-  /** Determines whether the RLPx agent has reached a sufficient number of connected peers. */
-  private boolean hasSufficientPeers() {
-    return rlpxAgent.getConnectionCount()
-        >= rlpxAgent.getMaxPeers() * discoveryConfig.getDiscV5MinimumPeerRatio();
+  /**
+   * Returns {@code true} if the RLPx agent has reached a sufficient number of connected peers. A
+   * {@code true} result throttles discovery to the steady cadence rather than stopping it.
+   *
+   * @param connectionCount the sampled number of active RLPx connections
+   */
+  private boolean hasSufficientPeers(final int connectionCount) {
+    return connectionCount >= rlpxAgent.getMaxPeers() * discoveryConfig.getDiscV5MinimumPeerRatio();
   }
 
-  /** Periodic discovery task that enforces adaptive cadence and triggers peer discovery. */
+  /**
+   * Periodic discovery task. Runs a discovery round on every tick while the node is
+   * under-connected, and at most once per steady interval once the peer count has reached the
+   * configured minimum ratio.
+   */
   private void discoveryTick() {
-    if (stopped.get() || hasSufficientPeers()) {
+    if (stopped.get()) {
       return;
     }
-    discoverAndConnect();
+    final int connectionCount = rlpxAgent.getConnectionCount();
+    final boolean saturated = hasSufficientPeers(connectionCount);
+    if (saturated != saturatedCadenceActive) {
+      saturatedCadenceActive = saturated;
+      if (LOG.isDebugEnabled()) {
+        LOG.debug(
+            "DiscV5 discovery switching to {} cadence ({}s): {} connected peers, threshold {}",
+            saturated ? "steady" : "fast",
+            saturated
+                ? discoveryConfig.getDiscV5DiscoveryIntervalSeconds()
+                : discoveryConfig.getDiscV5FastDiscoveryIntervalSeconds(),
+            connectionCount,
+            rlpxAgent.getMaxPeers() * discoveryConfig.getDiscV5MinimumPeerRatio());
+      }
+    }
+    if (saturated
+        && everSearched
+        && System.nanoTime() - lastDiscoveryRoundNanos
+            < TimeUnit.SECONDS.toNanos(discoveryConfig.getDiscV5DiscoveryIntervalSeconds())) {
+      return;
+    }
+    if (startDiscoveryRound()) {
+      everSearched = true;
+      lastDiscoveryRoundNanos = System.nanoTime();
+    }
   }
 
-  /** Executes a DiscV5 peer search and attempts outbound connections to suitable peers. */
-  private void discoverAndConnect() {
+  /**
+   * Runs a single discovery tick on the discovery scheduler thread.
+   *
+   * <p>Tests drive the cadence with this instead of waiting on the periodic schedule. Submitting to
+   * the scheduler keeps the single-threaded access invariant of the cadence fields intact, and the
+   * returned future establishes happens-before for assertions made on the test thread.
+   *
+   * @return a future completed once the tick has run
+   */
+  @VisibleForTesting
+  Future<?> runDiscoveryTick() {
+    return scheduler.submit(this::discoveryTick);
+  }
+
+  /**
+   * Executes a DiscV5 peer search and attempts outbound connections to suitable peers.
+   *
+   * @return {@code true} if a search was issued, {@code false} if a round was already in progress
+   *     or the discovery system is unavailable
+   */
+  private boolean startDiscoveryRound() {
     if (!discoveryInProgress.compareAndSet(false, true)) {
-      return;
+      return false;
     }
     final MutableDiscoverySystem system = discoverySystem.get();
     if (system == null) {
       discoveryInProgress.set(false);
-      return;
+      return false;
     }
+    final long startNanos = System.nanoTime();
     system
         .searchForNewPeers()
         .orTimeout(discoveryConfig.getDiscV5DiscoveryTimeoutSeconds(), TimeUnit.SECONDS)
         .whenComplete(
             (nodeRecords, error) -> {
               try {
+                discoveryRoundDurationHistogram.observe(
+                    (System.nanoTime() - startNanos) / 1_000_000_000.0);
                 if (error != null) {
+                  // orTimeout() completes this stage directly with an unwrapped TimeoutException
+                  // when the configured round timeout elapses first; any other exception is a
+                  // genuine discovery-system failure, not a timeout.
+                  discoveryRoundOutcomeCounter
+                      .labels(error instanceof TimeoutException ? "timeout" : "error")
+                      .inc();
                   LOG.warn("DiscV5 peer discovery failed", error);
                   return;
                 }
-                candidatePeers(nodeRecords).forEach(rlpxAgent::connect);
+                discoveryRoundOutcomeCounter.labels("success").inc();
+                candidatePeers(nodeRecords)
+                    .forEach(p -> rlpxAgent.connect(p, ConnectSource.DISCV5));
               } finally {
                 discoveryInProgress.set(false);
               }
             });
+    return true;
   }
 
-  /** Builds a stream of candidate peers suitable for outbound connection attempts. */
+  /**
+   * Builds a stream of candidate peers suitable for outbound connection attempts.
+   *
+   * <p>Excludes peers {@link RlpxAgent#isConnectingOrConnected} already reports as handled, so a
+   * live peer isn't re-proposed every tick, but a never-attempted one (e.g. a bootnode) still gets
+   * a fast connection attempt.
+   */
   private Stream<DiscoveryPeer> candidatePeers(final Collection<NodeRecord> newPeers) {
     if (LOG.isTraceEnabled() && !newPeers.isEmpty()) {
       LOG.trace("Discovered {} new peers", newPeers.size());
@@ -469,13 +566,11 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
             .map(NodeRecord::getNodeId)
             .orElse(Bytes.EMPTY);
 
-    // Combine newly discovered peers with known peers and filter for suitability
     final Stream<NodeRecord> knownPeers = system.streamLiveNodes();
     final List<DiscoveryPeer> candidates =
         Stream.concat(newPeers.stream(), knownPeers)
             .distinct()
-            // Defensive: exclude the local node record that streamLiveNodes may include.
-            // The discovery library currently excludes it, but this is not an API guarantee.
+            // Defensive: exclude the local node record, in case it's ever included.
             .filter(nr -> !nr.getNodeId().equals(localNodeId))
             .map(nr -> DiscoveryPeerFactory.fromNodeRecord(nr, preferIpv6Outbound))
             // Use isListening() instead of isReadyForConnections() because
@@ -484,6 +579,7 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
             .filter(DiscoveryPeer::isListening)
             .filter(peer -> peer.getForkId().map(forkIdManager::peerCheck).orElse(true))
             .filter(peer -> isPeerPermitted(localNode, peer))
+            .filter(peer -> !rlpxAgent.isConnectingOrConnected(peer.getId()))
             .toList();
     if (LOG.isTraceEnabled() && !candidates.isEmpty()) {
       LOG.trace("Total unique peers eligible for connection: {}", candidates.size());
@@ -530,10 +626,15 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
    * active but RLPx dual-stack is not, the IPv6 ENR fields are omitted rather than advertising an
    * incorrect port.
    *
-   * @param tcpPort the effective IPv4 RLPx TCP port returned by {@link RlpxAgent#start()}
+   * <p>When dual-stack discovery is bound but {@code --p2p-host-ipv6} is unpinned, the
+   * locally-bound IPv6 RLPx TCP port is registered with {@link NodeRecordManager} as an
+   * auto-discovery hint. The hint carries only the port — never a host — and is consumed once
+   * DiscV5 peers reach consensus on an external IPv6 address.
+   *
+   * @param rlpxTcpPort the effective IPv4 RLPx TCP port returned by {@link RlpxAgent#start()}
    * @return the initialized local {@link NodeRecord}
    */
-  private NodeRecord initializeLocalNodeRecord(final int tcpPort) {
+  private NodeRecord initializeLocalNodeRecord(final int rlpxTcpPort) {
     final Optional<Integer> ipv6TcpPort = rlpxAgent.getIpv6ListeningPort();
 
     // Include IPv6 ENR fields only when the discovery layer has an active IPv6 UDP socket
@@ -551,10 +652,27 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
                                 new HostEndpoint(host, discoveryConfig.getBindPortIpv6(), port)))
             : Optional.empty();
 
-    nodeRecordManager.initializeLocalNode(
-        new HostEndpoint(
-            discoveryConfig.getAdvertisedHost(), discoveryConfig.getBindPort(), tcpPort),
-        ipv6Endpoint);
+    // When dual-stack is bound but --p2p-host-ipv6 is unpinned, opt the node in to DiscV5
+    // peer-consensus IPv6 auto-discovery by registering the locally-bound IPv6 RLPx TCP
+    // port. The UDP port arrives later via the peer report; the host is never pre-populated, so
+    // nothing leaks into the broadcast ENR until auto-discovery succeeds.
+    final Optional<Integer> ipv6AutoDiscoveryTcpPort =
+        discoveryConfig.isDualStackEnabled() && discoveryConfig.getAdvertisedHostIpv6().isEmpty()
+            ? ipv6TcpPort
+            : Optional.empty();
+
+    // In BOTH mode, if the DiscV4 agent already initialized the shared manager with its more
+    // accurate resolved endpoints, only register this agent's IPv6 hint rather than clobbering
+    // that state. No-op check for the normal, non-shared V5-only case.
+    if (nodeRecordManager.isInitialized()) {
+      nodeRecordManager.registerIpv6AutoDiscoveryHint(ipv6AutoDiscoveryTcpPort);
+    } else {
+      nodeRecordManager.initializeLocalNode(
+          new HostEndpoint(
+              discoveryConfig.getAdvertisedHost(), discoveryConfig.getBindPort(), rlpxTcpPort),
+          ipv6Endpoint,
+          ipv6AutoDiscoveryTcpPort);
+    }
 
     return nodeRecordManager
         .getLocalNode()

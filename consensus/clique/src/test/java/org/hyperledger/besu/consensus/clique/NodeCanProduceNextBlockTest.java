@@ -22,6 +22,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.clique.headervalidationrules.SignerRateLimitValidationRule;
+import org.hyperledger.besu.consensus.common.EpochManager;
 import org.hyperledger.besu.consensus.common.validator.ValidatorProvider;
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
@@ -39,22 +40,17 @@ import org.hyperledger.besu.ethereum.core.Util;
 import java.util.List;
 
 import com.google.common.collect.Lists;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 public class NodeCanProduceNextBlockTest {
 
   private final KeyPair proposerKeyPair = SignatureAlgorithmFactory.getInstance().generateKeyPair();
-  private Address localAddress;
+  private final Address localAddress = Util.publicKeyToAddress(proposerKeyPair.getPublicKey());
   private final KeyPair otherNodeKeyPair =
       SignatureAlgorithmFactory.getInstance().generateKeyPair();
-  private final List<Address> validatorList = Lists.newArrayList();
+  private final List<Address> validatorList = Lists.newArrayList(localAddress);
   private final BlockHeaderTestFixture headerBuilder = new BlockHeaderTestFixture();
-  private ProtocolContext cliqueProtocolContext;
   private final CliqueBlockInterface blockInterface = new CliqueBlockInterface();
-
-  MutableBlockchain blockChain;
-  private Block genesisBlock;
 
   private Block createEmptyBlock(final KeyPair blockSigner) {
     final BlockHeader header =
@@ -62,28 +58,22 @@ public class NodeCanProduceNextBlockTest {
     return new Block(header, new BlockBody(Lists.newArrayList(), Lists.newArrayList()));
   }
 
-  @BeforeEach
-  public void setup() {
-    localAddress = Util.publicKeyToAddress(proposerKeyPair.getPublicKey());
-    validatorList.add(localAddress);
+  private ProtocolContext createCliqueProtocolContext(final MutableBlockchain blockChain) {
+    final ValidatorProvider validatorProvider = mock(ValidatorProvider.class);
+    when(validatorProvider.getValidatorsAfterBlock(any())).thenReturn(validatorList);
+    final CliqueContext cliqueContext =
+        new CliqueContext(validatorProvider, new EpochManager(10), blockInterface);
+    return new ProtocolContext.Builder()
+        .withBlockchain(blockChain)
+        .withConsensusContext(cliqueContext)
+        .build();
   }
 
   @Test
   public void networkWithOneValidatorIsAllowedToCreateConsecutiveBlocks() {
-    final Address localAddress = Util.publicKeyToAddress(proposerKeyPair.getPublicKey());
-
-    genesisBlock = createEmptyBlock(proposerKeyPair);
-
-    blockChain = createInMemoryBlockchain(genesisBlock);
-
-    final ValidatorProvider validatorProvider = mock(ValidatorProvider.class);
-    when(validatorProvider.getValidatorsAfterBlock(any())).thenReturn(validatorList);
-    final CliqueContext cliqueContext = new CliqueContext(validatorProvider, null, blockInterface);
-    cliqueProtocolContext =
-        new ProtocolContext.Builder()
-            .withBlockchain(blockChain)
-            .withConsensusContext(cliqueContext)
-            .build();
+    final Block genesisBlock = createEmptyBlock(proposerKeyPair);
+    final MutableBlockchain blockChain = createInMemoryBlockchain(genesisBlock);
+    final ProtocolContext cliqueProtocolContext = createCliqueProtocolContext(blockChain);
 
     headerBuilder.number(1).parentHash(genesisBlock.getHash());
     final Block block_1 = createEmptyBlock(proposerKeyPair);
@@ -100,18 +90,9 @@ public class NodeCanProduceNextBlockTest {
     final Address otherAddress = Util.publicKeyToAddress(otherNodeKeyPair.getPublicKey());
     validatorList.add(otherAddress);
 
-    genesisBlock = createEmptyBlock(otherNodeKeyPair);
-
-    blockChain = createInMemoryBlockchain(genesisBlock);
-
-    final ValidatorProvider validatorProvider = mock(ValidatorProvider.class);
-    when(validatorProvider.getValidatorsAfterBlock(any())).thenReturn(validatorList);
-    final CliqueContext cliqueContext = new CliqueContext(validatorProvider, null, blockInterface);
-    cliqueProtocolContext =
-        new ProtocolContext.Builder()
-            .withBlockchain(blockChain)
-            .withConsensusContext(cliqueContext)
-            .build();
+    final Block genesisBlock = createEmptyBlock(otherNodeKeyPair);
+    final MutableBlockchain blockChain = createInMemoryBlockchain(genesisBlock);
+    final ProtocolContext cliqueProtocolContext = createCliqueProtocolContext(blockChain);
 
     headerBuilder.number(1).parentHash(genesisBlock.getHash());
     final Block block_1 = createEmptyBlock(proposerKeyPair);
@@ -137,18 +118,9 @@ public class NodeCanProduceNextBlockTest {
     final Address otherAddress = Util.publicKeyToAddress(otherNodeKeyPair.getPublicKey());
     validatorList.add(otherAddress);
 
-    genesisBlock = createEmptyBlock(proposerKeyPair);
-
-    blockChain = createInMemoryBlockchain(genesisBlock);
-
-    final ValidatorProvider validatorProvider = mock(ValidatorProvider.class);
-    when(validatorProvider.getValidatorsAfterBlock(any())).thenReturn(validatorList);
-    final CliqueContext cliqueContext = new CliqueContext(validatorProvider, null, blockInterface);
-    cliqueProtocolContext =
-        new ProtocolContext.Builder()
-            .withBlockchain(blockChain)
-            .withConsensusContext(cliqueContext)
-            .build();
+    final Block genesisBlock = createEmptyBlock(proposerKeyPair);
+    final MutableBlockchain blockChain = createInMemoryBlockchain(genesisBlock);
+    final ProtocolContext cliqueProtocolContext = createCliqueProtocolContext(blockChain);
 
     headerBuilder.parentHash(genesisBlock.getHash()).number(1);
     final Block block_1 = createEmptyBlock(proposerKeyPair);
@@ -170,18 +142,9 @@ public class NodeCanProduceNextBlockTest {
     validatorList.add(otherAddress);
     validatorList.add(AddressHelpers.ofValue(1));
 
-    genesisBlock = createEmptyBlock(proposerKeyPair);
-
-    blockChain = createInMemoryBlockchain(genesisBlock);
-
-    final ValidatorProvider validatorProvider = mock(ValidatorProvider.class);
-    when(validatorProvider.getValidatorsAfterBlock(any())).thenReturn(validatorList);
-    final CliqueContext cliqueContext = new CliqueContext(validatorProvider, null, blockInterface);
-    cliqueProtocolContext =
-        new ProtocolContext.Builder()
-            .withBlockchain(blockChain)
-            .withConsensusContext(cliqueContext)
-            .build();
+    final Block genesisBlock = createEmptyBlock(proposerKeyPair);
+    final MutableBlockchain blockChain = createInMemoryBlockchain(genesisBlock);
+    final ProtocolContext cliqueProtocolContext = createCliqueProtocolContext(blockChain);
 
     headerBuilder.parentHash(genesisBlock.getHash()).number(1);
     final Block block_1 = createEmptyBlock(proposerKeyPair);
@@ -218,18 +181,9 @@ public class NodeCanProduceNextBlockTest {
     validatorList.add(AddressHelpers.ofValue(3));
     // Should require 2 blocks between signings.
 
-    genesisBlock = createEmptyBlock(proposerKeyPair);
-
-    blockChain = createInMemoryBlockchain(genesisBlock);
-
-    final ValidatorProvider validatorProvider = mock(ValidatorProvider.class);
-    when(validatorProvider.getValidatorsAfterBlock(any())).thenReturn(validatorList);
-    final CliqueContext cliqueContext = new CliqueContext(validatorProvider, null, blockInterface);
-    cliqueProtocolContext =
-        new ProtocolContext.Builder()
-            .withBlockchain(blockChain)
-            .withConsensusContext(cliqueContext)
-            .build();
+    final Block genesisBlock = createEmptyBlock(proposerKeyPair);
+    final MutableBlockchain blockChain = createInMemoryBlockchain(genesisBlock);
+    final ProtocolContext cliqueProtocolContext = createCliqueProtocolContext(blockChain);
 
     headerBuilder.parentHash(genesisBlock.getHash()).number(1);
     final Block block_1 = createEmptyBlock(otherNodeKeyPair);
@@ -250,18 +204,9 @@ public class NodeCanProduceNextBlockTest {
     final Address otherAddress = Util.publicKeyToAddress(otherNodeKeyPair.getPublicKey());
     validatorList.add(otherAddress);
 
-    genesisBlock = createEmptyBlock(proposerKeyPair);
-
-    blockChain = createInMemoryBlockchain(genesisBlock);
-
-    final ValidatorProvider validatorProvider = mock(ValidatorProvider.class);
-    when(validatorProvider.getValidatorsAfterBlock(any())).thenReturn(validatorList);
-    final CliqueContext cliqueContext = new CliqueContext(validatorProvider, null, blockInterface);
-    cliqueProtocolContext =
-        new ProtocolContext.Builder()
-            .withBlockchain(blockChain)
-            .withConsensusContext(cliqueContext)
-            .build();
+    final Block genesisBlock = createEmptyBlock(proposerKeyPair);
+    final MutableBlockchain blockChain = createInMemoryBlockchain(genesisBlock);
+    final ProtocolContext cliqueProtocolContext = createCliqueProtocolContext(blockChain);
 
     headerBuilder.parentHash(Hash.ZERO).number(3);
     final BlockHeader parentHeader =
@@ -277,18 +222,9 @@ public class NodeCanProduceNextBlockTest {
 
   @Test
   public void nonValidatorIsNotAllowedToCreateABlock() {
-    genesisBlock = createEmptyBlock(otherNodeKeyPair);
-
-    blockChain = createInMemoryBlockchain(genesisBlock);
-
-    final ValidatorProvider validatorProvider = mock(ValidatorProvider.class);
-    when(validatorProvider.getValidatorsAfterBlock(any())).thenReturn(validatorList);
-    final CliqueContext cliqueContext = new CliqueContext(validatorProvider, null, blockInterface);
-    cliqueProtocolContext =
-        new ProtocolContext.Builder()
-            .withBlockchain(blockChain)
-            .withConsensusContext(cliqueContext)
-            .build();
+    final Block genesisBlock = createEmptyBlock(otherNodeKeyPair);
+    final MutableBlockchain blockChain = createInMemoryBlockchain(genesisBlock);
+    final ProtocolContext cliqueProtocolContext = createCliqueProtocolContext(blockChain);
 
     headerBuilder.parentHash(Hash.ZERO).number(3);
     final BlockHeader parentHeader = headerBuilder.buildHeader();

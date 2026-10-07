@@ -18,6 +18,7 @@ import org.hyperledger.besu.consensus.common.bft.BftBlockHeaderFunctions;
 import org.hyperledger.besu.consensus.common.bft.messagewrappers.BftMessage;
 import org.hyperledger.besu.consensus.common.bft.payload.SignedData;
 import org.hyperledger.besu.consensus.ibft.IbftExtraDataCodec;
+import org.hyperledger.besu.consensus.ibft.payload.DecodeBudget;
 import org.hyperledger.besu.consensus.ibft.payload.PayloadDeserializers;
 import org.hyperledger.besu.consensus.ibft.payload.ProposalPayload;
 import org.hyperledger.besu.consensus.ibft.payload.RoundChangeCertificate;
@@ -152,25 +153,42 @@ public class Proposal extends BftMessage<ProposalPayload> {
    * @return the proposal
    */
   public static Proposal decode(final Bytes data) {
+    return decode(data, DecodeBudget.forSingleMessage());
+  }
+
+  /**
+   * Decode, bounding signature recoveries to the maximum for the given validator-set size.
+   *
+   * @param data the data
+   * @param validatorCount the current validator-set size
+   * @return the proposal
+   */
+  public static Proposal decode(final Bytes data, final int validatorCount) {
+    return decode(data, DecodeBudget.forIbftMessage(validatorCount));
+  }
+
+  private static Proposal decode(final Bytes data, final DecodeBudget decodeBudget) {
+    // One budget spans the whole nested decode so per-list caps can't multiply into a DoS.
     final RLPInput rlpIn = RLP.input(data);
     rlpIn.enterList();
     final SignedData<ProposalPayload> payload =
-        PayloadDeserializers.readSignedProposalPayloadFrom(rlpIn);
+        PayloadDeserializers.readSignedProposalPayloadFrom(rlpIn, decodeBudget);
     final Block proposedBlock =
         Block.readFrom(rlpIn, BftBlockHeaderFunctions.forCommittedSeal(BFT_EXTRA_DATA_ENCODER));
 
     final Optional<RoundChangeCertificate> roundChangeCertificate =
-        readRoundChangeCertificate(rlpIn);
+        readRoundChangeCertificate(rlpIn, decodeBudget);
     final Optional<BlockAccessList> blockAccessList = readBlockAccessList(rlpIn);
 
     rlpIn.leaveList();
     return new Proposal(payload, proposedBlock, blockAccessList, roundChangeCertificate);
   }
 
-  private static Optional<RoundChangeCertificate> readRoundChangeCertificate(final RLPInput rlpIn) {
+  private static Optional<RoundChangeCertificate> readRoundChangeCertificate(
+      final RLPInput rlpIn, final DecodeBudget decodeBudget) {
     RoundChangeCertificate roundChangeCertificate = null;
     if (!rlpIn.nextIsNull()) {
-      roundChangeCertificate = RoundChangeCertificate.readFrom(rlpIn);
+      roundChangeCertificate = RoundChangeCertificate.readFrom(rlpIn, decodeBudget);
     } else {
       rlpIn.skipNext();
     }

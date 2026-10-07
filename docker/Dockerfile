@@ -1,10 +1,10 @@
 # syntax=docker/dockerfile:1@sha256:2780b5c3bab67f1f76c781860de469442999ed1a0d7992a5efdf2cffc0e3d769
 
 # Stage: Use Eclipse Temurin JRE
-FROM mirror.gcr.io/library/eclipse-temurin@sha256:1bda4d9e668f44f399abed30636c34e0befb727408fba27b1e6aaefcf9df346b AS java-base
+FROM mirror.gcr.io/library/eclipse-temurin@sha256:68868d04fa9cfd5f5c6abec0b5cef86d8de2bf9c62c37c7d3e4f0f80f5cfd7ff AS java-base
 
 # Stage: Final Besu image
-FROM mirror.gcr.io/library/ubuntu:24.04@sha256:c4a8d5503dfb2a3eb8ab5f807da5bc69a85730fb49b5cfca2330194ebcc41c7b
+FROM mirror.gcr.io/library/ubuntu:24.04@sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea
 ARG VERSION="dev"
 ENV NO_PROXY_CACHE="-o Acquire::BrokenProxy=true -o Acquire::http::No-Cache=true -o Acquire::http::Pipeline-Depth=0"
 
@@ -32,7 +32,7 @@ WORKDIR /opt/besu
 
 COPY --chown=besu:besu besu /opt/besu/
 # support for pyroscope
-ADD --chown=besu:besu https://github.com/grafana/pyroscope-java/releases/download/v2.1.2/pyroscope.jar /opt/besu/pyroscope/pyroscope.jar
+ADD --chown=besu:besu https://github.com/grafana/pyroscope-java/releases/download/v2.6.0/pyroscope.jar /opt/besu/pyroscope/pyroscope.jar
 COPY --chown=besu:besu pyroscope.properties /etc/besu/pyroscope.properties
 # https://grafana.com/docs/pyroscope/latest/configure-client/language-sdks/java/
 # override the config vars as needed.

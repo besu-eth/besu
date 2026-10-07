@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.eth.sync;
 
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.Difficulty;
+import org.hyperledger.besu.ethereum.core.PropagatedBlockSource;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
 import org.hyperledger.besu.ethereum.eth.messages.NewBlockMessage;
@@ -25,7 +26,7 @@ import org.hyperledger.besu.util.Subscribers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class BlockBroadcaster {
+public class BlockBroadcaster implements PropagatedBlockSource {
   private static final Logger LOG = LoggerFactory.getLogger(BlockBroadcaster.class);
 
   private final EthContext ethContext;
@@ -44,6 +45,16 @@ public class BlockBroadcaster {
 
   public void unsubscribePropagateNewBlocks(final long id) {
     blockPropagatedSubscribers.unsubscribe(id);
+  }
+
+  @Override
+  public long subscribe(final PropagatedBlockListener listener) {
+    return subscribePropagateNewBlocks(listener::onBlockPropagated);
+  }
+
+  @Override
+  public boolean unsubscribe(final long subscriptionId) {
+    return blockPropagatedSubscribers.unsubscribe(subscriptionId);
   }
 
   public void propagate(final Block block, final Difficulty totalDifficulty) {

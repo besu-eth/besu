@@ -242,6 +242,22 @@ class MainnetBlockAccessListValidatorTest {
     }
 
     @Test
+    void failsWhenStorageChangesSlotHasNoChanges() {
+      final BlockAccessList.AccountChanges account =
+          new BlockAccessList.AccountChanges(
+              ADDR_1,
+              List.of(new BlockAccessList.SlotChanges(SLOT_1, List.of())),
+              List.of(),
+              List.of(),
+              List.of(),
+              List.of());
+      final BlockAccessList bal = new BlockAccessList(List.of(account));
+      Assertions.assertThat(
+              validator().validate(Optional.of(bal), headerWithBal(bal, 30_000_000L), 0))
+          .isFalse();
+    }
+
+    @Test
     void failsWhenDuplicateStorageKeyInStorageReads() {
       final BlockAccessList.AccountChanges account =
           new BlockAccessList.AccountChanges(

@@ -82,7 +82,7 @@ public class DebugTraceTransactionIntegrationTest {
     OpCodeLoggerTracerResult debugTraceTransactionDetails =
         (OpCodeLoggerTracerResult) ((JsonRpcSuccessResponse) response).getResult();
     assertThat(debugTraceTransactionDetails.getGas()).isEqualTo(23705L);
-    assertThat(debugTraceTransactionDetails.getReturnValue()).isEmpty();
+    assertThat(debugTraceTransactionDetails.getReturnValue()).isEqualTo("0x");
     assertThat(debugTraceTransactionDetails.failed()).isFalse();
     assertThat(debugTraceTransactionDetails.getStructLogs()).hasSize(106);
   }

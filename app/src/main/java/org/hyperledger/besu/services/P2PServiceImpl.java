@@ -62,6 +62,16 @@ public class P2PServiceImpl implements P2PService {
   }
 
   /**
+   * Returns whether the P2P network is enabled.
+   *
+   * @return {@code true} if the P2P network is enabled, {@code false} otherwise
+   */
+  @Override
+  public boolean isP2pEnabled() {
+    return p2PNetwork.isP2pEnabled();
+  }
+
+  /**
    * Returns the number of currently connected peers.
    *
    * @return the count of connected peers

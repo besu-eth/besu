@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class DiscoveryConfiguration {
 
@@ -35,24 +36,25 @@ public class DiscoveryConfiguration {
   private List<EnodeURLImpl> enodeBootnodes = new ArrayList<>();
   private List<EthereumNodeRecord> enrBootnodes = new ArrayList<>();
   private String dnsDiscoveryURL;
-  private boolean discoveryV5Enabled = false;
   private boolean filterOnEnrForkId = NetworkingConfiguration.DEFAULT_FILTER_ON_ENR_FORK_ID;
   private boolean includeBootnodesOnPeerRefresh = true;
   private Optional<String> bindHostIpv6 = Optional.empty();
   private int bindPortIpv6 = EnodeURLImpl.DEFAULT_LISTENING_PORT_IPV6;
   private Optional<String> advertisedHostIpv6 = Optional.empty();
   private boolean preferIpv6Outbound = false;
-  private int discV5DiscoveryIntervalSeconds = 1;
-  private int discV5DiscoveryTimeoutSeconds = 30;
+  private int discV5DiscoveryIntervalSeconds = 30;
+  private int discV5FastDiscoveryIntervalSeconds = 1;
+  private int discV5DiscoveryTimeoutSeconds = 60;
   private double discV5MinimumPeerRatio = 0.8;
+  private DiscoveryMode discoveryMode = DiscoveryMode.getDefault();
 
   public static DiscoveryConfiguration create() {
     return new DiscoveryConfiguration();
   }
 
-  public static void assertValidBootnodes(final List<? extends NodeIdentifier> bootnodes) {
+  public static void assertValidBootnodes(final Stream<? extends NodeIdentifier> bootnodes) {
     final List<? extends NodeIdentifier> invalidEnodes =
-        bootnodes.stream()
+        bootnodes
             .filter(e -> e.getUdpDiscoveryPort().isEmpty() && e.getIpV6UdpDiscoveryPort().isEmpty())
             .toList();
 
@@ -97,8 +99,10 @@ public class DiscoveryConfiguration {
   }
 
   public DiscoveryConfiguration setEnodeBootnodes(final List<EnodeURLImpl> enodeBootnodes) {
-    assertValidBootnodes(enodeBootnodes);
-    this.enodeBootnodes = enodeBootnodes;
+    if (enodeBootnodes != null) {
+      assertValidBootnodes(enodeBootnodes.stream());
+    }
+    this.enodeBootnodes = enodeBootnodes == null ? new ArrayList<>() : enodeBootnodes;
     return this;
   }
 
@@ -107,13 +111,18 @@ public class DiscoveryConfiguration {
   }
 
   public DiscoveryConfiguration setEnrBootnodes(final List<EthereumNodeRecord> enrBootnodes) {
-    assertValidBootnodes(enrBootnodes);
-    this.enrBootnodes = enrBootnodes;
+    if (enrBootnodes != null) {
+      assertValidBootnodes(enrBootnodes.stream());
+    }
+    this.enrBootnodes = enrBootnodes == null ? new ArrayList<>() : enrBootnodes;
     return this;
   }
 
   public List<? extends NodeIdentifier> getBootnodeIdentifiers() {
-    return discoveryV5Enabled ? enrBootnodes : enodeBootnodes;
+    final List<NodeIdentifier> combined = new ArrayList<>();
+    combined.addAll(enrBootnodes);
+    combined.addAll(enodeBootnodes);
+    return combined;
   }
 
   public boolean getIncludeBootnodesOnPeerRefresh() {
@@ -151,15 +160,6 @@ public class DiscoveryConfiguration {
   public DiscoveryConfiguration setDnsDiscoveryURL(final String dnsDiscoveryURL) {
     this.dnsDiscoveryURL = dnsDiscoveryURL;
     return this;
-  }
-
-  public DiscoveryConfiguration setDiscoveryV5Enabled(final boolean discoveryV5Enabled) {
-    this.discoveryV5Enabled = discoveryV5Enabled;
-    return this;
-  }
-
-  public boolean isDiscoveryV5Enabled() {
-    return discoveryV5Enabled;
   }
 
   public void setFilterOnEnrForkId(final boolean filterOnEnrForkId) {
@@ -220,6 +220,16 @@ public class DiscoveryConfiguration {
     return this;
   }
 
+  public int getDiscV5FastDiscoveryIntervalSeconds() {
+    return discV5FastDiscoveryIntervalSeconds;
+  }
+
+  public DiscoveryConfiguration setDiscV5FastDiscoveryIntervalSeconds(
+      final int discV5FastDiscoveryIntervalSeconds) {
+    this.discV5FastDiscoveryIntervalSeconds = discV5FastDiscoveryIntervalSeconds;
+    return this;
+  }
+
   public int getDiscV5DiscoveryTimeoutSeconds() {
     return discV5DiscoveryTimeoutSeconds;
   }
@@ -239,15 +249,23 @@ public class DiscoveryConfiguration {
     return this;
   }
 
+  public DiscoveryMode getDiscoveryMode() {
+    return discoveryMode;
+  }
+
+  public DiscoveryConfiguration setDiscoveryMode(final DiscoveryMode discoveryMode) {
+    this.discoveryMode = discoveryMode;
+    return this;
+  }
+
   @Override
   public boolean equals(final Object o) {
     if (o == this) {
       return true;
     }
-    if (!(o instanceof DiscoveryConfiguration)) {
+    if (!(o instanceof DiscoveryConfiguration that)) {
       return false;
     }
-    final DiscoveryConfiguration that = (DiscoveryConfiguration) o;
     return enabled == that.enabled
         && bindPort == that.bindPort
         && bucketSize == that.bucketSize
@@ -300,8 +318,6 @@ public class DiscoveryConfiguration {
         + enrBootnodes
         + ", dnsDiscoveryURL="
         + dnsDiscoveryURL
-        + ", isDiscoveryV5Enabled="
-        + discoveryV5Enabled
         + ", isFilterOnEnrForkIdEnabled="
         + filterOnEnrForkId
         + ", bindHostIpv6="
@@ -312,6 +328,8 @@ public class DiscoveryConfiguration {
         + advertisedHostIpv6
         + ", preferIpv6Outbound="
         + preferIpv6Outbound
+        + ", discoveryMode="
+        + discoveryMode
         + '}';
   }
 }

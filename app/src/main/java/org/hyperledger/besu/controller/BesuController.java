@@ -17,7 +17,6 @@ package org.hyperledger.besu.controller;
 import org.hyperledger.besu.cli.config.EthNetworkConfig;
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.config.GenesisConfigOptions;
-import org.hyperledger.besu.config.PowAlgorithm;
 import org.hyperledger.besu.config.QbftConfigOptions;
 import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.ethereum.ProtocolContext;
@@ -30,6 +29,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManager;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
+import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.Checkpoint;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
@@ -44,6 +44,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import org.apache.tuweni.units.bigints.UInt256;
 import org.slf4j.Logger;
@@ -318,8 +319,22 @@ public class BesuController implements java.io.Closeable {
 
   /** The type Builder. */
   public static class Builder {
+
+    private Optional<Checkpoint> checkpoint = Optional.empty();
+
     /** Instantiates a new Builder. */
     public Builder() {}
+
+    /**
+     * Sets the effective checkpoint .
+     *
+     * @param checkpoint the checkpoint, or empty for no checkpoint
+     * @return this builder
+     */
+    public Builder checkpoint(final Optional<Checkpoint> checkpoint) {
+      this.checkpoint = checkpoint;
+      return this;
+    }
 
     /**
      * From eth network config besu controller builder.
@@ -343,14 +358,22 @@ public class BesuController implements java.io.Closeable {
      */
     public BesuControllerBuilder fromGenesisFile(
         final GenesisConfig genesisConfig, final SyncMode syncMode) {
-      final BesuControllerBuilder builder;
-      final var configOptions = genesisConfig.getConfigOptions();
+      final GenesisConfigOptions configOptions = genesisConfig.getConfigOptions();
+      return createControllerBuilder(genesisConfig, configOptions, syncMode).checkpoint(checkpoint);
+    }
 
+    private BesuControllerBuilder createControllerBuilder(
+        final GenesisConfig genesisConfig,
+        final GenesisConfigOptions configOptions,
+        final SyncMode syncMode) {
       if (configOptions.isConsensusMigration()) {
         return createConsensusScheduleBesuControllerBuilder(genesisConfig);
       }
 
-      if (configOptions.getPowAlgorithm() != PowAlgorithm.UNSUPPORTED) {
+      final boolean hasTTD = configOptions.getTerminalTotalDifficulty().isPresent();
+
+      final BesuControllerBuilder builder;
+      if (configOptions.isEthHash()) {
         builder = new MainnetBesuControllerBuilder();
       } else if (configOptions.isIbft2()) {
         builder = new IbftBesuControllerBuilder();
@@ -360,7 +383,7 @@ public class BesuController implements java.io.Closeable {
       } else if (configOptions.isQbft()) {
         builder = new QbftBesuControllerBuilder();
       } else if (configOptions.isClique()) {
-        if (configOptions.getTerminalTotalDifficulty().isEmpty()) {
+        if (!hasTTD) {
           throw new IllegalStateException(
               """
                  Clique Block Production (mining) is no longer supported.
@@ -368,24 +391,30 @@ public class BesuController implements java.io.Closeable {
                  """);
         }
         builder = new CliqueBesuControllerBuilder();
+      } else if (hasTTD) {
+        // No recognized consensus with TTD present: transition chain (e.g. mainnet) that needs
+        // MainnetBesuControllerBuilder for pre-merge PoW block validation
+        LOG.warn("No consensus mechanism detected in genesis config, using PoS");
+        builder = new MainnetBesuControllerBuilder();
       } else {
-        throw new IllegalArgumentException("Unknown consensus mechanism defined");
+        // No recognized consensus and no TTD: pure PoS chain
+        LOG.warn("No consensus mechanism detected in genesis config, using PoS");
+        return new MergeBesuControllerBuilder().genesisConfig(genesisConfig);
       }
 
       // wrap with TransitionBesuControllerBuilder if we have a terminal total difficulty:
-      if (configOptions.getTerminalTotalDifficulty().isPresent()) {
-        // Enable start with vanilla MergeBesuControllerBuilder for PoS checkpoint block
-        if (syncMode == SyncMode.SNAP && isCheckpointPoSBlock(configOptions)) {
+      if (hasTTD) {
+        if (MergeBesuControllerBuilder.isPostMergeAtGenesis(genesisConfig)
+            || (syncMode == SyncMode.SNAP && isCheckpointPoSBlock(configOptions))) {
           return new MergeBesuControllerBuilder().genesisConfig(genesisConfig);
-        } else {
-          // TODO this should be changed to vanilla MergeBesuControllerBuilder and the Transition*
-          // series of classes removed after we successfully transition to PoS
-          // https://github.com/hyperledger/besu/issues/2897
-          return new TransitionBesuControllerBuilder(builder, new MergeBesuControllerBuilder())
-              .genesisConfig(genesisConfig);
         }
-
-      } else return builder.genesisConfig(genesisConfig);
+        // TODO this should be changed to vanilla MergeBesuControllerBuilder and the Transition*
+        // series of classes removed after we successfully transition to PoS
+        // https://github.com/hyperledger/besu/issues/2897
+        return new TransitionBesuControllerBuilder(builder, new MergeBesuControllerBuilder())
+            .genesisConfig(genesisConfig);
+      }
+      return builder.genesisConfig(genesisConfig);
     }
 
     private BesuControllerBuilder createConsensusScheduleBesuControllerBuilder(
@@ -429,10 +458,9 @@ public class BesuController implements java.io.Closeable {
 
     private boolean isCheckpointPoSBlock(final GenesisConfigOptions configOptions) {
       final UInt256 terminalTotalDifficulty = configOptions.getTerminalTotalDifficulty().get();
-
-      return configOptions.getCheckpointOptions().isValid()
-          && (UInt256.fromHexString(configOptions.getCheckpointOptions().getTotalDifficulty().get())
-              .greaterThan(terminalTotalDifficulty));
+      return this.checkpoint
+          .map(c -> c.totalDifficulty().toUInt256().greaterThan(terminalTotalDifficulty))
+          .orElse(false);
     }
   }
 }

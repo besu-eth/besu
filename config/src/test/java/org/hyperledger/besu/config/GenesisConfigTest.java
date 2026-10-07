@@ -49,7 +49,6 @@ class GenesisConfigTest {
   void shouldLoadMainnetConfigFile() {
     final GenesisConfig config = GenesisConfig.mainnet();
     // Sanity check some basic properties to confirm this is the mainnet file.
-    assertThat(config.getConfigOptions().isEthHash()).isTrue();
     assertThat(config.getConfigOptions().getChainId()).hasValue(MAINNET_CHAIN_ID);
     assertThat(
             config
@@ -66,7 +65,6 @@ class GenesisConfigTest {
   void shouldLoadDevelopmentConfigFile() {
     final GenesisConfig config = GenesisConfig.fromResource("/dev.json");
     // Sanity check some basic properties to confirm this is the dev file.
-    assertThat(config.getConfigOptions().isEthHash()).isTrue();
     assertThat(config.getConfigOptions().getChainId()).hasValue(DEVELOPMENT_CHAIN_ID);
     assertThat(
             config

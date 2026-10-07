@@ -14,18 +14,30 @@
  */
 package org.hyperledger.besu.consensus.qbft.adaptor;
 
+import org.hyperledger.besu.consensus.qbft.QbftExtraDataCodec;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlock;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockHeader;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.blockcreation.BlockCreationTiming;
 import org.hyperledger.besu.ethereum.core.Block;
 
 import java.util.Objects;
+import java.util.Optional;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Adaptor class to allow a {@link Block} to be used as a {@link QbftBlock}. */
 public class QbftBlockAdaptor implements QbftBlock {
 
+  private static final Logger LOG = LoggerFactory.getLogger(QbftBlockAdaptor.class);
+
+  // Static instance for decoding locally
+  private static final QbftExtraDataCodec EXTRA_DATA_CODEC = new QbftExtraDataCodec();
+
   private final Block besuBlock;
   private final QbftBlockHeader qbftBlockHeader;
+  private final Optional<BlockCreationTiming> blockCreationTiming;
 
   /**
    * Constructs a QbftBlock from a Besu Block.
@@ -33,8 +45,20 @@ public class QbftBlockAdaptor implements QbftBlock {
    * @param besuBlock the Besu Block
    */
   public QbftBlockAdaptor(final Block besuBlock) {
+    this(besuBlock, Optional.empty());
+  }
+
+  /**
+   * Constructs a QbftBlock from a Besu Block, keeping the block creation timing.
+   *
+   * @param besuBlock the Besu Block
+   * @param blockCreationTiming the timing of the block creation, when created locally
+   */
+  public QbftBlockAdaptor(
+      final Block besuBlock, final Optional<BlockCreationTiming> blockCreationTiming) {
     this.besuBlock = besuBlock;
     this.qbftBlockHeader = new QbftBlockHeaderAdaptor(besuBlock.getHeader());
+    this.blockCreationTiming = blockCreationTiming;
   }
 
   @Override
@@ -42,9 +66,27 @@ public class QbftBlockAdaptor implements QbftBlock {
     return qbftBlockHeader;
   }
 
+  /** isEmpty() means 0 transactions and 0 BFT votes */
   @Override
   public boolean isEmpty() {
-    return besuBlock.getHeader().getTransactionsRoot().equals(Hash.EMPTY_TRIE_HASH);
+    if (!besuBlock.getHeader().getTransactionsRoot().equals(Hash.EMPTY_TRIE_HASH)) {
+      return false;
+    }
+    return !containsValidatorVote();
+  }
+
+  private boolean containsValidatorVote() {
+    try {
+      return EXTRA_DATA_CODEC.decode(besuBlock.getHeader()).getVote().isPresent();
+    } catch (final RuntimeException e) {
+      // Log this but we don't intend to act on it here - it will be handled properly
+      // at BFT proposal/validation time
+      LOG.warn(
+          "Failed to decode extra data for block {} while checking for empty block",
+          besuBlock.getHeader().getNumber(),
+          e);
+      return false;
+    }
   }
 
   /**
@@ -55,6 +97,15 @@ public class QbftBlockAdaptor implements QbftBlock {
    */
   public Block getBesuBlock() {
     return besuBlock;
+  }
+
+  /**
+   * Returns the block creation timing, only present when the block was created locally.
+   *
+   * @return the block creation timing
+   */
+  public Optional<BlockCreationTiming> getBlockCreationTiming() {
+    return blockCreationTiming;
   }
 
   @Override

@@ -45,8 +45,8 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BalanceChange;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiAccount;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
@@ -204,6 +204,12 @@ public abstract class AbstractParallelBlockProcessorIntegrationTest {
             .stateRoot(stateRoot)
             .gasLimit(30_000_000L)
             .baseFeePerGas(baseFee)
+            // Prague is active at genesis here, so the mandatory requestsHash field must be
+            // present. The system-contract predeploys deterministically yield this requests hash
+            // for these blocks (none of the test transactions enqueue new requests).
+            .requestsHash(
+                Hash.fromHexString(
+                    "0x5f7606bf4b9eb2a8414aaa53f4c84062ec8789d24c604453563dc26e4ae65837"))
             .buildHeader();
     final BlockBody blockBody =
         new BlockBody(Arrays.asList(txs), Collections.emptyList(), Optional.empty());

@@ -22,6 +22,8 @@ import org.hyperledger.besu.cli.CommandTestAbstract;
 import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.ImmutableApiConfiguration;
 
+import java.time.Duration;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mockito;
@@ -179,6 +181,49 @@ public class ApiConfigurationOptionsTest extends CommandTestAbstract {
 
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void rpcMaxActiveFiltersOptionMustBeUsed() {
+    final int rpcMaxActiveFilters = 256;
+    parseCommand("--rpc-max-active-filters", Long.toString(rpcMaxActiveFilters));
+
+    verify(mockRunnerBuilder).apiConfiguration(apiConfigurationCaptor.capture());
+    verify(mockRunnerBuilder).build();
+
+    assertThat(apiConfigurationCaptor.getValue())
+        .isEqualTo(ImmutableApiConfiguration.builder().maxFilterCount(rpcMaxActiveFilters).build());
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void rpcFilterTimeoutOptionMustBeUsed() {
+    final long rpcFilterTimeoutSeconds = 120L;
+    parseCommand("--rpc-filter-timeout-seconds", Long.toString(rpcFilterTimeoutSeconds));
+
+    verify(mockRunnerBuilder).apiConfiguration(apiConfigurationCaptor.capture());
+    verify(mockRunnerBuilder).build();
+
+    assertThat(apiConfigurationCaptor.getValue())
+        .isEqualTo(
+            ImmutableApiConfiguration.builder()
+                .filterTimeout(Duration.ofSeconds(rpcFilterTimeoutSeconds))
+                .build());
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void rpcFilterTimeoutMustBePositive() {
+    parseCommand("--rpc-filter-timeout-seconds", "0");
+
+    Mockito.verifyNoInteractions(mockRunnerBuilder);
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains("--rpc-filter-timeout-seconds must be > 0");
   }
 
   @Test

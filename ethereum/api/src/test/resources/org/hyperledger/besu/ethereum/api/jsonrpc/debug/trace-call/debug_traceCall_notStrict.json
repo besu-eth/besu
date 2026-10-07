@@ -1,0 +1,31 @@
+{
+  "comment": "strict=false explicitly skips the balance check, so the same zero-balance sender traces successfully.",
+  "request" : {
+    "jsonrpc" : "2.0",
+    "method" : "debug_traceCall",
+    "params" : [ {
+      "from" : "0x000000000000000000000000000000000000dead",
+      "to" : "0x000000000000000000000000000000000000beef",
+      "gas" : "0xfffff2",
+      "gasPrice" : "0xef",
+      "value" : "0x0",
+      "data" : "0x",
+      "strict" : false
+    }, "latest",
+    {
+      "disableMemory": true, "disableStack": true, "disableStorage": true
+    } ],
+    "id" : 1
+  },
+  "response": {
+    "jsonrpc":"2.0",
+    "id":1,
+    "result":{
+      "gas":21000,
+      "failed":false,
+      "returnValue":"0x",
+      "structLogs":[]
+    }
+  },
+  "statusCode": 200
+}

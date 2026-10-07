@@ -42,8 +42,8 @@ public final class AccountRangeMessage extends AbstractSnapMessageData {
   }
 
   public static AccountRangeMessage readFrom(final MessageData message) {
-    if (message instanceof AccountRangeMessage) {
-      return (AccountRangeMessage) message;
+    if (message instanceof AccountRangeMessage accountRangeMessage) {
+      return accountRangeMessage;
     }
     final int code = message.getCode();
     if (code != SnapV1.ACCOUNT_RANGE) {

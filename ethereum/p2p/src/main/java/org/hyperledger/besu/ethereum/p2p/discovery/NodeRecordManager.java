@@ -53,6 +53,8 @@ import org.slf4j.LoggerFactory;
  *   <li>Creating, updating, and signing the local {@link NodeRecord}
  *   <li>Persisting the ENR sequence number and contents to disk
  *   <li>Ensuring the ENR remains consistent with the advertised address, ports, and fork ID
+ *   <li>Applying peer-consensus auto-discovered IPv6 addresses via {@link
+ *       #applyAutoDiscoveredIpv6Host(String, int)}
  * </ul>
  *
  * <p>The ENR is only rewritten when one or more relevant fields change.
@@ -67,14 +69,26 @@ public class NodeRecordManager {
   private final VariablesStorage variablesStorage;
   private final NodeKey nodeKey;
   private final Bytes nodeId;
+  // 33-byte compressed public key stored in the ENR under the curve name (e.g. "secp256k1").
+  // The raw nodeId is 64 bytes; record.get(curveName) returns the compressed form, so we must
+  // compare against the compressed key or the equality check always fails.
+  private final Bytes compressedPublicKey;
   private final Supplier<List<Bytes>> forkIdSupplier;
   private final NatService natService;
 
   private final ReentrantLock lock = new ReentrantLock();
 
-  private Optional<DiscoveryPeerV4> localNode = Optional.empty();
-  private HostEndpoint primaryEndpoint;
-  private Optional<HostEndpoint> ipv6Endpoint = Optional.empty();
+  // Mutated only under lock, but readers like getLocalNode()/isPrimaryEndpointIpv6() (called
+  // from both the DiscV4 and DiscV5 agent threads) intentionally don't take the lock - volatile
+  // supplies the missing JMM visibility guarantee for those reads.
+  private volatile Optional<DiscoveryPeerV4> localNode = Optional.empty();
+  private volatile HostEndpoint primaryEndpoint;
+  private volatile Optional<HostEndpoint> ipv6Endpoint = Optional.empty();
+
+  // TCP port to use if/when an IPv6 host is auto-discovered via DiscV5 peer consensus.
+  // Holds only the port — never a host — so it cannot leak into a broadcast/signed ENR.
+  // Lifecycle: assigned during initializeLocalNode (single-threaded startup).
+  private Optional<Integer> ipv6AutoDiscoveryTcpPort = Optional.empty();
 
   /**
    * Creates a new {@link NodeRecordManager}.
@@ -96,6 +110,8 @@ public class NodeRecordManager {
     this.variablesStorage = storageProvider.createVariablesStorage();
     this.nodeKey = nodeKey;
     this.nodeId = nodeKey.getPublicKey().getEncodedBytes();
+    this.compressedPublicKey =
+        SIGNATURE_ALGORITHM.compressPublicKey(SIGNATURE_ALGORITHM.createPublicKey(nodeId));
     this.forkIdSupplier = () -> forkIdManager.getForkIdForChainHead().getForkIdAsBytesList();
     this.natService = natService;
   }
@@ -110,6 +126,36 @@ public class NodeRecordManager {
    */
   public Optional<DiscoveryPeerV4> getLocalNode() {
     return localNode;
+  }
+
+  /**
+   * Returns whether {@link #initializeLocalNode} has already been called.
+   *
+   * <p>When a manager is shared by the DiscV4 and DiscV5 agents, this lets whichever starts second
+   * call {@link #registerIpv6AutoDiscoveryHint} instead of re-initializing and clobbering the first
+   * agent's already-resolved state.
+   *
+   * @return {@code true} if the local node has already been initialized
+   */
+  public boolean isInitialized() {
+    return localNode.isPresent();
+  }
+
+  /**
+   * Registers the locally-bound IPv6 TCP port hint used for peer-consensus IPv6 auto-discovery,
+   * without re-initializing or rewriting the ENR. Used instead of {@link #initializeLocalNode} when
+   * another agent sharing this manager has already initialized it (see {@link #isInitialized}).
+   *
+   * @param ipv6AutoDiscoveryTcpPort optional locally-bound IPv6 TCP port used to construct the
+   *     secondary endpoint if and when peer-consensus auto-discovery succeeds
+   */
+  public void registerIpv6AutoDiscoveryHint(final Optional<Integer> ipv6AutoDiscoveryTcpPort) {
+    lock.lock();
+    try {
+      this.ipv6AutoDiscoveryTcpPort = ipv6AutoDiscoveryTcpPort;
+    } finally {
+      lock.unlock();
+    }
   }
 
   /**
@@ -128,6 +174,28 @@ public class NodeRecordManager {
    * @param ipv6 an optional secondary IPv6 endpoint for dual-stack operation
    */
   public void initializeLocalNode(final HostEndpoint primary, final Optional<HostEndpoint> ipv6) {
+    initializeLocalNode(primary, ipv6, Optional.empty());
+  }
+
+  /**
+   * Initializes the local discovery peer, optionally registering a TCP port hint for IPv6
+   * auto-discovery.
+   *
+   * <p>When dual-stack discovery is bound but {@code --p2p-host-ipv6} is not pinned, the operator
+   * is opting in to peer-consensus auto-discovery. The TCP port hint carried here is the
+   * locally-bound IPv6 RLPx port; it is consumed by {@link #applyAutoDiscoveredIpv6Host(String,
+   * int)} the first time peers reach consensus on an external IPv6 address. The hint holds no host,
+   * so it cannot leak into the broadcast ENR.
+   *
+   * @param primary the primary network endpoint (IPv4 or IPv6)
+   * @param ipv6 an optional pre-pinned secondary IPv6 endpoint for dual-stack operation
+   * @param ipv6AutoDiscoveryTcpPort optional locally-bound IPv6 TCP port used to construct the
+   *     secondary endpoint if and when peer-consensus auto-discovery succeeds
+   */
+  public void initializeLocalNode(
+      final HostEndpoint primary,
+      final Optional<HostEndpoint> ipv6,
+      final Optional<Integer> ipv6AutoDiscoveryTcpPort) {
 
     // Only resolve through NAT if primary is IPv4.
     // Current NAT services (UPnP, NAT-PMP) only support IPv4.
@@ -143,6 +211,7 @@ public class NodeRecordManager {
 
     // IPv6 endpoint is used as-is. Current NAT services only support IPv4.
     this.ipv6Endpoint = ipv6;
+    this.ipv6AutoDiscoveryTcpPort = ipv6AutoDiscoveryTcpPort;
 
     final DiscoveryPeerV4 self =
         DiscoveryPeerV4.fromEnode(
@@ -155,6 +224,18 @@ public class NodeRecordManager {
 
     this.localNode = Optional.of(self);
     updateNodeRecord();
+  }
+
+  /**
+   * Returns whether the primary endpoint advertises an IPv6 address.
+   *
+   * <p>Used by the DiscV5 new-address handler to short-circuit when the primary is operator-pinned
+   * IPv6 (since peer-consensus auto-discovery would otherwise overwrite an explicit choice).
+   *
+   * @return {@code true} if the primary endpoint is IPv6 and has been initialized
+   */
+  public boolean isPrimaryEndpointIpv6() {
+    return primaryEndpoint != null && !primaryEndpoint.isIpv4();
   }
 
   /**
@@ -245,6 +326,62 @@ public class NodeRecordManager {
     }
   }
 
+  /**
+   * Applies an IPv6 host auto-discovered via DiscV5 peer consensus to the local ENR.
+   *
+   * <p>Constructs a new IPv6 {@link HostEndpoint} from the peer-observed host and UDP port plus the
+   * locally-bound IPv6 TCP port hint registered at {@link #initializeLocalNode(HostEndpoint,
+   * Optional, Optional)}. Writes a new ENR with an incremented {@code seq} and returns it.
+   *
+   * <p><b>Fire-once semantics.</b> Ethereum nodes are expected to keep a stable advertised address
+   * for the lifetime of a session. If {@code ipv6Endpoint} is already set — either because the
+   * operator pinned {@code --p2p-host-ipv6} or because a prior auto-discovery write has already
+   * happened this session — this method is a no-op and returns {@link Optional#empty()}. The
+   * handler enforces the same principle by short-circuiting on operator pin upstream; this method
+   * provides the second guarantee against mid-session address churn.
+   *
+   * <p>If no IPv6 TCP port hint was registered (i.e. dual-stack bind is not active, or RLPx did not
+   * bind an IPv6 socket), this method is also a no-op.
+   *
+   * @param host the peer-observed IPv6 host string (must already have been validated by the caller
+   *     as an advertisable IPv6 unicast address — global unicast or ULA, per {@link
+   *     org.hyperledger.besu.ethereum.p2p.discovery.discv5.IpV6NewAddressHandler#isAdvertisableIpv6Unicast})
+   * @param udpPort the peer-observed UDP source port — used for the ENR {@code udp6} field
+   * @return the updated {@link NodeRecord} if the write succeeded, otherwise empty
+   */
+  public Optional<NodeRecord> applyAutoDiscoveredIpv6Host(final String host, final int udpPort) {
+    lock.lock();
+    try {
+      if (udpPort <= 0 || udpPort > 65535) {
+        LOG.debug(
+            "Ignoring auto-discovered IPv6 host {}: invalid peer-observed UDP port {}",
+            host,
+            udpPort);
+        return Optional.empty();
+      }
+      if (ipv6Endpoint.isPresent()) {
+        LOG.debug("Ignoring auto-discovered IPv6 host {}: ipv6Endpoint already set", host);
+        return Optional.empty();
+      }
+      if (ipv6AutoDiscoveryTcpPort.isEmpty()) {
+        LOG.debug("Ignoring auto-discovered IPv6 host {}: no IPv6 TCP port hint registered", host);
+        return Optional.empty();
+      }
+      final int tcpPort = ipv6AutoDiscoveryTcpPort.get();
+      ipv6Endpoint = Optional.of(new HostEndpoint(host, udpPort, tcpPort));
+      doUpdateNodeRecord();
+      LOG.info(
+          "Auto-discovered IPv6 endpoint via DiscV5 peer consensus: ip6={}, udp6={}, tcp6={}"
+              + " (TCP port reflects local bind; pin --p2p-host-ipv6 if NAT translates TCP differently)",
+          host,
+          udpPort,
+          tcpPort);
+      return localNode.flatMap(DiscoveryPeerV4::getNodeRecord);
+    } finally {
+      lock.unlock();
+    }
+  }
+
   /** Writes the ENR to disk. Must be called with {@link #lock} held. */
   private void doUpdateNodeRecord() {
     final NodeRecordFactory factory = NodeRecordFactory.DEFAULT;
@@ -262,18 +399,23 @@ public class NodeRecordManager {
     final Optional<Bytes> ipv6AddressBytes =
         ipv6Endpoint.map(ep -> Bytes.of(InetAddresses.forString(ep.host()).getAddress()));
 
+    // The eth fork-id ENR field is stored as a single-element wrapper list (see
+    // createAndPersistNodeRecord). Wrap the local forkId the same way so the equality check
+    // against record.get(FORK_ID_ENR_FIELD) matches when the fork has not changed.
+    final List<List<Bytes>> wrappedForkId = Collections.singletonList(forkId);
+
     // Reuse the existing ENR if all relevant fields are unchanged.
     final NodeRecord nodeRecord =
         existingRecord
             .filter(
                 record ->
-                    nodeId.equals(record.get(EnrField.PKEY_SECP256K1))
+                    compressedPublicKey.equals(record.get(SIGNATURE_ALGORITHM.getCurveName()))
                         && (primaryEndpoint.isIpv4()
                             ? primaryIpv4AddressMatches(
                                 record, ipAddressBytes, discoveryPort, listeningPort)
                             : primaryIpv6AddressMatches(
                                 record, ipAddressBytes, discoveryPort, listeningPort))
-                        && forkId.equals(record.get(FORK_ID_ENR_FIELD))
+                        && wrappedForkId.equals(record.get(FORK_ID_ENR_FIELD))
                         && (!primaryEndpoint.isIpv4() || ipv6FieldsMatch(record, ipv6AddressBytes)))
             // Otherwise, create a new ENR with an incremented sequence number,
             // sign it with the local node key, and persist it to disk.

@@ -20,12 +20,14 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -48,6 +50,9 @@ public class BackwardChain {
   private Optional<BlockHeader> firstStoredAncestor;
   private Optional<BlockHeader> lastStoredPivot;
   private final Queue<Hash> hashesToAppend = new ArrayDeque<>();
+  // BALs received with trusted blocks (engine newPayload), kept in memory until the block is
+  // processed: best-effort, a missing BAL is reconstructed during execution
+  private final Map<Hash, BlockAccessList> trustedBlockAccessLists = new HashMap<>();
 
   public BackwardChain(
       final GenericKeyValueStorageFacade<Hash, BlockHeader> headersStorage,
@@ -210,6 +215,7 @@ public class BackwardChain {
       return;
     }
     headers.drop(firstStoredAncestor.get().getHash());
+    trustedBlockAccessLists.remove(firstStoredAncestor.get().getHash());
     final Optional<Hash> hash = chainStorage.get(firstStoredAncestor.get().getHash());
     chainStorage.drop(firstStoredAncestor.get().getHash());
     updateFirstStoredAncestor(hash.flatMap(headers::get));
@@ -219,6 +225,12 @@ public class BackwardChain {
   }
 
   public synchronized void appendTrustedBlock(final Block newPivot) {
+    appendTrustedBlock(newPivot, Optional.empty());
+  }
+
+  public synchronized void appendTrustedBlock(
+      final Block newPivot, final Optional<BlockAccessList> blockAccessList) {
+    blockAccessList.ifPresent(bal -> trustedBlockAccessLists.put(newPivot.getHash(), bal));
     LOG.atDebug().setMessage("Appending trusted block {}").addArgument(newPivot::toLogString).log();
     headers.put(newPivot.getHash(), newPivot.getHeader());
     blocks.put(newPivot.getHash(), newPivot);
@@ -252,6 +264,10 @@ public class BackwardChain {
     return blocks.get(hash).orElseThrow();
   }
 
+  public synchronized Optional<BlockAccessList> getTrustedBlockAccessList(final Hash hash) {
+    return Optional.ofNullable(trustedBlockAccessLists.get(hash));
+  }
+
   public synchronized void clear() {
     blocks.clear();
     headers.clear();
@@ -260,6 +276,7 @@ public class BackwardChain {
     firstStoredAncestor = Optional.empty();
     lastStoredPivot = Optional.empty();
     hashesToAppend.clear();
+    trustedBlockAccessLists.clear();
   }
 
   public synchronized Optional<Hash> getDescendant(final Hash blockHash) {
@@ -279,6 +296,11 @@ public class BackwardChain {
       return;
     }
     this.hashesToAppend.add(newBlockHash);
+  }
+
+  synchronized void replaceQueuedHashesWith(final Hash newBlockHash) {
+    hashesToAppend.clear();
+    hashesToAppend.add(newBlockHash);
   }
 
   public synchronized Optional<Hash> getFirstHashToAppend() {
