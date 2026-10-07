@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.plugin.services.storage.rocksdb;
 
+import static java.util.Objects.requireNonNull;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.BONSAI_ARCHIVE_WITH_JUMPDEST_ANALYSIS;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.BONSAI_ARCHIVE_WITH_RECEIPT_COMPACTION;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.BONSAI_WITH_JUMPDEST_ANALYSIS;
@@ -53,6 +54,7 @@ import java.util.Optional;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -78,9 +80,9 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
           BONSAI_ARCHIVE_WITH_RECEIPT_COMPACTION, BONSAI_ARCHIVE_WITH_JUMPDEST_ANALYSIS);
   private static final String NAME = "rocksdb";
   private final RocksDBMetricsFactory rocksDBMetricsFactory;
-  private DatabaseMetadata databaseMetadata;
-  private RocksDBColumnarKeyValueStorage segmentedStorage;
-  private RocksDBConfiguration rocksDBConfiguration;
+  private @Nullable DatabaseMetadata databaseMetadata;
+  private @Nullable RocksDBColumnarKeyValueStorage segmentedStorage;
+  private @Nullable RocksDBConfiguration rocksDBConfiguration;
 
   private final Supplier<RocksDBFactoryConfiguration> configuration;
   private final List<SegmentIdentifier> configuredSegments;
@@ -155,24 +157,26 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
     }
 
     if (segmentedStorage == null) {
+      final DatabaseMetadata currentMetadata = requireNonNull(databaseMetadata);
+      final RocksDBConfiguration currentConfiguration = requireNonNull(rocksDBConfiguration);
       final List<SegmentIdentifier> segmentsForFormat =
           configuredSegments.stream()
               .filter(
                   segmentId ->
                       segmentId.includeInDatabaseFormat(
-                          databaseMetadata.getVersionedStorageFormat().getFormat()))
+                          currentMetadata.getVersionedStorageFormat().getFormat()))
               .toList();
 
       // It's probably a good idea for the creation logic to be entirely dependent on the database
       // version. Introducing intermediate booleans that represent database properties and
       // dispatching
       // creation logic based on them is error-prone.
-      switch (databaseMetadata.getVersionedStorageFormat().getFormat()) {
+      switch (currentMetadata.getVersionedStorageFormat().getFormat()) {
         case FOREST -> {
           LOG.debug("FOREST mode detected, using TransactionDB.");
           segmentedStorage =
               new TransactionDBRocksDBColumnarKeyValueStorage(
-                  rocksDBConfiguration,
+                  currentConfiguration,
                   segmentsForFormat,
                   ignorableSegments,
                   metricsSystem,
@@ -182,16 +186,16 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
           LOG.debug("BONSAI mode detected, Using OptimisticTransactionDB.");
           segmentedStorage =
               new OptimisticRocksDBColumnarKeyValueStorage(
-                  rocksDBConfiguration,
+                  currentConfiguration,
                   segmentsForFormat,
                   ignorableSegments,
                   metricsSystem,
                   rocksDBMetricsFactory);
         }
       }
-      segmentedStorage.warmUpAtStartup();
+      requireNonNull(segmentedStorage).warmUpAtStartup();
     }
-    return segmentedStorage;
+    return requireNonNull(segmentedStorage);
   }
 
   /**

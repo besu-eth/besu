@@ -67,7 +67,8 @@ public class SystemCallProcessor {
   }
 
   /**
-   * Processes a system call.
+   * Processes a system call that must succeed, such as a request contract call. A missing contract
+   * or a failed call invalidates the block.
    *
    * @param callAddress The address to call.
    * @param context The system call context. The input data to the system call.
@@ -79,6 +80,69 @@ public class SystemCallProcessor {
       final BlockProcessingContext context,
       final Bytes inputData,
       final Optional<AccessLocationTracker> accessLocationTracker) {
+    final MessageFrame frame =
+        execute(callAddress, context, inputData, accessLocationTracker)
+            .orElseThrow(
+                () ->
+                    new SystemCallNoCodeAtAddressException(
+                        "Invalid system call, no code at address " + callAddress));
+
+    if (frame.getState() == MessageFrame.State.COMPLETED_SUCCESS) {
+      return frame.getOutputData();
+    }
+
+    // The call must execute to completion
+    LOG.error(
+        "System call did not execute to completion - haltReason: {}, address: {}, frame state: {}",
+        frame.getExceptionalHaltReason().orElse(ExceptionalHaltReason.NONE),
+        callAddress,
+        frame.getState());
+    String errorMessage =
+        frame
+            .getExceptionalHaltReason()
+            .map(haltReason -> "System call halted: " + haltReason.getDescription())
+            .orElse("System call did not execute to completion");
+    throw new RuntimeException(errorMessage);
+  }
+
+  /**
+   * Processes a system call whose outcome does not affect block validity, such as the EIP-4788
+   * beacon roots and EIP-2935 history storage calls. A failed call leaves no state changes, but its
+   * accesses are still recorded in the block access list.
+   *
+   * @param callAddress The address to call.
+   * @param context The system call context.
+   * @param inputData The input data to the system call.
+   * @param accessLocationTracker The EIP-7928 access tracker, if any.
+   */
+  public void processUnchecked(
+      final Address callAddress,
+      final BlockProcessingContext context,
+      final Bytes inputData,
+      final Optional<AccessLocationTracker> accessLocationTracker) {
+    execute(callAddress, context, inputData, accessLocationTracker)
+        .ifPresentOrElse(
+            frame -> {
+              if (frame.getState() != MessageFrame.State.COMPLETED_SUCCESS) {
+                LOG.warn(
+                    "System call failed - haltReason: {}, address: {}",
+                    frame.getExceptionalHaltReason().orElse(ExceptionalHaltReason.NONE),
+                    callAddress);
+              }
+            },
+            () -> LOG.warn("Invalid system call, no code at address {}", callAddress));
+  }
+
+  /**
+   * Runs the system call, committing its state changes only if it succeeds.
+   *
+   * @return the completed frame, or empty if there is no code at the call address
+   */
+  private Optional<MessageFrame> execute(
+      final Address callAddress,
+      final BlockProcessingContext context,
+      final Bytes inputData,
+      final Optional<AccessLocationTracker> accessLocationTracker) {
     WorldUpdater blockUpdater = context.getWorldState().updater();
     WorldUpdater systemCallUpdater = blockUpdater.updater();
     // EIP-7928: the account is read before we can know whether there is code to run, so an absent
@@ -86,12 +150,8 @@ public class SystemCallProcessor {
     accessLocationTracker.ifPresent(tracker -> tracker.addTouchedAccount(callAddress));
     final Account maybeContract = systemCallUpdater.get(callAddress);
     if (maybeContract == null || maybeContract.getCode().isEmpty()) {
-      // Throwing skips the flush at the end of a successful call, so flush here instead.
       applyAccessLocationTracker(accessLocationTracker, context, systemCallUpdater);
-      throw new SystemCallNoCodeAtAddressException(
-          maybeContract == null
-              ? "Invalid system call address: " + callAddress
-              : "Invalid system call, no code at address " + callAddress);
+      return Optional.empty();
     }
 
     // The frame runs in a child updater, committed into systemCallUpdater on success, so the
@@ -124,21 +184,8 @@ public class SystemCallProcessor {
     if (frame.getState() == MessageFrame.State.COMPLETED_SUCCESS) {
       systemCallUpdater.commit();
       blockUpdater.commit();
-      return frame.getOutputData();
     }
-
-    // The call must execute to completion
-    LOG.error(
-        "System call did not execute to completion - haltReason: {}, address: {}, frame state: {}",
-        frame.getExceptionalHaltReason().orElse(ExceptionalHaltReason.NONE),
-        callAddress,
-        frame.getState());
-    String errorMessage =
-        frame
-            .getExceptionalHaltReason()
-            .map(haltReason -> "System call halted: " + haltReason.getDescription())
-            .orElse("System call did not execute to completion");
-    throw new RuntimeException(errorMessage);
+    return Optional.of(frame);
   }
 
   private static void applyAccessLocationTracker(

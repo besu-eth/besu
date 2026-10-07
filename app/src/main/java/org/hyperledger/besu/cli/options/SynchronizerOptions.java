@@ -83,9 +83,6 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
       "--Xsnapsync-synchronizer-pivot-block-window-validity";
   private static final String SNAP_PIVOT_BLOCK_CHECK_INTERVAL_MILLIS_FLAG =
       "--Xsnapsync-synchronizer-pivot-block-check-interval-millis";
-  private static final String SNAP_PIVOT_BLOCK_DISTANCE_BEFORE_CACHING_FLAG =
-      "--Xsnapsync-synchronizer-pivot-block-distance-before-caching";
-
   private static final String SNAP_STORAGE_COUNT_PER_REQUEST_FLAG =
       "--Xsnapsync-synchronizer-storage-count-per-request";
   private static final String SNAP_BYTECODE_COUNT_PER_REQUEST_FLAG =
@@ -321,21 +318,6 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
           "How often, in milliseconds, snap sync re-evaluates whether to refresh the pivot block (default: ${DEFAULT-VALUE})")
   private long snapsyncPivotBlockCheckIntervalMillis =
       SnapSyncConfiguration.DEFAULT_PIVOT_CHECK_INTERVAL_MILLIS;
-
-  /**
-   * @deprecated No longer used. Accepted for backwards compatibility. The flag will be removed in a
-   *     future release.
-   */
-  @Deprecated(forRemoval = true)
-  @SuppressWarnings("unused")
-  @CommandLine.Option(
-      names = SNAP_PIVOT_BLOCK_DISTANCE_BEFORE_CACHING_FLAG,
-      hidden = true,
-      paramLabel = "<INTEGER>",
-      description =
-          "Deprecated, no-op. Pivot caching is driven by the engine newPayload header cache.")
-  private int snapsyncPivotBlockDistanceBeforeCaching =
-      SnapSyncConfiguration.DEFAULT_PIVOT_BLOCK_DISTANCE_BEFORE_CACHING;
 
   @CommandLine.Option(
       names = SNAP_STORAGE_COUNT_PER_REQUEST_FLAG,

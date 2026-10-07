@@ -45,8 +45,14 @@ public class Code {
 
   private final int size;
 
-  /** Bit mask for jump destinations, used to optimize JUMP/JUMPI operations */
-  private long[] jumpDestBitMask = null;
+  /**
+   * Bit mask for jump destinations, used to optimize JUMP/JUMPI operations.
+   *
+   * <p>Volatile because it is computed on the first JUMP while the same instance may already be in
+   * use by other threads, through the code caches and parallel transaction execution. Without it, a
+   * thread could see the array before its contents and reject a valid jump destination.
+   */
+  private volatile long[] jumpDestBitMask = null;
 
   /**
    * Public constructor.
@@ -137,14 +143,15 @@ public class Code {
       return true;
     }
 
-    if (jumpDestBitMask == null) {
-      jumpDestBitMask = calculateJumpDestBitMask();
+    long[] bitMask = jumpDestBitMask;
+    if (bitMask == null) {
+      bitMask = initJumpDestBitMask();
     }
 
     // This selects which long in the array holds the bit for the given offset:
     //	1)	>>> 6 is equivalent to jumpDestination / 64
     //	2)	Each long holds 64 bits, so this finds the correct chunk
-    final long targetLong = jumpDestBitMask[jumpDestination >>> 6];
+    final long targetLong = bitMask[jumpDestination >>> 6];
 
     // 1) & 0x3F is jumpDestination % 64
     // 2)	1L << ... gives a mask for the specific bit in that long
@@ -152,6 +159,17 @@ public class Code {
 
     // If the bit is not set, then it is an invalid jump destination
     return (targetLong & targetBit) == 0L;
+  }
+
+  // Separate method so that isJumpDestInvalid stays small enough to be inlined into JUMP and JUMPI.
+  // Synchronized so that threads reaching the first JUMP together analyse the code only once.
+  private synchronized long[] initJumpDestBitMask() {
+    long[] bitMask = jumpDestBitMask;
+    if (bitMask == null) {
+      bitMask = calculateJumpDestBitMask();
+      jumpDestBitMask = bitMask;
+    }
+    return bitMask;
   }
 
   /**
