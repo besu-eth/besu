@@ -19,8 +19,6 @@ import static org.apache.tuweni.rlp.RLP.decodeValue;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.trie.NodeLoader;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.AccountHashCodeStorageStrategy;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.CodeHashCodeStorageStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFlatDbStrategy;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredNodeFactory;
@@ -69,13 +67,8 @@ public class BonsaiWorldStateWitnessStorage extends BonsaiWorldStateLayerStorage
   private BonsaiFlatDbStrategy buildWitnessFlatDbStrategy(
       final MetricsSystem metricsSystem, final BonsaiWorldStateKeyValueStorage parent) {
 
-    final boolean isCodeByCodeHash = parent.getFlatDbStrategy().isCodeByCodeHash();
-
     return new BonsaiFlatDbStrategy(
-        metricsSystem,
-        isCodeByCodeHash
-            ? new CodeHashCodeStorageStrategy()
-            : new AccountHashCodeStorageStrategy()) {
+        metricsSystem, parent.getFlatDbStrategy().getCodeStorageStrategy()) {
 
       @Override
       public Optional<Bytes> getFlatAccount(

@@ -152,7 +152,6 @@ public abstract class BaseBftProtocolScheduleBuilder {
         // configured with an execution fork that is PoS on mainnet (Paris and later). Otherwise
         // any behaviour conditioned on ProtocolSpec.isPoS() would wrongly follow the PoS path.
         .isPoS(false)
-        .skipZeroBlockRewards(true)
         .blockHeaderFunctions(BftBlockHeaderFunctions.forOnchainBlock(bftExtraDataCodec))
         .blockReward(Wei.of(configOptions.getBlockRewardWei()))
         .withdrawalsValidator(new WithdrawalsValidator.NotApplicableWithdrawals())

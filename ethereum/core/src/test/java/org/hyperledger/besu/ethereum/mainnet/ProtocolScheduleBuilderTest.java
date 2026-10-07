@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BERLIN;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BOGOTA;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BPO1;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BPO2;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BPO3;
@@ -120,6 +121,7 @@ class ProtocolScheduleBuilderTest {
     when(configOptions.getBpo4Time()).thenReturn(OptionalLong.of(PRE_SHANGHAI_TIMESTAMP + 15));
     when(configOptions.getBpo5Time()).thenReturn(OptionalLong.of(PRE_SHANGHAI_TIMESTAMP + 17));
     when(configOptions.getAmsterdamTime()).thenReturn(OptionalLong.of(PRE_SHANGHAI_TIMESTAMP + 19));
+    when(configOptions.getBogotaTime()).thenReturn(OptionalLong.of(PRE_SHANGHAI_TIMESTAMP + 21));
     when(configOptions.getDepositContractAddress()).thenReturn(Optional.of(Address.ZERO));
     when(configOptions.getConsolidationRequestContractAddress())
         .thenReturn(Optional.of(Address.ZERO));
@@ -203,12 +205,18 @@ class ProtocolScheduleBuilderTest {
                 .getByBlockHeader(blockHeader(62, PRE_SHANGHAI_TIMESTAMP + 19))
                 .getHardforkId())
         .isEqualTo(AMSTERDAM);
+    assertThat(
+            protocolSchedule
+                .getByBlockHeader(blockHeader(63, PRE_SHANGHAI_TIMESTAMP + 21))
+                .getHardforkId())
+        .isEqualTo(BOGOTA);
   }
 
   @Test
   void milestoneForShouldQueryAllAvailableHardforks() {
     final long BPO5_TIME = 1722333828L;
     final long AMSTERDAM_TIME = BPO5_TIME + 1L;
+    final long BOGOTA_TIME = AMSTERDAM_TIME + 1L;
 
     when(configOptions.getHomesteadBlockNumber()).thenReturn(OptionalLong.of(0));
     when(configOptions.getByzantiumBlockNumber()).thenReturn(OptionalLong.of(0));
@@ -227,6 +235,7 @@ class ProtocolScheduleBuilderTest {
     when(configOptions.getBpo4Time()).thenReturn(OptionalLong.of(0));
     when(configOptions.getBpo5Time()).thenReturn(OptionalLong.of(BPO5_TIME));
     when(configOptions.getAmsterdamTime()).thenReturn(OptionalLong.of(AMSTERDAM_TIME));
+    when(configOptions.getBogotaTime()).thenReturn(OptionalLong.of(BOGOTA_TIME));
     when(configOptions.getDepositContractAddress()).thenReturn(Optional.of(Address.ZERO));
     when(configOptions.getConsolidationRequestContractAddress())
         .thenReturn(Optional.of(Address.ZERO));
@@ -280,6 +289,10 @@ class ProtocolScheduleBuilderTest {
     final Optional<Long> maybeAmsterdamMileStone = protocolSchedule.milestoneFor(AMSTERDAM);
     assertThat(maybeAmsterdamMileStone).isPresent();
     assertThat(maybeAmsterdamMileStone.get()).isEqualTo(AMSTERDAM_TIME);
+
+    final Optional<Long> maybeBogotaMileStone = protocolSchedule.milestoneFor(BOGOTA);
+    assertThat(maybeBogotaMileStone).isPresent();
+    assertThat(maybeBogotaMileStone.get()).isEqualTo(BOGOTA_TIME);
   }
 
   @Test

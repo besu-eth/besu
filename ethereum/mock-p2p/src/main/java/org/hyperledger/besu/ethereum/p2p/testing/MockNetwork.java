@@ -38,6 +38,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -82,8 +83,10 @@ public final class MockNetwork {
     synchronized (this) {
       final MockNetwork.MockPeerConnection establishedConnection =
           new MockNetwork.MockPeerConnection(source, target, this);
-      final MockP2PNetwork sourceNode = nodes.get(source);
-      final MockP2PNetwork targetNode = nodes.get(target);
+      final MockP2PNetwork sourceNode =
+          Objects.requireNonNull(nodes.get(source), () -> "Unknown source peer " + source);
+      final MockP2PNetwork targetNode =
+          Objects.requireNonNull(nodes.get(target), () -> "Unknown target peer " + target);
       sourceNode.connections.put(target, establishedConnection);
       final MockNetwork.MockPeerConnection backChannel =
           new MockNetwork.MockPeerConnection(target, source, this);
@@ -97,8 +100,12 @@ public final class MockNetwork {
   private void disconnect(
       final MockNetwork.MockPeerConnection connection, final DisconnectReason reason) {
     synchronized (this) {
-      final MockP2PNetwork sourceNode = nodes.get(connection.from);
-      final MockP2PNetwork targetNode = nodes.get(connection.to);
+      final MockP2PNetwork sourceNode =
+          Objects.requireNonNull(
+              nodes.get(connection.from), () -> "Unknown source peer " + connection.from);
+      final MockP2PNetwork targetNode =
+          Objects.requireNonNull(
+              nodes.get(connection.to), () -> "Unknown target peer " + connection.to);
       if (targetNode.connections.remove(connection.from) == null
           || sourceNode.connections.remove(connection.to) == null) {
         throw new IllegalStateException(
@@ -271,7 +278,8 @@ public final class MockNetwork {
     public void send(final Capability capability, final MessageData message)
         throws PeerNotConnected {
       synchronized (network) {
-        final MockNetwork.MockP2PNetwork target = network.nodes.get(to);
+        final MockNetwork.MockP2PNetwork target =
+            Objects.requireNonNull(network.nodes.get(to), () -> "Unknown peer " + to);
         final MockNetwork.MockPeerConnection backChannel = target.connections.get(from);
         if (backChannel != null) {
           final Message msg = new DefaultMessage(backChannel, message);
