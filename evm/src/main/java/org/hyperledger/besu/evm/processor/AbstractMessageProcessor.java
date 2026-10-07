@@ -252,14 +252,9 @@ public abstract class AbstractMessageProcessor {
           frame.getStateGasUsed());
     }
     if (operationTracer != null) {
-      final MessageFrame.State state = frame.getState();
-      // A frame can halt before it starts (EIP-2780 top-frame charges); it still needs an enter
-      // so that tracers see a matching enter for the exit below.
-      if (state == MessageFrame.State.NOT_STARTED || state == MessageFrame.State.EXCEPTIONAL_HALT) {
+      if (frame.getState() == MessageFrame.State.NOT_STARTED) {
         operationTracer.traceContextEnter(frame);
-        if (state == MessageFrame.State.NOT_STARTED) {
-          start(frame, operationTracer);
-        }
+        start(frame, operationTracer);
       } else {
         operationTracer.traceContextReEnter(frame);
       }

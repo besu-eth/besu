@@ -15,6 +15,11 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.calltrace;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.crypto.KeyPair;
@@ -33,6 +38,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
 import java.math.BigInteger;
@@ -41,6 +47,7 @@ import java.util.Map;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 
 class CallTracerTopFrameHaltTest {
 
@@ -51,37 +58,20 @@ class CallTracerTopFrameHaltTest {
       "3a4ff6d22d7502ef2452368165422861c01a0f72f851793b372b87888dc3c453";
   private static final BigInteger CHAIN_ID = BigInteger.valueOf(42);
 
+  private final ExecutionContextTestFixture fixture =
+      ExecutionContextTestFixture.builder(GenesisConfig.fromResource(GENESIS_RESOURCE))
+          .dataStorageFormat(DataStorageFormat.BONSAI)
+          .build();
+  private final BlockHeader header = fixture.getBlockchain().getChainHeadHeader();
+  private final ProtocolSpec spec = fixture.getProtocolSchedule().getByBlockHeader(header);
+
   @Test
   void tracesContractCreationThatRunsOutOfGasBeforeExecutionStarts() {
-    final ExecutionContextTestFixture fixture =
-        ExecutionContextTestFixture.builder(GenesisConfig.fromResource(GENESIS_RESOURCE))
-            .dataStorageFormat(DataStorageFormat.BONSAI)
-            .build();
-    final BlockHeader header = fixture.getBlockchain().getChainHeadHeader();
-    final ProtocolSpec spec = fixture.getProtocolSchedule().getByBlockHeader(header);
-
-    // Intrinsic gas excludes the EIP-8037 state gas of the created account, so the top frame
-    // halts while charging it, before any code runs.
-    final GasCalculator gasCalculator = spec.getGasCalculator();
-    final Transaction template = contractCreation(1_000_000L);
-    final long intrinsicGas =
-        Math.max(
-            gasCalculator.transactionIntrinsicGasCost(template, 0L),
-            gasCalculator.transactionFloorCost(template));
-    final Transaction tx = contractCreation(intrinsicGas);
-
     final CallTracer tracer =
         new CallTracer(new TraceOptions(TracerType.CALL_TRACER, null, Map.of()));
-    final TransactionProcessingResult result =
-        spec.getTransactionProcessor()
-            .processTransaction(
-                fixture.getStateArchive().getWorldState().updater(),
-                header,
-                tx,
-                header.getCoinbase(),
-                tracer,
-                (frame, number) -> Hash.ZERO,
-                Wei.ZERO);
+    final Transaction tx = contractCreationWithIntrinsicGasOnly();
+
+    final TransactionProcessingResult result = process(tx, tracer);
 
     assertThat(result.isInvalid()).as(result.getValidationResult().toString()).isFalse();
     assertThat(result.isSuccessful()).isFalse();
@@ -91,6 +81,45 @@ class CallTracerTopFrameHaltTest {
     assertThat(trace.getType()).isEqualTo("CREATE");
     assertThat(trace.getError()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_GAS.getDescription());
     assertThat(trace.getCalls()).isNullOrEmpty();
+  }
+
+  @Test
+  void haltedTopFrameIsEnteredAndExitedWithoutExecuting() {
+    final OperationTracer tracer = mock(OperationTracer.class);
+
+    final TransactionProcessingResult result =
+        process(contractCreationWithIntrinsicGasOnly(), tracer);
+
+    assertThat(result.getExceptionalHaltReason()).contains(ExceptionalHaltReason.INSUFFICIENT_GAS);
+    final InOrder inOrder = inOrder(tracer);
+    inOrder.verify(tracer).traceContextEnter(any());
+    inOrder.verify(tracer).traceContextExit(any());
+    verify(tracer, never()).traceContextReEnter(any());
+    verify(tracer, never()).tracePreExecution(any());
+  }
+
+  private Transaction contractCreationWithIntrinsicGasOnly() {
+    // Intrinsic gas excludes the EIP-8037 state gas of the created account, so the top frame
+    // halts while charging it, before any code runs.
+    final GasCalculator gasCalculator = spec.getGasCalculator();
+    final Transaction template = contractCreation(1_000_000L);
+    final long intrinsicGas =
+        Math.max(
+            gasCalculator.transactionIntrinsicGasCost(template, 0L),
+            gasCalculator.transactionFloorCost(template));
+    return contractCreation(intrinsicGas);
+  }
+
+  private TransactionProcessingResult process(final Transaction tx, final OperationTracer tracer) {
+    return spec.getTransactionProcessor()
+        .processTransaction(
+            fixture.getStateArchive().getWorldState().updater(),
+            header,
+            tx,
+            header.getCoinbase(),
+            tracer,
+            (frame, number) -> Hash.ZERO,
+            Wei.ZERO);
   }
 
   private static Transaction contractCreation(final long gasLimit) {

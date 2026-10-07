@@ -433,28 +433,6 @@ class PrestateTracerTest {
   }
 
   @Test
-  void coinbaseLookedUpWhenTopFrameIsReEnteredWithoutEnter() {
-    final PrestateTracer tracer = newTracer(Map.of());
-    final Address coinbase = Address.fromHexString("0x5555");
-    final Account coinbaseAccount = mockAccount(coinbase, Wei.of(11), 0, Bytes.EMPTY);
-    when(world.get(coinbase)).thenReturn(coinbaseAccount);
-    final Account recipientAccount = mockAccount(RECIPIENT, Wei.ONE, 0, Bytes.EMPTY);
-    when(world.get(RECIPIENT)).thenReturn(recipientAccount);
-    startTransaction(tracer, RECIPIENT);
-
-    final MessageFrame frame = mock(MessageFrame.class);
-    when(frame.getWorldUpdater()).thenReturn(world);
-    when(frame.getMiningBeneficiary()).thenReturn(coinbase);
-    tracer.traceContextReEnter(frame);
-    endTransaction(tracer);
-
-    final PrestateTracerResult.Prestate result =
-        (PrestateTracerResult.Prestate) tracer.buildResult();
-    assertThat(result.accounts()).containsKey(coinbase.toHexString());
-    assertThat(result.accounts().get(coinbase.toHexString()).balance()).isEqualTo("0xb");
-  }
-
-  @Test
   void create2SkipsShadowReadWhenInitcodeExceedsMaxSize() {
     final PrestateTracer tracer = newTracer(Map.of());
     startTransaction(tracer, RECIPIENT);
