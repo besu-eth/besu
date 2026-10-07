@@ -25,6 +25,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static wtf.metio.storageunits.model.StorageUnits.mebibyte;
 
 import org.hyperledger.besu.consensus.merge.ForkchoiceEvent;
 import org.hyperledger.besu.datatypes.Hash;
@@ -77,7 +78,6 @@ import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.testutil.TestClock;
-import org.hyperledger.besu.util.number.ByteUnits;
 
 import java.util.Collections;
 import java.util.List;
@@ -120,7 +120,7 @@ public abstract class AbstractBlockPropagationManagerTest {
   protected SyncState syncState;
   protected final MetricsSystem metricsSystem = new NoOpMetricsSystem();
   private final Hash finalizedHash = Hash.fromHexStringLenient("0x1337");
-  private final int maxMessageSize = 10 * ByteUnits.MEGABYTE;
+  private final int maxMessageSize = mebibyte(10).inByte().intValueExact();
 
   protected void setup(final DataStorageFormat dataStorageFormat) {
     peerTaskExecutor = Mockito.mock(PeerTaskExecutor.class);
