@@ -54,6 +54,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.manager.PeerReputation;
 import org.hyperledger.besu.ethereum.eth.manager.RespondingEthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.RespondingEthPeer.Responder;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTask;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutor;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResponseCode;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResult;
@@ -62,6 +63,7 @@ import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetBodiesFromPeer
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetHeadersFromPeerTask;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetHeadersFromPeerTaskExecutorAnswer;
 import org.hyperledger.besu.ethereum.eth.messages.EthProtocolMessages;
+import org.hyperledger.besu.ethereum.eth.messages.GetBlockHeadersMessage;
 import org.hyperledger.besu.ethereum.eth.messages.NewBlockHashesMessage;
 import org.hyperledger.besu.ethereum.eth.messages.NewBlockMessage;
 import org.hyperledger.besu.ethereum.eth.sync.BlockPropagationManager.ProcessingBlocksManager;
@@ -80,6 +82,7 @@ import org.hyperledger.besu.util.number.ByteUnits;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
 
@@ -947,6 +950,47 @@ public abstract class AbstractBlockPropagationManagerTest {
         block -> {
           assertThat(blockchain.contains(block.getHash())).isTrue();
         });
+  }
+
+  @Test
+  public void shouldNotRefetchAnnouncedBlockSavedAsPending() {
+    blockchainUtil.importFirstBlocks(3);
+    // block 4 is announced while its parent, block 3, is missing, so it is saved as pending
+    final Block pendingBlock = blockchainUtil.getBlock(4);
+    final Hash parentHash = pendingBlock.getHeader().getParentHash();
+
+    blockPropagationManager.start();
+
+    // the peer is 7 blocks ahead: the announced block is still in the propagation range but its
+    // parent is not, so a failed parent request is not retried and the block stays pending
+    final RespondingEthPeer peer = EthProtocolManagerTestUtil.createPeer(ethProtocolManager, 7);
+    doReturn(
+            new PeerTaskExecutorResult<>(
+                Optional.empty(),
+                PeerTaskExecutorResponseCode.NO_PEER_AVAILABLE,
+                Collections.emptyList()))
+        .when(peerTaskExecutor)
+        .execute(Mockito.<PeerTask<?>>argThat(task -> isHeadersRequestFor(task, parentHash)));
+
+    EthProtocolManagerTestUtil.broadcastMessage(
+        ethProtocolManager, peer, createNewBlockHashMessage(pendingBlock));
+
+    assertThat(pendingBlocksManager.contains(pendingBlock.getHash())).isTrue();
+    assertThat(blockchain.contains(pendingBlock.getHash())).isFalse();
+
+    // the announced block is fetched once from the announcing peer, and is not requested again
+    // from other peers just because it is waiting for its parent
+    verify(peerTaskExecutor, never())
+        .execute(
+            Mockito.<PeerTask<?>>argThat(
+                task -> isHeadersRequestFor(task, pendingBlock.getHash())));
+  }
+
+  private boolean isHeadersRequestFor(final PeerTask<?> task, final Hash blockHash) {
+    return task instanceof GetHeadersFromPeerTask
+        && GetBlockHeadersMessage.readFrom(task.getRequestMessage(Set.of()))
+            .hash()
+            .equals(Optional.of(blockHash));
   }
 
   private NewBlockHashesMessage createNewBlockHashMessage(final Block block) {
