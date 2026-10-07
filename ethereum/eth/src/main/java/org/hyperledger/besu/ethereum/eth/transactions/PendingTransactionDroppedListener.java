@@ -14,10 +14,9 @@
  */
 package org.hyperledger.besu.ethereum.eth.transactions;
 
-import org.hyperledger.besu.ethereum.core.Transaction;
-
 @FunctionalInterface
 public interface PendingTransactionDroppedListener {
 
-  void onTransactionDropped(Transaction transaction, final RemovalReason reason);
+  void onPendingTransactionDropped(
+      PendingTransaction pendingTransaction, final RemovalReason reason);
 }

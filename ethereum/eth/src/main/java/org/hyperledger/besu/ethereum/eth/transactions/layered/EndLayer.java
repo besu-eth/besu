@@ -165,7 +165,7 @@ public class EndLayer implements TransactionsLayer {
   protected void notifyTransactionDropped(
       final PendingTransaction pendingTransaction, final LayeredRemovalReason reason) {
     onDroppedListeners.forEach(
-        listener -> listener.onTransactionDropped(pendingTransaction.getTransaction(), reason));
+        listener -> listener.onPendingTransactionDropped(pendingTransaction, reason));
   }
 
   @Override
