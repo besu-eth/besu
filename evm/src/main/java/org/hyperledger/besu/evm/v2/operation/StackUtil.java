@@ -148,4 +148,44 @@ final class StackUtil {
     LONG_BE.set(bytes, 12, stack[off + 3]);
     return Address.wrap(Bytes.wrap(bytes));
   }
+
+  /**
+   * Copies the 256-bit word at one stack slot to another.
+   *
+   * @param stack the flat limb array
+   * @param from the slot index to read
+   * @param to the slot index to write
+   */
+  static void copyWord(final long[] stack, final int from, final int to) {
+    final int src = from << 2;
+    final int dst = to << 2;
+    stack[dst] = stack[src];
+    stack[dst + 1] = stack[src + 1];
+    stack[dst + 2] = stack[src + 2];
+    stack[dst + 3] = stack[src + 3];
+  }
+
+  /**
+   * Exchanges the 256-bit words at two stack slots.
+   *
+   * @param stack the flat limb array
+   * @param a the first slot index
+   * @param b the second slot index
+   */
+  static void swapWords(final long[] stack, final int a, final int b) {
+    final int aOffset = a << 2;
+    final int bOffset = b << 2;
+    final long a0 = stack[aOffset];
+    final long a1 = stack[aOffset + 1];
+    final long a2 = stack[aOffset + 2];
+    final long a3 = stack[aOffset + 3];
+    stack[aOffset] = stack[bOffset];
+    stack[aOffset + 1] = stack[bOffset + 1];
+    stack[aOffset + 2] = stack[bOffset + 2];
+    stack[aOffset + 3] = stack[bOffset + 3];
+    stack[bOffset] = a0;
+    stack[bOffset + 1] = a1;
+    stack[bOffset + 2] = a2;
+    stack[bOffset + 3] = a3;
+  }
 }
