@@ -134,7 +134,8 @@ class FrameTransactionProcessorTest {
                 OperationTracer.NO_TRACING,
                 blockHashLookup,
                 TransactionValidationParams.processingBlock(),
-                Wei.ZERO);
+                Wei.ZERO,
+                Optional.empty());
     if (result.isSuccessful()) {
       updater.commit();
     }
@@ -520,7 +521,7 @@ class FrameTransactionProcessorTest {
   }
 
   @Test
-  void invalidSignatureInvalidatesTheTransaction() {
+  void malformedSignatureEntryInvalidatesTheTransaction() {
     final FrameSignature badSignature =
         new FrameSignature(
             FrameSignature.SCHEME_SECP256K1,
@@ -532,7 +533,7 @@ class FrameTransactionProcessorTest {
     final TransactionProcessingResult result = process(transaction);
     assertThat(result.isInvalid()).isTrue();
     assertThat(result.getValidationResult().getInvalidReason())
-        .isEqualTo(TransactionInvalidReason.INVALID_SIGNATURE);
+        .isEqualTo(TransactionInvalidReason.INVALID_TRANSACTION_FORMAT);
   }
 
   @Test

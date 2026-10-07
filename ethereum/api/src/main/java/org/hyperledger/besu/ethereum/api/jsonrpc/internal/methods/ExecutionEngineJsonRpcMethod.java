@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.function.Supplier;
 
 import com.fasterxml.jackson.databind.JsonMappingException;
@@ -204,5 +205,22 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
       return Optional.empty();
     }
     return Optional.ofNullable(fieldEx.getPath().getFirst().getFieldName());
+  }
+
+  /**
+   * The index of the array element decoding failed in, when the failing path runs through a JSON
+   * array. Jackson records this on the path alongside the field names, so a caller can map the
+   * failure back to the request element that caused it without parsing the message text.
+   *
+   * @param fieldEx the mapping exception describing where decoding stopped
+   * @return the first indexed path entry, or empty when the path has none
+   */
+  protected static OptionalInt extractElementIndex(final JsonMappingException fieldEx) {
+    for (final JsonMappingException.Reference reference : fieldEx.getPath()) {
+      if (reference.getIndex() >= 0) {
+        return OptionalInt.of(reference.getIndex());
+      }
+    }
+    return OptionalInt.empty();
   }
 }

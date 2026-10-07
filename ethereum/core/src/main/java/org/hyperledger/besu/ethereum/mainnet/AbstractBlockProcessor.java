@@ -40,6 +40,7 @@ import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessingContext;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
+import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
@@ -297,6 +298,36 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         if (!(transactionUpdater instanceof StackedUpdater<?, ?>)) {
           transactionUpdater = blockUpdater;
         }
+        // EIP-8141: a frame transaction's gas is derived from its frames and signature entries,
+        // so it only means anything once those are statically valid -- an undefined signature
+        // scheme has no verification cost and saturates the intrinsic gas. Check static validity
+        // first, or the budget check below rejects such a transaction as a gas failure and the
+        // frame constraint that actually made it invalid is never reported.
+        if (transaction.getType().supportsFrames()) {
+          final ValidationResult<TransactionInvalidReason> frameValidity =
+              protocolSpec
+                  .getTransactionValidatorFactory()
+                  .get()
+                  .validate(
+                      transaction,
+                      blockHeader.getBaseFee(),
+                      Optional.ofNullable(blobGasPrice),
+                      TransactionValidationParams.processingBlock());
+          if (!frameValidity.isValid()) {
+            final String errorMessage =
+                MessageFormat.format(
+                    "Block processing error: transaction invalid {0}. Block {1} Transaction {2}",
+                    frameValidity.getErrorMessage(),
+                    blockHeader.getHash().getBytes().toHexString(),
+                    transaction.getHash().getBytes().toHexString());
+            LOG.info(errorMessage);
+            if (worldState instanceof BonsaiWorldState) {
+              ((BonsaiWorldStateUpdateAccumulator) blockUpdater).reset();
+            }
+            return new BlockProcessingResult(Optional.empty(), errorMessage);
+          }
+        }
+
         // EIP-8037: per-dimension 2D-aware budget check using
         // worst-case execution and state consumption derived from transaction intrinsics.
         if (!hasAvailableBlockBudget(

@@ -207,14 +207,21 @@ public class MainnetTransactionValidator implements TransactionValidator {
       if (frame.flags() < 0 || frame.flags() > 7) {
         return frameInvalid("reserved frame flag bits set: " + frame.flags());
       }
+      // The EIP permits a single limit up to 2^64-1, but Besu holds frame gas in a signed long and
+      // the execution path subtracts and compares it as one -- MessageFrame.initialGas, the state
+      // gas reservoir, and the used-gas arithmetic in FrameTransactionProcessor all assume a
+      // non-negative value. A limit at or above 2^63 is therefore rejected as unexecutable rather
+      // than accepted and mishandled.
       if (frame.executionGasLimit() < 0 || frame.stateGasLimit() < 0) {
         return frameInvalid("frame gas limits exceed 2^63-1");
       }
-      try {
-        totalFrameGas =
-            Math.addExact(
-                totalFrameGas, Math.addExact(frame.executionGasLimit(), frame.stateGasLimit()));
-      } catch (final ArithmeticException ae) {
+      // The running total is only bounded by the EIP's 2^64, which is above what a signed long can
+      // express, so it is accumulated and compared as unsigned. Each addend is at most 2^63-1 by
+      // the check above, so a single frame's pair cannot wrap; only the running total can, which
+      // shows up as a sum that is unsigned-smaller than what was just added to it.
+      final long frameGas = frame.executionGasLimit() + frame.stateGasLimit();
+      totalFrameGas += frameGas;
+      if (Long.compareUnsigned(totalFrameGas, frameGas) < 0) {
         return frameInvalid("total frame gas exceeds 2^64-1");
       }
       if (frame.mode() != org.hyperledger.besu.ethereum.core.Frame.MODE_SENDER
@@ -394,11 +401,12 @@ public class MainnetTransactionValidator implements TransactionValidator {
     final long intrinsicGasLimitCap = gasLimitCalculator.transactionIntrinsicGasLimitCap();
     if (!transactionValidationParams.isAllowExceedingGasLimit()
         && Long.compareUnsigned(intrinsicGasCostOrFloor, intrinsicGasLimitCap) > 0) {
+      // Exceeding the protocol cap is a different failure from exceeding the transaction's own
+      // gas limit, checked immediately below. Report it the way the plain gas limit cap above
+      // does, so the two stay distinguishable rather than sharing one message.
       return ValidationResult.invalid(
-          TransactionInvalidReason.INTRINSIC_GAS_EXCEEDS_GAS_LIMIT,
-          String.format(
-              "intrinsic gas cost %s exceeds gas limit %s",
-              intrinsicGasCostOrFloor, intrinsicGasLimitCap));
+          TransactionInvalidReason.EXCEEDS_TRANSACTION_GAS_LIMIT,
+          "Transaction gas limit must be at most " + intrinsicGasLimitCap);
     }
 
     if (Long.compareUnsigned(intrinsicGasCostOrFloor, transaction.getGasLimit()) > 0) {

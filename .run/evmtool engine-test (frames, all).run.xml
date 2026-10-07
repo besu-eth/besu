@@ -1,0 +1,10 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="evmtool engine-test (frames, all)" type="Application" factoryName="Application">
+    <option name="MAIN_CLASS_NAME" value="org.hyperledger.besu.evmtool.EvmTool" />
+    <module name="besu.ethereum.evmtool.main" />
+    <option name="PROGRAM_PARAMETERS" value="engine-test --workers=1 --verbose $PROJECT_DIR$/../frames-fixtures/eip8141" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

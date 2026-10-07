@@ -30,6 +30,7 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
@@ -265,6 +266,9 @@ public class MainnetBlockValidatorTest {
   public void validateAndProcessBlock_whenTransactionExceedsBlockGasLimit() {
     final Transaction oversizedTransaction = mock(Transaction.class);
     when(oversizedTransaction.getGasLimit()).thenReturn(block.getHeader().getGasLimit() + 1);
+    // The check consults the type to exempt EIP-8141 frame transactions, whose gas limit is a
+    // derived max_gas rather than what they occupy in a block.
+    when(oversizedTransaction.getType()).thenReturn(TransactionType.FRONTIER);
     final Block blockWithOversizedTransaction =
         new Block(
             block.getHeader(),

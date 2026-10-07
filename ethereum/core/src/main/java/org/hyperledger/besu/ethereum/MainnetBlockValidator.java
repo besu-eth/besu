@@ -334,6 +334,13 @@ public class MainnetBlockValidator implements BlockValidator {
   private static boolean transactionsExceedBlockGasLimit(final Block block) {
     final long blockGasLimit = block.getHeader().getGasLimit();
     for (final Transaction transaction : block.getBody().getTransactions()) {
+      // EIP-8141: a frame transaction's gas limit is the EIP's derived max_gas, which is not what
+      // the transaction occupies in the block -- its per-dimension execution and state
+      // reservations are, and those are checked against the block budget during processing.
+      // Comparing max_gas here would reject frame transactions that do fit.
+      if (transaction.getType().supportsFrames()) {
+        continue;
+      }
       if (transaction.getGasLimit() > blockGasLimit) {
         return true;
       }

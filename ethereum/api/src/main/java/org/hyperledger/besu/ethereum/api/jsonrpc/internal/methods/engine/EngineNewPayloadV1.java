@@ -25,6 +25,7 @@ import static org.hyperledger.besu.metrics.BesuMetricCategory.BLOCK_PROCESSING;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
@@ -47,6 +48,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
 import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.encoding.FrameFieldException;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
@@ -56,10 +58,14 @@ import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalInt;
 
 import com.fasterxml.jackson.databind.JsonMappingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import org.apache.tuweni.bytes.Bytes;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -304,11 +310,42 @@ public sealed class EngineNewPayloadV1<
               0, getPayloadParameterClass(), FAIL_ON_UNKNOWN_BUT_EMPTY);
     } catch (JsonRpcParameterException e) {
       throw new InvalidRequestParametersException(
-          "Invalid engine payload parameter (index 0)",
-          RpcErrorType.INVALID_ENGINE_NEW_PAYLOAD_PARAMS,
-          e);
+              "Invalid engine payload parameter (index 0)",
+              RpcErrorType.INVALID_ENGINE_NEW_PAYLOAD_PARAMS,
+              e)
+          .withRawTransactions(readRawTransactions(requestContext));
     }
     return blockParam;
+  }
+
+  /**
+   * The request's {@code transactions} entries as they arrived, before any decoding. Used only to
+   * describe a decoding failure, so anything unexpected yields an empty list rather than throwing:
+   * this runs on a path that is already reporting an error.
+   *
+   * @param requestContext the request whose payload failed to deserialise
+   * @return the raw transaction strings, or an empty list when they cannot be read
+   */
+  private static List<String> readRawTransactions(final JsonRpcRequestContext requestContext) {
+    final Object[] params = requestContext.getRequest().getParams();
+    if (params == null || params.length == 0) {
+      return List.of();
+    }
+    // The payload arrives as a Map over the wire, where Jackson binds the untyped params, but as a
+    // JsonNode from callers that hand the engine method a parsed tree -- evmtool's engine-test
+    // does. Both have to be understood, or the failing entry cannot be identified.
+    return switch (params[0]) {
+      case Map<?, ?> payload when payload.get("transactions") instanceof List<?> transactions ->
+          transactions.stream().map(tx -> tx instanceof String hex ? hex : null).toList();
+      case JsonNode payload when payload.path("transactions").isArray() -> {
+        final List<String> transactions = new ArrayList<>();
+        payload
+            .path("transactions")
+            .forEach(tx -> transactions.add(tx.isTextual() ? tx.asText() : null));
+        yield transactions;
+      }
+      case null, default -> List.of();
+    };
   }
 
   @SuppressWarnings("unchecked")
@@ -581,9 +618,17 @@ public sealed class EngineNewPayloadV1<
       if (maybeJsonPath.isPresent()) {
         final String jsonPath = maybeJsonPath.get();
         if (jsonPath.equals("transactions")) {
+          // EIP-8141: a frame transaction's field widths are validity rules in the spec, not
+          // encoding rules, so an over-wide field reaches here as a generic RLP failure. Report
+          // the failing entry's type when it is a frame transaction, so the rejection is
+          // attributable to the frame format rather than only to RLP structure.
           return respondWithInvalid(
               reqId,
-              "Failed to decode transactions from block parameter (" + describe(fieldEx) + ")");
+              failedOnFrameTransaction(e, fieldEx)
+                  ? "Invalid frame transaction format (" + describe(fieldEx) + ")"
+                  : "Failed to decode transactions from block parameter ("
+                      + describe(fieldEx)
+                      + ")");
         } else if (jsonPath.equals("extraData")) {
           customMessage =
               "Failed to decode extraData from block parameter (" + describe(fieldEx) + ")";
@@ -597,6 +642,40 @@ public sealed class EngineNewPayloadV1<
             RpcErrorType.INVALID_ENGINE_NEW_PAYLOAD_PARAMS,
             Objects.requireNonNullElse(
                 customMessage, "Failed to decode block parameter (" + e.getMessage() + ")")));
+  }
+
+  /**
+   * Whether the transaction decoding stopped on is a frame transaction, judged from the type byte
+   * of the entry the request actually carried. Every step is tolerant of the unexpected: a path
+   * without an index, an index outside the list, a non-hex entry or an empty transaction all answer
+   * false, leaving the generic message in place.
+   *
+   * @param e the exception carrying the request's raw transactions
+   * @param fieldEx the mapping exception naming the entry decoding stopped on
+   * @return true when that entry is an EIP-8141 frame transaction
+   */
+  private static boolean failedOnFrameTransaction(
+      final InvalidRequestParametersException e, final JsonMappingException fieldEx) {
+    // A field the decoder could name already says more than "this was a frame transaction", so
+    // leave that message alone: reporting both would claim two categories for one failure.
+    if (extractCauseByType(fieldEx, FrameFieldException.class).isPresent()) {
+      return false;
+    }
+    final OptionalInt index = extractElementIndex(fieldEx);
+    final List<String> transactions = e.getRawTransactions();
+    if (index.isEmpty() || index.getAsInt() >= transactions.size()) {
+      return false;
+    }
+    final String transaction = transactions.get(index.getAsInt());
+    if (transaction == null) {
+      return false;
+    }
+    try {
+      final Bytes bytes = Bytes.fromHexStringLenient(transaction);
+      return !bytes.isEmpty() && bytes.get(0) == TransactionType.FRAME.getSerializedType();
+    } catch (final IllegalArgumentException notHex) {
+      return false;
+    }
   }
 
   /**
@@ -622,9 +701,25 @@ public sealed class EngineNewPayloadV1<
   protected static class InvalidRequestParametersException extends InvalidJsonRpcRequestException {
     private final ExecutionPayloadV1 payloadParameter;
 
+    /**
+     * The request's raw {@code transactions} entries. Kept because the payload cannot be
+     * deserialised when this is thrown, and the handler still needs to see which entry failed and
+     * what transaction type it was.
+     */
+    private transient List<String> rawTransactions = List.of();
+
     InvalidRequestParametersException(final String message, final RpcErrorType rpcErrorType) {
       super(message, rpcErrorType);
       this.payloadParameter = null;
+    }
+
+    InvalidRequestParametersException withRawTransactions(final List<String> transactions) {
+      this.rawTransactions = transactions;
+      return this;
+    }
+
+    List<String> getRawTransactions() {
+      return rawTransactions;
     }
 
     InvalidRequestParametersException(

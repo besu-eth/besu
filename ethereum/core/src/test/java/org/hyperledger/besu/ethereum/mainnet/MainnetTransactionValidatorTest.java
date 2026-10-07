@@ -41,6 +41,7 @@ import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.GasLimitCalculator;
 import org.hyperledger.besu.ethereum.core.BlobTestFixture;
+import org.hyperledger.besu.ethereum.core.Frame;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.core.kzg.Blob;
@@ -936,6 +937,74 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
         Arguments.of(ValidationParamsVariant.PROCESSING, Long.MIN_VALUE, false),
         Arguments.of(ValidationParamsVariant.SIMULATING, 16_777_216L, true),
         Arguments.of(ValidationParamsVariant.SIMULATING, 16_777_217L, true));
+  }
+
+  /**
+   * EIP-8141 bounds the running total of frame gas at 2^64, which is more than a signed long can
+   * express, so the validator accumulates it as unsigned. A total of 2^63 is valid even though it
+   * overflows a signed long; 2^64 is not. No fixture covers this range -- such a transaction is
+   * always rejected later by the EIP-7825 gas cap -- so the boundary is only checked here.
+   */
+  @ParameterizedTest
+  @MethodSource("frameGasLimits")
+  void shouldBoundTotalFrameGasAtTwoToThe64(final List<Frame> frames, final boolean withinBound) {
+    final TransactionValidator validator =
+        createTransactionValidator(
+            gasCalculator,
+            GasLimitCalculator.constant(),
+            FeeMarket.london(0L),
+            false,
+            Optional.of(BigInteger.ONE),
+            Set.of(TransactionType.FRAME),
+            Integer.MAX_VALUE);
+
+    final Transaction transaction =
+        Transaction.builder()
+            .type(TransactionType.FRAME)
+            .chainId(BigInteger.ONE)
+            .nonce(0)
+            .sender(Address.fromHexString("0x1111111111111111111111111111111111111111"))
+            .frames(frames)
+            .frameSignatures(List.of())
+            .maxPriorityFeePerGas(Wei.ZERO)
+            .maxFeePerGas(Wei.ZERO)
+            .maxFeePerBlobGas(Wei.ZERO)
+            .build();
+
+    final ValidationResult<TransactionInvalidReason> result =
+        validator.validate(transaction, Optional.empty(), Optional.empty(), processingBlockParams);
+    // getErrorMessage throws when the result is valid, which is itself a pass for the bound.
+    final String error = result.isValid() ? "" : result.getErrorMessage();
+
+    if (withinBound) {
+      // Within the bound the accumulation must not be what rejects it; later rules, the EIP-7825
+      // cap among them, are another test's business.
+      assertThat(error).doesNotContain("total frame gas exceeds");
+    } else {
+      assertThat(error).contains("total frame gas exceeds 2^64-1");
+    }
+  }
+
+  private static Stream<Arguments> frameGasLimits() {
+    final long twoToThe62 = 1L << 62;
+    return Stream.of(
+        // 2^63 exactly: overflows a signed long, but the EIP allows it.
+        Arguments.of(List.of(frame(twoToThe62, twoToThe62)), true),
+        // 2^64-2, the largest total a single frame can declare.
+        Arguments.of(List.of(frame(Long.MAX_VALUE, Long.MAX_VALUE)), true),
+        // 2^64 exactly: one above the bound, and only reachable across frames.
+        Arguments.of(List.of(frame(Long.MAX_VALUE, Long.MAX_VALUE), frame(2L, 0L)), false));
+  }
+
+  private static Frame frame(final long executionGasLimit, final long stateGasLimit) {
+    return new Frame(
+        Frame.MODE_VERIFY,
+        Frame.APPROVE_SCOPE_MASK,
+        Optional.empty(),
+        executionGasLimit,
+        stateGasLimit,
+        Wei.ZERO,
+        Bytes.EMPTY);
   }
 
   private Account accountWithNonce(final long nonce) {

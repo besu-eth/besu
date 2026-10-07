@@ -14,8 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.mainnet;
 
-import static org.hyperledger.besu.evm.worldstate.CodeDelegationHelper.hasCodeDelegation;
-
 import org.hyperledger.besu.collections.undo.UndoSet;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
@@ -28,10 +26,11 @@ import org.hyperledger.besu.ethereum.core.FrameTransactionGas;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.feemarket.CoinbaseFeePriceCalculator;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
-import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
@@ -68,26 +67,26 @@ public class FrameTransactionProcessor {
   private final GasCalculator gasCalculator;
   private final TransactionValidatorFactory transactionValidatorFactory;
   private final MessageCallProcessor messageCallProcessor;
+  private final TopLevelTransactionSupport topLevelSupport;
   private final boolean clearEmptyAccounts;
   private final int maxStackSize;
   private final FeeMarket feeMarket;
-  private final CoinbaseFeePriceCalculator coinbaseFeePriceCalculator;
 
   FrameTransactionProcessor(
       final GasCalculator gasCalculator,
       final TransactionValidatorFactory transactionValidatorFactory,
       final MessageCallProcessor messageCallProcessor,
+      final TopLevelTransactionSupport topLevelSupport,
       final boolean clearEmptyAccounts,
       final int maxStackSize,
-      final FeeMarket feeMarket,
-      final CoinbaseFeePriceCalculator coinbaseFeePriceCalculator) {
+      final FeeMarket feeMarket) {
     this.gasCalculator = gasCalculator;
     this.transactionValidatorFactory = transactionValidatorFactory;
     this.messageCallProcessor = messageCallProcessor;
+    this.topLevelSupport = topLevelSupport;
     this.clearEmptyAccounts = clearEmptyAccounts;
     this.maxStackSize = maxStackSize;
     this.feeMarket = feeMarket;
-    this.coinbaseFeePriceCalculator = coinbaseFeePriceCalculator;
   }
 
   /** The mutable execution state of one frame while it is being processed. */
@@ -109,6 +108,8 @@ public class FrameTransactionProcessor {
    * @param blockHashLookup the BLOCKHASH lookup
    * @param transactionValidationParams the validation parameters
    * @param blobGasPrice the current blob gas price
+   * @param accessLocationTracker the EIP-7928 access location tracker for this transaction, when
+   *     the fork builds a block access list
    * @return the processing result
    */
   public TransactionProcessingResult processTransaction(
@@ -119,7 +120,8 @@ public class FrameTransactionProcessor {
       final OperationTracer operationTracer,
       final BlockHashLookup blockHashLookup,
       final TransactionValidationParams transactionValidationParams,
-      final Wei blobGasPrice) {
+      final Wei blobGasPrice,
+      final Optional<AccessLocationTracker> accessLocationTracker) {
     final var transactionValidator = transactionValidatorFactory.get();
     ValidationResult<TransactionInvalidReason> validationResult =
         transactionValidator.validate(
@@ -133,6 +135,8 @@ public class FrameTransactionProcessor {
     }
 
     final Address senderAddress = transaction.getSender();
+    // EIP-7928: the declared sender is touched by the transaction regardless of which frames run.
+    accessLocationTracker.ifPresent(t -> t.addTouchedAccount(senderAddress));
     final Account senderAtStart = worldState.get(senderAddress);
 
     // EIP-8141: tx.nonce must equal the sender's current nonce; the nonce is incremented by
@@ -154,11 +158,11 @@ public class FrameTransactionProcessor {
     final Bytes32 signatureHash = Bytes32.wrap(transaction.getFrameSignatureHash().getBytes());
 
     for (final FrameSignature signature : signatures) {
-      if (!FrameTransactionSignatureValidator.validate(signature, senderAddress, signatureHash)) {
+      final Optional<FrameTransactionSignatureValidator.Invalidity> invalidity =
+          FrameTransactionSignatureValidator.validate(signature, senderAddress, signatureHash);
+      if (invalidity.isPresent()) {
         return TransactionProcessingResult.invalid(
-            ValidationResult.invalid(
-                TransactionInvalidReason.INVALID_SIGNATURE,
-                "invalid frame transaction signature entry"));
+            ValidationResult.invalid(invalidity.get().reason(), invalidity.get().message()));
       }
     }
 
@@ -173,6 +177,16 @@ public class FrameTransactionProcessor {
 
     final Wei effectiveGasPrice =
         feeMarket.getTransactionPriceCalculator().price(transaction, blockHeader.getBaseFee());
+    // Decided before any frame runs: an underpriced frame transaction has no fee-less failure mode.
+    final Optional<CoinbaseFeePriceCalculator> coinbaseCalculator =
+        topLevelSupport.coinbaseCalculator(
+            blockHeader, effectiveGasPrice, transactionValidationParams);
+    if (coinbaseCalculator.isEmpty()) {
+      return TransactionProcessingResult.invalid(
+          ValidationResult.invalid(
+              TransactionInvalidReason.TRANSACTION_PRICE_TOO_LOW,
+              "transaction price must be greater than base fee"));
+    }
     final long blobGas = gasCalculator.blobGasCost(transaction.getBlobCount());
     final Wei blobFee = blobGasPrice == null ? Wei.ZERO : blobGasPrice.multiply(blobGas);
     final java.math.BigInteger maxCostExact =
@@ -301,9 +315,8 @@ public class FrameTransactionProcessor {
           targetAccount == null
               || targetAccount.getCodeHash() == null
               || targetAccount.getCodeHash().equals(Hash.EMPTY);
-      final boolean isDelegated = !hasEmptyCode && hasCodeDelegation(targetAccount.getCode());
 
-      final MessageFrame evmFrame =
+      final MessageFrame.Builder evmFrameBuilder =
           MessageFrame.builder()
               .txValues(txValues)
               .type(MessageFrame.Type.MESSAGE_CALL)
@@ -315,7 +328,16 @@ public class FrameTransactionProcessor {
               .sender(caller)
               .value(frame.value())
               .apparentValue(frame.value())
-              .code(resolveCode(activeUpdater, targetAccount, isDelegated))
+              .code(
+                  topLevelSupport.accountCode(
+                      targetAccount,
+                      delegated ->
+                          CodeDelegationHelper.getTarget(
+                                  activeUpdater,
+                                  gasCalculator::isPrecompile,
+                                  delegated,
+                                  Optional.empty())
+                              .code()))
               .isStatic(frame.mode() == Frame.MODE_VERIFY)
               .maxStackSize(maxStackSize)
               .originator(caller)
@@ -324,23 +346,23 @@ public class FrameTransactionProcessor {
               .blockValues(blockHeader)
               .miningBeneficiary(miningBeneficiary)
               .blockHashLookup(blockHashLookup)
-              .completer(__ -> {})
-              .build();
+              .completer(__ -> {});
+      // Shared across every frame: one tracker per transaction, as for a non-frame transaction.
+      accessLocationTracker.ifPresent(evmFrameBuilder::eip7928AccessList);
+      final MessageFrame evmFrame = evmFrameBuilder.build();
 
       boolean prepared = true;
       boolean exceptionalPreparation = false;
 
       // Charge the resolved target's warm/cold account access from the frame's execution pool.
-      final boolean targetWasWarm = evmFrame.warmUpAddress(resolvedTarget) || isPrecompile;
-      final long accessCharge =
-          targetWasWarm
-              ? gasCalculator.getWarmStorageReadCost()
-              : gasCalculator.getColdAccountAccessCost();
-      if (evmFrame.getRemainingGas() < accessCharge) {
+      if (!topLevelSupport.chargeAccountAccess(evmFrame, resolvedTarget)) {
         prepared = false;
         exceptionalPreparation = true;
       } else {
-        evmFrame.decrementRemainingGas(accessCharge);
+        // EIP-7928: record the target only once its access has actually been paid for. A frame
+        // that halts on the entry charge never accessed it, so it must not appear in the block
+        // access list -- including when the halt unrolls an atomic batch.
+        accessLocationTracker.ifPresent(t -> t.addTouchedAccount(resolvedTarget));
       }
 
       boolean nativeDefaultVerify = false;
@@ -351,37 +373,16 @@ public class FrameTransactionProcessor {
 
       boolean valueBalanceFailure = false;
       if (prepared && !nativeDefaultVerify) {
-        if (!frame.value().isZero()) {
-          final Account callerAccount = activeUpdater.get(caller);
-          final Wei callerBalance = callerAccount == null ? Wei.ZERO : callerAccount.getBalance();
-          if (callerBalance.lessThan(frame.value())) {
-            // Revert-style failure: keeps the unspent execution gas.
-            prepared = false;
-            valueBalanceFailure = true;
-          } else if ((targetAccount == null || targetAccount.isEmpty())
-              && !evmFrame.consumeStateGas(
-                  gasCalculator.stateGasCostCalculator().newAccountStateGas())) {
-            prepared = false;
-            exceptionalPreparation = true;
-          }
-        }
-        if (prepared && isDelegated) {
-          // EIP-7702: resolving the delegated code charges the target's warm/cold access too.
-          final Address delegationTarget =
-              CodeDelegationHelper.getTargetAddress(targetAccount.getCode());
-          final boolean delegationTargetWasWarm =
-              evmFrame.warmUpAddress(delegationTarget)
-                  || gasCalculator.isPrecompile(delegationTarget);
-          final long delegationAccessCharge =
-              delegationTargetWasWarm
-                  ? gasCalculator.getWarmStorageReadCost()
-                  : gasCalculator.getColdAccountAccessCost();
-          if (evmFrame.getRemainingGas() < delegationAccessCharge) {
-            prepared = false;
-            exceptionalPreparation = true;
-          } else {
-            evmFrame.decrementRemainingGas(delegationAccessCharge);
-          }
+        if (!frame.value().isZero() && balanceOf(activeUpdater, caller).lessThan(frame.value())) {
+          // Revert-style failure: keeps the unspent execution gas.
+          prepared = false;
+          valueBalanceFailure = true;
+        } else if (!topLevelSupport.chargeTransactionEntry(
+            evmFrame, activeUpdater, resolvedTarget)) {
+          // EIP-2780 dispatch entry: NEW_ACCOUNT for value to an empty target, then the access to
+          // a delegated target's delegation target, as for a top-level call.
+          prepared = false;
+          exceptionalPreparation = true;
         }
       }
 
@@ -500,25 +501,21 @@ public class FrameTransactionProcessor {
 
     final Wei chargedFee = effectiveGasPrice.multiply(gasUsed).addExact(blobFee);
     final Wei payerRefund = maxCost.subtract(chargedFee);
+    // EIP-7928: the payer settles the fee and so is touched, even when it is not the sender.
+    accessLocationTracker.ifPresent(t -> t.addTouchedAccount(payer));
     final MutableAccount payerAccount = worldUpdater.getOrCreate(payer);
     payerAccount.incrementBalance(payerRefund);
 
-    final CoinbaseFeePriceCalculator coinbaseCalculator =
-        blockHeader.getBaseFee().isPresent()
-            ? coinbaseFeePriceCalculator
-            : CoinbaseFeePriceCalculator.frontier();
     final Wei coinbaseWeiDelta =
-        coinbaseCalculator.price(gasUsed, effectiveGasPrice, blockHeader.getBaseFee());
+        coinbaseCalculator.get().price(gasUsed, effectiveGasPrice, blockHeader.getBaseFee());
     operationTracer.traceBeforeRewardTransaction(worldUpdater, transaction, coinbaseWeiDelta);
-    final MutableAccount coinbase = worldUpdater.getOrCreate(miningBeneficiary);
-    if (!coinbaseWeiDelta.isZero()) {
-      coinbase.incrementBalance(coinbaseWeiDelta);
-    }
+    TopLevelTransactionSupport.creditCoinbase(
+        worldUpdater, miningBeneficiary, coinbaseWeiDelta, accessLocationTracker);
 
     worldUpdater.commit();
 
     final Set<Address> selfDestructs = Set.copyOf(txValues.selfDestructs());
-    settleSelfDestructs(worldState, selfDestructs);
+    topLevelSupport.settleSelfDestructs(worldState, selfDestructs);
     if (clearEmptyAccounts) {
       worldState.clearAccountsThatAreEmpty();
     }
@@ -540,6 +537,11 @@ public class FrameTransactionProcessor {
     operationTracer.traceEndTransaction(
         worldState.updater(), transaction, true, Bytes.EMPTY, allLogs, gasUsed, selfDestructs, 0L);
 
+    // Built after self-destruct settlement and empty-account clearing, so the diff against the
+    // transaction updater sees the final state, matching MainnetTransactionProcessor.
+    final Optional<PartialBlockAccessView> partialBlockAccessView =
+        accessLocationTracker.map(tracker -> tracker.createPartialBlockAccessView(worldState));
+
     final TransactionProcessingResult result =
         TransactionProcessingResult.successful(
             allLogs,
@@ -548,7 +550,7 @@ public class FrameTransactionProcessor {
             gasUsed,
             txStateGas,
             Bytes.EMPTY,
-            Optional.empty(),
+            partialBlockAccessView,
             validationResult);
     result.setExecutionGasUsedForBlock(blockExecutionGas);
     result.setFrameTransactionOutcome(
@@ -569,6 +571,11 @@ public class FrameTransactionProcessor {
       start--;
     }
     return j >= start;
+  }
+
+  private static Wei balanceOf(final WorldUpdater worldUpdater, final Address address) {
+    final Account account = worldUpdater.get(address);
+    return account == null ? Wei.ZERO : account.getBalance();
   }
 
   /**
@@ -603,44 +610,5 @@ public class FrameTransactionProcessor {
             allowedScope,
             gasCalculator.stateGasCostCalculator()::newAccountStateGas)
         == ApproveOperation.ApprovalResult.SUCCESS;
-  }
-
-  private Code resolveCode(
-      final WorldUpdater worldUpdater, final Account targetAccount, final boolean isDelegated) {
-    if (targetAccount == null) {
-      return Code.EMPTY_CODE;
-    }
-    final Hash codeHash = targetAccount.getCodeHash();
-    if (codeHash == null || codeHash.equals(Hash.EMPTY)) {
-      return Code.EMPTY_CODE;
-    }
-    if (isDelegated) {
-      final CodeDelegationHelper.Target target =
-          CodeDelegationHelper.getTarget(
-              worldUpdater, gasCalculator::isPrecompile, targetAccount, Optional.empty());
-      return target.code();
-    }
-    if (targetAccount.getCodeCache() != null) {
-      return targetAccount.getOrCreateCachedCode();
-    }
-    return messageCallProcessor.getOrCreateCachedJumpDest(codeHash, targetAccount.getCode());
-  }
-
-  /** Mirrors {@link MainnetTransactionProcessor}'s self-destruct settlement. */
-  private void settleSelfDestructs(
-      final WorldUpdater worldState, final Set<Address> selfDestructs) {
-    if (gasCalculator.isSelfDestructBalancePreserved()) {
-      selfDestructs.forEach(
-          address -> {
-            final MutableAccount account = worldState.getAccount(address);
-            if (account != null) {
-              account.setNonce(0L);
-              account.setCode(Bytes.EMPTY);
-              account.clearStorage();
-            }
-          });
-    } else {
-      selfDestructs.forEach(worldState::deleteAccount);
-    }
   }
 }

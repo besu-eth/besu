@@ -15,11 +15,9 @@
 package org.hyperledger.besu.ethereum.mainnet;
 
 import static org.hyperledger.besu.evm.worldstate.CodeDelegationHelper.getTarget;
-import static org.hyperledger.besu.evm.worldstate.CodeDelegationHelper.hasCodeDelegation;
 
 import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
@@ -88,6 +86,8 @@ public class MainnetTransactionProcessor {
 
   private final TransferLogEmitter transferLogEmitter;
 
+  private final TopLevelTransactionSupport topLevelSupport;
+
   private final Optional<FrameTransactionProcessor> maybeFrameTransactionProcessor;
 
   private MainnetTransactionProcessor(
@@ -114,6 +114,9 @@ public class MainnetTransactionProcessor {
     this.coinbaseFeePriceCalculator = coinbaseFeePriceCalculator;
     this.maybeCodeDelegationProcessor = Optional.ofNullable(maybeCodeDelegationProcessor);
     this.transferLogEmitter = transferLogEmitter;
+    this.topLevelSupport =
+        new TopLevelTransactionSupport(
+            gasCalculator, messageCallProcessor, coinbaseFeePriceCalculator);
     this.maybeFrameTransactionProcessor =
         supportsFrameTransactions
             ? Optional.of(
@@ -121,10 +124,10 @@ public class MainnetTransactionProcessor {
                     gasCalculator,
                     transactionValidatorFactory,
                     messageCallProcessor,
+                    topLevelSupport,
                     clearEmptyAccounts,
                     maxStackSize,
-                    feeMarket,
-                    coinbaseFeePriceCalculator))
+                    feeMarket))
             : Optional.empty();
   }
 
@@ -241,7 +244,8 @@ public class MainnetTransactionProcessor {
                 operationTracer,
                 blockHashLookup,
                 transactionValidationParams,
-                blobGasPrice);
+                blobGasPrice,
+                accessLocationTracker);
       }
 
       final var transactionValidator = transactionValidatorFactory.get();
@@ -601,49 +605,32 @@ public class MainnetTransactionProcessor {
           gasUsedByTransaction,
           stateGasUsed,
           initialFrame.getStateGasReservoir());
-      final CoinbaseFeePriceCalculator coinbaseCalculator;
-      if (blockHeader.getBaseFee().isPresent()) {
-        final Wei baseFee = blockHeader.getBaseFee().get();
-        final boolean gasPriceBelowBaseFee = transactionGasPrice.compareTo(baseFee) < 0;
-        if (transactionValidationParams.allowUnderpricedGas()
-            || transactionValidationParams.isPreserveCallerGasPricing()) {
-          coinbaseCalculator =
-              gasPriceBelowBaseFee ? (a, b, c) -> Wei.ZERO : coinbaseFeePriceCalculator;
-        } else {
-          if (gasPriceBelowBaseFee) {
-            final Optional<PartialBlockAccessView> partialBlockAccessView =
-                accessLocationTracker.map(
-                    tracker -> tracker.createPartialBlockAccessView(worldState));
-            return TransactionProcessingResult.failed(
-                gasUsedByTransaction,
-                refundedGas,
-                usedGas,
-                stateGasUsed,
-                ValidationResult.invalid(
-                    TransactionInvalidReason.TRANSACTION_PRICE_TOO_LOW,
-                    "transaction price must be greater than base fee"),
-                Optional.empty(),
-                Optional.empty(),
-                partialBlockAccessView);
-          }
-          coinbaseCalculator = coinbaseFeePriceCalculator;
-        }
-      } else {
-        coinbaseCalculator = CoinbaseFeePriceCalculator.frontier();
+      final Optional<CoinbaseFeePriceCalculator> coinbaseCalculator =
+          topLevelSupport.coinbaseCalculator(
+              blockHeader, transactionGasPrice, transactionValidationParams);
+      if (coinbaseCalculator.isEmpty()) {
+        final Optional<PartialBlockAccessView> partialBlockAccessView =
+            accessLocationTracker.map(tracker -> tracker.createPartialBlockAccessView(worldState));
+        return TransactionProcessingResult.failed(
+            gasUsedByTransaction,
+            refundedGas,
+            usedGas,
+            stateGasUsed,
+            ValidationResult.invalid(
+                TransactionInvalidReason.TRANSACTION_PRICE_TOO_LOW,
+                "transaction price must be greater than base fee"),
+            Optional.empty(),
+            Optional.empty(),
+            partialBlockAccessView);
       }
 
       final Wei coinbaseWeiDelta =
-          coinbaseCalculator.price(usedGas, transactionGasPrice, blockHeader.getBaseFee());
+          coinbaseCalculator.get().price(usedGas, transactionGasPrice, blockHeader.getBaseFee());
 
       operationTracer.traceBeforeRewardTransaction(worldUpdater, transaction, coinbaseWeiDelta);
 
-      // EIP-158 & EIP-7928: coinbase is considered "touched" even when fees are zero.
-      // Touching ensures an *empty* coinbase can be deleted during state clearing.
-      final MutableAccount coinbase = worldState.getOrCreate(miningBeneficiary);
-      accessLocationTracker.ifPresent(t -> t.addTouchedAccount(miningBeneficiary));
-      if (!coinbaseWeiDelta.isZero()) {
-        coinbase.incrementBalance(coinbaseWeiDelta);
-      }
+      TopLevelTransactionSupport.creditCoinbase(
+          worldState, miningBeneficiary, coinbaseWeiDelta, accessLocationTracker);
 
       // For a failed transaction all selfDestructs must have been rolled back by the frame.
       // Guard here as defense-in-depth: if any leak path (e.g. executionGasLimitExceeded) leaves
@@ -669,7 +656,7 @@ public class MainnetTransactionProcessor {
           effectiveSelfDestructs,
           0L);
 
-      settleSelfDestructs(worldState, effectiveSelfDestructs);
+      topLevelSupport.settleSelfDestructs(worldState, effectiveSelfDestructs);
 
       if (clearEmptyAccounts) {
         worldState.clearAccountsThatAreEmpty();
@@ -905,7 +892,7 @@ public class MainnetTransactionProcessor {
           // Measured because the leaf it pays for rolls back with a failed transaction, unlike a
           // delegation, which survives one.
           final StateGasMark mark = StateGasMark.of(initialFrame);
-          outOfGas = !chargeTransactionEntry(initialFrame, frameWorldState, to, stateGasCalc);
+          outOfGas = !topLevelSupport.chargeTransactionEntry(initialFrame, frameWorldState, to);
           recipient = mark.chargeSince(initialFrame);
         }
       }
@@ -953,75 +940,6 @@ public class MainnetTransactionProcessor {
     return true;
   }
 
-  /**
-   * Charges the EIP-2780 dispatch-entry costs on the depth-0 frame of a non-create transaction:
-   * NEW_ACCOUNT when value materialises an empty recipient leaf, then the access to a delegated
-   * recipient's target. {@code worldState} is the transaction-level updater, which already has the
-   * recipient cached from code resolution, so reading it pre-value-transfer costs no extra lookup.
-   *
-   * @return true if both charges were afforded, false on out-of-gas
-   */
-  private boolean chargeTransactionEntry(
-      final MessageFrame initialFrame,
-      final WorldUpdater worldState,
-      final Address to,
-      final StateGasCostCalculator stateGasCalc) {
-    final Account recipient = worldState.get(to);
-    // Positive value to a non-alive recipient. Precompiles are deliberately not excluded, since
-    // a zero-balance precompile is not "alive" under EIP-161 either.
-    if (!initialFrame.getValue().isZero()
-        && (recipient == null || recipient.isEmpty())
-        && !initialFrame.consumeStateGas(stateGasCalc.newAccountStateGas())) {
-      return false;
-    }
-    // EIP-2780: the top-level access to a delegated recipient's target is warm/cold aware.
-    if (recipient != null && hasCodeDelegation(recipient.getCode())) {
-      final Address target = CodeDelegationHelper.getTargetAddress(recipient.getCode());
-      // Precompiles are warm by construction, but warmUpAddress still has to run: its side effect
-      // must stand for any later access.
-      final boolean targetWasWarm =
-          initialFrame.warmUpAddress(target) || gasCalculator.isPrecompile(target);
-      final long delegationAccessCost =
-          targetWasWarm
-              ? gasCalculator.getWarmStorageReadCost()
-              : gasCalculator.getColdAccountAccessCost();
-      if (initialFrame.getRemainingGas() < delegationAccessCost) {
-        return false;
-      }
-      initialFrame.decrementRemainingGas(delegationAccessCost);
-      // EIP-7928: the target is loaded only once its access is paid for, so an access charge that
-      // runs out of gas has to leave it out of the list entirely.
-      initialFrame.getEip7928AccessList().ifPresent(bal -> bal.addTouchedAccount(target));
-    }
-    return true;
-  }
-
-  /**
-   * Settles accounts marked for self-destruction at transaction finalization. Under EIP-8246 each
-   * account is cleared (nonce reset, code and storage removed) but keeps its balance — EIP-161
-   * state clearing (via {@code clearAccountsThatAreEmpty}) then removes any account left with a
-   * zero balance. Pre-EIP-8246 the accounts are deleted outright.
-   *
-   * @param worldState the world state updater
-   * @param selfDestructs the addresses marked for self-destruction
-   */
-  private void settleSelfDestructs(
-      final WorldUpdater worldState, final Set<Address> selfDestructs) {
-    if (gasCalculator.isSelfDestructBalancePreserved()) {
-      selfDestructs.forEach(
-          address -> {
-            final MutableAccount account = worldState.getAccount(address);
-            if (account != null) {
-              account.setNonce(0L);
-              account.setCode(Bytes.EMPTY);
-              account.clearStorage();
-            }
-          });
-    } else {
-      selfDestructs.forEach(worldState::deleteAccount);
-    }
-  }
-
   private String printableStackTraceFromThrowable(final RuntimeException re) {
     final StringBuilder builder = new StringBuilder();
 
@@ -1037,27 +955,10 @@ public class MainnetTransactionProcessor {
       final Set<Address> warmAddressList,
       final Account contract,
       final Optional<AccessLocationTracker> accessLocationTracker) {
-    if (contract == null) {
-      return Code.EMPTY_CODE;
-    }
-
-    final Hash codeHash = contract.getCodeHash();
-    if (codeHash == null || codeHash.equals(Hash.EMPTY)) {
-      return Code.EMPTY_CODE;
-    }
-
-    if (hasCodeDelegation(contract.getCode())) {
-      return delegationTargetCode(worldUpdater, warmAddressList, contract, accessLocationTracker);
-    }
-
-    // Bonsai accounts may have a fully cached code, so we use that one
-    if (contract.getCodeCache() != null) {
-      return contract.getOrCreateCachedCode();
-    }
-
-    // Any other account can only use the cached jump dest analysis if available
-    return messageCallProcessor.getOrCreateCachedJumpDest(
-        contract.getCodeHash(), contract.getCode());
+    return topLevelSupport.accountCode(
+        contract,
+        delegated ->
+            delegationTargetCode(worldUpdater, warmAddressList, delegated, accessLocationTracker));
   }
 
   private Code delegationTargetCode(
