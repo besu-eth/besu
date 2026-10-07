@@ -20,6 +20,10 @@ import static org.hyperledger.besu.evm.processor.AbstractMessageProcessorTest.Co
 import static org.hyperledger.besu.evm.processor.AbstractMessageProcessorTest.ContextTracer.TRACE_TYPE.CONTEXT_RE_ENTER;
 import static org.hyperledger.besu.evm.processor.AbstractMessageProcessorTest.ContextTracer.TRACE_TYPE.POST_EXECUTION;
 import static org.hyperledger.besu.evm.processor.AbstractMessageProcessorTest.ContextTracer.TRACE_TYPE.PRE_EXECUTION;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -42,6 +46,7 @@ import java.util.List;
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -74,6 +79,28 @@ abstract class AbstractMessageProcessorTest<T extends AbstractMessageProcessor> 
 
     // As the only MessageFrame state will be COMPLETED_FAILED, only a contextExit is expected
     verify(operationTracer, times(1)).traceContextExit(messageFrame);
+  }
+
+  @Test
+  void shouldTraceEnterAndExitForFrameHaltedBeforeStart() {
+    final MessageFrame.State[] state = {MessageFrame.State.EXCEPTIONAL_HALT};
+    when(messageFrame.getState()).thenAnswer(invocation -> state[0]);
+    doAnswer(
+            invocation -> {
+              state[0] = invocation.getArgument(0);
+              return null;
+            })
+        .when(messageFrame)
+        .setState(any());
+    when(messageFrame.getWorldUpdater()).thenReturn(new ToyWorld());
+    when(messageFrame.getMessageFrameStack()).thenReturn(messageFrameStack);
+
+    getAbstractMessageProcessor().process(messageFrame, operationTracer);
+
+    final InOrder inOrder = inOrder(operationTracer);
+    inOrder.verify(operationTracer).traceContextEnter(messageFrame);
+    inOrder.verify(operationTracer).traceContextExit(messageFrame);
+    verify(operationTracer, never()).traceContextReEnter(messageFrame);
   }
 
   @Test
