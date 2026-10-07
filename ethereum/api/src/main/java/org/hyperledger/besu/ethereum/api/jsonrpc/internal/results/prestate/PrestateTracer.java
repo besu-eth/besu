@@ -147,17 +147,6 @@ public class PrestateTracer implements OperationTracer {
 
   @Override
   public void traceContextEnter(final MessageFrame frame) {
-    lookupCoinbase(frame);
-  }
-
-  @Override
-  public void traceContextReEnter(final MessageFrame frame) {
-    // The top frame is dispatched straight to re-enter when transaction preparation already
-    // halted it (EIP-8037 state-gas out-of-gas), so this is the first hook Besu fires for it.
-    lookupCoinbase(frame);
-  }
-
-  private void lookupCoinbase(final MessageFrame frame) {
     if (!coinbaseLookedUp) {
       coinbaseLookedUp = true;
       lookupAccount(frame.getWorldUpdater(), frame.getMiningBeneficiary());
