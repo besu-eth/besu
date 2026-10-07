@@ -50,6 +50,7 @@
 - Publish the jump destination analysis of a contract safely to other threads [#11403](https://github.com/besu-eth/besu/pull/11403)
 - Retry bootnodes while under-peered to avoid a node on a small network staying at zero peers. [#11368](https://github.com/besu-eth/besu/pull/11368)
 - The Bonsai code cache and the EVM jump destination cache refuse to store empty code under a non-empty code hash. [#11420](https://github.com/besu-eth/besu/pull/11420)
+- Snap sync no longer stalls when a download completes while the pipeline stage is handing on another result. [#11514](https://github.com/besu-eth/besu/pull/11514)
 
 ### Additions and Improvements
 - Update `Bouncycastle` to 1.85 to address CVEs `CVE-2026-8763` and `CVE-2026-13506`. [#11336](https://github.com/besu-eth/besu/pull/11336)

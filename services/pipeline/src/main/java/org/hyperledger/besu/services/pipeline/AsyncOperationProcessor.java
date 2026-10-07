@@ -102,17 +102,27 @@ class AsyncOperationProcessor<I, O> implements Processor<I, O> {
 
   private void outputCompletedTasks(final WritePipe<O> outputPipe) {
     boolean inProgressChanged = false;
-    for (final Iterator<CompletableFuture<O>> i = inProgress.iterator(); i.hasNext(); ) {
-      final CompletableFuture<O> process = i.next();
-      final O result = process.getNow(null);
-      if (result != null) {
-        inProgressChanged = true;
-        outputPipe.put(result);
-        i.remove();
-      } else if (preserveOrder) {
-        break;
+    boolean outputInThisPass;
+    // A task that completes interrupts this thread, so that it stops waiting for input and outputs
+    // the task. Putting a result into the output pipe takes that interrupt away. So after a pass
+    // that put something, the tasks are looked at again: one that completed meanwhile, behind the
+    // point the pass had reached, would otherwise stay here until the next input arrives, which is
+    // never if the rest of the pipeline waits for that very task.
+    do {
+      outputInThisPass = false;
+      for (final Iterator<CompletableFuture<O>> i = inProgress.iterator(); i.hasNext(); ) {
+        final CompletableFuture<O> process = i.next();
+        final O result = process.getNow(null);
+        if (result != null) {
+          outputInThisPass = true;
+          outputPipe.put(result);
+          i.remove();
+        } else if (preserveOrder) {
+          break;
+        }
       }
-    }
+      inProgressChanged |= outputInThisPass;
+    } while (outputInThisPass);
     if (inProgressChanged) {
       updateNextOutputAvailableFuture();
     }

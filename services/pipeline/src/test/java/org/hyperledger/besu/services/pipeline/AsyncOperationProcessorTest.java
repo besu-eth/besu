@@ -17,13 +17,17 @@ package org.hyperledger.besu.services.pipeline;
 import static java.util.concurrent.CompletableFuture.completedFuture;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hyperledger.besu.metrics.noop.NoOpMetricsSystem.NO_OP_COUNTER;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
 import org.junit.jupiter.api.Test;
@@ -45,6 +49,74 @@ public class AsyncOperationProcessorTest {
 
     processor.processNextInput(readPipe, writePipe);
     verify(writePipe).put("a");
+  }
+
+  @Test
+  public void shouldOutputATaskThatCompletesWhileAnotherIsOutput() throws Exception {
+    final Pipe<CompletableFuture<String>> input =
+        new Pipe<>(10, NO_OP_COUNTER, NO_OP_COUNTER, NO_OP_COUNTER, "input_pipe");
+    final Pipe<String> output =
+        new Pipe<>(10, NO_OP_COUNTER, NO_OP_COUNTER, NO_OP_COUNTER, "output_pipe");
+    final CompletableFuture<String> slow = new CompletableFuture<>();
+    // the slow task completes at the moment the fast one, which was started after it, is output
+    final WritePipe<String> completingSlow =
+        new WritePipe<>() {
+          @Override
+          public boolean isOpen() {
+            return output.isOpen();
+          }
+
+          @Override
+          public void put(final String value) {
+            slow.complete("slow");
+            output.put(value);
+          }
+
+          @Override
+          public boolean hasRemainingCapacity() {
+            return output.hasRemainingCapacity();
+          }
+
+          @Override
+          public void close() {
+            output.close();
+          }
+
+          @Override
+          public void abort() {
+            output.abort();
+          }
+        };
+    final AsyncOperationProcessor<CompletableFuture<String>, String> processor =
+        createProcessor(false);
+    input.put(slow);
+    input.put(completedFuture("fast"));
+
+    // the thread of the stage, which goes on to wait for input that does not come
+    final Thread stage =
+        new Thread(
+            () -> {
+              while (input.hasMore()) {
+                processor.processNextInput(input, completingSlow);
+              }
+            });
+    stage.start();
+    try {
+      final List<String> results = new ArrayList<>();
+      final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+      while (results.size() < 2 && System.nanoTime() < deadline) {
+        final String result = output.poll();
+        if (result == null) {
+          Thread.sleep(10);
+        } else {
+          results.add(result);
+        }
+      }
+      assertThat(results).containsExactly("fast", "slow");
+    } finally {
+      input.close();
+      stage.join(5_000);
+    }
   }
 
   @Test
