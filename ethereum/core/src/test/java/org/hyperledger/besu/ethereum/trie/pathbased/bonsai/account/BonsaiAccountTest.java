@@ -25,6 +25,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldView;
+import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.worldstate.UpdateTrackingAccount;
 
 import java.util.Optional;
@@ -102,7 +103,7 @@ public class BonsaiAccountTest {
 
     // block import on a live world state must still execute the real code
     final BonsaiWorldView liveWorldView = mock(BonsaiWorldView.class);
-    when(liveWorldView.getCode(any(), any())).thenReturn(Optional.of(bytecode));
+    when(liveWorldView.getCode(any(), any())).thenReturn(Optional.of(new Code(bytecode, codeHash)));
     assertThat(contract(liveWorldView, codeHash, codeCache).getOrCreateCachedCode().getBytes())
         .isEqualTo(bytecode);
   }
