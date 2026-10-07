@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.DebugExecution
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.DebugGetBadBlocks;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.DebugGetRawBlock;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.DebugGetRawBlockAccessList;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.DebugGetRawExecutionRequests;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.DebugGetRawHeader;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.DebugGetRawReceipts;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.DebugGetRawTransaction;
@@ -125,6 +126,7 @@ public class DebugJsonRpcMethods extends ApiGroupJsonRpcMethods {
         new DebugGetRawBlock(blockchainQueries),
         new DebugGetRawReceipts(blockchainQueries),
         new DebugGetRawBlockAccessList(blockchainQueries),
+        new DebugGetRawExecutionRequests(blockchainQueries, protocolContext, protocolSchedule),
         new DebugGetRawTransaction(blockchainQueries),
         new DebugExecutionWitness(blockchainQueries, protocolContext, protocolSchedule),
         new DebugTraceCall(

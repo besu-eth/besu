@@ -22,6 +22,14 @@ import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 public class NoOpBonsaiCachedMerkleTrieLoader extends BonsaiCachedMerkleTrieLoader {
 
+  /**
+   * Shared instance. The loader never caches anything, so its caches stay empty and it holds no
+   * state; sharing it avoids building two caches per world state (e.g. per transaction during
+   * parallel block execution).
+   */
+  public static final NoOpBonsaiCachedMerkleTrieLoader INSTANCE =
+      new NoOpBonsaiCachedMerkleTrieLoader();
+
   public NoOpBonsaiCachedMerkleTrieLoader() {
     super(new NoOpMetricsSystem());
   }
@@ -36,6 +44,22 @@ public class NoOpBonsaiCachedMerkleTrieLoader extends BonsaiCachedMerkleTrieLoad
 
   @Override
   public void preLoadStorageSlot(
+      final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
+      final Address account,
+      final StorageSlotKey slotKey) {
+    // noop
+  }
+
+  @Override
+  public void cacheAccountNodes(
+      final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
+      final Hash worldStateRootHash,
+      final Address account) {
+    // noop
+  }
+
+  @Override
+  public void cacheStorageNodes(
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
       final Address account,
       final StorageSlotKey slotKey) {
