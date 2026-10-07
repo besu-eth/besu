@@ -95,7 +95,7 @@ public class VmTraceGenerator {
       generateTracingPush(report);
       generateTracingStorage(report);
       handleDepthIncreased(op, report, nextTraceFrame);
-      completeStep(frame, op, report);
+      completeStep(frame, nextTraceFrame, op, report);
       lastDepth = frame.getDepth();
     }
   }
@@ -114,12 +114,12 @@ public class VmTraceGenerator {
   }
 
   private void completeStep(
-      final TraceFrame frame, final VmOperation op, final VmOperationExecutionReport report) {
+      final TraceFrame frame,
+      final Optional<TraceFrame> nextTraceFrame,
+      final VmOperation op,
+      final VmOperationExecutionReport report) {
     // add the operation representation to the list of traces
-    final Optional<ExceptionalHaltReason> exceptionalHaltReason = frame.getExceptionalHaltReason();
-    if (frame.getDepth() > 0
-        && exceptionalHaltReason.isPresent()
-        && exceptionalHaltReason.get() == ExceptionalHaltReason.INSUFFICIENT_GAS) {
+    if (ranOutOfGas(frame, nextTraceFrame)) {
       op.setVmOperationExecutionReport(null);
     } else {
       op.setVmOperationExecutionReport(report);
@@ -128,6 +128,19 @@ public class VmTraceGenerator {
       currentTrace.add(op);
     }
     currentIndex++;
+  }
+
+  /**
+   * Whether the opcode of this frame itself ran out of gas. The tracer also stamps {@code
+   * INSUFFICIENT_GAS} onto opcodes that succeeded: a CALL whose precompile callee was underfunded,
+   * and the last non-RETURN opcode of an init code whose code deposit could not be paid. Neither
+   * ends its call context, whereas an opcode that runs out of gas always does.
+   */
+  private static boolean ranOutOfGas(
+      final TraceFrame frame, final Optional<TraceFrame> nextTraceFrame) {
+    return frame.getExceptionalHaltReason().orElse(null) == ExceptionalHaltReason.INSUFFICIENT_GAS
+        && frame.getPrecompiledGasCost().isEmpty()
+        && nextTraceFrame.map(next -> next.getDepth() < frame.getDepth()).orElse(true);
   }
 
   private void handleDepthIncreased(
