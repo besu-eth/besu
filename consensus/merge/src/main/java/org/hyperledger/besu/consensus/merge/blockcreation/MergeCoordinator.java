@@ -63,6 +63,7 @@ import java.util.OptionalLong;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -480,7 +481,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
                 miningConfiguration.getUnstable().getPosBlockCreationRepetitionMinDuration()
                     - lastDuration);
         LOG.debug("Waiting {}ms before repeating block creation", waitBeforeRepetition);
-        Thread.sleep(waitBeforeRepetition);
+        pauseUnlessCancelled(payloadIdentifier, waitBeforeRepetition);
       } catch (final CancellationException | InterruptedException ce) {
         LOG.atDebug()
             .setMessage("Block creation for payload id {} has been cancelled, reason {}")
@@ -509,6 +510,15 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
       }
     }
     return null;
+  }
+
+  private void pauseUnlessCancelled(final PayloadIdentifier payloadIdentifier, final long pauseMs)
+      throws InterruptedException {
+    final BlockCreationTask task = blockCreationTasks.get(payloadIdentifier);
+    if (task != null) {
+      // nothing is being built during the pause, so a cancellation must not wait for it to end
+      task.awaitCancellation(pauseMs);
+    }
   }
 
   private void recoverableBlockCreation(
@@ -1085,6 +1095,9 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     /** The Cancelled. */
     final AtomicBoolean cancelled;
 
+    /** Released on cancellation. */
+    final CountDownLatch cancellation;
+
     /** The Future for the async block creation task. */
     final CompletableFuture<Void> blockCreationFuture;
 
@@ -1098,6 +1111,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
         final MergeBlockCreator blockCreator, final CompletableFuture<Void> blockCreationFuture) {
       this.blockCreator = blockCreator;
       this.cancelled = new AtomicBoolean(false);
+      this.cancellation = new CountDownLatch(1);
       this.blockCreationFuture = blockCreationFuture;
     }
 
@@ -1113,7 +1127,18 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     /** Cancel. */
     public void cancel() {
       cancelled.set(true);
+      cancellation.countDown();
       blockCreator.cancel();
+    }
+
+    /**
+     * Waits until this task is cancelled or the timeout elapses.
+     *
+     * @param timeoutMs the maximum time to wait in milliseconds
+     * @throws InterruptedException if the waiting thread is interrupted
+     */
+    void awaitCancellation(final long timeoutMs) throws InterruptedException {
+      cancellation.await(timeoutMs, TimeUnit.MILLISECONDS);
     }
   }
 }

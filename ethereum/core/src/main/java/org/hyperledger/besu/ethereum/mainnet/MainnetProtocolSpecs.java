@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.mainnet;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.ARROW_GLACIER;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BERLIN;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BOGOTA;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BPO1;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BPO2;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BPO3;
@@ -207,7 +208,6 @@ public abstract class MainnetProtocolSpecs {
         .blockAccessListValidatorBuilder(__ -> BlockAccessListValidator.ALWAYS_REJECT_BAL)
         .transactionReceiptFactory(new FrontierTransactionReceiptFactory())
         .blockReward(FRONTIER_BLOCK_REWARD)
-        .skipZeroBlockRewards(false)
         .balConfiguration(balConfiguration)
         .blockProcessorBuilder(
             isParallelTxProcessingEnabled
@@ -290,7 +290,6 @@ public abstract class MainnetProtocolSpecs {
                 transactionReceiptFactory,
                 blockReward,
                 miningBeneficiaryCalculator,
-                skipZeroBlockRewards,
                 protocolSchedule,
                 balConfig) ->
                 new DaoBlockProcessor(
@@ -300,7 +299,6 @@ public abstract class MainnetProtocolSpecs {
                             transactionReceiptFactory,
                             blockReward,
                             miningBeneficiaryCalculator,
-                            skipZeroBlockRewards,
                             protocolSchedule,
                             balConfig,
                             metricsSystem)
@@ -309,7 +307,6 @@ public abstract class MainnetProtocolSpecs {
                             transactionReceiptFactory,
                             blockReward,
                             miningBeneficiaryCalculator,
-                            skipZeroBlockRewards,
                             protocolSchedule,
                             balConfig,
                             metricsSystem)))
@@ -366,7 +363,6 @@ public abstract class MainnetProtocolSpecs {
             metricsSystem)
         .isReplayProtectionSupported(true)
         .gasCalculator(SpuriousDragonGasCalculator::new)
-        .skipZeroBlockRewards(true)
         .messageCallProcessorBuilder(
             (evm, precompileContractRegistry) ->
                 new MessageCallProcessor(
@@ -711,7 +707,6 @@ public abstract class MainnetProtocolSpecs {
         .difficultyCalculator(MainnetDifficultyCalculators.PROOF_OF_STAKE_DIFFICULTY)
         .blockHeaderValidatorBuilder(MainnetBlockHeaderValidator::mergeBlockHeaderValidator)
         .blockReward(Wei.ZERO)
-        .skipZeroBlockRewards(true)
         .isPoS(true)
         .slotDuration(Duration.ofSeconds(miningConfiguration.getUnstable().getPosSlotDuration()))
         .hardforkId(PARIS);
@@ -1324,6 +1319,31 @@ public abstract class MainnetProtocolSpecs {
     return amsterdamSpecBuilder;
   }
 
+  static ProtocolSpecBuilder bogotaDefinition(
+      final Optional<BigInteger> chainId,
+      final boolean enableRevertReason,
+      final GenesisConfigOptions genesisConfigOptions,
+      final EvmConfiguration evmConfiguration,
+      final MiningConfiguration miningConfiguration,
+      final boolean isParallelTxProcessingEnabled,
+      final BalConfiguration balConfiguration,
+      final MetricsSystem metricsSystem) {
+    return amsterdamDefinition(
+            chainId,
+            enableRevertReason,
+            genesisConfigOptions,
+            evmConfiguration,
+            miningConfiguration,
+            isParallelTxProcessingEnabled,
+            balConfiguration,
+            metricsSystem)
+        .evmBuilder(
+            (gasCalculator, __) ->
+                MainnetEVMs.bogota(
+                    gasCalculator, chainId.orElse(BigInteger.ZERO), evmConfiguration))
+        .hardforkId(BOGOTA);
+  }
+
   private static ProtocolSpecBuilder applyBlobSchedule(
       final ProtocolSpecBuilder builder,
       final GenesisConfigOptions genesisConfigOptions,
@@ -1351,7 +1371,7 @@ public abstract class MainnetProtocolSpecs {
       final boolean isParallelTxProcessingEnabled,
       final BalConfiguration balConfiguration,
       final MetricsSystem metricsSystem) {
-    return amsterdamDefinition(
+    return bogotaDefinition(
             chainId,
             enableRevertReason,
             genesisConfigOptions,

@@ -21,6 +21,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.InvalidPeerTaskResponseException;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.MalformedRlpFromPeerException;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTask;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskValidationResponse;
 import org.hyperledger.besu.ethereum.eth.messages.BlockAccessListsMessage;
@@ -30,6 +31,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.SubProtocol;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 
 import java.util.List;
 import java.util.Optional;
@@ -98,13 +100,17 @@ public class GetBlockAccessListsFromPeerTask implements PeerTask<List<Optional<B
   @Override
   public List<Optional<BlockAccessList>> processResponse(
       final MessageData messageData, final Set<Capability> agreedCapabilities)
-      throws InvalidPeerTaskResponseException {
+      throws InvalidPeerTaskResponseException, MalformedRlpFromPeerException {
     if (messageData == null) {
       LOG.atDebug().setMessage("Received null response while waiting for block access lists").log();
       throw new InvalidPeerTaskResponseException("Null message data");
     }
     final BlockAccessListsMessage balMessage = BlockAccessListsMessage.readFrom(messageData);
-    return StreamSupport.stream(balMessage.blockAccessLists().spliterator(), false).toList();
+    try {
+      return StreamSupport.stream(balMessage.blockAccessLists().spliterator(), false).toList();
+    } catch (RLPException e) {
+      throw new MalformedRlpFromPeerException(e, messageData.getData());
+    }
   }
 
   @Override
@@ -126,7 +132,8 @@ public class GetBlockAccessListsFromPeerTask implements PeerTask<List<Optional<B
       final Hash expectedBalHash = blockHeaders.get(i).getBalHash().orElse(null);
       final Optional<BlockAccessList> maybeBal = result.get(i);
       if (maybeBal.isEmpty()) {
-        // If the request BAL lies beyond WSP, the peer may not have the BAL available
+        // If the request BAL lies beyond the history expiry window, the peer may not have the BAL
+        // available
         // legitimately. TODO: Verify legitimacy of BAL unavailability.
         continue;
       }

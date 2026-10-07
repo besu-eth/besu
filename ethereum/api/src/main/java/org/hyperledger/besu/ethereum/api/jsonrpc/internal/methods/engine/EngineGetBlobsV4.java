@@ -31,7 +31,6 @@ import org.hyperledger.besu.ethereum.core.kzg.BlobProofBundle;
 import org.hyperledger.besu.ethereum.core.kzg.CKZG4844Helper;
 import org.hyperledger.besu.ethereum.core.kzg.KZGProof;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
-import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -53,6 +52,7 @@ import org.slf4j.LoggerFactory;
  * <p>Specification:
  *
  * <ul>
+ *   <li>Returns null while syncing and before cell proofs exist, which is before Osaka
  *   <li>Returns partial responses with null entries for missing blobs
  *   <li>Supports at least 128 blob versioned hashes per request
  *   <li>Only supports KZG_CELL_PROOFS blob type (rejects KZG_PROOF)
@@ -95,10 +95,11 @@ public class EngineGetBlobsV4 extends ExecutionEngineJsonRpcMethod {
     if (mergeContext.get().isSyncing()) {
       return new JsonRpcSuccessResponse(requestContext.getRequest().getId(), null);
     }
-    long timestamp = protocolContext.getBlockchain().getChainHeadHeader().getTimestamp();
-    ValidationResult<RpcErrorType> forkValidationResult = validateForkSupported(timestamp);
-    if (!forkValidationResult.isValid()) {
-      return new JsonRpcErrorResponse(requestContext.getRequest().getId(), forkValidationResult);
+    final long timestamp = protocolContext.getBlockchain().getChainHeadHeader().getTimestamp();
+    if (!validateForkSupported(timestamp).isValid()) {
+      // this method has no unsupported fork error, without cell proofs it is unable to serve blob
+      // pool data
+      return new JsonRpcSuccessResponse(requestContext.getRequest().getId(), null);
     }
 
     getBlobsMetrics.increaseRequested(versionedHashes.length);

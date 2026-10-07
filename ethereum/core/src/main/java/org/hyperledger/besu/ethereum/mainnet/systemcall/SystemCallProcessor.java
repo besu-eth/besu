@@ -67,7 +67,8 @@ public class SystemCallProcessor {
   }
 
   /**
-   * Processes a system call.
+   * Processes a system call that must succeed, such as a request contract call. A missing contract
+   * or a failed call invalidates the block.
    *
    * @param callAddress The address to call.
    * @param context The system call context. The input data to the system call.
@@ -79,50 +80,14 @@ public class SystemCallProcessor {
       final BlockProcessingContext context,
       final Bytes inputData,
       final Optional<AccessLocationTracker> accessLocationTracker) {
-    WorldUpdater blockUpdater = context.getWorldState().updater();
-    WorldUpdater systemCallUpdater = blockUpdater.updater();
-    // EIP-7928: the account is read before we can know whether there is code to run, so an absent
-    // system contract still belongs in the access list.
-    accessLocationTracker.ifPresent(tracker -> tracker.addTouchedAccount(callAddress));
-    final Account maybeContract = systemCallUpdater.get(callAddress);
-    if (maybeContract == null || maybeContract.getCode().isEmpty()) {
-      // Throwing skips the flush at the end of a successful call, so flush here instead.
-      applyAccessLocationTracker(accessLocationTracker, context, systemCallUpdater);
-      throw new SystemCallNoCodeAtAddressException(
-          maybeContract == null
-              ? "Invalid system call address: " + callAddress
-              : "Invalid system call, no code at address " + callAddress);
-    }
-
-    final AbstractMessageProcessor processor =
-        mainnetTransactionProcessor.getMessageProcessor(MessageFrame.Type.MESSAGE_CALL);
     final MessageFrame frame =
-        createMessageFrame(
-            callAddress,
-            systemCallUpdater,
-            context.getBlockHeader(),
-            context.getBlockHashLookup(),
-            inputData,
-            accessLocationTracker);
-
-    // System calls are untraced by default. A tracer is only passed when it is block-aware,
-    // enabled, and opts into system-call tracing. Otherwise, OperationTracer.NO_TRACING is used.
-    final OperationTracer tracer =
-        context.getOperationTracer() instanceof BlockAwareOperationTracer blockAwareTracer
-                && blockAwareTracer.isEnabled()
-                && blockAwareTracer.isSystemCallTracingEnabled()
-            ? blockAwareTracer
-            : OperationTracer.NO_TRACING;
-    Deque<MessageFrame> stack = frame.getMessageFrameStack();
-    while (!stack.isEmpty()) {
-      processor.process(stack.peekFirst(), tracer);
-    }
-
-    applyAccessLocationTracker(accessLocationTracker, context, systemCallUpdater);
+        execute(callAddress, context, inputData, accessLocationTracker)
+            .orElseThrow(
+                () ->
+                    new SystemCallNoCodeAtAddressException(
+                        "Invalid system call, no code at address " + callAddress));
 
     if (frame.getState() == MessageFrame.State.COMPLETED_SUCCESS) {
-      systemCallUpdater.commit();
-      blockUpdater.commit();
       return frame.getOutputData();
     }
 
@@ -138,6 +103,89 @@ public class SystemCallProcessor {
             .map(haltReason -> "System call halted: " + haltReason.getDescription())
             .orElse("System call did not execute to completion");
     throw new RuntimeException(errorMessage);
+  }
+
+  /**
+   * Processes a system call whose outcome does not affect block validity, such as the EIP-4788
+   * beacon roots and EIP-2935 history storage calls. A failed call leaves no state changes, but its
+   * accesses are still recorded in the block access list.
+   *
+   * @param callAddress The address to call.
+   * @param context The system call context.
+   * @param inputData The input data to the system call.
+   * @param accessLocationTracker The EIP-7928 access tracker, if any.
+   */
+  public void processUnchecked(
+      final Address callAddress,
+      final BlockProcessingContext context,
+      final Bytes inputData,
+      final Optional<AccessLocationTracker> accessLocationTracker) {
+    execute(callAddress, context, inputData, accessLocationTracker)
+        .ifPresentOrElse(
+            frame -> {
+              if (frame.getState() != MessageFrame.State.COMPLETED_SUCCESS) {
+                LOG.warn(
+                    "System call failed - haltReason: {}, address: {}",
+                    frame.getExceptionalHaltReason().orElse(ExceptionalHaltReason.NONE),
+                    callAddress);
+              }
+            },
+            () -> LOG.warn("Invalid system call, no code at address {}", callAddress));
+  }
+
+  /**
+   * Runs the system call, committing its state changes only if it succeeds.
+   *
+   * @return the completed frame, or empty if there is no code at the call address
+   */
+  private Optional<MessageFrame> execute(
+      final Address callAddress,
+      final BlockProcessingContext context,
+      final Bytes inputData,
+      final Optional<AccessLocationTracker> accessLocationTracker) {
+    WorldUpdater blockUpdater = context.getWorldState().updater();
+    WorldUpdater systemCallUpdater = blockUpdater.updater();
+    // EIP-7928: the account is read before we can know whether there is code to run, so an absent
+    // system contract still belongs in the access list.
+    accessLocationTracker.ifPresent(tracker -> tracker.addTouchedAccount(callAddress));
+    final Account maybeContract = systemCallUpdater.get(callAddress);
+    if (maybeContract == null || maybeContract.getCode().isEmpty()) {
+      applyAccessLocationTracker(accessLocationTracker, context, systemCallUpdater);
+      return Optional.empty();
+    }
+
+    // The frame runs in a child updater, committed into systemCallUpdater on success, so the
+    // accounts systemCallUpdater wraps still hold the pre-call state the access list diffs against.
+    final MessageFrame frame =
+        createMessageFrame(
+            callAddress,
+            systemCallUpdater.updater(),
+            context.getBlockHeader(),
+            context.getBlockHashLookup(),
+            inputData,
+            accessLocationTracker);
+
+    // System calls are untraced by default. A tracer is only passed when it is block-aware,
+    // enabled, and opts into system-call tracing. Otherwise, OperationTracer.NO_TRACING is used.
+    final OperationTracer tracer =
+        context.getOperationTracer() instanceof BlockAwareOperationTracer blockAwareTracer
+                && blockAwareTracer.isEnabled()
+                && blockAwareTracer.isSystemCallTracingEnabled()
+            ? blockAwareTracer
+            : OperationTracer.NO_TRACING;
+    Deque<MessageFrame> stack = frame.getMessageFrameStack();
+    while (!stack.isEmpty()) {
+      final MessageFrame current = stack.peekFirst();
+      mainnetTransactionProcessor.getMessageProcessor(current.getType()).process(current, tracer);
+    }
+
+    applyAccessLocationTracker(accessLocationTracker, context, systemCallUpdater);
+
+    if (frame.getState() == MessageFrame.State.COMPLETED_SUCCESS) {
+      systemCallUpdater.commit();
+      blockUpdater.commit();
+    }
+    return Optional.of(frame);
   }
 
   private static void applyAccessLocationTracker(

@@ -101,7 +101,6 @@ public abstract class AbstractParallelBlockProcessorIntegrationTest {
         spec.getTransactionReceiptFactory(),
         Wei.ZERO,
         BlockHeader::getCoinbase,
-        true,
         ctx.getProtocolSchedule(),
         SEQUENTIAL_CONFIG);
   }
@@ -115,7 +114,6 @@ public abstract class AbstractParallelBlockProcessorIntegrationTest {
         spec.getTransactionReceiptFactory(),
         Wei.ZERO,
         BlockHeader::getCoinbase,
-        true,
         ctx.getProtocolSchedule(),
         getBalConfiguration(),
         new NoOpMetricsSystem());
@@ -132,7 +130,6 @@ public abstract class AbstractParallelBlockProcessorIntegrationTest {
         final TransactionReceiptFactory transactionReceiptFactory,
         final Wei blockReward,
         final MiningBeneficiaryCalculator miningBeneficiaryCalculator,
-        final boolean skipZeroBlockRewards,
         final ProtocolSchedule protocolSchedule,
         final BalConfiguration balConfiguration,
         final MetricsSystem metricsSystem) {
@@ -141,7 +138,6 @@ public abstract class AbstractParallelBlockProcessorIntegrationTest {
           transactionReceiptFactory,
           blockReward,
           miningBeneficiaryCalculator,
-          skipZeroBlockRewards,
           protocolSchedule,
           balConfiguration,
           metricsSystem);

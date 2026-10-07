@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcRequestException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameter;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameterOrBlockHash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
@@ -63,6 +64,35 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
       throw new InvalidJsonRpcParameters(
           "Invalid block parameter (index 1)", RpcErrorType.INVALID_BLOCK_PARAMS, e);
     }
+  }
+
+  @Override
+  protected Object findResultByParamType(final JsonRpcRequestContext requestContext) {
+    final Optional<BlockParameterOrBlockHash> maybeBlockParameter;
+    try {
+      maybeBlockParameter = requestContext.getOptionalParameter(1, BlockParameterOrBlockHash.class);
+    } catch (JsonRpcParameter.JsonRpcParameterException e) {
+      // BlockParameterOrBlockHash rejects some numbers that BlockParameter accepts, so a
+      // value that is not a hash keeps the BlockParameter handling.
+      return super.findResultByParamType(requestContext);
+    }
+    final Optional<Hash> maybeBlockHash =
+        maybeBlockParameter.flatMap(BlockParameterOrBlockHash::getHash);
+    if (maybeBlockHash.isEmpty()) {
+      return super.findResultByParamType(requestContext);
+    }
+    final CallParameter callParameter = validateAndGetCallParams(requestContext);
+    final Optional<BlockHeader> maybeBlockHeader =
+        getBlockchainQueries().getBlockHeaderByHash(maybeBlockHash.get());
+    final Optional<RpcErrorType> jsonRpcError = validateBlockHeader(maybeBlockHeader);
+    if (jsonRpcError.isPresent()) {
+      return errorResponse(requestContext, jsonRpcError.get());
+    }
+    if (maybeBlockParameter.get().getRequireCanonical()
+        && !getBlockchainQueries().blockIsOnCanonicalChain(maybeBlockHash.get())) {
+      return errorResponse(requestContext, RpcErrorType.JSON_RPC_NOT_CANONICAL_ERROR);
+    }
+    return resultByBlockHeader(requestContext, callParameter, maybeBlockHeader.get());
   }
 
   protected abstract Object simulate(
