@@ -84,7 +84,6 @@ abstract class AbstractBlockProcessorTest {
             transactionReceiptFactory,
             Wei.ZERO,
             BlockHeader::getCoinbase,
-            true,
             protocolSchedule,
             BalConfiguration.DEFAULT);
   }
@@ -169,7 +168,6 @@ abstract class AbstractBlockProcessorTest {
         final TransactionReceiptFactory transactionReceiptFactory,
         final Wei blockReward,
         final MiningBeneficiaryCalculator miningBeneficiaryCalculator,
-        final boolean skipZeroBlockRewards,
         final ProtocolSchedule protocolSchedule,
         final BalConfiguration balConfiguration) {
       super(
@@ -177,7 +175,6 @@ abstract class AbstractBlockProcessorTest {
           transactionReceiptFactory,
           blockReward,
           miningBeneficiaryCalculator,
-          skipZeroBlockRewards,
           protocolSchedule,
           balConfiguration);
     }
@@ -186,8 +183,7 @@ abstract class AbstractBlockProcessorTest {
     boolean rewardCoinbase(
         final MutableWorldState worldState,
         final BlockHeader header,
-        final List<BlockHeader> ommers,
-        final boolean skipZeroBlockRewards) {
+        final List<BlockHeader> ommers) {
       return false;
     }
   }

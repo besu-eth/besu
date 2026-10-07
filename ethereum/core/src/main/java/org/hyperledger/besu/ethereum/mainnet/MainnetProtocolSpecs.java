@@ -208,7 +208,6 @@ public abstract class MainnetProtocolSpecs {
         .blockAccessListValidatorBuilder(__ -> BlockAccessListValidator.ALWAYS_REJECT_BAL)
         .transactionReceiptFactory(new FrontierTransactionReceiptFactory())
         .blockReward(FRONTIER_BLOCK_REWARD)
-        .skipZeroBlockRewards(false)
         .balConfiguration(balConfiguration)
         .blockProcessorBuilder(
             isParallelTxProcessingEnabled
@@ -291,7 +290,6 @@ public abstract class MainnetProtocolSpecs {
                 transactionReceiptFactory,
                 blockReward,
                 miningBeneficiaryCalculator,
-                skipZeroBlockRewards,
                 protocolSchedule,
                 balConfig) ->
                 new DaoBlockProcessor(
@@ -301,7 +299,6 @@ public abstract class MainnetProtocolSpecs {
                             transactionReceiptFactory,
                             blockReward,
                             miningBeneficiaryCalculator,
-                            skipZeroBlockRewards,
                             protocolSchedule,
                             balConfig,
                             metricsSystem)
@@ -310,7 +307,6 @@ public abstract class MainnetProtocolSpecs {
                             transactionReceiptFactory,
                             blockReward,
                             miningBeneficiaryCalculator,
-                            skipZeroBlockRewards,
                             protocolSchedule,
                             balConfig,
                             metricsSystem)))
@@ -367,7 +363,6 @@ public abstract class MainnetProtocolSpecs {
             metricsSystem)
         .isReplayProtectionSupported(true)
         .gasCalculator(SpuriousDragonGasCalculator::new)
-        .skipZeroBlockRewards(true)
         .messageCallProcessorBuilder(
             (evm, precompileContractRegistry) ->
                 new MessageCallProcessor(
@@ -712,7 +707,6 @@ public abstract class MainnetProtocolSpecs {
         .difficultyCalculator(MainnetDifficultyCalculators.PROOF_OF_STAKE_DIFFICULTY)
         .blockHeaderValidatorBuilder(MainnetBlockHeaderValidator::mergeBlockHeaderValidator)
         .blockReward(Wei.ZERO)
-        .skipZeroBlockRewards(true)
         .isPoS(true)
         .slotDuration(Duration.ofSeconds(miningConfiguration.getUnstable().getPosSlotDuration()))
         .hardforkId(PARIS);

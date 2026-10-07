@@ -113,7 +113,6 @@ class BalParallelBlockProcessorIntegrationTest {
               spec.getTransactionReceiptFactory(),
               Wei.ZERO,
               BlockHeader::getCoinbase,
-              true,
               seqCtx.getProtocolSchedule(),
               SEQUENTIAL_CONFIG);
 
@@ -203,7 +202,6 @@ class BalParallelBlockProcessorIntegrationTest {
               spec.getTransactionReceiptFactory(),
               Wei.ZERO,
               BlockHeader::getCoinbase,
-              true,
               seqCtx.getProtocolSchedule(),
               SEQUENTIAL_CONFIG);
 
