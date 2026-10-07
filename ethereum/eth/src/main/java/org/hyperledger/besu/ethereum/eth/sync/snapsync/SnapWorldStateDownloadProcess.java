@@ -38,6 +38,7 @@ import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -57,7 +58,8 @@ public class SnapWorldStateDownloadProcess implements WorldStateDownloadProcess 
 
   private final WritePipe<Task<SnapDataRequest>> requestsToComplete;
 
-  private SnapWorldStateDownloadProcess(
+  @VisibleForTesting
+  SnapWorldStateDownloadProcess(
       final Pipeline<Task<SnapDataRequest>> fetchAccountPipeline,
       final Pipeline<Task<SnapDataRequest>> fetchStorageDataPipeline,
       final Pipeline<Task<SnapDataRequest>> fetchLargeStorageDataPipeline,
@@ -99,41 +101,51 @@ public class SnapWorldStateDownloadProcess implements WorldStateDownloadProcess 
         ethScheduler.startPipeline(flatStorageHealingPipeline);
     final CompletableFuture<Void> completionFuture = ethScheduler.startPipeline(completionPipeline);
 
-    fetchAccountFuture
-        .thenCombine(fetchStorageFuture, (unused, unused2) -> null)
-        .thenCombine(fetchLargeStorageFuture, (unused, unused2) -> null)
-        .thenCombine(fetchCodeFuture, (unused, unused2) -> null)
-        .thenCombine(trieHealingFuture, (unused, unused2) -> null)
-        .thenCombine(flatAccountHealingFuture, (unused, unused2) -> null)
-        .thenCombine(flatStorageHealingFuture, (unused, unused2) -> null)
-        .whenComplete(
-            (result, error) -> {
-              if (error != null) {
-                if (!(ExceptionUtils.rootCause(error) instanceof CancellationException)) {
-                  LOG.error("Pipeline failed", error);
-                }
-                completionPipeline.abort();
-              } else {
-                // No more data to fetch, so propagate the pipe closure onto the completion pipe.
-                requestsToComplete.close();
-              }
-            });
+    final CompletableFuture<Void> result = new CompletableFuture<>();
+    final List<CompletableFuture<Void>> fetchFutures =
+        List.of(
+            fetchAccountFuture,
+            fetchStorageFuture,
+            fetchLargeStorageFuture,
+            fetchCodeFuture,
+            trieHealingFuture,
+            flatAccountHealingFuture,
+            flatStorageHealingFuture);
+    // A failed pipeline stops all the others, as waiting for them could take forever: the healing
+    // pipelines only finish once the failed one has done its part.
+    fetchFutures.forEach(
+        future ->
+            future.whenComplete(
+                (unused, error) -> {
+                  if (error != null) {
+                    fail(result, error);
+                  }
+                }));
+    CompletableFuture.allOf(fetchFutures.toArray(CompletableFuture[]::new))
+        .thenRun(
+            // No more data to fetch, so propagate the pipe closure onto the completion pipe.
+            requestsToComplete::close);
 
-    completionFuture.exceptionally(
-        error -> {
-          if (!(ExceptionUtils.rootCause(error) instanceof CancellationException)) {
-            LOG.error("Pipeline failed", error);
+    completionFuture.whenComplete(
+        (unused, error) -> {
+          if (error != null) {
+            fail(result, error);
+          } else {
+            result.complete(null);
           }
-          fetchAccountPipeline.abort();
-          fetchStorageDataPipeline.abort();
-          fetchLargeStorageDataPipeline.abort();
-          fetchCodePipeline.abort();
-          trieHealingPipeline.abort();
-          flatAccountHealingPipeline.abort();
-          flatStorageHealingPipeline.abort();
-          return null;
         });
-    return completionFuture;
+    return result;
+  }
+
+  private void fail(final CompletableFuture<Void> result, final Throwable error) {
+    // Complete with the first error before aborting, so the cancellations the abort causes
+    // do not hide it.
+    if (result.completeExceptionally(error)) {
+      if (!(ExceptionUtils.rootCause(error) instanceof CancellationException)) {
+        LOG.error("Pipeline failed", error);
+      }
+      abort();
+    }
   }
 
   @Override
