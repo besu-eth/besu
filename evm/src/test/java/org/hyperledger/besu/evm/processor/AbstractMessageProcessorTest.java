@@ -20,6 +20,9 @@ import static org.hyperledger.besu.evm.processor.AbstractMessageProcessorTest.Co
 import static org.hyperledger.besu.evm.processor.AbstractMessageProcessorTest.ContextTracer.TRACE_TYPE.CONTEXT_RE_ENTER;
 import static org.hyperledger.besu.evm.processor.AbstractMessageProcessorTest.ContextTracer.TRACE_TYPE.POST_EXECUTION;
 import static org.hyperledger.besu.evm.processor.AbstractMessageProcessorTest.ContextTracer.TRACE_TYPE.PRE_EXECUTION;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -42,6 +45,7 @@ import java.util.List;
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -74,6 +78,28 @@ abstract class AbstractMessageProcessorTest<T extends AbstractMessageProcessor> 
 
     // As the only MessageFrame state will be COMPLETED_FAILED, only a contextExit is expected
     verify(operationTracer, times(1)).traceContextExit(messageFrame);
+  }
+
+  @Test
+  void haltBeforeStartFailsFrameWithoutExecutingIt() {
+    when(messageFrame.getWorldUpdater()).thenReturn(new ToyWorld());
+    when(messageFrame.getMessageFrameStack()).thenReturn(messageFrameStack);
+
+    getAbstractMessageProcessor().haltBeforeStart(messageFrame, operationTracer);
+
+    final InOrder inOrder = inOrder(operationTracer, messageFrame, messageFrameStack);
+    inOrder.verify(operationTracer).traceContextEnter(messageFrame);
+    inOrder.verify(messageFrame).clearLogs();
+    inOrder.verify(messageFrame).clearGasRefund();
+    inOrder.verify(messageFrame).rollback();
+    inOrder.verify(messageFrame).setState(MessageFrame.State.COMPLETED_FAILED);
+    inOrder.verify(messageFrame).clearGasRemaining();
+    inOrder.verify(messageFrame).clearOutputData();
+    inOrder.verify(operationTracer).traceContextExit(messageFrame);
+    inOrder.verify(messageFrameStack).removeFirst();
+    inOrder.verify(messageFrame).notifyCompletion();
+    verify(operationTracer, never()).traceContextReEnter(any());
+    verify(operationTracer, never()).tracePreExecution(any());
   }
 
   @Test

@@ -241,15 +241,8 @@ public abstract class AbstractMessageProcessor {
    * @param operationTracer the operation tracer
    */
   public void process(final MessageFrame frame, final OperationTracer operationTracer) {
-    if (LOG.isTraceEnabled() && frame.getState() == MessageFrame.State.NOT_STARTED) {
-      final var contractAddress = frame.getContractAddress();
-      LOG.trace(
-          "EIP-8037 FRAME_ENTER depth={} contractAddress={} gasLimit={} reservoir={} stateGasUsed={}",
-          frame.getDepth(),
-          contractAddress == null ? "" : contractAddress.toHexString(),
-          frame.getRemainingGas(),
-          frame.getStateGasReservoir(),
-          frame.getStateGasUsed());
+    if (frame.getState() == MessageFrame.State.NOT_STARTED) {
+      traceFrameEnter(frame);
     }
     if (operationTracer != null) {
       if (frame.getState() == MessageFrame.State.NOT_STARTED) {
@@ -292,6 +285,39 @@ public abstract class AbstractMessageProcessor {
         operationTracer.traceContextExit(frame);
       }
       completedFailed(frame);
+    }
+  }
+
+  /**
+   * Fails a frame that ran out of gas before it started, without executing it. It goes through the
+   * same halt path as a frame that runs out of gas while executing, and tracers still see it enter
+   * and exit like any other failed call.
+   *
+   * @param frame the frame, with its exceptional halt reason already set
+   * @param operationTracer the operation tracer
+   */
+  public void haltBeforeStart(final MessageFrame frame, final OperationTracer operationTracer) {
+    traceFrameEnter(frame);
+    if (operationTracer != null) {
+      operationTracer.traceContextEnter(frame);
+    }
+    exceptionalHalt(frame);
+    if (operationTracer != null) {
+      operationTracer.traceContextExit(frame);
+    }
+    completedFailed(frame);
+  }
+
+  private static void traceFrameEnter(final MessageFrame frame) {
+    if (LOG.isTraceEnabled()) {
+      final var contractAddress = frame.getContractAddress();
+      LOG.trace(
+          "EIP-8037 FRAME_ENTER depth={} contractAddress={} gasLimit={} reservoir={} stateGasUsed={}",
+          frame.getDepth(),
+          contractAddress == null ? "" : contractAddress.toHexString(),
+          frame.getRemainingGas(),
+          frame.getStateGasReservoir(),
+          frame.getStateGasUsed());
     }
   }
 

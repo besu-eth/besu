@@ -470,7 +470,7 @@ public class MainnetTransactionProcessor {
       initialFrame.resetStateGasSpilled();
 
       if (prepCharges.halted()) {
-        failHaltedTopFrame(initialFrame, operationTracer);
+        getMessageProcessor(initialFrame.getType()).haltBeforeStart(initialFrame, operationTracer);
       } else {
         Deque<MessageFrame> messageFrameStack = initialFrame.getMessageFrameStack();
         while (!messageFrameStack.isEmpty()) {
@@ -805,20 +805,6 @@ public class MainnetTransactionProcessor {
    */
   private record PrepCharges(
       StateCharge create, StateCharge authorizations, StateCharge recipient, boolean halted) {}
-
-  /**
-   * Fails a top frame whose preparation charges ran out of gas without executing it. The
-   * transaction stays valid, so the frame burns its gas like any exceptional halt, and tracers
-   * still report it as a failed call.
-   */
-  private static void failHaltedTopFrame(
-      final MessageFrame initialFrame, final OperationTracer operationTracer) {
-    operationTracer.traceContextEnter(initialFrame);
-    initialFrame.setState(MessageFrame.State.COMPLETED_FAILED);
-    initialFrame.clearGasRemaining();
-    operationTracer.traceContextExit(initialFrame);
-    initialFrame.getMessageFrameStack().removeFirst();
-  }
 
   /**
    * Refunds a top-frame charge whose state effect rolled back with the failed transaction. A charge
