@@ -44,10 +44,23 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
 
   private static final int ACCOUNT_CACHE_SIZE = 100_000;
   private static final int STORAGE_CACHE_SIZE = 200_000;
+
+  // Guava locks a segment per write, and the preload walks write from many threads at once
+  private static final int CACHE_CONCURRENCY =
+      Math.max(4, Runtime.getRuntime().availableProcessors());
+
   private final Cache<Bytes, Bytes> accountNodes =
-      CacheBuilder.newBuilder().recordStats().maximumSize(ACCOUNT_CACHE_SIZE).build();
+      CacheBuilder.newBuilder()
+          .concurrencyLevel(CACHE_CONCURRENCY)
+          .recordStats()
+          .maximumSize(ACCOUNT_CACHE_SIZE)
+          .build();
   private final Cache<Bytes, Bytes> storageNodes =
-      CacheBuilder.newBuilder().recordStats().maximumSize(STORAGE_CACHE_SIZE).build();
+      CacheBuilder.newBuilder()
+          .concurrencyLevel(CACHE_CONCURRENCY)
+          .recordStats()
+          .maximumSize(STORAGE_CACHE_SIZE)
+          .build();
 
   public BonsaiCachedMerkleTrieLoader(final ObservableMetricsSystem metricsSystem) {
     metricsSystem.createGuavaCacheCollector(BLOCKCHAIN, "accountsNodes", accountNodes);
@@ -75,7 +88,8 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
               (location, hash) -> {
                 Optional<Bytes> node =
                     getAccountStateTrieNode(worldStateKeyValueStorage, location, hash);
-                node.ifPresent(bytes -> accountNodes.put(Hash.hash(bytes).getBytes(), bytes));
+                // hash is a slice of the parent node's RLP; copy it so the key doesn't pin that
+                node.ifPresent(bytes -> accountNodes.put(hash.copy(), bytes));
                 return node;
               },
               Bytes32.wrap(worldStateRootHash.getBytes()),
@@ -116,8 +130,7 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
                             Optional<Bytes> node =
                                 getAccountStorageTrieNode(
                                     worldStateKeyValueStorage, accountHash, location, hash);
-                            node.ifPresent(
-                                bytes -> storageNodes.put(Hash.hash(bytes).getBytes(), bytes));
+                            node.ifPresent(bytes -> storageNodes.put(hash.copy(), bytes));
                             return node;
                           },
                           Bytes32.wrap(Hash.hash(storageRoot).getBytes()),
@@ -141,7 +154,10 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
       return Optional.of(MerkleTrie.EMPTY_TRIE_NODE);
     } else {
       return Optional.ofNullable(accountNodes.getIfPresent(nodeHash))
-          .or(() -> worldStateKeyValueStorage.getAccountStateTrieNode(location, nodeHash));
+          .or(
+              () ->
+                  worldStateKeyValueStorage.getAccountStateTrieNodeFromCacheOrStorage(
+                      location, nodeHash));
     }
   }
 
@@ -156,7 +172,7 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
       return Optional.ofNullable(storageNodes.getIfPresent(nodeHash))
           .or(
               () ->
-                  worldStateKeyValueStorage.getAccountStorageTrieNode(
+                  worldStateKeyValueStorage.getAccountStorageTrieNodeFromCacheOrStorage(
                       accountHash, location, nodeHash));
     }
   }
