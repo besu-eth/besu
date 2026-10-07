@@ -62,6 +62,7 @@ public class UpdateTrackingAccount<A extends Account> implements MutableAccount 
   private final Bytes oldCode;
   @Nullable private Hash updatedCodeHash;
   private final Hash oldCodeHash;
+  @Nullable private Code code; // Null until requested and after the code is updated.
 
   // Only contains updated storage entries, but may contain entry with a value of 0 to signify
   // deletion.
@@ -238,14 +239,28 @@ public class UpdateTrackingAccount<A extends Account> implements MutableAccount 
     }
     this.updatedCode = code;
     this.updatedCodeHash = null;
+    this.code = null;
   }
 
   @Override
   public Code getOrCreateCachedCode() {
+    if (code == null) {
+      code = loadCode();
+    }
+    return code;
+  }
+
+  private Code loadCode() {
     final Hash codeHash = getCodeHash();
     if (Hash.EMPTY.getBytes().equals(codeHash.getBytes())) {
       return Code.EMPTY_CODE;
     }
+    // The wrapped account keeps its code with the jump destination analysis done on it, which a
+    // new instance would repeat each time the shared cache has evicted the code.
+    if (updatedCode == null && account != null && account.getCodeHash().equals(oldCodeHash)) {
+      return account.getOrCreateCachedCode();
+    }
+
     // if it is not a BonsaiAccount, we don't have access to the code cache
     // so we just return the code as is.
     if (codeCache == null) {
