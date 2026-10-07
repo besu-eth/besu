@@ -20,6 +20,12 @@ import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 import java.io.ByteArrayOutputStream;
 import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
+import java.lang.reflect.Field;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
@@ -65,5 +71,38 @@ public class TxParseSubCommandTest {
             "0xf901fc303083303030803030b901ae30303030303030303030433030303030303030303030303030303030303030303030303030303030203030413030303030303030303000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000038390030000000002800380000413159000021000000002b0000000000003800000000003800000000000000000000002b633279315a00633200303041374222610063416200325832325a002543323861795930314130383058435931317a633043304239623900310031254363384361000023433158253041380037000027285839005a007937000000623700002761002b5a003937622e000000006300007863410000002a2e320000000000005a0000000000000037242778002039006120412e6362002138300000002a313030303030303030303030373030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030a03030303030303030303030303030303030303030303030303030303030303030a03030303030303030303030303030303030303030303030303030303030303030"));
     String output = baos.toString(UTF_8);
     assertThat(output).isEqualTo("err: wrong chain id\n");
+  }
+
+  @Test
+  public void corpusFileStreamIsClosedAfterProcessing() throws Exception {
+    final AtomicBoolean closed = new AtomicBoolean(false);
+    final Path corpus = Files.createTempFile("txparse-corpus", ".txt");
+    try {
+      Files.write(
+          corpus,
+          List.of(
+              "0x02f875018363bc5a8477359400850c570bd200825208943893d427c770de9b92065da03a8c825f13498da28702fbf8ccf8530480c080a0dd49141ecf93eeeaed5f3499a6103d6a9778e24a37b1f5c6a336c60c8a078c15a0511b51a3050771f66c1b779210a46a51be521a2446a3f87fc656dcfd1782aa5e"),
+          UTF_8);
+
+      // Override fileStreamReader to register an onClose handler so we can observe
+      // whether run() releases the corpus file stream.
+      final TxParseSubCommand cmd =
+          new TxParseSubCommand(writer) {
+            @Override
+            Stream<String> fileStreamReader(final String filePath) {
+              return super.fileStreamReader(filePath).onClose(() -> closed.set(true));
+            }
+          };
+
+      final Field corpusFileField = TxParseSubCommand.class.getDeclaredField("corpusFile");
+      corpusFileField.setAccessible(true);
+      corpusFileField.set(cmd, corpus.toString());
+
+      cmd.run();
+
+      assertThat(closed.get()).isTrue();
+    } finally {
+      Files.deleteIfExists(corpus);
+    }
   }
 }

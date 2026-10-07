@@ -87,7 +87,6 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
 
   final Wei blockReward;
 
-  protected final boolean skipZeroBlockRewards;
   private final ProtocolSchedule protocolSchedule;
   protected final BalConfiguration balConfiguration;
   private final BlockProcessingMetrics blockProcessingMetrics;
@@ -100,7 +99,6 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       final TransactionReceiptFactory transactionReceiptFactory,
       final Wei blockReward,
       final MiningBeneficiaryCalculator miningBeneficiaryCalculator,
-      final boolean skipZeroBlockRewards,
       final ProtocolSchedule protocolSchedule,
       final BalConfiguration balConfiguration) {
     this(
@@ -108,7 +106,6 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         transactionReceiptFactory,
         blockReward,
         miningBeneficiaryCalculator,
-        skipZeroBlockRewards,
         protocolSchedule,
         balConfiguration,
         new NoOpMetricsSystem());
@@ -119,7 +116,6 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       final TransactionReceiptFactory transactionReceiptFactory,
       final Wei blockReward,
       final MiningBeneficiaryCalculator miningBeneficiaryCalculator,
-      final boolean skipZeroBlockRewards,
       final ProtocolSchedule protocolSchedule,
       final BalConfiguration balConfiguration,
       final MetricsSystem metricsSystem) {
@@ -127,7 +123,6 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
     this.transactionReceiptFactory = transactionReceiptFactory;
     this.blockReward = blockReward;
     this.miningBeneficiaryCalculator = miningBeneficiaryCalculator;
-    this.skipZeroBlockRewards = skipZeroBlockRewards;
     this.protocolSchedule = protocolSchedule;
     this.balConfiguration = balConfiguration;
     this.blockProcessingMetrics = new BlockProcessingMetrics(metricsSystem);
@@ -490,7 +485,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         }
       }
 
-      if (!rewardCoinbase(worldState, blockHeader, ommers, skipZeroBlockRewards)) {
+      if (!rewardCoinbase(worldState, blockHeader, ommers)) {
         // no need to log, rewardCoinbase logs the error.
         if (worldState instanceof BonsaiWorldState) {
           ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
@@ -668,10 +663,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
   }
 
   abstract boolean rewardCoinbase(
-      final MutableWorldState worldState,
-      final BlockHeader header,
-      final List<BlockHeader> ommers,
-      final boolean skipZeroBlockRewards);
+      final MutableWorldState worldState, final BlockHeader header, final List<BlockHeader> ommers);
 
   public interface PreprocessingFunction {
     Optional<PreprocessingContext> run(

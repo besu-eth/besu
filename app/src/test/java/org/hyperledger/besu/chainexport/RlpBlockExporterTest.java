@@ -44,6 +44,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ScheduleBasedBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
+import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.util.RawBlockIterator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
@@ -279,6 +280,56 @@ public final class RlpBlockExporterTest {
 
     assertThat(Files.exists(outputPath)).isTrue();
     assertThat(outputDir.toFile().list()).containsOnly("output");
+  }
+
+  @Test
+  public void exportBlocks_failedBalsOpenPreservesExistingOutput(final @TempDir Path outputDir)
+      throws IOException {
+    final Path outputPath = outputDir.resolve("output");
+    final Path balsPath = outputDir.resolve("output.bals");
+    Files.writeString(outputPath, "existing blocks");
+    Files.createDirectory(balsPath);
+
+    final RlpBlockExporter exporter = new RlpBlockExporter(blockchain);
+    assertThatThrownBy(
+            () ->
+                exporter.exportBlocks(
+                    outputPath.toFile(),
+                    Optional.of(balsPath.toFile()),
+                    Optional.empty(),
+                    Optional.of(1L)))
+        .isInstanceOf(IOException.class);
+
+    assertThat(Files.readString(outputPath)).isEqualTo("existing blocks");
+  }
+
+  @Test
+  public void exportBlocks_replacesExistingOutput(final @TempDir Path outputDir)
+      throws IOException {
+    final Path outputPath = outputDir.resolve("output");
+    Files.writeString(outputPath, "existing blocks");
+
+    final RlpBlockExporter exporter = new RlpBlockExporter(blockchain);
+    exporter.exportBlocks(outputPath.toFile(), Optional.empty(), Optional.empty(), Optional.of(1L));
+
+    final Block genesisBlock = getBlock(blockchain, 0L);
+    assertThat(Files.readAllBytes(outputPath))
+        .isEqualTo(RLP.encode(genesisBlock::writeTo).toArrayUnsafe());
+  }
+
+  @Test
+  public void exportBlocks_appendsRangeToExistingOutput(final @TempDir Path outputDir)
+      throws IOException {
+    final Path outputPath = outputDir.resolve("output");
+    final RlpBlockExporter exporter = new RlpBlockExporter(blockchain);
+
+    exporter.exportBlocks(outputPath.toFile(), Optional.empty(), Optional.empty(), Optional.of(1L));
+    exporter.exportBlocks(outputPath.toFile(), Optional.empty(), Optional.of(1L), Optional.of(2L));
+
+    final RawBlockIterator blocks = getBlockIterator(outputPath);
+    assertThat(blocks.next()).isEqualTo(getBlock(blockchain, 0L));
+    assertThat(blocks.next()).isEqualTo(getBlock(blockchain, 1L));
+    assertThat(blocks.hasNext()).isFalse();
   }
 
   @Test
