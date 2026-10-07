@@ -50,6 +50,7 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.event.Level;
 
 public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
 
@@ -206,7 +207,8 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
    * @return the full world state, if available
    */
   private Optional<MutableWorldState> getFullWorldStateFromHead(final Hash blockHash) {
-    return rollFullWorldStateToBlockHash(headWorldState, blockHash)
+    // a failure here keeps the chain head from moving, so it must be visible at the default level
+    return rollFullWorldStateToBlockHash(headWorldState, blockHash, Level.WARN)
         .map(MutableWorldState.class::cast);
   }
 
@@ -246,7 +248,8 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
                     blockHeaderHash ->
                         blockchain.getBlockHeader(blockHeaderHash).map(BlockHeader.class::cast)))
         .flatMap(
-            worldState -> rollFullWorldStateToBlockHash(worldState, blockHeader.getBlockHash()))
+            worldState ->
+                rollFullWorldStateToBlockHash(worldState, blockHeader.getBlockHash(), Level.DEBUG))
         .map(
             worldState -> {
               // the BAL overlay is attached only once the world state has been rolled to the
@@ -272,7 +275,9 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
   }
 
   private Optional<PathBasedWorldState> rollFullWorldStateToBlockHash(
-      final PathBasedWorldState mutableState, final Hash blockHash) {
+      final PathBasedWorldState mutableState,
+      final Hash blockHash,
+      final Level rollingFailureLogLevel) {
     if (blockHash.equals(mutableState.blockHash())) {
       return Optional.of(mutableState);
     } else {
@@ -348,11 +353,11 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
         } catch (final Exception e) {
           // if we fail we must clean up the updater
           pathBasedUpdater.reset();
-          LOG.atDebug()
+          LOG.atLevel(rollingFailureLogLevel)
               .setMessage("State rolling failed on {} for block hash {}")
               .addArgument(mutableState.getWorldStateStorage().getClass().getSimpleName())
               .addArgument(blockHash)
-              .addArgument(e)
+              .setCause(e)
               .log();
 
           return Optional.empty();

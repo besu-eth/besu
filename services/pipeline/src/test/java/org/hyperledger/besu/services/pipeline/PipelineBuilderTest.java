@@ -392,6 +392,22 @@ public class PipelineBuilderTest {
   }
 
   @Test
+  public void shouldRejectAbortBeforePipelineStarts() throws Exception {
+    final List<Integer> output = new ArrayList<>();
+    final Pipeline<Integer> pipeline =
+        PipelineBuilder.createPipelineFrom(
+                "input", tasks, 10, NO_OP_LABELLED_2_COUNTER, false, "test")
+            .andFinishWith("end", output::add);
+
+    assertThatThrownBy(pipeline::abort)
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("Pipeline must be started before it can be aborted");
+
+    pipeline.start(executorService).get(10, SECONDS);
+    assertThat(output).containsExactly(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+  }
+
+  @Test
   public void shouldAbortPipelineWhenFutureIsCancelled() throws Exception {
     final int allowProcessingUpTo = 5;
     final AtomicBoolean processorInterrupted = new AtomicBoolean(false);

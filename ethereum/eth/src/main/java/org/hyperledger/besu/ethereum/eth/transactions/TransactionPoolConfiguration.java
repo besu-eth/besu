@@ -97,11 +97,11 @@ public interface TransactionPoolConfiguration {
   boolean DEFAULT_NO_LOCAL_PRIORITY = false;
   boolean DEFAULT_ENABLE_SAVE_RESTORE = false;
   File DEFAULT_SAVE_FILE = new File(DEFAULT_SAVE_FILE_NAME);
-  // 50 MB expressed in decimal bytes (50 * 10^6), not 50 MiB
-  long DEFAULT_PENDING_TRANSACTIONS_LAYER_MAX_CAPACITY_BYTES = 50L * 1_000_000L;
-  int DEFAULT_MAX_PRIORITIZED_TRANSACTIONS = 5000;
+  // 75 MB expressed in decimal bytes (75 * 10^6), not 75 MiB
+  long DEFAULT_PENDING_TRANSACTIONS_LAYER_MAX_CAPACITY_BYTES = 75L * 1_000_000L;
+  int DEFAULT_MAX_PRIORITIZED_TRANSACTIONS = 10000;
   EnumMap<TransactionType, Integer> DEFAULT_MAX_PRIORITIZED_TRANSACTIONS_BY_TYPE =
-      new EnumMap<>(Map.of(TransactionType.BLOB, 72));
+      new EnumMap<>(Map.of(TransactionType.BLOB, 21));
   int DEFAULT_MAX_FUTURE_BY_SENDER = 200;
   Implementation DEFAULT_TX_POOL_IMPLEMENTATION = Implementation.LAYERED;
   Set<Address> DEFAULT_PRIORITY_SENDERS = Set.of();

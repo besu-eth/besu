@@ -65,4 +65,17 @@ public class Commit extends BftMessage<CommitPayload> {
 
     return new Commit(readPayload(rlpIn, CommitPayload::readFrom));
   }
+
+  /**
+   * Reads only the sequence number (block height) from the encoded message without full decode.
+   *
+   * @param data the raw encoded message bytes
+   * @return the sequence number
+   */
+  public static long decodeSequence(final Bytes data) {
+    final RLPInput rlp = RLP.input(data);
+    rlp.enterList(); // signed-data wrapper
+    rlp.enterList(); // CommitPayload
+    return rlp.readLongScalar();
+  }
 }

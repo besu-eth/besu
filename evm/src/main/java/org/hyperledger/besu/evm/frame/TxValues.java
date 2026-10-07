@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.evm.frame;
 
+import org.hyperledger.besu.collections.undo.UndoMap;
 import org.hyperledger.besu.collections.undo.UndoScalar;
 import org.hyperledger.besu.collections.undo.UndoSet;
 import org.hyperledger.besu.collections.undo.UndoTable;
@@ -21,12 +22,14 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.internal.AddressStorageSlotKey;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
-import java.util.TreeSet;
 
 import com.google.common.collect.TreeBasedTable;
 import org.apache.tuweni.bytes.Bytes32;
@@ -51,7 +54,7 @@ public class TxValues {
   private final Deque<MessageFrame> messageFrameStack;
   private final Address miningBeneficiary;
   private final Optional<List<VersionedHash>> versionedHashes;
-  private final UndoTable<Address, Bytes32, Bytes32> transientStorage;
+  private final UndoMap<AddressStorageSlotKey, Bytes32> transientStorage;
   private final UndoSet<Address> creates;
   private final UndoSet<Address> selfDestructs;
   private final UndoScalar<Long> gasRefunds;
@@ -70,7 +73,7 @@ public class TxValues {
       final Deque<MessageFrame> messageFrameStack,
       final Address miningBeneficiary,
       final Optional<List<VersionedHash>> versionedHashes,
-      final UndoTable<Address, Bytes32, Bytes32> transientStorage,
+      final UndoMap<AddressStorageSlotKey, Bytes32> transientStorage,
       final UndoSet<Address> creates,
       final UndoSet<Address> selfDestructs,
       final UndoScalar<Long> gasRefunds,
@@ -123,10 +126,6 @@ public class TxValues {
       final Address miningBeneficiary,
       final Optional<List<VersionedHash>> versionedHashes,
       final long initialStateGasReservoir) {
-    // TreeBasedTable/TreeSet (sorted by each key's natural ordering) are used instead of
-    // HashBasedTable/HashSet: Address and Bytes32 hash with a grindable base-31 hash and never
-    // declare Comparable<Self> directly, so HashMap/HashBasedTable bucket treeification never
-    // engages, letting an attacker force O(n) bucket walks per insert.
     return new TxValues(
         blockHashLookup,
         maxStackSize,
@@ -139,9 +138,9 @@ public class TxValues {
         new ArrayDeque<>(),
         miningBeneficiary,
         versionedHashes,
-        UndoTable.of(TreeBasedTable.create()),
-        UndoSet.of(new TreeSet<>()),
-        UndoSet.of(new TreeSet<>()),
+        new UndoMap<>(new HashMap<>()),
+        UndoSet.of(new HashSet<>()),
+        UndoSet.of(new HashSet<>()),
         new UndoScalar<>(0L),
         new UndoScalar<>(0L),
         new UndoScalar<>(initialStateGasReservoir));
@@ -267,7 +266,7 @@ public class TxValues {
    *
    * @return the transient storage
    */
-  public UndoTable<Address, Bytes32, Bytes32> transientStorage() {
+  public UndoMap<AddressStorageSlotKey, Bytes32> transientStorage() {
     return transientStorage;
   }
 

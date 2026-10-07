@@ -35,6 +35,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.C
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.NonceChange;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.SlotChanges;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.StorageChange;
+import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
@@ -45,6 +46,7 @@ import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -288,8 +290,8 @@ class StateRootCommitterFactoryTest {
                 protocolContext, blockHeader, Optional.of(bal), worldState.isStorageFrozen());
 
         assertThatThrownBy(() -> worldState.persist(blockHeader, committer))
-            .isInstanceOf(IllegalStateException.class)
-            .hasMessageContaining("BAL-computed root does not match block header state root");
+            .isInstanceOf(StateRootMismatchException.class)
+            .hasMessageContaining(wrongRoot.getBytes().toHexString());
       }
     }
 
@@ -309,7 +311,7 @@ class StateRootCommitterFactoryTest {
         committer.cancel();
 
         assertThatThrownBy(() -> committer.compute(worldState, blockHeader, worldState.updater()))
-            .isInstanceOf(IllegalStateException.class)
+            .isInstanceOf(CancellationException.class)
             .hasMessageContaining("Background BAL state root computation was cancelled");
       }
     }

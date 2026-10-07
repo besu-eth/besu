@@ -234,8 +234,10 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
 
       try {
         plugin.beforeExternalServices();
-        LOG.debug(
-            "beforeExternalServices called on plugin of type {}.", plugin.getClass().getName());
+        if (LOG.isDebugEnabled()) {
+          LOG.debug(
+              "beforeExternalServices called on plugin of type {}.", plugin.getClass().getName());
+        }
       } catch (final Exception e) {
         if (config.isContinueOnPluginError()) {
           LOG.error(
@@ -270,7 +272,9 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
 
       try {
         plugin.start();
-        LOG.debug("Started plugin of type {}.", plugin.getClass().getName());
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Started plugin of type {}.", plugin.getClass().getName());
+        }
       } catch (final Exception e) {
         if (config.isContinueOnPluginError()) {
           LOG.error(
@@ -332,7 +336,9 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
     for (final BesuPlugin plugin : registeredPlugins) {
       try {
         plugin.stop();
-        LOG.debug("Stopped plugin of type {}.", plugin.getClass().getName());
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Stopped plugin of type {}.", plugin.getClass().getName());
+        }
       } catch (final Exception e) {
         LOG.error("Error stopping plugin of type " + plugin.getClass().getName(), e);
       }

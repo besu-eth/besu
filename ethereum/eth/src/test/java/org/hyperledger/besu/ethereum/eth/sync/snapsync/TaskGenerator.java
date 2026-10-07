@@ -165,7 +165,7 @@ public class TaskGenerator {
         SnapDataRequest.createBytecodeRequest(
             Bytes32.wrap(accountHash.getBytes()), rootHash, Bytes32.wrap(codeHash.getBytes()));
     if (withData) {
-      request.setCode(worldStateKeyValueStorage.getCode(codeHash, accountHash).get());
+      request.setCode(worldStateKeyValueStorage.getCode(codeHash, accountHash).get().getBytes());
     }
     return request;
   }

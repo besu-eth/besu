@@ -19,6 +19,9 @@ import org.hyperledger.besu.plugin.data.BlockBody;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.data.SyncStatus;
 import org.hyperledger.besu.plugin.services.BesuService;
+import org.hyperledger.besu.plugin.services.Subscription;
+import org.hyperledger.besu.plugin.services.sync.spi.InitialSyncCompletionListener;
+import org.hyperledger.besu.plugin.services.sync.spi.SyncStatusListener;
 
 import java.util.Optional;
 
@@ -90,4 +93,20 @@ public interface SynchronizationService extends BesuService {
    * @return the best peer chain head, or empty if no peers are connected.
    */
   Optional<Long> getBestPeerChainHead();
+
+  /**
+   * Subscribes to sync status changes.
+   *
+   * @param listener the listener that receives each status change
+   * @return the subscription; close it to stop receiving events
+   */
+  Subscription subscribeSyncStatus(SyncStatusListener listener);
+
+  /**
+   * Subscribes to initial sync completion and restart.
+   *
+   * @param listener the listener that receives completion and restart callbacks
+   * @return the subscription; close it to stop receiving events
+   */
+  Subscription subscribeInitialSyncCompletion(InitialSyncCompletionListener listener);
 }

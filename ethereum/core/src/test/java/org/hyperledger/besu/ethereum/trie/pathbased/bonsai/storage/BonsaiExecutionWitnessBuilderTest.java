@@ -34,6 +34,7 @@ import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.PathBasedWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
+import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.account.Account;
 
 import java.util.ArrayList;
@@ -90,7 +91,7 @@ class BonsaiExecutionWitnessBuilderTest {
     final Hash codeHash = code.isEmpty() ? Hash.EMPTY : Hash.hash(code);
     when(account.getCodeHash()).thenReturn(codeHash);
     when(worldView.get(address)).thenReturn(account);
-    when(worldView.getCode(address, codeHash)).thenReturn(Optional.of(code));
+    when(worldView.getCode(address, codeHash)).thenReturn(Optional.of(new Code(code, codeHash)));
   }
 
   /** Chains headers 0..count-1, each pointing at the previous, tagged so forks differ by hash. */

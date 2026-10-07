@@ -38,7 +38,10 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.services.kvstore.SegmentedKeyValueStorageAdapter;
 
+import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
@@ -46,6 +49,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import org.apache.commons.lang3.tuple.Pair;
 import org.junit.jupiter.api.Test;
@@ -108,6 +113,50 @@ public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValu
     final Optional<byte[]> result = store.get(TestSegment.FOO, bytesFromHexString("0001"));
 
     assertThat(result).isEmpty();
+
+    store.close();
+  }
+
+  @Test
+  public void multigetPreservesInputOrderAndMissingValues() throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore();
+
+    final SegmentedKeyValueStorageTransaction tx = store.startTransaction();
+    tx.put(TestSegment.FOO, bytesOf(1), bytesOf(10));
+    tx.put(TestSegment.FOO, bytesOf(3), bytesOf(30));
+    tx.put(TestSegment.BAR, bytesOf(2), bytesOf(20));
+    tx.commit();
+
+    final List<Optional<byte[]>> values =
+        store.multiget(TestSegment.FOO, List.of(bytesOf(3), bytesOf(2), bytesOf(1)));
+    assertThat(values).hasSize(3);
+    assertThat(values.get(0)).isPresent();
+    assertThat(values.get(0).get()).isEqualTo(bytesOf(30));
+    assertThat(values.get(1)).isEmpty();
+    assertThat(values.get(2)).isPresent();
+    assertThat(values.get(2).get()).isEqualTo(bytesOf(10));
+
+    store.close();
+  }
+
+  @Test
+  public void multigetPreservesDuplicateKeysAndHandlesEmptyInput() throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore();
+
+    assertThat(store.multiget(TestSegment.FOO, List.of())).isEmpty();
+
+    final SegmentedKeyValueStorageTransaction tx = store.startTransaction();
+    tx.put(TestSegment.FOO, bytesOf(1), bytesOf(10));
+    tx.commit();
+
+    final List<Optional<byte[]>> values =
+        store.multiget(TestSegment.FOO, List.of(bytesOf(1), bytesOf(1)));
+
+    assertThat(values).hasSize(2);
+    assertThat(values.get(0)).isPresent();
+    assertThat(values.get(0).get()).isEqualTo(bytesOf(10));
+    assertThat(values.get(1)).isPresent();
+    assertThat(values.get(1).get()).isEqualTo(bytesOf(10));
 
     store.close();
   }
@@ -320,7 +369,7 @@ public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValu
 
       // Assertions
       assertThat(keyValueStorage).isNotNull();
-      verify(metricsSystemMock, times(4))
+      verify(metricsSystemMock, times(5))
           .createLabelledTimer(
               eq(BesuMetricCategory.KVSTORE_ROCKSDB),
               labelledTimersMetricsNameArgs.capture(),
@@ -329,12 +378,14 @@ public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValu
       assertThat(labelledTimersMetricsNameArgs.getAllValues())
           .containsExactly(
               "read_latency_seconds",
+              "multi_read_latency_seconds",
               "remove_latency_seconds",
               "write_latency_seconds",
               "commit_latency_seconds");
       assertThat(labelledTimersHelpArgs.getAllValues())
           .containsExactly(
               "Latency for read from RocksDB.",
+              "Latency for multi read from RocksDB.",
               "Latency of remove requests from RocksDB.",
               "Latency for write to RocksDB.",
               "Latency for commits to RocksDB.");
@@ -449,6 +500,325 @@ public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValu
     public boolean isEligibleToHighSpecFlag() {
       return eligibleToHighSpecFlag;
     }
+  }
+
+  @Test
+  public void rewriteReplacesTheSegmentContentInOneStep() throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore();
+    final SegmentedKeyValueStorageTransaction tx = store.startTransaction();
+    tx.put(TestSegment.FOO, bytes(1), bytes(1));
+    tx.put(TestSegment.FOO, bytes(2), bytes(2));
+    tx.put(TestSegment.FOO, bytes(3), bytes(3));
+    tx.put(TestSegment.BAR, bytes(1), bytes(1));
+    tx.commit();
+
+    store.rewrite(
+        TestSegment.FOO, RocksDBColumnarKeyValueStorageTest::dropTwoAndAppendKey, ADDITION);
+
+    assertRewritten(store);
+    assertThat(store.get(TestSegment.BAR, bytes(1))).contains(bytes(1));
+    assertThat(stagingDirectory(store)).doesNotExist();
+    store.close();
+  }
+
+  @Test
+  public void rewriteOfAnEmptySegmentOnlyAddsTheEntries() throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore();
+
+    store.rewrite(
+        TestSegment.FOO, RocksDBColumnarKeyValueStorageTest::dropTwoAndAppendKey, ADDITION);
+
+    assertThat(store.stream(TestSegment.FOO).map(Pair::getKey).toList()).containsExactly(bytes(9));
+    store.close();
+  }
+
+  @Test
+  public void rewriteDroppingEveryEntryLeavesOnlyTheAdditions() throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore();
+    putOneTwoThree(store);
+
+    store.rewrite(TestSegment.FOO, (key, value) -> null, ADDITION);
+
+    assertThat(store.stream(TestSegment.FOO).map(Pair::getKey).toList()).containsExactly(bytes(9));
+    store.close();
+  }
+
+  @Test
+  public void rewriteOfTheDefaultSegmentIsRejected() throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore();
+
+    assertThatThrownBy(() -> store.rewrite(TestSegment.DEFAULT, (key, value) -> value, List.of()))
+        .isInstanceOf(IllegalArgumentException.class);
+    store.close();
+  }
+
+  @Test
+  public void rewriteSplitsTheSegmentOverSeveralFilesAndWriters() throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore(folder, SEGMENTS, List.of());
+    final int entries = 5_000;
+    final SegmentedKeyValueStorageTransaction tx = store.startTransaction();
+    for (int i = 0; i < entries; i++) {
+      tx.put(TestSegment.FOO, intKey(i), intKey(i));
+    }
+    tx.commit();
+    // a few dozen entries fill a file, and every seventh entry is dropped
+    final RocksDBSegmentRewrite rewrite =
+        new RocksDBSegmentRewrite(
+            (RocksDBColumnarKeyValueStorage) store, TestSegment.FOO, 4 << 10, 3);
+
+    rewrite.writeFiles((key, value) -> intOf(key) % 7 == 0 ? null : intKey(intOf(value) + 1));
+    try (final Stream<Path> staged = Files.list(stagingDirectory(store))) {
+      assertThat(staged).hasSizeGreaterThan(50);
+    }
+    rewrite.complete(rewrite.markPending(ADDITION));
+
+    final List<Pair<byte[], byte[]>> rewritten = store.stream(TestSegment.FOO).toList();
+    final List<Integer> expected =
+        IntStream.range(0, entries).filter(i -> i % 7 != 0).boxed().toList();
+    assertThat(rewritten).hasSize(expected.size() + 1);
+    for (int i = 0; i < expected.size(); i++) {
+      assertThat(rewritten.get(i).getKey()).isEqualTo(intKey(expected.get(i)));
+      assertThat(rewritten.get(i).getValue()).isEqualTo(intKey(expected.get(i) + 1));
+    }
+    assertThat(rewritten.getLast().getKey()).isEqualTo(bytes(9));
+    assertThat(stagingDirectory(store)).doesNotExist();
+    store.close();
+  }
+
+  @Test
+  public void rewriteThatFailsWhileStagingLeavesTheSegmentAlone() throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore(folder, SEGMENTS, List.of());
+    putOneTwoThree(store);
+
+    assertThatThrownBy(
+            () ->
+                store.rewrite(
+                    TestSegment.FOO,
+                    (key, value) -> {
+                      throw new IllegalStateException("no new value for this entry");
+                    },
+                    ADDITION))
+        .isInstanceOf(StorageException.class)
+        .hasRootCauseMessage("no new value for this entry");
+
+    assertThat(store.stream(TestSegment.FOO).map(Pair::getValue).toList())
+        .containsExactly(bytes(1), bytes(2), bytes(3));
+    store.rewrite(
+        TestSegment.FOO, RocksDBColumnarKeyValueStorageTest::dropTwoAndAppendKey, ADDITION);
+    assertRewritten(store);
+    store.close();
+  }
+
+  @Test
+  public void rewriteInterruptedBeforeTheSwapLeavesTheSegmentAlone() throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore(folder, SEGMENTS, List.of());
+    putOneTwoThree(store);
+    new RocksDBSegmentRewrite((RocksDBColumnarKeyValueStorage) store, TestSegment.FOO)
+        .writeFiles(RocksDBColumnarKeyValueStorageTest::dropTwoAndAppendKey);
+    store.close();
+
+    final SegmentedKeyValueStorage reopened = createSegmentedStore(folder, SEGMENTS, List.of());
+
+    assertThat(reopened.stream(TestSegment.FOO).map(Pair::getValue).toList())
+        .containsExactly(bytes(1), bytes(2), bytes(3));
+    assertThat(stagingDirectory(reopened)).doesNotExist();
+    reopened.rewrite(
+        TestSegment.FOO, RocksDBColumnarKeyValueStorageTest::dropTwoAndAppendKey, ADDITION);
+    assertRewritten(reopened);
+    reopened.close();
+  }
+
+  @Test
+  public void rewriteInterruptedAfterTheMarkerIsFinishedWhenOpenedAgain() throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore(folder, SEGMENTS, List.of());
+    putOneTwoThree(store);
+    final RocksDBSegmentRewrite rewrite = oneFilePerEntry(store);
+    rewrite.writeFiles(RocksDBColumnarKeyValueStorageTest::dropTwoAndAppendKey);
+    rewrite.markPending(ADDITION);
+    store.close();
+
+    final SegmentedKeyValueStorage reopened = createSegmentedStore(folder, SEGMENTS, List.of());
+
+    assertRewritten(reopened);
+    assertThat(stagingDirectory(reopened)).doesNotExist();
+    reopened.close();
+  }
+
+  @Test
+  public void rewriteInterruptedAfterTheDropIsFinishedWhenOpenedAgain() throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore(folder, SEGMENTS, List.of());
+    putOneTwoThree(store);
+    final RocksDBSegmentRewrite rewrite = oneFilePerEntry(store);
+    rewrite.writeFiles(RocksDBColumnarKeyValueStorageTest::dropTwoAndAppendKey);
+    rewrite.markPending(ADDITION);
+    store.clear(TestSegment.FOO);
+    store.close();
+
+    final SegmentedKeyValueStorage reopened = createSegmentedStore(folder, SEGMENTS, List.of());
+
+    assertRewritten(reopened);
+    reopened.close();
+  }
+
+  @Test
+  public void rewriteInterruptedAfterTheIngestionIsFinishedWhenOpenedAgain() throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore(folder, SEGMENTS, List.of());
+    putOneTwoThree(store);
+    final RocksDBSegmentRewrite rewrite = oneFilePerEntry(store);
+    rewrite.writeFiles(RocksDBColumnarKeyValueStorageTest::dropTwoAndAppendKey);
+    rewrite.swap(rewrite.markPending(ADDITION).files());
+    store.close();
+
+    final SegmentedKeyValueStorage reopened = createSegmentedStore(folder, SEGMENTS, List.of());
+
+    assertRewritten(reopened);
+    assertThat(stagingDirectory(reopened)).doesNotExist();
+    reopened.close();
+  }
+
+  @Test
+  public void rewriteInterruptedWhileTheIngestionRemovedItsFilesIsFinishedWhenOpenedAgain()
+      throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore(folder, SEGMENTS, List.of());
+    putOneTwoThree(store);
+    final RocksDBSegmentRewrite rewrite = oneFilePerEntry(store);
+    rewrite.writeFiles(RocksDBColumnarKeyValueStorageTest::dropTwoAndAppendKey);
+    rewrite.swap(rewrite.markPending(ADDITION).files());
+    // the ingestion removes the files it was given one by one, and was stopped after the first
+    final List<Path> staged = stagedFiles(store);
+    assertThat(staged).hasSize(2);
+    Files.createLink(
+        stagingDirectory(store).resolve("ingest").resolve(staged.getLast().getFileName()),
+        staged.getLast());
+    store.close();
+
+    final SegmentedKeyValueStorage reopened = createSegmentedStore(folder, SEGMENTS, List.of());
+
+    assertRewritten(reopened);
+    assertThat(stagingDirectory(reopened)).doesNotExist();
+    reopened.close();
+  }
+
+  @Test
+  public void rewriteRepeatedAfterTheDropFinishesTheSwap() throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore(folder, SEGMENTS, List.of());
+    putOneTwoThree(store);
+    final RocksDBSegmentRewrite rewrite = oneFilePerEntry(store);
+    rewrite.writeFiles(RocksDBColumnarKeyValueStorageTest::dropTwoAndAppendKey);
+    rewrite.markPending(ADDITION);
+    store.clear(TestSegment.FOO);
+
+    store.rewrite(
+        TestSegment.FOO, RocksDBColumnarKeyValueStorageTest::dropTwoAndAppendKey, ADDITION);
+
+    assertRewritten(store);
+    assertThat(stagingDirectory(store)).doesNotExist();
+    store.close();
+  }
+
+  @Test
+  public void rewriteRepeatedAfterTheIngestionDoesNotTransformTwice() throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore(folder, SEGMENTS, List.of());
+    putOneTwoThree(store);
+    final RocksDBSegmentRewrite rewrite = oneFilePerEntry(store);
+    rewrite.writeFiles(RocksDBColumnarKeyValueStorageTest::dropTwoAndAppendKey);
+    rewrite.swap(rewrite.markPending(ADDITION).files());
+
+    store.rewrite(
+        TestSegment.FOO,
+        (key, value) -> {
+          throw new AssertionError("the entries are transformed already");
+        },
+        ADDITION);
+
+    assertRewritten(store);
+    store.close();
+  }
+
+  @Test
+  public void openFailsAndReleasesTheDatabaseWhenStagedFilesOfAPendingRewriteAreMissing()
+      throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore(folder, SEGMENTS, List.of());
+    putOneTwoThree(store);
+    final RocksDBSegmentRewrite rewrite = oneFilePerEntry(store);
+    rewrite.writeFiles(RocksDBColumnarKeyValueStorageTest::dropTwoAndAppendKey);
+    rewrite.markPending(ADDITION);
+    final Path missing = stagedFiles(store).getFirst();
+    final Path kept = folder.resolveSibling(folder.getFileName() + "-kept.sst");
+    Files.move(missing, kept);
+    store.close();
+
+    // the second attempt fails for the same reason, not because the first one kept the database
+    for (int attempt = 0; attempt < 2; attempt++) {
+      assertThatThrownBy(() -> createSegmentedStore(folder, SEGMENTS, List.of()))
+          .isInstanceOf(StorageException.class)
+          .hasMessageContaining("holds 1 of its 2 staged files");
+    }
+
+    // nothing was dropped on the way, the swap still goes through once the file is back
+    Files.move(kept, missing);
+    final SegmentedKeyValueStorage reopened = createSegmentedStore(folder, SEGMENTS, List.of());
+    assertRewritten(reopened);
+    reopened.close();
+  }
+
+  private static final List<SegmentIdentifier> SEGMENTS =
+      List.of(TestSegment.DEFAULT, TestSegment.FOO, TestSegment.BAR);
+
+  private static final List<Pair<byte[], byte[]>> ADDITION =
+      List.of(Pair.of(bytes(9), bytes(9, 9)));
+
+  private static byte[] dropTwoAndAppendKey(final byte[] key, final byte[] value) {
+    return key[0] == 2 ? null : bytes(value[0], key[0]);
+  }
+
+  private static void putOneTwoThree(final SegmentedKeyValueStorage store) {
+    final SegmentedKeyValueStorageTransaction tx = store.startTransaction();
+    tx.put(TestSegment.FOO, bytes(1), bytes(1));
+    tx.put(TestSegment.FOO, bytes(2), bytes(2));
+    tx.put(TestSegment.FOO, bytes(3), bytes(3));
+    tx.commit();
+  }
+
+  private static void assertRewritten(final SegmentedKeyValueStorage store) {
+    assertThat(store.stream(TestSegment.FOO).map(Pair::getKey).toList())
+        .containsExactly(bytes(1), bytes(3), bytes(9));
+    assertThat(store.get(TestSegment.FOO, bytes(1))).contains(bytes(1, 1));
+    assertThat(store.get(TestSegment.FOO, bytes(3))).contains(bytes(3, 3));
+    assertThat(store.get(TestSegment.FOO, bytes(9))).contains(bytes(9, 9));
+  }
+
+  private static byte[] bytes(final int... values) {
+    final byte[] bytes = new byte[values.length];
+    for (int i = 0; i < values.length; i++) {
+      bytes[i] = (byte) values[i];
+    }
+    return bytes;
+  }
+
+  private static byte[] intKey(final int value) {
+    return ByteBuffer.allocate(Integer.BYTES).putInt(value).array();
+  }
+
+  private static int intOf(final byte[] bytes) {
+    return ByteBuffer.wrap(bytes).getInt();
+  }
+
+  /** Every entry fills a file, so that the swap has more than one file to handle. */
+  private static RocksDBSegmentRewrite oneFilePerEntry(final SegmentedKeyValueStorage store) {
+    return new RocksDBSegmentRewrite((RocksDBColumnarKeyValueStorage) store, TestSegment.FOO, 1, 2);
+  }
+
+  private static List<Path> stagedFiles(final SegmentedKeyValueStorage store) throws IOException {
+    try (final Stream<Path> files = Files.list(stagingDirectory(store))) {
+      return files.filter(Files::isRegularFile).sorted().toList();
+    }
+  }
+
+  private static Path stagingDirectory(final SegmentedKeyValueStorage store) {
+    return RocksDBSegmentRewrite.stagingDirectory(
+        ((RocksDBColumnarKeyValueStorage) store).configuration.getDatabaseDir(),
+        TestSegment.FOO.getName());
   }
 
   protected abstract SegmentedKeyValueStorage createSegmentedStore() throws Exception;

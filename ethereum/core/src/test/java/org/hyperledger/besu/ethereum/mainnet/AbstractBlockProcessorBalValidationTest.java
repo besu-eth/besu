@@ -135,7 +135,6 @@ class AbstractBlockProcessorBalValidationTest {
             transactionReceiptFactory,
             Wei.ZERO,
             BlockHeader::getCoinbase,
-            true,
             protocolSchedule,
             BalConfiguration.DEFAULT,
             loc -> {
@@ -192,7 +191,6 @@ class AbstractBlockProcessorBalValidationTest {
             transactionReceiptFactory,
             Wei.ZERO,
             BlockHeader::getCoinbase,
-            true,
             protocolSchedule,
             BalConfiguration.DEFAULT,
             loc -> {
@@ -235,7 +233,6 @@ class AbstractBlockProcessorBalValidationTest {
             transactionReceiptFactory,
             Wei.ZERO,
             BlockHeader::getCoinbase,
-            true,
             protocolSchedule,
             BalConfiguration.DEFAULT,
             loc ->
@@ -297,7 +294,6 @@ class AbstractBlockProcessorBalValidationTest {
         final TransactionReceiptFactory transactionReceiptFactory,
         final Wei blockReward,
         final MiningBeneficiaryCalculator miningBeneficiaryCalculator,
-        final boolean skipZeroBlockRewards,
         final ProtocolSchedule protocolSchedule,
         final BalConfiguration balConfiguration,
         final IntFunction<TransactionProcessingResult> resultByTxIndex) {
@@ -306,7 +302,6 @@ class AbstractBlockProcessorBalValidationTest {
           transactionReceiptFactory,
           blockReward,
           miningBeneficiaryCalculator,
-          skipZeroBlockRewards,
           protocolSchedule,
           balConfiguration);
       this.resultByTxIndex = resultByTxIndex;
@@ -316,8 +311,7 @@ class AbstractBlockProcessorBalValidationTest {
     protected boolean rewardCoinbase(
         final MutableWorldState worldState,
         final BlockHeader header,
-        final List<org.hyperledger.besu.ethereum.core.BlockHeader> ommers,
-        final boolean skipZeroBlockRewards) {
+        final List<org.hyperledger.besu.ethereum.core.BlockHeader> ommers) {
       return true;
     }
 

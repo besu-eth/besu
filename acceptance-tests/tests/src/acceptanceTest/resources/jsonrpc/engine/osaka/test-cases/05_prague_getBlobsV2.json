@@ -12,11 +12,7 @@
   "response": {
     "jsonrpc" : "2.0",
     "id" : 67,
-    "error" : {
-      "code" : -38005,
-      "message" : "Unsupported fork",
-      "data" : "OSAKA configured to start at timestamp: 32"
-    }
+    "result" : null
   },
   "statusCode": 200
 }

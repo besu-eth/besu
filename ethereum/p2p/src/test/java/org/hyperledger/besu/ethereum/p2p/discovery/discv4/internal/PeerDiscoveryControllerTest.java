@@ -35,6 +35,7 @@ import org.hyperledger.besu.crypto.Hash;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.cryptoservices.NodeKey;
+import org.hyperledger.besu.ethereum.p2p.discovery.DiscoveryPeerFactory;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.Endpoint;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.PeerDiscoveryTestHelper;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.DaggerPacketPackage;
@@ -50,6 +51,7 @@ import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.ping.P
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.pong.PongPacketData;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.validation.EndpointValidator;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.validation.ExpiryValidator;
+import org.hyperledger.besu.ethereum.p2p.discovery.dns.EthereumNodeRecord;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.p2p.peers.Peer;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions;
@@ -108,6 +110,15 @@ public class PeerDiscoveryControllerTest {
   private static final byte MOST_SIGNIFICANT_BIT_MASK = -128;
   private static final PeerRequirement PEER_REQUIREMENT = () -> true;
   private static final long TABLE_REFRESH_INTERVAL_MS = TimeUnit.HOURS.toMillis(1);
+
+  // Real mainnet EF bootnode (config/src/main/resources/mainnet.json): discovery only, no RLPx
+  // listening port.
+  private static final String DISCOVERY_ONLY_BOOTNODE_ENODE =
+      "enode://ca967418ba165105303cfbb733dfb92bfcab80d65009d5e5f158c8e9e5f2c90795ae396a28d2114d66b4001e123e8c2c0465b018aed619fff41faca2ab4d2e64@212.99.218.66:0?discport=20151";
+  // The ENR form of the same node: no tcp/tcp6 fields at all, only udp/udp6=20151.
+  private static final String DISCOVERY_ONLY_BOOTNODE_ENR =
+      "enr:-KG4QCF1Mj32xpKHjinNb6ocCtMZG6IR_tyF5dkio5Hkek7zVbT6MM5eJwhjJFdiksQl51T33IRgryE0XLXiy1QOqsUBgmlkgnY0gmlwhNRj2kKDaXA2kCoAHKALAA0CAAAAAAAAAF6Jc2VjcDI1NmsxoQLKlnQYuhZRBTA8-7cz37kr_KuA1lAJ1eXxWMjp5fLJB4N1ZHCCTreEdWRwNoJOtw";
+
   private PeerDiscoveryController controller;
   private DiscoveryPeerV4 localPeer;
   private PeerTable peerTable;
@@ -630,6 +641,167 @@ public class PeerDiscoveryControllerTest {
     // verify that the ping was not sent, no additional interaction
     verify(outboundMessageHandler, times(1))
         .send(eq(peerThatTimesOut), matchPacketOfType(PacketType.PING));
+  }
+
+  @Test
+  public void shouldNotInvalidateBootnodeWhenRlpxConnectTimesOut() {
+    final List<NodeKey> nodeKeys = PeerDiscoveryTestHelper.generateNodeKeys(1);
+    final NodeKey nodeKey = nodeKeys.getFirst();
+    final DiscoveryPeerV4 bootnode = helper.createDiscoveryPeers(nodeKeys).getFirst();
+    assertThat(bootnode.isListening()).isTrue();
+
+    // An RLPx agent that times out on every connection attempt, e.g. a bootnode at its peer limit.
+    final OutboundMessageHandler outboundMessageHandler = mock(OutboundMessageHandler.class);
+    final RlpxAgent rlpxAgentMock = mock(RlpxAgent.class);
+    when(rlpxAgentMock.connect(any(), any(ConnectSource.class)))
+        .thenReturn(CompletableFuture.failedFuture(new Exception(new TimeoutException())));
+    controller =
+        getControllerBuilder()
+            .peers(bootnode)
+            .peerTable(peerTable)
+            .outboundMessageHandler(outboundMessageHandler)
+            .rlpxAgent(rlpxAgentMock)
+            .build();
+
+    final PingPacketData mockPing =
+        packetPackage
+            .pingPacketDataFactory()
+            .create(
+                Optional.ofNullable(localPeer.getEndpoint()), bootnode.getEndpoint(), UInt64.ONE);
+    final Packet mockPacket =
+        packetPackage.packetFactory().create(PacketType.PING, mockPing, nodeKey);
+    mockPingPacketCreation(mockPacket);
+    controller.setRetryDelayFunction(PeerDiscoveryControllerTest::longDelayFunction);
+    controller.start();
+
+    verify(outboundMessageHandler, times(1)).send(eq(bootnode), matchPacketOfType(PacketType.PING));
+
+    respondWithPong(bootnode, nodeKey, mockPacket.getHash());
+
+    // The RLPx probe is still attempted, but its timeout neither drops the bootnode from the
+    // peer table nor blacklists its IP.
+    verify(controller, times(1)).connectOnRlpxLayer(eq(bootnode));
+    assertThat(bootnode.getStatus()).isEqualTo(PeerDiscoveryStatus.BONDED);
+    assertThat(controller.streamDiscoveredPeers()).contains(bootnode);
+    assertThat(peerTable.isIpAddressInvalid(bootnode.getEndpoint())).isFalse();
+  }
+
+  @Test
+  public void shouldRetryUnbondedBootnodesOnRefreshWhenUnderPeeredOnNonPoaNetwork() {
+    final List<NodeKey> nodeKeys = PeerDiscoveryTestHelper.generateNodeKeys(2);
+    final List<DiscoveryPeerV4> bootnodes = helper.createDiscoveryPeers(nodeKeys);
+
+    final MockTimerUtil timer = new MockTimerUtil();
+    final OutboundMessageHandler outboundMessageHandler = mock(OutboundMessageHandler.class);
+    controller =
+        getControllerBuilder()
+            .peers(bootnodes)
+            .timerUtil(timer)
+            .outboundMessageHandler(outboundMessageHandler)
+            // non-PoA network: bootnodes are not part of the periodic full refresh
+            .includeBootnodesOnPeerRefresh(false)
+            // ... but this node has too few peers
+            .peerRequirement(() -> false)
+            .build();
+    controller.setRetryDelayFunction(PeerDiscoveryControllerTest::longDelayFunction);
+    controller.start();
+
+    // Startup: one bonding round with every bootnode, none of them answer.
+    // (Bonding attempts are counted rather than PING packets, because the mock timer also fires
+    // the per-interaction PING retries.)
+    for (final DiscoveryPeerV4 bootnode : bootnodes) {
+      verify(controller, times(1)).bond(eq(bootnode));
+    }
+    // Let the bonding and neighbours rounds time out so the initial search completes.
+    timer.runTimerHandlers();
+    timer.runTimerHandlers();
+
+    // The first periodic check is the full table refresh, which on a non-PoA network does not
+    // include the bootnodes: no new bonding attempt.
+    timer.runPeriodicHandlers();
+    timer.runTimerHandlers();
+    timer.runTimerHandlers();
+    for (final DiscoveryPeerV4 bootnode : bootnodes) {
+      verify(controller, times(1)).bond(eq(bootnode));
+    }
+
+    // The next check sees the node is under-peered and falls back to the bootnodes again.
+    timer.runPeriodicHandlers();
+    for (final DiscoveryPeerV4 bootnode : bootnodes) {
+      verify(controller, times(2)).bond(eq(bootnode));
+    }
+  }
+
+  @Test
+  public void shouldRetryUnbondedBootnodesDirectlyWhenUnderPeeredAndSearchStillInProgress() {
+    final List<NodeKey> nodeKeys = PeerDiscoveryTestHelper.generateNodeKeys(2);
+    final List<DiscoveryPeerV4> bootnodes = helper.createDiscoveryPeers(nodeKeys);
+
+    final MockTimerUtil timer = new MockTimerUtil();
+    final OutboundMessageHandler outboundMessageHandler = mock(OutboundMessageHandler.class);
+    controller =
+        getControllerBuilder()
+            .peers(bootnodes)
+            .timerUtil(timer)
+            .outboundMessageHandler(outboundMessageHandler)
+            .includeBootnodesOnPeerRefresh(false)
+            .peerRequirement(() -> false)
+            .build();
+    controller.setRetryDelayFunction(PeerDiscoveryControllerTest::longDelayFunction);
+    controller.start();
+
+    for (final DiscoveryPeerV4 bootnode : bootnodes) {
+      verify(controller, times(1)).bond(eq(bootnode));
+    }
+    // No timers are run, so the startup search never completes: its bonding round stays
+    // outstanding and a new iterative search cannot be started.
+    assertThat(controller.getRecursivePeerRefreshState().isSearchInProgress()).isTrue();
+
+    // First periodic check: the full table refresh. Skipped by the in-progress search.
+    timer.runPeriodicHandlers();
+    for (final DiscoveryPeerV4 bootnode : bootnodes) {
+      verify(controller, times(1)).bond(eq(bootnode));
+    }
+
+    // Second periodic check: under-peered. The bootnodes are bonded with directly, without
+    // waiting for the search to finish.
+    timer.runPeriodicHandlers();
+    assertThat(controller.getRecursivePeerRefreshState().isSearchInProgress()).isTrue();
+    for (final DiscoveryPeerV4 bootnode : bootnodes) {
+      verify(controller, times(2)).bond(eq(bootnode));
+    }
+  }
+
+  @Test
+  public void shouldNotRetryBootnodesOnRefreshWhenSufficientlyPeeredOnNonPoaNetwork() {
+    final List<NodeKey> nodeKeys = PeerDiscoveryTestHelper.generateNodeKeys(2);
+    final List<DiscoveryPeerV4> bootnodes = helper.createDiscoveryPeers(nodeKeys);
+
+    final MockTimerUtil timer = new MockTimerUtil();
+    final OutboundMessageHandler outboundMessageHandler = mock(OutboundMessageHandler.class);
+    controller =
+        getControllerBuilder()
+            .peers(bootnodes)
+            .timerUtil(timer)
+            .outboundMessageHandler(outboundMessageHandler)
+            .includeBootnodesOnPeerRefresh(false)
+            .peerRequirement(() -> true)
+            .build();
+    controller.setRetryDelayFunction(PeerDiscoveryControllerTest::longDelayFunction);
+    controller.start();
+
+    timer.runTimerHandlers();
+    timer.runTimerHandlers();
+    for (int i = 0; i < 3; i++) {
+      timer.runPeriodicHandlers();
+      timer.runTimerHandlers();
+      timer.runTimerHandlers();
+    }
+
+    // Existing non-PoA behaviour is preserved: bootnodes are only bonded with at startup.
+    for (final DiscoveryPeerV4 bootnode : bootnodes) {
+      verify(controller, times(1)).bond(eq(bootnode));
+    }
   }
 
   @Test
@@ -1236,6 +1408,78 @@ public class PeerDiscoveryControllerTest {
     controller.onMessage(pongPacket, peers.get(0));
 
     assertThat(controller.streamDiscoveredPeers()).contains(peers.get(0));
+  }
+
+  @Test
+  public void shouldNotConnectOnRlpxLayerToDiscoveryOnlyPeer() {
+    final DiscoveryPeerV4 discoveryOnlyPeer =
+        DiscoveryPeerV4.fromEnode(EnodeURLImpl.fromString(DISCOVERY_ONLY_BOOTNODE_ENODE));
+    assertThat(discoveryOnlyPeer.isListening()).isFalse();
+
+    final NodeKey pingSigningKey = PeerDiscoveryTestHelper.generateNodeKeys(1).get(0);
+    final PingPacketData pingPacketData =
+        packetPackage
+            .pingPacketDataFactory()
+            .create(
+                Optional.ofNullable(localPeer.getEndpoint()),
+                discoveryOnlyPeer.getEndpoint(),
+                UInt64.ONE);
+    final Packet pingPacket =
+        packetPackage.packetFactory().create(PacketType.PING, pingPacketData, pingSigningKey);
+
+    final OutboundMessageHandler outboundMessageHandler = mock(OutboundMessageHandler.class);
+    controller =
+        getControllerBuilder()
+            .peers(discoveryOnlyPeer)
+            .outboundMessageHandler(outboundMessageHandler)
+            .build();
+    mockPingPacketCreation(pingPacket);
+    controller.setRetryDelayFunction(PeerDiscoveryControllerTest::longDelayFunction);
+    controller.start();
+
+    verify(outboundMessageHandler, times(1)).send(any(), matchPacketOfType(PacketType.PING));
+
+    controller.onMessage(
+        MockPacketDataFactory.mockPongPacket(discoveryOnlyPeer, pingPacket.getHash()),
+        discoveryOnlyPeer);
+
+    verify(controller, never()).connectOnRlpxLayer(any());
+    assertThat(discoveryOnlyPeer.getStatus()).isEqualTo(PeerDiscoveryStatus.BONDED);
+    assertThat(controller.streamDiscoveredPeers()).contains(discoveryOnlyPeer);
+  }
+
+  @Test
+  public void shouldNotConnectOnRlpxLayerToEnrPeerWithoutTcpPort() {
+    final DiscoveryPeerV4 enrPeer =
+        DiscoveryPeerV4.from(
+                DiscoveryPeerFactory.fromEthereumNodeRecord(
+                    EthereumNodeRecord.fromEnr(DISCOVERY_ONLY_BOOTNODE_ENR)))
+            .orElseThrow();
+    assertThat(enrPeer.isListening()).isFalse();
+
+    final NodeKey pingSigningKey = PeerDiscoveryTestHelper.generateNodeKeys(1).get(0);
+    final OutboundMessageHandler outboundMessageHandler = mock(OutboundMessageHandler.class);
+    controller = getControllerBuilder().outboundMessageHandler(outboundMessageHandler).build();
+
+    final PingPacketData pingPacketData =
+        packetPackage
+            .pingPacketDataFactory()
+            .create(
+                Optional.ofNullable(localPeer.getEndpoint()), enrPeer.getEndpoint(), UInt64.ONE);
+    final Packet pingPacket =
+        packetPackage.packetFactory().create(PacketType.PING, pingPacketData, pingSigningKey);
+    mockPingPacketCreation(pingPacket);
+    controller.setRetryDelayFunction(PeerDiscoveryControllerTest::longDelayFunction);
+    controller.start();
+
+    controller.handleBondingRequest(enrPeer);
+    verify(outboundMessageHandler, times(1)).send(eq(enrPeer), matchPacketOfType(PacketType.PING));
+
+    controller.onMessage(
+        MockPacketDataFactory.mockPongPacket(enrPeer, pingPacket.getHash()), enrPeer);
+
+    verify(controller, never()).connectOnRlpxLayer(any());
+    assertThat(controller.streamDiscoveredPeers()).contains(enrPeer);
   }
 
   @Test
@@ -2069,9 +2313,21 @@ public class PeerDiscoveryControllerTest {
     private RlpxAgent rlpxAgent;
     private Executor dispatchExecutor = Runnable::run;
     private Optional<Endpoint> localPeerV6Endpoint = Optional.empty();
+    private PeerRequirement peerRequirement = PEER_REQUIREMENT;
+    private boolean includeBootnodesOnPeerRefresh = true;
 
     public static ControllerBuilder create() {
       return new ControllerBuilder();
+    }
+
+    ControllerBuilder peerRequirement(final PeerRequirement peerRequirement) {
+      this.peerRequirement = peerRequirement;
+      return this;
+    }
+
+    ControllerBuilder includeBootnodesOnPeerRefresh(final boolean includeBootnodesOnPeerRefresh) {
+      this.includeBootnodesOnPeerRefresh = includeBootnodesOnPeerRefresh;
+      return this;
     }
 
     ControllerBuilder enrCache(final Cache<Bytes, Packet> cacheToUse) {
@@ -2159,7 +2415,8 @@ public class PeerDiscoveryControllerTest {
               .timerUtil(timerUtil)
               .workerExecutor(new BlockingAsyncExecutor())
               .tableRefreshIntervalMs(TABLE_REFRESH_INTERVAL_MS)
-              .peerRequirement(PEER_REQUIREMENT)
+              .peerRequirement(peerRequirement)
+              .includeBootnodesOnPeerRefresh(includeBootnodesOnPeerRefresh)
               .peerPermissions(peerPermissions)
               .metricsSystem(new NoOpMetricsSystem())
               .cacheForEnrRequests(enrs)

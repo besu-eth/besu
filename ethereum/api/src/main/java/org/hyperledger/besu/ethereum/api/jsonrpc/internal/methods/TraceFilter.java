@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 import static org.hyperledger.besu.services.pipeline.PipelineBuilder.createPipelineFrom;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
@@ -33,7 +34,9 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.tracing.flat.F
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.tracing.flat.RewardTraceGenerator;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.api.util.ArrayNodeWrapper;
+import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
+import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
@@ -67,6 +70,7 @@ import org.slf4j.LoggerFactory;
 
 public class TraceFilter extends TraceBlock {
   private static final Logger LOG = LoggerFactory.getLogger(TraceFilter.class);
+  private static final ObjectMapper MAPPER = new ObjectMapper();
   private final Long maxRange;
   private final LabelledMetric<Counter> outputCounter;
 
@@ -102,6 +106,15 @@ public class TraceFilter extends TraceBlock {
           "Invalid filter parameter (index 0)", RpcErrorType.INVALID_FILTER_PARAMS, e);
     }
 
+    if (!filterParameter.isValid()) {
+      return new JsonRpcErrorResponse(
+          requestContext.getRequest().getId(), RpcErrorType.INVALID_FILTER_PARAMS);
+    }
+    final Optional<Hash> maybeBlockHash = filterParameter.getBlockHash();
+    if (maybeBlockHash.isPresent()) {
+      return traceFilterByBlockHash(requestContext, filterParameter, maybeBlockHash.get());
+    }
+
     final long fromBlock = resolveBlockNumber(filterParameter.getFromBlock());
     final long toBlock = resolveBlockNumber(filterParameter.getToBlock());
     LOG.trace("Received RPC rpcName={} fromBlock={} toBlock={}", getName(), fromBlock, toBlock);
@@ -120,16 +133,47 @@ public class TraceFilter extends TraceBlock {
           requestContext.getRequest().getId(), RpcErrorType.EXCEEDS_RPC_MAX_BLOCK_RANGE);
     }
 
-    final ObjectMapper mapper = new ObjectMapper();
-    final ArrayNodeWrapper resultArrayNode =
-        new ArrayNodeWrapper(
-            mapper.createArrayNode(), filterParameter.getAfter(), filterParameter.getCount());
+    final ArrayNodeWrapper resultArrayNode = newResultArrayNode(filterParameter);
     if (fromBlock > toBlock)
       return new JsonRpcSuccessResponse(
           requestContext.getRequest().getId(), resultArrayNode.getArrayNode());
     else
       return traceFilterWithPipeline(
           requestContext, filterParameter, fromBlock, toBlock, resultArrayNode);
+  }
+
+  /**
+   * Traces exactly the canonical block with the given hash. Unlike a numeric range, the block is
+   * resolved once and traced as resolved, so a replacement block at the same height is never traced
+   * in its place, and an unknown, noncanonical or unavailable block is an error rather than an
+   * empty result.
+   */
+  private JsonRpcResponse traceFilterByBlockHash(
+      final JsonRpcRequestContext requestContext,
+      final FilterParameter filterParameter,
+      final Hash blockHash) {
+    final Object requestId = requestContext.getRequest().getId();
+    final Blockchain blockchain = getBlockchainQueries().getBlockchain();
+    final Optional<BlockHeader> maybeHeader = blockchain.getBlockHeader(blockHash);
+    if (maybeHeader.isEmpty() || !blockchain.blockIsOnCanonicalChain(blockHash)) {
+      return new JsonRpcErrorResponse(requestId, RpcErrorType.BLOCK_NOT_FOUND);
+    }
+    final Optional<BlockBody> maybeBody = blockchain.getBlockBody(blockHash);
+    if (maybeBody.isEmpty()) {
+      return new JsonRpcErrorResponse(requestId, RpcErrorType.PRUNED_HISTORY_UNAVAILABLE);
+    }
+    final Block block = new Block(maybeHeader.get(), maybeBody.get());
+    LOG.trace("Received RPC rpcName={} blockHash={}", getName(), blockHash);
+
+    final ArrayNodeWrapper resultArrayNode = newResultArrayNode(filterParameter);
+    if (isGenesis(block)) {
+      // Nothing to trace for the genesis block, as for a numeric range
+      return new JsonRpcSuccessResponse(requestId, resultArrayNode.getArrayNode());
+    }
+    return traceBlocks(filterParameter, List.of(block), resultArrayNode)
+        .<JsonRpcResponse>map(
+            result -> new JsonRpcSuccessResponse(requestId, result.getArrayNode()))
+        .orElseGet(() -> new JsonRpcErrorResponse(requestId, RpcErrorType.WORLD_STATE_UNAVAILABLE));
   }
 
   private JsonRpcResponse traceFilterWithPipeline(
@@ -142,9 +186,7 @@ public class TraceFilter extends TraceBlock {
     long currentBlockNumber = fromBlock;
     Optional<Block> block =
         blockchainQueriesSupplier.get().getBlockchain().getBlockByNumber(currentBlockNumber);
-    while ((block.isEmpty()
-            || block.get().getHeader().getParentHash().getBytes().equals(Bytes32.ZERO))
-        && currentBlockNumber < toBlock) {
+    while ((block.isEmpty() || isGenesis(block.get())) && currentBlockNumber < toBlock) {
       currentBlockNumber++;
       block = blockchainQueriesSupplier.get().getBlockchain().getBlockByNumber(currentBlockNumber);
     }
@@ -152,72 +194,89 @@ public class TraceFilter extends TraceBlock {
       return new JsonRpcSuccessResponse(
           requestContext.getRequest().getId(), resultArrayNode.getArrayNode());
     }
-    final BlockHeader header = block.get().getHeader();
-
     List<Block> blockList = getBlockList(currentBlockNumber, toBlock, block);
 
     ArrayNodeWrapper result =
-        Tracer.processTracing(
-                getBlockchainQueries(),
-                Optional.of(header),
-                traceableState -> {
-                  TraceFilterSource traceFilterSource =
-                      new TraceFilterSource(blockList, resultArrayNode);
-                  final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(header);
-                  final MainnetTransactionProcessor transactionProcessor =
-                      protocolSpec.getTransactionProcessor();
-                  final ChainUpdater chainUpdater = new ChainUpdater(traceableState);
-                  DebugOperationTracer debugOperationTracer =
-                      new DebugOperationTracer(
-                          OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
-                              .traceStorage(false)
-                              .traceMemory(false)
-                              .traceStack(true)
-                              .build(),
-                          false);
-                  ExecuteTransactionStep executeTransactionStep =
-                      new ExecuteTransactionStep(
-                          chainUpdater,
-                          transactionProcessor,
-                          getBlockchainQueries().getBlockchain(),
-                          debugOperationTracer,
-                          protocolSpec);
-
-                  Function<TransactionTrace, CompletableFuture<Stream<FlatTrace>>>
-                      traceFlatTransactionStep =
-                          new TraceFlatTransactionStep(
-                              protocolSchedule, null, Optional.of(filterParameter));
-
-                  BuildArrayNodeCompleterStep buildArrayNodeStep =
-                      new BuildArrayNodeCompleterStep(resultArrayNode);
-                  Pipeline<TransactionTrace> traceBlockPipeline =
-                      createPipelineFrom(
-                              "getTransactions",
-                              traceFilterSource,
-                              4,
-                              outputCounter,
-                              false,
-                              "trace_block_transactions")
-                          .thenProcess("executeTransaction", executeTransactionStep)
-                          .thenProcessAsyncOrdered(
-                              "traceFlatTransaction", traceFlatTransactionStep, 4)
-                          .andFinishWith(
-                              "buildArrayNode",
-                              traceStream -> traceStream.forEachOrdered(buildArrayNodeStep));
-
-                  try {
-                    ethScheduler.startPipeline(traceBlockPipeline).get();
-                  } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    throw new RuntimeException(e);
-                  } catch (ExecutionException e) {
-                    throw new RuntimeException(e);
-                  }
-                  return Optional.of(resultArrayNode);
-                })
-            .orElse(emptyResult());
+        traceBlocks(filterParameter, blockList, resultArrayNode).orElse(emptyResult());
 
     return new JsonRpcSuccessResponse(requestContext.getRequest().getId(), result.getArrayNode());
+  }
+
+  /**
+   * Traces the given consecutive blocks on the state before the first one.
+   *
+   * @return the filtered traces, or empty if that state is unavailable
+   */
+  private Optional<ArrayNodeWrapper> traceBlocks(
+      final FilterParameter filterParameter,
+      final List<Block> blockList,
+      final ArrayNodeWrapper resultArrayNode) {
+    final BlockHeader header = blockList.getFirst().getHeader();
+    return Tracer.processTracing(
+        getBlockchainQueries(),
+        Optional.of(header),
+        traceableState -> {
+          TraceFilterSource traceFilterSource = new TraceFilterSource(blockList, resultArrayNode);
+          final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(header);
+          final MainnetTransactionProcessor transactionProcessor =
+              protocolSpec.getTransactionProcessor();
+          final ChainUpdater chainUpdater = new ChainUpdater(traceableState);
+          DebugOperationTracer debugOperationTracer =
+              new DebugOperationTracer(
+                  OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
+                      .traceStorage(false)
+                      .traceMemory(false)
+                      .traceStack(true)
+                      .build(),
+                  false);
+          ExecuteTransactionStep executeTransactionStep =
+              new ExecuteTransactionStep(
+                  chainUpdater,
+                  transactionProcessor,
+                  getBlockchainQueries().getBlockchain(),
+                  debugOperationTracer,
+                  protocolSpec);
+
+          Function<TransactionTrace, CompletableFuture<Stream<FlatTrace>>>
+              traceFlatTransactionStep =
+                  new TraceFlatTransactionStep(
+                      protocolSchedule, null, Optional.of(filterParameter));
+
+          BuildArrayNodeCompleterStep buildArrayNodeStep =
+              new BuildArrayNodeCompleterStep(resultArrayNode);
+          Pipeline<TransactionTrace> traceBlockPipeline =
+              createPipelineFrom(
+                      "getTransactions",
+                      traceFilterSource,
+                      4,
+                      outputCounter,
+                      false,
+                      "trace_block_transactions")
+                  .thenProcess("executeTransaction", executeTransactionStep)
+                  .thenProcessAsyncOrdered("traceFlatTransaction", traceFlatTransactionStep, 4)
+                  .andFinishWith(
+                      "buildArrayNode",
+                      traceStream -> traceStream.forEachOrdered(buildArrayNodeStep));
+
+          try {
+            ethScheduler.startPipeline(traceBlockPipeline).get();
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(e);
+          } catch (ExecutionException e) {
+            throw new RuntimeException(e);
+          }
+          return Optional.of(resultArrayNode);
+        });
+  }
+
+  private static ArrayNodeWrapper newResultArrayNode(final FilterParameter filterParameter) {
+    return new ArrayNodeWrapper(
+        MAPPER.createArrayNode(), filterParameter.getAfter(), filterParameter.getCount());
+  }
+
+  private static boolean isGenesis(final Block block) {
+    return block.getHeader().getParentHash().getBytes().equals(Bytes32.ZERO);
   }
 
   @NotNull

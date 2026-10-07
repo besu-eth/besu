@@ -80,7 +80,6 @@ class BlockImportExceptionHandlingTest {
           transactionReceiptFactory,
           Wei.ZERO,
           BlockHeader::getCoinbase,
-          true,
           protocolSchedule,
           BalConfiguration.DEFAULT);
   private final BlockHeaderValidator blockHeaderValidator = mock(BlockHeaderValidator.class);

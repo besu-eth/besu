@@ -66,7 +66,7 @@ public class WorldStateStorageCoordinator {
 
   public Optional<Bytes> getCode(final Hash codeHash, final Hash accountHash) {
     return applyForStrategy(
-        bonsai -> bonsai.getCode(codeHash, accountHash), forest -> forest.getCode(codeHash));
+        bonsai -> bonsai.getCodeBytes(codeHash, accountHash), forest -> forest.getCode(codeHash));
   }
 
   @SuppressWarnings("unchecked")
@@ -177,6 +177,11 @@ public class WorldStateStorageCoordinator {
 
   public void clear() {
     worldStateKeyValueStorage.clear();
+  }
+
+  /** Clears the Bonsai cross-block flat-db cache when present; no-op for Forest. */
+  public void clearCrossBlockCache() {
+    consumeForStrategy(BonsaiWorldStateKeyValueStorage::clearCrossBlockCache, forest -> {});
   }
 
   public WorldStateKeyValueStorage worldStateKeyValueStorage() {
