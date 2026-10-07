@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.KeyHashCache;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -62,7 +63,9 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
   public BalConcurrentTransactionProcessor(
       final MainnetTransactionProcessor transactionProcessor,
       final BlockAccessList blockAccessList,
-      final BalConfiguration balConfiguration) {
+      final BalConfiguration balConfiguration,
+      final KeyHashCache blockKeyHashes) {
+    super(blockKeyHashes);
     this.transactionProcessor = transactionProcessor;
     this.blockAccessList = blockAccessList;
     this.blockAccessListAccountLookup = BlockAccessListAccountLookup.of(blockAccessList);
@@ -89,7 +92,9 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
                         .withShouldWorldStateUpdateHead(false)
                         .withBalOverlay(
                             new BlockAccessListOverlay(
-                                blockAccessListAccountLookup, (long) transactionLocation + 1L))
+                                blockAccessListAccountLookup,
+                                (long) transactionLocation + 1L,
+                                blockKeyHashes))
                         .build())
                 .map(BonsaiWorldState.class::cast));
   }
@@ -178,7 +183,7 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
           blockAccessListBuilder.map(
               b ->
                   BlockAccessListBuilder.createTransactionAccessLocationTracker(
-                      transactionLocation));
+                      transactionLocation, blockKeyHashes));
 
       final TransactionProcessingResult result =
           transactionProcessor.processTransaction(

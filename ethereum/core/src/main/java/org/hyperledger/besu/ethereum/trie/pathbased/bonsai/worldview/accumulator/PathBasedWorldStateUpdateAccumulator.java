@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulato
 import org.hyperledger.besu.datatypes.AccountValue;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.KeyHashCache;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
@@ -80,7 +81,8 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
   private final Map<Address, StorageConsumingMap<StorageSlotKey, BonsaiValue<UInt256>>>
       storageToUpdate = new ConcurrentHashMap<>();
 
-  private final Map<UInt256, Hash> storageKeyHashLookup = new ConcurrentHashMap<>();
+  // key hashes of the block, shared with the accumulators of its transactions
+  private final KeyHashCache keyHashes;
   protected boolean isAccumulatorStateChanged;
 
   public PathBasedWorldStateUpdateAccumulator(
@@ -88,12 +90,22 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
       final Consumer<BonsaiValue<ACCOUNT>> accountPreloader,
       final Consumer<StorageSlotKey> storagePreloader,
       final EvmConfiguration evmConfiguration) {
+    this(world, accountPreloader, storagePreloader, evmConfiguration, new KeyHashCache());
+  }
+
+  public PathBasedWorldStateUpdateAccumulator(
+      final BonsaiWorldView world,
+      final Consumer<BonsaiValue<ACCOUNT>> accountPreloader,
+      final Consumer<StorageSlotKey> storagePreloader,
+      final EvmConfiguration evmConfiguration,
+      final KeyHashCache keyHashes) {
     super(world, evmConfiguration);
     this.accountsToUpdate = new AccountConsumingMap<>(new ConcurrentHashMap<>(), accountPreloader);
     this.accountPreloader = accountPreloader;
     this.storagePreloader = storagePreloader;
     this.isAccumulatorStateChanged = false;
     this.evmConfiguration = evmConfiguration;
+    this.keyHashes = keyHashes;
   }
 
   public void cloneFromUpdater(final PathBasedWorldStateUpdateAccumulator<ACCOUNT> source) {
@@ -296,7 +308,6 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
                   });
             });
 
-    storageKeyHashLookup.putAll(source.storageKeyHashLookup);
     this.isAccumulatorStateChanged = true;
   }
 
@@ -585,9 +596,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
                   .forEach(
                       storageUpdate -> {
                         final UInt256 keyUInt = storageUpdate.getKey();
-                        final StorageSlotKey slotKey =
-                            new StorageSlotKey(
-                                hashAndSaveSlotPreImage(keyUInt), Optional.of(keyUInt));
+                        final StorageSlotKey slotKey = createStorageSlotKey(keyUInt);
                         final UInt256 value = storageUpdate.getValue();
                         final BonsaiValue<UInt256> pendingValue =
                             pendingStorageUpdates.get(slotKey);
@@ -630,8 +639,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
 
   @Override
   public UInt256 getStorageValue(final Address address, final UInt256 slotKey) {
-    StorageSlotKey storageSlotKey =
-        new StorageSlotKey(hashAndSaveSlotPreImage(slotKey), Optional.of(slotKey));
+    final StorageSlotKey storageSlotKey = createStorageSlotKey(slotKey);
     return getStorageValueByStorageSlotKey(address, storageSlotKey).orElse(UInt256.ZERO);
   }
 
@@ -678,8 +686,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
   @Override
   public UInt256 getPriorStorageValue(final Address address, final UInt256 storageKey) {
     // TODO maybe log the read into the trie layer?
-    StorageSlotKey storageSlotKey =
-        new StorageSlotKey(hashAndSaveSlotPreImage(storageKey), Optional.of(storageKey));
+    final StorageSlotKey storageSlotKey = createStorageSlotKey(storageKey);
     final Map<StorageSlotKey, BonsaiValue<UInt256>> localAccountStorage =
         storageToUpdate.get(address);
     if (localAccountStorage != null) {
@@ -1024,21 +1031,29 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
     resetAccumulatorStateChanged();
     updatedAccounts.clear();
     deletedAccounts.clear();
-    storageKeyHashLookup.clear();
+    keyHashes.clear();
+  }
+
+  /**
+   * Key hashes of the block, to share with the accumulators and trackers of its transactions.
+   *
+   * @return the key hashes of this accumulator
+   */
+  public KeyHashCache getKeyHashes() {
+    return keyHashes;
+  }
+
+  private StorageSlotKey createStorageSlotKey(final UInt256 slotKey) {
+    return new StorageSlotKey(hashAndSaveSlotPreImage(slotKey), Optional.of(slotKey));
   }
 
   protected Hash hashAndSaveAccountPreImage(final Address address) {
     // no need to save account preimage by default
-    return Hash.hash(address.getBytes());
+    return keyHashes.addressHash(address);
   }
 
   protected Hash hashAndSaveSlotPreImage(final UInt256 slotKey) {
-    Hash hash = storageKeyHashLookup.get(slotKey);
-    if (hash == null) {
-      hash = Hash.hash(slotKey);
-      storageKeyHashLookup.put(slotKey, hash);
-    }
-    return hash;
+    return keyHashes.slotHash(slotKey);
   }
 
   public abstract PathBasedWorldStateUpdateAccumulator<ACCOUNT> copy();

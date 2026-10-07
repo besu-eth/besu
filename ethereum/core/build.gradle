@@ -115,6 +115,8 @@ dependencies {
 
   jmhImplementation project(path: ':config', configuration: 'testSupportArtifacts')
   jmhImplementation project(':crypto:algorithms')
+  jmhImplementation project(':ethereum:blockcreation')
+  jmhImplementation project(':ethereum:eth')
   jmhImplementation project(path: ':ethereum:core', configuration: 'testSupportArtifacts')
   jmhImplementation project(':ethereum:rlp')
   jmhImplementation project(':ethereum:trie')

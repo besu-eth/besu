@@ -21,6 +21,7 @@ import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.wit
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BlobGas;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.KeyHashCache;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
@@ -54,6 +55,7 @@ import org.hyperledger.besu.ethereum.mainnet.feemarket.ExcessBlobGasCalculator;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessingContext;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
@@ -204,6 +206,7 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
 
     try (final MutableWorldState disposableWorldState = duplicateWorldStateAtParent(parentHeader)) {
       timings.register("duplicateWorldState");
+      final KeyHashCache keyHashes = PathBasedWorldState.keyHashesOf(disposableWorldState);
       final ProtocolSpec newProtocolSpec =
           protocolSchedule.getForNextBlockHeader(parentHeader, timestamp);
 
@@ -239,7 +242,7 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
               .map(BlockAccessListFactory::newBlockAccessListBuilder);
       final Optional<AccessLocationTracker> preExecutionAccessLocationTracker =
           blockAccessListBuilder.map(
-              b -> BlockAccessListBuilder.createPreExecutionAccessLocationTracker());
+              b -> BlockAccessListBuilder.createPreExecutionAccessLocationTracker(keyHashes));
 
       BlockProcessingContext blockProcessingContext =
           new BlockProcessingContext(
@@ -277,7 +280,7 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
           blockAccessListBuilder.map(
               b ->
                   BlockAccessListBuilder.createPostExecutionAccessLocationTracker(
-                      transactionResults.getSelectedTransactions().size()));
+                      transactionResults.getSelectedTransactions().size(), keyHashes));
 
       final Optional<WithdrawalsProcessor> maybeWithdrawalsProcessor =
           newProtocolSpec.getWithdrawalsProcessor();

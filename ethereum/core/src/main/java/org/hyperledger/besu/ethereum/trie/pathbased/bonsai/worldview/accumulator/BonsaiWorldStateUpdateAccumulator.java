@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulato
 import org.hyperledger.besu.datatypes.AccountValue;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.KeyHashCache;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
@@ -49,8 +50,18 @@ public class BonsaiWorldStateUpdateAccumulator
       final Consumer<StorageSlotKey> storagePreloader,
       final EvmConfiguration evmConfiguration,
       final BonsaiCodeCache codeCache) {
-    super(world, accountPreloader, storagePreloader, evmConfiguration);
+    this(
+        world, accountPreloader, storagePreloader, evmConfiguration, codeCache, new KeyHashCache());
+  }
 
+  public BonsaiWorldStateUpdateAccumulator(
+      final BonsaiWorldView world,
+      final Consumer<BonsaiValue<BonsaiAccount>> accountPreloader,
+      final Consumer<StorageSlotKey> storagePreloader,
+      final EvmConfiguration evmConfiguration,
+      final BonsaiCodeCache codeCache,
+      final KeyHashCache keyHashes) {
+    super(world, accountPreloader, storagePreloader, evmConfiguration, keyHashes);
     this.codeCache = codeCache;
   }
 

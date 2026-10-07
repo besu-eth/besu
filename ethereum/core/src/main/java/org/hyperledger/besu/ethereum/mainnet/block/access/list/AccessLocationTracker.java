@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.mainnet.block.access.list;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.KeyHashCache;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView.AccountChangesBuilder;
@@ -41,6 +42,7 @@ public class AccessLocationTracker implements Eip7928AccessList {
 
   private final long blockAccessIndex;
   private final boolean sharedIndex;
+  private final KeyHashCache keyHashes;
   private final Map<Address, AccountAccessList> touchedAccounts = new ConcurrentHashMap<>();
 
   /**
@@ -49,9 +51,18 @@ public class AccessLocationTracker implements Eip7928AccessList {
    */
   private final Map<Address, IndexStartAccount> indexStartAccounts = new HashMap<>();
 
-  public AccessLocationTracker(final long blockAccessIndex, final boolean sharedIndex) {
+  /**
+   * Tracks the accounts and storage slots accessed at one block access list index.
+   *
+   * @param blockAccessIndex index of the block access list entries this tracker records
+   * @param sharedIndex whether several calls record at the same index
+   * @param keyHashes key hashes of the block, so a slot hashed already is not hashed again
+   */
+  public AccessLocationTracker(
+      final long blockAccessIndex, final boolean sharedIndex, final KeyHashCache keyHashes) {
     this.blockAccessIndex = blockAccessIndex;
     this.sharedIndex = sharedIndex;
+    this.keyHashes = keyHashes;
   }
 
   @Override
@@ -136,7 +147,7 @@ public class AccessLocationTracker implements Eip7928AccessList {
       final boolean isDeleted = deletedAddresses.contains(address);
       if (isDeleted || !updatedAddresses.contains(address)) {
         for (final UInt256 slot : touchedSlots) {
-          accountBuilder.addStorageRead(new StorageSlotKey(slot));
+          accountBuilder.addStorageRead(keyHashes.slotKey(slot));
         }
         if (isDeleted) {
           final Account originalAccount = findOriginalAccount(stackedUpdater, address);
@@ -151,7 +162,7 @@ public class AccessLocationTracker implements Eip7928AccessList {
           (UpdateTrackingAccount<?>) stackedUpdater.get(address);
       if (account == null) {
         for (final UInt256 slot : touchedSlots) {
-          accountBuilder.addStorageRead(new StorageSlotKey(slot));
+          accountBuilder.addStorageRead(keyHashes.slotKey(slot));
         }
         continue;
       }
@@ -185,7 +196,7 @@ public class AccessLocationTracker implements Eip7928AccessList {
 
       final Map<UInt256, UInt256> updatedStorage = account.getUpdatedStorage();
       for (final UInt256 touchedSlot : touchedSlots) {
-        final StorageSlotKey slotKeyObj = new StorageSlotKey(touchedSlot);
+        final StorageSlotKey slotKeyObj = keyHashes.slotKey(touchedSlot);
 
         final UInt256 updatedValue = updatedStorage.get(touchedSlot);
         final boolean present = updatedValue != null || updatedStorage.containsKey(touchedSlot);
@@ -228,7 +239,7 @@ public class AccessLocationTracker implements Eip7928AccessList {
     final Account account = indexStart == null || isDeleted ? null : stackedUpdater.get(address);
     if (account == null) {
       for (final UInt256 slot : touchedSlots) {
-        accountBuilder.addStorageRead(new StorageSlotKey(slot));
+        accountBuilder.addStorageRead(keyHashes.slotKey(slot));
       }
       // Deleted at this index, by this call or an earlier one.
       if (indexStart != null && !indexStart.balance.isZero()) {
@@ -250,7 +261,7 @@ public class AccessLocationTracker implements Eip7928AccessList {
     }
 
     for (final UInt256 touchedSlot : touchedSlots) {
-      final StorageSlotKey slotKeyObj = new StorageSlotKey(touchedSlot);
+      final StorageSlotKey slotKeyObj = keyHashes.slotKey(touchedSlot);
       final UInt256 originalValue = indexStart.storageValue(touchedSlot);
       if (originalValue == null) {
         accountBuilder.addStorageRead(slotKeyObj);

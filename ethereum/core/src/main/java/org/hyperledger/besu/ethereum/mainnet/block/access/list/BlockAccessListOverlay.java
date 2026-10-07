@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.mainnet.block.access.list;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.KeyHashCache;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
@@ -41,11 +42,21 @@ public final class BlockAccessListOverlay {
 
   private final BlockAccessListAccountLookup accountLookup;
   private final long maxTxIndexExclusive;
+  // key hashes of the block, for the accumulator built on this overlay
+  private final KeyHashCache keyHashes;
 
   public BlockAccessListOverlay(
       final BlockAccessListAccountLookup accountLookup, final long maxTxIndexExclusive) {
+    this(accountLookup, maxTxIndexExclusive, new KeyHashCache());
+  }
+
+  public BlockAccessListOverlay(
+      final BlockAccessListAccountLookup accountLookup,
+      final long maxTxIndexExclusive,
+      final KeyHashCache keyHashes) {
     this.accountLookup = accountLookup;
     this.maxTxIndexExclusive = maxTxIndexExclusive;
+    this.keyHashes = keyHashes;
   }
 
   public BlockAccessListAccountLookup getAccountLookup() {
@@ -54,6 +65,10 @@ public final class BlockAccessListOverlay {
 
   public long getMaxTxIndexExclusive() {
     return maxTxIndexExclusive;
+  }
+
+  public KeyHashCache getKeyHashes() {
+    return keyHashes;
   }
 
   public Optional<Wei> getBalance(final Address address) {

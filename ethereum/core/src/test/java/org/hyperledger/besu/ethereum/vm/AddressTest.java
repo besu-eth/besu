@@ -26,6 +26,17 @@ import org.junit.jupiter.api.Test;
 public class AddressTest {
 
   @Test
+  public void addressHashIsKeccakOfTheAddressAndComputedOnce() {
+    final Address addr =
+        Address.wrap(Bytes.fromHexString("0x0000000000000000000000000000000000101010"));
+    final Hash hash = addr.addressHash();
+    assertThat(hash).isEqualTo(Hash.hash(addr.getBytes()));
+    assertThat(addr.addressHash()).isSameAs(hash);
+    // Another instance of the same address gives an equal hash.
+    assertThat(Address.fromHexString(addr.toHexString()).addressHash()).isEqualTo(hash);
+  }
+
+  @Test
   public void accountAddressToString() {
     final Address addr =
         Address.wrap(Bytes.fromHexString("0x0000000000000000000000000000000000101010"));

@@ -17,6 +17,8 @@ package org.hyperledger.besu.ethereum.mainnet.block.access.list;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.KeyHashCache;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
@@ -83,6 +85,23 @@ class AccessLocationTrackerTest {
 
     assertThat(accountChanges().balanceChanges())
         .containsExactly(new BlockAccessList.BalanceChange(1, Wei.ZERO));
+  }
+
+  @Test
+  void keyHashesReuseTheHashesOfTheBlock() {
+    final KeyHashCache blockKeyHashes = new KeyHashCache();
+    final Hash known = blockKeyHashes.slotHash(SLOT);
+    final AccessLocationTracker txTracker =
+        BlockAccessListBuilder.createTransactionAccessLocationTracker(0, blockKeyHashes);
+    txTracker.addSlotAccessForAccount(CONTRACT, SLOT);
+
+    final PartialBlockAccessView view =
+        txTracker.createPartialBlockAccessView(worldState.updater().updater());
+
+    final StorageSlotKey read = view.accountChanges().getFirst().getStorageReads().getFirst();
+    assertThat(read).isEqualTo(new StorageSlotKey(SLOT));
+    // same instance: the tracker reused the block's hash instead of computing it again
+    assertThat(read.getSlotHash()).isSameAs(known);
   }
 
   private void createContract(final Consumer<MutableAccount> init) {

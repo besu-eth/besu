@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.datatypes;
 
-import java.util.Objects;
 import java.util.Optional;
 
 import jakarta.validation.constraints.NotNull;
@@ -89,7 +88,8 @@ public class StorageSlotKey implements Comparable<StorageSlotKey> {
       return false;
     }
     StorageSlotKey that = (StorageSlotKey) o;
-    return Objects.equals(slotHash.getBytes(), that.slotHash.getBytes());
+    // Hash compares the arrays; Bytes.equals reads both values byte by byte through an interface
+    return slotHash.equals(that.slotHash);
   }
 
   @Override

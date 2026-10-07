@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.KeyHashCache;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.BlockProcessingExecutors;
@@ -91,17 +92,8 @@ public class BonsaiWorldState extends PathBasedWorldState {
     this.bonsaiCachedMerkleTrieLoader = bonsaiCachedMerkleTrieLoader;
     this.worldStateKeyValueStorage = worldStateKeyValueStorage;
     this.evmConfiguration = evmConfiguration;
-    final BonsaiWorldStateUpdateAccumulator acc =
-        new BonsaiWorldStateUpdateAccumulator(
-            this,
-            (addr, value) ->
-                this.bonsaiCachedMerkleTrieLoader.preLoadAccount(
-                    getWorldStateStorage(), worldStateRootHash, addr),
-            (addr, value) ->
-                this.bonsaiCachedMerkleTrieLoader.preLoadStorageSlot(
-                    getWorldStateStorage(), addr, value),
-            evmConfiguration,
-            codeCache);
+    this.codeCache = codeCache;
+    final BonsaiWorldStateUpdateAccumulator acc = newAccumulator(new KeyHashCache());
     this.setAccumulator(acc);
     final FrontierStorageRootTracker frontierStorageRootTracker =
         worldStateConfig.isTrieDisabled()
@@ -126,7 +118,30 @@ public class BonsaiWorldState extends PathBasedWorldState {
             frontierStorageRootTracker);
     // Keep frontier-derived caches aligned with accumulator resets.
     acc.setCommittedTransactionListener(frontierRootHashTracker);
-    this.codeCache = codeCache;
+  }
+
+  private BonsaiWorldStateUpdateAccumulator newAccumulator(final KeyHashCache keyHashes) {
+    return new BonsaiWorldStateUpdateAccumulator(
+        this,
+        (addr, value) ->
+            this.bonsaiCachedMerkleTrieLoader.preLoadAccount(
+                getWorldStateStorage(), worldStateRootHash, addr),
+        (addr, value) ->
+            this.bonsaiCachedMerkleTrieLoader.preLoadStorageSlot(
+                getWorldStateStorage(), addr, value),
+        evmConfiguration,
+        codeCache,
+        keyHashes);
+  }
+
+  /**
+   * Replaces the accumulator, before any use, with one sharing the key hashes of the block, so the
+   * transactions of a block executed on their own world state hash an address or a slot once.
+   *
+   * @param keyHashes key hashes of the block
+   */
+  public void useKeyHashes(final KeyHashCache keyHashes) {
+    setAccumulator(newAccumulator(keyHashes));
   }
 
   @Override
@@ -147,9 +162,14 @@ public class BonsaiWorldState extends PathBasedWorldState {
             this, evmConfiguration, codeCache, blockAccessListOverlay));
   }
 
+  // through the accumulator's key hashes: a block hashes an address once, whatever its instance
+  private Hash addressHash(final Address address) {
+    return accumulator.getKeyHashes().addressHash(address);
+  }
+
   @Override
   public Optional<Bytes> getCode(@NotNull final Address address, final Hash codeHash) {
-    return getWorldStateStorage().getCode(codeHash, address.addressHash());
+    return getWorldStateStorage().getCode(codeHash, addressHash(address));
   }
 
   @Override
@@ -160,7 +180,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
   @Override
   public Account get(final Address address) {
     return getWorldStateStorage()
-        .getAccount(address.addressHash())
+        .getAccount(addressHash(address))
         .map(bytes -> BonsaiAccount.fromRLP(accumulator, address, bytes, true, codeCache))
         .orElse(null);
   }
@@ -184,7 +204,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
   public Optional<UInt256> getStorageValueByStorageSlotKey(
       final Address address, final StorageSlotKey storageSlotKey) {
     return getWorldStateStorage()
-        .getStorageValueByStorageSlotKey(address.addressHash(), storageSlotKey)
+        .getStorageValueByStorageSlotKey(addressHash(address), storageSlotKey)
         .map(UInt256::fromBytes);
   }
 
@@ -193,7 +213,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
       final Address address,
       final StorageSlotKey storageSlotKey) {
     return getWorldStateStorage()
-        .getStorageValueByStorageSlotKey(storageRootSupplier, address.addressHash(), storageSlotKey)
+        .getStorageValueByStorageSlotKey(storageRootSupplier, addressHash(address), storageSlotKey)
         .map(UInt256::fromBytes);
   }
 
@@ -206,7 +226,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
   public Map<Bytes32, Bytes> getAllAccountStorage(final Address address, final Hash rootHash) {
     final MerkleTrie<Bytes, Bytes> storageTrie =
         createTrie(
-            (location, key) -> getStorageTrieNode(address.addressHash(), location, key),
+            (location, key) -> getStorageTrieNode(addressHash(address), location, key),
             Bytes32.wrap(rootHash.getBytes()));
     return storageTrie.entriesFrom(Bytes32.ZERO, Integer.MAX_VALUE);
   }

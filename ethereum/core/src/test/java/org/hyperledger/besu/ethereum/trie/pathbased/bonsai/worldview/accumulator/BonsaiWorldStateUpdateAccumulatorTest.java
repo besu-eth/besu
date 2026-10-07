@@ -19,10 +19,14 @@ import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.Worl
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.KeyHashCache;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
@@ -31,15 +35,18 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.NoOpTrieLogMa
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogLayer;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.NoOpBonsaiCachedMerkleTrieLoader;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.bal.BonsaiBalWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.cache.NoOpBonsaiWorldStateCacheManager;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
+import java.util.List;
+
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
 
-/** Tests for {@link BonsaiWorldStateUpdateAccumulator#importStateChangesFromPartialView}. */
+/** Tests for {@link BonsaiWorldStateUpdateAccumulator}. */
 class BonsaiWorldStateUpdateAccumulatorTest {
 
   private static final Address ACCOUNT =
@@ -86,6 +93,49 @@ class BonsaiWorldStateUpdateAccumulatorTest {
         new PartialBlockAccessView.PartialBlockAccessViewBuilder().withTxIndex(txIndex);
     builder.getOrCreateAccountBuilder(ACCOUNT).addStorageChange(SLOT, prior, updated);
     return builder.build();
+  }
+
+  @Test
+  void transactionAccumulator_sharesTheKeyHashesOfTheBlock() {
+    try (BonsaiWorldState block = newEmptyWorldState();
+        BonsaiWorldState transaction = newEmptyWorldState()) {
+      final KeyHashCache blockKeyHashes = block.getAccumulator().getKeyHashes();
+
+      transaction.useKeyHashes(blockKeyHashes);
+
+      assertThat(transaction.getAccumulator().getKeyHashes()).isSameAs(blockKeyHashes);
+    }
+  }
+
+  @Test
+  void balTransactionAccumulator_sharesTheKeyHashesOfTheBlock() {
+    try (BonsaiWorldState block = newEmptyWorldState();
+        BonsaiWorldState transaction = newEmptyWorldState()) {
+      final KeyHashCache blockKeyHashes = block.getAccumulator().getKeyHashes();
+
+      transaction.applyBlockAccessListOverlay(
+          new BlockAccessListOverlay(
+              BlockAccessListAccountLookup.of(new BlockAccessList(List.of())), 1L, blockKeyHashes));
+
+      assertThat(transaction.getAccumulator())
+          .isInstanceOf(BonsaiBalWorldStateUpdateAccumulator.class);
+      assertThat(transaction.getAccumulator().getKeyHashes()).isSameAs(blockKeyHashes);
+    }
+  }
+
+  @Test
+  void worldStateReads_reuseTheAddressHashesOfTheBlock() {
+    try (BonsaiWorldState block = newEmptyWorldState();
+        BonsaiWorldState transaction = newEmptyWorldState()) {
+      transaction.useKeyHashes(block.getAccumulator().getKeyHashes());
+      final Hash hashedByTheBlock =
+          block.getAccumulator().getKeyHashes().addressHash(Address.fromHexString("0x5107"));
+      final Address otherInstance = Address.fromHexString("0x5107");
+
+      transaction.get(otherInstance);
+
+      assertThat(otherInstance.addressHash()).isSameAs(hashedByTheBlock);
+    }
   }
 
   private static BonsaiWorldState newEmptyWorldState() {

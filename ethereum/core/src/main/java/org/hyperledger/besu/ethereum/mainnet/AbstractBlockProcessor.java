@@ -18,6 +18,7 @@ import static org.hyperledger.besu.ethereum.mainnet.feemarket.ExcessBlobGasCalcu
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.KeyHashCache;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
@@ -43,6 +44,7 @@ import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
@@ -250,11 +252,14 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
             .getBlockAccessListFactory()
             .map(BlockAccessListFactory::newBlockAccessListBuilder);
 
+    final KeyHashCache keyHashes = PathBasedWorldState.keyHashesOf(worldState);
+    // the slots of a received block access list were hashed when it was decoded
+    blockAccessList.ifPresent(bal -> bal.storageSlotKeys().forEach(keyHashes::add));
     Optional<PreprocessingContext> preProcessingContext = Optional.empty();
     try {
       final Optional<AccessLocationTracker> preExecutionAccessLocationTracker =
           blockAccessListBuilder.map(
-              b -> BlockAccessListBuilder.createPreExecutionAccessLocationTracker());
+              b -> BlockAccessListBuilder.createPreExecutionAccessLocationTracker(keyHashes));
       final BlockProcessingContext blockProcessingContext =
           new BlockProcessingContext(
               blockHeader,
@@ -283,6 +288,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       preProcessingContext =
           preprocessingBlockFunction.run(
               protocolContext,
+              keyHashes,
               blockHeader,
               transactions,
               miningBeneficiary,
@@ -314,7 +320,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         }
 
         final Optional<AccessLocationTracker> transactionLocationTracker =
-            createTransactionAccessLocationTracker(blockAccessListBuilder, i);
+            createTransactionAccessLocationTracker(blockAccessListBuilder, keyHashes, i);
         TransactionProcessingResult transactionProcessingResult =
             getTransactionProcessingResult(
                 preProcessingContext,
@@ -413,7 +419,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
           blockAccessListBuilder.map(
               b ->
                   BlockAccessListBuilder.createPostExecutionAccessLocationTracker(
-                      transactions.size()));
+                      transactions.size(), keyHashes));
 
       final Optional<WithdrawalsProcessor> maybeWithdrawalsProcessor =
           protocolSpec.getWithdrawalsProcessor();
@@ -641,9 +647,12 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
 
   private Optional<AccessLocationTracker> createTransactionAccessLocationTracker(
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
+      final KeyHashCache keyHashes,
       final int transactionLocation) {
     return blockAccessListBuilder.map(
-        b -> BlockAccessListBuilder.createTransactionAccessLocationTracker(transactionLocation));
+        b ->
+            BlockAccessListBuilder.createTransactionAccessLocationTracker(
+                transactionLocation, keyHashes));
   }
 
   private void applyAccessLocationTracker(
@@ -676,6 +685,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
   public interface PreprocessingFunction {
     Optional<PreprocessingContext> run(
         final ProtocolContext protocolContext,
+        final KeyHashCache blockKeyHashes,
         final BlockHeader blockHeader,
         final List<Transaction> transactions,
         final Address miningBeneficiary,
@@ -690,6 +700,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       @Override
       public Optional<PreprocessingContext> run(
           final ProtocolContext protocolContext,
+          final KeyHashCache blockKeyHashes,
           final BlockHeader blockHeader,
           final List<Transaction> transactions,
           final Address miningBeneficiary,

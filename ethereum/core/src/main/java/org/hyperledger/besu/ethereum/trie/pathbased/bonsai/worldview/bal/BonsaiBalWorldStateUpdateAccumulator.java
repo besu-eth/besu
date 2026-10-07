@@ -44,7 +44,13 @@ public class BonsaiBalWorldStateUpdateAccumulator extends BonsaiWorldStateUpdate
       final EvmConfiguration evmConfiguration,
       final BonsaiCodeCache codeCache,
       final BlockAccessListOverlay blockAccessListOverlay) {
-    super(world, (address, value) -> {}, (address, slot) -> {}, evmConfiguration, codeCache);
+    super(
+        world,
+        (address, value) -> {},
+        (address, slot) -> {},
+        evmConfiguration,
+        codeCache,
+        blockAccessListOverlay.getKeyHashes());
     this.blockAccessListOverlay = blockAccessListOverlay;
   }
 

@@ -57,6 +57,7 @@
 - Add `debug_getRawExecutionRequests`, which re-executes a block and returns the EIP-7685 execution requests it produced, in the Engine API `executionRequests` form (`null` before Prague). [#11481](https://github.com/besu-eth/besu/pull/11481)
 - Add `--include-bals` option to `besu blocks export`, writing a `<to>.bals` sidecar with BALs for each exported block. [#11042](https://github.com/besu-eth/besu/pull/11042)
 - `callTracer` now honours the `withLog` tracer option. Each call frame that emitted logs carries a `logs` array of `{address, topics, data, position, index}`, where `index` equals the receipt `logIndex` of the same log and `position` is the number of subcalls the frame had made when the log was emitted. Logs of reverted frames are omitted, as specified in [execution-apis#855](https://github.com/ethereum/execution-apis/pull/855). [#11342](https://github.com/besu-eth/besu/pull/11342)
+- Hash each storage slot once per block, when importing, building or simulating a block: transactions executed in parallel and the block access list tracker share the slot hashes, which also reuse those computed when decoding a received block access list. [#11491](https://github.com/besu-eth/besu/pull/11491)
 
 ## 26.9.0
 
