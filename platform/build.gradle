@@ -26,7 +26,7 @@ javaPlatform {
 }
 
 dependencies {
-  api platform('com.fasterxml.jackson:jackson-bom:2.21.6')
+  api platform('com.fasterxml.jackson:jackson-bom:2.21.7')
   api platform('io.grpc:grpc-bom:1.79.0')
   api platform('io.netty:netty-bom:4.2.17.Final')
   api platform('io.opentelemetry:opentelemetry-bom:1.62.0')
