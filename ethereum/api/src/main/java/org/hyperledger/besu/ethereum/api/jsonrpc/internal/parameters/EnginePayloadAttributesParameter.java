@@ -50,7 +50,7 @@ public class EnginePayloadAttributesParameter {
     this.parentBeaconBlockRoot =
         parentBeaconBlockRoot == null ? null : Bytes32.fromHexString(parentBeaconBlockRoot);
     this.slotNumber = slotNumber == null ? null : Long.decode(slotNumber);
-    this.targetGasLimit = targetGasLimit == null ? null : Long.decode(targetGasLimit);
+    this.targetGasLimit = PayloadAttributesV4.parseTargetGasLimit(targetGasLimit);
   }
 
   public Long getTimestamp() {

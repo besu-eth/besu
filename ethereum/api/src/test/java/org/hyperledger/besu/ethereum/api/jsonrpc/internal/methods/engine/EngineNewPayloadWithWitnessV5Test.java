@@ -16,18 +16,13 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ConstructorArgumentsBuilder;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
@@ -41,7 +36,6 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.trie.forest.ForestWorldStateArchive;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.PathBasedWorldStateProvider;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.util.List;
@@ -57,10 +51,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
  * Covers what differs from {@code engine_newPayloadV5} and doesn't need a real world state: the
- * method name, refusing requests up front on a node without a path-based world state, and answering
- * an imported payload with an internal error rather than a VALID status without a witness when the
- * witness can't be built. The VALID path needs a real Bonsai world state; the witness builder it
- * relies on is covered by the zkEVM execution-spec reference tests.
+ * method name, and answering an imported payload with an internal error rather than a VALID status
+ * without a witness when the witness can't be built. The VALID path needs a real Bonsai world
+ * state; the witness builder it relies on is covered by the zkEVM execution-spec reference tests.
  */
 @ExtendWith(MockitoExtension.class)
 class EngineNewPayloadWithWitnessV5Test {
@@ -105,37 +98,6 @@ class EngineNewPayloadWithWitnessV5Test {
   @Test
   void shouldReturnExpectedMethodName() {
     assertThat(method.getName()).isEqualTo("engine_newPayloadWithWitnessV5");
-  }
-
-  @Test
-  void shouldRefuseBeforeImportWithoutPathBasedWorldState() {
-    when(protocolContext.getWorldStateArchive()).thenReturn(mock(ForestWorldStateArchive.class));
-    final EngineNewPayloadWithWitnessV5<?, ?> forestMethod = newMethod();
-
-    final JsonRpcResponse resp = forestMethod.syncResponse(request());
-
-    assertThat(resp).isInstanceOf(JsonRpcErrorResponse.class);
-    assertThat(((JsonRpcErrorResponse) resp).getErrorType())
-        .isEqualTo(RpcErrorType.METHOD_NOT_ENABLED);
-    verify(mergeCoordinator, never()).rememberBlock(any(), any());
-  }
-
-  @Test
-  void shouldProcessRequestWithPathBasedWorldState() {
-    when(protocolContext.getWorldStateArchive())
-        .thenReturn(mock(PathBasedWorldStateProvider.class));
-    final EngineNewPayloadWithWitnessV5<?, ?> bonsaiMethod = newMethod();
-
-    // no parameters: gets past the world state check and fails on the parameter count instead
-    final JsonRpcResponse resp = bonsaiMethod.syncResponse(request());
-
-    assertThat(resp).isInstanceOf(JsonRpcErrorResponse.class);
-    assertThat(((JsonRpcErrorResponse) resp).getErrorType())
-        .isNotEqualTo(RpcErrorType.METHOD_NOT_ENABLED);
-  }
-
-  private JsonRpcRequestContext request() {
-    return new JsonRpcRequestContext(new JsonRpcRequest("2.0", method.getName(), new Object[0]));
   }
 
   @Test

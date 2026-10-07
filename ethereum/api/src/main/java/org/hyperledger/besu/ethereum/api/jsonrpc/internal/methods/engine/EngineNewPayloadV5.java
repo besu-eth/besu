@@ -99,6 +99,12 @@ public sealed class EngineNewPayloadV5<
   }
 
   @Override
+  protected void appendNewPayloadToSync(final Block block, final EP executionPayload) {
+    mergeCoordinator.appendNewPayloadToSync(
+        block, Optional.of(executionPayload.getBlockAccessList()));
+  }
+
+  @Override
   protected JsonRpcResponse processParametersParsingException(
       final Object reqId, final InvalidRequestParametersException e) {
     final Optional<JsonMappingException> maybeFieldEx =

@@ -110,11 +110,17 @@ public sealed class EngineGetBlobsV1<BAP extends BlobAndProofV1>
     final long timestamp = protocolContext.getBlockchain().getChainHeadHeader().getTimestamp();
     ValidationResult<RpcErrorType> forkValidationResult = validateForkSupported(timestamp);
     if (!forkValidationResult.isValid()) {
-      return new JsonRpcErrorResponse(requestContext.getRequest().getId(), forkValidationResult);
+      return unsupportedForkResponse(requestContext.getRequest().getId(), forkValidationResult);
     }
 
     return new JsonRpcSuccessResponse(
         requestContext.getRequest().getId(), getBlobResult(versionedHashes));
+  }
+
+  /** Builds the response for a chain head that is outside the fork window of this version. */
+  protected JsonRpcResponse unsupportedForkResponse(
+      final Object requestId, final ValidationResult<RpcErrorType> forkValidationResult) {
+    return new JsonRpcErrorResponse(requestId, forkValidationResult);
   }
 
   protected List<BlobAndProofV1> getEmptyResult(final VersionedHash[] versionedHashes) {

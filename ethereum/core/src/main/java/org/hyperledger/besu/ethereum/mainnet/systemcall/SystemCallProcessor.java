@@ -154,12 +154,12 @@ public class SystemCallProcessor {
       return Optional.empty();
     }
 
-    final AbstractMessageProcessor processor =
-        mainnetTransactionProcessor.getMessageProcessor(MessageFrame.Type.MESSAGE_CALL);
+    // The frame runs in a child updater, committed into systemCallUpdater on success, so the
+    // accounts systemCallUpdater wraps still hold the pre-call state the access list diffs against.
     final MessageFrame frame =
         createMessageFrame(
             callAddress,
-            systemCallUpdater,
+            systemCallUpdater.updater(),
             context.getBlockHeader(),
             context.getBlockHashLookup(),
             inputData,
@@ -175,7 +175,8 @@ public class SystemCallProcessor {
             : OperationTracer.NO_TRACING;
     Deque<MessageFrame> stack = frame.getMessageFrameStack();
     while (!stack.isEmpty()) {
-      processor.process(stack.peekFirst(), tracer);
+      final MessageFrame current = stack.peekFirst();
+      mainnetTransactionProcessor.getMessageProcessor(current.getType()).process(current, tracer);
     }
 
     applyAccessLocationTracker(accessLocationTracker, context, systemCallUpdater);

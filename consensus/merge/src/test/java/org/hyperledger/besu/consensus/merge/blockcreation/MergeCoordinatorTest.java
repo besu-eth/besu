@@ -87,6 +87,7 @@ import org.hyperledger.besu.testutil.TestClock;
 import org.hyperledger.besu.util.number.Fraction;
 
 import java.math.BigInteger;
+import java.time.Duration;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
@@ -95,6 +96,7 @@ import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -749,6 +751,54 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
   }
 
   @Test
+  public void finalizingDuringThePauseBetweenBlockCreationsDoesNotWaitForThePauseToEnd()
+      throws InterruptedException {
+    final long pauseBetweenBlockCreations = 2000;
+    final MergeCoordinator slowRepetitionCoordinator =
+        new MergeCoordinator(
+            protocolContext,
+            protocolSchedule,
+            ethScheduler,
+            transactionPool,
+            ImmutableMiningConfiguration.builder()
+                .mutableInitValues(MutableInitValues.builder().coinbase(coinbase).build())
+                .unstable(
+                    Unstable.builder()
+                        .posBlockCreationRepetitionMinDuration(pauseBetweenBlockCreations)
+                        .build())
+                .build(),
+            backwardSyncContext);
+
+    // the empty block first, then the block built from the empty pool
+    final CountDownLatch firstBlockBuilt = new CountDownLatch(2);
+    doAnswer(
+            invocation -> {
+              firstBlockBuilt.countDown();
+              return null;
+            })
+        .when(mergeContext)
+        .putPayloadById(any());
+
+    final var payloadId =
+        slowRepetitionCoordinator.preparePayload(
+            new PreparePayloadArgsBuilder()
+                .parentHeader(genesisState.getBlock().getHeader())
+                .timestamp(System.currentTimeMillis() / 1000)
+                .prevRandao(Bytes32.ZERO)
+                .feeRecipient(suggestedFeeRecipient)
+                .build());
+    firstBlockBuilt.await();
+
+    final long startedAt = System.nanoTime();
+    slowRepetitionCoordinator.finalizeProposalById(payloadId);
+    slowRepetitionCoordinator.awaitCurrentBuildCompletion(payloadId);
+    final long waitedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
+
+    assertThat(waitedMs).isLessThan(400);
+    assertThat(blockCreationTask).succeedsWithin(Duration.ofMillis(500));
+  }
+
+  @Test
   public void shouldNotStartAnotherBlockCreationJobIfCalledAgainWithTheSamePayloadId()
       throws ExecutionException, InterruptedException {
     final AtomicLong retries = new AtomicLong(0);
@@ -1126,6 +1176,76 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
 
     assertThat(coordinator.checkAndMarkBadDescendant(child.getHash())).isFalse();
     assertThat(badBlockManager.isBadBlock(child.getHash())).isFalse();
+  }
+
+  @Test
+  public void assertCheckAndMarkBadDescendantByHeaderMarksTheChildOfABadBlock() {
+    final BlockHeader badParent =
+        headerGenerator.parentHash(Hash.fromHexStringLenient("0xbeef")).buildHeader();
+    final BlockHeader child = headerGenerator.parentHash(badParent.getHash()).buildHeader();
+    badBlockManager.addBadHeader(badParent, BadBlockCause.fromValidationFailure("failed"));
+
+    assertThat(coordinator.checkAndMarkBadDescendant(child))
+        .map(BadBlockCause::getDescription)
+        .contains("Descends from bad block " + badParent.toLogString());
+    assertThat(badBlockManager.isBadBlock(child.getHash())).isTrue();
+    verify(backwardSyncContext, never()).getBackwardChain();
+  }
+
+  @Test
+  public void assertCheckAndMarkBadDescendantByHeaderIgnoresAHeadWhoseParentIsOnTheChain() {
+    final BlockHeader chainParent = blockchain.getChainHeadHeader();
+    badBlockManager.addBadHeader(chainParent, BadBlockCause.fromValidationFailure("stale"));
+    final BlockHeader child = headerGenerator.parentHash(chainParent.getHash()).buildHeader();
+
+    assertThat(coordinator.checkAndMarkBadDescendant(child)).isEmpty();
+    assertThat(badBlockManager.isBadBlock(child.getHash())).isFalse();
+  }
+
+  @Test
+  public void assertOnBadChainKeepsTheBodyOfADescendantKnownAsBlock() {
+    final BlockHeader badHeader =
+        headerGenerator.parentHash(blockchain.getChainHeadHash()).buildHeader();
+    final BlockHeader descendantHeader =
+        headerGenerator.parentHash(badHeader.getHash()).buildHeader();
+    final Block descendant = new Block(descendantHeader, BlockBody.empty());
+    final BlockHeader headerOnlyDescendant =
+        headerGenerator.parentHash(descendantHeader.getHash()).buildHeader();
+    badBlockManager.addBadHeader(badHeader, BadBlockCause.fromValidationFailure("failed"));
+
+    coordinator.onBadChain(badHeader, List.of(descendant), List.of(headerOnlyDescendant));
+
+    assertThat(badBlockManager.getBadBlock(descendant.getHash())).contains(descendant);
+    assertThat(badBlockManager.getBadBlock(headerOnlyDescendant.getHash())).isEmpty();
+    assertThat(badBlockManager.isBadBlock(headerOnlyDescendant.getHash())).isTrue();
+  }
+
+  @Test
+  public void assertOnBadChainInheritsTheLatestValidHashOfAMarkedDescendantRoot() {
+    // the bad block is itself a marked descendant, its parent is not on the chain but its latest
+    // valid hash was recorded when it was marked
+    final Hash latestValidHash = Hash.fromHexStringLenient("0xcafe");
+    final BlockHeader root =
+        headerGenerator.parentHash(Hash.fromHexStringLenient("0xbeef")).buildHeader();
+    badBlockManager.addBadHeader(root, BadBlockCause.fromValidationFailure("failed"));
+    badBlockManager.addLatestValidHash(root.getHash(), latestValidHash);
+    final BlockHeader descendant = headerGenerator.parentHash(root.getHash()).buildHeader();
+
+    coordinator.onBadChain(root, List.of(), List.of(descendant));
+
+    assertThat(badBlockManager.getLatestValidHash(descendant.getHash())).contains(latestValidHash);
+  }
+
+  @Test
+  public void assertOnBadChainMarksNothingForARootThatWasResetInBetween() {
+    final BlockHeader root =
+        headerGenerator.parentHash(Hash.fromHexStringLenient("0xbeef")).buildHeader();
+    final BlockHeader descendant = headerGenerator.parentHash(root.getHash()).buildHeader();
+
+    coordinator.onBadChain(root, List.of(), List.of(descendant));
+
+    assertThat(badBlockManager.isBadBlock(descendant.getHash())).isFalse();
+    assertThat(badBlockManager.getLatestValidHash(root.getHash())).isEmpty();
   }
 
   @Test
