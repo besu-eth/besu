@@ -21,7 +21,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
@@ -60,18 +59,17 @@ public class MainnetBlockProcessorTest extends AbstractBlockProcessorTest {
     when(protocolSpec.getPreExecutionProcessor()).thenReturn(new FrontierPreExecutionProcessor());
     when(protocolSpec.getStateRootCommitterFactory())
         .thenReturn(new StateRootCommitterFactory(BalConfiguration.DISABLED));
+    when(protocolSpec.getBlockRewardProcessor()).thenReturn(BlockRewardProcessor.NO_REWARDS);
   }
 
   @Test
-  public void noAccountCreatedWhenBlockRewardIsZeroAndSkipped() {
+  public void noAccountCreatedWhenBlockRewardIsZero() {
     final Blockchain blockchain = new ReferenceTestBlockchain();
     final MainnetBlockProcessor blockProcessor =
         new MainnetBlockProcessor(
             transactionProcessor,
             transactionReceiptFactory,
-            Wei.ZERO,
             BlockHeader::getCoinbase,
-            true,
             protocolSchedule,
             BalConfiguration.DEFAULT);
 
@@ -92,38 +90,6 @@ public class MainnetBlockProcessorTest extends AbstractBlockProcessorTest {
   }
 
   @Test
-  public void accountCreatedWhenBlockRewardIsZeroAndNotSkipped() {
-    final Blockchain blockchain = new ReferenceTestBlockchain();
-    final MainnetBlockProcessor blockProcessor =
-        new MainnetBlockProcessor(
-            transactionProcessor,
-            transactionReceiptFactory,
-            Wei.ZERO,
-            BlockHeader::getCoinbase,
-            false,
-            protocolSchedule,
-            BalConfiguration.DEFAULT);
-
-    final MutableWorldState worldState = ReferenceTestWorldState.create(emptyMap());
-    final Hash initialHash = worldState.rootHash();
-
-    final Block emptyBlock =
-        new Block(
-            new BlockHeaderTestFixture()
-                .transactionsRoot(Hash.EMPTY_LIST_HASH)
-                .stateRoot(
-                    Hash.fromHexString(
-                        "0xa6b5d50f7b3c39b969c2fe8fed091939c674fef49b4826309cb6994361e39b71"))
-                .ommersHash(Hash.EMPTY_LIST_HASH)
-                .buildHeader(),
-            BlockBody.empty());
-    blockProcessor.processBlock(protocolContext, blockchain, worldState, emptyBlock);
-
-    // An empty block with 0 reward should change the world state prior to EIP158
-    assertThat(worldState.rootHash()).isNotEqualTo(initialHash);
-  }
-
-  @Test
   public void rejectsBlockWhenRequestsHashMissingButRequestsProcessed() {
     // EIP-7685: when a requests processor is configured (Prague+) the header must carry
     // requestsHash. An absent field must fail rather than silently skip the hash comparison.
@@ -134,9 +100,7 @@ public class MainnetBlockProcessorTest extends AbstractBlockProcessorTest {
         new MainnetBlockProcessor(
             transactionProcessor,
             transactionReceiptFactory,
-            Wei.ZERO,
             BlockHeader::getCoinbase,
-            true,
             protocolSchedule,
             BalConfiguration.DEFAULT);
     final MutableWorldState worldState = ReferenceTestWorldState.create(emptyMap());
@@ -169,9 +133,7 @@ public class MainnetBlockProcessorTest extends AbstractBlockProcessorTest {
         new MainnetBlockProcessor(
             transactionProcessor,
             transactionReceiptFactory,
-            Wei.ZERO,
             BlockHeader::getCoinbase,
-            true,
             protocolSchedule,
             BalConfiguration.DEFAULT);
     final MutableWorldState worldState = ReferenceTestWorldState.create(emptyMap());

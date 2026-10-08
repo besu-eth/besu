@@ -288,6 +288,15 @@ public class RecursivePeerRefreshState {
     iterativeSearchInProgress = false;
   }
 
+  /**
+   * Whether an iterative peer search is currently running. While it is, {@link #start} is a no-op.
+   *
+   * @return true if a search is in progress
+   */
+  boolean isSearchInProgress() {
+    return iterativeSearchInProgress;
+  }
+
   public static class MetadataPeer implements Comparable<MetadataPeer> {
 
     DiscoveryPeerV4 peer;

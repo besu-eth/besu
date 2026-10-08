@@ -66,7 +66,7 @@ public class WorldStateStorageCoordinator {
 
   public Optional<Bytes> getCode(final Hash codeHash, final Hash accountHash) {
     return applyForStrategy(
-        bonsai -> bonsai.getCode(codeHash, accountHash), forest -> forest.getCode(codeHash));
+        bonsai -> bonsai.getCodeBytes(codeHash, accountHash), forest -> forest.getCode(codeHash));
   }
 
   @SuppressWarnings("unchecked")

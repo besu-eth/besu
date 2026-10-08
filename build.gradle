@@ -653,7 +653,7 @@ task resolveSourceArtifacts {
 // cannot set for its own build, so this only checks they were passed and fails fast otherwise,
 // instead of silently producing an incomplete file. See "Dependency Verification" in README.md.
 ext.updateVerificationMetadataCommand =
-  './gradlew --write-verification-metadata sha256 --refresh-dependencies --rerun-tasks updateVerificationMetadata'
+  './gradlew --write-verification-metadata sha256 --refresh-dependencies --rerun-tasks --no-parallel updateVerificationMetadata'
 
 task updateVerificationMetadata {
   group = 'verification'
@@ -663,6 +663,12 @@ task updateVerificationMetadata {
   // The Plugin API compatibility check resolves the released baseline and japicmp's own
   // tooling only while executing, so it has to actually run for those to be recorded.
   dependsOn ':plugin-api:checkAPICompatibility'
+  // The license report is the only consumer that resolves each dependency's .pom as an artifact
+  // (it parses the POM for license text). Normal resolution prefers Gradle Module Metadata
+  // (.module) over the .pom, so without this those POM checksums are never recorded and
+  // checkLicense fails verification on a fresh clone. generateLicenseReport needs serial
+  // execution for its exclusive lock, hence --no-parallel in the command above.
+  dependsOn ':generateLicenseReport'
 }
 
 gradle.taskGraph.whenReady { graph ->
@@ -681,6 +687,12 @@ gradle.taskGraph.whenReady { graph ->
   }
   if (!startParameter.rerunTasks) {
     missing << '--rerun-tasks'
+  }
+  // generateLicenseReport (a dependency above) resolves cross-project configurations and needs
+  // the exclusive lock that only serial execution provides; org.gradle.parallel=true is the
+  // default, so the run must opt out of it.
+  if (startParameter.parallelProjectExecutionEnabled) {
+    missing << '--no-parallel'
   }
   if (!missing.isEmpty()) {
     throw new GradleException(

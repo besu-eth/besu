@@ -45,6 +45,7 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.config.BlobSchedule;
 import org.hyperledger.besu.config.BlobScheduleOptions;
 import org.hyperledger.besu.config.GenesisConfigOptions;
+import org.hyperledger.besu.config.QbftConfigOptions;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.BlockValidator;
 import org.hyperledger.besu.ethereum.MainnetBlockValidator;
@@ -54,6 +55,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.MilestoneStreamingProtocolSchedule;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.requests.RequestContractAddresses;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
@@ -62,9 +64,16 @@ import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.Logger;
+import org.apache.logging.log4j.core.appender.AbstractAppender;
+import org.apache.logging.log4j.core.config.Property;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -433,6 +442,118 @@ class ProtocolScheduleBuilderTest {
 
     // Verify that BlockAccessListFactory is present and fork-activated
     assertThat(amsterdamSpec.getBlockAccessListFactory()).isPresent();
+  }
+
+  @Test
+  void amsterdamOnPoaWarnsWhenBuilderRequestAddressesAreDefaulted() {
+    stubAllForksAtGenesis();
+    stubSystemContractAddresses();
+    stubQbft();
+
+    final List<LogEvent> events = captureWarnings(() -> builder.createProtocolSchedule());
+
+    assertThat(events)
+        .anySatisfy(
+            event ->
+                assertThat(event.getMessage().getFormattedMessage())
+                    .contains("builderDepositRequestContractAddress")
+                    .contains(
+                        RequestContractAddresses.DEFAULT_BUILDER_DEPOSIT_REQUEST_CONTRACT_ADDRESS
+                            .toHexString())
+                    .contains(
+                        RequestContractAddresses.DEFAULT_BUILDER_EXIT_REQUEST_CONTRACT_ADDRESS
+                            .toHexString()));
+  }
+
+  @Test
+  void amsterdamOnPoaDoesNotWarnWhenBuilderRequestAddressesAreConfigured() {
+    stubAllForksAtGenesis();
+    stubSystemContractAddresses();
+    stubQbft();
+    when(configOptions.getBuilderDepositRequestContractAddress())
+        .thenReturn(Optional.of(Address.fromHexString("0x04")));
+    when(configOptions.getBuilderExitRequestContractAddress())
+        .thenReturn(Optional.of(Address.fromHexString("0x05")));
+
+    final List<LogEvent> events = captureWarnings(() -> builder.createProtocolSchedule());
+
+    assertThat(events)
+        .noneSatisfy(
+            event ->
+                assertThat(event.getMessage().getFormattedMessage())
+                    .contains("builderDepositRequestContractAddress"));
+  }
+
+  @Test
+  void amsterdamOnNonPoaDoesNotWarnAboutDefaultedBuilderRequestAddresses() {
+    stubAllForksAtGenesis();
+    stubSystemContractAddresses();
+
+    final List<LogEvent> events = captureWarnings(() -> builder.createProtocolSchedule());
+
+    assertThat(events)
+        .noneSatisfy(
+            event ->
+                assertThat(event.getMessage().getFormattedMessage())
+                    .contains("builderDepositRequestContractAddress"));
+  }
+
+  private void stubQbft() {
+    final QbftConfigOptions qbftConfigOptions = mock(QbftConfigOptions.class);
+    when(qbftConfigOptions.getBlockPeriodSeconds()).thenReturn(1);
+    when(configOptions.isQbft()).thenReturn(true);
+    when(configOptions.getQbftConfigOptions()).thenReturn(qbftConfigOptions);
+  }
+
+  private void stubSystemContractAddresses() {
+    when(configOptions.getDepositContractAddress()).thenReturn(Optional.of(Address.ZERO));
+    when(configOptions.getConsolidationRequestContractAddress())
+        .thenReturn(Optional.of(Address.ZERO));
+    when(configOptions.getWithdrawalRequestContractAddress()).thenReturn(Optional.of(Address.ZERO));
+  }
+
+  private void stubAllForksAtGenesis() {
+    when(configOptions.getHomesteadBlockNumber()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getByzantiumBlockNumber()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getConstantinopleBlockNumber()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getPetersburgBlockNumber()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getIstanbulBlockNumber()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getBerlinBlockNumber()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getLondonBlockNumber()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getShanghaiTime()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getCancunTime()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getPragueTime()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getOsakaTime()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getBpo1Time()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getBpo2Time()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getBpo3Time()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getBpo4Time()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getBpo5Time()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getAmsterdamTime()).thenReturn(OptionalLong.of(0));
+  }
+
+  @SuppressWarnings("BannedMethod")
+  private static List<LogEvent> captureWarnings(final Runnable action) {
+    final Logger logger = (Logger) LogManager.getLogger(MainnetProtocolSpecs.class);
+    final List<LogEvent> events = new CopyOnWriteArrayList<>();
+    final AbstractAppender appender =
+        new AbstractAppender("test-capture", null, null, false, Property.EMPTY_ARRAY) {
+          @Override
+          public void append(final LogEvent event) {
+            if (event.getLevel().equals(Level.WARN)) {
+              events.add(event.toImmutable());
+            }
+          }
+        };
+    appender.start();
+    logger.addAppender(appender);
+    try {
+      action.run();
+    } finally {
+      logger.removeAppender(appender);
+      appender.stop();
+    }
+    return events;
   }
 
   @Test

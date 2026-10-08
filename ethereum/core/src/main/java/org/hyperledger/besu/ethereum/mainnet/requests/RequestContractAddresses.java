@@ -76,6 +76,19 @@ public class RequestContractAddresses {
             .orElse(DEFAULT_BUILDER_EXIT_REQUEST_CONTRACT_ADDRESS));
   }
 
+  /**
+   * Whether the genesis leaves either EIP-8282 builder request contract address unset, so that
+   * {@link #fromGenesis} falls back to the spec-fixed default for it.
+   *
+   * @param genesisConfigOptions the genesis config options
+   * @return true if the builder deposit or builder exit address is not configured
+   */
+  public static boolean usesDefaultBuilderAddresses(
+      final GenesisConfigOptions genesisConfigOptions) {
+    return genesisConfigOptions.getBuilderDepositRequestContractAddress().isEmpty()
+        || genesisConfigOptions.getBuilderExitRequestContractAddress().isEmpty();
+  }
+
   public Address getWithdrawalRequestContractAddress() {
     return withdrawalRequestContractAddress;
   }
