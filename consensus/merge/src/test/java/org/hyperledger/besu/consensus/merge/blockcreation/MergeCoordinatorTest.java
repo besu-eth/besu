@@ -898,7 +898,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
   }
 
   @Test
-  public void describeChangesListsParentAndWithdrawalChanges() {
+  public void describePayloadArgsChangesListsParentAndWithdrawalChanges() {
     final BlockHeader previousParent = genesisState.getBlock().getHeader();
     final BlockHeader nextParent = headerGenerator.number(1).buildHeader();
     final PreparePayloadArgsBuilder args =
@@ -908,7 +908,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
             .feeRecipient(suggestedFeeRecipient);
 
     final String changes =
-        MergeCoordinator.describeChanges(
+        MergeCoordinator.describePayloadArgsChanges(
             args.parentHeader(previousParent).withdrawals(Optional.empty()).build(),
             args.parentHeader(nextParent).withdrawals(Optional.of(List.of())).build());
 
@@ -922,7 +922,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
   }
 
   @Test
-  public void describeChangesListsOnlyTheChangedAttributes() {
+  public void describePayloadArgsChangesListsOnlyTheChangedAttributes() {
     final PreparePayloadArgsBuilder args =
         new PreparePayloadArgsBuilder()
             .parentHeader(genesisState.getBlock().getHeader())
@@ -932,7 +932,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
             .slotNumber(Optional.of(7L));
 
     final String changes =
-        MergeCoordinator.describeChanges(
+        MergeCoordinator.describePayloadArgsChanges(
             args.targetGasLimit(Optional.of(60_000_000L)).build(),
             args.targetGasLimit(Optional.of(45_000_000L)).build());
 
@@ -940,7 +940,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
   }
 
   @Test
-  public void describeChangesReportsNoneForTheSameArguments() {
+  public void describePayloadArgsChangesReportsNoneForTheSameArguments() {
     final MergeMiningCoordinator.PreparePayloadArgs args =
         new PreparePayloadArgsBuilder()
             .parentHeader(genesisState.getBlock().getHeader())
@@ -949,7 +949,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
             .feeRecipient(suggestedFeeRecipient)
             .build();
 
-    assertThat(MergeCoordinator.describeChanges(args, args)).isEqualTo("none");
+    assertThat(MergeCoordinator.describePayloadArgsChanges(args, args)).isEqualTo("none");
   }
 
   @Test

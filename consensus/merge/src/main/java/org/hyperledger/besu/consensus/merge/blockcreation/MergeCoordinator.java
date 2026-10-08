@@ -301,21 +301,22 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
       final PayloadIdentifier payloadIdentifier, final PreparePayloadArgs preparePayloadArgs) {
     // A CL sends new payload attributes whenever its head or the proposal inputs change, and only
     // requests the payload of the latest ones, so this is expected and not worth a warning
-    blockCreationTasks.forEach(
-        (existingPayloadIdentifier, existingTask) ->
-            LOG.atDebug()
-                .setMessage("Replacing block creation for payload id {} with {}, changed: {}")
-                .addArgument(existingPayloadIdentifier)
-                .addArgument(payloadIdentifier)
-                .addArgument(
-                    () -> describeChanges(existingTask.preparePayloadArgs, preparePayloadArgs))
-                .log());
+    if (LOG.isDebugEnabled()) {
+      blockCreationTasks.forEach(
+          (existingPayloadIdentifier, existingTask) ->
+              LOG.debug(
+                  "Replacing block creation for payload id {} with {}, changed: {}",
+                  existingPayloadIdentifier,
+                  payloadIdentifier,
+                  describePayloadArgsChanges(existingTask.preparePayloadArgs, preparePayloadArgs)));
+    }
 
     blockCreationTasks.keySet().forEach(this::cleanupBlockCreationTask);
   }
 
   @VisibleForTesting
-  static String describeChanges(final PreparePayloadArgs previous, final PreparePayloadArgs next) {
+  static String describePayloadArgsChanges(
+      final PreparePayloadArgs previous, final PreparePayloadArgs next) {
     final List<String> changes = new ArrayList<>();
     addChange(changes, "parent", previous.parentHeader().getHash(), next.parentHeader().getHash());
     addChange(changes, "timestamp", previous.timestamp(), next.timestamp());
